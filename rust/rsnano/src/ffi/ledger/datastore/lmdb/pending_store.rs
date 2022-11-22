@@ -1,6 +1,7 @@
 use num::FromPrimitive;
 use std::{ffi::c_void, sync::Arc};
 
+use crate::ffi::core::PendingInfoDto;
 use crate::{
     core::{Account, Amount, BlockHash, Epoch, PendingInfo, PendingKey},
     ffi::VoidPointerCallback,
@@ -31,28 +32,11 @@ pub struct PendingKeyDto {
     pub hash: [u8; 32],
 }
 
-#[repr(C)]
-pub struct PendingInfoDto {
-    pub source: [u8; 32],
-    pub amount: [u8; 16],
-    pub epoch: u8,
-}
-
 impl From<&PendingKeyDto> for PendingKey {
     fn from(dto: &PendingKeyDto) -> Self {
         Self {
             account: Account::from_bytes(dto.account),
             hash: BlockHash::from_bytes(dto.hash),
-        }
-    }
-}
-
-impl From<&PendingInfoDto> for PendingInfo {
-    fn from(dto: &PendingInfoDto) -> Self {
-        Self {
-            source: Account::from_bytes(dto.source),
-            amount: Amount::from_be_bytes(dto.amount),
-            epoch: FromPrimitive::from_u8(dto.epoch).unwrap_or(Epoch::Invalid),
         }
     }
 }

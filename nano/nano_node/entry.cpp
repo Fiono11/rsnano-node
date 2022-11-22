@@ -1742,7 +1742,7 @@ int main (int argc, char * const * argv)
 					}
 					// Check if pending source is correct
 					auto account (node->ledger.account (transaction, key.hash));
-					if (info.source != account && !pruned)
+					if (info.get_source () != account && !pruned)
 					{
 						print_error_message (boost::str (boost::format ("Incorrect source for pending block %1%\n") % key.hash.to_string ()));
 					}
@@ -1750,7 +1750,7 @@ int main (int argc, char * const * argv)
 					if (!pruned && !previous_pruned)
 					{
 						auto amount (node->ledger.amount (transaction, key.hash));
-						if (info.amount != amount)
+						if (info.get_amount () != amount)
 						{
 							print_error_message (boost::str (boost::format ("Incorrect amount for pending block %1%\n") % key.hash.to_string ()));
 						}
@@ -1984,7 +1984,7 @@ int main (int argc, char * const * argv)
 					if (!exists)
 					{
 						// This is an unopened account, store the lowest pending version
-						auto epoch = nano::normalized_epoch (info.epoch);
+						auto epoch = nano::normalized_epoch (info.get_epoch ());
 						auto & existing_or_new = unopened_highest_pending_l[key.account];
 						existing_or_new = std::max (epoch, existing_or_new);
 					}

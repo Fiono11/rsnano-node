@@ -683,10 +683,10 @@ void nano::bulk_pull_account_server::send_next_block ()
 
 			if (node->config->logging.bulk_pull_logging ())
 			{
-				node->logger->try_log (boost::str (boost::format ("Sending address: %1%") % block_info->source.to_string ()));
+				node->logger->try_log (boost::str (boost::format ("Sending address: %1%") % block_info->get_source ().to_string ()));
 			}
 
-			write (output_stream, block_info->source.bytes);
+			write (output_stream, block_info->get_source ().bytes);
 		}
 		else
 		{
@@ -698,14 +698,14 @@ void nano::bulk_pull_account_server::send_next_block ()
 			}
 
 			write (output_stream, block_info_key->hash.bytes);
-			write (output_stream, block_info->amount.bytes);
+			write (output_stream, block_info->get_amount ().bytes);
 
 			if (pending_include_address)
 			{
 				/**
 				 ** Write the source address as well, if requested
 				 **/
-				write (output_stream, block_info->source.bytes);
+				write (output_stream, block_info->get_source ().bytes);
 			}
 		}
 
@@ -768,7 +768,7 @@ std::pair<std::unique_ptr<nano::pending_key>, std::unique_ptr<nano::pending_info
 		 * Skip entries where the amount is less than the requested
 		 * minimum
 		 */
-		if (info.amount < request->get_minimum_amount ())
+		if (info.get_amount () < request->get_minimum_amount ())
 		{
 			continue;
 		}
@@ -781,7 +781,7 @@ std::pair<std::unique_ptr<nano::pending_key>, std::unique_ptr<nano::pending_info
 		 */
 		if (pending_address_only)
 		{
-			if (!deduplication.insert (info.source).second)
+			if (!deduplication.insert (info.get_source ()).second)
 			{
 				/*
 				 * If the deduplication map gets too

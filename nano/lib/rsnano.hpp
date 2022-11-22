@@ -146,6 +146,8 @@ struct OutboundBandwidthLimiterHandle;
 
 struct PeerExclusionHandle;
 
+struct PendingInfoHandle;
+
 struct PullsCacheHandle;
 
 struct RecentlyCementedCacheHandle;
@@ -3213,6 +3215,26 @@ uintptr_t rsn_peer_exclusion_element_size ();
 void rsn_peer_exclusion_remove (PeerExclusionHandle * handle, const EndpointDto * endpoint);
 
 uintptr_t rsn_peer_exclusion_size (PeerExclusionHandle * handle);
+
+PendingInfoHandle * rsn_pending_info_clone (const PendingInfoHandle * handle);
+
+PendingInfoHandle * rsn_pending_info_create ();
+
+PendingInfoHandle * rsn_pending_info_create1 (const uint8_t * source,
+const uint8_t * amount,
+uint8_t epoch);
+
+uintptr_t rsn_pending_info_db_size (const PendingInfoHandle * handle);
+
+void rsn_pending_info_destroy (PendingInfoHandle * handle);
+
+void rsn_pending_info_get_amount (const PendingInfoHandle * handle, uint8_t * result);
+
+uint8_t rsn_pending_info_get_epoch (const PendingInfoHandle * handle);
+
+void rsn_pending_info_get_source (const PendingInfoHandle * handle, uint8_t * result);
+
+void rsn_pending_info_set_epoch (PendingInfoHandle * handle, uint8_t epoch);
 
 int32_t rsn_portmapping_constants_create (const NetworkConstantsDto * network_constants,
 PortmappingConstantsDto * dto);

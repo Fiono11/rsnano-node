@@ -11,7 +11,10 @@ pub mod messages;
 mod epoch;
 pub use epoch::EpochsHandle;
 
+mod pending_info;
 mod unchecked_info;
+
+pub(crate) use pending_info::*;
 pub(crate) use unchecked_info::*;
 
 use rand::{thread_rng, Rng};

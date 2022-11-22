@@ -2116,8 +2116,8 @@ TEST (bulk_pull_account, basics)
 		ASSERT_EQ (request->current_key.hash, 0);
 		auto block_data (request->get_next ());
 		ASSERT_EQ (send2->hash (), block_data.first.get ()->hash);
-		ASSERT_EQ (nano::uint128_union (10), block_data.second.get ()->amount);
-		ASSERT_EQ (nano::dev::genesis->account (), block_data.second.get ()->source);
+		ASSERT_EQ (nano::uint128_union (10), block_data.second.get ()->get_amount ());
+		ASSERT_EQ (nano::dev::genesis->account (), block_data.second.get ()->get_source ());
 		ASSERT_EQ (nullptr, request->get_next ().first.get ());
 	}
 
@@ -2131,7 +2131,7 @@ TEST (bulk_pull_account, basics)
 		auto block_data (request->get_next ());
 		ASSERT_NE (nullptr, block_data.first.get ());
 		ASSERT_NE (nullptr, block_data.second.get ());
-		ASSERT_EQ (nano::dev::genesis->account (), block_data.second.get ()->source);
+		ASSERT_EQ (nano::dev::genesis->account (), block_data.second.get ()->get_source ());
 		block_data = request->get_next ();
 		ASSERT_EQ (nullptr, block_data.first.get ());
 		ASSERT_EQ (nullptr, block_data.second.get ());

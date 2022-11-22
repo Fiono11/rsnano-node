@@ -36,9 +36,9 @@ rsnano::PendingKeyDto key_to_dto (nano::pending_key const & key)
 rsnano::PendingInfoDto value_to_dto (nano::pending_info const & value)
 {
 	rsnano::PendingInfoDto dto;
-	std::copy (std::begin (value.source.bytes), std::end (value.source.bytes), std::begin (dto.source));
-	std::copy (std::begin (value.amount.bytes), std::end (value.amount.bytes), std::begin (dto.amount));
-	dto.epoch = static_cast<uint8_t> (value.epoch);
+	std::copy (std::begin (value.get_source ().bytes), std::end (value.get_source ().bytes), std::begin (dto.source));
+	std::copy (std::begin (value.get_amount ().bytes), std::end (value.get_amount ().bytes), std::begin (dto.amount));
+	dto.epoch = static_cast<uint8_t> (value.get_epoch ());
 	return dto;
 }
 }
@@ -63,9 +63,11 @@ bool nano::lmdb::pending_store::get (nano::transaction const & transaction, nano
 	auto result = rsnano::rsn_lmdb_pending_store_get (handle, transaction.get_rust_handle (), &key_dto, &value_dto);
 	if (!result)
 	{
-		std::copy (std::begin (value_dto.source), std::end (value_dto.source), std::begin (pending_a.source.bytes));
-		std::copy (std::begin (value_dto.amount), std::end (value_dto.amount), std::begin (pending_a.amount.bytes));
-		pending_a.epoch = static_cast<nano::epoch> (value_dto.epoch);
+		nano::account source = pending_a.get_source ();
+		nano::amount amount = pending_a.get_amount ();
+		std::copy (std::begin (value_dto.source), std::end (value_dto.source), std::begin (source.bytes));
+		std::copy (std::begin (value_dto.amount), std::end (value_dto.amount), std::begin (amount.bytes));
+		pending_a.set_epoch (static_cast<nano::epoch> (value_dto.epoch));
 	}
 	return result;
 }

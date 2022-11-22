@@ -416,11 +416,64 @@ uint64_t nano::account_info::block_count () const
 	return dto.block_count;
 }
 
-nano::pending_info::pending_info (nano::account const & source_a, nano::amount const & amount_a, nano::epoch epoch_a) :
-	source (source_a),
-	amount (amount_a),
-	epoch (epoch_a)
+nano::pending_info::pending_info () :
+	handle (rsnano::rsn_pending_info_create ())
 {
+}
+
+nano::pending_info::pending_info (nano::account const & source_a, nano::amount const & amount_a, nano::epoch epoch_a) :
+	handle (rsnano::rsn_pending_info_create1 (source_a.bytes.data (), amount_a.bytes.data (), static_cast<int8_t> (epoch_a)))
+{
+}
+
+nano::pending_info::pending_info (nano::pending_info const & other_a) :
+	handle (rsnano::rsn_pending_info_clone (other_a.handle))
+{
+}
+
+nano::pending_info::pending_info (pending_info && other_a) :
+	handle{ other_a.handle }
+{
+	other_a.handle = nullptr;
+}
+
+nano::pending_info & nano::pending_info::operator= (nano::pending_info const & other_a)
+{
+	if (handle)
+		rsnano::rsn_pending_info_destroy (handle);
+	handle = rsnano::rsn_pending_info_clone (other_a.handle);
+	return *this;
+}
+
+nano::pending_info::~pending_info ()
+{
+	if (handle != nullptr)
+		rsnano::rsn_pending_info_destroy (handle);
+}
+
+nano::account nano::pending_info::get_source () const
+{
+	nano::account source;
+	rsnano::rsn_pending_info_get_source (handle, source.bytes.data ());
+	return source;
+}
+
+nano::amount nano::pending_info::get_amount () const
+{
+	nano::amount amount;
+	rsnano::rsn_pending_info_get_amount (handle, amount.bytes.data ());
+	return amount;
+}
+
+nano::epoch nano::pending_info::get_epoch () const
+{
+	nano::epoch epoch;
+	return static_cast<nano::epoch> (rsnano::rsn_pending_info_get_epoch (handle));
+}
+
+void nano::pending_info::set_epoch (nano::epoch epoch_a)
+{
+	rsnano::rsn_pending_info_set_epoch (handle, static_cast<uint8_t> (epoch_a));
 }
 
 bool nano::pending_info::deserialize (nano::stream & stream_a)
@@ -428,9 +481,12 @@ bool nano::pending_info::deserialize (nano::stream & stream_a)
 	auto error (false);
 	try
 	{
-		nano::read (stream_a, source.bytes);
-		nano::read (stream_a, amount.bytes);
-		nano::read (stream_a, epoch);
+		nano::account source_a = get_source ();
+		nano::amount amount_a = get_amount ();
+		nano::epoch epoch_a = get_epoch ();
+		nano::read (stream_a, source_a.bytes);
+		nano::read (stream_a, amount_a.bytes);
+		nano::read (stream_a, epoch_a);
 	}
 	catch (std::runtime_error const &)
 	{
@@ -442,12 +498,13 @@ bool nano::pending_info::deserialize (nano::stream & stream_a)
 
 size_t nano::pending_info::db_size () const
 {
-	return sizeof (source) + sizeof (amount) + sizeof (epoch);
+	//return sizeof (source) + sizeof (amount) + sizeof (epoch);
+	return rsnano::rsn_pending_info_db_size (handle);
 }
 
 bool nano::pending_info::operator== (nano::pending_info const & other_a) const
 {
-	return source == other_a.source && amount == other_a.amount && epoch == other_a.epoch;
+	return get_source () == other_a.get_source () && get_amount () == other_a.get_amount () && get_epoch () == other_a.get_epoch ();
 }
 
 nano::pending_key::pending_key (nano::account const & account_a, nano::block_hash const & hash_a) :

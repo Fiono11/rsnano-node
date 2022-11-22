@@ -6862,7 +6862,7 @@ TEST (rpc, epoch_upgrade)
 		auto transaction (node->store.tx_begin_read ());
 		nano::pending_info info;
 		ASSERT_FALSE (node->store.pending ().get (*transaction, nano::pending_key (key3.pub, send7->hash ()), info));
-		ASSERT_EQ (nano::epoch::epoch_1, info.epoch);
+		ASSERT_EQ (nano::epoch::epoch_1, info.get_epoch ());
 	}
 
 	rpc_ctx.io_scope->renew ();
@@ -7028,7 +7028,7 @@ TEST (rpc, epoch_upgrade_multithreaded)
 		auto transaction (node->store.tx_begin_read ());
 		nano::pending_info info;
 		ASSERT_FALSE (node->store.pending ().get (*transaction, nano::pending_key (key3.pub, send7->hash ()), info));
-		ASSERT_EQ (nano::epoch::epoch_1, info.epoch);
+		ASSERT_EQ (nano::epoch::epoch_1, info.get_epoch ());
 	}
 
 	rpc_ctx.io_scope->renew ();

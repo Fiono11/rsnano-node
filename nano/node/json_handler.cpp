@@ -1036,18 +1036,18 @@ void nano::json_handler::accounts_receivable ()
 					else
 					{
 						nano::pending_info const & info (i->second);
-						if (info.amount.number () >= threshold.number ())
+						if (info.get_amount ().number () >= threshold.number ())
 						{
 							if (source)
 							{
 								boost::property_tree::ptree pending_tree;
-								pending_tree.put ("amount", info.amount.number ().convert_to<std::string> ());
-								pending_tree.put ("source", info.source.to_account ());
+								pending_tree.put ("amount", info.get_amount ().number ().convert_to<std::string> ());
+								pending_tree.put ("source", info.get_source ().to_account ());
 								peers_l.add_child (key.hash.to_string (), pending_tree);
 							}
 							else
 							{
-								peers_l.put (key.hash.to_string (), info.amount.number ().convert_to<std::string> ());
+								peers_l.put (key.hash.to_string (), info.get_amount ().number ().convert_to<std::string> ());
 							}
 						}
 					}
@@ -3065,19 +3065,19 @@ void nano::json_handler::receivable ()
 				else
 				{
 					nano::pending_info const & info (i->second);
-					if (info.amount.number () >= threshold.number ())
+					if (info.get_amount ().number () >= threshold.number ())
 					{
 						if (source || min_version)
 						{
 							boost::property_tree::ptree pending_tree;
-							pending_tree.put ("amount", info.amount.number ().convert_to<std::string> ());
+							pending_tree.put ("amount", info.get_amount ().number ().convert_to<std::string> ());
 							if (source)
 							{
-								pending_tree.put ("source", info.source.to_account ());
+								pending_tree.put ("source", info.get_source ().to_account ());
 							}
 							if (min_version)
 							{
-								pending_tree.put ("min_version", epoch_as_string (info.epoch));
+								pending_tree.put ("min_version", epoch_as_string (info.get_epoch ()));
 							}
 
 							if (should_sort)
@@ -3093,11 +3093,11 @@ void nano::json_handler::receivable ()
 						{
 							if (should_sort)
 							{
-								hash_amount_pairs.emplace_back (key.hash.to_string (), info.amount.number ());
+								hash_amount_pairs.emplace_back (key.hash.to_string (), info.get_amount ().number ());
 							}
 							else
 							{
-								peers_l.put (key.hash.to_string (), info.amount.number ().convert_to<std::string> ());
+								peers_l.put (key.hash.to_string (), info.get_amount ().number ().convert_to<std::string> ());
 							}
 						}
 					}
@@ -3394,7 +3394,7 @@ void nano::json_handler::receive ()
 					{
 						nano::account_info info;
 						nano::root head;
-						nano::epoch epoch = pending_info.epoch;
+						nano::epoch epoch = pending_info.get_epoch ();
 						if (!node.store.account ().get (*block_transaction, account, info))
 						{
 							head = info.head ();
@@ -4290,7 +4290,7 @@ void nano::json_handler::unopened ()
 					}
 					current_account = account;
 				}
-				current_account_sum += info.amount.number ();
+				current_account_sum += info.get_amount ().number ();
 				++iterator;
 			}
 		}
@@ -4814,25 +4814,25 @@ void nano::json_handler::wallet_receivable ()
 					else
 					{
 						nano::pending_info info (ii->second);
-						if (info.amount.number () >= threshold.number ())
+						if (info.get_amount ().number () >= threshold.number ())
 						{
 							if (source || min_version)
 							{
 								boost::property_tree::ptree pending_tree;
-								pending_tree.put ("amount", info.amount.number ().convert_to<std::string> ());
+								pending_tree.put ("amount", info.get_amount ().number ().convert_to<std::string> ());
 								if (source)
 								{
-									pending_tree.put ("source", info.source.to_account ());
+									pending_tree.put ("source", info.get_source ().to_account ());
 								}
 								if (min_version)
 								{
-									pending_tree.put ("min_version", epoch_as_string (info.epoch));
+									pending_tree.put ("min_version", epoch_as_string (info.get_epoch ()));
 								}
 								peers_l.add_child (key.hash.to_string (), pending_tree);
 							}
 							else
 							{
-								peers_l.put (key.hash.to_string (), info.amount.number ().convert_to<std::string> ());
+								peers_l.put (key.hash.to_string (), info.get_amount ().number ().convert_to<std::string> ());
 							}
 						}
 					}

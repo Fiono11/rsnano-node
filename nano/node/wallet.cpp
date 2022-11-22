@@ -453,13 +453,13 @@ std::shared_ptr<nano::block> nano::wallet::receive_action (nano::block_hash cons
 					auto new_account (wallets.node.ledger.store.account ().get (*block_transaction, account_a, info));
 					if (!new_account)
 					{
-						block = std::make_shared<nano::state_block> (account_a, info.head (), info.representative (), info.balance ().number () + pending_info.amount.number (), send_hash_a, prv, account_a, work_a);
-						epoch = std::max (info.epoch (), pending_info.epoch);
+						block = std::make_shared<nano::state_block> (account_a, info.head (), info.representative (), info.balance ().number () + pending_info.get_amount ().number (), send_hash_a, prv, account_a, work_a);
+						epoch = std::max (info.epoch (), pending_info.get_epoch ());
 					}
 					else
 					{
-						block = std::make_shared<nano::state_block> (account_a, 0, representative_a, pending_info.amount, reinterpret_cast<nano::link const &> (send_hash_a), prv, account_a, work_a);
-						epoch = pending_info.epoch;
+						block = std::make_shared<nano::state_block> (account_a, 0, representative_a, pending_info.get_amount (), reinterpret_cast<nano::link const &> (send_hash_a), prv, account_a, work_a);
+						epoch = pending_info.get_epoch ();
 					}
 				}
 				else
@@ -772,10 +772,10 @@ bool nano::wallet::search_receivable (nano::transaction const & wallet_transacti
 					nano::pending_key key (j->first);
 					auto hash (key.hash);
 					nano::pending_info pending (j->second);
-					auto amount (pending.amount.number ());
+					auto amount (pending.get_amount ().number ());
 					if (wallets.node.config->receive_minimum.number () <= amount)
 					{
-						wallets.node.logger->try_log (boost::str (boost::format ("Found a receivable block %1% for account %2%") % hash.to_string () % pending.source.to_account ()));
+						wallets.node.logger->try_log (boost::str (boost::format ("Found a receivable block %1% for account %2%") % hash.to_string () % pending.get_source ().to_account ()));
 						if (wallets.node.ledger.block_confirmed (*block_transaction, hash))
 						{
 							auto representative = store.representative (wallet_transaction_a);

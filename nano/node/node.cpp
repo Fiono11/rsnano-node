@@ -1429,7 +1429,7 @@ void nano::node::receive_confirmed (nano::transaction const & block_transaction_
 			auto error (store.pending ().get (block_transaction_a, nano::pending_key (destination_a, hash_a), pending));
 			if (!error)
 			{
-				auto amount (pending.amount.number ());
+				auto amount (pending.get_amount ().number ());
 				wallet->receive_async (hash_a, representative, amount, destination_a, [] (std::shared_ptr<nano::block> const &) {});
 			}
 			else
@@ -1732,10 +1732,10 @@ void nano::node::epoch_upgrader_impl (nano::raw_key const & prv_a, nano::epoch e
 				if (!store.account ().exists (*transaction, key.account))
 				{
 					nano::pending_info const & info (i->second);
-					if (info.epoch < epoch_a)
+					if (info.get_epoch () < epoch_a)
 					{
 						++attempts;
-						release_assert (nano::epochs::is_sequential (info.epoch, epoch_a));
+						release_assert (nano::epochs::is_sequential (info.get_epoch (), epoch_a));
 						auto difficulty (network_params.work.threshold (nano::work_version::work_1, nano::block_details (epoch_a, false, false, true)));
 						nano::root const & root (key.account);
 						nano::account const & account (key.account);

@@ -136,15 +136,22 @@ public:
 class pending_info final
 {
 public:
-	pending_info () = default;
+	pending_info (); //= default;
 	pending_info (nano::account const &, nano::amount const &, nano::epoch);
+	pending_info (pending_info &&);
+	pending_info (pending_info const &);
+	pending_info & operator= (pending_info const &);
+	~pending_info ();
 	size_t db_size () const;
 	bool deserialize (nano::stream &);
 	bool operator== (nano::pending_info const &) const;
-	nano::account source{};
-	nano::amount amount{ 0 };
-	nano::epoch epoch{ nano::epoch::epoch_0 };
+	nano::account get_source () const;
+	nano::amount get_amount () const;
+	nano::epoch get_epoch () const;
+	void set_epoch (nano::epoch);
+	rsnano::PendingInfoHandle * handle;
 };
+
 class pending_key final
 {
 public:

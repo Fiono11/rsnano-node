@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::mem::{size_of, size_of_val};
 
 use num::FromPrimitive;
 
@@ -6,7 +6,7 @@ use crate::utils::{Deserialize, Serialize, Stream};
 
 use super::{Account, Amount, Epoch};
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct PendingInfo {
     pub source: Account,
     pub amount: Amount,
@@ -38,6 +38,10 @@ impl PendingInfo {
         bytes[32..48].copy_from_slice(&self.amount.to_be_bytes());
         bytes[48] = self.epoch as u8;
         bytes
+    }
+
+    pub fn db_size(&self) -> usize {
+        size_of_val(&self.source) + size_of_val(&self.amount) + size_of_val(&self.epoch)
     }
 }
 
