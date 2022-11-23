@@ -137,10 +137,11 @@ class pending_info final
 {
 public:
 	pending_info (); //= default;
+	pending_info (rsnano::PendingInfoHandle * handle);
 	pending_info (nano::account const &, nano::amount const &, nano::epoch);
 	pending_info (pending_info &&);
 	pending_info (pending_info const &);
-	pending_info & operator= (pending_info const &);
+	pending_info & operator= (const pending_info &);
 	~pending_info ();
 	size_t db_size () const;
 	bool deserialize (nano::stream &);

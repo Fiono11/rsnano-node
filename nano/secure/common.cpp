@@ -421,6 +421,11 @@ nano::pending_info::pending_info () :
 {
 }
 
+nano::pending_info::pending_info (rsnano::PendingInfoHandle * handle_a) :
+	handle (handle_a)
+{
+}
+
 nano::pending_info::pending_info (nano::account const & source_a, nano::amount const & amount_a, nano::epoch epoch_a) :
 	handle (rsnano::rsn_pending_info_create1 (source_a.bytes.data (), amount_a.bytes.data (), static_cast<int8_t> (epoch_a)))
 {
@@ -437,10 +442,11 @@ nano::pending_info::pending_info (pending_info && other_a) :
 	other_a.handle = nullptr;
 }
 
-nano::pending_info & nano::pending_info::operator= (nano::pending_info const & other_a)
+nano::pending_info & nano::pending_info::operator= (const nano::pending_info & other_a)
 {
-	if (handle)
+	if (handle != nullptr)
 		rsnano::rsn_pending_info_destroy (handle);
+
 	handle = rsnano::rsn_pending_info_clone (other_a.handle);
 	return *this;
 }
@@ -498,7 +504,6 @@ bool nano::pending_info::deserialize (nano::stream & stream_a)
 
 size_t nano::pending_info::db_size () const
 {
-	//return sizeof (source) + sizeof (amount) + sizeof (epoch);
 	return rsnano::rsn_pending_info_db_size (handle);
 }
 
