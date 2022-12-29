@@ -24,7 +24,7 @@ project(nano-node)
 # Build the Rust part
 # ---------------------
 find_package(Corrosion REQUIRED)
-corrosion_import_crate(MANIFEST_PATH rust/rsnano/Cargo.toml)
+corrosion_import_crate(MANIFEST_PATH rust/ffi/Cargo.toml)
 # ---------------------
 
 # Get the latest abbreviated commit hash of the working branch
@@ -53,7 +53,7 @@ if(MSVC)
   add_definitions(/MP)
 endif()
 
-set(CPACK_PACKAGE_VERSION_MAJOR "24")
+set(CPACK_PACKAGE_VERSION_MAJOR "25")
 set(CPACK_PACKAGE_VERSION_MINOR "0")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
 if(CI_BUILD AND CI_VERSION_PRE_RELEASE)

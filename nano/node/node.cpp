@@ -453,20 +453,6 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 
 		logger->always_log (boost::str (boost::format ("Outbound Voting Bandwidth limited to %1% bytes per second, burst ratio %2%") % config->bandwidth_limit % config->bandwidth_limit_burst_ratio));
 
-		// First do a pass with a read to see if any writing needs doing, this saves needing to open a write lock (and potentially blocking)
-		auto is_initialized (false);
-		{
-			auto const transaction (store.tx_begin_read ());
-			is_initialized = (store.account ().begin (*transaction) != store.account ().end ());
-		}
-
-		if (!is_initialized && !flags.read_only ())
-		{
-			auto const transaction (store.tx_begin_write ({ tables::accounts, tables::blocks, tables::confirmation_height, tables::frontiers }));
-			// Store was empty meaning we just created it, add the genesis block
-			store.initialize (*transaction, ledger.cache, ledger.constants);
-		}
-
 		if (!ledger.block_or_pruned_exists (config->network_params.ledger.genesis->hash ()))
 		{
 			std::stringstream ss;
@@ -694,14 +680,12 @@ nano::process_return nano::node::process_local (std::shared_ptr<nano::block> con
 {
 	// Add block hash as recently arrived to trigger automatic rebroadcast and election
 	block_arrival.add (block_a->hash ());
-	// Set current time to trigger automatic rebroadcast and election
-	nano::unchecked_info info (block_a, block_a->account (), nano::signature_verification::unknown);
 	// Notify block processor to release write lock
 	block_processor.wait_write ();
 	// Process block
 	block_post_events post_events ([&store = store] { return store.tx_begin_read (); });
 	auto const transaction (store.tx_begin_write ({ tables::accounts, tables::blocks, tables::frontiers, tables::pending }));
-	return block_processor.process_one (*transaction, post_events, info, false, nano::block_origin::local);
+	return block_processor.process_one (*transaction, post_events, block_a, false, nano::block_origin::local);
 }
 
 void nano::node::process_local_async (std::shared_ptr<nano::block> const & block_a)
@@ -709,8 +693,7 @@ void nano::node::process_local_async (std::shared_ptr<nano::block> const & block
 	// Add block hash as recently arrived to trigger automatic rebroadcast and election
 	block_arrival.add (block_a->hash ());
 	// Set current time to trigger automatic rebroadcast and election
-	nano::unchecked_info info (block_a, block_a->account (), nano::signature_verification::unknown);
-	block_processor.add_local (info);
+	block_processor.add_local (block_a);
 }
 
 void nano::node::start ()

@@ -1,7 +1,7 @@
 use crate::{Account, AccountInfo, RpcClient};
 use anyhow::Result;
 use rand::Rng;
-use rsnano::DEV_GENESIS;
+use rsnano_ledger::DEV_GENESIS;
 use std::{
     collections::HashMap,
     io::Write,
@@ -92,12 +92,7 @@ impl BlockFactory {
             .acquire_owned()
             .await?;
         let destination_account = self.get_destination_account(send_no);
-        let genesis_account = DEV_GENESIS
-            .read()
-            .unwrap()
-            .as_block()
-            .account()
-            .encode_account();
+        let genesis_account = DEV_GENESIS.read().unwrap().account().encode_account();
 
         let res = self
             .node_client

@@ -1,0 +1,22 @@
+@startuml "Split crates"
+
+[core]
+[store_traits]
+[ledger]
+[node]
+[ffi]
+
+folder "adapters"{
+    folder "outbound"{
+            [store_lmdb]
+    }
+}
+
+[store_traits] --> [core]
+[store_lmdb] --> [store_traits]
+[node] --> [ledger]
+[ledger] -> [store_traits]
+[ffi] --> [store_lmdb]
+[ffi] --> [node]
+
+@enduml

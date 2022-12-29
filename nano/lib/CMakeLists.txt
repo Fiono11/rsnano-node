@@ -59,7 +59,6 @@ add_library(
   rpc_handler_interface.hpp
   rpcconfig.hpp
   rpcconfig.cpp
-  rsnano.hpp
   rsnanoutils.hpp
   rsnanoutils.cpp
   signal_manager.hpp
@@ -88,7 +87,7 @@ target_link_libraries(
   crypto_lib
   secure
   ipc_flatbuffers_lib
-  rsnano
+  rsnano_ffi
   ${CMAKE_DL_LIBS}
   Boost::boost
   Boost::program_options)
