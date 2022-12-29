@@ -19,6 +19,7 @@ mod voting;
 mod wallet;
 mod websocket;
 mod work;
+pub mod online_reps;
 
 use std::{
     ffi::{c_void, CString},

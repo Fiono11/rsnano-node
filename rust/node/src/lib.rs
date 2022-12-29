@@ -22,6 +22,7 @@ pub mod transport;
 pub mod utils;
 pub mod voting;
 pub mod websocket;
+pub mod online_reps;
 
 pub use ipc::*;
 pub use secure::*;
