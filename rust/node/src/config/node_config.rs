@@ -21,6 +21,7 @@ pub enum FrontiersConfirmationMode {
 }
 
 pub struct NodeConfig {
+    pub network_params: NetworkParams,
     pub peering_port: Option<u16>,
     pub bootstrap_fraction_numerator: u32,
     pub receive_minimum: Amount,
@@ -106,7 +107,7 @@ impl NodeConfig {
     pub fn new(
         peering_port: Option<u16>,
         logging: Logging,
-        network_params: &NetworkParams,
+        network_params: NetworkParams,
     ) -> Self {
         if peering_port == Some(0) {
             // comment for posterity:
@@ -270,6 +271,7 @@ impl NodeConfig {
             diagnostics_config: DiagnosticsConfig::new(),
             stat_config: StatConfig::new(),
             lmdb_config: LmdbConfig::new(),
+            network_params,
         }
     }
 

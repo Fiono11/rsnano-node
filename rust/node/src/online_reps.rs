@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use rsnano_core::{Account, Amount, BlockHash, Root};
 use rsnano_ledger::Ledger;
-use rsnano_store_traits::{ReadTransaction, Transaction};
+use rsnano_store_traits::{ReadTransaction, Transaction, WriteTransaction};
 use crate::config::NodeConfig;
+use crate::stats::DetailType::Send;
 use crate::voting::VoteSpacing;
 
 pub struct OnlineReps {
@@ -20,7 +22,7 @@ impl OnlineReps {
     pub fn new(ledger: Arc<Ledger>, node_config: NodeConfig) -> Self {
 
         let transaction = ledger.store.tx_begin_read().unwrap();
-        let trended_m = Self::calculate_trend(transaction, &ledger, &node_config);
+        let trended_m = Self::calculate_trend(transaction.txn(), &ledger, &node_config);
 
         Self {
             ledger,
@@ -40,16 +42,45 @@ impl OnlineReps {
         current
     }
 
-    pub fn calculate_trend(transaction_a: Box<dyn ReadTransaction>, ledger: &Arc<Ledger>, node_config: &NodeConfig) -> Amount {
+    pub fn calculate_trend(transaction_a: &dyn Transaction, ledger: &Arc<Ledger>, node_config: &NodeConfig) -> Amount {
         let mut items = Vec::new();
         items.push(node_config.online_weight_minimum);
-        let mut it = ledger.store.online_weight().begin(transaction_a.txn());
+        let mut it = ledger.store.online_weight().begin(transaction_a);
         while !it.is_end() {
             items.push(*it.current().unwrap().1);
             it.next();
         }
         let median_idx = items.len() / 2;
         items[median_idx]
+    }
+
+    pub fn observe(&mut self, rep_a: Account) {
+        if self.ledger.weight(&rep_a).number() > 0 {
+            let new_insert: bool = self.reps.by_account.remove(&rep_a).is_some();
+            let time = Instant::now();
+            let entry = Entry {
+                account: rep_a,
+                time,
+            };
+            self.reps.insert(entry);
+            let cutoff = time - Duration::from_secs(self.node_config.network_params.node.weight_period);
+            let trimmed = self.reps.by_time.first_key_value().unwrap().0 != &cutoff;
+            self.reps.trim(cutoff.elapsed());
+            if new_insert || trimmed {
+                self.online_m = self.calculate_online();
+            }
+        }
+    }
+
+    pub fn sample(&mut self) {
+        let mut transaction = self.ledger.store.tx_begin_write().unwrap();
+        while self.ledger.store.online_weight().count(transaction.txn()) >= self.node_config.network_params.node.max_weight_samples {
+            let oldest = self.ledger.store.online_weight().begin(transaction.txn());
+            //debug_assert!(oldest != self.ledger.store.online_weight().rbegin(transaction.txn()));
+            self.ledger.store.online_weight().del(transaction.as_mut(), *oldest.current().unwrap().0);
+        }
+        self.ledger.store.online_weight().put(transaction.as_mut(), Instant::now().elapsed().as_secs(), &self.online_m);
+        self.trended_m = Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config);
     }
 }
 
@@ -91,6 +122,13 @@ impl EntryContainer {
             None => self.iter_entries(&self.empty_id_set),
         }
     }
+
+    /*pub fn by_time(&self, time: &Instant) -> impl Iterator<Item = &Entry> + '_ {
+        match self.by_time.get(time) {
+            Some(ids) => self.iter_entries(ids),
+            None => self.iter_entries(&self.empty_id_set),
+        }
+    }*/
 
     fn iter_entries<'a>(&'a self, ids: &'a HashSet<usize>) -> impl Iterator<Item = &Entry> + 'a {
         ids.iter().map(|&id| &self.entries[&id])
