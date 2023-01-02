@@ -23,7 +23,11 @@ class transaction;
 class online_reps final
 {
 public:
+	//online_reps ();
 	online_reps (nano::ledger & ledger_a, nano::node_config const & config_a);
+	//online_reps (online_reps const & other_a);
+	//online_reps (online_reps && other_a);
+	~online_reps ();
 	/** Add voting account \p rep_account to the set of online representatives */
 	void observe (nano::account const & rep_account);
 	/** Called periodically to sample online weight */
@@ -56,7 +60,9 @@ private:
 	nano::uint128_t calculate_online () const;
 	mutable nano::mutex mutex;
 	nano::ledger & ledger;
+	//nano::ledger ledger ();
 	nano::node_config const & config;
+	//nano::node_config const config ();
 	boost::multi_index_container<rep_info,
 	boost::multi_index::indexed_by<
 	boost::multi_index::ordered_non_unique<boost::multi_index::tag<tag_time>,
@@ -67,6 +73,7 @@ private:
 	nano::uint128_t trended_m;
 	nano::uint128_t online_m;
 	nano::uint128_t minimum;
+	rsnano::OnlineRepsHandle * handle;
 
 	friend class election_quorum_minimum_update_weight_before_quorum_checks_Test;
 	friend std::unique_ptr<container_info_component> collect_container_info (online_reps & online_reps, std::string const & name);

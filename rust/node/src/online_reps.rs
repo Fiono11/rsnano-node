@@ -1,6 +1,7 @@
+use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use rsnano_core::{Account, Amount, BlockHash, Root};
 use rsnano_ledger::Ledger;
@@ -9,28 +10,30 @@ use crate::config::NodeConfig;
 use crate::stats::DetailType::Send;
 use crate::voting::VoteSpacing;
 
+pub const ONLINE_WEIGHT_QUORUM: u128 = 67;
+
 pub struct OnlineReps {
-    ledger: Arc<Ledger>,
-    node_config: NodeConfig,
+    pub ledger: Arc<Ledger>,
+    pub node_config: Arc<NodeConfig>,
     reps: EntryContainer,
-    trended_m: Amount,
-    online_m: Amount,
-    minimum: Amount,
+    trended_m: Arc<Mutex<Amount>>,
+    online_m: Arc<Mutex<Amount>>,
+    minimum: Arc<Mutex<Amount>>,
 }
 
 impl OnlineReps {
-    pub fn new(ledger: Arc<Ledger>, node_config: NodeConfig) -> Self {
+    pub fn new(ledger: Arc<Ledger>, node_config: Arc<NodeConfig>) -> Self {
 
         let transaction = ledger.store.tx_begin_read().unwrap();
-        let trended_m = Self::calculate_trend(transaction.txn(), &ledger, &node_config);
+        let trended_m = Arc::new(Mutex::new(Self::calculate_trend(transaction.txn(), &ledger, &node_config)));
 
         Self {
             ledger,
             node_config,
             reps: EntryContainer::new(),
             trended_m,
-            online_m: Amount::zero(),
-            minimum: Amount::zero(),
+            online_m: Arc::new(Mutex::new(Amount::zero())),
+            minimum: Arc::new(Mutex::new(Amount::zero())),
         }
     }
 
@@ -63,24 +66,47 @@ impl OnlineReps {
                 time,
             };
             self.reps.insert(entry);
-            let cutoff = time - Duration::from_secs(self.node_config.network_params.node.weight_period);
+            let cutoff = time; //- Duration::from_secs(self.node_config.network_params.node.weight_period);
             let trimmed = self.reps.by_time.first_key_value().unwrap().0 != &cutoff;
             self.reps.trim(cutoff.elapsed());
             if new_insert || trimmed {
-                self.online_m = self.calculate_online();
+                self.online_m = Arc::new(Mutex::new(self.calculate_online()));
             }
         }
     }
 
     pub fn sample(&mut self) {
         let mut transaction = self.ledger.store.tx_begin_write().unwrap();
-        while self.ledger.store.online_weight().count(transaction.txn()) >= self.node_config.network_params.node.max_weight_samples {
+        while self.ledger.store.online_weight().count(transaction.txn()) >= 10 {//self.node_config.network_params.node.max_weight_samples {
             let oldest = self.ledger.store.online_weight().begin(transaction.txn());
             //debug_assert!(oldest != self.ledger.store.online_weight().rbegin(transaction.txn()));
             self.ledger.store.online_weight().del(transaction.as_mut(), *oldest.current().unwrap().0);
         }
-        self.ledger.store.online_weight().put(transaction.as_mut(), Instant::now().elapsed().as_secs(), &self.online_m);
-        self.trended_m = Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config);
+        self.ledger.store.online_weight().put(transaction.as_mut(), Instant::now().elapsed().as_secs(), &self.online_m.lock().unwrap());
+        self.trended_m = Arc::new(Mutex::new(Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config)));
+    }
+
+    pub fn trended(&self) -> Amount {
+        self.trended_m.lock().unwrap().deref().clone()
+    }
+
+    pub fn online(&self) -> Amount {
+        self.online_m.lock().unwrap().deref().clone()
+    }
+
+    pub fn delta(&self) -> Amount {
+        let weight = max(self.online_m.lock().unwrap().deref().clone(), self.trended_m.lock().unwrap().deref().clone());
+        let weight = max(weight, self.node_config.online_weight_minimum);
+        return Amount::new(weight.number() * ONLINE_WEIGHT_QUORUM / 100);
+    }
+
+    pub fn list(&self) -> Vec<Account> {
+        self.reps.by_account.iter().map(|(a, b)| *a).collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.reps = EntryContainer::new();
+        self.online_m = Arc::new(Mutex::new(Amount::zero()));
     }
 }
 
@@ -122,13 +148,6 @@ impl EntryContainer {
             None => self.iter_entries(&self.empty_id_set),
         }
     }
-
-    /*pub fn by_time(&self, time: &Instant) -> impl Iterator<Item = &Entry> + '_ {
-        match self.by_time.get(time) {
-            Some(ids) => self.iter_entries(ids),
-            None => self.iter_entries(&self.empty_id_set),
-        }
-    }*/
 
     fn iter_entries<'a>(&'a self, ids: &'a HashSet<usize>) -> impl Iterator<Item = &Entry> + 'a {
         ids.iter().map(|&id| &self.entries[&id])

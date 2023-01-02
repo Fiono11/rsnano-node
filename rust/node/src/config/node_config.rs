@@ -21,7 +21,7 @@ pub enum FrontiersConfirmationMode {
 }
 
 pub struct NodeConfig {
-    pub network_params: NetworkParams,
+    //pub network_params: NetworkParams,
     pub peering_port: Option<u16>,
     pub bootstrap_fraction_numerator: u32,
     pub receive_minimum: Amount,
@@ -271,7 +271,7 @@ impl NodeConfig {
             diagnostics_config: DiagnosticsConfig::new(),
             stat_config: StatConfig::new(),
             lmdb_config: LmdbConfig::new(),
-            network_params,
+            //network_params,
         }
     }
 

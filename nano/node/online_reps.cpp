@@ -3,7 +3,13 @@
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/store.hpp>
 
+/*nano::online_reps::online_reps () :
+	handle{ rsnano::rsn_online_reps_create1 () }
+{
+}*/
+
 nano::online_reps::online_reps (nano::ledger & ledger_a, nano::node_config const & config_a) :
+	handle{ rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ()) },
 	ledger{ ledger_a },
 	config{ config_a }
 {
@@ -13,6 +19,28 @@ nano::online_reps::online_reps (nano::ledger & ledger_a, nano::node_config const
 		trended_m = calculate_trend (*transaction);
 	}
 }
+
+/*nano::online_reps::online_reps (nano::online_reps && other_a) :
+	handle{ other_a.handle }
+{
+	other_a.handle = nullptr;
+}*/
+
+/*nano::online_reps::online_reps (const nano::online_reps & other_a) :
+	handle{ rsnano::rsn_online_reps_clone (other_a.handle) }
+{
+}*/
+
+nano::online_reps::~online_reps ()
+{
+	if (handle)
+		rsnano::rsn_online_reps_destroy (handle);
+}
+
+/*nano::ledger nano::online_reps::ledger ()
+{
+	return *rsnano::rsn_online_reps_ledger (handle);
+}*/
 
 void nano::online_reps::observe (nano::account const & rep_a)
 {
@@ -107,6 +135,19 @@ std::vector<nano::account> nano::online_reps::list ()
 	nano::lock_guard<nano::mutex> lock (mutex);
 	std::for_each (reps.begin (), reps.end (), [&result] (rep_info const & info_a) { result.push_back (info_a.account); });
 	return result;
+
+	/*rsnano::U256ArrayDto dto;
+	rsnano::rsn_online_reps_list(handle, &dto);
+	std::vector<nano::account> result;
+	result.reserve (dto.count);
+	for (int i = 0; i < dto.count; ++i)
+	{
+		nano::account account;
+		std::copy (std::begin (dto.items[i]), std::end (dto.items[i]), std::begin (account.bytes));
+		result.push_back (account);
+	}
+	rsnano::rsn_u256_array_destroy (&dto);
+	return result;*/
 }
 
 void nano::online_reps::clear ()

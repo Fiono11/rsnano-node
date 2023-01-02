@@ -255,7 +255,7 @@ impl TryFrom<&NodeConfigDto> for NodeConfig {
         }
 
         let cfg = NodeConfig {
-            network_params: NetworkParams::try_from(&value.network_params)?,
+            //network_params: NetworkParams::try_from(&value.network_params)?,
             peering_port: if value.peering_port_defined {
                 Some(value.peering_port)
             } else {
