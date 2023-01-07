@@ -2,6 +2,7 @@
 #include <nano/node/online_reps.hpp>
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/store.hpp>
+#include <iostream>
 
 /*nano::online_reps::online_reps () :
 	handle{ rsnano::rsn_online_reps_create1 () }
@@ -9,14 +10,17 @@
 }*/
 
 nano::online_reps::online_reps (nano::ledger & ledger_a, nano::node_config const & config_a) :
-	handle{ rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ()) },
 	ledger{ ledger_a },
 	config{ config_a }
 {
+	handle = rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ());
 	if (!ledger.store.init_error ())
 	{
 		auto transaction (ledger.store.tx_begin_read ());
 		trended_m = calculate_trend (*transaction);
+		//nano::amount trend;
+		//rsnano::rsn_online_reps_calculate_trend (transaction->get_rust_handle(), handle, trend.bytes.data());
+		//trended_m = trend.number();
 	}
 }
 
@@ -44,6 +48,7 @@ nano::online_reps::~online_reps ()
 
 void nano::online_reps::observe (nano::account const & rep_a)
 {
+	//rsnano::rsn_online_reps_observe (handle, rep_a.bytes.data());
 	if (ledger.weight (rep_a) > 0)
 	{
 		nano::lock_guard<nano::mutex> lock (mutex);
@@ -62,6 +67,8 @@ void nano::online_reps::observe (nano::account const & rep_a)
 
 void nano::online_reps::sample ()
 {
+	//rsnano::rsn_online_reps_sample (handle);
+
 	nano::unique_lock<nano::mutex> lock (mutex);
 	nano::uint128_t online_l = online_m;
 	lock.unlock ();
@@ -77,6 +84,9 @@ void nano::online_reps::sample ()
 		}
 		ledger.store.online_weight ().put (*transaction, std::chrono::system_clock::now ().time_since_epoch ().count (), online_l);
 		trend_l = calculate_trend (*transaction);
+		//nano::amount trend;
+		//rsnano::rsn_online_reps_calculate_trend (transaction->get_rust_handle(), handle, trend.bytes.data());
+		//trend_l = trend.number();
 	}
 	lock.lock ();
 	trended_m = trend_l;
@@ -84,6 +94,10 @@ void nano::online_reps::sample ()
 
 nano::uint128_t nano::online_reps::calculate_online () const
 {
+	/*nano::amount online;
+	rsnano::rsn_online_reps_calculate_online (handle, online.bytes.data ());
+	return online.number ();*/
+
 	nano::uint128_t current;
 	for (auto & i : reps)
 	{
@@ -94,35 +108,53 @@ nano::uint128_t nano::online_reps::calculate_online () const
 
 nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transaction_a) const
 {
-	std::vector<nano::uint128_t> items;
+	nano::amount trend;
+	rsnano::rsn_online_reps_calculate_trend (transaction_a.get_rust_handle(), handle, trend.bytes.data());
+	return trend.number ();
+
+	/*std::vector<nano::uint128_t> items;
 	items.reserve (config.network_params.node.max_weight_samples + 1);
 	items.push_back (config.online_weight_minimum.number ());
 	for (auto i (ledger.store.online_weight ().begin (transaction_a)), n (ledger.store.online_weight ().end ()); i != n; ++i)
 	{
 		items.push_back (i->second.number ());
+		std::cout << i->second.number () << "\n";
 	}
 	nano::uint128_t result;
 	// Pick median value for our target vote weight
 	auto median_idx = items.size () / 2;
 	nth_element (items.begin (), items.begin () + median_idx, items.end ());
 	result = items[median_idx];
-	return result;
+	std::cout << result << "\n";
+	return result;*/
 }
 
 nano::uint128_t nano::online_reps::trended () const
 {
+	//nano::amount trended;
+	//rsnano::rsn_online_reps_trended (handle, trended.bytes.data ());
+	//return trended.number ();
+
 	nano::lock_guard<nano::mutex> lock (mutex);
 	return trended_m;
 }
 
 nano::uint128_t nano::online_reps::online () const
 {
+	/*nano::amount online;
+	rsnano::rsn_online_reps_online (handle, online.bytes.data ());
+	return online.number ();*/
+
 	nano::lock_guard<nano::mutex> lock (mutex);
 	return online_m;
 }
 
 nano::uint128_t nano::online_reps::delta () const
 {
+	/*nano::amount delta;
+	rsnano::rsn_online_reps_delta (handle, delta.bytes.data ());
+	return delta.number ();*/
+
 	nano::lock_guard<nano::mutex> lock (mutex);
 	// Using a larger container to ensure maximum precision
 	auto weight = static_cast<nano::uint256_t> (std::max ({ online_m, trended_m, config.online_weight_minimum.number () }));
@@ -155,6 +187,8 @@ void nano::online_reps::clear ()
 	nano::lock_guard<nano::mutex> lock (mutex);
 	reps.clear ();
 	online_m = 0;
+
+	//rsnano::rsn_online_reps_clear (handle);
 }
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (online_reps & online_reps, std::string const & name)

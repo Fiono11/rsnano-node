@@ -78,6 +78,8 @@ pub struct NodeConfig {
     pub diagnostics_config: DiagnosticsConfig,
     pub stat_config: StatConfig,
     pub lmdb_config: LmdbConfig,
+    pub weight_period: u64,
+    pub max_weight_samples: u64,
 }
 
 pub struct Peer {
@@ -271,7 +273,8 @@ impl NodeConfig {
             diagnostics_config: DiagnosticsConfig::new(),
             stat_config: StatConfig::new(),
             lmdb_config: LmdbConfig::new(),
-            //network_params,
+            weight_period: network_params.node.weight_period,
+            max_weight_samples: network_params.node.max_weight_samples,
         }
     }
 

@@ -1,12 +1,14 @@
 use std::{clone, ptr};
+use std::net::Shutdown::{Read, Write};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use rsnano_core::Account;
 use rsnano_node::config::NodeConfig;
 use rsnano_node::online_reps::OnlineReps;
-use crate::ledger::datastore::LedgerHandle;
-use crate::{fill_node_config_dto, NodeConfigDto, U256ArrayDto};
+use rsnano_store_traits::Transaction;
+use crate::ledger::datastore::{LedgerHandle, TransactionHandle};
+use crate::{copy_amount_bytes, fill_node_config_dto, NodeConfigDto, U256ArrayDto};
 use crate::core::BlockHandle;
 
 pub struct OnlineRepsHandle(pub OnlineReps);
@@ -59,23 +61,38 @@ pub unsafe extern "C" fn rsn_online_reps_observe(handle: *mut OnlineRepsHandle, 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_sample(handle: *mut OnlineRepsHandle) -> *const u8 {
-    (*handle).0.calculate_online().to_be_bytes().as_ptr()
+pub unsafe extern "C" fn rsn_online_reps_sample(handle: *mut OnlineRepsHandle) {
+    (*handle).0.sample();
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_trended(handle: *mut OnlineRepsHandle) -> *const u8 {
-    (*handle).0.trended().to_be_bytes().as_ptr()
+pub unsafe extern "C" fn rsn_online_reps_calculate_trend(tx_handle: *mut TransactionHandle, handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = OnlineReps::calculate_trend((*tx_handle).as_txn(), &(*handle).0.ledger, &(*handle).0.node_config);
+    copy_amount_bytes(amount, result);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_online(handle: *mut OnlineRepsHandle) -> *const u8 {
-    (*handle).0.online().to_be_bytes().as_ptr()
+pub unsafe extern "C" fn rsn_online_reps_calculate_online(handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = (*handle).0.calculate_online();
+    copy_amount_bytes(amount, result);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_delta(handle: *mut OnlineRepsHandle) -> *const u8 {
-    (*handle).0.delta().to_be_bytes().as_ptr()
+pub unsafe extern "C" fn rsn_online_reps_trended(handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = (*handle).0.trended();
+    copy_amount_bytes(amount, result);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_online(handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = (*handle).0.online();
+    copy_amount_bytes(amount, result);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_delta(handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = (*handle).0.delta();
+    copy_amount_bytes(amount, result);
 }
 
 #[no_mangle]

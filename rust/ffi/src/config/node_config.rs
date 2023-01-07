@@ -88,6 +88,8 @@ pub struct NodeConfigDto {
     pub diagnostics_config: TxnTrackingConfigDto,
     pub stat_config: StatConfigDto,
     pub lmdb_config: LmdbConfigDto,
+    pub weight_period: u64,
+    pub max_weight_samples: u64,
 }
 
 #[repr(C)]
@@ -327,6 +329,8 @@ impl TryFrom<&NodeConfigDto> for NodeConfig {
             diagnostics_config: (&value.diagnostics_config).into(),
             stat_config: (&value.stat_config).into(),
             lmdb_config: (&value.lmdb_config).into(),
+            weight_period: value.weight_period,
+            max_weight_samples: value.max_weight_samples,
         };
 
         Ok(cfg)
