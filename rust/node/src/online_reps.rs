@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::mem::size_of;
 use std::ops::Deref;
 use std::process::id;
 use std::sync::{Arc, Mutex};
@@ -14,7 +15,7 @@ use crate::stats::DetailType::Send;
 use crate::voting::VoteSpacing;
 use primitive_types::U256;
 
-pub const ONLINE_WEIGHT_QUORUM: u128 = 67;
+pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
 pub struct OnlineReps {
     pub ledger: Arc<Ledger>,
@@ -29,22 +30,22 @@ impl OnlineReps {
     pub fn new(ledger: Arc<Ledger>, node_config: Arc<NodeConfig>) -> Self {
 
         let transaction = ledger.store.tx_begin_read().unwrap();
-        let trended_m = Arc::new(Mutex::new(Self::calculate_trend(transaction.txn(), &ledger, &node_config)));
+        //let trended_m = Arc::new(Mutex::new(Self::calculate_trend(transaction.txn(), &ledger, &node_config)));
 
-        Self {
+        let mut online_reps = Self {
             ledger,
             node_config,
             reps: EntryContainer::new(),
-            trended_m,
+            trended_m: Arc::new(Mutex::new(Amount::zero())),
             online_m: Arc::new(Mutex::new(Amount::zero())),
             minimum: Arc::new(Mutex::new(Amount::zero())),
-        }
+        };
 
-        /*let mut mutex = online_reps.trended_m.lock().unwrap();
+        let mut mutex = online_reps.trended_m.lock().unwrap();
         *mutex = online_reps.calculate_trend(transaction.txn());
         std::mem::drop(mutex);
         println!("trended: {}", online_reps.trended_m.lock().unwrap().number());
-        online_reps*/
+        online_reps
     }
 
     pub fn calculate_online(&self) -> Amount {
@@ -62,11 +63,11 @@ impl OnlineReps {
         Amount::new(current)
     }
 
-    pub fn calculate_trend(transaction_a: &dyn Transaction, ledger: &Arc<Ledger>, node_config: &Arc<NodeConfig>) -> Amount {
+    pub fn calculate_trend(&self, transaction_a: &dyn Transaction) -> Amount {
         let mut items = Vec::new();
-        items.push(node_config.online_weight_minimum);
+        items.push(self.node_config.online_weight_minimum);
         println!("items: {:?}", items);
-        let mut it = ledger.store.online_weight().begin(transaction_a);
+        let mut it = self.ledger.store.online_weight().begin(transaction_a);
         while !it.is_end() {
             items.push(*it.current().unwrap().1);
             it.next();
@@ -141,7 +142,7 @@ impl OnlineReps {
         self.ledger.store.online_weight().put(transaction.as_mut(), since_the_epoch.as_secs(), &self.online_m.lock().unwrap());
         println!("minimum: {}", self.node_config.online_weight_minimum.number());
         let mut mutex = self.trended_m.lock().unwrap();
-        *mutex = Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config);
+        *mutex = self.calculate_trend(transaction.txn());
     }
 
     pub fn trended(&self) -> Amount {
@@ -172,6 +173,14 @@ impl OnlineReps {
         self.reps = EntryContainer::new();
         let mut mutex2 = self.online_m.lock().unwrap();
         *mutex2 = Amount::zero();
+    }
+
+    pub fn count(&self) -> usize {
+        self.reps.len()
+    }
+
+    pub fn item_size() -> usize {
+        size_of::<(usize, Entry)>()
     }
 }
 

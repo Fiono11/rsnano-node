@@ -10,18 +10,15 @@
 }*/
 
 nano::online_reps::online_reps (nano::ledger & ledger_a, nano::node_config const & config_a) :
-	ledger{ ledger_a },
-	config{ config_a }
+	//ledger{ ledger_a },
+	//config{ config_a }
+	handle{ rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ()) }
 {
-	handle = rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ());
-	if (!ledger.store.init_error ())
+	/*if (!ledger.store.init_error ())
 	{
 		auto transaction (ledger.store.tx_begin_read ());
 		trended_m = calculate_trend (*transaction);
-		//nano::amount trend;
-		//rsnano::rsn_online_reps_calculate_trend (transaction->get_rust_handle(), handle, trend.bytes.data());
-		//trended_m = trend.number();
-	}
+	}*/
 }
 
 /*nano::online_reps::online_reps (nano::online_reps && other_a) :
@@ -98,28 +95,29 @@ void nano::online_reps::sample ()
 	trended_m = trend_l;*/
 }
 
-nano::uint128_t nano::online_reps::calculate_online () const
+/*nano::uint128_t nano::online_reps::calculate_online () const
 {
 	nano::amount online;
 	rsnano::rsn_online_reps_calculate_online (handle, online.bytes.data ());
 	return online.number ();
 
-	/*nano::uint128_t current;
+	nano::uint128_t current;
 	for (auto & i : reps)
 	{
 		current += ledger.weight (i.account);
 		std::cout << current << "\n";
 	}
-	return current;*/
+	return current;
 }
+*/
 
-nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transaction_a) const
+/*nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transaction_a) const
 {
 	nano::amount trend;
 	rsnano::rsn_online_reps_calculate_trend (transaction_a.get_rust_handle(), handle, trend.bytes.data());
 	return trend.number ();
 
-	/*std::vector<nano::uint128_t> items;
+	std::vector<nano::uint128_t> items;
 	items.reserve (config.network_params.node.max_weight_samples + 1);
 	items.push_back (config.online_weight_minimum.number ());
 	for (auto i (ledger.store.online_weight ().begin (transaction_a)), n (ledger.store.online_weight ().end ()); i != n; ++i)
@@ -133,8 +131,9 @@ nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transact
 	nth_element (items.begin (), items.begin () + median_idx, items.end ());
 	result = items[median_idx];
 	std::cout << result << "\n";
-	return result;*/
+	return result;
 }
+*/
 
 nano::uint128_t nano::online_reps::trended () const
 {
@@ -155,6 +154,18 @@ nano::uint128_t nano::online_reps::online () const
 	//nano::lock_guard<nano::mutex> lock (mutex);
 	//std::cout << online_m << "\n";
 	//return online_m;
+}
+
+void nano::online_reps::set_online (nano::uint128_t online)
+{
+	uint8_t bytes[16] = { 0 };
+	boost::multiprecision::export_bits (online, std::rbegin (bytes), 8, false);
+	rsnano::rsn_online_reps_set_online(handle, &bytes[0]);
+}
+
+uint8_t nano::online_reps::online_weight_quorum ()
+{
+	return rsnano::rsn_online_reps_online_weight_quorum ();
 }
 
 nano::uint128_t nano::online_reps::delta () const
@@ -201,13 +212,16 @@ void nano::online_reps::clear ()
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (online_reps & online_reps, std::string const & name)
 {
-	std::size_t count;
+	/*std::size_t count;
 	{
 		nano::lock_guard<nano::mutex> guard (online_reps.mutex);
 		count = online_reps.reps.size ();
-	}
+	}*/
 
-	auto sizeof_element = sizeof (decltype (online_reps.reps)::value_type);
+	size_t count = rsnano::rsn_online_reps_item_count (online_reps.handle);
+	auto sizeof_element = rsnano::rsn_online_reps_item_size ();
+
+	//auto sizeof_element = sizeof (decltype (online_reps.reps)::value_type);
 	auto composite = std::make_unique<container_info_composite> (name);
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "reps", count, sizeof_element }));
 	return composite;

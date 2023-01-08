@@ -41,10 +41,11 @@ public:
 	/** List of online representatives, both the currently sampling ones and the ones observed in the previous sampling period */
 	std::vector<nano::account> list ();
 	void clear ();
-	static unsigned constexpr online_weight_quorum = 67;
-
+	//static unsigned constexpr online_weight_quorum = 67;
+	static uint8_t online_weight_quorum ();
+	void set_online (nano::uint128_t);
 private:
-	class rep_info
+	/*class rep_info
 	{
 	public:
 		std::chrono::steady_clock::time_point time;
@@ -55,24 +56,24 @@ private:
 	};
 	class tag_account
 	{
-	};
-	nano::uint128_t calculate_trend (nano::transaction &) const;
-	nano::uint128_t calculate_online () const;
-	mutable nano::mutex mutex;
-	nano::ledger & ledger;
+	};*/
+	//nano::uint128_t calculate_trend (nano::transaction &) const;
+	//nano::uint128_t calculate_online () const;
+	//mutable nano::mutex mutex;
+	//nano::ledger & ledger;
 	//nano::ledger ledger ();
-	nano::node_config const & config;
+	//nano::node_config const & config;
 	//nano::node_config const config ();
-	boost::multi_index_container<rep_info,
+	/*boost::multi_index_container<rep_info,
 	boost::multi_index::indexed_by<
 	boost::multi_index::ordered_non_unique<boost::multi_index::tag<tag_time>,
 	boost::multi_index::member<rep_info, std::chrono::steady_clock::time_point, &rep_info::time>>,
 	boost::multi_index::hashed_unique<boost::multi_index::tag<tag_account>,
 	boost::multi_index::member<rep_info, nano::account, &rep_info::account>>>>
-	reps;
-	nano::uint128_t trended_m;
-	nano::uint128_t online_m;
-	nano::uint128_t minimum;
+	reps;*/
+	//nano::uint128_t trended ();
+	//nano::uint128_t online ();
+	//nano::uint128_t minimum;
 	rsnano::OnlineRepsHandle * handle;
 
 	friend class election_quorum_minimum_update_weight_before_quorum_checks_Test;

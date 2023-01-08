@@ -1,15 +1,20 @@
 use std::{clone, ptr};
 use std::net::Shutdown::{Read, Write};
 use std::ops::Deref;
+use std::os::raw;
+use std::os::raw::c_int;
 use std::sync::Arc;
 use std::time::Duration;
-use rsnano_core::Account;
+use rsnano_core::{Account, Amount};
+use rsnano_ledger::RepWeights;
 use rsnano_node::config::NodeConfig;
-use rsnano_node::online_reps::OnlineReps;
+use rsnano_node::online_reps::{ONLINE_WEIGHT_QUORUM, OnlineReps};
+use rsnano_node::stats::StatType::Message;
 use rsnano_store_traits::Transaction;
 use crate::ledger::datastore::{LedgerHandle, TransactionHandle};
 use crate::{copy_amount_bytes, fill_node_config_dto, NodeConfigDto, U256ArrayDto};
 use crate::core::BlockHandle;
+use crate::ledger::RepWeightsHandle;
 
 pub struct OnlineRepsHandle(pub OnlineReps);
 
@@ -67,7 +72,7 @@ pub unsafe extern "C" fn rsn_online_reps_sample(handle: *mut OnlineRepsHandle) {
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_calculate_trend(tx_handle: *mut TransactionHandle, handle: *mut OnlineRepsHandle, result: *mut u8) {
-    let amount = OnlineReps::calculate_trend((*tx_handle).as_txn(), &(*handle).0.ledger, &(*handle).0.node_config);
+    let amount = (*handle).0.calculate_trend((*tx_handle).as_txn());
     copy_amount_bytes(amount, result);
 }
 
@@ -90,6 +95,18 @@ pub unsafe extern "C" fn rsn_online_reps_online(handle: *mut OnlineRepsHandle, r
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_set_online(handle: *mut OnlineRepsHandle, online: *const u8) {
+    let amount = Amount::from_ptr(online);
+    let mut mutex = (*handle).0.online_m.lock().unwrap();
+    *mutex = amount;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_online_weight_quorum() -> u8 {
+    ONLINE_WEIGHT_QUORUM
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_delta(handle: *mut OnlineRepsHandle, result: *mut u8) {
     let amount = (*handle).0.delta();
     copy_amount_bytes(amount, result);
@@ -108,4 +125,14 @@ pub unsafe extern "C" fn rsn_online_reps_list(
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_clear(handle: *mut OnlineRepsHandle) {
     (*handle).0.clear();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_item_count(handle: *const OnlineRepsHandle) -> usize {
+    (*handle).0.count()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_item_size() -> usize {
+    OnlineReps::item_size()
 }
