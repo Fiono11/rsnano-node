@@ -48,7 +48,7 @@ nano::online_reps::~online_reps ()
 
 void nano::online_reps::observe (nano::account const & rep_a)
 {
-	std::cout << "observe 1" << "\n";
+	/*std::cout << "observe 1" << "\n";
 	if (ledger.weight (rep_a) > 0)
 	{
 		nano::lock_guard<nano::mutex> lock (mutex);
@@ -65,17 +65,18 @@ void nano::online_reps::observe (nano::account const & rep_a)
 			online_m = calculate_online ();
 		}
 	}
+	std::cout << "observe 2" << "\n";*/
 
-	std::cout << "observe 2" << "\n";
 	rsnano::rsn_online_reps_observe (handle, rep_a.bytes.data());
 }
 
 void nano::online_reps::sample ()
 {
-	//rsnano::rsn_online_reps_sample (handle);
+	rsnano::rsn_online_reps_sample (handle);
 
-	nano::unique_lock<nano::mutex> lock (mutex);
-	nano::uint128_t online_l = online_m;
+	/*nano::unique_lock<nano::mutex> lock (mutex);
+	//nano::uint128_t online_l = online_m;
+	nano::uint128_t online_l = online ();
 	lock.unlock ();
 	nano::uint128_t trend_l;
 	{
@@ -94,7 +95,7 @@ void nano::online_reps::sample ()
 		//trend_l = trend.number();
 	}
 	lock.lock ();
-	trended_m = trend_l;
+	trended_m = trend_l;*/
 }
 
 nano::uint128_t nano::online_reps::calculate_online () const
@@ -137,23 +138,23 @@ nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transact
 
 nano::uint128_t nano::online_reps::trended () const
 {
-	//nano::amount trended;
-	//rsnano::rsn_online_reps_trended (handle, trended.bytes.data ());
-	//return trended.number ();
+	nano::amount trended;
+	rsnano::rsn_online_reps_trended (handle, trended.bytes.data ());
+	return trended.number ();
 
-	nano::lock_guard<nano::mutex> lock (mutex);
-	return trended_m;
+	//nano::lock_guard<nano::mutex> lock (mutex);
+	//return trended_m;
 }
 
 nano::uint128_t nano::online_reps::online () const
 {
 	nano::amount online;
 	rsnano::rsn_online_reps_online (handle, online.bytes.data ());
-	//return online.number ();
+	return online.number ();
 
-	nano::lock_guard<nano::mutex> lock (mutex);
-	std::cout << online_m << "\n";
-	return online_m;
+	//nano::lock_guard<nano::mutex> lock (mutex);
+	//std::cout << online_m << "\n";
+	//return online_m;
 }
 
 nano::uint128_t nano::online_reps::delta () const
@@ -191,11 +192,11 @@ std::vector<nano::account> nano::online_reps::list ()
 
 void nano::online_reps::clear ()
 {
-	nano::lock_guard<nano::mutex> lock (mutex);
-	reps.clear ();
-	online_m = 0;
+	//nano::lock_guard<nano::mutex> lock (mutex);
+	//reps.clear ();
+	//online_m = 0;
 
-	//rsnano::rsn_online_reps_clear (handle);
+	rsnano::rsn_online_reps_clear (handle);
 }
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (online_reps & online_reps, std::string const & name)

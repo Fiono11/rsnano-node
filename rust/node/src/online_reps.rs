@@ -83,7 +83,7 @@ impl OnlineReps {
     pub fn observe(&mut self, rep_a: Account) {
         println!("1111111");
         if self.ledger.weight(&rep_a).number() > 0 {
-            let mut new_insert = false;
+            let mut new_insert = true;
             //let mut mutex = self.reps.lock().unwrap();
             println!("22222222");
             if let Some(id) = self.reps.by_account.get(&rep_a) {
@@ -95,7 +95,7 @@ impl OnlineReps {
                 self.reps.by_time.insert(old_time, ids.to_owned());
                 self.reps.entries.remove(id).unwrap();
                 self.reps.by_account.remove(&rep_a);
-                new_insert = true;
+                new_insert = false;
             }
             println!("4444444");
             let start = SystemTime::now();
@@ -138,10 +138,10 @@ impl OnlineReps {
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
-        self.ledger.store.online_weight().put(transaction.as_mut(), since_the_epoch.as_secs(), &self.calculate_online());
+        self.ledger.store.online_weight().put(transaction.as_mut(), since_the_epoch.as_secs(), &self.online_m.lock().unwrap());
         println!("minimum: {}", self.node_config.online_weight_minimum.number());
-        //let mut mutex = self.trended_m.lock().unwrap();
-        Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config);
+        let mut mutex = self.trended_m.lock().unwrap();
+        *mutex = Self::calculate_trend(transaction.txn(), &self.ledger, &self.node_config);
     }
 
     pub fn trended(&self) -> Amount {

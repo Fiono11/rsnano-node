@@ -2041,6 +2041,7 @@ TEST (node, online_reps)
 	// 1 minimum, 1 maximum
 	std::cout << 4 << "\n";
 	ASSERT_EQ (node1.config->online_weight_minimum, node1.online_reps.trended ());
+	std::cout << 8 << "\n";
 	node1.online_reps.sample ();
 	std::cout << 5 << "\n";
 	ASSERT_EQ (nano::dev::constants.genesis_amount, node1.online_reps.trended ());
