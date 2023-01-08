@@ -73,35 +73,30 @@ impl OnlineReps {
     pub fn observe(&mut self, rep_a: Account) {
         if self.ledger.weight(&rep_a).number() > 0 {
             let mut new_insert = true;
-            let mut mutex1 = self.reps.by_account.lock().unwrap();
-            let mut mutex2 = self.reps.by_time.lock().unwrap();
-            let mut mutex3 = self.reps.entries.lock().unwrap();
-            if let Some(id) = mutex1.get(&rep_a) {
-                let old_time = mutex3.get(id).unwrap().time;
-                let mut ids = mutex2.get(&old_time).unwrap().clone();
+            let mut by_account_mutex = self.reps.by_account.lock().unwrap();
+            let mut by_time_mutex = self.reps.by_time.lock().unwrap();
+            let mut entries_mutex = self.reps.entries.lock().unwrap();
+            if let Some(id) = by_account_mutex.get(&rep_a) {
+                let old_time = entries_mutex.get(id).unwrap().time;
+                let mut ids = by_time_mutex.get(&old_time).unwrap().clone();
                 let index = ids.iter().position(|x| x == id).unwrap();
                 ids.remove(index);
-                mutex2.insert(old_time, ids.to_owned());
-                mutex3.remove(id).unwrap();
+                by_time_mutex.insert(old_time, ids.to_owned());
+                entries_mutex.remove(id).unwrap();
                 new_insert = false;
             }
-            mutex1.remove(&rep_a);
-            mem::drop(mutex1);
-            mem::drop(mutex2);
-            mem::drop(mutex3);
-            let start = SystemTime::now();
-            let since_the_epoch = start
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards");
-            //let time = since_the_epoch.as_secs();
+            by_account_mutex.remove(&rep_a);
+            mem::drop(by_account_mutex);
+            mem::drop(by_time_mutex);
+            mem::drop(entries_mutex);
             let time = Instant::now();
             let entry = Entry {
                 account: rep_a,
                 time,
             };
             self.reps.insert(entry);
-            let cutoff = since_the_epoch - Duration::from_secs(300);
-            let trimmed = self.reps.trim(Duration::from_secs(300));
+            println!("weight: {}", self.node_config.weight_period);
+            let trimmed = self.reps.trim(Duration::from_secs(self.node_config.weight_period));
             if new_insert || trimmed {
                 let mut mutex = self.online_m.lock().unwrap();
                 *mutex = self.calculate_online();
