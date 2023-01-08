@@ -2034,6 +2034,7 @@ TEST (node, online_reps)
 	auto vote (std::make_shared<nano::vote> ());
 	std::cout << 2 << "\n";
 	ASSERT_EQ (0, node1.online_reps.online ());
+	std::cout << 7 << "\n";
 	node1.online_reps.observe (nano::dev::genesis_key.pub);
 	std::cout << 3 << "\n";
 	ASSERT_EQ (nano::dev::constants.genesis_amount, node1.online_reps.online ());

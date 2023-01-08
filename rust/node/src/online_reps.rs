@@ -19,7 +19,7 @@ pub const ONLINE_WEIGHT_QUORUM: u128 = 67;
 pub struct OnlineReps {
     pub ledger: Arc<Ledger>,
     pub node_config: Arc<NodeConfig>,
-    reps: Arc<Mutex<EntryContainer>>,
+    reps: EntryContainer,
     pub trended_m: Arc<Mutex<Amount>>,
     pub online_m: Arc<Mutex<Amount>>,
     pub minimum: Arc<Mutex<Amount>>,
@@ -34,7 +34,7 @@ impl OnlineReps {
         Self {
             ledger,
             node_config,
-            reps: Arc::new(Mutex::new(EntryContainer::new())),
+            reps: EntryContainer::new(),
             trended_m,
             online_m: Arc::new(Mutex::new(Amount::zero())),
             minimum: Arc::new(Mutex::new(Amount::zero())),
@@ -51,9 +51,9 @@ impl OnlineReps {
         //let mut current = Amount::zero();
         let mut current = 0;
         //println!("REPS 1: {:?}", self.reps.by_account);
-        let mutex = self.reps.lock().unwrap();
-        for (i, e) in mutex.entries.iter() {
-            println!("REPS 3: {:?}", mutex.by_account);
+        //let mutex = self.reps.lock().unwrap();
+        for (i, e) in self.reps.entries.iter() {
+            println!("REPS 3: {:?}", self.reps.by_account);
             println!("weight: {:?}", self.ledger.weight(&e.account));
             //if let Some(e) = &self.reps.entries.get(&i) {
                 current += self.ledger.weight(&e.account).number();
@@ -81,19 +81,23 @@ impl OnlineReps {
     }
 
     pub fn observe(&mut self, rep_a: Account) {
+        println!("1111111");
         if self.ledger.weight(&rep_a).number() > 0 {
             let mut new_insert = false;
-            let mut mutex = self.reps.lock().unwrap();
-            if let Some(id) = self.reps.lock().unwrap().by_account.get(&rep_a) {
-                let old_time = mutex.entries.get(id).unwrap().time;
-                let mut ids = mutex.by_time.get(&old_time).unwrap().clone();
+            //let mut mutex = self.reps.lock().unwrap();
+            println!("22222222");
+            if let Some(id) = self.reps.by_account.get(&rep_a) {
+                println!("3333333");
+                let old_time = self.reps.entries.get(id).unwrap().time;
+                let mut ids = self.reps.by_time.get(&old_time).unwrap().clone();
                 let index = ids.iter().position(|x| x == id).unwrap();
                 ids.remove(index);
-                mutex.by_time.insert(old_time, ids.to_owned());
-                mutex.entries.remove(id).unwrap();
-                mutex.by_account.remove(&rep_a);
+                self.reps.by_time.insert(old_time, ids.to_owned());
+                self.reps.entries.remove(id).unwrap();
+                self.reps.by_account.remove(&rep_a);
                 new_insert = true;
             }
+            println!("4444444");
             let start = SystemTime::now();
             let since_the_epoch = start
                 .duration_since(UNIX_EPOCH)
@@ -104,8 +108,9 @@ impl OnlineReps {
                 account: rep_a,
                 time,
             };
-            self.reps.lock().unwrap().insert(entry);
-            //println!("time: {}", time);
+            println!("555555");
+            self.reps.insert(entry);
+            println!("time: {:?}", time);
             //println!("period: {}", self.node_config.weight_period);
             let cutoff = since_the_epoch - Duration::from_secs(300);
             println!("now: {:?}", since_the_epoch);
@@ -113,7 +118,7 @@ impl OnlineReps {
             println!("cutoff: {:?}", cutoff);
             //let oldest = self.reps.by_time.first_key_value().unwrap().0;
             //let trimmed = oldest < cutoff;
-            let trimmed = self.reps.lock().unwrap().trim(Duration::from_secs(300));
+            let trimmed = self.reps.trim(Duration::from_secs(300));
             //println!("REPS 2: {:?}", self.reps.by_account);
             if new_insert || trimmed {
                 let mut mutex = self.online_m.lock().unwrap();
@@ -144,7 +149,9 @@ impl OnlineReps {
     }
 
     pub fn online(&self) -> Amount {
-        self.online_m.lock().unwrap().clone()
+        let online = *self.online_m.lock().unwrap();
+        println!("online: {}", online.clone().number());
+        online
     }
 
     pub fn delta(&self) -> Amount {
@@ -155,13 +162,14 @@ impl OnlineReps {
     }
 
     pub fn list(&self) -> Vec<Account> {
-        self.reps.lock().unwrap().by_account.iter().map(|(a, b)| *a).collect()
+        self.reps.by_account.iter().map(|(a, b)| *a).collect()
     }
 
     pub fn clear(&mut self) {
-        let mut mutex1 = self.reps.lock().unwrap();
-        mutex1.clear();
-        std::mem::drop(mutex1);
+        //let mut mutex1 = self.reps.lock().unwrap();
+        //mutex1.clear();
+        //std::mem::drop(mutex1);
+        self.reps = EntryContainer::new();
         let mut mutex2 = self.online_m.lock().unwrap();
         *mutex2 = Amount::zero();
     }

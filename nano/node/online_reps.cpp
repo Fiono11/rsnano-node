@@ -48,7 +48,7 @@ nano::online_reps::~online_reps ()
 
 void nano::online_reps::observe (nano::account const & rep_a)
 {
-	//rsnano::rsn_online_reps_observe (handle, rep_a.bytes.data());
+	std::cout << "observe 1" << "\n";
 	if (ledger.weight (rep_a) > 0)
 	{
 		nano::lock_guard<nano::mutex> lock (mutex);
@@ -58,11 +58,16 @@ void nano::online_reps::observe (nano::account const & rep_a)
 		auto cutoff = reps.get<tag_time> ().lower_bound (now - std::chrono::seconds (config.network_params.node.weight_period));
 		auto trimmed = reps.get<tag_time> ().begin () != cutoff;
 		reps.get<tag_time> ().erase (reps.get<tag_time> ().begin (), cutoff);
+		std::cout << new_insert << "\n";
+		std::cout << trimmed << "\n";
 		if (new_insert || trimmed)
 		{
 			online_m = calculate_online ();
 		}
 	}
+
+	std::cout << "observe 2" << "\n";
+	rsnano::rsn_online_reps_observe (handle, rep_a.bytes.data());
 }
 
 void nano::online_reps::sample ()
@@ -94,14 +99,15 @@ void nano::online_reps::sample ()
 
 nano::uint128_t nano::online_reps::calculate_online () const
 {
-	/*nano::amount online;
+	nano::amount online;
 	rsnano::rsn_online_reps_calculate_online (handle, online.bytes.data ());
-	return online.number ();*/
+	//return online.number ();
 
 	nano::uint128_t current;
 	for (auto & i : reps)
 	{
 		current += ledger.weight (i.account);
+		std::cout << current << "\n";
 	}
 	return current;
 }
@@ -141,11 +147,12 @@ nano::uint128_t nano::online_reps::trended () const
 
 nano::uint128_t nano::online_reps::online () const
 {
-	/*nano::amount online;
+	nano::amount online;
 	rsnano::rsn_online_reps_online (handle, online.bytes.data ());
-	return online.number ();*/
+	//return online.number ();
 
 	nano::lock_guard<nano::mutex> lock (mutex);
+	std::cout << online_m << "\n";
 	return online_m;
 }
 
