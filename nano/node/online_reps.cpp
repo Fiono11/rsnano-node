@@ -102,15 +102,15 @@ nano::uint128_t nano::online_reps::calculate_online () const
 {
 	nano::amount online;
 	rsnano::rsn_online_reps_calculate_online (handle, online.bytes.data ());
-	//return online.number ();
+	return online.number ();
 
-	nano::uint128_t current;
+	/*nano::uint128_t current;
 	for (auto & i : reps)
 	{
 		current += ledger.weight (i.account);
 		std::cout << current << "\n";
 	}
-	return current;
+	return current;*/
 }
 
 nano::uint128_t nano::online_reps::calculate_trend (nano::transaction & transaction_a) const
@@ -159,24 +159,24 @@ nano::uint128_t nano::online_reps::online () const
 
 nano::uint128_t nano::online_reps::delta () const
 {
-	/*nano::amount delta;
+	nano::amount delta;
 	rsnano::rsn_online_reps_delta (handle, delta.bytes.data ());
-	return delta.number ();*/
+	return delta.number ();
 
-	nano::lock_guard<nano::mutex> lock (mutex);
+	/*nano::lock_guard<nano::mutex> lock (mutex);
 	// Using a larger container to ensure maximum precision
 	auto weight = static_cast<nano::uint256_t> (std::max ({ online_m, trended_m, config.online_weight_minimum.number () }));
-	return ((weight * online_weight_quorum) / 100).convert_to<nano::uint128_t> ();
+	return ((weight * online_weight_quorum) / 100).convert_to<nano::uint128_t> ();*/
 }
 
 std::vector<nano::account> nano::online_reps::list ()
 {
-	std::vector<nano::account> result;
+	/*std::vector<nano::account> result;
 	nano::lock_guard<nano::mutex> lock (mutex);
 	std::for_each (reps.begin (), reps.end (), [&result] (rep_info const & info_a) { result.push_back (info_a.account); });
-	return result;
+	return result;*/
 
-	/*rsnano::U256ArrayDto dto;
+	rsnano::U256ArrayDto dto;
 	rsnano::rsn_online_reps_list(handle, &dto);
 	std::vector<nano::account> result;
 	result.reserve (dto.count);
@@ -187,7 +187,7 @@ std::vector<nano::account> nano::online_reps::list ()
 		result.push_back (account);
 	}
 	rsnano::rsn_u256_array_destroy (&dto);
-	return result;*/
+	return result;
 }
 
 void nano::online_reps::clear ()
