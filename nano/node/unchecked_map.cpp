@@ -11,6 +11,7 @@ nano::unchecked_map::unchecked_map (nano::store & store, bool disable_delete) :
 	disable_delete{ disable_delete },
 	thread{ [this] () { run (); } }
 {
+	handle = rsnano::rsn_unchecked_map_create (store.get_handle (), disable_delete);
 }
 
 nano::unchecked_map::~unchecked_map ()

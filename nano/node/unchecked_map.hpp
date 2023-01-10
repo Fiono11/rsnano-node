@@ -99,5 +99,6 @@ private: // In memory store
 	std::unique_ptr<ordered_unchecked> entries;
 
 	mutable std::recursive_mutex entries_mutex;
+	rsnano::UncheckedMapHandle * handle;
 };
 }

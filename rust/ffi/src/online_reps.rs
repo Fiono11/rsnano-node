@@ -29,18 +29,6 @@ pub unsafe extern "C" fn rsn_online_reps_create(
     ))))
 }
 
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_create1() -> *mut OnlineRepsHandle {
-    Box::into_raw(Box::new(OnlineRepsHandle(OnlineReps::default())))
-}*/
-
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_clone(
-    handle: *const OnlineRepsHandle,
-) -> *mut OnlineRepsHandle {
-    Box::into_raw(Box::new(OnlineRepsHandle((*handle).0.clone())))
-}*/
-
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_destroy(handle: *mut OnlineRepsHandle) {
     drop(Box::from_raw(handle))
