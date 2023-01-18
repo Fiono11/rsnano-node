@@ -186,7 +186,7 @@ impl OnlineReps {
 
 #[derive(Default)]
 struct EntryContainer {
-    entries: Arc<Mutex<HashMap<usize, Entry>>>,
+    entries: Arc<Mutex<HashMap<usize, Entry>>>, // Hashset?
     by_account: Arc<Mutex<HashMap<Account, usize>>>,
     by_time: Arc<Mutex<BTreeMap<Instant, Vec<usize>>>>,
     next_id: Arc<Mutex<usize>>,

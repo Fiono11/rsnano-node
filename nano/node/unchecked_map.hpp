@@ -30,10 +30,10 @@ public:
 	~unchecked_map ();
 
 	void put (nano::hash_or_account const & dependency, nano::unchecked_info const & info);
-	void for_each (
-	nano::transaction const & transaction, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate = [] () { return true; });
-	void for_each (
-	nano::transaction const & transaction, nano::hash_or_account const & dependency, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate = [] () { return true; });
+	//void for_each (
+	//nano::transaction const & transaction, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate = [] () { return true; });
+	//void for_each (
+	//nano::transaction const & transaction, nano::hash_or_account const & dependency, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate = [] () { return true; });
 	std::vector<nano::unchecked_info> get (nano::transaction const &, nano::block_hash const &);
 	bool exists (nano::transaction const & transaction, nano::unchecked_key const & key) const;
 	void del (nano::write_transaction const & transaction, nano::unchecked_key const & key);
@@ -46,10 +46,10 @@ public:
 
 public: // Trigger requested dependencies
 	void trigger (nano::hash_or_account const & dependency);
-	std::function<void (nano::unchecked_info const &)> satisfied{ [] (nano::unchecked_info const &) {} };
+	//std::function<void (nano::unchecked_info const &)> satisfied{ [] (nano::unchecked_info const &) {} };
 
 private:
-	using insert = std::pair<nano::hash_or_account, nano::unchecked_info>;
+	/*using insert = std::pair<nano::hash_or_account, nano::unchecked_info>;
 	using query = nano::hash_or_account;
 	class item_visitor : boost::static_visitor<>
 	{
@@ -63,9 +63,9 @@ private:
 	void run ();
 	void insert_impl (nano::write_transaction const & transaction, nano::hash_or_account const & dependency, nano::unchecked_info const & info);
 	void query_impl (nano::write_transaction const & transaction, nano::block_hash const & hash);
-	nano::store & store;
-	bool disable_delete;
-	std::deque<boost::variant<insert, query>> buffer;
+	nano::store & store;*/
+	//bool disable_delete;
+	/*std::deque<boost::variant<insert, query>> buffer;
 	std::deque<boost::variant<insert, query>> back_buffer;
 	bool writing_back_buffer{ false };
 	bool stopped{ false };
@@ -76,10 +76,10 @@ private:
 
 	static size_t constexpr mem_block_count_max = 256'000;
 
-	friend class item_visitor;
+	friend class item_visitor;*/
 
 private: // In memory store
-	class entry
+	/*class entry
 	{
 	public:
 		nano::unchecked_key key;
@@ -98,7 +98,7 @@ private: // In memory store
 	// clang-format on
 	std::unique_ptr<ordered_unchecked> entries;
 
-	mutable std::recursive_mutex entries_mutex;
+	mutable std::recursive_mutex entries_mutex;*/
 	rsnano::UncheckedMapHandle * handle;
 };
 }

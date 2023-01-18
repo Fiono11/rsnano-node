@@ -217,9 +217,9 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 	logger->always_log ("Node ID: ", node_id.pub.to_node_id ());
 
 	unchecked.use_memory = [this] () { return ledger.bootstrap_weight_reached (); };
-	unchecked.satisfied = [this] (nano::unchecked_info const & info) {
-		this->block_processor.add (info);
-	};
+	//unchecked.satisfied = [this] (nano::unchecked_info const & info) {
+		//this->block_processor.add (info);
+	//};
 
 	inactive_vote_cache.rep_weight_query = [this] (nano::account const & rep) {
 		return ledger.weight (rep);
@@ -1061,13 +1061,13 @@ void nano::node::unchecked_cleanup ()
 		auto const now (nano::seconds_since_epoch ());
 		auto const transaction (store.tx_begin_read ());
 		// Max 1M records to clean, max 2 minutes reading to prevent slow i/o systems issues
-		unchecked.for_each (
+		/*unchecked.for_each (
 		*transaction, [this, &digests, &cleaning_list, &now] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 			if ((now - info.modified ()) > static_cast<uint64_t> (config->unchecked_cutoff_time.count ()))
 			{
 				digests.push_back (network->publish_filter->hash (info.get_block ()));
 				cleaning_list.push_back (key);
-			} }, [iterations = 0, count = 1024 * 1024] () mutable { return iterations++ < count; });
+			} }, [iterations = 0, count = 1024 * 1024] () mutable { return iterations++ < count; });*/
 	}
 	if (!cleaning_list.empty ())
 	{

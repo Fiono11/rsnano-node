@@ -133,9 +133,9 @@ dependencies = [
 
 [[package]]
 name = "blake2"
-version = "0.10.5"
+version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b12e5fd123190ce1c2e559308a94c9bacad77907d4c6005d9e58fe1a0689e55e"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
 dependencies = [
  "digest 0.10.6",
 ]
@@ -1296,7 +1296,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "anyhow",
- "blake2 0.10.5",
+ "blake2 0.10.6",
  "ctr",
  "ed25519-dalek-blake2b",
  "hex",
@@ -1349,7 +1349,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "bitvec",
- "blake2 0.10.5",
+ "blake2 0.10.6",
  "bounded-vec-deque",
  "chrono",
  "dirs",
@@ -1369,6 +1369,7 @@ dependencies = [
  "serde_json",
  "siphasher",
  "static_assertions",
+ "tokio",
  "toml_edit",
  "uuid 1.2.2",
 ]

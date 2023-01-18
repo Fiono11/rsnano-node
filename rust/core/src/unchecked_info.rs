@@ -31,6 +31,14 @@ impl UncheckedInfo {
         }
     }
 
+    pub fn hash(&self) -> BlockHash {
+        self.block.as_ref().unwrap().read().unwrap().as_block().hash()
+    }
+
+    pub fn previous(&self) -> BlockHash {
+        self.block.as_ref().unwrap().read().unwrap().as_block().previous()
+    }
+
     pub fn null() -> Self {
         Self {
             block: None,
@@ -69,12 +77,20 @@ impl Deserialize for UncheckedInfo {
     }
 }
 
+#[derive(Clone, Hash, Eq, PartialEq)]
 pub struct UncheckedKey {
     pub previous: BlockHash,
     pub hash: BlockHash,
 }
 
 impl UncheckedKey {
+    pub fn new(previous: BlockHash, hash: BlockHash) -> Self {
+        Self {
+            previous,
+            hash,
+        }
+    }
+
     pub fn to_bytes(&self) -> [u8; 64] {
         let mut result = [0; 64];
         result[..32].copy_from_slice(self.previous.as_bytes());

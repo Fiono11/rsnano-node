@@ -4135,7 +4135,7 @@ void nano::json_handler::unchecked ()
 	{
 		boost::property_tree::ptree unchecked;
 		auto transaction (node.store.tx_begin_read ());
-		node.unchecked.for_each (
+		/*node.unchecked.for_each (
 		*transaction, [&unchecked, &json_block_l] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 			auto block = info.get_block ();
 			if (json_block_l)
@@ -4149,7 +4149,7 @@ void nano::json_handler::unchecked ()
 				std::string contents;
 				block->serialize_json (contents);
 				unchecked.put (block->hash ().to_string (), contents);
-			} }, [iterations = 0, count = count] () mutable { return iterations++ < count; });
+			} }, [iterations = 0, count = count] () mutable { return iterations++ < count; });*/
 		response_l.add_child ("blocks", unchecked);
 	}
 	response_errors ();
@@ -4173,7 +4173,7 @@ void nano::json_handler::unchecked_get ()
 	{
 		bool done = false;
 		auto tx{ node.store.tx_begin_read () };
-		node.unchecked.for_each (
+		/*node.unchecked.for_each (
 		*tx, [&] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 			if (key.hash == hash)
 			{
@@ -4193,7 +4193,7 @@ void nano::json_handler::unchecked_get ()
 					response_l.put ("contents", contents);
 				}
 				done = true;
-			} }, [&] () { return !done; });
+			} }, [&] () { return !done; });*/
 		if (response_l.empty ())
 		{
 			ec = nano::error_blocks::not_found;
@@ -4219,7 +4219,7 @@ void nano::json_handler::unchecked_keys ()
 	{
 		boost::property_tree::ptree unchecked;
 		auto transaction (node.store.tx_begin_read ());
-		node.unchecked.for_each (
+		/*node.unchecked.for_each (
 		*transaction, key, [&unchecked, json_block_l] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 			boost::property_tree::ptree entry;
 			auto block = info.get_block ();
@@ -4238,7 +4238,7 @@ void nano::json_handler::unchecked_keys ()
 				block->serialize_json (contents);
 				entry.put ("contents", contents);
 			}
-			unchecked.push_back (std::make_pair ("", entry)); }, [&unchecked, &count] () { return unchecked.size () < count; });
+			unchecked.push_back (std::make_pair ("", entry)); }, [&unchecked, &count] () { return unchecked.size () < count; });*/
 		response_l.add_child ("unchecked", unchecked);
 	}
 	response_errors ();
