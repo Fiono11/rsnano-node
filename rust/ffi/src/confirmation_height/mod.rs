@@ -88,20 +88,20 @@ pub unsafe extern "C" fn rsn_conf_height_unbounded_create(
     result
 }
 
-struct ContextWrapper {
+pub(crate) struct ContextWrapper {
     context: *mut c_void,
     drop_context: VoidPointerCallback,
 }
 
 impl ContextWrapper {
-    fn new(context: *mut c_void, drop_context: VoidPointerCallback) -> Self {
+    pub(crate) fn new(context: *mut c_void, drop_context: VoidPointerCallback) -> Self {
         Self {
             context,
             drop_context,
         }
     }
 
-    fn get_context(&self) -> *mut c_void {
+    pub(crate) fn get_context(&self) -> *mut c_void {
         self.context
     }
 }

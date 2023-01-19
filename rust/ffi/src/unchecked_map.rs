@@ -1,7 +1,11 @@
-use rsnano_core::{BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
+use std::ffi::c_void;
+use std::sync::{Arc, RwLock};
+use rsnano_core::{BlockEnum, BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
 use rsnano_node::unchecked_map::UncheckedMap;
+use crate::confirmation_height::{AwaitingProcessingSizeCallback, ConfHeightUnboundedNotifyBlockAlreadyCementedCallback, ConfHeightUnboundedNotifyObserversCallback, ContextWrapper};
 use crate::core::{BlockArrayDto, BlockArrayRawPtr, BlockHandle, UncheckedInfoHandle};
 use crate::ledger::datastore::{LmdbStoreHandle, TransactionHandle, UncheckedKeyDto};
+use crate::VoidPointerCallback;
 
 pub struct UncheckedMapHandle(UncheckedMap);
 
@@ -69,12 +73,59 @@ pub unsafe extern "C" fn rsn_unchecked_map_clear(handle: *mut UncheckedMapHandle
     (*handle).0.clear(transaction.as_write_txn());
 }
 
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle) {
-    (*handle).0.clear(transaction.as_write_txn());
-}
+pub type ActionCallback =
+unsafe extern "C" fn(*mut c_void, *mut UncheckedKeyDto, *mut UncheckedInfoHandle);
+
+pub type PredicateCallback =
+unsafe extern "C" fn(*mut c_void) -> bool;
 
 #[no_mangle]
+pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle,
+                                                     action_callback: ActionCallback,
+                                                     action_callback_context: *mut c_void,
+                                                     drop_action_callback: VoidPointerCallback,
+                                                     predicate_callback: PredicateCallback,
+                                                     predicate_callback_context: *mut c_void,
+                                                     drop_predicate_callback: VoidPointerCallback,) {
+    let notify_observers_callback = wrap_action_callback(
+        action_callback,
+        action_callback_context,
+        drop_action_callback,
+    );
+
+    let notify_observers_callback2 = wrap_predicate_callback(
+        predicate_callback,
+        predicate_callback_context,
+        drop_predicate_callback,
+    );
+}
+
+unsafe fn wrap_action_callback(
+    callback: ActionCallback,
+    context: *mut c_void,
+    drop_context: VoidPointerCallback,
+) -> Box<dyn Fn(UncheckedInfoHandle, UncheckedKeyDto)> {
+    let context_wrapper = ContextWrapper::new(context, drop_context);
+
+    Box::new(move |k, i| {
+        callback(
+            context_wrapper.get_context(),
+            Box::into_raw(Box::new(i)),
+            Box::into_raw(Box::new(k)),
+        );
+    })
+}
+
+unsafe fn wrap_predicate_callback(
+    callback: PredicateCallback,
+    context: *mut c_void,
+    drop_context: VoidPointerCallback,
+) -> Box<dyn Fn() -> bool> {
+    let context_wrapper = ContextWrapper::new(context, drop_context);
+    Box::new(move || callback(context_wrapper.get_context()))
+}
+
+/*#[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_for_each2(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle) {
     (*handle).0.clear(transaction.as_write_txn());
 }*/
