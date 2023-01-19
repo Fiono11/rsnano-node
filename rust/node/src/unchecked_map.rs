@@ -328,9 +328,9 @@ impl UncheckedMap {
 
     pub fn get(&mut self, transaction: &dyn Transaction, hash: BlockHash) -> Vec<UncheckedInfo> {
         let mut result = RefCell::new(Vec::new());
-        self.for_each2(transaction, hash, |k, i| {
+        /*self.for_each2(transaction, hash, Box::new(|k, i| {
             result.borrow_mut().push(i.clone());
-        }, || true);
+        }), Box::new(|| true));*/
         result.into_inner()
         //std::vector<nano::unchecked_info> nano::unchecked_map::get (nano::transaction const & transaction, nano::block_hash const & hash)
         //{
@@ -342,7 +342,7 @@ impl UncheckedMap {
         //}
     }
 
-    pub fn for_each2<F: Fn(&UncheckedKey, &UncheckedInfo), G: Fn() -> bool> (&mut self, transaction: &dyn Transaction, dependency: BlockHash, action: F, predicate: G) {
+    pub fn for_each2(&mut self, transaction: &dyn Transaction, dependency: BlockHash, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
         let entries = self.entries.lock().unwrap();
         //let dependency = BlockHash::from_bytes(*dependency.as_bytes());
         if entries.is_empty()
@@ -366,7 +366,7 @@ impl UncheckedMap {
         }
     }
 
-    pub fn for_each1<F: Fn(&UncheckedKey, &UncheckedInfo)> (&mut self, transaction: &dyn WriteTransaction, action: F) {
+    pub fn for_each1(&mut self, transaction: &dyn WriteTransaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
         let mut entries = self.entries.lock().unwrap().clone();
         if entries.is_empty() {
             let mut it = self.store.unchecked().begin(transaction.txn());

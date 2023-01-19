@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::ptr::hash;
 use std::sync::{Arc, RwLock};
 use rsnano_core::{BlockEnum, BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
 use rsnano_node::unchecked_map::UncheckedMap;
@@ -83,6 +84,36 @@ unsafe extern "C" fn(*mut c_void) -> bool;
 pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle,
                                                      action_callback: ActionCallback,
                                                      action_callback_context: *mut c_void,
+                                                     drop_action_callback: VoidPointerCallback) {
+    let notify_observers_callback = wrap_action_callback(
+        action_callback,
+        action_callback_context,
+        drop_action_callback,
+    );
+
+    (*handle).0.for_each1(transaction.as_write_txn(), notify_observers_callback);
+}
+
+unsafe fn wrap_action_callback(
+    callback: ActionCallback,
+    context: *mut c_void,
+    drop_context: VoidPointerCallback,
+) -> Box<dyn Fn(&UncheckedKey, &UncheckedInfo)> {
+    let context_wrapper = ContextWrapper::new(context, drop_context);
+    Box::new(move |k, i| {
+        callback(
+            context_wrapper.get_context(),
+            Box::into_raw(Box::new(UncheckedKeyDto::from(k))),
+            Box::into_raw(Box::new(UncheckedInfoHandle(i.clone()))),
+        );
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_unchecked_map_for_each2(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle,
+                                                     dependency: *const u8,
+                                                     action_callback: ActionCallback,
+                                                     action_callback_context: *mut c_void,
                                                      drop_action_callback: VoidPointerCallback,
                                                      predicate_callback: PredicateCallback,
                                                      predicate_callback_context: *mut c_void,
@@ -98,22 +129,11 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHa
         predicate_callback_context,
         drop_predicate_callback,
     );
-}
 
-unsafe fn wrap_action_callback(
-    callback: ActionCallback,
-    context: *mut c_void,
-    drop_context: VoidPointerCallback,
-) -> Box<dyn Fn(UncheckedInfoHandle, UncheckedKeyDto)> {
-    let context_wrapper = ContextWrapper::new(context, drop_context);
+    let mut bytes = [0; 32];
+    bytes.copy_from_slice(std::slice::from_raw_parts(dependency, 32));
 
-    Box::new(move |k, i| {
-        callback(
-            context_wrapper.get_context(),
-            Box::into_raw(Box::new(i)),
-            Box::into_raw(Box::new(k)),
-        );
-    })
+    (*handle).0.for_each2(transaction.as_txn(), BlockHash::from_bytes(bytes), notify_observers_callback, notify_observers_callback2);
 }
 
 unsafe fn wrap_predicate_callback(
@@ -124,11 +144,6 @@ unsafe fn wrap_predicate_callback(
     let context_wrapper = ContextWrapper::new(context, drop_context);
     Box::new(move || callback(context_wrapper.get_context()))
 }
-
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_unchecked_map_for_each2(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle) {
-    (*handle).0.clear(transaction.as_write_txn());
-}*/
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_get(handle: *mut UncheckedMapHandle, transaction: &mut TransactionHandle, ptr: *const u8,

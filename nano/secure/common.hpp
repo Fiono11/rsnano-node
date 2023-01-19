@@ -197,6 +197,7 @@ public:
 	explicit unchecked_key (nano::hash_or_account const & dependency);
 	unchecked_key (nano::hash_or_account const &, nano::block_hash const &);
 	unchecked_key (nano::uint512_union const &);
+	unchecked_key (rsnano::UncheckedKeyDto const & dto);
 	rsnano::UncheckedKeyDto to_dto () const;
 	bool deserialize (nano::stream &);
 	bool operator== (nano::unchecked_key const &) const;
