@@ -35,7 +35,7 @@ void nano::unchecked_map::put (nano::hash_or_account const & dependency, nano::u
 
 namespace
 {
-void action_callback_wrapper (void * context, rsnano::UncheckedKeyDto & key, rsnano::UncheckedInfoHandle * info)
+void action_callback_wrapper (void * context, rsnano::UncheckedKeyDto * key, rsnano::UncheckedInfoHandle * info)
 {
 	auto fn = static_cast<std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> *> (context);
 	nano::unchecked_info i;
