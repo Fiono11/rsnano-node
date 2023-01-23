@@ -3,13 +3,17 @@ use std::collections::btree_map::Iter;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::{mem, thread};
+use std::{clone, mem, thread};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::thread::{current, JoinHandle, spawn, Thread};
-use rsnano_core::{Account, BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
+use tokio::select;
+//use futures::{select, FutureExt};
+use rsnano_core::{Account, BlockHash, Epochs, HashOrAccount, UncheckedInfo, UncheckedKey};
+use rsnano_core::utils::Logger;
 use rsnano_store_lmdb::{get, LmdbStore, LmdbWriteTransaction};
 use rsnano_store_traits::{Store, Transaction, UncheckedStore, WriteTransaction};
+use crate::signatures::{SignatureChecker, StateBlockSignatureVerificationValue};
 
 const MEM_BLOCK_COUNT_MAX: usize = 256000;
 
@@ -88,76 +92,230 @@ void nano::unchecked_map::item_visitor::operator() (query const & item)
 	};
 	*/
 
+struct StateUncheckedMapThread {
+    condition: Condvar,
+    mutable: Mutex<ThreadMutableData>,
+    //callbacks: Mutex<Callbacks>,
+    store: Arc<LmdbStore>,
+    disable_delete: bool,
+}
+
+impl StateUncheckedMapThread {
+    /*fn insert_impl(&mut self, transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo) {
+        let mut lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty() {
+            let block = info.clone().block.unwrap();
+            self.store.unchecked_store.put(transaction, &dependency, &info);
+        }
+        else {
+            let key = UncheckedKey::new(info.previous(), info.hash());
+            let entry = Entry {
+                key,
+                info
+            };
+            lock.entries.insert(entry);
+            while lock.entries.size() > MEM_BLOCK_COUNT_MAX
+            {
+                lock.entries.pop_front();
+            }
+        }
+    }
+
+    fn query_impl(&mut self, transaction: &mut dyn WriteTransaction, hash: BlockHash) {
+        let mut lock = self.mutable.lock().unwrap();
+        let mut delete_queue: VecDeque<UncheckedKey> = VecDeque::new();
+        if !self.disable_delete {
+            if lock.entries.is_empty() {
+                let (mut i, n) = self.store.unchecked_store.equal_range(transaction.txn(), hash);
+                while !i.is_end() {
+                    delete_queue.push_back(i.current().unwrap().0.clone());
+                    i.next();
+                }
+            }
+            else {
+                let it = self.store.unchecked_store.lower_bound(transaction.txn(), &UncheckedKey::new(hash, BlockHash::zero()));
+                for (i, e) in self.entries.iter() {
+                    delete_queue.push_back(e.clone().key);
+                }
+            }
+            for key in delete_queue {
+                self.store.unchecked_store.del(transaction, &key);
+            }
+        }
+    }*/
+
+    fn write_buffer(&self, data: &mut ThreadMutableData) {
+        let mut transaction = self.store.tx_begin_write().unwrap();
+        for item in data.back_buffer.iter() {
+            match item {
+                Op::Insert(i) => {
+                    let dependency = i.0.clone();
+                    let info =i.1.clone();
+                    if data.entries.is_empty() {
+                        self.store.unchecked_store.put(&mut transaction, &dependency, &info);
+                    }
+                    else {
+                        let key = UncheckedKey::new(info.previous(), info.hash());
+                        let entry = Entry {
+                            key,
+                            info
+                        };
+                        data.entries.insert(entry);
+                        while data.entries.size() > MEM_BLOCK_COUNT_MAX
+                        {
+                            data.entries.pop_front();
+                        }
+                    }
+                },
+                Op::Query(q) => {
+                    let hash = BlockHash::from(q.number());
+                    let mut delete_queue: VecDeque<UncheckedKey> = VecDeque::new();
+                    if !self.disable_delete {
+                        if data.entries.is_empty() {
+                            let (mut i, n) = self.store.unchecked_store.equal_range(transaction.txn(), hash);
+                            while !i.is_end() {
+                                delete_queue.push_back(i.current().unwrap().0.clone());
+                                i.next();
+                            }
+                        }
+                        else {
+                            let it = self.store.unchecked_store.lower_bound(transaction.txn(), &UncheckedKey::new(hash, BlockHash::zero()));
+                            for (i, e) in data.entries.entries.iter() {
+                                delete_queue.push_back(e.clone().key);
+                            }
+                        }
+                        for key in delete_queue {
+                            self.store.unchecked_store.del(&mut transaction, &key);
+                        }
+                    }
+                },
+            }
+        }
+    }
+
+    fn run(&mut self) {
+        let mut lock = self.mutable.lock().unwrap();
+        while !&lock.stopped {
+            if !lock.buffer.is_empty() {
+                let mut buffer = &lock.buffer;
+                let mut back_buffer = &lock.back_buffer;
+                mem::swap(&mut buffer, &mut back_buffer);
+                lock.writing_back_buffer = true;
+                self.write_buffer(&mut lock);
+                lock.writing_back_buffer = false;
+            }
+            else {
+                self.condition.notify_all();
+                self.condition.wait(self.mutable.lock().unwrap());
+            }
+        }
+    }
+}
+
+pub struct StateUncheckedMap {
+    join_handle: Option<JoinHandle<()>>,
+    thread: Arc<StateUncheckedMapThread>,
+}
+
+struct ThreadMutableData {
+    active: bool,
+    stopped: bool,
+    buffer: VecDeque<Op>,
+    back_buffer: VecDeque<Op>,
+    writing_back_buffer: bool,
+    entries: EntryContainer,
+}
+
+#[derive(Default)]
+pub struct Builder {
+    store: Option<Arc<LmdbStore>>,
+    disable_delete: bool,
+}
+
 pub struct UncheckedMap {
-    data: Arc<Mutex<i32>>,
     handle: Option<thread::JoinHandle<()>>,
     store: Arc<LmdbStore>,
-    buffer: Arc<Mutex<VecDeque<Op>>>,
+    buffer: Arc<(Mutex<VecDeque<Op>>, Condvar)>,
     back_buffer: Arc<Mutex<VecDeque<Op>>>,
-    condition: Arc<Mutex<Condvar>>,
+    //condition: Arc<Mutex<Condvar>>,
     writing_back_buffer: Arc<Mutex<bool>>,
-    stopped: Arc<Mutex<bool>>,
+    stopped: Arc<(Mutex<bool>, Condvar)>,
     entries: Arc<Mutex<EntryContainer>>,
     disable_delete: Arc<Mutex<bool>>,
 }
 
 impl UncheckedMap {
     pub fn new(store: Arc<LmdbStore>, disable_delete: bool) -> UncheckedMap {
-        let data = Arc::new(Mutex::new(0));
-        let buffer = Arc::new(Mutex::new(VecDeque::new()));
+        let buffer = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
         let back_buffer = Arc::new(Mutex::new(VecDeque::new()));
-        let condition = Arc::new(Mutex::new(Condvar::new()));
+        //let condition = Arc::new(Mutex::new(Condvar::new()));
         let writing_back_buffer = Arc::new(Mutex::new(false));
-        let stopped = Arc::new(Mutex::new(false));
+        let stopped = Arc::new((Mutex::new(false), Condvar::new()));
         let entries = Arc::new(Mutex::new(EntryContainer::new()));
         let disable_delete = Arc::new(Mutex::new(disable_delete));
         let my_struct = UncheckedMap {
-            data: data.clone(),
             handle: None,
             store: store.clone(),
             buffer: buffer.clone(),
             back_buffer: back_buffer.clone(),
-            condition: condition.clone(),
+            //condition: condition.clone(),
             writing_back_buffer: writing_back_buffer.clone(),
             stopped: stopped.clone(),
             entries: entries.clone(),
             disable_delete: disable_delete.clone(),
         };
 
+        let buffer_clone = buffer.clone();
+        let stopped_clone = stopped.clone();
+        println!("1");
         let handle = thread::spawn(move || {
-            let mut data = data.lock().unwrap();
+            println!("2");
             let mut back_buffer = back_buffer.lock().unwrap();
-            let mut condition = condition.lock().unwrap();
+            //let mut condition = condition.lock().unwrap();
+            //let mut buffer = mutex.lock().unwrap();
             let mut writing_back_buffer = writing_back_buffer.lock().unwrap();
-            let mut stopped = stopped.lock().unwrap();
+            let (mutex1, condition1) = &*stopped_clone;
             let mut disable_delete = *disable_delete.lock().unwrap();
-            while !*stopped {
-                let mut buffer = buffer.lock().unwrap();
+            let (mutex2, condition2) = &*buffer_clone;
+            println!("3");
+            let mut stopped = *mutex1.lock().unwrap();
+            while !stopped {
+                let mut buffer = mutex2.lock().unwrap();
                 let mut entries = entries.lock().unwrap();
                 let mut store = store.clone();
-                if !buffer.is_empty() {
+                if !&buffer.is_empty() {
+                    println!("4");
                     mem::swap(&mut buffer, &mut back_buffer);
+                    println!("5");
                     *writing_back_buffer = true;
                     //self.write_buffer(&back_buffer);
-                    UncheckedMap::write_buffer(&back_buffer, store, entries, disable_delete);
+                    //UncheckedMap::write_buffer(&back_buffer, store, entries, disable_delete);
+                    println!("6");
                     *writing_back_buffer = false;
-                } else {
-                    condition.notify_all(); // Notify flush()
-                    condition.wait(buffer);
                 }
-                *data += 1;
+                else {
+                    println!("7");
+                    condition1.notify_all(); // Notify flush()
+                    condition2.notify_all();
+                    println!("8");
+                    //break;
+                    //condition.wait(buffer);
+                    /*condition.wait (lock, [this] () {
+                        return stopped || !buffer.empty ();
+                    });*/
+
+                    //if condition1.wait(mutex1.lock().unwrap()).and_then(|_| Ok(true)).unwrap() || condition2.wait(buffer).and_then(|_| Ok(true)).unwrap() {
+                        //break;
+                    //}
+                }
             }
         });
+        println!("9");
         let my_struct = UncheckedMap {
             handle: Some(handle),
             ..my_struct
         };
         my_struct
-    }
-
-    fn get_data(&self) -> i32 {
-        let data = self.data.lock().unwrap();
-        *data
     }
 
     fn join_thread(&mut self) {
@@ -166,18 +324,18 @@ impl UncheckedMap {
         }
     }
 
-    fn write_buffer(back_buffer: &VecDeque<Op>, store: Arc<LmdbStore>, entries: MutexGuard<EntryContainer>, disable_delete: bool) {
+    fn write_buffer(back_buffer: &VecDeque<Op>, store: Arc<LmdbStore>, entries: Arc<EntryContainer>, disable_delete: bool) {
         let mut transaction = store.tx_begin_write().unwrap();
         //let visitor = ItemVisitor {
             //unchecked: self,
             //transaction,
         //};
-        for item in back_buffer {
-            match item {
-                Op::Insert(i) => UncheckedMap::insert_impl(&mut transaction, i.0.clone(), i.1.clone(), store.clone(), entries.clone()), //visitor.visit_insert(i),
-                Op::Query(q) => UncheckedMap::query_impl(&mut transaction, BlockHash::from(q.number()), store.clone(), entries.clone(), disable_delete),
-            }
-        }
+        //for item in back_buffer {
+            //match item {
+                //Op::Insert(i) => UncheckedMap::insert_impl(&mut transaction, i.0.clone(), i.1.clone(), store.clone(), Arc::clone(&entries)), //visitor.visit_insert(i),
+                //Op::Query(q) => UncheckedMap::query_impl(&mut transaction, BlockHash::from(q.number()), store.clone(), entries.clone(), disable_delete),
+            //}
+        //}
     }
 
     pub fn insert_impl(transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo, store: Arc<LmdbStore>, mut entries: EntryContainer) {
@@ -215,7 +373,7 @@ impl UncheckedMap {
         }
     }
 
-    fn query_impl(transaction: &mut dyn WriteTransaction, hash: BlockHash, store: Arc<LmdbStore>, entries: EntryContainer, disable_delete: bool) {
+    fn query_impl(transaction: &mut dyn WriteTransaction, hash: BlockHash, store: Arc<LmdbStore>, entries: EntryContainer , disable_delete: bool) {
         let mut delete_queue: VecDeque<UncheckedKey> = VecDeque::new();
         if !disable_delete {
             if entries.is_empty() {
@@ -255,11 +413,11 @@ impl UncheckedMap {
     }
     }*/
 
-    pub fn exists(&self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) -> bool {
+    pub fn exists(&self, transaction: &dyn Transaction, key: &UncheckedKey) -> bool {
         let entries = self.entries.lock().unwrap();
         if entries.is_empty()
         {
-            return self.store.unchecked().exists (transaction.txn(), key);
+            return self.store.unchecked().exists (transaction, key);
         }
         else
         {
@@ -273,10 +431,12 @@ impl UncheckedMap {
     }
 
     pub fn stop(&mut self) {
-        let mut stopped = *self.stopped.lock().unwrap();
+        let pair: Arc<(Mutex<bool>, Condvar)> = Arc::clone(&self.stopped);
+        let (mutex, condition) = &*pair;
+        let mut stopped = *mutex.lock().unwrap();
         if !stopped {
             stopped = true;
-            self.condition.lock().unwrap().notify_all();
+            condition.notify_all();
         }
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
@@ -284,11 +444,13 @@ impl UncheckedMap {
     }
 
     pub fn trigger(&mut self, dependency: HashOrAccount) {
-        let mut buffer = self.buffer.lock().unwrap();
+        let pair = Arc::clone(&self.buffer);
+        let (mutex, condition) = &*pair;
+        let mut buffer = mutex.lock().unwrap();
         buffer.push_back(Op::Query(dependency));
         //debug_assert (buffer.back ().which () == 1); // which stands for "query".
         //lock.unlock ();
-        self.condition.lock().unwrap().notify_all (); // Notify run ()
+        condition.notify_all (); // Notify run ()
     }
 
     pub fn del(&mut self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
@@ -322,8 +484,12 @@ impl UncheckedMap {
     }
 
     pub fn put(&mut self, dependency: HashOrAccount, info: UncheckedInfo) {
-        self.buffer.lock().unwrap().push_back(Op::Insert((dependency, info)));
-        self.condition.lock().unwrap().notify_all();
+        println!("!!!!!!!!!!!!!!!");
+        let pair = Arc::clone(&self.buffer);
+        let (mutex, condition) = &*pair;
+        let mut buffer = mutex.lock().unwrap();
+        buffer.push_back(Op::Insert((dependency, info)));
+        condition.notify_all();
     }
 
     pub fn get(&mut self, transaction: &dyn Transaction, hash: BlockHash) -> Vec<UncheckedInfo> {
@@ -366,10 +532,10 @@ impl UncheckedMap {
         }
     }
 
-    pub fn for_each1(&mut self, transaction: &dyn WriteTransaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
+    pub fn for_each1(&mut self, transaction: &dyn Transaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
         let mut entries = self.entries.lock().unwrap().clone();
         if entries.is_empty() {
-            let mut it = self.store.unchecked().begin(transaction.txn());
+            let mut it = self.store.unchecked().begin(transaction);
             while !it.is_end() {
                 if entries.size() < MEM_BLOCK_COUNT_MAX { // predicate
                     let (key, info) = it.current().unwrap();
@@ -393,9 +559,18 @@ impl UncheckedMap {
     }
 
     pub fn flush(&mut self) {
-        while !*self.stopped.lock().unwrap() && (self.buffer.lock().unwrap().is_empty() && self.back_buffer.lock().unwrap().is_empty() && !*self.writing_back_buffer.lock().unwrap()) {
-            self.condition.lock();
+        let pair1: Arc<(Mutex<bool>, Condvar)> = Arc::clone(&self.stopped);
+        let (mutex, condition1) = &*pair1;
+        let mut stopped = mutex.lock().unwrap();
+        let pair2: Arc<(Mutex<VecDeque<Op>>, Condvar)> = Arc::clone(&self.buffer);
+        let (mutex, condition2) = &*pair2;
+        let mut buffer = mutex.lock().unwrap();
+        if condition1.wait(stopped).and_then(|_| Ok(true)).unwrap() || condition2.wait(buffer).and_then(|_| Ok(true)).unwrap() {
+            return;
         }
+        //while !*self.stopped.lock().unwrap() && (self.buffer.lock().unwrap().is_empty() && self.back_buffer.lock().unwrap().is_empty() && !*self.writing_back_buffer.lock().unwrap()) {
+            //self.condition.lock();
+        //}
         //nano::unique_lock<nano::mutex> lock{ mutex };
         //condition.wait (lock, [this] () {
             //return stopped || (buffer.empty () && back_buffer.empty () && !writing_back_buffer);

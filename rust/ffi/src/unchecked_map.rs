@@ -30,7 +30,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_destroy(handle: *mut UncheckedMapHand
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_exists(handle: *mut UncheckedMapHandle, transaction: &mut TransactionHandle, key: UncheckedKeyDto) -> bool {
-    (*handle).0.exists(transaction.as_write_txn(), &UncheckedKey::from(&key))
+    (*handle).0.exists(transaction.as_txn(), &UncheckedKey::from(&key))
 }
 
 #[no_mangle]
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHa
         drop_action_callback,
     );
 
-    (*handle).0.for_each1(transaction.as_write_txn(), notify_observers_callback);
+    (*handle).0.for_each1(transaction.as_txn(), notify_observers_callback);
 }
 
 unsafe fn wrap_action_callback(
