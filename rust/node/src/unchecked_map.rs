@@ -2,10 +2,13 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::{mem, thread};
+use std::borrow::BorrowMut;
 use std::thread::JoinHandle;
+use serde::__private::de::Borrowed;
 use rsnano_core::{BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
 use rsnano_store_lmdb::{LmdbStore, LmdbWriteTransaction};
 use rsnano_store_traits::{Store, Transaction, UncheckedStore, WriteTransaction};
+use crate::signatures::StateBlockSignatureVerificationResult;
 
 const MEM_BLOCK_COUNT_MAX: usize = 256000;
 
@@ -87,7 +90,7 @@ void nano::unchecked_map::item_visitor::operator() (query const & item)
 struct StateUncheckedMapThread {
     condition: Condvar,
     mutable: Mutex<ThreadMutableData>,
-    //callbacks: Mutex<Callbacks>,
+    callbacks: Mutex<Callbacks>,
     store: Arc<LmdbStore>,
     disable_delete: bool,
 }
@@ -213,15 +216,37 @@ impl StateUncheckedMapThread {
         self.condition.notify_all();
     }
 
-    /*pub fn get(&mut self, transaction: &dyn Transaction, hash: BlockHash) -> Vec<UncheckedInfo> {
-        let mut result = RefCell::new(Vec::new());
-        result.into_inner()
+    pub fn get(&mut self, transaction: &dyn Transaction, dependency: BlockHash) -> Vec<UncheckedInfo> {
+        let mut result = Vec::new();
+        let lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty()
+        {
+            let (mut i, n) = self.store.unchecked_store.equal_range(transaction, dependency);
+            while !i.is_end() {
+                if i.current().unwrap().0.hash == dependency {
+                    let (key, info) = i.current().unwrap();
+                    //action(key, info);
+                    result.push(info.clone());
+                }
+                i.next();
+            }
+        }
+        else
+        {
+            for (_, entry) in lock.entries.entries.iter() { // predicate
+                if entry.key.previous == dependency {
+                    //action(&entry.key, &entry.info);
+                    result.push(entry.info.clone());
+                }
+            }
+        }
+        result
     }
 
     pub fn for_each2(&mut self, transaction: &dyn Transaction, dependency: BlockHash, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
-        let entries = self.entries.lock().unwrap();
+        let lock = self.mutable.lock().unwrap();
         //let dependency = BlockHash::from_bytes(*dependency.as_bytes());
-        if entries.is_empty()
+        if lock.entries.is_empty()
         {
             let (mut i, n) = self.store.unchecked_store.equal_range(transaction, dependency);
             while !i.is_end() {
@@ -234,7 +259,7 @@ impl StateUncheckedMapThread {
         }
         else
         {
-            for (_, entry) in entries.entries.iter() { // predicate
+            for (_, entry) in lock.entries.entries.iter() { // predicate
                 if predicate() && entry.key.previous == dependency {
                     action(&entry.key, &entry.info);
                 }
@@ -243,30 +268,30 @@ impl StateUncheckedMapThread {
     }
 
     pub fn for_each1(&mut self, transaction: &dyn Transaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
-        let mut entries = self.entries.lock().unwrap().clone();
-        if entries.is_empty() {
+        let mut lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty() {
             let mut it = self.store.unchecked().begin(transaction);
             while !it.is_end() {
-                if entries.size() < MEM_BLOCK_COUNT_MAX { // predicate
+                if lock.entries.size() < MEM_BLOCK_COUNT_MAX { // predicate
                     let (key, info) = it.current().unwrap();
                     action(key, info);
                     let entry = Entry {
                         key: key.clone(),
                         info: info.clone(),
                     };
-                    entries.insert(entry);
+                    lock.entries.insert(entry);
                 }
             }
         }
         else {
             //let entries = self.entries.entries.clone();
-            for (_, entry) in entries.entries.iter() { // predicate
-                if entries.entries.len() < MEM_BLOCK_COUNT_MAX {
+            for (_, entry) in lock.entries.entries.iter() { // predicate
+                if lock.entries.entries.len() < MEM_BLOCK_COUNT_MAX {
                     action(&entry.key, &entry.info);
                 }
             }
         }
-    }*/
+    }
 
     pub fn flush(&mut self) {
         let lock = self.mutable.lock().unwrap();
@@ -307,6 +332,24 @@ impl StateUncheckedMap {
         }
         Ok(())
     }
+
+    pub fn action_callback(
+        &self,
+        callback: Box<dyn Fn(&UncheckedKey, &UncheckedInfo) + Send + Sync>,
+    ) {
+        let mut lk = self.thread.callbacks.lock().unwrap();
+        lk.action_callback = Some(callback);
+    }
+
+    pub fn predicate_callback(&self, callback: Box<dyn Fn() -> bool + Send + Sync>) {
+        let mut lk = self.thread.callbacks.lock().unwrap();
+        lk.predicate_callback = Some(callback);
+    }
+}
+
+struct Callbacks {
+    action_callback: Option<Box<dyn Fn(&UncheckedKey, &UncheckedInfo) + Send + Sync>>,
+    predicate_callback: Option<Box<dyn Fn() -> bool + Send + Sync>>,
 }
 
 struct ThreadMutableData {
