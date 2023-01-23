@@ -5,10 +5,11 @@ use std::{mem, thread};
 use std::borrow::BorrowMut;
 use std::thread::JoinHandle;
 use serde::__private::de::Borrowed;
-use rsnano_core::{BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
+use rsnano_core::{BlockHash, Epochs, HashOrAccount, UncheckedInfo, UncheckedKey};
+use rsnano_core::utils::NullLogger;
 use rsnano_store_lmdb::{LmdbStore, LmdbWriteTransaction};
 use rsnano_store_traits::{Store, Transaction, UncheckedStore, WriteTransaction};
-use crate::signatures::StateBlockSignatureVerificationResult;
+use crate::signatures::{SignatureChecker, StateBlockSignatureVerification, StateBlockSignatureVerificationResult};
 
 const MEM_BLOCK_COUNT_MAX: usize = 256000;
 
@@ -87,10 +88,10 @@ void nano::unchecked_map::item_visitor::operator() (query const & item)
 	};
 	*/
 
-struct StateUncheckedMapThread {
+pub struct StateUncheckedMapThread {
     condition: Condvar,
     mutable: Mutex<ThreadMutableData>,
-    callbacks: Mutex<Callbacks>,
+    //callbacks: Mutex<Callbacks>,
     store: Arc<LmdbStore>,
     disable_delete: bool,
 }
@@ -151,7 +152,7 @@ impl StateUncheckedMapThread {
         }
     }
 
-    fn run(&mut self) {
+    fn run(&self) {
         let mut lock = self.mutable.lock().unwrap();
         while !&lock.stopped {
             if !lock.buffer.is_empty() {
@@ -182,13 +183,13 @@ impl StateUncheckedMapThread {
         }
     }
 
-    pub fn trigger(&mut self, dependency: HashOrAccount) {
+    pub fn trigger(&self, dependency: HashOrAccount) {
         let mut lock = self.mutable.lock().unwrap();
         lock.buffer.push_back(Op::Query(dependency));
         self.condition.notify_all (); // Notify run ()
     }
 
-    pub fn del(&mut self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
+    pub fn del(&self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
         let mut lock = self.mutable.lock().unwrap();
         if lock.entries.is_empty() {
             self.store.unchecked_store.del(transaction, key);
@@ -199,7 +200,7 @@ impl StateUncheckedMapThread {
         }
     }
 
-    pub fn clear(&mut self, transaction: &mut dyn WriteTransaction) {
+    pub fn clear(&self, transaction: &mut dyn WriteTransaction) {
         let mut lock = self.mutable.lock().unwrap();
         if lock.entries.is_empty() {
             self.store.unchecked_store.clear(transaction);
@@ -209,14 +210,14 @@ impl StateUncheckedMapThread {
         }
     }
 
-    pub fn put(&mut self, dependency: HashOrAccount, info: UncheckedInfo) {
+    pub fn put(&self, dependency: HashOrAccount, info: UncheckedInfo) {
         println!("!!!!!!!!!!!!!!!");
         let mut lock = self.mutable.lock().unwrap();
         lock.buffer.push_back(Op::Insert((dependency, info)));
         self.condition.notify_all();
     }
 
-    pub fn get(&mut self, transaction: &dyn Transaction, dependency: BlockHash) -> Vec<UncheckedInfo> {
+    pub fn get(&self, transaction: &dyn Transaction, dependency: BlockHash) -> Vec<UncheckedInfo> {
         let mut result = Vec::new();
         let lock = self.mutable.lock().unwrap();
         if lock.entries.is_empty()
@@ -243,7 +244,7 @@ impl StateUncheckedMapThread {
         result
     }
 
-    pub fn for_each2(&mut self, transaction: &dyn Transaction, dependency: BlockHash, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
+    pub fn for_each2(&self, transaction: &dyn Transaction, dependency: BlockHash, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
         let lock = self.mutable.lock().unwrap();
         //let dependency = BlockHash::from_bytes(*dependency.as_bytes());
         if lock.entries.is_empty()
@@ -267,7 +268,7 @@ impl StateUncheckedMapThread {
         }
     }
 
-    pub fn for_each1(&mut self, transaction: &dyn Transaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
+    pub fn for_each1(&self, transaction: &dyn Transaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
         let mut lock = self.mutable.lock().unwrap();
         if lock.entries.is_empty() {
             let mut it = self.store.unchecked().begin(transaction);
@@ -293,7 +294,7 @@ impl StateUncheckedMapThread {
         }
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&self) {
         let lock = self.mutable.lock().unwrap();
         let stopped = lock.stopped;
         let buffer = lock.buffer.is_empty();
@@ -316,10 +317,14 @@ impl StateUncheckedMapThread {
 
 pub struct StateUncheckedMap {
     join_handle: Option<JoinHandle<()>>,
-    thread: Arc<StateUncheckedMapThread>,
+    pub thread: Arc<StateUncheckedMapThread>,
 }
 
 impl StateUncheckedMap {
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
     pub fn stop(&mut self) -> std::thread::Result<()> {
         {
             let mut lk = self.thread.mutable.lock().unwrap();
@@ -337,13 +342,13 @@ impl StateUncheckedMap {
         &self,
         callback: Box<dyn Fn(&UncheckedKey, &UncheckedInfo) + Send + Sync>,
     ) {
-        let mut lk = self.thread.callbacks.lock().unwrap();
-        lk.action_callback = Some(callback);
+        //let mut lk = self.thread.callbacks.lock().unwrap();
+        //lk.action_callback = Some(callback);
     }
 
     pub fn predicate_callback(&self, callback: Box<dyn Fn() -> bool + Send + Sync>) {
-        let mut lk = self.thread.callbacks.lock().unwrap();
-        lk.predicate_callback = Some(callback);
+        //let mut lk = self.thread.callbacks.lock().unwrap();
+        //lk.predicate_callback = Some(callback);
     }
 }
 
@@ -365,6 +370,50 @@ struct ThreadMutableData {
 pub struct Builder {
     store: Option<Arc<LmdbStore>>,
     disable_delete: bool,
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn store(mut self, store: Arc<LmdbStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    pub fn disable_delete(mut self, disable_delete: bool) -> Self {
+        self.disable_delete = disable_delete;
+        self
+    }
+
+    pub fn spawn(self) -> std::io::Result<StateUncheckedMap> {
+        let thread = Arc::new(StateUncheckedMapThread {
+            condition: Condvar::new(),
+            mutable: Mutex::new(ThreadMutableData {
+                active: false,
+                stopped: false,
+                buffer: Default::default(),
+                back_buffer: Default::default(),
+                writing_back_buffer: false,
+                entries: Default::default()
+            }),
+            store: self.store.unwrap(),
+            disable_delete: self.disable_delete
+        });
+
+        let thread_clone = thread.clone();
+        let join_handle = std::thread::Builder::new()
+            .name("State block sig".to_string())
+            .spawn(move || {
+                thread_clone.run();
+            })?;
+
+        Ok(StateUncheckedMap {
+            join_handle: Some(join_handle),
+            thread,
+        })
+    }
 }
 
 pub struct UncheckedMap {

@@ -2,24 +2,27 @@ use std::ffi::c_void;
 use std::ptr::hash;
 use std::sync::{Arc, RwLock};
 use rsnano_core::{BlockEnum, BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
-use rsnano_node::unchecked_map::UncheckedMap;
+use rsnano_node::signatures::StateBlockSignatureVerification;
+use rsnano_node::unchecked_map::{StateUncheckedMap, StateUncheckedMapThread, UncheckedMap};
 use crate::confirmation_height::{AwaitingProcessingSizeCallback, ConfHeightUnboundedNotifyBlockAlreadyCementedCallback, ConfHeightUnboundedNotifyObserversCallback, ContextWrapper};
 use crate::core::{BlockArrayDto, BlockArrayRawPtr, BlockHandle, UncheckedInfoHandle};
 use crate::ledger::datastore::{LmdbStoreHandle, TransactionHandle, UncheckedKeyDto};
+use crate::utils::LoggerMT;
 use crate::VoidPointerCallback;
 
-pub struct UncheckedMapHandle(UncheckedMap);
+pub struct UncheckedMapHandle(StateUncheckedMap);
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_create(store_handle: *mut LmdbStoreHandle, disable_delete: bool) -> *mut UncheckedMapHandle {
-    let unchecked_map = UncheckedMap::new(
-        (*store_handle).clone(),
-        disable_delete,
-    );
-    let unchecked_map_ptr = Box::into_raw(Box::new(UncheckedMapHandle(unchecked_map)));
-    let unchecked_map = unsafe { &mut *(unchecked_map_ptr as *mut UncheckedMap) };
-    //unchecked_map.run();
-    unchecked_map_ptr
+    let store = Arc::clone(&(*store_handle).clone());
+    let verification = StateUncheckedMap::builder()
+        .store(store)
+        .disable_delete(disable_delete)
+        .spawn()
+        .unwrap();
+    Box::into_raw(Box::new(UncheckedMapHandle(
+        verification,
+    )))
 }
 
 #[no_mangle]
@@ -30,7 +33,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_destroy(handle: *mut UncheckedMapHand
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_exists(handle: *mut UncheckedMapHandle, transaction: &mut TransactionHandle, key: UncheckedKeyDto) -> bool {
-    (*handle).0.exists(transaction.as_txn(), &UncheckedKey::from(&key))
+    (*handle).0.thread.exists(transaction.as_txn(), &UncheckedKey::from(&key))
 }
 
 #[no_mangle]
@@ -38,22 +41,23 @@ pub unsafe extern "C" fn rsn_unchecked_map_trigger(handle: *mut UncheckedMapHand
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let dependency = HashOrAccount::from_bytes(bytes);
-    (*handle).0.trigger(dependency);
+    (*handle).0.thread.trigger(dependency)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_stop(handle: *mut UncheckedMapHandle) {
-    (*handle).0.stop()
+    let verification = unsafe { &mut (*handle).0 };
+    verification.stop().unwrap();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_flush(handle: *mut UncheckedMapHandle) {
-    (*handle).0.flush()
+    (*handle).0.thread.flush()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_count(handle: *mut UncheckedMapHandle, transaction: &mut TransactionHandle) -> usize {
-    (*handle).0.count(transaction.as_txn())
+    (*handle).0.thread.count(transaction.as_txn())
 }
 
 #[no_mangle]
@@ -61,17 +65,17 @@ pub unsafe extern "C" fn rsn_unchecked_map_put(handle: *mut UncheckedMapHandle, 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let dependency = HashOrAccount::from_bytes(bytes);
-    (*handle).0.put(dependency, (*info).0.clone());
+    (*handle).0.thread.put(dependency, (*info).0.clone());
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_del(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle, key: UncheckedKeyDto) {
-   (*handle).0.del(transaction.as_write_txn(), &UncheckedKey::from(&key));
+   (*handle).0.thread.del(transaction.as_write_txn(), &UncheckedKey::from(&key));
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_clear(handle: *mut UncheckedMapHandle,  transaction: &mut TransactionHandle) {
-    (*handle).0.clear(transaction.as_write_txn());
+    (*handle).0.thread.clear(transaction.as_write_txn());
 }
 
 pub type ActionCallback =
@@ -91,7 +95,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHa
         drop_action_callback,
     );
 
-    (*handle).0.for_each1(transaction.as_txn(), notify_observers_callback);
+    (*handle).0.thread.for_each1(transaction.as_txn(), notify_observers_callback);
 }
 
 unsafe fn wrap_action_callback(
@@ -133,7 +137,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each2(handle: *mut UncheckedMapHa
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(dependency, 32));
 
-    (*handle).0.for_each2(transaction.as_txn(), BlockHash::from_bytes(bytes), notify_observers_callback, notify_observers_callback2);
+    (*handle).0.thread.for_each2(transaction.as_txn(), BlockHash::from_bytes(bytes), notify_observers_callback, notify_observers_callback2);
 }
 
 unsafe fn wrap_predicate_callback(
@@ -151,7 +155,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_get(handle: *mut UncheckedMapHandle, 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let hash = BlockHash::from_bytes(bytes);
-    let infos = (*handle).0.get(transaction.as_txn(), hash);
+    let infos = (*handle).0.thread.get(transaction.as_txn(), hash);
     let mut items: Vec<InfoItemDto> = Vec::new();
     for info in infos {
         let info_item_dto = InfoItemDto {
