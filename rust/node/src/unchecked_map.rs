@@ -1,19 +1,11 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::collections::btree_map::Iter;
-use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::{clone, mem, thread};
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
-use std::thread::{current, JoinHandle, spawn, Thread};
-use tokio::select;
-//use futures::{select, FutureExt};
-use rsnano_core::{Account, BlockHash, Epochs, HashOrAccount, UncheckedInfo, UncheckedKey};
-use rsnano_core::utils::Logger;
-use rsnano_store_lmdb::{get, LmdbStore, LmdbWriteTransaction};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::{Arc, Condvar, Mutex};
+use std::{mem, thread};
+use std::thread::JoinHandle;
+use rsnano_core::{BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
+use rsnano_store_lmdb::{LmdbStore, LmdbWriteTransaction};
 use rsnano_store_traits::{Store, Transaction, UncheckedStore, WriteTransaction};
-use crate::signatures::{SignatureChecker, StateBlockSignatureVerificationValue};
 
 const MEM_BLOCK_COUNT_MAX: usize = 256000;
 
@@ -101,10 +93,8 @@ struct StateUncheckedMapThread {
 }
 
 impl StateUncheckedMapThread {
-    /*fn insert_impl(&mut self, transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo) {
-        let mut lock = self.mutable.lock().unwrap();
-        if lock.entries.is_empty() {
-            let block = info.clone().block.unwrap();
+    fn insert_impl(&self, data: &mut ThreadMutableData, transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo) {
+        if data.entries.is_empty() {
             self.store.unchecked_store.put(transaction, &dependency, &info);
         }
         else {
@@ -113,19 +103,18 @@ impl StateUncheckedMapThread {
                 key,
                 info
             };
-            lock.entries.insert(entry);
-            while lock.entries.size() > MEM_BLOCK_COUNT_MAX
+            data.entries.insert(entry);
+            while data.entries.size() > MEM_BLOCK_COUNT_MAX
             {
-                lock.entries.pop_front();
+                data.entries.pop_front();
             }
         }
     }
 
-    fn query_impl(&mut self, transaction: &mut dyn WriteTransaction, hash: BlockHash) {
-        let mut lock = self.mutable.lock().unwrap();
+    fn query_impl(&self, data: &mut ThreadMutableData, transaction: &mut dyn WriteTransaction, hash: BlockHash) {
         let mut delete_queue: VecDeque<UncheckedKey> = VecDeque::new();
         if !self.disable_delete {
-            if lock.entries.is_empty() {
+            if data.entries.is_empty() {
                 let (mut i, n) = self.store.unchecked_store.equal_range(transaction.txn(), hash);
                 while !i.is_end() {
                     delete_queue.push_back(i.current().unwrap().0.clone());
@@ -134,7 +123,7 @@ impl StateUncheckedMapThread {
             }
             else {
                 let it = self.store.unchecked_store.lower_bound(transaction.txn(), &UncheckedKey::new(hash, BlockHash::zero()));
-                for (i, e) in self.entries.iter() {
+                for (i, e) in data.entries.entries.iter() {
                     delete_queue.push_back(e.clone().key);
                 }
             }
@@ -142,52 +131,18 @@ impl StateUncheckedMapThread {
                 self.store.unchecked_store.del(transaction, &key);
             }
         }
-    }*/
+    }
 
     fn write_buffer(&self, data: &mut ThreadMutableData) {
         let mut transaction = self.store.tx_begin_write().unwrap();
-        for item in data.back_buffer.iter() {
+        let back_buffer = &data.back_buffer.clone();
+        for item in back_buffer {
             match item {
                 Op::Insert(i) => {
-                    let dependency = i.0.clone();
-                    let info =i.1.clone();
-                    if data.entries.is_empty() {
-                        self.store.unchecked_store.put(&mut transaction, &dependency, &info);
-                    }
-                    else {
-                        let key = UncheckedKey::new(info.previous(), info.hash());
-                        let entry = Entry {
-                            key,
-                            info
-                        };
-                        data.entries.insert(entry);
-                        while data.entries.size() > MEM_BLOCK_COUNT_MAX
-                        {
-                            data.entries.pop_front();
-                        }
-                    }
+                    self.insert_impl(data, &mut transaction, i.0.clone(), i.1.clone());
                 },
                 Op::Query(q) => {
-                    let hash = BlockHash::from(q.number());
-                    let mut delete_queue: VecDeque<UncheckedKey> = VecDeque::new();
-                    if !self.disable_delete {
-                        if data.entries.is_empty() {
-                            let (mut i, n) = self.store.unchecked_store.equal_range(transaction.txn(), hash);
-                            while !i.is_end() {
-                                delete_queue.push_back(i.current().unwrap().0.clone());
-                                i.next();
-                            }
-                        }
-                        else {
-                            let it = self.store.unchecked_store.lower_bound(transaction.txn(), &UncheckedKey::new(hash, BlockHash::zero()));
-                            for (i, e) in data.entries.entries.iter() {
-                                delete_queue.push_back(e.clone().key);
-                            }
-                        }
-                        for key in delete_queue {
-                            self.store.unchecked_store.del(&mut transaction, &key);
-                        }
-                    }
+                    self.query_impl(data, &mut transaction, BlockHash::from(q.number()));
                 },
             }
         }
@@ -210,11 +165,148 @@ impl StateUncheckedMapThread {
             }
         }
     }
+
+    pub fn exists(&self, transaction: &dyn Transaction, key: &UncheckedKey) -> bool {
+        let lock = self.mutable.lock().unwrap();
+        return if lock.entries.is_empty() {
+            self.store.unchecked().exists(transaction, key)
+        } else {
+            if let Some(_) = lock.entries.by_key.get(key) {
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    pub fn trigger(&mut self, dependency: HashOrAccount) {
+        let mut lock = self.mutable.lock().unwrap();
+        lock.buffer.push_back(Op::Query(dependency));
+        self.condition.notify_all (); // Notify run ()
+    }
+
+    pub fn del(&mut self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
+        let mut lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty() {
+            self.store.unchecked_store.del(transaction, key);
+        }
+        else {
+            let erase = lock.entries.by_key.remove(key);
+            debug_assert!(erase.is_some());
+        }
+    }
+
+    pub fn clear(&mut self, transaction: &mut dyn WriteTransaction) {
+        let mut lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty() {
+            self.store.unchecked_store.clear(transaction);
+        }
+        else {
+            lock.entries.clear();
+        }
+    }
+
+    pub fn put(&mut self, dependency: HashOrAccount, info: UncheckedInfo) {
+        println!("!!!!!!!!!!!!!!!");
+        let mut lock = self.mutable.lock().unwrap();
+        lock.buffer.push_back(Op::Insert((dependency, info)));
+        self.condition.notify_all();
+    }
+
+    /*pub fn get(&mut self, transaction: &dyn Transaction, hash: BlockHash) -> Vec<UncheckedInfo> {
+        let mut result = RefCell::new(Vec::new());
+        result.into_inner()
+    }
+
+    pub fn for_each2(&mut self, transaction: &dyn Transaction, dependency: BlockHash, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
+        let entries = self.entries.lock().unwrap();
+        //let dependency = BlockHash::from_bytes(*dependency.as_bytes());
+        if entries.is_empty()
+        {
+            let (mut i, n) = self.store.unchecked_store.equal_range(transaction, dependency);
+            while !i.is_end() {
+                if predicate() && i.current().unwrap().0.hash == dependency {
+                    let (key, info) = i.current().unwrap();
+                    action(key, info);
+                }
+                i.next();
+            }
+        }
+        else
+        {
+            for (_, entry) in entries.entries.iter() { // predicate
+                if predicate() && entry.key.previous == dependency {
+                    action(&entry.key, &entry.info);
+                }
+            }
+        }
+    }
+
+    pub fn for_each1(&mut self, transaction: &dyn Transaction, action: Box<dyn Fn(&UncheckedKey, &UncheckedInfo)>) {
+        let mut entries = self.entries.lock().unwrap().clone();
+        if entries.is_empty() {
+            let mut it = self.store.unchecked().begin(transaction);
+            while !it.is_end() {
+                if entries.size() < MEM_BLOCK_COUNT_MAX { // predicate
+                    let (key, info) = it.current().unwrap();
+                    action(key, info);
+                    let entry = Entry {
+                        key: key.clone(),
+                        info: info.clone(),
+                    };
+                    entries.insert(entry);
+                }
+            }
+        }
+        else {
+            //let entries = self.entries.entries.clone();
+            for (_, entry) in entries.entries.iter() { // predicate
+                if entries.entries.len() < MEM_BLOCK_COUNT_MAX {
+                    action(&entry.key, &entry.info);
+                }
+            }
+        }
+    }*/
+
+    pub fn flush(&mut self) {
+        let lock = self.mutable.lock().unwrap();
+        let stopped = lock.stopped;
+        let buffer = lock.buffer.is_empty();
+        let back_buffer = lock.back_buffer.is_empty();
+        let writing_back_buffer = lock.writing_back_buffer;
+        self.condition.wait_while(lock, |_| !stopped && (!buffer &&
+        !back_buffer && !writing_back_buffer)).unwrap();
+    }
+
+    pub fn count(&self, transaction: &dyn Transaction) -> usize {
+        let lock = self.mutable.lock().unwrap();
+        if lock.entries.is_empty() {
+            return self.store.unchecked_store.count(transaction) as usize;
+        }
+        else {
+            return lock.entries.size();
+        }
+    }
 }
 
 pub struct StateUncheckedMap {
     join_handle: Option<JoinHandle<()>>,
     thread: Arc<StateUncheckedMapThread>,
+}
+
+impl StateUncheckedMap {
+    pub fn stop(&mut self) -> std::thread::Result<()> {
+        {
+            let mut lk = self.thread.mutable.lock().unwrap();
+            lk.stopped = true;
+        }
+
+        if let Some(handle) = self.join_handle.take() {
+            self.thread.condition.notify_one();
+            handle.join()?;
+        }
+        Ok(())
+    }
 }
 
 struct ThreadMutableData {
