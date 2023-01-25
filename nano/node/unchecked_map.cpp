@@ -91,6 +91,13 @@ nano::transaction const & transaction, std::function<void (nano::unchecked_key c
 void nano::unchecked_map::for_each (
 nano::transaction const & transaction, nano::hash_or_account const & dependency, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate)
 {
+	rsnano::rsn_unchecked_map_for_each2 (handle, transaction.get_rust_handle(), dependency.bytes.data(),
+	action_callback_wrapper,
+	new std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)>{ action },
+	drop_action_callback,
+	predicate_callback_wrapper,
+	new std::function<bool ()>{ predicate },
+	drop_predicate_callback);
 	/*nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	if (entries == nullptr)
 	{

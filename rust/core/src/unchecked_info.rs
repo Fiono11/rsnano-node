@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Information on an unchecked block
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UncheckedInfo {
     // todo: Remove Option as soon as no C++ code requires the empty constructor
     pub block: Option<Arc<RwLock<BlockEnum>>>,
@@ -77,7 +77,7 @@ impl Deserialize for UncheckedInfo {
     }
 }
 
-#[derive(Clone, Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct UncheckedKey {
     pub previous: BlockHash,
     pub hash: BlockHash,

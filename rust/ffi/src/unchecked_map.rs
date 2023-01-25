@@ -1,22 +1,19 @@
 use std::ffi::c_void;
-use std::ptr::hash;
-use std::sync::{Arc, RwLock};
-use rsnano_core::{BlockEnum, BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
-use rsnano_node::signatures::StateBlockSignatureVerification;
-use rsnano_node::unchecked_map::{StateUncheckedMap, StateUncheckedMapThread, UncheckedMap};
-use crate::confirmation_height::{AwaitingProcessingSizeCallback, ConfHeightUnboundedNotifyBlockAlreadyCementedCallback, ConfHeightUnboundedNotifyObserversCallback, ContextWrapper};
-use crate::core::{BlockArrayDto, BlockArrayRawPtr, BlockHandle, UncheckedInfoHandle};
+use std::ops::Deref;
+use rsnano_core::{BlockHash, HashOrAccount, UncheckedInfo, UncheckedKey};
+use rsnano_node::unchecked_map::{EntryContainer, StateUncheckedMap};
+use crate::confirmation_height::ContextWrapper;
+use crate::core::{BlockHandle, UncheckedInfoHandle};
 use crate::ledger::datastore::{LmdbStoreHandle, TransactionHandle, UncheckedKeyDto};
-use crate::utils::LoggerMT;
 use crate::VoidPointerCallback;
 
 pub struct UncheckedMapHandle(StateUncheckedMap);
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_create(store_handle: *mut LmdbStoreHandle, disable_delete: bool) -> *mut UncheckedMapHandle {
-    let store = Arc::clone(&(*store_handle).clone());
+    //let store = Arc::clone(&(*store_handle).clone());
     let verification = StateUncheckedMap::builder()
-        .store(store)
+        .store((*store_handle).deref().to_owned())
         .disable_delete(disable_delete)
         .spawn()
         .unwrap();
@@ -102,9 +99,9 @@ unsafe fn wrap_action_callback(
     callback: ActionCallback,
     context: *mut c_void,
     drop_context: VoidPointerCallback,
-) -> Box<dyn Fn(&UncheckedKey, &UncheckedInfo)> {
+) -> Box<dyn FnMut(&mut EntryContainer, &UncheckedKey, &UncheckedInfo)> {
     let context_wrapper = ContextWrapper::new(context, drop_context);
-    Box::new(move |k, i| {
+    Box::new(move |e, k, i| {
         callback(
             context_wrapper.get_context(),
             Box::into_raw(Box::new(UncheckedKeyDto::from(k))),

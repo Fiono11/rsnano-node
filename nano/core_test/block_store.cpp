@@ -17,7 +17,7 @@
 
 #include <fstream>
 #include <unordered_set>
-
+#include <iostream>
 #include <stdlib.h>
 
 using namespace std::chrono_literals;
@@ -26,11 +26,15 @@ using namespace std::chrono_literals;
 // deleting it from the database
 TEST (unchecked, simple)
 {
+	std::cout << "aaaaaaaaaa";
 	nano::test::system system{};
+	std::cout << 1;
 	auto logger{ std::make_shared<nano::logger_mt> () };
 	auto store = nano::make_store (logger, nano::unique_path (), nano::dev::constants);
 	nano::unchecked_map unchecked{ *store, false };
+	std::cout << 2;
 	ASSERT_TRUE (!store->init_error ());
+	std::cout << 3;
 	nano::keypair key1;
 	nano::block_builder builder;
 	auto block = builder
@@ -41,27 +45,38 @@ TEST (unchecked, simple)
 				 .sign (key1.prv, key1.pub)
 				 .work (5)
 				 .build_shared ();
+	std::cout << 4;
 	// Asserts the block wasn't added yet to the unchecked table
 	auto block_listing1 = unchecked.get (*store->tx_begin_read (), block->previous ());
+	std::cout << 20;
 	ASSERT_TRUE (block_listing1.empty ());
+	std::cout << 5;
 	// Enqueues a block to be saved on the unchecked table
 	unchecked.put (block->previous (), nano::unchecked_info (block));
+	std::cout << 6;
 	// Waits for the block to get written in the database
 	auto check_block_is_listed = [&] (nano::transaction const & transaction_a, nano::block_hash const & block_hash_a) {
 		return unchecked.get (transaction_a, block_hash_a).size () > 0;
 	};
+	std::cout << 7;
 	ASSERT_TIMELY (5s, check_block_is_listed (*store->tx_begin_read (), block->previous ()));
+	std::cout << 7;
 	auto transaction = store->tx_begin_write ();
 	// Retrieves the block from the database
 	auto block_listing2 = unchecked.get (*transaction, block->previous ());
 	ASSERT_FALSE (block_listing2.empty ());
+	std::cout << 8;
 	// Asserts the added block is equal to the retrieved one
 	ASSERT_EQ (*block, *(block_listing2[0].get_block ()));
+	std::cout << 9;
 	// Deletes the block from the database
 	unchecked.del (*transaction, nano::unchecked_key (block->previous (), block->hash ()));
+	std::cout << 10;
 	// Asserts the block is deleted
 	auto block_listing3 = unchecked.get (*transaction, block->previous ());
+	std::cout << 11;
 	ASSERT_TRUE (block_listing3.empty ());
+	std::cout << 12;
 }
 
 // This test ensures the unchecked table is able to receive more than one block
