@@ -4,10 +4,6 @@
 
 #include <nano/lib/blocks.hpp>
 #include <nano/node/state_block_signature_verification.hpp>
-#pragma once
-
-#include <nano/lib/blocks.hpp>
-#include <nano/node/state_block_signature_verification.hpp>
 #include <nano/secure/common.hpp>
 
 #include <chrono>

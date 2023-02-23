@@ -77,8 +77,6 @@ pub struct NodeConfig {
     pub diagnostics_config: DiagnosticsConfig,
     pub stat_config: StatsConfig,
     pub lmdb_config: LmdbConfig,
-    pub weight_period: u64,
-    pub max_weight_samples: u64,
     /// Number of accounts per second to process when doing backlog population scan
     pub backlog_scan_batch_size: u32,
     /// Number of times per second to run backlog population batches. Number of accounts per single batch is `backlog_scan_batch_size / backlog_scan_frequency`
@@ -276,8 +274,6 @@ impl NodeConfig {
             diagnostics_config: DiagnosticsConfig::new(),
             stat_config: StatsConfig::new(),
             lmdb_config: LmdbConfig::new(),
-            weight_period: network_params.node.weight_period,
-            max_weight_samples: network_params.node.max_weight_samples,
             backlog_scan_batch_size: 10 * 1000,
             backlog_scan_frequency: 10,
         }

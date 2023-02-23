@@ -19,12 +19,6 @@ use super::lmdb::{LmdbStoreHandle, TransactionHandle};
 
 pub struct LedgerHandle(pub Arc<Ledger>);
 
-impl LedgerHandle {
-    pub fn new(ledger: Arc<Ledger>) -> Self {
-        LedgerHandle(ledger)
-    }
-}
-
 impl Deref for LedgerHandle {
     type Target = Arc<Ledger>;
 

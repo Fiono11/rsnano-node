@@ -23,7 +23,6 @@ use super::{
 
 #[repr(C)]
 pub struct NodeConfigDto {
-    pub network_params: NetworkParamsDto,
     pub peering_port: u16,
     pub peering_port_defined: bool,
     pub bootstrap_fraction_numerator: u32,
@@ -88,8 +87,6 @@ pub struct NodeConfigDto {
     pub diagnostics_config: TxnTrackingConfigDto,
     pub stat_config: StatConfigDto,
     pub lmdb_config: LmdbConfigDto,
-    pub weight_period: u64,
-    pub max_weight_samples: u64,
     pub backlog_scan_batch_size: u32,
     pub backlog_scan_frequency: u32,
 }
@@ -334,8 +331,6 @@ impl TryFrom<&NodeConfigDto> for NodeConfig {
             lmdb_config: (&value.lmdb_config).into(),
             backlog_scan_batch_size: value.backlog_scan_batch_size,
             backlog_scan_frequency: value.backlog_scan_frequency,
-            weight_period: value.weight_period,
-            max_weight_samples: value.max_weight_samples,
         };
 
         Ok(cfg)
