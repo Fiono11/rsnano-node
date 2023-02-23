@@ -1,5 +1,7 @@
 add_library(
   test_common
+  chains.hpp
+  chains.cpp
   ledger.hpp
   ledger.cpp
   network.hpp
@@ -14,3 +16,7 @@ add_library(
   testutil.cpp)
 
 target_link_libraries(test_common node gtest Boost::log_setup Boost::log)
+
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/gtest/googletest/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/lmdb)

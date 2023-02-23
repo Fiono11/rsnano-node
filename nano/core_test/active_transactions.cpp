@@ -1,6 +1,7 @@
 #include <nano/lib/jsonconfig.hpp>
 #include <nano/node/election.hpp>
 #include <nano/node/transport/inproc.hpp>
+#include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
@@ -241,29 +242,33 @@ TEST (active_transactions, inactive_votes_cache)
 	ASSERT_EQ (1, node.stats->count (nano::stat::type::election, nano::stat::detail::vote_cached));
 }
 
+/**
+ * This test case confirms that a non final vote cannot cause an election to become confirmed
+ */
 TEST (active_transactions, inactive_votes_cache_non_final)
 {
 	nano::test::system system (1);
 	auto & node = *system.nodes[0];
-	nano::block_hash latest (node.latest (nano::dev::genesis_key.pub));
-	nano::keypair key;
+
 	auto send = nano::send_block_builder ()
-				.previous (latest)
-				.destination (key.pub)
+				.previous (nano::dev::genesis->hash ())
+				.destination (nano::keypair{}.pub)
 				.balance (nano::dev::constants.genesis_amount - 100)
 				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-				.work (*system.work.generate (latest))
+				.work (*system.work.generate (nano::dev::genesis->hash ()))
 				.build_shared ();
-	auto vote (std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, 0, 0, std::vector<nano::block_hash> (1, send->hash ()))); // Non-final vote
+
+	// Non-final vote
+	auto vote = std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, 0, 0, std::vector<nano::block_hash> (1, send->hash ()));
 	node.vote_processor.vote (vote, std::make_shared<nano::transport::inproc::channel> (node, node));
 	ASSERT_TIMELY (5s, node.inactive_vote_cache.cache_size () == 1);
+
 	node.process_active (send);
-	node.block_processor.flush ();
-	ASSERT_TIMELY (5s, node.stats->count (nano::stat::type::election, nano::stat::detail::vote_cached) == 1);
-	auto election = node.active.election (send->qualified_root ());
-	ASSERT_NE (nullptr, election);
+	std::shared_ptr<nano::election> election;
+	ASSERT_TIMELY (5s, election = node.active.election (send->qualified_root ()));
+	ASSERT_TIMELY_EQ (5s, node.stats->count (nano::stat::type::election, nano::stat::detail::vote_cached), 1);
+	ASSERT_TIMELY_EQ (5s, nano::dev::constants.genesis_amount - 100, election->tally ().begin ()->first);
 	ASSERT_FALSE (election->confirmed ());
-	ASSERT_EQ (nano::dev::constants.genesis_amount - 100, election->tally ().begin ()->first);
 }
 
 TEST (active_transactions, inactive_votes_cache_fork)
@@ -362,25 +367,23 @@ TEST (active_transactions, inactive_votes_cache_existing_vote)
 	ASSERT_EQ (0, node.stats->count (nano::stat::type::election, nano::stat::detail::vote_cached));
 }
 
-// Test disabled because it's failing intermittently.
-// PR in which it got disabled: https://github.com/nanocurrency/nano-node/pull/3629
-// Issue for investigating it: https://github.com/nanocurrency/nano-node/issues/3632
-TEST (active_transactions, DISABLED_inactive_votes_cache_multiple_votes)
+TEST (active_transactions, inactive_votes_cache_multiple_votes)
 {
 	nano::test::system system;
 	nano::node_config node_config (nano::test::get_available_port (), system.logging);
 	node_config.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
 	auto & node = *system.add_node (node_config);
-	nano::block_hash latest (node.latest (nano::dev::genesis_key.pub));
 	nano::keypair key1;
 	nano::block_builder builder;
+
 	auto send1 = builder.send ()
-				 .previous (latest)
+				 .previous (nano::dev::genesis->hash ())
 				 .destination (key1.pub)
 				 .balance (nano::dev::constants.genesis_amount - 100 * nano::Gxrb_ratio)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-				 .work (*system.work.generate (latest))
+				 .work (*system.work.generate (nano::dev::genesis->hash ()))
 				 .build_shared ();
+
 	auto send2 = builder.send ()
 				 .previous (send1->hash ())
 				 .destination (key1.pub)
@@ -388,6 +391,7 @@ TEST (active_transactions, DISABLED_inactive_votes_cache_multiple_votes)
 				 .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				 .work (*system.work.generate (send1->hash ()))
 				 .build_shared ();
+
 	auto open = builder.state ()
 				.account (key1.pub)
 				.previous (0)
@@ -397,22 +401,24 @@ TEST (active_transactions, DISABLED_inactive_votes_cache_multiple_votes)
 				.sign (key1.prv, key1.pub)
 				.work (*system.work.generate (key1.pub))
 				.build_shared ();
-	node.block_processor.add (send1);
-	node.block_processor.add (send2);
-	node.block_processor.add (open);
-	node.block_processor.flush ();
+
+	// put the blocks in the ledger witout triggering an election
+	ASSERT_TRUE (nano::test::process (node, { send1, send2, open }));
+	ASSERT_TIMELY (5s, nano::test::exists (node, { send1, send2, open }));
+
 	// Process votes
 	auto vote1 (std::make_shared<nano::vote> (key1.pub, key1.prv, 0, 0, std::vector<nano::block_hash> (1, send1->hash ())));
 	node.vote_processor.vote (vote1, std::make_shared<nano::transport::inproc::channel> (node, node));
+
 	auto vote2 (std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, 0, 0, std::vector<nano::block_hash> (1, send1->hash ())));
 	node.vote_processor.vote (vote2, std::make_shared<nano::transport::inproc::channel> (node, node));
+
 	ASSERT_TIMELY (5s, node.inactive_vote_cache.find (send1->hash ()));
 	ASSERT_TIMELY (5s, node.inactive_vote_cache.find (send1->hash ())->voters.size () == 2);
 	ASSERT_EQ (1, node.inactive_vote_cache.cache_size ());
 	node.scheduler.activate (nano::dev::genesis_key.pub, *node.store.tx_begin_read ());
-	ASSERT_TIMELY (5s, node.active.election (send1->qualified_root ()));
-	auto election = node.active.election (send1->qualified_root ());
-	ASSERT_NE (nullptr, election);
+	std::shared_ptr<nano::election> election;
+	ASSERT_TIMELY (5s, election = node.active.election (send1->qualified_root ()));
 	ASSERT_EQ (3, election->votes ().size ()); // 2 votes and 1 default not_an_acount
 	ASSERT_EQ (2, node.stats->count (nano::stat::type::election, nano::stat::detail::vote_cached));
 }
@@ -551,7 +557,7 @@ TEST (active_transactions, vote_replays)
 	ASSERT_NE (nullptr, open1);
 	node.process_active (send1);
 	node.process_active (open1);
-	nano::test::blocks_confirm (node, { send1, open1 });
+	nano::test::start_elections (system, node, { send1, open1 });
 	ASSERT_EQ (2, node.active.size ());
 	// First vote is not a replay and confirms the election, second vote should be a replay since the election has confirmed but not yet removed
 	auto vote_send1 (std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::vote::timestamp_max, nano::vote::duration_max, std::vector<nano::block_hash>{ send1->hash () }));
@@ -580,7 +586,7 @@ TEST (active_transactions, vote_replays)
 				 .build_shared ();
 	ASSERT_NE (nullptr, send2);
 	node.process_active (send2);
-	nano::test::blocks_confirm (node, { send2 });
+	nano::test::start_elections (system, node, { send2 });
 	ASSERT_EQ (1, node.active.size ());
 	auto vote1_send2 (std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::vote::timestamp_max, nano::vote::duration_max, std::vector<nano::block_hash>{ send2->hash () }));
 	auto vote2_send2 (std::make_shared<nano::vote> (key.pub, key.prv, 0, 0, std::vector<nano::block_hash>{ send2->hash () }));
@@ -625,9 +631,7 @@ TEST (active_transactions, dropped_cleanup)
 	ASSERT_FALSE (node.network->publish_filter->apply (block_bytes.data (), block_bytes.size ()));
 	ASSERT_TRUE (node.network->publish_filter->apply (block_bytes.data (), block_bytes.size ()));
 
-	node.block_confirm (nano::dev::genesis);
-	ASSERT_TIMELY (5s, node.active.election (nano::dev::genesis->qualified_root ()));
-	auto election = node.active.election (nano::dev::genesis->qualified_root ());
+	auto election = nano::test::start_election (system, node, nano::dev::genesis->hash ());
 	ASSERT_NE (nullptr, election);
 
 	// Not yet removed
@@ -642,16 +646,15 @@ TEST (active_transactions, dropped_cleanup)
 	ASSERT_FALSE (node.network->publish_filter->apply (block_bytes.data (), block_bytes.size ()));
 
 	// An election was recently dropped
-	ASSERT_EQ (1, node.stats->count (nano::stat::type::election, nano::stat::detail::election_drop_all));
+	ASSERT_EQ (1, node.stats->count (nano::stat::type::active_dropped, nano::stat::detail::normal));
 
 	// Block cleared from active
 	ASSERT_FALSE (node.active.active (nano::dev::genesis->hash ()));
 
 	// Repeat test for a confirmed election
 	ASSERT_TRUE (node.network->publish_filter->apply (block_bytes.data (), block_bytes.size ()));
-	node.block_confirm (nano::dev::genesis);
-	ASSERT_TIMELY (5s, node.active.election (nano::dev::genesis->qualified_root ()));
-	election = node.active.election (nano::dev::genesis->qualified_root ());
+
+	election = nano::test::start_election (system, node, nano::dev::genesis->hash ());
 	ASSERT_NE (nullptr, election);
 	election->force_confirm ();
 	ASSERT_TRUE (election->confirmed ());
@@ -661,7 +664,7 @@ TEST (active_transactions, dropped_cleanup)
 	ASSERT_TRUE (node.network->publish_filter->apply (block_bytes.data (), block_bytes.size ()));
 
 	// Not dropped
-	ASSERT_EQ (1, node.stats->count (nano::stat::type::election, nano::stat::detail::election_drop_all));
+	ASSERT_EQ (1, node.stats->count (nano::stat::type::active_dropped, nano::stat::detail::normal));
 
 	// Block cleared from active
 	ASSERT_FALSE (node.active.active (nano::dev::genesis->hash ()));
@@ -1217,8 +1220,7 @@ TEST (active_transactions, activate_inactive)
 	ASSERT_EQ (nano::process_result::progress, node.process (*send2).code);
 	ASSERT_EQ (nano::process_result::progress, node.process (*open).code);
 
-	node.block_confirm (send2);
-	auto election = node.active.election (send2->qualified_root ());
+	auto election = nano::test::start_election (system, node, send2->hash ());
 	ASSERT_NE (nullptr, election);
 	election->force_confirm ();
 
@@ -1277,7 +1279,7 @@ TEST (active_transactions, list_active)
 
 	ASSERT_EQ (nano::process_result::progress, node.process (*open).code);
 
-	nano::test::blocks_confirm (node, { send, send2, open });
+	nano::test::start_elections (system, node, { send, send2, open });
 	ASSERT_EQ (3, node.active.size ());
 	ASSERT_EQ (1, node.active.list_active (1).size ());
 	ASSERT_EQ (2, node.active.list_active (2).size ());
@@ -1401,98 +1403,10 @@ TEST (active_transactions, fifo)
 	ASSERT_TIMELY (5s, node.active.size () == 1);
 
 	// Ensure overflow stats have been incremented
-	ASSERT_EQ (1, node.stats->count (nano::stat::type::election, nano::stat::detail::election_drop_overflow));
+	ASSERT_EQ (1, node.stats->count (nano::stat::type::active_dropped, nano::stat::detail::normal));
 
 	// Ensure the surviving transaction is the least recently inserted
 	ASSERT_TIMELY (1s, node.active.election (receive2->qualified_root ()) != nullptr);
-}
-
-namespace
-{
-/*
- * Sends `amount` raw from genesis chain into a new account and makes it a representative
- */
-nano::keypair setup_rep (nano::test::system & system, nano::node & node, nano::uint128_t const amount)
-{
-	auto latest = node.latest (nano::dev::genesis_key.pub);
-	auto balance = node.balance (nano::dev::genesis_key.pub);
-
-	nano::keypair key;
-	nano::block_builder builder;
-
-	auto send = builder
-				.send ()
-				.previous (latest)
-				.destination (key.pub)
-				.balance (balance - amount)
-				.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-				.work (*system.work.generate (latest))
-				.build_shared ();
-
-	auto open = builder
-				.open ()
-				.source (send->hash ())
-				.representative (key.pub)
-				.account (key.pub)
-				.sign (key.prv, key.pub)
-				.work (*system.work.generate (key.pub))
-				.build_shared ();
-
-	EXPECT_TRUE (nano::test::process (node, { send, open }));
-	EXPECT_TIMELY (5s, nano::test::confirm (node, { send, open }));
-	EXPECT_TIMELY (5s, nano::test::confirmed (node, { send, open }));
-
-	return key;
-}
-
-/*
- * Creates `count` 1 raw sends from genesis to unique accounts and corresponding open blocks.
- * The genesis chain is then confirmed, but leaves open blocks unconfirmed.
- */
-std::vector<std::shared_ptr<nano::block>> setup_independent_blocks (nano::test::system & system, nano::node & node, int count)
-{
-	std::vector<std::shared_ptr<nano::block>> blocks;
-
-	auto latest = node.latest (nano::dev::genesis_key.pub);
-	auto balance = node.balance (nano::dev::genesis_key.pub);
-
-	for (int n = 0; n < count; ++n)
-	{
-		nano::keypair key;
-		nano::block_builder builder;
-
-		balance -= 1;
-		auto send = builder
-					.send ()
-					.previous (latest)
-					.destination (key.pub)
-					.balance (balance)
-					.sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
-					.work (*system.work.generate (latest))
-					.build_shared ();
-		latest = send->hash ();
-
-		auto open = builder
-					.open ()
-					.source (send->hash ())
-					.representative (key.pub)
-					.account (key.pub)
-					.sign (key.prv, key.pub)
-					.work (*system.work.generate (key.pub))
-					.build_shared ();
-
-		EXPECT_TRUE (nano::test::process (node, { send, open }));
-		EXPECT_TIMELY (5s, nano::test::exists (node, { send, open })); // Ensure blocks are in the ledger
-
-		blocks.push_back (open);
-	}
-
-	// Confirm whole genesis chain at once
-	EXPECT_TIMELY (5s, nano::test::confirm (node, { latest }));
-	EXPECT_TIMELY (5s, nano::test::confirmed (node, { latest }));
-
-	return blocks;
-}
 }
 
 /*
@@ -1511,10 +1425,10 @@ TEST (active_transactions, limit_vote_hinted_elections)
 	// Setup representatives
 	// Enough weight to trigger election hinting but not enough to confirm block on its own
 	const auto amount = ((node.online_reps.trended () / 100) * node.config->election_hint_weight_percent) + 1000 * nano::Gxrb_ratio;
-	nano::keypair rep1 = setup_rep (system, node, amount / 2);
-	nano::keypair rep2 = setup_rep (system, node, amount / 2);
+	nano::keypair rep1 = nano::test::setup_rep (system, node, amount / 2);
+	nano::keypair rep2 = nano::test::setup_rep (system, node, amount / 2);
 
-	auto blocks = setup_independent_blocks (system, node, 2);
+	auto blocks = nano::test::setup_independent_blocks (system, node, 2);
 	auto open0 = blocks[0];
 	auto open1 = blocks[1];
 
@@ -1557,7 +1471,7 @@ TEST (active_transactions, limit_vote_hinted_elections)
 	ASSERT_TIMELY (5s, nano::test::active (node, { open1 }));
 
 	// Ensure there was no overflow of elections
-	ASSERT_EQ (0, node.stats->count (nano::stat::type::election, nano::stat::detail::election_drop_overflow));
+	ASSERT_EQ (0, node.stats->count (nano::stat::type::active_dropped, nano::stat::detail::normal));
 }
 
 /*
@@ -1573,7 +1487,7 @@ TEST (active_transactions, allow_limited_overflow)
 	config.active_elections_hinted_limit_percentage = 20; // Should give us a limit of 4 hinted elections
 	auto & node = *system.add_node (config);
 
-	auto blocks = setup_independent_blocks (system, node, aec_limit * 4);
+	auto blocks = nano::test::setup_independent_blocks (system, node, aec_limit * 4);
 
 	// Split blocks in two halves
 	std::vector<std::shared_ptr<nano::block>> blocks1 (blocks.begin (), blocks.begin () + blocks.size () / 2);
@@ -1604,9 +1518,9 @@ TEST (active_transactions, allow_limited_overflow)
 	}
 
 	// Ensure active elections overfill AEC only up to normal + hinted limit
-	ASSERT_TIMELY_EQ (5s, node.active.size (), node.active.limit () + node.active.hinted_limit ());
+	ASSERT_TIMELY_EQ (5s, node.active.size (), node.active.limit () + node.active.limit (nano::election_behavior::hinted));
 	// And it stays that way without increasing
-	ASSERT_ALWAYS (1s, node.active.size () == node.active.limit () + node.active.hinted_limit ());
+	ASSERT_ALWAYS (1s, node.active.size () == node.active.limit () + node.active.limit (nano::election_behavior::hinted));
 }
 
 /*
@@ -1622,7 +1536,7 @@ TEST (active_transactions, allow_limited_overflow_adapt)
 	config.active_elections_hinted_limit_percentage = 20; // Should give us a limit of 4 hinted elections
 	auto & node = *system.add_node (config);
 
-	auto blocks = setup_independent_blocks (system, node, aec_limit * 4);
+	auto blocks = nano::test::setup_independent_blocks (system, node, aec_limit * 4);
 
 	// Split blocks in two halves
 	std::vector<std::shared_ptr<nano::block>> blocks1 (blocks.begin (), blocks.begin () + blocks.size () / 2);
@@ -1642,9 +1556,9 @@ TEST (active_transactions, allow_limited_overflow_adapt)
 	}
 
 	// Ensure hinted election amount is bounded by hinted limit
-	ASSERT_TIMELY_EQ (5s, node.active.size (), node.active.hinted_limit ());
+	ASSERT_TIMELY_EQ (5s, node.active.size (), node.active.limit (nano::election_behavior::hinted));
 	// And it stays that way without increasing
-	ASSERT_ALWAYS (1s, node.active.size () == node.active.hinted_limit ());
+	ASSERT_ALWAYS (1s, node.active.size () == node.active.limit (nano::election_behavior::hinted));
 
 	// Insert the first part of the blocks into normal election scheduler
 	for (auto const & block : blocks1)

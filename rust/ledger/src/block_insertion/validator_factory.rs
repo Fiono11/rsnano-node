@@ -42,7 +42,7 @@ impl<'a> BlockValidatorFactory<'a> {
             block_exists: self
                 .ledger
                 .block_or_pruned_exists_txn(self.txn, &self.block.hash()),
-            old_account_info: self.ledger.get_account_info(self.txn, &account),
+            old_account_info: self.ledger.account_info(self.txn, &account),
             pending_receive_info,
             any_pending_exists: self.any_pending_exists(&account),
             source_block_exists,
@@ -75,9 +75,7 @@ impl<'a> BlockValidatorFactory<'a> {
         source: BlockHash,
     ) -> Option<PendingInfo> {
         self.ledger
-            .store
-            .pending()
-            .get(self.txn, &PendingKey::new(account, source))
+            .pending_info(self.txn, &PendingKey::new(account, source))
     }
 
     fn any_pending_exists(&self, account: &Account) -> bool {

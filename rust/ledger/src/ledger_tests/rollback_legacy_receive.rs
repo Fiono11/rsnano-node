@@ -57,7 +57,7 @@ fn update_account_info() {
 
     let account_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &receive.destination.account())
+        .account_info(txn.txn(), &receive.destination.account())
         .unwrap();
 
     assert_eq!(account_info.head, receive.open_block.hash());
@@ -80,7 +80,7 @@ fn rollback_pending_info() {
 
     let pending = ctx
         .ledger
-        .get_pending(
+        .pending_info(
             txn.txn(),
             &PendingKey::new(receive.destination.account(), receive.send_block.hash()),
         )

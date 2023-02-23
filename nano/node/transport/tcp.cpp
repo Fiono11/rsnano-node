@@ -153,13 +153,6 @@ std::shared_ptr<nano::transport::tcp_server> nano::transport::tcp_server_factory
 	response_server->set_remote_node_id (channel_a->get_node_id ());
 	response_server->start ();
 
-	if (!node.flags.disable_initial_telemetry_requests ())
-	{
-		node.telemetry->get_metrics_single_peer_async (channel_a, [] (nano::telemetry_data_response const &) {
-			// Intentionally empty, starts the telemetry request cycle to more quickly disconnect from invalid peers
-		});
-	}
-
 	return response_server;
 }
 
@@ -179,6 +172,7 @@ nano::transport::tcp_channels::tcp_channels (nano::node & node, std::function<vo
 	network{ node.network },
 	workers{ node.workers },
 	flags{ node.flags },
+	store{ node.store },
 	io_ctx{ node.io_ctx },
 	observers{ node.observers },
 	sink{ std::move (sink) },
@@ -213,10 +207,6 @@ bool nano::transport::tcp_channels::insert (std::shared_ptr<nano::transport::cha
 			error = false;
 			lock.unlock ();
 			channel_observer (channel_a);
-			// Remove UDP channel to same IP:port if exists
-			network->udp_channels.erase (udp_endpoint);
-			// Remove UDP channels with same node ID
-			network->udp_channels.clean_node_id (node_id);
 		}
 	}
 	return error;
@@ -278,6 +268,35 @@ std::unordered_set<std::shared_ptr<nano::transport::channel>> nano::transport::t
 				result.insert (channel);
 			}
 		}
+	}
+	return result;
+}
+
+bool nano::transport::tcp_channels::store_all (bool clear_peers)
+{
+	// We can't hold the mutex while starting a write transaction, so
+	// we collect endpoints to be saved and then relase the lock.
+	std::vector<nano::endpoint> endpoints;
+	{
+		nano::lock_guard<nano::mutex> lock{ mutex };
+		endpoints.reserve (channels.size ());
+		std::transform (channels.begin (), channels.end (),
+		std::back_inserter (endpoints), [] (auto const & channel) { return nano::transport::map_tcp_to_endpoint (channel.endpoint ()); });
+	}
+	bool result (false);
+	if (!endpoints.empty ())
+	{
+		// Clear all peers then refresh with the current list of peers
+		auto transaction (store.tx_begin_write ({ tables::peers }));
+		if (clear_peers)
+		{
+			store.peer ().clear (*transaction);
+		}
+		for (auto const & endpoint : endpoints)
+		{
+			store.peer ().put (*transaction, nano::endpoint_key{ endpoint.address ().to_v6 ().to_bytes (), endpoint.port () });
+		}
+		result = true;
 	}
 	return result;
 }
@@ -541,20 +560,6 @@ void nano::transport::tcp_channels::ongoing_keepalive ()
 	for (auto & channel : send_list)
 	{
 		channel->send (message);
-	}
-	// Attempt to start TCP connections to known UDP peers
-	nano::tcp_endpoint invalid_endpoint (boost::asio::ip::address_v6::any (), 0);
-	if (!network_params.network.is_dev_network () && !flags.disable_udp ())
-	{
-		std::size_t random_count (std::min (static_cast<std::size_t> (6), static_cast<std::size_t> (std::ceil (std::sqrt (network->udp_channels.size ())))));
-		for (auto i (0); i <= random_count; ++i)
-		{
-			auto tcp_endpoint (network->udp_channels.bootstrap_peer (network_params.network.protocol_version_min));
-			if (tcp_endpoint != invalid_endpoint && find_channel (tcp_endpoint) == nullptr && !network->excluded_peers.check (tcp_endpoint))
-			{
-				start_tcp (nano::transport::map_tcp_to_endpoint (tcp_endpoint));
-			}
-		}
 	}
 	std::weak_ptr<nano::transport::tcp_channels> this_w (shared_from_this ());
 	workers->add_timed_task (std::chrono::steady_clock::now () + network_params.network.keepalive_period, [this_w] () {

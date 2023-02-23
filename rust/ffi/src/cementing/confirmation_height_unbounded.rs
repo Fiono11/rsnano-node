@@ -10,14 +10,14 @@ use std::{
 
 use rsnano_core::{BlockEnum, BlockHash};
 use rsnano_node::{
+    cementing::{ConfHeightDetails, ConfirmationHeightUnbounded, ConfirmedIteratedPair},
     config::Logging,
-    confirmation_height::{ConfHeightDetails, ConfirmationHeightUnbounded, ConfirmedIteratedPair},
 };
 
 use crate::{
     core::BlockHandle,
     ledger::datastore::{LedgerHandle, WriteDatabaseQueueHandle},
-    utils::{LoggerHandle, LoggerMT},
+    utils::{ContextWrapper, LoggerHandle, LoggerMT},
     LoggingDto, StatHandle, VoidPointerCallback,
 };
 
@@ -86,32 +86,6 @@ pub unsafe extern "C" fn rsn_conf_height_unbounded_create(
         ),
     )));
     result
-}
-
-struct ContextWrapper {
-    context: *mut c_void,
-    drop_context: VoidPointerCallback,
-}
-
-impl ContextWrapper {
-    fn new(context: *mut c_void, drop_context: VoidPointerCallback) -> Self {
-        Self {
-            context,
-            drop_context,
-        }
-    }
-
-    fn get_context(&self) -> *mut c_void {
-        self.context
-    }
-}
-
-impl Drop for ContextWrapper {
-    fn drop(&mut self) {
-        unsafe {
-            (self.drop_context)(self.context);
-        }
-    }
 }
 
 unsafe fn wrap_notify_observers_callback(
@@ -200,10 +174,7 @@ pub extern "C" fn rsn_conf_height_details_size() -> usize {
 pub unsafe extern "C" fn rsn_conf_height_unbounded_conf_iterated_pairs_len(
     handle: *const ConfirmationHeightUnboundedHandle,
 ) -> usize {
-    (*handle)
-        .0
-        .confirmed_iterated_pairs_size
-        .load(Ordering::Relaxed)
+    (*handle).0.confirmed_iterated_pairs_size_atomic()
 }
 
 #[no_mangle]

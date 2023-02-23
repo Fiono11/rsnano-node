@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nano/node/websocket.hpp"
+
 #include <nano/lib/blocks.hpp>
 #include <nano/node/state_block_signature_verification.hpp>
 #pragma once
@@ -23,7 +25,7 @@ class node_config;
 class ledger;
 class node_flags;
 class network;
-class stat;
+class stats;
 class local_vote_history;
 class active_transactions;
 class election_scheduler;
@@ -92,7 +94,6 @@ private:
 	void queue_unchecked (nano::write_transaction const &, nano::hash_or_account const &);
 	void process_batch (nano::unique_lock<nano::mutex> &);
 	void process_live (nano::transaction const &, nano::block_hash const &, std::shared_ptr<nano::block> const &, nano::process_return const &, nano::block_origin const = nano::block_origin::remote);
-	void requeue_invalid (nano::block_hash const &, nano::unchecked_info const &);
 	void process_verified_state_blocks (std::deque<nano::state_block_signature_verification::value_type> &, std::vector<int> const &, std::vector<nano::block_hash> const &, std::vector<nano::signature> const &);
 	bool stopped{ false };
 	bool active{ false };
@@ -116,7 +117,7 @@ private:
 	nano::node_flags & flags;
 	nano::network & network; // not yet ported to Rust
 	nano::store & store;
-	nano::stat & stats;
+	nano::stats & stats;
 	nano::active_transactions & active_transactions; // not yet ported to Rust
 	nano::vote_cache & inactive_vote_cache; // not yet ported to Rust
 	nano::election_scheduler & scheduler; // not yet ported to Rust

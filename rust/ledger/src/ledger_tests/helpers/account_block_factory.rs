@@ -33,7 +33,7 @@ impl<'a> AccountBlockFactory<'a> {
     }
 
     pub(crate) fn info(&self, txn: &dyn Transaction) -> Option<AccountInfo> {
-        self.ledger.store.account().get(txn, &self.account())
+        self.ledger.account_info(txn, &self.account())
     }
 
     pub(crate) fn legacy_open(&self, source: BlockHash) -> LegacyOpenBlockBuilder {
@@ -100,7 +100,7 @@ impl<'a> AccountBlockFactory<'a> {
             .previous(info.head)
             .destination(Account::from(1))
             .previous_balance(info.balance)
-            .amount(Amount::new(1))
+            .amount(Amount::raw(1))
             .sign(self.key.clone())
     }
 
@@ -123,7 +123,7 @@ impl<'a> AccountBlockFactory<'a> {
             .previous(info.head)
             .previous_balance(info.balance)
             .representative(info.representative)
-            .amount(Amount::new(50))
+            .amount(Amount::raw(50))
             .link(Account::from(1))
             .sign(&self.key)
     }

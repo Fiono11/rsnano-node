@@ -28,12 +28,12 @@ fn remove_from_account_store() {
 
     let receiver_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &open.destination.account());
+        .account_info(txn.txn(), &open.destination.account());
     assert_eq!(receiver_info, None);
 
     let sender_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
+        .account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
         .unwrap();
     assert_eq!(sender_info.head, open.send_block.hash());
 }
@@ -47,7 +47,7 @@ fn update_pending_store() {
 
     let pending = ctx
         .ledger
-        .get_pending(
+        .pending_info(
             txn.txn(),
             &PendingKey::new(open.destination.account(), open.send_block.hash()),
         )

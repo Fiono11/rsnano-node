@@ -111,6 +111,7 @@ class account_info final
 {
 public:
 	account_info ();
+	account_info (rsnano::AccountInfoHandle * handle_a);
 	account_info (nano::block_hash const &, nano::account const &, nano::block_hash const &, nano::amount const &, uint64_t, uint64_t, epoch);
 	account_info (account_info const &);
 	account_info (account_info &&);
@@ -239,6 +240,7 @@ class confirmation_height_info final
 {
 public:
 	confirmation_height_info ();
+	confirmation_height_info (rsnano::ConfirmationHeightInfoDto dto_a);
 	confirmation_height_info (uint64_t, nano::block_hash const &);
 
 	void serialize (nano::stream &) const;
@@ -406,6 +408,7 @@ public:
 	ledger_constants () = delete;
 	ledger_constants (nano::work_thresholds work, nano::networks network_a);
 	ledger_constants (rsnano::LedgerConstantsDto const & dto);
+	ledger_constants (ledger_constants const & other_a);
 	void read_dto (rsnano::LedgerConstantsDto const & dto);
 	nano::work_thresholds work;
 	nano::keypair zero_key;
@@ -519,6 +522,7 @@ class network_params
 public:
 	network_params () = delete;
 	/** Populate values based on \p network_a */
+	network_params (network_params const & other_a);
 	network_params (nano::networks network_a);
 	network_params (rsnano::NetworkParamsDto const & dto);
 

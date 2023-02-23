@@ -125,6 +125,7 @@ namespace transport
 		std::size_t size () const;
 		std::shared_ptr<nano::transport::channel_tcp> find_channel (nano::tcp_endpoint const &) const;
 		std::unordered_set<std::shared_ptr<nano::transport::channel>> random_set (std::size_t, uint8_t = 0, bool = false) const;
+		bool store_all (bool = true);
 		std::vector<endpoint> get_current_peers () const;
 		std::shared_ptr<nano::transport::channel_tcp> find_node_id (nano::account const &);
 		// Get the next peer for attempting a tcp connection
@@ -257,12 +258,13 @@ namespace transport
 		nano::network_params & network_params;
 		nano::outbound_bandwidth_limiter & limiter;
 		std::shared_ptr<nano::syn_cookies> syn_cookies;
-		std::shared_ptr<nano::stat> stats;
+		std::shared_ptr<nano::stats> stats;
 		std::shared_ptr<nano::node_config> config;
 		std::shared_ptr<nano::logger_mt> logger;
 		std::shared_ptr<nano::network> network;
 		std::shared_ptr<nano::thread_pool> workers;
 		std::shared_ptr<nano::node_observers> observers;
+		nano::store & store;
 		nano::node_flags flags;
 		boost::asio::io_context & io_ctx;
 		mutable nano::mutex mutex;

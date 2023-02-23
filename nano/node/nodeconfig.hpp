@@ -36,6 +36,7 @@ class node_config
 public:
 	node_config (nano::network_params & network_params = nano::dev::network_params);
 	node_config (const std::optional<uint16_t> &, nano::logging const &, nano::network_params & network_params = nano::dev::network_params);
+
 	void load_dto (rsnano::NodeConfigDto & dto);
 	rsnano::NodeConfigDto to_dto () const;
 
@@ -44,7 +45,7 @@ public:
 
 	bool upgrade_json (unsigned, nano::jsonconfig &);
 	nano::account random_representative () const;
-	nano::network_params & network_params;
+	nano::network_params network_params;
 	std::optional<uint16_t> peering_port{};
 	nano::logging logging;
 	std::vector<std::pair<std::string, uint16_t>> work_peers;
@@ -78,7 +79,7 @@ public:
 	uint16_t callback_port;
 	std::string callback_target;
 	bool allow_local_peers;
-	nano::stat_config stat_config;
+	nano::stats_config stats_config;
 	nano::ipc::ipc_config ipc_config;
 	std::string external_address;
 	uint16_t external_port;
@@ -153,8 +154,6 @@ public:
 	void set_disable_request_loop (bool value);
 	bool disable_tcp_realtime () const;
 	void set_disable_tcp_realtime (bool value);
-	bool disable_udp () const;
-	void set_disable_udp (bool value);
 	bool disable_unchecked_cleanup () const;
 	void set_disable_unchecked_cleanup (bool value);
 	bool disable_unchecked_drop () const;
@@ -163,8 +162,6 @@ public:
 	void set_disable_providing_telemetry_metrics (bool value);
 	bool disable_ongoing_telemetry_requests () const;
 	void set_disable_ongoing_telemetry_requests (bool value);
-	bool disable_initial_telemetry_requests () const;
-	void set_disable_initial_telemetry_requests (bool value);
 	bool disable_block_processor_unchecked_deletion () const;
 	void set_disable_block_processor_unchecked_deletion (bool value);
 	bool disable_block_processor_republishing () const;

@@ -129,6 +129,7 @@ class telemetry_data;
 class network_params;
 class vote;
 class block;
+class election;
 
 extern nano::uint128_t const & genesis_amount;
 
@@ -282,6 +283,28 @@ namespace test
 		std::atomic<unsigned> required_count;
 	};
 
+	/**
+	 * A helper that calls `start` from constructor and `stop` from destructor
+	 */
+	template <class T>
+	class start_stop_guard
+	{
+	public:
+		explicit start_stop_guard (T & ref_a) :
+			ref{ ref_a }
+		{
+			ref.start ();
+		}
+
+		~start_stop_guard ()
+		{
+			ref.stop ();
+		}
+
+	private:
+		T & ref;
+	};
+
 	void wait_peer_connections (nano::test::system &);
 
 	/**
@@ -383,6 +406,26 @@ namespace test
 	/*
 	 * Creates a new fake channel associated with `node`
 	 */
-	std::shared_ptr<nano::transport::channel> fake_channel (nano::node & node);
+	std::shared_ptr<nano::transport::channel> fake_channel (nano::node & node, nano::account node_id = { 0 });
+	/*
+	 * Start an election on system system_a, node node_a and hash hash_a by reading the block
+	 * out of the ledger and adding it to the manual election scheduler queue.
+	 * It waits up to 5 seconds for the block to appear in the ledger and the election to start
+	 * and calls the system poll function while waiting.
+	 * Returns nullptr if the election did not start within the timeframe.
+	 */
+	std::shared_ptr<nano::election> start_election (nano::test::system & system_a, nano::node & node_a, const nano::block_hash & hash_a);
+	/*
+	 * Call start_election for every block identified in the hash vector.
+	 * Optionally, force confirm the election if forced_a is set.
+	 * NOTE: Each election is given 5 seconds to complete, if it does not complete in 5 seconds, it will assert.
+	 */
+	void start_elections (nano::test::system &, nano::node &, std::vector<nano::block_hash> const &, bool const forced_a = false);
+	/*
+	 * Call start_election for every block in the vector.
+	 * Optionally, force confirm the election if forced_a is set.
+	 * NOTE: Each election is given 5 seconds to complete, if it does not complete in 5 seconds, it will assert.
+	 */
+	void start_elections (nano::test::system &, nano::node &, std::vector<std::shared_ptr<nano::block>> const &, bool const forced_a = false);
 }
 }

@@ -2,39 +2,40 @@
 #include <nano/node/hinted_scheduler.hpp>
 #include <nano/node/node.hpp>
 
-nano::hinted_scheduler::hinted_scheduler (config const & config_a, nano::node & node_a, nano::vote_cache & inactive_vote_cache_a, nano::active_transactions & active_a, nano::online_reps & online_reps_a, nano::stat & stats_a) :
+nano::hinted_scheduler::hinted_scheduler (config const & config_a, nano::node & node_a, nano::vote_cache & inactive_vote_cache_a, nano::active_transactions & active_a, nano::online_reps & online_reps_a, nano::stats & stats_a) :
 	config_m{ config_a },
 	node{ node_a },
 	inactive_vote_cache{ inactive_vote_cache_a },
 	active{ active_a },
 	online_reps{ online_reps_a },
-	stats{ stats_a },
-	stopped{ false }
+	stats{ stats_a }
 {
 }
 
 nano::hinted_scheduler::~hinted_scheduler ()
 {
-	stop ();
-	if (thread.joinable ()) // Ensure thread was started
-	{
-		thread.join ();
-	}
+	// Thread must be stopped before destruction
+	debug_assert (!thread.joinable ());
 }
 
 void nano::hinted_scheduler::start ()
 {
 	debug_assert (!thread.joinable ());
-	thread = std::thread{
-		[this] () { run (); }
-	};
+
+	thread = std::thread{ [this] () {
+		nano::thread_role::set (nano::thread_role::name::election_hinting);
+		run ();
+	} };
 }
 
 void nano::hinted_scheduler::stop ()
 {
-	nano::unique_lock<nano::mutex> lock{ mutex };
-	stopped = true;
+	{
+		nano::lock_guard<nano::mutex> lock{ mutex };
+		stopped = true;
+	}
 	notify ();
+	nano::join_or_pass (thread);
 }
 
 void nano::hinted_scheduler::notify ()
@@ -45,7 +46,7 @@ void nano::hinted_scheduler::notify ()
 bool nano::hinted_scheduler::predicate (nano::uint128_t const & minimum_tally) const
 {
 	// Check if there is space inside AEC for a new hinted election
-	if (active.vacancy_hinted () > 0)
+	if (active.vacancy (nano::election_behavior::hinted) > 0)
 	{
 		// Check if there is any vote cache entry surpassing our minimum vote tally threshold
 		if (inactive_vote_cache.peek (minimum_tally))
@@ -71,7 +72,7 @@ bool nano::hinted_scheduler::run_one (nano::uint128_t const & minimum_tally)
 			{
 				// Try to insert it into AEC as hinted election
 				// We check for AEC vacancy inside our predicate
-				auto result = node.active.insert_hinted (block);
+				auto result = node.active.insert (block, nano::election_behavior::hinted);
 
 				stats.inc (nano::stat::type::hinting, result.inserted ? nano::stat::detail::hinted : nano::stat::detail::insert_failed);
 
@@ -91,7 +92,6 @@ bool nano::hinted_scheduler::run_one (nano::uint128_t const & minimum_tally)
 
 void nano::hinted_scheduler::run ()
 {
-	nano::thread_role::set (nano::thread_role::name::election_hinting);
 	nano::unique_lock<nano::mutex> lock{ mutex };
 	while (!stopped)
 	{
@@ -124,6 +124,6 @@ void nano::hinted_scheduler::run ()
 
 nano::uint128_t nano::hinted_scheduler::tally_threshold () const
 {
-	const auto min_tally = (online_reps.trended () / 100) * node.config->election_hint_weight_percent;
+	auto min_tally = (online_reps.trended () / 100) * node.config->election_hint_weight_percent;
 	return min_tally;
 }

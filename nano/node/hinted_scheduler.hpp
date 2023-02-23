@@ -27,11 +27,12 @@ public: // Config
 	};
 
 public:
-	explicit hinted_scheduler (config const &, nano::node &, nano::vote_cache &, nano::active_transactions &, nano::online_reps &, nano::stat &);
+	hinted_scheduler (config const &, nano::node &, nano::vote_cache &, nano::active_transactions &, nano::online_reps &, nano::stats &);
 	~hinted_scheduler ();
 
 	void start ();
 	void stop ();
+
 	/*
 	 * Notify about changes in AEC vacancy
 	 */
@@ -49,12 +50,12 @@ private: // Dependencies
 	nano::vote_cache & inactive_vote_cache;
 	nano::active_transactions & active;
 	nano::online_reps & online_reps;
-	nano::stat & stats;
+	nano::stats & stats;
 
 private:
 	config const config_m;
 
-	bool stopped;
+	bool stopped{ false };
 	nano::condition_variable condition;
 	mutable nano::mutex mutex;
 	std::thread thread;

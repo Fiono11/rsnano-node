@@ -49,7 +49,7 @@ fn update_account_store() {
 
     let account_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
+        .account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
         .unwrap();
     assert_eq!(account_info.block_count, 1);
     assert_eq!(account_info.head, *DEV_GENESIS_HASH);
@@ -64,7 +64,7 @@ fn remove_from_pending_store() {
 
     let send = rollback_send_block(&ctx, txn.as_mut());
 
-    let pending = ctx.ledger.store.pending().get(
+    let pending = ctx.ledger.pending_info(
         txn.txn(),
         &PendingKey::new(send.destination.account(), send.send_block.hash()),
     );
@@ -113,10 +113,10 @@ fn rollback_dependent_blocks_too() {
 
     assert!(ctx
         .ledger
-        .get_account_info(txn.txn(), &open.destination.account())
+        .account_info(txn.txn(), &open.destination.account())
         .is_none());
 
-    let pending = ctx.ledger.store.pending().get(
+    let pending = ctx.ledger.pending_info(
         txn.txn(),
         &PendingKey::new(open.destination.account(), *DEV_GENESIS_HASH),
     );

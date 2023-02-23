@@ -31,7 +31,7 @@ fn rollback_send() {
         LEDGER_CONSTANTS_STUB.genesis_amount
     );
     assert_eq!(
-        ctx.ledger.store.pending().get(
+        ctx.ledger.pending_info(
             txn.txn(),
             &PendingKey::new(*DEV_GENESIS_ACCOUNT, send.hash())
         ),
@@ -52,7 +52,7 @@ fn rollback_receive() {
     let mut txn = ctx.ledger.rw_txn();
     let genesis = ctx.genesis_block_factory();
 
-    let amount_sent = Amount::new(50);
+    let amount_sent = Amount::raw(50);
     let mut send = genesis
         .send(txn.txn())
         .amount(amount_sent)
@@ -79,7 +79,7 @@ fn rollback_receive() {
         LEDGER_CONSTANTS_STUB.genesis_amount - amount_sent
     );
     assert_eq!(
-        ctx.ledger.store.pending().get(
+        ctx.ledger.pending_info(
             txn.txn(),
             &PendingKey::new(*DEV_GENESIS_ACCOUNT, send.hash())
         ),
@@ -180,7 +180,7 @@ fn rollback_open() {
     let genesis = ctx.genesis_block_factory();
     let destination = AccountBlockFactory::new(&ctx.ledger);
 
-    let amount_sent = Amount::new(50);
+    let amount_sent = Amount::raw(50);
     let mut send = genesis
         .send(txn.txn())
         .link(destination.account())
@@ -208,14 +208,14 @@ fn rollback_open() {
     );
     assert_eq!(
         ctx.ledger
-            .get_pending(
+            .pending_info(
                 txn.txn(),
                 &PendingKey::new(destination.account(), send.hash())
             )
             .unwrap(),
         PendingInfo {
             source: *DEV_GENESIS_ACCOUNT,
-            amount: Amount::new(50),
+            amount: Amount::raw(50),
             epoch: Epoch::Epoch0
         }
     );

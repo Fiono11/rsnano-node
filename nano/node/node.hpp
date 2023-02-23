@@ -15,6 +15,7 @@
 #include <nano/node/distributed_work_factory.hpp>
 #include <nano/node/election.hpp>
 #include <nano/node/election_scheduler.hpp>
+#include <nano/node/epoch_upgrader.hpp>
 #include <nano/node/gap_cache.hpp>
 #include <nano/node/hinted_scheduler.hpp>
 #include <nano/node/network.hpp>
@@ -31,6 +32,7 @@
 #include <nano/node/vote_cache.hpp>
 #include <nano/node/vote_processor.hpp>
 #include <nano/node/wallet.hpp>
+#include <nano/node/websocket.hpp>
 #include <nano/node/write_database_queue.hpp>
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/utility.hpp>
@@ -44,12 +46,7 @@
 
 namespace nano
 {
-namespace websocket
-{
-	class listener;
-}
 class node;
-class telemetry;
 class work_pool;
 
 std::unique_ptr<container_info_component> collect_container_info (rep_crawler & rep_crawler, std::string const & name);
@@ -66,6 +63,8 @@ public:
 	node (boost::asio::io_context &, uint16_t, boost::filesystem::path const &, nano::logging const &, nano::work_pool &, nano::node_flags = nano::node_flags (), unsigned seq = 0);
 	node (boost::asio::io_context &, boost::filesystem::path const &, nano::node_config const &, nano::work_pool &, nano::node_flags = nano::node_flags (), unsigned seq = 0);
 	~node ();
+
+public:
 	template <typename T>
 	void background (T action_a)
 	{
@@ -124,7 +123,6 @@ public:
 	void ongoing_online_weight_calculation_queue ();
 	bool online () const;
 	bool init_error () const;
-	bool epoch_upgrader (nano::raw_key const &, nano::epoch, uint64_t, uint64_t);
 	void set_bandwidth_params (std::size_t limit, double ratio);
 	std::pair<uint64_t, std::unordered_map<nano::account, nano::uint128_t>> get_bootstrap_weights () const;
 	uint64_t get_confirmation_height (nano::transaction const &, nano::account &);
@@ -133,18 +131,20 @@ public:
 	 */
 	void bootstrap_block (nano::block_hash const &);
 	nano::account get_node_id () const;
+	nano::telemetry_data local_telemetry () const;
+
+public:
 	nano::write_database_queue write_database_queue;
 	boost::asio::io_context & io_ctx;
 	boost::latch node_initialized_latch;
 	std::shared_ptr<nano::node_observers> observers;
 	std::shared_ptr<nano::node_config> config;
-	nano::network_params & network_params;
+	nano::network_params network_params;
 	std::shared_ptr<nano::logger_mt> logger;
 	nano::keypair node_id;
-	std::shared_ptr<nano::stat> stats;
+	std::shared_ptr<nano::stats> stats;
 	std::shared_ptr<nano::thread_pool> workers;
 	nano::thread_pool bootstrap_workers;
-	std::shared_ptr<nano::websocket::listener> websocket_server;
 	nano::node_flags flags;
 	nano::work_pool & work;
 	nano::distributed_work_factory distributed_work;
@@ -183,6 +183,8 @@ public:
 	nano::request_aggregator aggregator;
 	nano::wallets wallets;
 	nano::backlog_population backlog;
+	nano::websocket_server websocket;
+	nano::epoch_upgrader epoch_upgrader;
 
 	std::chrono::steady_clock::time_point const startup_time;
 	std::chrono::seconds unchecked_cutoff = std::chrono::seconds (7 * 24 * 60 * 60); // Week
@@ -211,8 +213,6 @@ public: // Testing convenience functions
 
 private:
 	void long_inactivity_cleanup ();
-	void epoch_upgrader_impl (nano::raw_key const &, nano::epoch, uint64_t, uint64_t);
-	nano::locked<std::future<void>> epoch_upgrading;
 };
 
 nano::keypair load_or_create_node_id (boost::filesystem::path const & application_path, nano::logger_mt & logger);

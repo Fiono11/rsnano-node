@@ -14,6 +14,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET
     10.15
     CACHE STRING "")
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(nano-node)
 
 # Build the Rust part
@@ -214,8 +215,8 @@ find_package(Threads)
 
 if(WIN32)
   find_library(PSAPI Psapi)
-  add_definitions(-D_WIN32_WINNT=0x0600 -DWINVER=0x0600 -DWIN32_LEAN_AND_MEAN
-                  -DMINIUPNP_STATICLIB -D_CRT_SECURE_NO_WARNINGS /EHsc)
+  add_definitions(-D_WIN32_WINNT=0x0600 -DWINVER=0x0600 -DMINIUPNP_STATICLIB
+                  -D_CRT_SECURE_NO_WARNINGS /EHsc)
 
   if(${USING_TSAN}
      OR ${USING_ASAN}
@@ -339,7 +340,7 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR})
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/Modules")
 
-set(Boost_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/boost/libs/config/include)
+set(Boost_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/submodules/boost/libs/config/include)
 set(BOOST_MODULE_LIBS
     algorithm
     align
@@ -427,7 +428,7 @@ set(BOOST_MODULE_LIBS
 
 add_definitions(-DBOOST_ALL_NO_LIB) # Disable automatic boost linking
 foreach(lib IN LISTS BOOST_MODULE_LIBS)
-  add_subdirectory(boost/libs/${lib} EXCLUDE_FROM_ALL)
+  add_subdirectory(submodules/boost/libs/${lib} EXCLUDE_FROM_ALL)
 endforeach()
 include_directories(${BOOST_LIBRARY_INCLUDES})
 add_library(Boost::stacktrace ALIAS boost_stacktrace_basic)
@@ -437,6 +438,7 @@ add_definitions(-DBOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED)
 # Compiler mc.exe
 add_definitions(-DBOOST_LOG_WITHOUT_EVENT_LOG)
 
+cmake_policy(SET CMP0079 NEW)
 # Workaround for missing reference errata in the boost property_tree module
 target_link_libraries(boost_property_tree INTERFACE Boost::any)
 target_link_libraries(boost_property_tree INTERFACE Boost::format)
@@ -444,11 +446,15 @@ target_link_libraries(boost_property_tree INTERFACE Boost::multi_index)
 
 # diskhash
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  add_library(diskhash STATIC ${CMAKE_SOURCE_DIR}/diskhash/src/diskhash.c)
-  include_directories(diskhash/src)
+  add_library(diskhash STATIC
+              ${CMAKE_SOURCE_DIR}/submodules/diskhash/src/diskhash.c)
+  include_directories(submodules/diskhash/src)
 endif()
 
 include_directories(cpptoml/include)
+
+# magic_enum
+include_directories(submodules/magic_enum/include)
 
 add_subdirectory(nano/ipc_flatbuffers_lib)
 add_subdirectory(nano/ipc_flatbuffers_test)
@@ -456,7 +462,7 @@ add_subdirectory(nano/ipc_flatbuffers_test)
 set(UPNPC_BUILD_SHARED
     OFF
     CACHE BOOL "")
-add_subdirectory(miniupnp/miniupnpc EXCLUDE_FROM_ALL)
+add_subdirectory(submodules/miniupnp/miniupnpc EXCLUDE_FROM_ALL)
 
 set(BUILD_SHARED
     OFF
@@ -503,13 +509,13 @@ if(NANO_TEST OR RAIBLOCKS_TEST)
 
   # FIXME: This fixes googletest GOOGLETEST_VERSION requirement
   set(GOOGLETEST_VERSION 1.11.0)
-  add_subdirectory(gtest/googletest)
+  add_subdirectory(submodules/gtest/googletest)
   # FIXME: This fixes gtest include directories without modifying gtest's
   # CMakeLists.txt. Ideally we should use GTest::GTest and GTest::Main as
   # dependencies but it requires building gtest differently
   set_target_properties(
     gtest PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
-                     "${CMAKE_SOURCE_DIR}/gtest/googletest/include")
+                     "${CMAKE_SOURCE_DIR}/submodules/gtest/googletest/include")
 
   add_subdirectory(nano/test_common)
   add_subdirectory(nano/core_test)

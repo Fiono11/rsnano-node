@@ -93,7 +93,7 @@ fn update_account_info() {
 
     let account_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
+        .account_info(txn.txn(), &DEV_GENESIS_ACCOUNT)
         .unwrap();
     assert_eq!(account_info.block_count, 2);
     assert_eq!(account_info.head, send.send_block.hash());
@@ -192,7 +192,7 @@ fn fail_negative_spend() {
 
     let mut negative_spend = genesis
         .legacy_send(txn.txn())
-        .balance(send.send_block.balance() + Amount::new(1))
+        .balance(send.send_block.balance() + Amount::raw(1))
         .build();
 
     let result = ctx

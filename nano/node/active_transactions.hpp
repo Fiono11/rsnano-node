@@ -30,7 +30,7 @@ class election_scheduler;
 class vote;
 class transaction;
 class confirmation_height_processor;
-class stat;
+class stats;
 
 class recently_confirmed_cache final
 {
@@ -139,17 +139,16 @@ private: // Elections
 	std::unordered_map<nano::block_hash, std::shared_ptr<nano::election>> blocks;
 
 public:
-	explicit active_transactions (nano::node &, nano::confirmation_height_processor &);
+	active_transactions (nano::node &, nano::confirmation_height_processor &);
 	~active_transactions ();
 
 	void start ();
 	void stop ();
 
 	/**
-	 * Starts new election with hinted behavior type
-	 * Hinted elections have shorter timespan and only can take up limited space inside active elections container
+	 * Starts new election with a specified behavior type
 	 */
-	nano::election_insertion_result insert_hinted (std::shared_ptr<nano::block> const & block_a);
+	nano::election_insertion_result insert (std::shared_ptr<nano::block> const & block, nano::election_behavior behavior = nano::election_behavior::normal);
 	// Distinguishes replay votes, cannot be determined if the block is not in any election
 	nano::vote_code vote (std::shared_ptr<nano::vote> const &);
 	// Is the root of this block in the roots container
@@ -174,20 +173,14 @@ public:
 	void block_already_cemented_callback (nano::block_hash const &);
 
 	/**
-	 * Maximum number of all elections that should be present in this container.
-	 * This is only a soft limit, it is possible for this container to exceed this count.
+	 * Maximum number of elections that should be present in this container
+	 * NOTE: This is only a soft limit, it is possible for this container to exceed this count
 	 */
-	int64_t limit () const;
+	int64_t limit (nano::election_behavior behavior = nano::election_behavior::normal) const;
 	/**
-	 * Maximum number of hinted elections that should be present in this container.
+	 * How many election slots are available for specified election type
 	 */
-	int64_t hinted_limit () const;
-	int64_t vacancy () const;
-	/**
-	 * How many election slots are available for hinted elections.
-	 * The limit of AEC taken up by hinted elections is controlled by `node_config::active_elections_hinted_limit_percentage`
-	 */
-	int64_t vacancy_hinted () const;
+	int64_t vacancy (nano::election_behavior behavior = nano::election_behavior::normal) const;
 	std::function<void ()> vacancy_update{ [] () {} };
 
 	std::size_t election_winner_details_size ();
@@ -202,6 +195,7 @@ private:
 	void erase (nano::qualified_root const &);
 	// Erase all blocks from active and, if not confirmed, clear digests from network filters
 	void cleanup_election (nano::unique_lock<nano::mutex> & lock_a, std::shared_ptr<nano::election>);
+	nano::stat::type completion_type (nano::election const & election) const;
 	// Returns a list of elections sorted by difficulty, mutex must be locked
 	std::vector<std::shared_ptr<nano::election>> list_active_impl (std::size_t) const;
 	/**
@@ -230,14 +224,14 @@ private:
 	// Maximum time an election can be kept active if it is extending the container
 	std::chrono::seconds const election_time_to_live;
 
-	int active_hinted_elections_count{ 0 };
+	/** Keeps track of number of elections by election behavior (normal, hinted, optimistic) */
+	nano::enum_array<nano::election_behavior, int64_t> count_by_behavior;
 
 	nano::condition_variable condition;
-	std::atomic<bool> stopped{ false };
+	bool stopped{ false };
 	std::thread thread;
 
 	friend class election;
-	friend class election_scheduler;
 	friend std::unique_ptr<container_info_component> collect_container_info (active_transactions &, std::string const &);
 
 public: // Tests

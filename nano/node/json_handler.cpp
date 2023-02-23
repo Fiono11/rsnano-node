@@ -261,10 +261,15 @@ nano::account_info nano::json_handler::account_info_impl (nano::transaction cons
 	nano::account_info result;
 	if (!ec)
 	{
-		if (node.store.account ().get (transaction_a, account_a, result))
+		auto info = node.ledger.account_info (transaction_a, account_a);
+		if (!info)
 		{
 			ec = nano::error_common::account_not_found;
 			node.bootstrap_initiator.bootstrap_lazy (account_a, false, account_a.to_account ());
+		}
+		else
+		{
+			result = *info;
 		}
 	}
 	return result;
@@ -901,20 +906,13 @@ void nano::json_handler::accounts_balances ()
 		auto account = account_impl (account_from_request.second.data ());
 		if (!ec)
 		{
-			nano::account_info info;
-			if (!node.store.account ().get (*transaction, account, info))
-			{
-				auto balance = node.balance_pending (account, false);
-				entry.put ("balance", balance.first.convert_to<std::string> ());
-				entry.put ("pending", balance.second.convert_to<std::string> ());
-				entry.put ("receivable", balance.second.convert_to<std::string> ());
-				balances.put_child (account_from_request.second.data (), entry);
-				continue;
-			}
-			else
-			{
-				ec = nano::error_common::account_not_found;
-			}
+			bool const include_only_confirmed = request.get<bool> ("include_only_confirmed", true);
+			auto balance = node.balance_pending (account, include_only_confirmed);
+			entry.put ("balance", balance.first.convert_to<std::string> ());
+			entry.put ("pending", balance.second.convert_to<std::string> ());
+			entry.put ("receivable", balance.second.convert_to<std::string> ());
+			balances.put_child (account_from_request.second.data (), entry);
+			continue;
 		}
 		entry.put ("error", ec.message ());
 		balances.put_child (account_from_request.second.data (), entry);
@@ -2305,7 +2303,7 @@ void nano::json_handler::epoch_upgrade ()
 		{
 			if (nano::pub_key (prv) == node.ledger.epoch_signer (node.ledger.epoch_link (epoch)))
 			{
-				if (!node.epoch_upgrader (prv, epoch, count_limit, threads))
+				if (!node.epoch_upgrader.start (prv, epoch, count_limit, threads))
 				{
 					response_l.put ("started", "1");
 				}
@@ -3386,20 +3384,20 @@ void nano::json_handler::receive ()
 			auto block_transaction (node.store.tx_begin_read ());
 			if (node.ledger.block_or_pruned_exists (*block_transaction, hash))
 			{
-				nano::pending_info pending_info;
-				if (!node.store.pending ().get (*block_transaction, nano::pending_key (account, hash), pending_info))
+				auto pending_info = node.ledger.pending_info (*block_transaction, nano::pending_key (account, hash));
+				if (pending_info)
 				{
 					auto work (work_optional_impl ());
 					if (!ec && work)
 					{
-						nano::account_info info;
 						nano::root head;
-						nano::epoch epoch = pending_info.epoch;
-						if (!node.store.account ().get (*block_transaction, account, info))
+						nano::epoch epoch = pending_info->epoch;
+						auto info = node.ledger.account_info (*block_transaction, account);
+						if (info)
 						{
-							head = info.head ();
+							head = info->head ();
 							// When receiving, epoch version is the higher between the previous and the source blocks
-							epoch = std::max (info.epoch (), epoch);
+							epoch = std::max (info->epoch (), epoch);
 						}
 						else
 						{
@@ -3966,15 +3964,13 @@ void nano::json_handler::stop ()
 
 void nano::json_handler::telemetry ()
 {
-	auto rpc_l (shared_from_this ());
-
 	auto address_text (request.get_optional<std::string> ("address"));
 	auto port_text (request.get_optional<std::string> ("port"));
 
 	if (address_text.is_initialized () || port_text.is_initialized ())
 	{
 		// Check both are specified
-		std::shared_ptr<nano::transport::channel> channel;
+		nano::endpoint endpoint{};
 		if (address_text.is_initialized () && port_text.is_initialized ())
 		{
 			uint16_t port;
@@ -3983,11 +3979,12 @@ void nano::json_handler::telemetry ()
 				boost::asio::ip::address address;
 				if (!nano::parse_address (*address_text, address))
 				{
-					nano::endpoint endpoint (address, port);
-					if (address.is_loopback () && port == rpc_l->node.network->endpoint ().port ())
+					endpoint = { address, port };
+
+					if (address.is_loopback () && port == node.network->endpoint ().port ())
 					{
 						// Requesting telemetry metrics locally
-						auto telemetry_data = nano::local_telemetry_data (rpc_l->node.ledger, *rpc_l->node.network, rpc_l->node.unchecked, rpc_l->node.config->bandwidth_limit, rpc_l->node.network_params, rpc_l->node.startup_time, rpc_l->node.default_difficulty (nano::work_version::work_1), rpc_l->node.node_id);
+						auto telemetry_data = node.local_telemetry ();
 
 						nano::jsonconfig config_l;
 						auto const should_ignore_identification_metrics = false;
@@ -3996,19 +3993,11 @@ void nano::json_handler::telemetry ()
 
 						if (!err)
 						{
-							rpc_l->response_l.insert (rpc_l->response_l.begin (), ptree.begin (), ptree.end ());
+							response_l.insert (response_l.begin (), ptree.begin (), ptree.end ());
 						}
 
-						rpc_l->response_errors ();
+						response_errors ();
 						return;
-					}
-					else
-					{
-						channel = node.network->find_channel (nano::transport::map_endpoint_to_v6 (endpoint));
-						if (!channel)
-						{
-							ec = nano::error_rpc::peer_not_found;
-						}
 					}
 				}
 				else
@@ -4028,38 +4017,30 @@ void nano::json_handler::telemetry ()
 
 		if (!ec)
 		{
-			debug_assert (channel);
-			if (node.telemetry)
+			auto maybe_telemetry = node.telemetry->get_telemetry (nano::transport::map_endpoint_to_v6 (endpoint));
+			if (maybe_telemetry)
 			{
-				node.telemetry->get_metrics_single_peer_async (channel, [rpc_l] (auto const & telemetry_response_a) {
-					if (!telemetry_response_a.error)
-					{
-						nano::jsonconfig config_l;
-						auto const should_ignore_identification_metrics = false;
-						auto err = telemetry_response_a.telemetry_data.serialize_json (config_l, should_ignore_identification_metrics);
-						auto const & ptree = config_l.get_tree ();
+				auto telemetry = *maybe_telemetry;
+				nano::jsonconfig config_l;
+				auto const should_ignore_identification_metrics = false;
+				auto err = telemetry.serialize_json (config_l, should_ignore_identification_metrics);
+				auto const & ptree = config_l.get_tree ();
 
-						if (!err)
-						{
-							rpc_l->response_l.insert (rpc_l->response_l.begin (), ptree.begin (), ptree.end ());
-						}
-						else
-						{
-							rpc_l->ec = nano::error_rpc::generic;
-						}
-					}
-					else
-					{
-						rpc_l->ec = nano::error_rpc::generic;
-					}
-
-					rpc_l->response_errors ();
-				});
+				if (!err)
+				{
+					response_l.insert (response_l.begin (), ptree.begin (), ptree.end ());
+				}
+				else
+				{
+					ec = nano::error_rpc::generic;
+				}
 			}
 			else
 			{
-				response_errors ();
+				ec = nano::error_rpc::peer_not_found;
 			}
+
+			response_errors ();
 		}
 		else
 		{
@@ -4072,54 +4053,52 @@ void nano::json_handler::telemetry ()
 		// setting "raw" to true returns metrics from all nodes requested.
 		auto raw = request.get_optional<bool> ("raw");
 		auto output_raw = raw.value_or (false);
-		if (node.telemetry)
-		{
-			auto telemetry_responses = node.telemetry->get_metrics ();
-			if (output_raw)
-			{
-				boost::property_tree::ptree metrics;
-				for (auto & telemetry_metrics : telemetry_responses)
-				{
-					nano::jsonconfig config_l;
-					auto const should_ignore_identification_metrics = false;
-					auto err = telemetry_metrics.second.serialize_json (config_l, should_ignore_identification_metrics);
-					config_l.put ("address", telemetry_metrics.first.address ());
-					config_l.put ("port", telemetry_metrics.first.port ());
-					if (!err)
-					{
-						metrics.push_back (std::make_pair ("", config_l.get_tree ()));
-					}
-					else
-					{
-						ec = nano::error_rpc::generic;
-					}
-				}
 
-				response_l.put_child ("metrics", metrics);
-			}
-			else
+		auto telemetry_responses = node.telemetry->get_all_telemetries ();
+		if (output_raw)
+		{
+			boost::property_tree::ptree metrics;
+			for (auto & telemetry_metrics : telemetry_responses)
 			{
 				nano::jsonconfig config_l;
-				std::vector<nano::telemetry_data> telemetry_datas;
-				telemetry_datas.reserve (telemetry_responses.size ());
-				std::transform (telemetry_responses.begin (), telemetry_responses.end (), std::back_inserter (telemetry_datas), [] (auto const & endpoint_telemetry_data) {
-					return endpoint_telemetry_data.second;
-				});
-
-				auto average_telemetry_metrics = nano::consolidate_telemetry_data (telemetry_datas);
-				// Don't add node_id/signature in consolidated metrics
-				auto const should_ignore_identification_metrics = true;
-				auto err = average_telemetry_metrics.serialize_json (config_l, should_ignore_identification_metrics);
-				auto const & ptree = config_l.get_tree ();
-
+				auto const should_ignore_identification_metrics = false;
+				auto err = telemetry_metrics.second.serialize_json (config_l, should_ignore_identification_metrics);
+				config_l.put ("address", telemetry_metrics.first.address ());
+				config_l.put ("port", telemetry_metrics.first.port ());
 				if (!err)
 				{
-					response_l.insert (response_l.begin (), ptree.begin (), ptree.end ());
+					metrics.push_back (std::make_pair ("", config_l.get_tree ()));
 				}
 				else
 				{
 					ec = nano::error_rpc::generic;
 				}
+			}
+
+			response_l.put_child ("metrics", metrics);
+		}
+		else
+		{
+			nano::jsonconfig config_l;
+			std::vector<nano::telemetry_data> telemetry_datas;
+			telemetry_datas.reserve (telemetry_responses.size ());
+			std::transform (telemetry_responses.begin (), telemetry_responses.end (), std::back_inserter (telemetry_datas), [] (auto const & endpoint_telemetry_data) {
+				return endpoint_telemetry_data.second;
+			});
+
+			auto average_telemetry_metrics = nano::consolidate_telemetry_data (telemetry_datas);
+			// Don't add node_id/signature in consolidated metrics
+			auto const should_ignore_identification_metrics = true;
+			auto err = average_telemetry_metrics.serialize_json (config_l, should_ignore_identification_metrics);
+			auto const & ptree = config_l.get_tree ();
+
+			if (!err)
+			{
+				response_l.insert (response_l.begin (), ptree.begin (), ptree.end ());
+			}
+			else
+			{
+				ec = nano::error_rpc::generic;
 			}
 		}
 
@@ -4415,10 +4394,11 @@ void nano::json_handler::wallet_info ()
 		{
 			nano::account const & account (i->first);
 
-			nano::account_info account_info{};
-			if (!node.store.account ().get (*block_transaction, account, account_info))
+			auto account_info = node.ledger.account_info (*block_transaction, account);
+			if (account_info)
 			{
-				block_count += account_info.block_count ();
+				block_count += account_info->block_count ();
+				balance += account_info->balance ().number ();
 			}
 
 			nano::confirmation_height_info confirmation_info{};
@@ -4427,7 +4407,6 @@ void nano::json_handler::wallet_info ()
 				cemented_block_count += confirmation_info.height ();
 			}
 
-			balance += account_info.balance ().number ();
 			receivable += node.ledger.account_receivable (*block_transaction, account);
 
 			nano::key_type key_type (wallet->store.key_type (i->second));
@@ -4652,11 +4631,11 @@ void nano::json_handler::wallet_history ()
 		for (auto i (wallet->store.begin (*transaction)), n (wallet->store.end ()); i != n; ++i)
 		{
 			nano::account const & account (i->first);
-			nano::account_info info;
-			if (!node.store.account ().get (*block_transaction, account, info))
+			auto info = node.ledger.account_info (*block_transaction, account);
+			if (info)
 			{
-				auto timestamp (info.modified ());
-				auto hash (info.head ());
+				auto timestamp (info->modified ());
+				auto hash (info->head ());
 				while (timestamp >= modified_since && !hash.is_zero ())
 				{
 					auto block (node.store.block ().get (*block_transaction, hash));
@@ -4726,23 +4705,23 @@ void nano::json_handler::wallet_ledger ()
 		for (auto i (wallet->store.begin (*transaction)), n (wallet->store.end ()); i != n; ++i)
 		{
 			nano::account const & account (i->first);
-			nano::account_info info;
-			if (!node.store.account ().get (*block_transaction, account, info))
+			auto info = node.ledger.account_info (*block_transaction, account);
+			if (info)
 			{
-				if (info.modified () >= modified_since)
+				if (info->modified () >= modified_since)
 				{
 					boost::property_tree::ptree entry;
-					entry.put ("frontier", info.head ().to_string ());
-					entry.put ("open_block", info.open_block ().to_string ());
-					entry.put ("representative_block", node.ledger.representative (*block_transaction, info.head ()).to_string ());
+					entry.put ("frontier", info->head ().to_string ());
+					entry.put ("open_block", info->open_block ().to_string ());
+					entry.put ("representative_block", node.ledger.representative (*block_transaction, info->head ()).to_string ());
 					std::string balance;
-					nano::uint128_union (info.balance ()).encode_dec (balance);
+					nano::uint128_union (info->balance ()).encode_dec (balance);
 					entry.put ("balance", balance);
-					entry.put ("modified_timestamp", std::to_string (info.modified ()));
-					entry.put ("block_count", std::to_string (info.block_count ()));
+					entry.put ("modified_timestamp", std::to_string (info->modified ()));
+					entry.put ("block_count", std::to_string (info->block_count ()));
 					if (representative)
 					{
-						entry.put ("representative", info.representative ().to_account ());
+						entry.put ("representative", info->representative ().to_account ());
 					}
 					if (weight)
 					{
@@ -4890,10 +4869,10 @@ void nano::json_handler::wallet_representative_set ()
 					for (auto i (wallet->store.begin (*transaction)), n (wallet->store.end ()); i != n; ++i)
 					{
 						nano::account const & account (i->first);
-						nano::account_info info;
-						if (!rpc_l->node.store.account ().get (*block_transaction, account, info))
+						auto info = rpc_l->node.ledger.account_info (*block_transaction, account);
+						if (info)
 						{
-							if (info.representative () != representative)
+							if (info->representative () != representative)
 							{
 								accounts.push_back (account);
 							}

@@ -49,7 +49,7 @@ fn clear_pending() {
 
     let open = setup_open_block(&ctx, txn.as_mut());
 
-    let pending = ctx.ledger.get_pending(
+    let pending = ctx.ledger.pending_info(
         txn.txn(),
         &PendingKey::new(open.destination.account(), open.send_block.hash()),
     );
@@ -65,7 +65,7 @@ fn add_account() {
 
     let account_info = ctx
         .ledger
-        .get_account_info(txn.txn(), &open.destination.account())
+        .account_info(txn.txn(), &open.destination.account())
         .unwrap();
     assert_eq!(ctx.ledger.cache.account_count.load(Ordering::Relaxed), 2);
     assert_eq!(account_info.balance, open.open_block.balance());

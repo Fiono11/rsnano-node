@@ -4,11 +4,6 @@
 #include <nano/lib/utility.hpp>
 #include <nano/secure/common.hpp>
 
-#include <boost/multi_index/hashed_index.hpp>
-#include <boost/multi_index/member.hpp>
-#include <boost/multi_index/ordered_index.hpp>
-#include <boost/multi_index_container.hpp>
-
 #include <memory>
 #include <vector>
 
@@ -23,6 +18,8 @@ class online_reps final
 {
 public:
 	online_reps (nano::ledger & ledger_a, nano::node_config const & config_a);
+	online_reps (online_reps const &) = delete;
+	online_reps (online_reps &&) = delete;
 	~online_reps ();
 	/** Add voting account \p rep_account to the set of online representatives */
 	void observe (nano::account const & rep_account);

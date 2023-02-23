@@ -109,11 +109,11 @@ impl Ledger {
     }
 
     pub fn read_txn(&self) -> Box<dyn ReadTransaction> {
-        self.store.tx_begin_read().unwrap()
+        self.store.tx_begin_read()
     }
 
     pub fn rw_txn(&self) -> Box<dyn WriteTransaction> {
-        self.store.tx_begin_write().unwrap()
+        self.store.tx_begin_write()
     }
 
     fn initialize(&mut self, generate_cache: &GenerateCache) -> anyhow::Result<()> {
@@ -158,7 +158,7 @@ impl Ledger {
                 });
         }
 
-        let transaction = self.store.tx_begin_read()?;
+        let transaction = self.store.tx_begin_read();
         self.cache.pruned_count.fetch_add(
             self.store.pruned().count(transaction.txn()) as u64,
             Ordering::SeqCst,
@@ -224,7 +224,7 @@ impl Ledger {
     }
 
     pub fn block_or_pruned_exists(&self, block: &BlockHash) -> bool {
-        let txn = self.store.tx_begin_read().unwrap();
+        let txn = self.store.tx_begin_read();
         self.block_or_pruned_exists_txn(txn.txn(), block)
     }
 
@@ -265,7 +265,7 @@ impl Ledger {
                 None => Amount::zero(),
             }
         } else {
-            match self.store.account().get(txn, account) {
+            match self.account_info(txn, account) {
                 Some(info) => info.balance,
                 None => Amount::zero(),
             }
@@ -327,7 +327,7 @@ impl Ledger {
     }
 
     pub fn block_text(&self, hash: &BlockHash) -> anyhow::Result<String> {
-        let txn = self.store.tx_begin_read()?;
+        let txn = self.store.tx_begin_read();
         match self.store.block().get(txn.txn(), hash) {
             Some(block) => block.to_json(),
             None => Ok(String::new()),
@@ -484,12 +484,12 @@ impl Ledger {
 
     /// Return latest block for account
     pub fn latest(&self, txn: &dyn Transaction, account: &Account) -> Option<BlockHash> {
-        self.store.account().get(txn, account).map(|info| info.head)
+        self.account_info(txn, account).map(|info| info.head)
     }
 
     /// Return latest root for account, account number if there are no blocks for this account
     pub fn latest_root(&self, txn: &dyn Transaction, account: &Account) -> Root {
-        match self.store.account().get(txn, account) {
+        match self.account_info(txn, account) {
             Some(info) => info.head.into(),
             None => account.into(),
         }
@@ -566,7 +566,7 @@ impl Ledger {
 
     pub fn successor(&self, txn: &dyn Transaction, root: &QualifiedRoot) -> Option<BlockEnum> {
         let (mut successor, get_from_previous) = if root.previous.is_zero() {
-            match self.store.account().get(txn, &root.root.into()) {
+            match self.account_info(txn, &root.root.into()) {
                 Some(info) => (Some(info.open_block), false),
                 None => (None, true),
             }
@@ -755,7 +755,7 @@ impl Ledger {
         self.store.block().get(txn, hash)
     }
 
-    pub fn get_account_info(
+    pub fn account_info(
         &self,
         transaction: &dyn Transaction,
         account: &Account,
@@ -775,7 +775,7 @@ impl Ledger {
         self.store.frontier().get(txn, hash)
     }
 
-    pub fn get_pending(&self, txn: &dyn Transaction, key: &PendingKey) -> Option<PendingInfo> {
+    pub fn pending_info(&self, txn: &dyn Transaction, key: &PendingKey) -> Option<PendingInfo> {
         self.store.pending().get(txn, key)
     }
 }

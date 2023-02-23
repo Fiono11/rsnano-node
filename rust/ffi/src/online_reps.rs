@@ -1,34 +1,43 @@
-use std::sync::Arc;
+use crate::ledger::datastore::LedgerHandle;
+use crate::{copy_amount_bytes, U256ArrayDto};
 use rsnano_core::{Account, Amount};
-use rsnano_node::config::NodeConfig;
-use rsnano_node::online_reps::{ONLINE_WEIGHT_QUORUM, OnlineReps};
-use crate::ledger::datastore::{LedgerHandle, TransactionHandle};
-use crate::{copy_amount_bytes, fill_node_config_dto, NodeConfigDto, U256ArrayDto};
+use rsnano_node::online_reps::{OnlineReps, ONLINE_WEIGHT_QUORUM};
+use rsnano_node::OnlineWeightSampler;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-pub struct OnlineRepsHandle(pub OnlineReps);
+pub struct OnlineRepsHandle {
+    pub online_reps: Arc<Mutex<OnlineReps>>,
+    pub sampler: OnlineWeightSampler,
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_create(
     ledger_handle: *mut LedgerHandle,
-    node_config_dto: NodeConfigDto,
+    weight_period_s: u64,
+    online_weight_minimum: *const u8,
+    max_samples: u64,
 ) -> *mut OnlineRepsHandle {
-    Box::into_raw(Box::new(OnlineRepsHandle(OnlineReps::new(
-        (*ledger_handle).clone(),
-        Arc::new(NodeConfig::try_from(&node_config_dto).unwrap()),
-    ))))
+    let online_weight_minimum = Amount::from_ptr(online_weight_minimum);
+    let weight_period = Duration::from_secs(weight_period_s);
+
+    let mut online_reps = OnlineReps::new((*ledger_handle).clone());
+    online_reps.set_weight_period(weight_period);
+    online_reps.set_online_weight_minimum(online_weight_minimum);
+
+    let mut sampler = OnlineWeightSampler::new((*ledger_handle).clone());
+    sampler.set_online_weight_minimum(online_weight_minimum);
+    sampler.set_max_samples(max_samples);
+
+    online_reps.set_trended(sampler.calculate_trend());
+
+    let handle = OnlineRepsHandle {
+        online_reps: Arc::new(Mutex::new(online_reps)),
+        sampler,
+    };
+
+    Box::into_raw(Box::new(handle))
 }
-
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_create1() -> *mut OnlineRepsHandle {
-    Box::into_raw(Box::new(OnlineRepsHandle(OnlineReps::default())))
-}*/
-
-/*#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_clone(
-    handle: *const OnlineRepsHandle,
-) -> *mut OnlineRepsHandle {
-    Box::into_raw(Box::new(OnlineRepsHandle((*handle).0.clone())))
-}*/
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_destroy(handle: *mut OnlineRepsHandle) {
@@ -36,61 +45,43 @@ pub unsafe extern "C" fn rsn_online_reps_destroy(handle: *mut OnlineRepsHandle) 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_ledger(
-    handle: *const OnlineRepsHandle,
-) -> *mut LedgerHandle {
-    let ledger = (*handle).0.ledger.clone();
-    Box::into_raw(Box::new(LedgerHandle::new(ledger)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_config(
-    handle: *const OnlineRepsHandle,
-    config_dto: *mut NodeConfigDto,
+pub unsafe extern "C" fn rsn_online_reps_observe(
+    handle: *mut OnlineRepsHandle,
+    rep_account: *const u8,
 ) {
-    let config = (*handle).0.node_config.clone();
-    fill_node_config_dto(config_dto.as_mut().unwrap(), &*config);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_observe(handle: *mut OnlineRepsHandle, rep_a: *const u8) {
-    let rep_a = Account::from_ptr(rep_a);
-    (*handle).0.observe(rep_a)
+    let rep_account = Account::from_ptr(rep_account);
+    (*handle).online_reps.lock().unwrap().observe(rep_account)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_sample(handle: *mut OnlineRepsHandle) {
-    (*handle).0.sample();
-}
+    let online = {
+        let lock = (*handle).online_reps.lock().unwrap();
+        lock.online()
+    };
 
-#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_calculate_trend(
-    tx_handle: *mut TransactionHandle,
-    handle: *mut OnlineRepsHandle,
-    result: *mut u8,
-) {
-    let amount = (*handle).0.calculate_trend((*tx_handle).as_txn());
-    copy_amount_bytes(amount, result);
-}
+    (*handle).sampler.sample(online);
+    let trend = (*handle).sampler.calculate_trend();
 
-#[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_calculate_online(
-    handle: *mut OnlineRepsHandle,
-    result: *mut u8,
-) {
-    let amount = (*handle).0.calculate_online();
-    copy_amount_bytes(amount, result);
+    let mut lock = (*handle).online_reps.lock().unwrap();
+    lock.set_trended(trend);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_trended(handle: *mut OnlineRepsHandle, result: *mut u8) {
-    let amount = (*handle).0.trended();
+    let amount = (*handle).online_reps.lock().unwrap().trended();
     copy_amount_bytes(amount, result);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_online(handle: *mut OnlineRepsHandle, result: *mut u8) {
-    let amount = (*handle).0.online();
+    let amount = (*handle).online_reps.lock().unwrap().online();
+    copy_amount_bytes(amount, result);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_online_reps_delta(handle: *mut OnlineRepsHandle, result: *mut u8) {
+    let amount = (*handle).online_reps.lock().unwrap().delta();
     copy_amount_bytes(amount, result);
 }
 
@@ -100,8 +91,7 @@ pub unsafe extern "C" fn rsn_online_reps_set_online(
     online: *const u8,
 ) {
     let amount = Amount::from_ptr(online);
-    let mut mutex = (*handle).0.online_m.lock().unwrap();
-    *mutex = amount;
+    (*handle).online_reps.lock().unwrap().set_online(amount);
 }
 
 #[no_mangle]
@@ -110,29 +100,23 @@ pub unsafe extern "C" fn rsn_online_reps_online_weight_quorum() -> u8 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_online_reps_delta(handle: *mut OnlineRepsHandle, result: *mut u8) {
-    let amount = (*handle).0.delta();
-    copy_amount_bytes(amount, result);
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_list(
     handle: *mut OnlineRepsHandle,
     result: *mut U256ArrayDto,
 ) {
-    let accounts = (*handle).0.list();
+    let accounts = (*handle).online_reps.lock().unwrap().list();
     let data = Box::new(accounts.iter().map(|a| *a.as_bytes()).collect());
     (*result).initialize(data);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_clear(handle: *mut OnlineRepsHandle) {
-    (*handle).0.clear();
+    (*handle).online_reps.lock().unwrap().clear();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_online_reps_item_count(handle: *const OnlineRepsHandle) -> usize {
-    (*handle).0.count()
+    (*handle).online_reps.lock().unwrap().count()
 }
 
 #[no_mangle]

@@ -8,7 +8,7 @@
 
 #include <boost/multiprecision/cpp_int.hpp>
 
-nano::ledger::ledger (nano::store & store_a, nano::stat & stat_a, nano::ledger_constants & constants, nano::generate_cache const & generate_cache_a) :
+nano::ledger::ledger (nano::store & store_a, nano::stats & stat_a, nano::ledger_constants & constants, nano::generate_cache const & generate_cache_a) :
 	constants{ constants },
 	store{ store_a },
 	stats{ stat_a }
@@ -57,6 +57,16 @@ nano::uint128_t nano::ledger::account_receivable (nano::transaction const & tran
 	nano::amount result;
 	rsnano::rsn_ledger_account_receivable (handle, transaction_a.get_rust_handle (), account_a.bytes.data (), only_confirmed_a, result.bytes.data ());
 	return result.number ();
+}
+
+std::optional<nano::pending_info> nano::ledger::pending_info (nano::transaction const & transaction, nano::pending_key const & key) const
+{
+	nano::pending_info result;
+	if (!store.pending ().get (transaction, key, result))
+	{
+		return result;
+	}
+	return std::nullopt;
 }
 
 nano::process_return nano::ledger::process (nano::write_transaction const & transaction_a, nano::block & block_a)
@@ -171,6 +181,11 @@ nano::account nano::ledger::account_safe (const nano::transaction & transaction,
 	return account_safe (transaction, hash, ignored);
 }
 
+std::optional<nano::account_info> nano::ledger::account_info (nano::transaction const & transaction, nano::account const & account) const
+{
+	return store.account ().get (transaction, account);
+}
+
 // Return amount decrease or increase for block
 nano::uint128_t nano::ledger::amount (nano::transaction const & transaction_a, nano::account const & account_a)
 {
@@ -267,6 +282,16 @@ std::shared_ptr<nano::block> nano::ledger::successor (nano::transaction const & 
 {
 	auto block_handle = rsnano::rsn_ledger_successor (handle, transaction_a.get_rust_handle (), root_a.bytes.data ());
 	return nano::block_handle_to_block (block_handle);
+}
+
+std::shared_ptr<nano::block> nano::ledger::head_block (nano::transaction const & transaction, nano::account const & account)
+{
+	auto info = store.account ().get (transaction, account);
+	if (info)
+	{
+		return store.block ().get (transaction, info->head ());
+	}
+	return nullptr;
 }
 
 bool nano::ledger::block_confirmed (nano::transaction const & transaction_a, nano::block_hash const & hash_a) const

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "nano/lib/rsnano.hpp"
+
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/rsnanoutils.hpp>
 #include <nano/lib/threading.hpp>
@@ -7,6 +9,8 @@
 #include <nano/secure/store.hpp>
 
 #include <boost/circular_buffer.hpp>
+
+#include <cstddef>
 
 namespace nano
 {
@@ -17,10 +21,29 @@ class logger_mt;
 class write_database_queue;
 class write_guard;
 
+class hash_circular_buffer
+{
+public:
+	hash_circular_buffer (size_t max_items);
+	hash_circular_buffer (hash_circular_buffer const &) = delete;
+	hash_circular_buffer (hash_circular_buffer &&) = delete;
+	~hash_circular_buffer ();
+
+	bool empty () const;
+	nano::block_hash back () const;
+	void push_back (nano::block_hash const &);
+	void truncate_after (nano::block_hash const &);
+
+	rsnano::HashCircularBufferHandle * handle;
+};
+
 class confirmation_height_bounded final
 {
 public:
 	confirmation_height_bounded (nano::ledger &, nano::write_database_queue &, std::chrono::milliseconds batch_separate_pending_min_time, nano::logging const &, std::shared_ptr<nano::logger_mt> &, std::atomic<bool> & stopped, rsnano::AtomicU64Wrapper & batch_write_size, std::function<void (std::vector<std::shared_ptr<nano::block>> const &)> const & cemented_callback, std::function<void (nano::block_hash const &)> const & already_cemented_callback, std::function<uint64_t ()> const & awaiting_processing_size_query);
+	confirmation_height_bounded (confirmation_height_bounded const &) = delete;
+	confirmation_height_bounded (confirmation_height_bounded &&) = delete;
+	~confirmation_height_bounded ();
 	bool pending_empty () const;
 	void clear_process_vars ();
 	void process (std::shared_ptr<nano::block> original_block);
@@ -93,7 +116,7 @@ private:
 		nano::transaction const & transaction;
 		nano::block_hash const & top_most_non_receive_block_hash;
 		bool already_cemented;
-		boost::circular_buffer_space_optimized<nano::block_hash> & checkpoints;
+		nano::hash_circular_buffer & checkpoints;
 		decltype (accounts_confirmed_info.begin ()) account_it;
 		nano::confirmation_height_info const & confirmation_height_info;
 		nano::account const & account;
@@ -114,10 +137,19 @@ private:
 
 	nano::timer<std::chrono::milliseconds> timer;
 
-	top_and_next_hash get_next_block (boost::optional<top_and_next_hash> const &, boost::circular_buffer_space_optimized<nano::block_hash> const &, boost::circular_buffer_space_optimized<receive_source_pair> const & receive_source_pairs, boost::optional<receive_chain_details> &, nano::block const & original_block);
+	top_and_next_hash get_next_block (boost::optional<top_and_next_hash> const &, nano::hash_circular_buffer const &, boost::circular_buffer_space_optimized<receive_source_pair> const & receive_source_pairs, boost::optional<receive_chain_details> &, nano::block const & original_block);
 	nano::block_hash get_least_unconfirmed_hash_from_top_level (nano::transaction const &, nano::block_hash const &, nano::account const &, nano::confirmation_height_info const &, uint64_t &);
 	void prepare_iterated_blocks_for_cementing (preparation_data &);
-	bool iterate (nano::read_transaction &, uint64_t, nano::block_hash const &, boost::circular_buffer_space_optimized<nano::block_hash> &, nano::block_hash &, nano::block_hash const &, boost::circular_buffer_space_optimized<receive_source_pair> &, nano::account const &);
+
+	bool iterate (
+	nano::read_transaction &,
+	uint64_t,
+	nano::block_hash const &,
+	nano::hash_circular_buffer &,
+	nano::block_hash &,
+	nano::block_hash const &,
+	boost::circular_buffer_space_optimized<receive_source_pair> &,
+	nano::account const &);
 
 	nano::ledger & ledger;
 	nano::write_database_queue & write_database_queue;
@@ -129,6 +161,7 @@ private:
 	std::function<void (std::vector<std::shared_ptr<nano::block>> const &)> notify_observers_callback;
 	std::function<void (nano::block_hash const &)> notify_block_already_cemented_observers_callback;
 	std::function<uint64_t ()> awaiting_processing_size_callback;
+	rsnano::ConfirmationHeightBoundedHandle * handle;
 
 	friend std::unique_ptr<nano::container_info_component> collect_container_info (confirmation_height_bounded &, std::string const & name_a);
 };

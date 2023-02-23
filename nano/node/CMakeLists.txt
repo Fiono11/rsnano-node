@@ -66,6 +66,8 @@ add_library(
   election.cpp
   election_scheduler.hpp
   election_scheduler.cpp
+  epoch_upgrader.hpp
+  epoch_upgrader.cpp
   gap_cache.hpp
   gap_cache.cpp
   hinted_scheduler.hpp
@@ -173,8 +175,6 @@ add_library(
   transport/tcp_server.cpp
   transport/transport.hpp
   transport/transport.cpp
-  transport/udp.hpp
-  transport/udp.cpp
   unchecked_map.cpp
   unchecked_map.hpp
   vote_cache.hpp
@@ -226,3 +226,9 @@ target_compile_definitions(
 # This ensures that any changes to Flatbuffers source files will cause a
 # regeneration of any C++ header files.
 add_dependencies(node ipc_flatbuffers_lib)
+
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/lmdb)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/submodules/nano-pow-server/deps/cpptoml/include)

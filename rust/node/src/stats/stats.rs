@@ -2,6 +2,8 @@ use anyhow::Result;
 use bounded_vec_deque::BoundedVecDeque;
 use num::FromPrimitive;
 use once_cell::sync::Lazy;
+use serde::Serialize;
+use serde_variant::to_variant_name;
 use std::{
     collections::HashMap,
     sync::Mutex,
@@ -11,7 +13,7 @@ use std::{
 use crate::messages::MessageType;
 
 use super::histogram::StatHistogram;
-use super::{FileWriter, StatConfig, StatLogSink};
+use super::{FileWriter, StatsConfig, StatsLogSink};
 
 /// Value and wall time of measurement
 #[derive(Clone)]
@@ -99,9 +101,9 @@ impl StatEntry {
 
 /// Primary statistics type
 #[repr(u8)]
-#[derive(FromPrimitive)]
+#[derive(FromPrimitive, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StatType {
-    TrafficUdp,
     TrafficTcp,
     Error,
     Message,
@@ -116,7 +118,6 @@ pub enum StatType {
     Peering,
     Ipc,
     Tcp,
-    Udp,
     ConfirmationHeight,
     ConfirmationObserver,
     Drop,
@@ -130,55 +131,34 @@ pub enum StatType {
     BlockProcessor,
     BootstrapServer,
     Active,
+    ActiveStarted,
+    ActiveConfirmed,
+    ActiveDropped,
+    ActiveTimeout,
     Backlog,
+    Unchecked,
 }
 
 impl StatType {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            StatType::Ipc => "ipc",
-            StatType::Block => "block",
-            StatType::Bootstrap => "bootstrap",
-            StatType::TcpServer => "tcp_server",
-            StatType::Error => "error",
-            StatType::HttpCallback => "http_callback",
-            StatType::Ledger => "ledger",
-            StatType::Tcp => "tcp",
-            StatType::Udp => "udp",
-            StatType::Peering => "peering",
-            StatType::Rollback => "rollback",
-            StatType::TrafficUdp => "traffic_udp",
-            StatType::TrafficTcp => "traffic_tcp",
-            StatType::Vote => "vote",
-            StatType::Election => "election",
-            StatType::Message => "message",
-            StatType::ConfirmationObserver => "observer",
-            StatType::ConfirmationHeight => "confirmation_height",
-            StatType::Drop => "drop",
-            StatType::Aggregator => "aggregator",
-            StatType::Requests => "requests",
-            StatType::Filter => "filter",
-            StatType::Telemetry => "telemetry",
-            StatType::VoteGenerator => "vote_generator",
-            StatType::VoteCache => "vote_cache",
-            StatType::Hinting => "hinting",
-            StatType::BlockProcessor => "blockprocessor",
-            StatType::BootstrapServer => "bootstrap_server",
-            StatType::Active => "active",
-            StatType::Backlog => "backlog",
-        }
+        to_variant_name(self).unwrap_or_default()
     }
 }
 
 // Optional detail type
 #[repr(u8)]
-#[derive(FromPrimitive)]
+#[derive(FromPrimitive, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DetailType {
     All = 0,
 
     // common
     Loop,
     Total,
+    Process,
+    Update,
+    Request,
+    Broadcast,
 
     // processing queue
     Queue,
@@ -267,27 +247,21 @@ pub enum DetailType {
     VoteCached,
     LateBlock,
     LateBlockSeconds,
-    ElectionStart,
-    ElectionConfirmedAll,
     ElectionBlockConflict,
-    ElectionDifficultyUpdate,
-    ElectionDropExpired,
-    ElectionDropOverflow,
-    ElectionDropAll,
     ElectionRestart,
-    ElectionConfirmed,
     ElectionNotConfirmed,
     ElectionHintedOverflow,
-    ElectionHintedStarted,
     ElectionHintedConfirmed,
     ElectionHintedDrop,
     GenerateVote,
     GenerateVoteNormal,
     GenerateVoteFinal,
 
-    // udp
-    Blocking,
-    Overflow,
+    // election types
+    Normal,
+    Hinted,
+
+    // received messages
     InvalidHeader,
     InvalidMessageType,
     InvalidKeepaliveMessage,
@@ -304,8 +278,6 @@ pub enum DetailType {
     InvalidAscPullAckMessage,
     MessageTooBig,
     OutdatedVersion,
-    UdpMaxPerIp,
-    UdpMaxPerSubnetwork,
 
     // tcp
     TcpAcceptSuccess,
@@ -353,10 +325,14 @@ pub enum DetailType {
     InvalidSignature,
     DifferentGenesisHash,
     NodeIdMismatch,
+    GenesisMismatch,
     RequestWithinProtectionCacheZone,
     NoResponseReceived,
     UnsolicitedTelemetryAck,
     FailedSendTelemetryReq,
+    EmptyPayload,
+    CleanupOutdated,
+    CleanupDead,
 
     // vote generator
     GeneratorBroadcasts,
@@ -365,8 +341,6 @@ pub enum DetailType {
     GeneratorSpacing,
 
     // hinting
-    Hinted,
-    InsertFailed,
     MissingBlock,
 
     // bootstrap server
@@ -382,174 +356,20 @@ pub enum DetailType {
 
     // backlog
     Activated,
+
+    // active
+    Insert,
+    InsertFailed,
+
+    // unchecked
+    Put,
+    Satisfied,
+    Trigger,
 }
 
 impl DetailType {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            DetailType::All => "all",
-            DetailType::Loop => "loop",
-            DetailType::Total => "total",
-            DetailType::Queue => "queue",
-            DetailType::Overfill => "overfill",
-            DetailType::Batch => "batch",
-            DetailType::BadSender => "bad_sender",
-            DetailType::BulkPull => "bulk_pull",
-            DetailType::BulkPullAccount => "bulk_pull_account",
-            DetailType::BulkPullDeserializeReceiveBlock => "bulk_pull_deserialize_receive_block",
-            DetailType::BulkPullErrorStartingRequest => "bulk_pull_error_starting_request",
-            DetailType::BulkPullFailedAccount => "bulk_pull_failed_account",
-            DetailType::BulkPullReceiveBlockFailure => "bulk_pull_receive_block_failure",
-            DetailType::BulkPullRequestFailure => "bulk_pull_request_failure",
-            DetailType::BulkPush => "bulk_push",
-            DetailType::ActiveQuorum => "observer_confirmation_active_quorum",
-            DetailType::ActiveConfHeight => "observer_confirmation_active_conf_height",
-            DetailType::InactiveConfHeight => "observer_confirmation_inactive",
-            DetailType::ErrorSocketClose => "error_socket_close",
-            DetailType::RequestUnderflow => "request_underflow",
-            DetailType::Change => "change",
-            DetailType::ConfirmAck => "confirm_ack",
-            DetailType::NodeIdHandshake => "node_id_handshake",
-            DetailType::ConfirmReq => "confirm_req",
-            DetailType::Fork => "fork",
-            DetailType::Old => "old",
-            DetailType::GapPrevious => "gap_previous",
-            DetailType::GapSource => "gap_source",
-            DetailType::RollbackFailed => "rollback_failed",
-            DetailType::Progress => "progress",
-            DetailType::BadSignature => "bad_signature",
-            DetailType::NegativeSpend => "negative_spend",
-            DetailType::Unreceivable => "unreceivable",
-            DetailType::GapEpochOpenPending => "gap_epoch_open_pending",
-            DetailType::OpenedBurnAccount => "opened_burn_account",
-            DetailType::BalanceMismatch => "balance_mismatch",
-            DetailType::RepresentativeMismatch => "representative_mismatch",
-            DetailType::BlockPosition => "block_position",
-            DetailType::FrontierConfirmationFailed => "frontier_confirmation_failed",
-            DetailType::FrontierConfirmationSuccessful => "frontier_confirmation_successful",
-            DetailType::FrontierReq => "frontier_req",
-            DetailType::Handshake => "handshake",
-            DetailType::HttpCallback => "http_callback",
-            DetailType::Initiate => "initiate",
-            DetailType::InitiateLegacyAge => "initiate_legacy_age",
-            DetailType::InitiateLazy => "initiate_lazy",
-            DetailType::InitiateWalletLazy => "initiate_wallet_lazy",
-            DetailType::InsufficientWork => "insufficient_work",
-            DetailType::Invalid => "invalid",
-            DetailType::Invocations => "invocations",
-            DetailType::Keepalive => "keepalive",
-            DetailType::NotAType => "not_a_type",
-            DetailType::Open => "open",
-            DetailType::Publish => "publish",
-            DetailType::Receive => "receive",
-            DetailType::RepublishVote => "republish_vote",
-            DetailType::Send => "send",
-            DetailType::TelemetryReq => "telemetry_req",
-            DetailType::TelemetryAck => "telemetry_ack",
-            DetailType::AscPullReq => "asc_pull_req",
-            DetailType::AscPullAck => "asc_pull_ack",
-            DetailType::StateBlock => "state_block",
-            DetailType::EpochBlock => "epoch_block",
-            DetailType::VoteValid => "vote_valid",
-            DetailType::VoteReplay => "vote_replay",
-            DetailType::VoteIndeterminate => "vote_indeterminate",
-            DetailType::VoteInvalid => "vote_invalid",
-            DetailType::VoteOverflow => "vote_overflow",
-            DetailType::VoteNew => "vote_new",
-            DetailType::VoteProcessed => "vote_processed",
-            DetailType::VoteCached => "vote_cached",
-            DetailType::LateBlock => "late_block",
-            DetailType::LateBlockSeconds => "late_block_seconds",
-            DetailType::ElectionStart => "election_start",
-            DetailType::ElectionConfirmedAll => "election_confirmed_all",
-            DetailType::ElectionBlockConflict => "election_block_conflict",
-            DetailType::ElectionDifficultyUpdate => "election_difficulty_update",
-            DetailType::ElectionDropExpired => "election_drop_expired",
-            DetailType::ElectionDropOverflow => "election_drop_overflow",
-            DetailType::ElectionDropAll => "election_drop_all",
-            DetailType::ElectionRestart => "election_restart",
-            DetailType::ElectionConfirmed => "election_confirmed",
-            DetailType::ElectionNotConfirmed => "election_not_confirmed",
-            DetailType::ElectionHintedOverflow => "election_hinted_overflow",
-            DetailType::ElectionHintedStarted => "election_hinted_started",
-            DetailType::ElectionHintedConfirmed => "election_hinted_confirmed",
-            DetailType::ElectionHintedDrop => "election_hinted_drop",
-            DetailType::GenerateVote => "generate_vote",
-            DetailType::GenerateVoteNormal => "generate_vote_normal",
-            DetailType::GenerateVoteFinal => "generate_vote_final",
-            DetailType::Blocking => "blocking",
-            DetailType::Overflow => "overflow",
-            DetailType::TcpAcceptSuccess => "accept_success",
-            DetailType::TcpAcceptFailure => "accept_failure",
-            DetailType::TcpWriteDrop => "tcp_write_drop",
-            DetailType::TcpWriteNoSocketDrop => "tcp_write_no_socket_drop",
-            DetailType::TcpExcluded => "tcp_excluded",
-            DetailType::TcpMaxPerIp => "tcp_max_per_ip",
-            DetailType::TcpMaxPerSubnetwork => "tcp_max_per_subnetwork",
-            DetailType::TcpSilentConnectionDrop => "tcp_silent_connection_drop",
-            DetailType::TcpIoTimeoutDrop => "tcp_io_timeout_drop",
-            DetailType::TcpConnectError => "tcp_connect_error",
-            DetailType::TcpReadError => "tcp_read_error",
-            DetailType::TcpWriteError => "tcp_write_error",
-            DetailType::UnreachableHost => "unreachable_host",
-            DetailType::InvalidHeader => "invalid_header",
-            DetailType::InvalidMessageType => "invalid_message_type",
-            DetailType::InvalidKeepaliveMessage => "invalid_keepalive_message",
-            DetailType::InvalidPublishMessage => "invalid_publish_message",
-            DetailType::InvalidConfirmReqMessage => "invalid_confirm_req_message",
-            DetailType::InvalidConfirmAckMessage => "invalid_confirm_ack_message",
-            DetailType::InvalidNodeIdHandshakeMessage => "invalid_node_id_handshake_message",
-            DetailType::InvalidTelemetryReqMessage => "invalid_telemetry_req_message",
-            DetailType::InvalidTelemetryAckMessage => "invalid_telemetry_ack_message",
-            DetailType::InvalidBulkPullMessage => "invalid_bulk_pull_message",
-            DetailType::InvalidBulkPullAccountMessage => "invalid_bulk_pull_account_message",
-            DetailType::InvalidFrontierReqMessage => "invalid_frontier_req_message",
-            DetailType::InvalidAscPullReqMessage => "invalid_asc_pull_req_message",
-            DetailType::InvalidAscPullAckMessage => "invalid_asc_pull_ack_message",
-            DetailType::MessageTooBig => "message_too_big",
-            DetailType::OutdatedVersion => "outdated_version",
-            DetailType::UdpMaxPerIp => "udp_max_per_ip",
-            DetailType::UdpMaxPerSubnetwork => "udp_max_per_subnetwork",
-            DetailType::BlocksConfirmed => "blocks_confirmed",
-            DetailType::BlocksConfirmedUnbounded => "blocks_confirmed_unbounded",
-            DetailType::BlocksConfirmedBounded => "blocks_confirmed_bounded",
-            DetailType::AggregatorAccepted => "aggregator_accepted",
-            DetailType::AggregatorDropped => "aggregator_dropped",
-            DetailType::RequestsCachedHashes => "requests_cached_hashes",
-            DetailType::RequestsGeneratedHashes => "requests_generated_hashes",
-            DetailType::RequestsCachedVotes => "requests_cached_votes",
-            DetailType::RequestsGeneratedVotes => "requests_generated_votes",
-            DetailType::RequestsCachedLateHashes => "requests_cached_late_hashes",
-            DetailType::RequestsCachedLateVotes => "requests_cached_late_votes",
-            DetailType::RequestsCannotVote => "requests_cannot_vote",
-            DetailType::RequestsUnknown => "requests_unknown",
-            DetailType::DuplicatePublish => "duplicate_publish",
-            DetailType::DifferentGenesisHash => "different_genesis_hash",
-            DetailType::InvalidSignature => "invalid_signature",
-            DetailType::NodeIdMismatch => "node_id_mismatch",
-            DetailType::RequestWithinProtectionCacheZone => "request_within_protection_cache_zone",
-            DetailType::NoResponseReceived => "no_response_received",
-            DetailType::UnsolicitedTelemetryAck => "unsolicited_telemetry_ack",
-            DetailType::FailedSendTelemetryReq => "failed_send_telemetry_req",
-            DetailType::GeneratorBroadcasts => "generator_broadcasts",
-            DetailType::GeneratorReplies => "generator_replies",
-            DetailType::GeneratorRepliesDiscarded => "generator_replies_discarded",
-            DetailType::GeneratorSpacing => "generator_spacing",
-            DetailType::InvalidNetwork => "invalid_network",
-            DetailType::Hinted => "hinted",
-            DetailType::InsertFailed => "insert_failed",
-            DetailType::MissingBlock => "missing_block",
-            DetailType::Response => "response",
-            DetailType::WriteDrop => "write_drop",
-            DetailType::WriteError => "write_error",
-            DetailType::Blocks => "blocks",
-            DetailType::Drop => "drop",
-            DetailType::BadCount => "bad_count",
-            DetailType::ResponseBlocks => "response_blocks",
-            DetailType::ResponseAccountInfo => "response_account_info",
-            DetailType::ChannelFull => "channel_full",
-            DetailType::Activated => "activated",
-        }
+        to_variant_name(self).unwrap_or_default()
     }
 }
 
@@ -573,13 +393,13 @@ impl Direction {
 static LOG_COUNT: Lazy<Mutex<Option<FileWriter>>> = Lazy::new(|| Mutex::new(None));
 static LOG_SAMPLE: Lazy<Mutex<Option<FileWriter>>> = Lazy::new(|| Mutex::new(None));
 
-pub struct Stat {
-    config: StatConfig,
+pub struct Stats {
+    config: StatsConfig,
     mutables: Mutex<StatMutables>,
 }
 
-impl Stat {
-    pub fn new(config: StatConfig) -> Self {
+impl Stats {
+    pub fn new(config: StatsConfig) -> Self {
         let default_interval = config.interval;
         let default_capacity = config.capacity;
         Self {
@@ -611,33 +431,26 @@ impl Stat {
         dir: Direction,
         value: u64,
         detail_only: bool,
-    ) -> Result<()> {
+    ) {
         if value == 0 {
-            return Ok(());
+            return;
         }
 
         const NO_DETAIL_MASK: u32 = 0xffff00ff;
         let key = key_of(stat_type, detail, dir);
-        self.update(key, value)?;
+        let _ = self.update(key, value);
 
         // Optionally update at type-level as well
         if !detail_only && (key & NO_DETAIL_MASK) != key {
-            self.update(key & NO_DETAIL_MASK, value)?;
+            let _ = self.update(key & NO_DETAIL_MASK, value);
         }
-
-        Ok(())
     }
 
-    pub fn inc(&self, stat_type: StatType, detail: DetailType, dir: Direction) -> Result<()> {
+    pub fn inc(&self, stat_type: StatType, detail: DetailType, dir: Direction) {
         self.add(stat_type, detail, dir, 1, false)
     }
 
-    pub fn inc_detail_only(
-        &self,
-        stat_type: StatType,
-        detail: DetailType,
-        dir: Direction,
-    ) -> Result<()> {
+    pub fn inc_detail_only(&self, stat_type: StatType, detail: DetailType, dir: Direction) {
         self.add(stat_type, detail, dir, 1, true)
     }
 
@@ -646,7 +459,7 @@ impl Stat {
     /// # Arguments
     /// * `key` a key constructor from `StatType`, `DetailType` and `Direction`
     /// * `value` Amount to add to the counter
-    fn update(&self, key: u32, value: u64) -> Result<()> {
+    fn update(&self, key: u32, value: u64) -> anyhow::Result<()> {
         let now = Instant::now();
 
         let mut lock = self.mutables.lock().unwrap();
@@ -709,17 +522,18 @@ impl Stat {
                 }
             }
         }
+
         Ok(())
     }
 
     /// Log counters to the given log link
-    pub fn log_counters(&self, sink: &mut dyn StatLogSink) -> Result<()> {
+    pub fn log_counters(&self, sink: &mut dyn StatsLogSink) -> Result<()> {
         let lock = self.mutables.lock().unwrap();
         lock.log_counters_impl(sink, &self.config)
     }
 
     /// Log samples to the given log sink
-    pub fn log_samples(&self, sink: &mut dyn StatLogSink) -> Result<()> {
+    pub fn log_samples(&self, sink: &mut dyn StatsLogSink) -> Result<()> {
         let lock = self.mutables.lock().unwrap();
         lock.log_samples_impl(sink, &self.config)
     }
@@ -894,7 +708,7 @@ impl StatMutables {
     }
 
     /// Unlocked implementation of log_samples() to avoid using recursive locking
-    fn log_samples_impl(&self, sink: &mut dyn StatLogSink, config: &StatConfig) -> Result<()> {
+    fn log_samples_impl(&self, sink: &mut dyn StatsLogSink, config: &StatsConfig) -> Result<()> {
         sink.begin()?;
         if sink.entries() >= config.log_rotation_count {
             sink.rotate()?;
@@ -923,7 +737,7 @@ impl StatMutables {
     }
 
     /// Unlocked implementation of log_counters() to avoid using recursive locking
-    fn log_counters_impl(&self, sink: &mut dyn StatLogSink, config: &StatConfig) -> Result<()> {
+    fn log_counters_impl(&self, sink: &mut dyn StatsLogSink, config: &StatsConfig) -> Result<()> {
         sink.begin()?;
         if sink.entries() >= config.log_rotation_count {
             sink.rotate()?;
@@ -983,7 +797,7 @@ mod tests {
 
     #[test]
     fn specific_bins() {
-        let stats = Stat::new(StatConfig::new());
+        let stats = Stats::new(StatsConfig::new());
         stats.define_histogram(
             StatType::Vote,
             DetailType::ConfirmReq,
@@ -1001,7 +815,7 @@ mod tests {
     #[test]
     fn uniform_distribution_and_clamping() {
         // Uniform distribution (12 bins, width 1); also test clamping 100 to the last bin
-        let stats = Stat::new(StatConfig::new());
+        let stats = Stats::new(StatsConfig::new());
         stats.define_histogram(
             StatType::Vote,
             DetailType::ConfirmAck,
@@ -1030,7 +844,7 @@ mod tests {
     #[test]
     fn uniform_distribution() {
         // Uniform distribution (2 bins, width 5); add 1 to each bin
-        let stats = Stat::new(StatConfig::new());
+        let stats = Stats::new(StatsConfig::new());
         stats.define_histogram(
             StatType::Vote,
             DetailType::ConfirmAck,

@@ -6,14 +6,17 @@
 #include <iostream>
 
 nano::online_reps::online_reps (nano::ledger & ledger_a, nano::node_config const & config_a) :
-	handle{ rsnano::rsn_online_reps_create (ledger_a.get_handle (), config_a.to_dto ()) }
+	handle{ rsnano::rsn_online_reps_create (
+	ledger_a.get_handle (),
+	config_a.network_params.node.weight_period,
+	config_a.online_weight_minimum.bytes.data (),
+	config_a.network_params.node.max_weight_samples) }
 {
 }
 
 nano::online_reps::~online_reps ()
 {
-	if (handle)
-		rsnano::rsn_online_reps_destroy (handle);
+	rsnano::rsn_online_reps_destroy (handle);
 }
 
 void nano::online_reps::observe (nano::account const & rep_a)
@@ -40,11 +43,10 @@ nano::uint128_t nano::online_reps::online () const
 	return online.number ();
 }
 
-void nano::online_reps::set_online (nano::uint128_t online)
+void nano::online_reps::set_online (nano::uint128_t online_a)
 {
-	uint8_t bytes[16] = { 0 };
-	boost::multiprecision::export_bits (online, std::rbegin (bytes), 8, false);
-	rsnano::rsn_online_reps_set_online (handle, &bytes[0]);
+	nano::amount online_weight{ online_a };
+	rsnano::rsn_online_reps_set_online (handle, online_weight.bytes.data ());
 }
 
 uint8_t nano::online_reps::online_weight_quorum ()

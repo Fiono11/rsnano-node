@@ -221,7 +221,7 @@ TEST (votes, DISABLED_add_old_different_account)
 	node1.work_generate_blocking (*send2);
 	ASSERT_EQ (nano::process_result::progress, node1.process (*send1).code);
 	ASSERT_EQ (nano::process_result::progress, node1.process (*send2).code);
-	nano::test::blocks_confirm (node1, { send1, send2 });
+	nano::test::start_elections (system, node1, { send1, send2 });
 	auto election1 = node1.active.election (send1->qualified_root ());
 	ASSERT_NE (nullptr, election1);
 	auto election2 = node1.active.election (send2->qualified_root ());
@@ -403,7 +403,7 @@ TEST (ledger, block_hash_account_conflict)
 	ASSERT_EQ (nano::process_result::progress, node1.process (*receive1).code);
 	ASSERT_EQ (nano::process_result::progress, node1.process (*send2).code);
 	ASSERT_EQ (nano::process_result::progress, node1.process (*open_epoch1).code);
-	nano::test::blocks_confirm (node1, { send1, receive1, send2, open_epoch1 });
+	nano::test::start_elections (system, node1, { send1, receive1, send2, open_epoch1 });
 	auto election1 = node1.active.election (send1->qualified_root ());
 	ASSERT_NE (nullptr, election1);
 	auto election2 = node1.active.election (receive1->qualified_root ());
@@ -474,9 +474,9 @@ TEST (ledger, unchecked_epoch)
 	{
 		// Waits for the last blocks to pass through block_processor and unchecked.put queues
 		ASSERT_TIMELY (10s, 0 == node1.unchecked.count (*node1.store.tx_begin_read ()));
-		nano::account_info info{};
-		ASSERT_FALSE (node1.store.account ().get (*node1.store.tx_begin_read (), destination.pub, info));
-		ASSERT_EQ (info.epoch (), nano::epoch::epoch_1);
+		auto info = node1.ledger.account_info (*node1.store.tx_begin_read (), destination.pub);
+		ASSERT_TRUE (info);
+		ASSERT_EQ (info->epoch (), nano::epoch::epoch_1);
 	}
 }
 
@@ -552,9 +552,9 @@ TEST (ledger, unchecked_epoch_invalid)
 		auto unchecked_count = node1.unchecked.count (*transaction);
 		ASSERT_EQ (unchecked_count, 0);
 		ASSERT_EQ (unchecked_count, node1.unchecked.count (*transaction));
-		nano::account_info info{};
-		ASSERT_FALSE (node1.store.account ().get (*transaction, destination.pub, info));
-		ASSERT_NE (info.epoch (), nano::epoch::epoch_1);
+		auto info = node1.ledger.account_info (*transaction, destination.pub);
+		ASSERT_TRUE (info);
+		ASSERT_NE (info->epoch (), nano::epoch::epoch_1);
 		auto epoch2_store = node1.store.block ().get (*transaction, epoch2->hash ());
 		ASSERT_NE (nullptr, epoch2_store);
 		ASSERT_EQ (nano::epoch::epoch_0, epoch2_store->sideband ().details ().epoch ());
@@ -603,17 +603,18 @@ TEST (ledger, unchecked_open)
 	auto sig{ open2->block_signature () };
 	sig.bytes[0] ^= 1;
 	open2->signature_set (sig);
+	node1.block_processor.add (open2); // Insert open2 in to the queue before open1
 	node1.block_processor.add (open1);
-	node1.block_processor.add (open2);
 	{
 		// Waits for the last blocks to pass through block_processor and unchecked.put queues
-		ASSERT_TIMELY (10s, 1 == node1.unchecked.count (*node1.store.tx_begin_read ()));
+		ASSERT_TIMELY (5s, 1 == node1.unchecked.count (*node1.store.tx_begin_read ()));
+		// When open1 existists in unchecked, we know open2 has been processed.
 		auto blocks = node1.unchecked.get (*node1.store.tx_begin_read (), open1->source ());
 		ASSERT_EQ (blocks.size (), 1);
 	}
 	node1.block_processor.add (send1);
 	// Waits for the send1 block to pass through block_processor and unchecked.put queues
-	ASSERT_TIMELY (10s, node1.store.block ().exists (*node1.store.tx_begin_read (), open1->hash ()));
+	ASSERT_TIMELY (5s, node1.store.block ().exists (*node1.store.tx_begin_read (), open1->hash ()));
 	ASSERT_EQ (0, node1.unchecked.count (*node1.store.tx_begin_read ()));
 }
 
@@ -686,4 +687,13 @@ TEST (ledger, unchecked_receive)
 	node1.block_processor.add (send2);
 	ASSERT_TIMELY (10s, node1.store.block ().exists (*node1.store.tx_begin_read (), receive1->hash ()));
 	ASSERT_EQ (0, node1.unchecked.count (*node1.store.tx_begin_read ()));
+}
+
+TEST (ledger, head_block)
+{
+	auto ctx = nano::test::context::ledger_empty ();
+	auto & ledger = ctx.ledger ();
+	auto & store = ctx.store ();
+	auto tx = store.tx_begin_read ();
+	ASSERT_EQ (*nano::dev::genesis, *ledger.head_block (*tx, nano::dev::genesis->account ()));
 }

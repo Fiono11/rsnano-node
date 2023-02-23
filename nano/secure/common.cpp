@@ -32,12 +32,24 @@ nano::network_params::network_params (nano::networks network_a) :
 
 	work = nano::work_thresholds (dto.work);
 	network = nano::network_constants (dto.network);
-	ledger = std::move (nano::ledger_constants (dto.ledger));
+	ledger = nano::ledger_constants (dto.ledger);
 	voting = nano::voting_constants (dto.voting);
 	node = nano::node_constants (dto.node);
 	portmapping = nano::portmapping_constants (dto.portmapping);
 	bootstrap = nano::bootstrap_constants (dto.bootstrap);
 	kdf_work = dto.kdf_work;
+}
+
+nano::network_params::network_params (network_params const & other_a) :
+	kdf_work{ other_a.kdf_work },
+	work{ other_a.work },
+	network{ other_a.network },
+	ledger{ other_a.ledger },
+	voting{ other_a.voting },
+	node{ other_a.node },
+	portmapping{ other_a.portmapping },
+	bootstrap{ other_a.bootstrap }
+{
 }
 
 nano::network_params::network_params (rsnano::NetworkParamsDto const & dto) :
@@ -79,6 +91,33 @@ nano::ledger_constants::ledger_constants (rsnano::LedgerConstantsDto const & dto
 	work (nano::work_thresholds (0, 0, 0))
 {
 	read_dto (dto);
+}
+
+nano::ledger_constants::ledger_constants (ledger_constants const & other_a) :
+	work{ other_a.work },
+	zero_key{ other_a.zero_key },
+	nano_beta_account{ other_a.nano_beta_account },
+	nano_live_account{ other_a.nano_live_account },
+	nano_test_account{ other_a.nano_test_account },
+	nano_dev_genesis{ other_a.nano_dev_genesis },
+	nano_beta_genesis{ other_a.nano_beta_genesis },
+	nano_live_genesis{ other_a.nano_live_genesis },
+	nano_test_genesis{ other_a.nano_test_genesis },
+	genesis{ other_a.genesis },
+	genesis_amount{ other_a.genesis_amount },
+	burn_account{ other_a.burn_account },
+	nano_dev_final_votes_canary_account{ other_a.nano_dev_final_votes_canary_account },
+	nano_beta_final_votes_canary_account{ other_a.nano_beta_final_votes_canary_account },
+	nano_live_final_votes_canary_account{ other_a.nano_live_final_votes_canary_account },
+	nano_test_final_votes_canary_account{ other_a.nano_test_final_votes_canary_account },
+	final_votes_canary_account{ other_a.final_votes_canary_account },
+	nano_dev_final_votes_canary_height{ other_a.nano_dev_final_votes_canary_height },
+	nano_beta_final_votes_canary_height{ other_a.nano_beta_final_votes_canary_height },
+	nano_live_final_votes_canary_height{ other_a.nano_live_final_votes_canary_height },
+	nano_test_final_votes_canary_height{ other_a.nano_test_final_votes_canary_height },
+	final_votes_canary_height{ other_a.final_votes_canary_height },
+	epochs{ other_a.epochs }
+{
 }
 
 rsnano::LedgerConstantsDto nano::ledger_constants::to_dto () const
@@ -303,6 +342,11 @@ nano::keypair::keypair (const nano::keypair & other_a) :
 
 nano::account_info::account_info () :
 	account_info (0, 0, 0, 0, 0, 0, nano::epoch::epoch_0)
+{
+}
+
+nano::account_info::account_info (rsnano::AccountInfoHandle * handle_a) :
+	handle{ handle_a }
 {
 }
 
@@ -564,6 +608,11 @@ uint16_t nano::endpoint_key::port () const
 nano::confirmation_height_info::confirmation_height_info ()
 {
 	rsnano::rsn_confirmation_height_info_create (&dto);
+}
+
+nano::confirmation_height_info::confirmation_height_info (rsnano::ConfirmationHeightInfoDto dto_a) :
+	dto{ dto_a }
+{
 }
 
 uint64_t nano::confirmation_height_info::height () const

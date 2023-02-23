@@ -1,6 +1,6 @@
 use std::net::Ipv6Addr;
 
-use crate::{stats::StatConfig, IpcConfig, NetworkParams};
+use crate::{stats::StatsConfig, IpcConfig, NetworkParams};
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use rsnano_core::{
@@ -75,7 +75,7 @@ pub struct NodeConfig {
     pub websocket_config: WebsocketConfig,
     pub ipc_config: IpcConfig,
     pub diagnostics_config: DiagnosticsConfig,
-    pub stat_config: StatConfig,
+    pub stat_config: StatsConfig,
     pub lmdb_config: LmdbConfig,
     pub weight_period: u64,
     pub max_weight_samples: u64,
@@ -202,8 +202,8 @@ impl NodeConfig {
         Self {
             peering_port,
             bootstrap_fraction_numerator: 1,
-            receive_minimum: Amount::new(*XRB_RATIO),
-            online_weight_minimum: Amount::new(60000 * *GXRB_RATIO),
+            receive_minimum: Amount::raw(*XRB_RATIO),
+            online_weight_minimum: Amount::raw(60000 * *GXRB_RATIO),
             election_hint_weight_percent: 50,
             password_fanout: 1024,
             io_threads: std::cmp::max(get_cpu_count() as u32, 4),
@@ -224,7 +224,7 @@ impl NodeConfig {
             },
             allow_local_peers: !(network_params.network.is_live_network()
                 || network_params.network.is_test_network()), // disable by default for live network
-            vote_minimum: Amount::new(*GXRB_RATIO),
+            vote_minimum: Amount::raw(*GXRB_RATIO),
             vote_generator_delay_ms: 100,
             vote_generator_threshold: 3,
             unchecked_cutoff_time_s: 4 * 60 * 60, // 4 hours
@@ -274,7 +274,7 @@ impl NodeConfig {
             websocket_config: WebsocketConfig::new(&network_params.network),
             ipc_config: IpcConfig::new(&network_params.network),
             diagnostics_config: DiagnosticsConfig::new(),
-            stat_config: StatConfig::new(),
+            stat_config: StatsConfig::new(),
             lmdb_config: LmdbConfig::new(),
             weight_period: network_params.node.weight_period,
             max_weight_samples: network_params.node.max_weight_samples,
@@ -374,7 +374,7 @@ impl NodeConfig {
             },
         )?;
 
-        toml.create_array ("preconfigured_peers", "A list of \"address\" (hostname or ipv6 notation ip address) entries to identify preconfigured peers.",
+        toml.create_array ("preconfigured_peers", "A list of \"address\" (hostname or ipv6 notation ip address) entries to identify preconfigured peers.\nThe contents of the NANO_DEFAULT_PEER environment variable are added to preconfigured_peers.",
         &mut |peers| {
             for peer in &self.preconfigured_peers {
                 peers.push_back_str(peer)?;

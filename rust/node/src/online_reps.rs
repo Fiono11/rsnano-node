@@ -1,172 +1,98 @@
-use std::cmp::max;
-use std::collections::{BTreeMap, HashMap};
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::OnlineRepsContainer;
 use primitive_types::U256;
 use rsnano_core::{Account, Amount};
 use rsnano_ledger::Ledger;
-use rsnano_store_traits::Transaction;
-use crate::config::NodeConfig;
-use std::mem::{size_of, drop};
-use std::time::{Instant, Duration};
+use rsnano_store_traits::WriteTransaction;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{cmp::max, sync::Arc};
+
+#[cfg(test)]
+use mock_instant::Instant;
+#[cfg(not(test))]
+use std::time::Instant;
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
+static DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
 
 pub struct OnlineReps {
-    pub ledger: Arc<Ledger>,
-    pub node_config: Arc<NodeConfig>,
-    reps: EntryContainer,
-    pub trended_m: Arc<Mutex<Amount>>,
-    pub online_m: Arc<Mutex<Amount>>,
-    pub minimum: Arc<Mutex<Amount>>,
+    ledger: Arc<Ledger>,
+    reps: OnlineRepsContainer,
+    trended: Amount,
+    online: Amount,
+    minimum: Amount,
+    weight_period: Duration,
+    online_weight_minimum: Amount,
 }
 
 impl OnlineReps {
-    pub fn new(ledger: Arc<Ledger>, node_config: Arc<NodeConfig>) -> Self {
-        let transaction = ledger.store.tx_begin_read().unwrap();
-
-        let online_reps = Self {
+    pub fn new(ledger: Arc<Ledger>) -> Self {
+        Self {
             ledger,
-            node_config,
-            reps: EntryContainer::new(),
-            trended_m: Arc::new(Mutex::new(Amount::zero())),
-            online_m: Arc::new(Mutex::new(Amount::zero())),
-            minimum: Arc::new(Mutex::new(Amount::zero())),
-        };
-
-        let mut mutex = online_reps.trended_m.lock().unwrap();
-        *mutex = online_reps.calculate_trend(transaction.txn());
-        drop(mutex);
-        online_reps
-    }
-
-    pub fn calculate_online(&self) -> Amount {
-        let mut current = 0;
-        for (_, e) in self.reps.entries.lock().unwrap().iter() {
-            current += self.ledger.weight(&e.account).number();
+            reps: OnlineRepsContainer::new(),
+            trended: Amount::zero(),
+            online: Amount::zero(),
+            minimum: Amount::zero(),
+            weight_period: Duration::from_secs(5 * 60),
+            online_weight_minimum: DEFAULT_ONLINE_WEIGHT_MINIMUM,
         }
-        Amount::new(current)
     }
 
-    pub fn calculate_trend(&self, transaction_a: &dyn Transaction) -> Amount {
-        let mut items = Vec::new();
-        items.push(self.node_config.online_weight_minimum);
-        let mut it = self.ledger.store.online_weight().begin(transaction_a);
-        while !it.is_end() {
-            items.push(*it.current().unwrap().1);
-            it.next();
-        }
-        let median_idx = items.len() / 2;
-        items.sort();
-        let result = items[median_idx];
-        return result;
+    pub fn set_weight_period(&mut self, period: Duration) {
+        self.weight_period = period;
     }
 
-    pub fn observe(&mut self, rep_a: Account) {
-        if self.ledger.weight(&rep_a).number() > 0 {
-            let mut new_insert = true;
-            let mut by_account_mutex = self.reps.by_account.lock().unwrap();
-            let mut by_time_mutex = self.reps.by_time.lock().unwrap();
-            let mut entries_mutex = self.reps.entries.lock().unwrap();
-            if let Some(id) = by_account_mutex.get(&rep_a) {
-                let old_time = entries_mutex.get(id).unwrap().time;
-                let mut ids = by_time_mutex.get(&old_time).unwrap().clone();
-                let index = ids.iter().position(|x| x == id).unwrap();
-                ids.remove(index);
-                by_time_mutex.insert(old_time, ids.to_owned());
-                entries_mutex.remove(id).unwrap();
-                new_insert = false;
-            }
-            by_account_mutex.remove(&rep_a);
-            drop(by_account_mutex);
-            drop(by_time_mutex);
-            drop(entries_mutex);
-            let time = Instant::now();
-            let entry = Entry {
-                account: rep_a,
-                time,
-            };
-            self.reps.insert(entry);
-            println!("weight: {}", self.node_config.weight_period); // should't it be 300?
-            let trimmed = self
-                .reps
-                .trim(Duration::from_secs(self.node_config.weight_period));
+    pub fn set_online_weight_minimum(&mut self, minimum: Amount) {
+        self.online_weight_minimum = minimum;
+    }
+
+    pub fn set_online(&mut self, amount: Amount) {
+        self.online = amount;
+    }
+
+    /** Add voting account rep_account to the set of online representatives */
+    pub fn observe(&mut self, rep_account: Account) {
+        if self.ledger.weight(&rep_account) > Amount::zero() {
+            let new_insert = self.reps.insert(rep_account, Instant::now());
+            let trimmed = self.reps.trim(self.weight_period);
+
             if new_insert || trimmed {
-                let mut mutex = self.online_m.lock().unwrap();
-                *mutex = self.calculate_online();
+                self.calculate_online();
             }
         }
     }
 
-    pub fn sample(&mut self) {
-        let mut transaction = self.ledger.store.tx_begin_write().unwrap();
-        while self.ledger.store.online_weight().count(transaction.txn())
-            >= self.node_config.max_weight_samples
-        {
-            let oldest = self.ledger.store.online_weight().begin(transaction.txn());
-            debug_assert!(
-                oldest.as_ref().current().unwrap()
-                    != self
-                        .ledger
-                        .store
-                        .online_weight()
-                        .rbegin(transaction.txn())
-                        .current()
-                        .unwrap()
-            );
-            self.ledger
-                .store
-                .online_weight()
-                .del(transaction.as_mut(), *oldest.current().unwrap().0);
-        }
-        let start = SystemTime::now();
-        let since_the_epoch = start
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-        self.ledger.store.online_weight().put(
-            transaction.as_mut(),
-            since_the_epoch.as_secs(),
-            &self.online_m.lock().unwrap(),
-        );
-        let mut mutex = self.trended_m.lock().unwrap();
-        *mutex = self.calculate_trend(transaction.txn());
-    }
-
+    /** Returns the trended online stake */
     pub fn trended(&self) -> Amount {
-        self.trended_m.lock().unwrap().clone()
+        self.trended
     }
 
+    pub fn set_trended(&mut self, trended: Amount) {
+        self.trended = trended;
+    }
+
+    /** Returns the current online stake */
     pub fn online(&self) -> Amount {
-        let online = *self.online_m.lock().unwrap();
-        online
+        self.online
     }
 
+    /** Returns the quorum required for confirmation*/
     pub fn delta(&self) -> Amount {
-        let weight = max(
-            self.online_m.lock().unwrap().clone(),
-            self.trended_m.lock().unwrap().deref().clone(),
-        );
-        let weight = max(weight, self.node_config.online_weight_minimum);
-        let amount =
+        // Using a larger container to ensure maximum precision
+        let weight = max(max(self.online, self.trended), self.online_weight_minimum);
+
+        let delta =
             U256::from(weight.number()) * U256::from(ONLINE_WEIGHT_QUORUM) / U256::from(100);
-        return Amount::new(amount.as_u128());
+        return Amount::raw(delta.as_u128());
     }
 
+    /** List of online representatives, both the currently sampling ones and the ones observed in the previous sampling period */
     pub fn list(&self) -> Vec<Account> {
-        self.reps
-            .by_account
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|(a, _)| *a)
-            .collect()
+        self.reps.iter().cloned().collect()
     }
 
     pub fn clear(&mut self) {
-        self.reps = EntryContainer::new();
-        let mut mutex2 = self.online_m.lock().unwrap();
-        *mutex2 = Amount::zero();
+        self.reps.clear();
+        self.online = Amount::zero();
     }
 
     pub fn count(&self) -> usize {
@@ -174,89 +100,91 @@ impl OnlineReps {
     }
 
     pub fn item_size() -> usize {
-        size_of::<(usize, Entry)>()
+        OnlineRepsContainer::item_size()
+    }
+
+    fn calculate_online(&mut self) {
+        let mut current = Amount::zero();
+        for account in self.reps.iter() {
+            current += self.ledger.weight(account);
+        }
+        self.online = current;
     }
 }
 
-#[derive(Default)]
-struct EntryContainer {
-    entries: Arc<Mutex<HashMap<usize, Entry>>>,
-    by_account: Arc<Mutex<HashMap<Account, usize>>>,
-    by_time: Arc<Mutex<BTreeMap<Instant, Vec<usize>>>>,
-    next_id: Arc<Mutex<usize>>,
+pub struct OnlineWeightSampler {
+    ledger: Arc<Ledger>,
+    online_weight_minimum: Amount,
+    max_samples: u64,
 }
 
-impl EntryContainer {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn clear(&mut self) {
-        self.entries = Arc::new(Mutex::new(HashMap::new()));
-        self.by_account = Arc::new(Mutex::new(HashMap::new()));
-        self.by_time = Arc::new(Mutex::new(BTreeMap::new()));
-        self.next_id = Arc::new(Mutex::new(0));
-    }
-
-    pub fn insert(&mut self, entry: Entry) {
-        let id = self.create_id();
-
-        self.by_account.lock().unwrap().insert(entry.account, id);
-
-        let mut binding = self.by_time.lock().unwrap();
-        let by_time = binding.entry(entry.time).or_default();
-        by_time.push(id);
-
-        self.entries.lock().unwrap().insert(id, entry);
-    }
-
-    fn create_id(&mut self) -> usize {
-        let mut id = self.next_id.lock().unwrap();
-        *id += 1;
-        *id
-    }
-
-    pub fn by_account(&self, account: &Account) -> Option<usize> {
-        match self.by_account.lock().unwrap().get(account) {
-            Some(id) => Some(*id),
-            None => None,
+impl OnlineWeightSampler {
+    pub fn new(ledger: Arc<Ledger>) -> Self {
+        Self {
+            ledger,
+            online_weight_minimum: DEFAULT_ONLINE_WEIGHT_MINIMUM,
+            max_samples: 4032,
         }
     }
 
-    fn trim(&mut self, upper_bound: Duration) -> bool {
-        let mut trimmed = false;
-        let mut instants_to_remove = Vec::new();
-        for (&instant, ids) in self.by_time.lock().unwrap().iter() {
-            if instant.elapsed() < upper_bound {
-                break;
-            }
-
-            instants_to_remove.push(instant);
-
-            for id in ids {
-                let entry = self.entries.lock().unwrap().remove(id).unwrap();
-                self.by_account
-                    .lock()
-                    .unwrap()
-                    .remove(&entry.account)
-                    .unwrap();
-            }
-            trimmed = true;
-        }
-
-        for instant in instants_to_remove {
-            self.by_time.lock().unwrap().remove(&instant);
-        }
-
-        trimmed
+    pub fn set_online_weight_minimum(&mut self, minimum: Amount) {
+        self.online_weight_minimum = minimum;
     }
 
-    fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+    pub fn set_max_samples(&mut self, max_samples: u64) {
+        self.max_samples = max_samples;
+    }
+
+    pub fn calculate_trend(&mut self) -> Amount {
+        self.medium_weight(self.load_samples())
+    }
+
+    fn load_samples(&self) -> Vec<Amount> {
+        let txn = self.ledger.read_txn();
+        let mut items = Vec::with_capacity(self.max_samples as usize + 1);
+        items.push(self.online_weight_minimum);
+        let mut it = self.ledger.store.online_weight().begin(txn.txn());
+        while !it.is_end() {
+            items.push(*it.current().unwrap().1);
+            it.next();
+        }
+        items
+    }
+
+    fn medium_weight(&self, mut items: Vec<Amount>) -> Amount {
+        let median_idx = items.len() / 2;
+        items.sort();
+        items[median_idx]
+    }
+
+    /** Called periodically to sample online weight */
+    pub fn sample(&self, current_online_weight: Amount) {
+        let mut txn = self.ledger.rw_txn();
+        self.delete_old_samples(txn.as_mut());
+        self.insert_new_sample(txn.as_mut(), current_online_weight);
+    }
+
+    fn delete_old_samples(&self, txn: &mut dyn WriteTransaction) {
+        let weight_store = self.ledger.store.online_weight();
+
+        while weight_store.count(txn.txn()) >= self.max_samples {
+            let (&oldest, _) = weight_store.begin(txn.txn()).current().unwrap();
+            weight_store.del(txn, oldest);
+        }
+    }
+
+    fn insert_new_sample(&self, txn: &mut dyn WriteTransaction, current_online_weight: Amount) {
+        self.ledger.store.online_weight().put(
+            txn,
+            nano_seconds_since_epoch(),
+            &current_online_weight,
+        );
     }
 }
 
-struct Entry {
-    account: Account,
-    time: Instant,
+fn nano_seconds_since_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_nanos() as u64
 }

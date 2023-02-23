@@ -4,7 +4,7 @@
 #include <nano/secure/store.hpp>
 
 // TODO: Make threads configurable
-nano::bootstrap_server::bootstrap_server (nano::store & store_a, nano::ledger & ledger_a, nano::network_constants const & network_constants_a, nano::stat & stats_a) :
+nano::bootstrap_server::bootstrap_server (nano::store & store_a, nano::ledger & ledger_a, nano::network_constants const & network_constants_a, nano::stats & stats_a) :
 	store{ store_a },
 	ledger{ ledger_a },
 	network_constants{ network_constants_a },
@@ -97,7 +97,7 @@ void nano::bootstrap_server::respond (nano::asc_pull_ack & response, std::shared
 	// Increase relevant stats depending on payload type
 	struct stat_visitor
 	{
-		nano::stat & stats;
+		nano::stats & stats;
 
 		void operator() (nano::empty_payload const &)
 		{
@@ -184,7 +184,7 @@ nano::asc_pull_ack nano::bootstrap_server::process (nano::transaction const & tr
 		break;
 		case asc_pull_req::hash_type::account:
 		{
-			auto info = store.account ().get (transaction, request.start.as_account ());
+			auto info = ledger.account_info (transaction, request.start.as_account ());
 			if (info)
 			{
 				// Start from open block if pulling by account
@@ -272,7 +272,7 @@ nano::asc_pull_ack nano::bootstrap_server::process (const nano::transaction & tr
 	nano::asc_pull_ack::account_info_payload response_payload{};
 	response_payload.account = target;
 
-	auto account_info = store.account ().get (transaction, target);
+	auto account_info = ledger.account_info (transaction, target);
 	if (account_info)
 	{
 		response_payload.account_open = account_info->open_block ();

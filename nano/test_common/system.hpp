@@ -66,7 +66,7 @@ namespace test
 		boost::asio::io_context io_ctx;
 		std::vector<std::shared_ptr<nano::node>> nodes;
 		nano::logging logging;
-		nano::stat stats;
+		nano::stats stats;
 		nano::work_pool work{ nano::dev::network_params.network, std::max (nano::hardware_concurrency (), 1u) };
 		std::chrono::time_point<std::chrono::steady_clock, std::chrono::duration<double>> deadline{ std::chrono::steady_clock::time_point::max () };
 		double deadline_scaling_factor{ 1.0 };
@@ -75,7 +75,6 @@ namespace test
 	};
 
 	std::unique_ptr<nano::state_block> upgrade_epoch (nano::work_pool &, nano::ledger &, nano::epoch);
-	void blocks_confirm (nano::node &, std::vector<std::shared_ptr<nano::block>> const &, bool const = false);
 	uint16_t get_available_port ();
 	void cleanup_dev_directories_on_exit ();
 }

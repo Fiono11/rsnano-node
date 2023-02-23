@@ -1,5 +1,4 @@
 #include <nano/node/common.hpp>
-#include <nano/node/transport/udp.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
@@ -70,16 +69,9 @@ std::shared_ptr<nano::node> nano::test::system::add_node (nano::node_config cons
 			auto starting_keepalives_1 = node1->stats->count (stat::type::message, stat::detail::keepalive, stat::dir::in);
 			auto starting_keepalives_2 = node2->stats->count (stat::type::message, stat::detail::keepalive, stat::dir::in);
 
-			if (type_a == nano::transport::transport_type::tcp)
-			{
-				(*j)->network->merge_peer ((*i)->network->endpoint ());
-			}
-			else
-			{
-				// UDP connection
-				auto channel (std::make_shared<nano::transport::channel_udp> ((*j)->network->udp_channels, (*i)->network->endpoint (), node1->network_params.network.protocol_version));
-				(*j)->network->send_keepalive (channel);
-			}
+			// TCP is the only transport layer available.
+			debug_assert (type_a == nano::transport::transport_type::tcp);
+			(*j)->network->merge_peer ((*i)->network->endpoint ());
 
 			{
 				auto ec = poll_until_true (3s, [&node1, &node2, starting_size_1, starting_size_2] () {
@@ -263,26 +255,6 @@ std::unique_ptr<nano::state_block> nano::test::upgrade_epoch (nano::work_pool & 
 	return !error ? std::move (epoch) : nullptr;
 }
 
-void nano::test::blocks_confirm (nano::node & node_a, std::vector<std::shared_ptr<nano::block>> const & blocks_a, bool const forced_a)
-{
-	// Finish processing all blocks
-	node_a.block_processor.flush ();
-	for (auto const & block : blocks_a)
-	{
-		auto disk_block (node_a.block (block->hash ()));
-		// A sideband is required to start an election
-		debug_assert (disk_block != nullptr);
-		debug_assert (disk_block->has_sideband ());
-		node_a.block_confirm (disk_block);
-		if (forced_a)
-		{
-			auto election = node_a.active.election (disk_block->qualified_root ());
-			debug_assert (election != nullptr);
-			election->force_confirm ();
-		}
-	}
-}
-
 std::unique_ptr<nano::state_block> nano::test::system::upgrade_genesis_epoch (nano::node & node_a, nano::epoch const epoch_a)
 {
 	return upgrade_epoch (work, node_a.ledger, epoch_a);
@@ -400,11 +372,10 @@ void nano::test::system::generate_rollback (nano::node & node_a, std::vector<nan
 	debug_assert (std::numeric_limits<uint32_t>::max () > accounts_a.size ());
 	auto index (random_pool::generate_word32 (0, static_cast<uint32_t> (accounts_a.size () - 1)));
 	auto account (accounts_a[index]);
-	nano::account_info info;
-	auto error (node_a.store.account ().get (*transaction, account, info));
-	if (!error)
+	auto info = node_a.ledger.account_info (*transaction, account);
+	if (info)
 	{
-		auto hash (info.open_block ());
+		auto hash (info->open_block ());
 		if (hash != node_a.network_params.ledger.genesis->hash ())
 		{
 			accounts_a[index] = accounts_a[accounts_a.size () - 1];
