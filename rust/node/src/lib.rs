@@ -33,3 +33,5 @@ pub mod websocket;
 
 pub use ipc::*;
 pub use secure::*;
+
+pub mod unchecked_map;
