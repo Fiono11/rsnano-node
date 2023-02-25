@@ -71,11 +71,11 @@ impl UncheckedStore for LmdbUncheckedStore {
         count(txn, self.database)
     }
 
-    fn equal_range(&self, txn: &dyn Transaction, dependency: BlockHash) -> (UncheckedIterator, UncheckedIterator) {
+    fn equal_range(&self, txn: &dyn Transaction, dependency: BlockHash) -> UncheckedIterator {
         let begin_l = UncheckedKey::new(dependency, BlockHash::zero());
         let end_l = UncheckedKey::new(BlockHash::from(
             dependency.number() + 1), BlockHash::zero());
-        let end_iter = if begin_l.previous.number() < end_l.previous.number() {
+        /*let end_iter = if begin_l.previous.number() < end_l.previous.number() {
             self.lower_bound(txn, &end_l) }
         else {
             let mut it = self.begin(txn);
@@ -83,7 +83,7 @@ impl UncheckedStore for LmdbUncheckedStore {
                 it.next();
             }
             it
-        };
-            (self.lower_bound (txn, &begin_l), end_iter)
+        };*/
+            self.lower_bound(txn, &begin_l)
     }
 }

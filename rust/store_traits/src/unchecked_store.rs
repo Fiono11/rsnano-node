@@ -14,5 +14,5 @@ pub trait UncheckedStore {
     fn begin(&self, txn: &dyn Transaction) -> UncheckedIterator;
     fn lower_bound(&self, txn: &dyn Transaction, key: &UncheckedKey) -> UncheckedIterator;
     fn count(&self, txn: &dyn Transaction) -> u64;
-    fn equal_range(&self, txn: &dyn Transaction, dependency: BlockHash) -> (UncheckedIterator, UncheckedIterator);
+    fn equal_range(&self, txn: &dyn Transaction, dependency: BlockHash) -> UncheckedIterator;
 }

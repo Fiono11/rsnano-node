@@ -1,5 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(dead_code)]
+#![feature(fn_traits)]
 
 #[macro_use]
 extern crate static_assertions;
