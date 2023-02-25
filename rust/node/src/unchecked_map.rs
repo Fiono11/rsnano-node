@@ -2,7 +2,7 @@ use std::{sync::{Arc, Mutex, Condvar, MutexGuard}, thread::{JoinHandle, self}, c
 use rsnano_core::{HashOrAccount, UncheckedInfo, UncheckedKey, BlockHash};
 use rsnano_store_lmdb::LmdbStore;
 use rsnano_store_traits::{WriteTransaction, Transaction, Store, UncheckedStore, UncheckedIterator};
-use crate::stats::Stats;
+use crate::stats::{Stats, StatType};
 
 const MEM_BLOCK_COUNT_MAX: usize = 256000;
 
@@ -78,40 +78,44 @@ struct ThreadMutableData {
     back_buffer: VecDeque<Op>,
     writing_back_buffer: bool,
     entries_container: EntriesContainer,
+    stats: Arc<Stats>,
+    satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>
 }
 
 impl ThreadMutableData {
-    fn new() -> Self {
+    fn new(stats: Arc<Stats>) -> Self {
         Self {
             stopped: false,
             buffer: VecDeque::new(),
             back_buffer: VecDeque::new(),
             writing_back_buffer: false,
             entries_container: EntriesContainer::new(),
+            stats,
+            satisfied: Box::new(move |_info: &UncheckedInfo| {}),
         }
     }
 }
 
 pub struct UncheckedMapThread {
     store: Arc<LmdbStore>,
-    stats: Arc<Stats>,
+    //stats: Arc<Stats>,
     disable_delete: bool,
-    mutable: Mutex<ThreadMutableData>,
+    mutable: Arc<Mutex<ThreadMutableData>>,
     condition: Condvar,
     use_memory: Box<dyn Fn() -> bool + Send + Sync>,
-    satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>
+    //satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>
 }
 
 impl UncheckedMapThread {
     fn new(store: Arc<LmdbStore>, stats: Arc<Stats>, disable_delete: bool) -> Self {
         Self {
             store,
-            stats,
+            //stats,
             disable_delete,
-            mutable: Mutex::new(ThreadMutableData::new()),
+            mutable: Arc::new(Mutex::new(ThreadMutableData::new(stats))),
             condition: Condvar::new(),
             use_memory: Box::new(move || { true }),
-            satisfied: Box::new(move |_info: &UncheckedInfo| {}),
+            //satisfied: Box::new(move |_info: &UncheckedInfo| {}),
         }
     }
 
@@ -153,7 +157,7 @@ impl UncheckedMapThread {
         }
     }
 
-    pub fn trigger(&mut self, dependency: HashOrAccount) {
+    pub fn trigger(&self, dependency: HashOrAccount) {
         let mut lock = self.mutable.lock().unwrap();
         lock.buffer.push_back(Op::Query(dependency));
         self.condition.notify_all(); // Notify run ()
@@ -175,7 +179,7 @@ impl UncheckedMapThread {
         }
     }
 
-    pub fn put(&mut self, dependency: HashOrAccount, info: UncheckedInfo) {
+    pub fn put(&self, dependency: HashOrAccount, info: UncheckedInfo) {
         let mut lock = self.mutable.lock().unwrap();
         lock.buffer.push_back(Op::Insert((dependency, info)));
         self.condition.notify_all();
@@ -265,14 +269,15 @@ impl UncheckedMapThread {
     }
 
     fn insert_impl(&self, transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo) {
+        let mut lock = self.mutable.lock().unwrap();
+
         // Check if block dependency has been satisfied while waiting to be placed in the unchecked map
         if self.store.block().exists(transaction.txn(), &BlockHash::from_bytes(*dependency.as_bytes()))
         {
-            self.satisfied.call((&info,));
+            lock.satisfied.call((&info,));
             return;
         }
         
-        let mut lock = self.mutable.lock().unwrap();
         if lock.entries_container.is_empty() && self.use_memory.call(()) {
             let entries_new = Arc::new(Mutex::new(EntriesContainer::new()));
             let entries_copy = Arc::clone(&entries_new);
@@ -309,12 +314,15 @@ impl UncheckedMapThread {
     }
 
     fn query_impl(&self, transaction: &mut dyn WriteTransaction, hash: HashOrAccount) {
-        let lock = self.mutable.lock().unwrap();
+        let mutex = Arc::clone(&self.mutable);
         let delete_queue = Arc::new(Mutex::new(VecDeque::new()));
         let delete_queue_copy = Arc::clone(&delete_queue); 
         self.for_each2(transaction.txn(), hash, Box::new(move |key, info| {
-            let mut lock = delete_queue_copy.lock().unwrap();
-            lock.push_back(key.clone());
+            let mut dq = delete_queue_copy.lock().unwrap();
+            dq.push_back(key.clone());
+            let lock = mutex.lock().unwrap();
+            lock.stats.inc(StatType::Unchecked, crate::stats::DetailType::Satisfied, crate::stats::Direction::In); // ir or out
+		    lock.satisfied.call((info,));
         }), Box::new(|| true));
         if !self.disable_delete {
             for key in &Arc::try_unwrap(delete_queue).unwrap().into_inner().unwrap() {
