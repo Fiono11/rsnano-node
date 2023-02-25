@@ -276,8 +276,18 @@ impl UncheckedMapThread {
         if lock.entries_container.is_empty() && self.use_memory.call(()) {
             let entries_new = Arc::new(Mutex::new(EntriesContainer::new()));
             let entries_copy = Arc::clone(&entries_new);
-            self.for_each1(transaction.txn(), Box::new(move |key, info| { entries_copy.lock().unwrap().insert(Entry::new(key.clone(), info.clone())) }), 
-        Box::new(move || entries_copy.lock().unwrap().size() < MEM_BLOCK_COUNT_MAX ));
+            let entries_copy2 = Arc::clone(&entries_new);
+            self.for_each1(transaction.txn(), Box::new(move |key, info| { 
+                let mut lock = entries_copy.lock().unwrap();
+                lock.insert(Entry::new(key.clone(), info.clone()));
+                drop(lock);
+            }), 
+        Box::new(move || {
+            let lock = entries_copy2.lock().unwrap();
+            let bool = entries_copy2.lock().unwrap().size() < MEM_BLOCK_COUNT_MAX;
+            drop(lock);
+            bool
+        }));
             self.clear(transaction);
             lock.entries_container = Arc::try_unwrap(entries_new).unwrap().into_inner().unwrap();
         }
