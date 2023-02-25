@@ -16,6 +16,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_create(
     let unchecked_map = UncheckedMap::builder()
         .store((*store_handle).deref().to_owned())
         .disable_delete(disable_delete)
+        .stats((*stats_handle).deref().to_owned())
         .spawn()
         .unwrap();
     Box::into_raw(Box::new(UncheckedMapHandle(

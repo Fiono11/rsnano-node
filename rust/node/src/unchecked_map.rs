@@ -22,11 +22,12 @@ impl UncheckedMap {
     }
 
     pub fn stop(&mut self) {
-        let mut mutex = self.thread.mutable.lock().unwrap();
-        if !mutex.stopped {
-            mutex.stopped = true;
+        let mut lock = self.thread.mutable.lock().unwrap();
+        //if !mutex.stopped {
+            lock.stopped = true;
+            drop(lock);
             self.thread.condition.notify_all();
-        }
+        //}
         if let Some(handle) = self.join_handle.take() {
             handle.join().unwrap();
         }
@@ -49,6 +50,12 @@ impl Builder {
         self.store = Some(store);
         self
     }
+
+    pub fn stats(mut self, stats: Arc<Stats>) -> Self {
+        self.stats = Some(stats);
+        self
+    }
+
 
     pub fn disable_delete(mut self, disable_delete: bool) -> Self {
         self.disable_delete = disable_delete;
@@ -79,7 +86,8 @@ struct ThreadMutableData {
     writing_back_buffer: bool,
     entries_container: EntriesContainer,
     stats: Arc<Stats>,
-    satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>
+    satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>,
+    counter: u8,
 }
 
 impl ThreadMutableData {
@@ -92,6 +100,7 @@ impl ThreadMutableData {
             entries_container: EntriesContainer::new(),
             stats,
             satisfied: Box::new(move |_info: &UncheckedInfo| {}),
+            counter: 0,
         }
     }
 }
@@ -101,7 +110,7 @@ pub struct UncheckedMapThread {
     //stats: Arc<Stats>,
     disable_delete: bool,
     mutable: Arc<Mutex<ThreadMutableData>>,
-    condition: Condvar,
+    condition: Arc<Condvar>,
     use_memory: Box<dyn Fn() -> bool + Send + Sync>,
     //satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>
 }
@@ -113,7 +122,7 @@ impl UncheckedMapThread {
             //stats,
             disable_delete,
             mutable: Arc::new(Mutex::new(ThreadMutableData::new(stats))),
-            condition: Condvar::new(),
+            condition: Arc::new(Condvar::new()),
             use_memory: Box::new(move || { true }),
             //satisfied: Box::new(move |_info: &UncheckedInfo| {}),
         }
@@ -123,22 +132,29 @@ impl UncheckedMapThread {
         let mut lock = self.mutable.lock().unwrap();
         while !lock.stopped {
             if !lock.buffer.is_empty() {
+                println!("1");
                 let temp = lock.buffer.clone();
                 lock.buffer = lock.back_buffer.clone();
                 lock.back_buffer = temp;
 			    lock.writing_back_buffer = true;
                 let back_buffer = &lock.back_buffer.clone();
                 drop(lock);
+                println!("2");
                 self.write_buffer(back_buffer);
+                println!("3");
                 lock = self.mutable.lock().unwrap();
                 lock.writing_back_buffer = false;
 			    lock.back_buffer.clear ();
             }
             else {
+                println!("4");
+                self.condition.notify_all();
+                println!("5");
                 lock = self
                     .condition
                     .wait_while(lock, |other_lock| !other_lock.stopped && other_lock.buffer.is_empty())
                     .unwrap();
+                println!("6");
             }
         }
     }
@@ -165,6 +181,7 @@ impl UncheckedMapThread {
 
     pub fn flush(&self) {
         let mut lock = self.mutable.lock().unwrap();
+        println!("7");
         lock = self.condition.wait_while(lock, |other_lock| !other_lock.stopped && (!other_lock.buffer.is_empty() ||
         !other_lock.back_buffer.is_empty() || !other_lock.writing_back_buffer)).unwrap();
     }
@@ -230,16 +247,20 @@ impl UncheckedMapThread {
     }
 
     pub fn for_each1(&self, transaction: &dyn Transaction, mut action: Box<dyn FnMut(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
-        let mut lock = self.mutable.lock().unwrap();
+        println!("24");
+        let lock = self.mutable.lock().unwrap();
         if lock.entries_container.is_empty() {
+            println!("25");
             let mut it: UncheckedIterator = self.store.unchecked().begin(transaction);
             while !it.is_end() && predicate() {
+                println!("8");
                 let (uk, ui) = it.current().unwrap();
                 action(uk, ui);
                 it.next();
             }
         }
         else {
+            println!("26");
             for (_, entry) in &lock.entries_container.entries { // predicate
                 if predicate() {
                     action(&entry.key, &entry.info);
@@ -254,6 +275,7 @@ impl UncheckedMapThread {
             let key = UncheckedKey::new(dependency.into(), BlockHash::zero()); // get hash
             let mut it: UncheckedIterator = self.store.unchecked().lower_bound(transaction, &key);
             while !it.is_end() && predicate() {
+                println!("9");
                 let (uk, ui) = it.current().unwrap();
                 action(uk, ui);
                 it.next();
@@ -270,36 +292,47 @@ impl UncheckedMapThread {
 
     fn insert_impl(&self, transaction: &mut dyn WriteTransaction, dependency: HashOrAccount, info: UncheckedInfo) {
         let mut lock = self.mutable.lock().unwrap();
-
+        println!("11");
         // Check if block dependency has been satisfied while waiting to be placed in the unchecked map
         if self.store.block().exists(transaction.txn(), &BlockHash::from_bytes(*dependency.as_bytes()))
         {
             lock.satisfied.call((&info,));
+            println!("12");
             return;
         }
-        
-        if lock.entries_container.is_empty() && self.use_memory.call(()) {
+        let empty = lock.entries_container.is_empty();
+        drop(lock);
+        if empty && self.use_memory.call(()) {
+            println!("13");
             let entries_new = Arc::new(Mutex::new(EntriesContainer::new()));
             let entries_copy = Arc::clone(&entries_new);
             let entries_copy2 = Arc::clone(&entries_new);
             self.for_each1(transaction.txn(), Box::new(move |key, info| { 
+                println!("15");
                 let mut lock = entries_copy.lock().unwrap();
                 lock.insert(Entry::new(key.clone(), info.clone()));
                 drop(lock);
             }), 
         Box::new(move || {
+            println!("16");
             let lock = entries_copy2.lock().unwrap();
             let bool = entries_copy2.lock().unwrap().size() < MEM_BLOCK_COUNT_MAX;
             drop(lock);
             bool
-        }));
+            }));
+            println!("17");
             self.clear(transaction);
+            lock = self.mutable.lock().unwrap();
             lock.entries_container = Arc::try_unwrap(entries_new).unwrap().into_inner().unwrap();
+            drop(lock);
         }
+        lock = self.mutable.lock().unwrap();
         if lock.entries_container.is_empty() {
+            println!("18");
             self.store.unchecked().put(transaction, &dependency, &info);
         }
         else {
+            println!("19");
             let key = UncheckedKey::new(dependency.into(), info.block.as_ref().unwrap().clone().read().unwrap().as_block().hash());
             let entry = Entry {
                 key,
@@ -308,16 +341,19 @@ impl UncheckedMapThread {
             lock.entries_container.insert(entry);
             while lock.entries_container.size() > MEM_BLOCK_COUNT_MAX
             {
+                println!("10");
                 lock.entries_container.pop_front();
             }
         }
     }
 
     fn query_impl(&self, transaction: &mut dyn WriteTransaction, hash: HashOrAccount) {
+        println!("20");
         let mutex = Arc::clone(&self.mutable);
         let delete_queue = Arc::new(Mutex::new(VecDeque::new()));
         let delete_queue_copy = Arc::clone(&delete_queue); 
         self.for_each2(transaction.txn(), hash, Box::new(move |key, info| {
+            println!("21");
             let mut dq = delete_queue_copy.lock().unwrap();
             dq.push_back(key.clone());
             let lock = mutex.lock().unwrap();
@@ -325,7 +361,9 @@ impl UncheckedMapThread {
 		    lock.satisfied.call((info,));
         }), Box::new(|| true));
         if !self.disable_delete {
+            println!("22");
             for key in &Arc::try_unwrap(delete_queue).unwrap().into_inner().unwrap() {
+                println!("23");
                 self.del(transaction, key);
             }
         }
