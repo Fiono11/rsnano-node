@@ -147,7 +147,7 @@ impl UncheckedMapThread {
                     self.insert_impl(&mut transaction, i.0.clone(), i.1.clone());
                 },
                 Op::Query(q) => {
-                    //self.query_impl(data, &mut transaction, BlockHash::from(q.number()));
+                    self.query_impl(&mut transaction, q.clone());
                 },
             }
         }
@@ -204,7 +204,7 @@ impl UncheckedMapThread {
         }
     }
 
-    pub fn del(&mut self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
+    pub fn del(&self, transaction: &mut dyn WriteTransaction, key: &UncheckedKey) {
         let mut lock = self.mutable.lock().unwrap();
         if lock.entries_container.is_empty() {
             self.store.unchecked_store.del(transaction, key);
@@ -304,6 +304,21 @@ impl UncheckedMapThread {
             while lock.entries_container.size() > MEM_BLOCK_COUNT_MAX
             {
                 lock.entries_container.pop_front();
+            }
+        }
+    }
+
+    fn query_impl(&self, transaction: &mut dyn WriteTransaction, hash: HashOrAccount) {
+        let lock = self.mutable.lock().unwrap();
+        let delete_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let delete_queue_copy = Arc::clone(&delete_queue); 
+        self.for_each2(transaction.txn(), hash, Box::new(move |key, info| {
+            let mut lock = delete_queue_copy.lock().unwrap();
+            lock.push_back(key.clone());
+        }), Box::new(|| true));
+        if !self.disable_delete {
+            for key in &Arc::try_unwrap(delete_queue).unwrap().into_inner().unwrap() {
+                self.del(transaction, key);
             }
         }
     }
