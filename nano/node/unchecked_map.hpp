@@ -63,8 +63,8 @@ private:
 	void run ();
 	void insert_impl (nano::write_transaction const & transaction, nano::hash_or_account const & dependency, nano::unchecked_info const & info);
 	void query_impl (nano::write_transaction const & transaction, nano::block_hash const & hash);
-	//nano::store & store;
-	//nano::stats & stats;
+	nano::store & store;
+	nano::stats & stats;
 
 private:
 	bool disable_delete;
@@ -103,6 +103,6 @@ private: // In memory store
 
 	mutable std::recursive_mutex entries_mutex;
 
-	rsnano::UncheckedMapHandle * handle;
+	//rsnano::UncheckedMapHandle * handle;
 };
 }

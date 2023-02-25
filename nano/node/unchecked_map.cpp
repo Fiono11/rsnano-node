@@ -37,20 +37,20 @@ void drop_predicate_callback (void * context_a)
 }
 //}
 
-nano::unchecked_map::unchecked_map (nano::store & store, nano::stats & stats, bool disable_delete) 
-	//store{ store },
-	//stats{ stats },
-	//disable_delete{ disable_delete },
-	//thread{ [this] () { run (); } }
+nano::unchecked_map::unchecked_map (nano::store & store, nano::stats & stats, bool disable_delete) :
+	store{ store },
+	stats{ stats },
+	disable_delete{ disable_delete },
+	thread{ [this] () { run (); } }
 {
-	handle = rsnano::rsn_unchecked_map_create (store.get_handle (), stats.handle, disable_delete);
+	//handle = rsnano::rsn_unchecked_map_create (store.get_handle (), stats.handle, disable_delete);
 }
 
 nano::unchecked_map::~unchecked_map ()
 {
-	//stop ();
-	//thread.join ();
-	rsnano::rsn_unchecked_map_destroy (handle);
+	stop ();
+	thread.join ();
+	//rsnano::rsn_unchecked_map_destroy (handle);
 }
 
 void nano::unchecked_map::put (nano::hash_or_account const & dependency, nano::unchecked_info const & info)
@@ -65,7 +65,7 @@ void nano::unchecked_map::put (nano::hash_or_account const & dependency, nano::u
 void nano::unchecked_map::for_each (
 nano::transaction const & transaction, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate)
 {
-	/*nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
+	nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	if (entries == nullptr)
 	{
 		for (auto [i, n] = store.unchecked ().full_range (transaction); predicate () && i != n; ++i)
@@ -79,17 +79,17 @@ nano::transaction const & transaction, std::function<void (nano::unchecked_key c
 		{
 			action (i->key, i->info);
 		}
-	}*/
-	rsnano::rsn_unchecked_map_for_each1 (handle, transaction.get_rust_handle(),
+	}
+	/*rsnano::rsn_unchecked_map_for_each1 (handle, transaction.get_rust_handle(),
 	action_callback_wrapper,
 	new std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)>{ action },
-	drop_action_callback);
+	drop_action_callback);*/
 }
 
 void nano::unchecked_map::for_each (
 nano::transaction const & transaction, nano::hash_or_account const & dependency, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate)
 {
-	/*nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
+	nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	if (entries == nullptr)
 	{
 		for (auto [i, n] = store.unchecked ().equal_range (transaction, dependency.as_block_hash ()); predicate () && i->first.key () == dependency.as_block_hash () && i != n; ++i)
@@ -103,14 +103,14 @@ nano::transaction const & transaction, nano::hash_or_account const & dependency,
 		{
 			action (i->key, i->info);
 		}
-	}*/
-	rsnano::rsn_unchecked_map_for_each2 (handle, transaction.get_rust_handle(), dependency.bytes.data(),
+	}
+	/*rsnano::rsn_unchecked_map_for_each2 (handle, transaction.get_rust_handle(), dependency.bytes.data(),
 	action_callback_wrapper,
 	new std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)>{ action },
 	drop_action_callback,
 	predicate_callback_wrapper,
 	new std::function<bool ()>{ predicate },
-	drop_predicate_callback);
+	drop_predicate_callback);*/
 }
 
 std::vector<nano::unchecked_info> nano::unchecked_map::get (nano::transaction const & transaction, nano::block_hash const & hash)
