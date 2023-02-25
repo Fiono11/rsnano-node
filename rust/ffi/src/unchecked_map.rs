@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, ffi::c_void, ops::Deref};
 
-use rsnano_node::unchecked_map::UncheckedMap;
+use rsnano_core::{BlockHash, UncheckedKey, UncheckedInfo};
+use rsnano_node::unchecked_map::{UncheckedMapThread, EntriesContainer, UncheckedMap};
 
-use crate::{StatHandle, ledger::datastore::lmdb::LmdbStoreHandle};
+use crate::{StatHandle, ledger::datastore::{lmdb::{LmdbStoreHandle, UncheckedKeyDto}, TransactionHandle}, VoidPointerCallback, utils::ContextWrapper, core::UncheckedInfoHandle};
 
 pub struct UncheckedMapHandle(UncheckedMap);
 
@@ -12,11 +13,14 @@ pub unsafe extern "C" fn rsn_unchecked_map_create(
     stats_handle: *mut StatHandle,
     disable_delete: bool,
 ) -> *mut UncheckedMapHandle {
-    Box::into_raw(Box::new(UncheckedMapHandle(UncheckedMap::new(
-        Arc::clone(&(*store_handle).0),
-        Arc::clone(&(*stats_handle).0),
-        disable_delete,
-    ))))
+    let unchecked_map = UncheckedMap::builder()
+        .store((*store_handle).deref().to_owned())
+        .disable_delete(disable_delete)
+        .spawn()
+        .unwrap();
+    Box::into_raw(Box::new(UncheckedMapHandle(
+        unchecked_map,
+    )))
 }
 
 #[no_mangle]
@@ -24,7 +28,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_destroy(handle: *mut UncheckedMapHand
     drop(Box::from_raw(handle))
 }
 
-/*pub type ActionCallback =
+pub type ActionCallback =
 unsafe extern "C" fn(*mut c_void, *mut UncheckedKeyDto, *mut UncheckedInfoHandle);
 
 pub type PredicateCallback =
@@ -41,14 +45,14 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHa
         drop_action_callback,
     );
 
-    (*handle).0.notify.for_each1(transaction.as_txn(), notify_observers_callback);
+    (*handle).0.thread.for_each1(transaction.as_txn(), notify_observers_callback);
 }
 
 unsafe fn wrap_action_callback(
     callback: ActionCallback,
     context: *mut c_void,
     drop_context: VoidPointerCallback,
-) -> Box<dyn FnMut(&mut EntryContainer, &UncheckedKey, &UncheckedInfo)> {
+) -> Box<dyn FnMut(&mut EntriesContainer, &UncheckedKey, &UncheckedInfo)> {
     let context_wrapper = ContextWrapper::new(context, drop_context);
     Box::new(move |e, k, i| {
         callback(
@@ -93,4 +97,4 @@ unsafe fn wrap_predicate_callback(
 ) -> Box<dyn Fn() -> bool> {
     let context_wrapper = ContextWrapper::new(context, drop_context);
     Box::new(move || callback(context_wrapper.get_context()))
-}*/
+}

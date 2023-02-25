@@ -22,6 +22,15 @@ pub struct UncheckedKeyDto {
     pub hash: [u8; 32],
 }
 
+impl From<&UncheckedKey> for UncheckedKeyDto {
+    fn from(key: &UncheckedKey) -> Self {
+        Self {
+            previous: *key.previous.as_bytes(),
+            hash: *key.hash.as_bytes(),
+        }
+    }
+}
+
 impl From<&UncheckedKeyDto> for UncheckedKey {
     fn from(dto: &UncheckedKeyDto) -> Self {
         Self {
