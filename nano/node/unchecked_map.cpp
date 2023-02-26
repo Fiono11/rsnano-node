@@ -119,12 +119,12 @@ nano::transaction const & transaction, nano::hash_or_account const & dependency,
 
 std::vector<nano::unchecked_info> nano::unchecked_map::get (nano::transaction const & transaction, nano::block_hash const & hash)
 {
-	/*std::vector<nano::unchecked_info> result;
+	std::vector<nano::unchecked_info> result;
 	for_each (transaction, hash, [&result] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
 		result.push_back (info);
 	});
-	return result;*/
-	rsnano::InfoVecDto infos_dto;
+	return result;
+	/*rsnano::InfoVecDto infos_dto;
 	rsnano::rsn_unchecked_map_get (handle, transaction.get_rust_handle(), hash.bytes.data(), &infos_dto);
 	std::vector<nano::unchecked_info> infos;
 
@@ -141,7 +141,7 @@ std::vector<nano::unchecked_info> nano::unchecked_map::get (nano::transaction co
 	}
 
 	rsnano::rsn_unchecked_map_destroy_dto (&infos_dto);
-	return infos;
+	return infos;*/
 }
 
 bool nano::unchecked_map::exists (nano::transaction const & transaction, nano::unchecked_key const & key) const
