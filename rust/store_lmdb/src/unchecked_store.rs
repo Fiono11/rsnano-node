@@ -70,20 +70,4 @@ impl UncheckedStore for LmdbUncheckedStore {
     fn count(&self, txn: &dyn Transaction) -> u64 {
         count(txn, self.database)
     }
-
-    fn equal_range(&self, txn: &dyn Transaction, dependency: BlockHash) -> UncheckedIterator {
-        let begin_l = UncheckedKey::new(dependency, BlockHash::zero());
-        let end_l = UncheckedKey::new(BlockHash::from(
-            dependency.number() + 1), BlockHash::zero());
-        /*let end_iter = if begin_l.previous.number() < end_l.previous.number() {
-            self.lower_bound(txn, &end_l) }
-        else {
-            let mut it = self.begin(txn);
-            while !it.is_end() {
-                it.next();
-            }
-            it
-        };*/
-            self.lower_bound(txn, &begin_l)
-    }
 }

@@ -265,7 +265,7 @@ impl UncheckedMapThread {
             println!("25");
             let mut it: UncheckedIterator = self.store.unchecked().begin(transaction);
             println!("42");
-            while !it.is_end() {//&& predicate() {
+            while !it.is_end() && predicate() {
                 println!("8");
                 let (uk, ui) = it.current().unwrap();
                 action(uk, ui);
@@ -291,9 +291,7 @@ impl UncheckedMapThread {
         let key = UncheckedKey::new(dependency.into(), BlockHash::zero()); 
         if empty {
             let mut it: UncheckedIterator = self.store.unchecked().lower_bound(transaction, &key);
-            //let mut it: UncheckedIterator = self.store.unchecked().begin(transaction);
-            //let mut it: UncheckedIterator = self.store.unchecked().equal_range(transaction, dependency.into());
-            while !it.is_end() {//&& predicate() {
+            while !it.is_end() && predicate() {
                 println!("9");
                 let (uk, ui) = it.current().unwrap();
                 action(uk, ui);
