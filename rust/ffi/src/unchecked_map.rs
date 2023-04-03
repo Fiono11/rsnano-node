@@ -54,8 +54,24 @@ pub unsafe extern "C" fn rsn_unchecked_map_flush(handle: *mut UncheckedMapHandle
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rsn_unchecked_map_count(handle: *mut UncheckedMapHandle) -> usize {
-    (*handle).0.thread.count()
+pub unsafe extern "C" fn rsn_unchecked_map_entries_count(handle: *mut UncheckedMapHandle) -> usize {
+    (*handle).0.thread.entries_count()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_unchecked_map_entries_size(handle: *mut UncheckedMapHandle) -> usize {
+    (*handle).0.thread.entries_size()
+}
+
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_unchecked_map_buffer_count(handle: *mut UncheckedMapHandle) -> usize {
+    (*handle).0.thread.buffer_count()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_unchecked_map_buffer_size(handle: *mut UncheckedMapHandle) -> usize {
+    (*handle).0.thread.buffer_size()
 }
 
 #[no_mangle]

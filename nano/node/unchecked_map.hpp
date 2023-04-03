@@ -39,7 +39,10 @@ public:
 	bool exists (nano::unchecked_key const & key) const;
 	void del (nano::unchecked_key const & key);
 	void clear ();
-	std::size_t count () const;
+	std::size_t entries_count () const;
+	std::size_t buffer_count () const;
+	std::size_t entries_size () const;
+	std::size_t buffer_size () const;
 	void stop ();
 	void flush ();
 
@@ -52,47 +55,47 @@ public: // Events
 	nano::observer_set<nano::unchecked_info const &> satisfied;
 
 private:
-	void run ();
-	void query_impl (nano::block_hash const & hash);
+	//void run ();
+	//void query_impl (nano::block_hash const & hash);
 
 private: // Dependencies
 	//nano::store & store;
 	//nano::stats & stats;
 
 private:
-	bool disable_delete;
-	std::deque<nano::hash_or_account> buffer;
-	std::deque<nano::hash_or_account> back_buffer;
-	bool writing_back_buffer{ false };
-	bool stopped{ false };
-	nano::condition_variable condition;
-	nano::mutex mutex;
-	std::thread thread;
+	//bool disable_delete;
+	//std::deque<nano::hash_or_account> buffer;
+	//std::deque<nano::hash_or_account> back_buffer;
+	//bool writing_back_buffer{ false };
+	//bool stopped{ false };
+	///nano::condition_variable condition;
+	//nano::mutex mutex;
+	//std::thread thread;
 
-	void process_queries (decltype (buffer) const & back_buffer);
+	//void process_queries (decltype (buffer) const & back_buffer);
 
-	static std::size_t constexpr mem_block_count_max = 64 * 1024;
+	//static std::size_t constexpr mem_block_count_max = 64 * 1024;
 
 private:
-	struct entry
-	{
-		nano::unchecked_key key;
-		nano::unchecked_info info;
-	};
+	//struct entry
+	//{
+		//nano::unchecked_key key;
+		//nano::unchecked_info info;
+	//};
 
 	// clang-format off
-	class tag_sequenced {};
-	class tag_root {};
+	//class tag_sequenced {};
+	//class tag_root {};
 
-	using ordered_unchecked = boost::multi_index_container<entry,
-		mi::indexed_by<
-			mi::sequenced<mi::tag<tag_sequenced>>,
-			mi::ordered_unique<mi::tag<tag_root>,
-				mi::member<entry, nano::unchecked_key, &entry::key>>>>;
+	//using ordered_unchecked = boost::multi_index_container<entry,
+		//mi::indexed_by<
+			//mi::sequenced<mi::tag<tag_sequenced>>,
+			//mi::ordered_unique<mi::tag<tag_root>,
+				//mi::member<entry, nano::unchecked_key, &entry::key>>>>;
 	// clang-format on
-	ordered_unchecked entries;
+	//ordered_unchecked entries;
 
-	mutable std::recursive_mutex entries_mutex;
+	//mutable std::recursive_mutex entries_mutex;
 
 	rsnano::UncheckedMapHandle * handle;
 

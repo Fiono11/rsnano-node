@@ -1,10 +1,10 @@
-use std::{sync::{Arc, Mutex, Condvar, MutexGuard}, thread::{JoinHandle, self}, collections::{VecDeque, BTreeMap, HashMap, BTreeSet}, mem, cell::RefCell, rc::Rc, cmp::Ordering};
+use std::{sync::{Arc, Mutex, Condvar, MutexGuard}, thread::{JoinHandle, self}, collections::{VecDeque, BTreeMap, HashMap, BTreeSet}, mem::{self, size_of}, cell::RefCell, rc::Rc, cmp::Ordering};
 use rsnano_core::{HashOrAccount, UncheckedInfo, UncheckedKey, BlockHash};
 use rsnano_store_lmdb::LmdbStore;
 use rsnano_store_traits::{WriteTransaction, Transaction, Store, UncheckedStore, UncheckedIterator};
 use crate::stats::{Stats, StatType, DetailType, Direction};
 
-const MEM_BLOCK_COUNT_MAX: usize = 256000;
+const MEM_BLOCK_COUNT_MAX: usize = 64 * 1024;
 
 struct UncheckedMapFlags {
     stopped: bool,
@@ -136,7 +136,6 @@ impl UncheckedMapThread {
                 let back_buffer = &lock.back_buffer.clone();
                 drop(lock);
                 println!("2");
-                //self.write_buffer(back_buffer);
                 self.process_queries(back_buffer);
                 println!("3");
                 lock = self.mutable.lock().unwrap();
@@ -180,9 +179,24 @@ impl UncheckedMapThread {
         !other_lock.back_buffer.is_empty() || other_lock.writing_back_buffer)).unwrap();
     }
 
-    pub fn count(&self) -> usize {
+    pub fn entries_count(&self) -> usize {
         let lock = self.mutable.lock().unwrap();
         return lock.entries_container.size();
+    }
+
+    pub fn entries_size(&self) -> usize {
+        let lock = self.mutable.lock().unwrap();
+        std::mem::size_of_val(&lock.entries_container)
+    }
+
+    pub fn buffer_count(&self) -> usize {
+        let lock = self.mutable.lock().unwrap();
+        lock.buffer.len()
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        let lock = self.mutable.lock().unwrap();
+        std::mem::size_of_val(&lock.buffer)
     }
 
     pub fn put(&self, dependency: HashOrAccount, info: UncheckedInfo) {
@@ -206,7 +220,7 @@ impl UncheckedMapThread {
     }
 
     pub fn exists(&self, key: &UncheckedKey) -> bool {
-        self.count() != 0
+        self.entries_count() != 0
     }
 
     pub fn del(&self, key: &UncheckedKey) {
@@ -247,37 +261,23 @@ impl UncheckedMapThread {
         }
     }
 
-    pub fn query_impl(&self, hash: &HashOrAccount)
-{
-    let mutex = Arc::clone(&self.mutable);
-    let delete_queue = Arc::new(Mutex::new(VecDeque::new()));
-    let delete_queue_copy = Arc::clone(&delete_queue); 
-    self.for_each2(hash, Box::new(move |key, info| {
-        let mut dq = delete_queue_copy.lock().unwrap();
-        dq.push_back(key.clone());
-        let lock = mutex.lock().unwrap();
-        lock.stats.inc(StatType::Unchecked, DetailType::Satisfied, Direction::In);
-        //satisfied.notify (info);
-    }), Box::new(|| true));
-    if !self.disable_delete {
-        for key in &Arc::try_unwrap(delete_queue).unwrap().into_inner().unwrap() {
-            self.del(key);
+    pub fn query_impl(&self, hash: &HashOrAccount) {
+        let mutex = Arc::clone(&self.mutable);
+        let delete_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let delete_queue_copy = Arc::clone(&delete_queue); 
+        self.for_each2(hash, Box::new(move |key, info| {
+            let mut dq = delete_queue_copy.lock().unwrap();
+            dq.push_back(key.clone());
+            let lock = mutex.lock().unwrap();
+            lock.stats.inc(StatType::Unchecked, DetailType::Satisfied, Direction::In);
+            //satisfied.notify (info);
+        }), Box::new(|| true));
+        if !self.disable_delete {
+            for key in &Arc::try_unwrap(delete_queue).unwrap().into_inner().unwrap() {
+                self.del(key);
+            }
         }
     }
-	
-    /*for_each (hash, [this, &delete_queue] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
-		delete_queue.push_back (key);
-		stats.inc (nano::stat::type::unchecked, nano::stat::detail::satisfied);
-		satisfied.notify (info);
-	});
-	if (!disable_delete)
-	{
-		for (auto const & key : delete_queue)
-		{
-			del (key);
-		}
-	}*/
-}
 }
 
 #[derive(Clone, Debug)]
