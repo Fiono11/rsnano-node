@@ -21,6 +21,7 @@ mod voting;
 mod wallet;
 mod websocket;
 mod work;
+mod unchecked_map;
 
 use std::{
     ffi::{c_void, CString},

@@ -56,8 +56,8 @@ private:
 	void query_impl (nano::block_hash const & hash);
 
 private: // Dependencies
-	nano::store & store;
-	nano::stats & stats;
+	//nano::store & store;
+	//nano::stats & stats;
 
 private:
 	bool disable_delete;
@@ -93,6 +93,8 @@ private:
 	ordered_unchecked entries;
 
 	mutable std::recursive_mutex entries_mutex;
+
+	rsnano::UncheckedMapHandle * handle;
 
 public: // Container info
 	std::unique_ptr<nano::container_info_component> collect_container_info (std::string const & name);
