@@ -32,6 +32,66 @@ impl UncheckedMap {
             handle.join().unwrap();
         }
     }
+
+    pub fn exists(&self, key: &UncheckedKey) -> bool {
+        self.thread.exists(key)
+    }
+
+    pub fn put(&self, dependency: HashOrAccount, info: UncheckedInfo) {
+        self.thread.stats.inc (StatType::Unchecked, DetailType::Put, Direction::In);
+        self.thread.put(dependency, info)
+    }
+
+    pub fn get(&self, hash: &HashOrAccount) -> Vec<UncheckedInfo> {
+        self.thread.get(hash)
+    }
+
+    pub fn clear(&self) {
+        self.thread.clear()
+    }
+
+    pub fn trigger(&self, dependency: &HashOrAccount) {
+        self.thread.stats.inc(StatType::Unchecked, DetailType::Trigger, Direction::In);
+        self.thread.trigger(dependency)
+    }
+
+    pub fn flush(&self) {
+        self.thread.flush()
+    }
+
+    pub fn del(&self, key: &UncheckedKey) {
+        self.thread.del(key) 
+    }
+
+    pub fn entries_count(&self) -> usize {
+        self.thread.entries_count()
+    }
+
+    pub fn entries_size(&self) -> usize {
+        self.thread.entries_size()
+    }
+
+    pub fn buffer_count(&self) -> usize {
+        self.thread.buffer_count()
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.thread.buffer_size()
+    }
+
+    pub fn for_each1(&self, mut action: Box<dyn FnMut(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
+        self.thread.for_each1(action, predicate)
+    }
+
+    pub fn for_each2(&self, dependency: &HashOrAccount, mut action: Box<dyn FnMut(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
+        self.thread.for_each2(dependency, action, predicate)
+    }
+}
+
+impl Drop for UncheckedMap {
+    fn drop(&mut self) {
+        self.stop()
+    }
 }
 
 #[derive(Default)]
@@ -85,20 +145,18 @@ struct ThreadMutableData {
     back_buffer: VecDeque<HashOrAccount>,
     writing_back_buffer: bool,
     entries_container: EntriesContainer,
-    stats: Arc<Stats>,
     satisfied: Box<dyn Fn(&UncheckedInfo) + Send + Sync>,
     counter: u8,
 }
 
 impl ThreadMutableData {
-    fn new(stats: Arc<Stats>) -> Self {
+    fn new() -> Self {
         Self {
             stopped: false,
             buffer: VecDeque::new(),
             back_buffer: VecDeque::new(),
             writing_back_buffer: false,
             entries_container: EntriesContainer::new(),
-            stats,
             satisfied: Box::new(move |_info: &UncheckedInfo| {}),
             counter: 0,
         }
@@ -108,6 +166,7 @@ impl ThreadMutableData {
 pub struct UncheckedMapThread {
     store: Arc<LmdbStore>,
     disable_delete: bool,
+    stats: Arc<Stats>,
     mutable: Arc<Mutex<ThreadMutableData>>,
     condition: Arc<Condvar>,
     use_memory: Box<dyn Fn() -> bool + Send + Sync>,
@@ -118,7 +177,8 @@ impl UncheckedMapThread {
         Self {
             store,
             disable_delete,
-            mutable: Arc::new(Mutex::new(ThreadMutableData::new(stats))),
+            stats,
+            mutable: Arc::new(Mutex::new(ThreadMutableData::new())),
             condition: Arc::new(Condvar::new()),
             use_memory: Box::new(move || { true }),
         }
@@ -163,11 +223,11 @@ impl UncheckedMapThread {
         
     }
 
-    pub fn trigger(&self, dependency: HashOrAccount) {
+    pub fn trigger(&self, dependency: &HashOrAccount) {
+        println!("60");
         let mut lock = self.mutable.lock().unwrap();
-        lock.buffer.push_back(dependency);
+        lock.buffer.push_back(dependency.clone());
         //debug_assert (buffer.back ().which () == 1);
-        lock.stats.inc(StatType::Unchecked, DetailType::Trigger, Direction::In);
         drop(lock);
         self.condition.notify_all(); // Notify run ()
     }
@@ -208,12 +268,15 @@ impl UncheckedMapThread {
 	    {
 		    lock.entries_container.pop_front ();
 	    }
-	    lock.stats.inc (StatType::Unchecked, DetailType::Put, Direction::In);
     }
 
-    pub fn get(&self, transaction: &dyn Transaction, dependency: HashOrAccount) -> Vec<UncheckedInfo> {
+    pub fn get(&self, dependency: &HashOrAccount) -> Vec<UncheckedInfo> {
         let mutex = Arc::new(Mutex::new(Vec::new()));
         let mutex_copy = Arc::clone(&mutex);
+        self.for_each2(&dependency, Box::new(move |key, info| {
+            let mut lock = mutex_copy.lock().unwrap();
+            lock.push(info.clone());
+        }), Box::new(|| true));
         let result = Arc::try_unwrap(mutex).unwrap().into_inner().unwrap();
         println!("result: {:?}", result);
         result
@@ -238,27 +301,38 @@ impl UncheckedMapThread {
     pub fn for_each1(&self, mut action: Box<dyn FnMut(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
         println!("24");
         let lock = self.mutable.lock().unwrap();
-        let entries = lock.entries_container.entries.clone();
-        for entry in &entries {
-            if predicate() {
+        println!("25");
+        let entries = lock.entries_container.by_id.clone();
+        //drop(lock);
+        for (id, entry) in &entries {
+            println!("26");
+            //if predicate() {
+                println!("27");
                 action(&entry.key, &entry.info);
-            }
+            //}
         }
+        println!("28");
     }
 
     pub fn for_each2(&self, dependency: &HashOrAccount, mut action: Box<dyn FnMut(&UncheckedKey, &UncheckedInfo)>, predicate: Box<dyn Fn() -> bool>) {
         println!("34");
         let lock = self.mutable.lock().unwrap();
-        let entries = lock.entries_container.entries.clone();
+        let by_key = lock.entries_container.by_key.clone();
+        let by_id = lock.entries_container.by_id.clone();
+        //drop(lock);
+        println!("35");
         let key = UncheckedKey::new(dependency.into(), BlockHash::zero()); 
-        let it = entries.iter().skip_while(|entry| entry.key != key);
-        for entry in it {
+        for (key, id) in by_key.range(key..) {
+            println!("36");
             let block_hash: BlockHash = dependency.into();
-            if predicate() && block_hash == entry.key.previous {
-                println!("36");
+            //if predicate() &&
+            //if block_hash == key.previous {
+                println!("37");
+                let entry = by_id.get(id).unwrap();
                 action(&entry.key, &entry.info);
-            }
+            //}
         }
+        println!("38");
     }
 
     pub fn query_impl(&self, hash: &HashOrAccount) {
@@ -268,8 +342,8 @@ impl UncheckedMapThread {
         self.for_each2(hash, Box::new(move |key, info| {
             let mut dq = delete_queue_copy.lock().unwrap();
             dq.push_back(key.clone());
-            let lock = mutex.lock().unwrap();
-            lock.stats.inc(StatType::Unchecked, DetailType::Satisfied, Direction::In);
+            //let lock = mutex.lock().unwrap();
+            //lock.stats.inc(StatType::Unchecked, DetailType::Satisfied, Direction::In);
             //satisfied.notify (info);
         }), Box::new(|| true));
         if !self.disable_delete {
@@ -303,53 +377,189 @@ impl PartialEq for Entry {
 
 impl Eq for Entry {}
 
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.key.partial_cmp(&other.key)
+    }
+}
 
+impl Ord for Entry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key.cmp(&other.key)
+    }
+}
 
 #[derive(Default, Clone, Debug)]
 pub struct EntriesContainer {
-    entries: BTreeSet<Entry>, 
-    by_key: HashMap<UncheckedKey, usize>,
-    next_id: usize,
+    next_id: usize, 
+    by_key: BTreeMap<UncheckedKey, usize>,
+    by_id: BTreeMap<usize, Entry>,
 }
 
 impl EntriesContainer {
     fn new() -> Self {
         Self {
-            entries: BTreeSet::new(),
-            by_key: HashMap::new(),
+            by_id: BTreeMap::new(),
+            by_key: BTreeMap::new(),
             next_id: 0,
         }
     }
 
-    pub fn insert(&mut self, entry: Entry) {
-        let id = self.create_id();
+    pub fn insert(&mut self, entry: Entry) -> bool {
+        match self.by_key.get(&entry.key) {
+            Some(key) => {
+                false
+            }
+            None => {
+                self.by_key.insert(entry.clone().key, self.next_id);
 
-        self.by_key.insert(entry.clone().key, id);
+                self.by_id.insert(self.next_id, entry.clone());
 
-        //self.entries.insert(entry);
-    }
+                self.next_id += 1;
 
-    fn create_id(&mut self) -> usize {
-        let mut id = self.next_id;
-        id += 1;
-        id
+                true
+            }
+        }
     }
 
     fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.next_id == 0
     }
 
     fn size(&self) -> usize {
-        self.entries.len()
+        self.next_id
     }
 
     fn pop_front(&mut self) {
-        //self.entries.pop_first();
+        let entry = self.by_id.get(&(0)).unwrap().clone();
+        self.by_id.pop_first();
+        self.by_key.remove(&entry.key);
+        //self.next_id -= 1;
     }
 
     fn clear(&mut self) {
-        self.entries = BTreeSet::new();
-        self.by_key = HashMap::new();
+        self.by_id = BTreeMap::new();
+        self.by_key = BTreeMap::new();
         self.next_id = 0;
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use mock_instant::MockClock;
+
+    use super::*;
+
+    #[test]
+    fn empty_container() {
+        let container = EntriesContainer::new();
+        assert_eq!(container.next_id, 0);
+        assert_eq!(container.by_id.len(), 0);
+        assert_eq!(container.by_key.len(), 0);
+    }
+
+    #[test]
+    fn insert_one_entry() {
+        let mut container = EntriesContainer::new();
+
+        let entry = Entry::new(UncheckedKey::new(BlockHash::default(), BlockHash::default()), UncheckedInfo::default());
+        let new_insert = container.insert(entry.clone());
+
+        assert_eq!(container.next_id, 1);
+        assert_eq!(container.by_id.len(), 1);
+        assert_eq!(container.by_id.get(&0).unwrap(), &entry);
+        assert_eq!(container.by_key.len(), 1);
+        assert_eq!(container.by_key.get(&entry.key).unwrap(), &0);
+        assert_eq!(new_insert, true);
+    }
+
+    #[test]
+    fn insert_two_entries_with_same_key() {
+        let mut container = EntriesContainer::new();
+
+        let entry = Entry::new(UncheckedKey::new(BlockHash::default(), BlockHash::default()), UncheckedInfo::default());
+        let new_insert1 = container.insert(entry.clone());
+        let new_insert2 = container.insert(entry.clone());
+
+        assert_eq!(container.next_id, 1);
+        assert_eq!(container.by_id.len(), 1);
+        assert_eq!(container.by_key.len(), 1);
+        assert_eq!(new_insert1, true);
+        assert_eq!(new_insert2, false);
+    }
+
+    #[test]
+    fn insert_two_entries_with_different_key() {
+        let mut container = EntriesContainer::new();
+
+        let entry1 = Entry::new(UncheckedKey::new(BlockHash::default(), BlockHash::default()), UncheckedInfo::default());
+        let entry2 = Entry::new(UncheckedKey::new(BlockHash::random(), BlockHash::default()), UncheckedInfo::default());
+        let new_insert1 = container.insert(entry1.clone());
+        let new_insert2 = container.insert(entry2.clone());
+
+        assert_eq!(container.next_id, 2);
+        assert_eq!(container.by_id.len(), 2);
+        assert_eq!(container.by_key.len(), 2);
+        assert_eq!(new_insert1, true);
+        assert_eq!(new_insert2, true);
+    }
+
+    #[test]
+    fn pop_front() {
+        let mut container = EntriesContainer::new();
+
+        let entry1 = Entry::new(UncheckedKey::new(BlockHash::default(), BlockHash::default()), UncheckedInfo::default());
+        let entry2 = Entry::new(UncheckedKey::new(BlockHash::random(), BlockHash::default()), UncheckedInfo::default());
+        let new_insert1 = container.insert(entry1.clone());
+        let new_insert2 = container.insert(entry2.clone());
+
+        container.pop_front();
+
+        assert_eq!(container.next_id, 2);
+        assert_eq!(container.by_id.len(), 1);
+        assert_eq!(container.by_id.get(&1).unwrap(), &entry2);
+        assert_eq!(container.by_key.len(), 1);
+        assert_eq!(container.by_key.get(&entry2.key).unwrap(), &1);
+    }
+
+    /*#[test]
+    fn trimming_empty_container_does_nothing() {
+        let mut container = EntriesContainer::new();
+        assert_eq!(container.trim(Duration::from_secs(1)), false);
+    }
+
+    #[test]
+    fn dont_trim_if_upper_bound_not_reached() {
+        let mut container = EntriesContainer::new();
+        container.insert(Account::from(1), Instant::now());
+        assert_eq!(container.trim(Duration::from_secs(1)), false);
+    }
+
+    #[test]
+    fn trim_if_upper_bound_reached() {
+        let mut container = EntriesContainer::new();
+        container.insert(Account::from(1), Instant::now());
+        MockClock::advance(Duration::from_millis(1001));
+        assert_eq!(container.trim(Duration::from_secs(1)), true);
+        assert_eq!(container.len(), 0);
+    }
+
+    #[test]
+    fn trim_multiple_entries() {
+        let mut container = EntriesContainer::new();
+
+        container.insert(Account::from(1), Instant::now());
+        container.insert(Account::from(2), Instant::now());
+
+        MockClock::advance(Duration::from_millis(500));
+        container.insert(Account::from(3), Instant::now());
+
+        MockClock::advance(Duration::from_millis(1001));
+        container.insert(Account::from(4), Instant::now());
+
+        assert_eq!(container.trim(Duration::from_secs(1)), true);
+        assert_eq!(container.len(), 1);
+        assert_eq!(container.iter().next().unwrap(), &Account::from(4));
+        assert_eq!(container.by_time.len(), 1);
+    }*/
 }

@@ -69,7 +69,7 @@ impl Deserialize for UncheckedInfo {
     }
 }
 
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UncheckedKey {
     pub previous: BlockHash,
     pub hash: BlockHash,

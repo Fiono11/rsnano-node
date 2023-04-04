@@ -82,7 +82,7 @@ void nano::unchecked_map::for_each (std::function<void (nano::unchecked_key cons
 void nano::unchecked_map::for_each (nano::hash_or_account const & dependency, std::function<void (nano::unchecked_key const &, nano::unchecked_info const &)> action, std::function<bool ()> predicate)
 {
 	//nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
-	//for (auto i = entries.template get<tag_root> ().lower_bound (nano::unchecked_key{ dependency, 0 }), n = entries.template get<tag_root> ().end (); predicate () && i != n && i->key.key () == dependency.as_block_hash (); ++i)
+	for (auto i = entries.template get<tag_root> ().lower_bound (nano::unchecked_key{ dependency, 0 }), n = entries.template get<tag_root> ().end (); predicate () && i != n && i->key.key () == dependency.as_block_hash (); ++i)
 	//{
 		//action (i->key, i->info);
 	//}
@@ -126,7 +126,7 @@ void nano::unchecked_map::clear ()
 	rsnano::rsn_unchecked_map_clear (handle);
 }
 
-std::size_t nano::unchecked_map::entries_count () const
+std::size_t nano::unchecked_map::count () const
 {
 	//nano::lock_guard<std::recursive_mutex> lock{ entries_mutex };
 	//return entries.size ();
@@ -235,7 +235,7 @@ std::unique_ptr<nano::container_info_component> nano::unchecked_map::collect_con
 	//nano::lock_guard<nano::mutex> lock{ mutex };
 
 	auto composite = std::make_unique<container_info_composite> (name);
-	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "entries", entries_count(), entries_size() }));
+	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "entries", count(), entries_size() }));
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "queries", buffer_count (), buffer_size() }));
 	return composite;
 }

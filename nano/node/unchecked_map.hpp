@@ -39,7 +39,7 @@ public:
 	bool exists (nano::unchecked_key const & key) const;
 	void del (nano::unchecked_key const & key);
 	void clear ();
-	std::size_t entries_count () const;
+	std::size_t count () const;
 	std::size_t buffer_count () const;
 	std::size_t entries_size () const;
 	std::size_t buffer_size () const;
@@ -77,25 +77,25 @@ private:
 	//static std::size_t constexpr mem_block_count_max = 64 * 1024;
 
 private:
-	//struct entry
-	//{
-		//nano::unchecked_key key;
-		//nano::unchecked_info info;
-	//};
+	struct entry
+	{
+		nano::unchecked_key key;
+		nano::unchecked_info info;
+	};
 
 	// clang-format off
-	//class tag_sequenced {};
-	//class tag_root {};
+	class tag_sequenced {};
+	class tag_root {};
 
-	//using ordered_unchecked = boost::multi_index_container<entry,
-		//mi::indexed_by<
-			//mi::sequenced<mi::tag<tag_sequenced>>,
-			//mi::ordered_unique<mi::tag<tag_root>,
-				//mi::member<entry, nano::unchecked_key, &entry::key>>>>;
+	using ordered_unchecked = boost::multi_index_container<entry,
+		mi::indexed_by<
+			mi::sequenced<mi::tag<tag_sequenced>>,
+			mi::ordered_unique<mi::tag<tag_root>,
+				mi::member<entry, nano::unchecked_key, &entry::key>>>>;
 	// clang-format on
-	//ordered_unchecked entries;
+	ordered_unchecked entries;
 
-	//mutable std::recursive_mutex entries_mutex;
+	mutable std::recursive_mutex entries_mutex;
 
 	rsnano::UncheckedMapHandle * handle;
 

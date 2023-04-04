@@ -26,13 +26,12 @@ pub unsafe extern "C" fn rsn_unchecked_map_create(
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_destroy(handle: *mut UncheckedMapHandle) {
-    (*handle).0.stop();
     drop(Box::from_raw(handle))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_exists(handle: *mut UncheckedMapHandle, key: UncheckedKeyDto) -> bool {
-    (*handle).0.thread.exists(&UncheckedKey::from(&key))
+    (*handle).0.exists(&UncheckedKey::from(&key))
 }
 
 #[no_mangle]
@@ -40,7 +39,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_trigger(handle: *mut UncheckedMapHand
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let dependency = HashOrAccount::from_bytes(bytes);
-    (*handle).0.thread.trigger(dependency)
+    (*handle).0.trigger(&dependency)
 }
 
 #[no_mangle]
@@ -50,28 +49,28 @@ pub unsafe extern "C" fn rsn_unchecked_map_stop(handle: *mut UncheckedMapHandle)
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_flush(handle: *mut UncheckedMapHandle) {
-    (*handle).0.thread.flush()
+    (*handle).0.flush()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_entries_count(handle: *mut UncheckedMapHandle) -> usize {
-    (*handle).0.thread.entries_count()
+    (*handle).0.entries_count()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_entries_size(handle: *mut UncheckedMapHandle) -> usize {
-    (*handle).0.thread.entries_size()
+    (*handle).0.entries_size()
 }
 
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_buffer_count(handle: *mut UncheckedMapHandle) -> usize {
-    (*handle).0.thread.buffer_count()
+    (*handle).0.buffer_count()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_buffer_size(handle: *mut UncheckedMapHandle) -> usize {
-    (*handle).0.thread.buffer_size()
+    (*handle).0.buffer_size()
 }
 
 #[no_mangle]
@@ -79,17 +78,17 @@ pub unsafe extern "C" fn rsn_unchecked_map_put(handle: *mut UncheckedMapHandle, 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let dependency = HashOrAccount::from_bytes(bytes);
-    (*handle).0.thread.put(dependency, (*info).0.clone());
+    (*handle).0.put(dependency, (*info).0.clone());
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_del(handle: *mut UncheckedMapHandle, key: UncheckedKeyDto) {
-   (*handle).0.thread.del( &UncheckedKey::from(&key));
+   (*handle).0.del( &UncheckedKey::from(&key));
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rsn_unchecked_map_clear(handle: *mut UncheckedMapHandle) {
-    (*handle).0.thread.clear();
+    (*handle).0.clear();
 }
 
 pub type ActionCallback =
@@ -142,7 +141,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each1(handle: *mut UncheckedMapHa
         drop_predicate_callback,
     );
 
-    (*handle).0.thread.for_each1(notify_observers_callback, notify_observers_callback2);
+    (*handle).0.for_each1(notify_observers_callback, notify_observers_callback2);
 }
 
 #[no_mangle]
@@ -168,7 +167,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_for_each2(handle: *mut UncheckedMapHa
 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(dependency, 32));
-    (*handle).0.thread.for_each2(&HashOrAccount::from_bytes(bytes), notify_observers_callback, notify_observers_callback2);
+    (*handle).0.for_each2(&HashOrAccount::from_bytes(bytes), notify_observers_callback, notify_observers_callback2);
 }
 
 #[no_mangle]
@@ -177,7 +176,7 @@ pub unsafe extern "C" fn rsn_unchecked_map_get(handle: *mut UncheckedMapHandle, 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(ptr, 32));
     let hash = HashOrAccount::from_bytes(bytes);
-    let infos = (*handle).0.thread.get(transaction.as_txn(), hash);
+    let infos = (*handle).0.get(&hash);
     let mut items: Vec<InfoItemDto> = Vec::new();
     for info in infos {
         let info_item_dto = InfoItemDto {
