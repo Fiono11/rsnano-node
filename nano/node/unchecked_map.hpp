@@ -77,7 +77,7 @@ private:
 	//static std::size_t constexpr mem_block_count_max = 64 * 1024;
 
 private:
-	struct entry
+	/*struct entry
 	{
 		nano::unchecked_key key;
 		nano::unchecked_info info;
@@ -95,7 +95,7 @@ private:
 	// clang-format on
 	ordered_unchecked entries;
 
-	mutable std::recursive_mutex entries_mutex;
+	mutable std::recursive_mutex entries_mutex;*/
 
 	rsnano::UncheckedMapHandle * handle;
 

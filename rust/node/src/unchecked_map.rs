@@ -306,10 +306,10 @@ impl UncheckedMapThread {
         //drop(lock);
         for (id, entry) in &entries {
             println!("26");
-            //if predicate() {
+            if predicate() {
                 println!("27");
                 action(&entry.key, &entry.info);
-            //}
+            }
         }
         println!("28");
     }
@@ -325,12 +325,11 @@ impl UncheckedMapThread {
         for (key, id) in by_key.range(key..) {
             println!("36");
             let block_hash: BlockHash = dependency.into();
-            //if predicate() &&
-            //if block_hash == key.previous {
+            if predicate() && block_hash == key.previous {
                 println!("37");
                 let entry = by_id.get(id).unwrap();
                 action(&entry.key, &entry.info);
-            //}
+            }
         }
         println!("38");
     }
