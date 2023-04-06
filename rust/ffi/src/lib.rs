@@ -152,7 +152,7 @@ pub unsafe extern "C" fn rsn_callback_is_sanitizer_build(
     IS_SANITIZER_BUILD = f;
 }
 
-pub struct U256ArrayHandle(Box<Vec<[u8; 32]>>);
+pub struct U256ArrayHandle(pub Box<Vec<[u8; 32]>>);
 
 #[repr(C)]
 pub struct U256ArrayDto {

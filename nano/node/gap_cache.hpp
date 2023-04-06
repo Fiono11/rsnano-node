@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nano/lib/rsnano.hpp"
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/utility.hpp>
 #include <nano/secure/common.hpp>
@@ -56,6 +57,7 @@ public:
 	nano::mutex mutex{ mutex_identifier (mutexes::gap_cache) };
 	nano::node & node;
 	std::function<void (nano::block_hash const &)> start_bootstrap_callback;
+	rsnano::GapCacheHandle * handle;
 };
 
 std::unique_ptr<container_info_component> collect_container_info (gap_cache & gap_cache, std::string const & name);
