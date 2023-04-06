@@ -10,7 +10,7 @@ use std::{
 
 use rsnano_core::Account;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct OnlineRepsContainer {
     by_time: BTreeMap<Instant, Vec<Account>>,
     by_account: HashMap<Account, Instant>,

@@ -14,6 +14,7 @@ use std::time::Instant;
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 static DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
 
+#[derive(Clone)]
 pub struct OnlineReps {
     ledger: Arc<Ledger>,
     reps: OnlineRepsContainer,
