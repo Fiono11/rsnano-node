@@ -3,7 +3,7 @@ use std::ffi::{c_char, CStr};
 use rsnano_core::BlockHash;
 use rsnano_store_lmdb::LmdbWallets;
 
-use crate::{copy_hash_bytes, U256ArrayDto};
+use crate::{copy_hash_bytes, U256ArrayDto, ledger::datastore::LedgerHandle};
 
 use super::{store::LmdbStoreHandle, TransactionHandle};
 

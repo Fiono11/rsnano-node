@@ -14,6 +14,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include <future>
+#include <iostream>
 
 nano::uint256_union nano::wallet_store::check (nano::transaction const & transaction_a)
 {
@@ -925,8 +926,8 @@ nano::wallets::wallets (bool error_a, nano::node & node_a) :
 	{
 		auto transaction (tx_begin_write ());
 		auto store_l = dynamic_cast<nano::lmdb::store *> (&node.store);
+		auto ledger = dynamic_cast<nano::ledger *> (&node.ledger);
 		int status = !rsnano::rsn_lmdb_wallets_init (rust_handle, transaction->get_rust_handle (), store_l->handle);
-
 		auto wallet_ids{ get_wallet_ids (*transaction) };
 		for (auto id : wallet_ids)
 		{

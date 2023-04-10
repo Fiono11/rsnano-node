@@ -1,4 +1,5 @@
 #include "nano/secure/common.hpp"
+#include "nano/secure/ledger.hpp"
 
 #include <nano/lib/threading.hpp>
 #include <nano/lib/tomlconfig.hpp>
@@ -173,7 +174,6 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 	unchecked{ store, *stats, flags.disable_block_processor_unchecked_deletion () },
 	wallets_store_impl (std::make_unique<nano::mdb_wallets_store> (application_path_a / "wallets.ldb", config_a.lmdb_config)),
 	wallets_store (*wallets_store_impl),
-	gap_cache (*this),
 	ledger (store, *stats, network_params.ledger, flags_a.generate_cache ()),
 	checker (config_a.signature_checker_threads),
 	outbound_limiter{ outbound_bandwidth_limiter_config (config_a) },
@@ -199,6 +199,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 	warmed_up (0),
 	block_arrival{},
 	block_processor (*this, write_database_queue),
+	gap_cache (*this),
 	online_reps (ledger, *config),
 	history{ config_a.network_params.voting },
 	vote_uniquer (block_uniquer),
@@ -220,14 +221,14 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 	node_seq (seq),
 	block_broadcast{ *network, block_arrival, !flags.disable_block_processor_republishing () },
 	block_publisher{ active },
-	gap_tracker{ gap_cache },
+	//gap_tracker{ gap_cache },
 	process_live_dispatcher{ ledger, scheduler, inactive_vote_cache, websocket }
 {
 	logger->always_log ("Node ID: ", node_id.pub.to_node_id ());
 
 	block_broadcast.connect (block_processor);
 	block_publisher.connect (block_processor);
-	gap_tracker.connect (block_processor);
+	//gap_tracker.connect (block_processor);
 	process_live_dispatcher.connect (block_processor);
 	unchecked.set_satisfied_observer ([this] (nano::unchecked_info const & info) {
 		this->block_processor.add (info.get_block ());

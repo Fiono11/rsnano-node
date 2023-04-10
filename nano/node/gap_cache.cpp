@@ -5,8 +5,6 @@
 #include <nano/secure/store.hpp>
 
 #include <boost/format.hpp>
-
-#include <memory>
 #include <_types/_uint8_t.h>
 
 namespace
@@ -44,48 +42,54 @@ public:
 private:
 	nano::node & node;
 };
-}
 
-namespace
+void start_bootstrap_callback_wrapper (void * context, const uint8_t * bytes)
 {
-void start_bootstrap_callback_wrapper (void * context, const uint8_t * hash_bytes)
-{
-	auto callback = static_cast<std::function<void (nano::block_hash const &)> *> (context);
-	auto hash{ nano::block_hash::from_bytes (hash_bytes) };
-	(*callback) (hash);
+	auto fn = static_cast<std::function<void (nano::block_hash const &)> *> (context);
+	nano::block_hash hash;
+	hash = nano::block_hash::from_bytes(bytes);
+	(*fn) (hash);
 }
 
 void drop_start_bootstrap_callback (void * context_a)
 {
-	auto callback = static_cast<std::function<void (nano::block_hash const &)> *> (context_a);
-	delete callback;
+	auto fn = static_cast<std::function<void (nano::block_hash const &)> *> (context_a);
+	delete fn;
 }
 }
 
 nano::gap_cache::gap_cache (nano::node & node_a) :
 	node (node_a)
+	//handle{ rsnano::rsn_gap_cache_create (node.ledger.get_handle()) }
 {
 	gap_cache_bootstrap_starter bootstrap_starter{ node_a };
 	start_bootstrap_callback = [bootstrap_starter] (nano::block_hash const & hash_a) mutable {
 		bootstrap_starter.bootstrap_start (hash_a);
 	};
-
 	auto context = new std::function<void (nano::block_hash const &)> (start_bootstrap_callback);
 
 	handle = rsnano::rsn_gap_cache_create(
-		node_a.config->to_dto(), 
-		node_a.online_reps.get_handle(), 
-		node_a.ledger.get_handle(), 
-		node_a.flags.handle,
+		node.config->to_dto(), 
+		node.online_reps.get_handle(), 
+		node.ledger.get_handle(),
+		node.flags.handle,
 		start_bootstrap_callback_wrapper,
 		context,
 		drop_start_bootstrap_callback
 	);
+
+	//auto ledger = dynamic_cast<nano::ledger *> (&node.ledger);
+	//auto online_reps = dynamic_cast<nano::online_reps *> (&node.online_reps);
+}
+
+nano::gap_cache::~gap_cache ()
+{
+	rsnano::rsn_gap_cache_destroy (handle);
 }
 
 void nano::gap_cache::add (nano::block_hash const & hash_a, std::chrono::steady_clock::time_point time_point_a)
 {
-	rsnano::rsn_gap_cache_add(handle, hash_a.bytes.data (), time_point_a.time_since_epoch ().count ());
+	rsnano::rsn_gap_cache_add(handle, hash_a.bytes.data(), time_point_a.time_since_epoch ().count ());
 	/*nano::lock_guard<nano::mutex> lock{ mutex };
 	auto existing (blocks.get<tag_hash> ().find (hash_a));
 	if (existing != blocks.get<tag_hash> ().end ())
@@ -106,9 +110,9 @@ void nano::gap_cache::add (nano::block_hash const & hash_a, std::chrono::steady_
 
 void nano::gap_cache::erase (nano::block_hash const & hash_a)
 {
+	rsnano::rsn_gap_cache_erase(handle, hash_a.bytes.data());
 	//nano::lock_guard<nano::mutex> lock{ mutex };
 	//blocks.get<tag_hash> ().erase (hash_a);
-	rsnano::rsn_gap_cache_erase(handle, hash_a.bytes.data ());
 }
 
 void nano::gap_cache::vote (std::shared_ptr<nano::vote> const & vote_a)
@@ -146,7 +150,16 @@ void nano::gap_cache::vote (std::shared_ptr<nano::vote> const & vote_a)
 
 bool nano::gap_cache::bootstrap_check (std::vector<nano::account> const & voters_a, nano::block_hash const & hash_a)
 {
-	return rsnano::rsn_gap_cache_bootstrap_check(handle, voters_a.size(), reinterpret_cast<const uint8_t*>(voters_a.data()), hash_a.bytes.data ());
+	std::vector<uint8_t> bytes(voters_a.size() * sizeof(nano::account));
+    const auto* voters_ptr = voters_a.data();
+
+    for (size_t i = 0; i < voters_a.size(); i++) {
+        const auto* voter_bytes = reinterpret_cast<const uint8_t*>(voters_ptr + i);
+        std::copy(voter_bytes, voter_bytes + sizeof(nano::account), bytes.data() + (i * sizeof(nano::account)));
+    }
+
+	rsnano::rsn_gap_cache_bootstrap_check(handle, voters_a.size() * 32, bytes.data(), hash_a.bytes.data());
+
 	/*nano::uint128_t tally;
 	for (auto const & voter : voters_a)
 	{
@@ -169,6 +182,7 @@ bool nano::gap_cache::bootstrap_check (std::vector<nano::account> const & voters
 		bootstrap_start (hash_a);
 	}
 	return start_bootstrap;*/
+	return true;
 }
 
 void nano::gap_cache::bootstrap_start (nano::block_hash const & hash_a)
@@ -180,9 +194,9 @@ nano::uint128_t nano::gap_cache::bootstrap_threshold ()
 {
 	//auto result ((node.online_reps.trended () / 256) * node.config->bootstrap_fraction_numerator);
 	//return result;
-	nano::amount result;
-	rsnano::rsn_gap_cache_bootstrap_threshold(handle, result.bytes.data());
-	return result.number();
+	nano::amount size;
+	rsnano::rsn_gap_cache_bootstrap_threshold (handle, size.bytes.data ());
+	return size.number ();
 }
 
 std::size_t nano::gap_cache::size ()
@@ -200,3 +214,4 @@ std::unique_ptr<nano::container_info_component> nano::collect_container_info (ga
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "blocks", count, sizeof_element }));
 	return composite;
 }
+

@@ -8,16 +8,18 @@
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/member.hpp>
 #include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/sequenced_index.hpp>
 #include <boost/multi_index_container.hpp>
 
 #include <chrono>
-#include <functional>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace nano
 {
 class node;
+class ledger;
 class transaction;
 
 /** For each gap in account chains, track arrival time and voters */
@@ -34,7 +36,10 @@ public:
 class gap_cache final
 {
 public:
-	explicit gap_cache (nano::node &);
+	gap_cache (nano::node &);
+	gap_cache (gap_cache const &) = delete;
+	gap_cache (gap_cache &&) = delete;
+	~gap_cache ();
 	void add (nano::block_hash const &, std::chrono::steady_clock::time_point = std::chrono::steady_clock::now ());
 	void erase (nano::block_hash const & hash_a);
 	void vote (std::shared_ptr<nano::vote> const &);
@@ -54,7 +59,7 @@ public:
 	ordered_gaps blocks;
 	// clang-format on
 	std::size_t const max = 256;
-	nano::mutex mutex{ mutex_identifier (mutexes::gap_cache) };
+	//nano::mutex mutex{ mutex_identifier (mutexes::gap_cache) };
 	nano::node & node;
 	std::function<void (nano::block_hash const &)> start_bootstrap_callback;
 	rsnano::GapCacheHandle * handle;
