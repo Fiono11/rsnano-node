@@ -1,7 +1,9 @@
+#include "nano/lib/numbers.hpp"
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
 #include <gtest/gtest.h>
+#include <chrono>
 #include <iostream>
 #include <ostream>
 
@@ -39,18 +41,24 @@ TEST (gap_cache, add_existing)
 				  .work (5)
 				  .build_shared ();
 	cache.add (block1->hash ());
+	std::chrono::steady_clock::time_point arrival;
+	arrival = cache.block_arrival(block1->hash());
 	//nano::unique_lock<nano::mutex> lock{ cache.mutex };
 	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
-	ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
-	auto arrival (existing1->arrival);
+	//ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
+	ASSERT_TRUE (cache.block_exists(block1->hash()));
+	//auto arrival (existing1->arrival);
+	//cache.block_arrival(block1->hash());
 	//lock.unlock ();
 	ASSERT_TIMELY (20s, arrival != std::chrono::steady_clock::now ());
 	cache.add (block1->hash ());
 	ASSERT_EQ (1, cache.size ());
 	//lock.lock ();
 	auto existing2 (cache.blocks.get<1> ().find (block1->hash ()));
-	ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
-	ASSERT_GT (existing2->arrival, arrival);
+	//ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
+	ASSERT_TRUE (cache.block_exists(block1->hash()));
+	//ASSERT_GT (existing2->arrival, arrival);
+	ASSERT_GT (cache.block_arrival(block1->hash()), arrival);
 }
 
 TEST (gap_cache, comparison)
@@ -93,6 +101,7 @@ TEST (gap_cache, comparison)
 	//ASSERT_GT (existing2->arrival, arrival);
 	//ASSERT_EQ (arrival, cache.blocks.get<1> ().begin ()->arrival);
 	//std::cout << cache.block_arrival(block1->hash()) << std::endl;
+	cache.block_arrival(block1->hash());
 	ASSERT_EQ (cache.block_arrival(block1->hash()), cache.earliest());
 }
 
