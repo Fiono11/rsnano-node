@@ -47,6 +47,9 @@ public:
 	void bootstrap_start (nano::block_hash const & hash_a);
 	nano::uint128_t bootstrap_threshold ();
 	std::size_t size ();
+	bool block_exists(nano::block_hash const & hash_a);
+	std::chrono::steady_clock::time_point earliest();
+	std::chrono::steady_clock::time_point block_arrival(nano::block_hash const & hash_a);
 	// clang-format off
 	class tag_arrival {};
 	class tag_hash {};

@@ -206,6 +206,23 @@ std::size_t nano::gap_cache::size ()
 	return rsnano::rsn_gap_cache_size(handle);
 }
 
+bool nano::gap_cache::block_exists (nano::block_hash const & hash_a)
+{
+	return rsnano::rsn_gap_cache_block_exists(handle, hash_a.bytes.data());
+}
+
+std::chrono::steady_clock::time_point nano::gap_cache::earliest ()
+{	
+	auto value = rsnano::rsn_gap_cache_earliest (handle);
+	return std::chrono::steady_clock::time_point (std::chrono::steady_clock::duration (value));
+}
+
+std::chrono::steady_clock::time_point nano::gap_cache::block_arrival (nano::block_hash const & hash_a)
+{	
+	auto value = rsnano::rsn_gap_cache_block_arrival (handle, hash_a.bytes.data());
+	return std::chrono::steady_clock::time_point (std::chrono::steady_clock::duration (value));
+}
+
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (gap_cache & gap_cache, std::string const & name)
 {
 	auto count = gap_cache.size ();

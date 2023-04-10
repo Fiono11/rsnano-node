@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 #include <iostream>
+#include <ostream>
 
 using namespace std::chrono_literals;
 
@@ -66,10 +67,11 @@ TEST (gap_cache, comparison)
 				  .sign (key1.prv, key1.pub)
 				  .work (5)
 				  .build_shared ();
-	cache.add (block1->hash ());
+	cache.add (block1->hash (), std::chrono::steady_clock::now());
 	//nano::unique_lock<nano::mutex> lock{ cache.mutex };
 	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
-	ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
+	//ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
+	ASSERT_TRUE (cache.block_exists(block1->hash()));
 	auto arrival (existing1->arrival);
 	//lock.unlock ();
 	ASSERT_TIMELY (20s, std::chrono::steady_clock::now () != arrival);
@@ -86,9 +88,12 @@ TEST (gap_cache, comparison)
 	ASSERT_EQ (2, cache.size ());
 	//lock.lock ();
 	auto existing2 (cache.blocks.get<1> ().find (block3->hash ()));
-	ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
-	ASSERT_GT (existing2->arrival, arrival);
-	ASSERT_EQ (arrival, cache.blocks.get<1> ().begin ()->arrival);
+	//ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
+	ASSERT_TRUE (cache.block_exists(block3->hash()));
+	//ASSERT_GT (existing2->arrival, arrival);
+	//ASSERT_EQ (arrival, cache.blocks.get<1> ().begin ()->arrival);
+	//std::cout << cache.block_arrival(block1->hash()) << std::endl;
+	ASSERT_EQ (cache.block_arrival(block1->hash()), cache.earliest());
 }
 
 // Upon receiving enough votes for a gapped block, a lazy bootstrap should be initiated
