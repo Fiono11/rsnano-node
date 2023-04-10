@@ -159,24 +159,17 @@ TEST (gap_cache, two_dependencies)
 				.sign (key.prv, key.pub)
 				.work (*system.work.generate (key.pub))
 				.build_shared ();
-	std::cout << "1" << std::endl;
 	ASSERT_EQ (0, node1.gap_cache.size ());
 	node1.block_processor.add (send2);
 	node1.block_processor.flush ();
-	std::cout << "2" << std::endl;
 	ASSERT_EQ (1, node1.gap_cache.size ());
 	node1.block_processor.add (open);
 	node1.block_processor.flush ();
-	std::cout << "3" << std::endl;
 	ASSERT_EQ (2, node1.gap_cache.size ());
 	node1.block_processor.add (send1);
 	node1.block_processor.flush ();
-	std::cout << "4" << std::endl;
 	ASSERT_TIMELY (5s, node1.gap_cache.size () == 0);
-	std::cout << "5" << std::endl;
 	ASSERT_TIMELY (5s, node1.store.block ().exists (*node1.store.tx_begin_read (), send1->hash ()));
-	std::cout << "6" << std::endl;
 	ASSERT_TIMELY (5s, node1.store.block ().exists (*node1.store.tx_begin_read (), send2->hash ()));
-	std::cout << "7" << std::endl;
 	ASSERT_TIMELY (5s, node1.store.block ().exists (*node1.store.tx_begin_read (), open->hash ()));
 }
