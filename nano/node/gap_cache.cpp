@@ -151,14 +151,17 @@ void nano::gap_cache::vote (std::shared_ptr<nano::vote> const & vote_a)
 bool nano::gap_cache::bootstrap_check (std::vector<nano::account> const & voters_a, nano::block_hash const & hash_a)
 {
 	std::vector<uint8_t> bytes(voters_a.size() * sizeof(nano::account));
-    const auto* voters_ptr = voters_a.data();
+	const auto* voters_ptr = voters_a.data();
 
-    for (size_t i = 0; i < voters_a.size(); i++) {
-        const auto* voter_bytes = reinterpret_cast<const uint8_t*>(voters_ptr + i);
-        std::copy(voter_bytes, voter_bytes + sizeof(nano::account), bytes.data() + (i * sizeof(nano::account)));
-    }
+	for (size_t i = 0; i < voters_a.size(); i++) {
+		const auto* voter_bytes = reinterpret_cast<const uint8_t*>(&voters_ptr[i]);
+		std::copy(voter_bytes, voter_bytes + sizeof(nano::account), bytes.data() + (i * sizeof(nano::account)));
+	}
 
-	rsnano::rsn_gap_cache_bootstrap_check(handle, voters_a.size() * 32, bytes.data(), hash_a.bytes.data());
+	const size_t voters_bytes_size = voters_a.size() * sizeof(nano::account);
+	const uint8_t* voters_bytes_ptr = bytes.data();
+
+	rsnano::rsn_gap_cache_bootstrap_check(handle, voters_bytes_size, voters_bytes_ptr, hash_a.bytes.data());
 
 	/*nano::uint128_t tally;
 	for (auto const & voter : voters_a)
