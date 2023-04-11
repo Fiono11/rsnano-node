@@ -43,7 +43,6 @@ pub unsafe extern "C" fn rsn_gap_cache_create(
         node_flags,
         start_bootstrap_callback,
     );
-    //let gap_cache = GapCache;
     Box::into_raw(Box::new(GapCacheHandle(gap_cache)))
 }
 
@@ -164,11 +163,6 @@ unsafe fn wrap_start_bootstrap_callback(
             block_hash.as_bytes().as_ptr(),
         );
     })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rsn_gap_cache_size_of_element() -> usize {
-    GapCache::size_of_element()
 }
 
 #[no_mangle]

@@ -52,7 +52,6 @@ public:
 	std::chrono::steady_clock::time_point block_arrival(nano::block_hash const & hash_a);
 	// clang-format on
 	std::size_t const max = 256;
-	//nano::mutex mutex{ mutex_identifier (mutexes::gap_cache) };
 	nano::node & node;
 	std::function<void (nano::block_hash const &)> start_bootstrap_callback;
 	rsnano::GapCacheHandle * handle;

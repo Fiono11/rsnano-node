@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const MAX: u32 = 256;
+const MAX: usize = 256;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct GapInformation {
@@ -79,6 +79,15 @@ impl OrderedGaps {
         self.gap_infos.get_mut(hash)
     }
 
+    fn remove(&mut self, hash: &BlockHash) -> Option<BlockHash> {
+        if let Some(gap_info) = self.gap_infos.remove(hash) {
+            self.by_arrival.remove(&gap_info.arrival)
+        }
+        else {
+            None
+        }
+    }
+
     fn trim(&mut self, max: usize) {
         while self.by_arrival.len() > max {
             let (_, hash) = self.by_arrival.pop_first().unwrap();
@@ -88,6 +97,10 @@ impl OrderedGaps {
 
     fn earliest(&self) -> Option<i64>{
         self.by_arrival.first_key_value().map(|(&arrival,_)| arrival)        
+    }
+
+    pub fn size_of_element() -> usize {
+        size_of::<BlockHash>() * 2 + GapInformation::size() + size_of::<i64>()
     }
 }
 
@@ -119,26 +132,20 @@ impl GapCache {
     }
 
     pub fn add(&mut self, hash: &BlockHash, time_point: i64) {
-        todo!()
-        // let mut lock = self.blocks.lock().unwrap();
-        // if let Some(block) = lock.gap_infos.get_mut(hash) {
-        //     block.arrival = time_point;
-        // } else {
-        //     let gap_information = GapInformation::new(time_point, *hash);
-        //     lock.gap_infos.insert(*hash, gap_information);
-        //     lock.set.insert(*hash);
-        //     if lock.gap_infos.len() > MAX as usize {
-        //         let entry = lock.set.first().unwrap().clone();
-        //         lock.gap_infos.remove_entry(&entry);
-        //     }
-        // }
+        let mut lock = self.blocks.lock().unwrap();
+        if let Some(block) = lock.gap_infos.get_mut(hash) {
+            block.arrival = time_point;
+        } else {
+            let gap_information = GapInformation::new(time_point, *hash);
+            lock.gap_infos.insert(*hash, gap_information);
+            lock.by_arrival.insert(time_point, *hash);
+            lock.trim(MAX);
+        }
     }
 
-    pub fn erase(&mut self, hash_a: &BlockHash) {
-        todo!()
-        // let mut lock = self.blocks.lock().unwrap();
-        // lock.set.remove(hash_a);
-        // lock.gap_infos.remove(hash_a);
+    pub fn erase(&mut self, hash: &BlockHash) {
+        let mut lock = self.blocks.lock().unwrap();
+        lock.remove(hash);
     }
 
     pub fn vote(&mut self, vote: &Vote) {
@@ -194,9 +201,8 @@ impl GapCache {
     }
 
     pub fn size(&self) -> usize {
-        todo!()
-        // let lock = self.blocks.lock().unwrap();
-        // lock.set.len()
+        let lock = self.blocks.lock().unwrap();
+        lock.gap_infos.len()
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
@@ -208,9 +214,9 @@ impl GapCache {
     }
 
     pub fn earliest(&self) -> i64 {
-        todo!()
-        // let lock = self.blocks.lock().unwrap();
-        // lock.gap_infos.first().unwrap().1.arrival
+        let lock = self.blocks.lock().unwrap();
+        let (_, hash) = lock.by_arrival.first_key_value().unwrap();
+        lock.gap_infos.get(hash).unwrap().arrival
     }
 
     pub fn block_arrival(&self, hash: &BlockHash) -> i64 {
@@ -218,15 +224,11 @@ impl GapCache {
         lock.gap_infos.get(hash).unwrap().arrival
     }
 
-    pub fn size_of_element() -> usize {
-        size_of::<BlockHash>() * 2 + GapInformation::size()
-    }
-
     pub fn collect_container_info(&self, name: String) -> ContainerInfoComponent {
         let children = vec![ContainerInfoComponent::Leaf(ContainerInfo {
-            name: "gap_cache".to_owned(),
+            name: "blocks".to_owned(),
             count: self.size(),
-            sizeof_element: Self::size_of_element(),
+            sizeof_element: OrderedGaps::size_of_element(),
         })];
 
         ContainerInfoComponent::Composite(name, children)
@@ -248,6 +250,29 @@ mod tests {
     fn add_gap_information_to_ordered_gaps() {
         let mut gaps = OrderedGaps::new();
         gaps.add(GapInformation::create_test_instance());
+        assert_eq!(gaps.len(), 1);
+    }
+
+    #[test]
+    fn remove_existing_gap_information_of_ordered_gaps() {
+        let mut gaps = OrderedGaps::new();
+        let gap_info = GapInformation::create_test_instance();
+        let hash = gap_info.hash;
+        gaps.add(gap_info);
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps.remove(&hash).is_some());
+        assert_eq!(gaps.len(), 0);
+    }
+
+    #[test]
+    fn try_to_remove_non_existing_gap_information_of_ordered_gaps() {
+        let mut gaps = OrderedGaps::new();
+        let gap_info = GapInformation::create_test_instance();
+        let hash = BlockHash::from(10);
+        assert!(hash != gap_info.hash);
+        gaps.add(gap_info);
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps.remove(&hash).is_none());
         assert_eq!(gaps.len(), 1);
     }
 
