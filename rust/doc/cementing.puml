@@ -1,0 +1,89 @@
+@startuml "Confirmation Height"
+class UnboundedMode {
+    process(block, callbacks)
+}
+
+class BoundedMode{
+    process(block, callbacks)
+}
+
+class AutomaticMode{
+    process(block, callbacks)
+}
+
+class ConfirmationHeightProcessor{
+    add(block)
+    run(mode)
+}
+
+package "Infrastructure" {
+    class Ledger
+}
+
+package "Logic"{
+    enum ConfirmationHeightMode{
+        Autmatic
+        Unbounded
+        Bounded
+    }
+
+    class WriteDetails
+    class WriteDetailsQueue
+
+    class SingleAccountCementer
+    class MultiAccountCementer
+    class BatchWriteSizeManager {
+        current()
+    }
+
+    interface CementationDataRequester{
+        get_block()
+        get_current_confirmation_height()
+    }
+}
+
+package "Values"{
+    struct UpdateConfirmationHeight{
+        account
+        new_cemented_frontier
+        new_height
+        num_blocks_cemented
+    }
+}
+
+package "Application"{
+    class CementationLedgerAdapter
+}
+
+Ledger ..> UpdateConfirmationHeight
+
+UnboundedMode --> Ledger
+UnboundedMode --> BatchWriteSizeManager
+
+BoundedMode --> Ledger
+BoundedMode --> MultiAccountCementer
+BoundedMode --> BatchWriteSizeManager
+BoundedMode --> CementationLedgerAdapter
+
+MultiAccountCementer --> SingleAccountCementer
+MultiAccountCementer --> BatchWriteSizeManager
+MultiAccountCementer --> WriteDetailsQueue
+MultiAccountCementer --> CementationDataRequester
+
+SingleAccountCementer --> UpdateConfirmationHeight
+SingleAccountCementer --> WriteDetails
+
+WriteDetailsQueue --> WriteDetails
+
+AutomaticMode --> ConfirmationHeightMode
+AutomaticMode --> BoundedMode
+AutomaticMode --> UnboundedMode
+AutomaticMode --> Ledger
+AutomaticMode --> BatchWriteSizeManager
+
+ConfirmationHeightProcessor --> AutomaticMode
+
+CementationLedgerAdapter ..|> CementationDataRequester
+CementationLedgerAdapter --> Ledger
+
+@enduml

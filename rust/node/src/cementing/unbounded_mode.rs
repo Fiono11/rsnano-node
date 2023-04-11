@@ -1,6 +1,6 @@
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoComponent, Logger},
-    Account, BlockEnum, BlockHash, UpdateConfirmationHeight,
+    Account, BlockEnum, BlockHash, ConfirmationHeightUpdate,
 };
 use rsnano_ledger::{Ledger, WriteDatabaseQueue};
 use rsnano_store_traits::Transaction;
@@ -23,7 +23,7 @@ use super::{
     confirmed_iterated_pairs::{ConfirmedIteratedPair, ConfirmedIteratedPairMap},
     implicit_receive_cemented_mapping::ImplictReceiveCementedMapping,
     unconfirmed_receive_and_sources_collector::UnconfirmedReceiveAndSourcesCollector,
-    ConfHeightDetails, UNBOUNDED_CUTOFF,
+    BatchWriteSizeManager, ConfHeightDetails, UNBOUNDED_CUTOFF,
 };
 
 pub(super) struct UnboundedMode {
@@ -33,7 +33,7 @@ pub(super) struct UnboundedMode {
     confirmed_iterated_pairs: ConfirmedIteratedPairMap,
     implicit_receive_cemented_mapping: ImplictReceiveCementedMapping,
 
-    batch_write_size: Arc<AtomicUsize>,
+    batch_write_size: Arc<BatchWriteSizeManager>,
     stopped: Arc<AtomicBool>,
     cement_queue: CementQueue,
     cementor: BlockCementor,
@@ -48,7 +48,7 @@ impl UnboundedMode {
         batch_separate_pending_min_time: Duration,
         stopped: Arc<AtomicBool>,
         stats: Arc<Stats>,
-        batch_write_size: Arc<AtomicUsize>,
+        batch_write_size: Arc<BatchWriteSizeManager>,
     ) -> Self {
         Self {
             ledger: Arc::clone(&ledger),
@@ -74,8 +74,8 @@ impl UnboundedMode {
         &self.block_cache
     }
 
-    pub fn pending_writes_empty(&self) -> bool {
-        self.cement_queue.is_empty()
+    pub fn has_pending_writes(&self) -> bool {
+        self.cement_queue.len() > 0
     }
 
     pub fn container_info(&self) -> UnboundedModeContainerInfo {
@@ -108,7 +108,7 @@ impl UnboundedMode {
     }
 
     pub fn process(&mut self, original_block: Arc<BlockEnum>, callbacks: &mut CementCallbackRefs) {
-        if self.pending_writes_empty() {
+        if !self.has_pending_writes() {
             self.clear_process_vars();
             self.cementor.set_last_cementation();
         }
@@ -277,8 +277,7 @@ impl UnboundedMode {
     }
 
     fn should_force_write(&mut self) -> bool {
-        self.cement_queue.total_cemented_blocks()
-            > self.batch_write_size.load(Ordering::Relaxed) as u64
+        self.cement_queue.total_cemented_blocks() > self.batch_write_size.current_size() as u64
     }
 
     fn max_write_size_reached(&self) -> bool {
@@ -361,7 +360,7 @@ impl UnboundedMode {
                 }
             }
             self.cement_queue.push(ConfHeightDetails {
-                update_height: UpdateConfirmationHeight {
+                update_height: ConfirmationHeightUpdate {
                     account: preparation_data_a.account,
                     new_cemented_frontier: preparation_data_a.current,
                     new_height: block_height,

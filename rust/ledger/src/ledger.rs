@@ -6,8 +6,8 @@ use crate::{
 use rand::{thread_rng, Rng};
 use rsnano_core::{
     utils::seconds_since_epoch, Account, AccountInfo, Amount, Block, BlockEnum, BlockHash,
-    BlockSubType, BlockType, ConfirmationHeightInfo, Epoch, Link, PendingInfo, PendingKey,
-    QualifiedRoot, Root, UpdateConfirmationHeight,
+    BlockSubType, BlockType, ConfirmationHeightInfo, ConfirmationHeightUpdate, Epoch, Link,
+    PendingInfo, PendingKey, QualifiedRoot, Root,
 };
 
 use std::{
@@ -660,7 +660,7 @@ impl Ledger {
     pub fn write_confirmation_height(
         &self,
         txn: &mut dyn WriteTransaction,
-        update_height: &UpdateConfirmationHeight,
+        update_height: &ConfirmationHeightUpdate,
     ) {
         #[cfg(debug_assertions)]
         {
@@ -675,9 +675,9 @@ impl Ledger {
                 .block()
                 .get(txn.txn(), &update_height.new_cemented_frontier)
                 .unwrap();
-            debug_assert!(
-                block.sideband().unwrap().height
-                    == conf_height + (update_height.num_blocks_cemented as u64)
+            debug_assert_eq!(
+                block.sideband().unwrap().height,
+                conf_height + (update_height.num_blocks_cemented as u64)
             );
         }
 

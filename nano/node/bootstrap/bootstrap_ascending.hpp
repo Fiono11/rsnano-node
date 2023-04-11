@@ -25,6 +25,7 @@ namespace nano
 class block_processor;
 class ledger;
 class network;
+class node_config;
 
 namespace transport
 {
@@ -41,10 +42,9 @@ class bootstrap_ascending
 	{
 	public:
 		// Initialized with all true samples
-		throttle (size_t size);
+		explicit throttle (size_t size);
 		bool throttled () const;
 		void add (bool success);
-		size_t success_count () const;
 
 	private:
 		// Rolling count of true samples in the sample buffer
@@ -54,7 +54,7 @@ class bootstrap_ascending
 	};
 
 public:
-	bootstrap_ascending (nano::node &, nano::store &, nano::block_processor &, nano::ledger &, nano::network &, nano::stats &);
+	bootstrap_ascending (nano::node_config &, nano::block_processor &, nano::ledger &, nano::network &, nano::stats &);
 	~bootstrap_ascending ();
 
 	void start ();
@@ -71,8 +71,8 @@ public: // Container info
 	size_t priority_size () const;
 
 private: // Dependencies
-	nano::node & node;
-	nano::store & store;
+	nano::node_config & config;
+	nano::network_constants & network_consts;
 	nano::block_processor & block_processor;
 	nano::ledger & ledger;
 	nano::network & network;
@@ -105,7 +105,7 @@ private:
 	/* Inspects a block that has been processed by the block processor */
 	void inspect (nano::transaction const &, nano::process_return const & result, nano::block const & block);
 
-	void throttle_if_needed ();
+	void throttle_if_needed (nano::unique_lock<nano::mutex> & lock);
 	void run ();
 	bool run_one ();
 	void run_timeouts ();

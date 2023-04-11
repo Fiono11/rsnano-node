@@ -3,7 +3,7 @@ use std::{
     mem::size_of,
     ops::DerefMut,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, MutexGuard,
     },
     thread::JoinHandle,
@@ -20,15 +20,15 @@ use crate::stats::Stats;
 
 use super::{
     block_cache::BlockCache, AutomaticMode, AutomaticModeContainerInfo,
-    AwaitingProcessingCountCallback, BlockCallback, BlockHashCallback, BlockQueue,
-    ConfirmationHeightMode,
+    AwaitingProcessingCountCallback, BatchWriteSizeManager, BlockCallback, BlockHashCallback,
+    BlockQueue, ConfirmationHeightMode,
 };
 
 pub struct ConfirmationHeightProcessor {
     channel: Arc<Mutex<ProcessorLoopChannel>>,
     condition: Arc<Condvar>,
     /** The maximum amount of blocks to write at once. This is dynamically modified by the bounded processor based on previous write performance **/
-    batch_write_size: Arc<AtomicUsize>,
+    batch_write_size: Arc<BatchWriteSizeManager>,
     stopped: Arc<AtomicBool>,
     // No mutex needed for the observers as these should be set up during initialization of the node
     cemented_observer: Arc<Mutex<Option<BlockCallback>>>,
@@ -67,9 +67,10 @@ impl ConfirmationHeightProcessor {
             stopped.clone(),
         );
 
+        let batch_write_size = automatic_mode.batch_write_size().clone();
+
         let automatic_container_info = automatic_mode.container_info();
         let block_cache = Arc::clone(automatic_mode.block_cache());
-        let batch_write_size = Arc::clone(automatic_mode.batch_write_size());
         let condition = Arc::new(Condvar::new());
 
         let callbacks = CementCallbacks {
@@ -129,7 +130,7 @@ impl ConfirmationHeightProcessor {
     }
 
     pub fn set_batch_write_size(&self, size: usize) {
-        self.batch_write_size.store(size, Ordering::SeqCst);
+        self.batch_write_size.set_size(size);
     }
 
     pub fn add(&self, block: Arc<BlockEnum>) {
@@ -295,7 +296,7 @@ impl<'a> ConfirmationHeightProcessorLoop<'a> {
         mut channel: MutexGuard<'a, ProcessorLoopChannel>,
         block: Arc<BlockEnum>,
     ) -> MutexGuard<'a, ProcessorLoopChannel> {
-        if self.automatic_mode.pending_writes_empty() {
+        if !self.automatic_mode.has_pending_writes() {
             channel.pending_writes.clear();
         }
 
@@ -313,7 +314,7 @@ impl<'a> ConfirmationHeightProcessorLoop<'a> {
         &mut self,
         mut channel: MutexGuard<'a, ProcessorLoopChannel>,
     ) -> MutexGuard<'a, ProcessorLoopChannel> {
-        if !self.automatic_mode.pending_writes_empty() {
+        if self.automatic_mode.has_pending_writes() {
             drop(channel);
             self.automatic_mode
                 .write_pending_blocks(&mut self.callbacks.as_refs());

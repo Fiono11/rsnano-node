@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
     time::Duration,
@@ -15,8 +15,8 @@ use rsnano_ledger::{Ledger, WriteDatabaseQueue};
 use crate::stats::Stats;
 
 use super::{
-    block_cache::BlockCache, BoundedMode, BoundedModeContainerInfo, CementCallbackRefs,
-    UnboundedMode, UnboundedModeContainerInfo,
+    block_cache::BlockCache, BatchWriteSizeManager, BoundedMode, BoundedModeContainerInfo,
+    CementCallbackRefs, UnboundedMode, UnboundedModeContainerInfo,
 };
 
 #[derive(FromPrimitive, Clone, PartialEq, Eq, Copy)]
@@ -65,7 +65,7 @@ impl AutomaticMode {
             batch_separate_pending_min_time,
             stopped,
             stats,
-            bounded_mode.batch_write_size.clone(),
+            bounded_mode.batch_write_size().clone(),
         );
 
         Self {
@@ -76,14 +76,18 @@ impl AutomaticMode {
         }
     }
 
-    pub fn pending_writes_empty(&self) -> bool {
-        self.bounded_mode.pending_writes_empty() && self.unbounded_mode.pending_writes_empty()
+    pub fn batch_write_size(&self) -> &Arc<BatchWriteSizeManager> {
+        self.bounded_mode.batch_write_size()
+    }
+
+    pub fn has_pending_writes(&self) -> bool {
+        self.bounded_mode.has_pending_writes() || self.unbounded_mode.has_pending_writes()
     }
 
     pub fn write_pending_blocks(&mut self, callbacks: &mut CementCallbackRefs) {
-        if !self.bounded_mode.pending_writes_empty() {
+        if self.bounded_mode.has_pending_writes() {
             self.bounded_mode.write_pending_blocks(callbacks);
-        } else if !self.unbounded_mode.pending_writes_empty() {
+        } else if self.unbounded_mode.has_pending_writes() {
             self.unbounded_mode.write_pending_blocks(callbacks);
         }
     }
@@ -112,10 +116,6 @@ impl AutomaticMode {
         self.unbounded_mode.block_cache()
     }
 
-    pub fn batch_write_size(&self) -> &Arc<AtomicUsize> {
-        &self.bounded_mode.batch_write_size
-    }
-
     fn should_use_unbounded_processor(&self) -> bool {
         self.force_unbounded() || self.valid_unbounded()
     }
@@ -123,12 +123,11 @@ impl AutomaticMode {
     fn valid_unbounded(&self) -> bool {
         self.mode == ConfirmationHeightMode::Automatic
             && self.are_blocks_within_automatic_unbounded_section()
-            && self.bounded_mode.pending_writes_empty()
+            && !self.bounded_mode.has_pending_writes()
     }
 
     fn force_unbounded(&self) -> bool {
-        !self.unbounded_mode.pending_writes_empty()
-            || self.mode == ConfirmationHeightMode::Unbounded
+        self.unbounded_mode.has_pending_writes() || self.mode == ConfirmationHeightMode::Unbounded
     }
 
     fn are_blocks_within_automatic_unbounded_section(&self) -> bool {
