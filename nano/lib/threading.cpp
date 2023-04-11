@@ -179,10 +179,10 @@ void nano::thread_pool::set_thread_names (nano::thread_role::name thread_name)
 	{
 		boost::asio::post (*thread_pool_m, [this, thread_name] () {
 			nano::thread_role::set (thread_name);
-			//thread_names_latch.arrive_and_wait ();
+			thread_names_latch.arrive_and_wait ();
 		});
 	}
-	//thread_names_latch.wait ();
+	thread_names_latch.wait ();
 }
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (thread_pool & thread_pool, std::string const & name)

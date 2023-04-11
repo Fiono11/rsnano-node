@@ -43,21 +43,11 @@ TEST (gap_cache, add_existing)
 	cache.add (block1->hash ());
 	std::chrono::steady_clock::time_point arrival;
 	arrival = cache.block_arrival(block1->hash());
-	//nano::unique_lock<nano::mutex> lock{ cache.mutex };
-	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
-	//ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
 	ASSERT_TRUE (cache.block_exists(block1->hash()));
-	//auto arrival (existing1->arrival);
-	//cache.block_arrival(block1->hash());
-	//lock.unlock ();
 	ASSERT_TIMELY (20s, arrival != std::chrono::steady_clock::now ());
 	cache.add (block1->hash ());
 	ASSERT_EQ (1, cache.size ());
-	//lock.lock ();
-	auto existing2 (cache.blocks.get<1> ().find (block1->hash ()));
-	//ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
 	ASSERT_TRUE (cache.block_exists(block1->hash()));
-	//ASSERT_GT (existing2->arrival, arrival);
 	ASSERT_GT (cache.block_arrival(block1->hash()), arrival);
 }
 
@@ -75,13 +65,10 @@ TEST (gap_cache, comparison)
 				  .sign (key1.prv, key1.pub)
 				  .work (5)
 				  .build_shared ();
-	cache.add (block1->hash (), std::chrono::steady_clock::now());
-	//nano::unique_lock<nano::mutex> lock{ cache.mutex };
-	auto existing1 (cache.blocks.get<1> ().find (block1->hash ()));
-	//ASSERT_NE (cache.blocks.get<1> ().end (), existing1);
+	cache.add (block1->hash ());
 	ASSERT_TRUE (cache.block_exists(block1->hash()));
-	auto arrival (existing1->arrival);
-	//lock.unlock ();
+	std::chrono::steady_clock::time_point arrival;
+	arrival = cache.block_arrival(block1->hash());
 	ASSERT_TIMELY (20s, std::chrono::steady_clock::now () != arrival);
 	nano::keypair key2;
 	auto block3 = builder
@@ -94,13 +81,7 @@ TEST (gap_cache, comparison)
 				  .build_shared ();
 	cache.add (block3->hash ());
 	ASSERT_EQ (2, cache.size ());
-	//lock.lock ();
-	auto existing2 (cache.blocks.get<1> ().find (block3->hash ()));
-	//ASSERT_NE (cache.blocks.get<1> ().end (), existing2);
 	ASSERT_TRUE (cache.block_exists(block3->hash()));
-	//ASSERT_GT (existing2->arrival, arrival);
-	//ASSERT_EQ (arrival, cache.blocks.get<1> ().begin ()->arrival);
-	//std::cout << cache.block_arrival(block1->hash()) << std::endl;
 	cache.block_arrival(block1->hash());
 	ASSERT_EQ (cache.block_arrival(block1->hash()), cache.earliest());
 }

@@ -110,7 +110,7 @@ private:
 	nano::election_scheduler & scheduler; // not yet ported to Rust
 	std::shared_ptr<nano::websocket::listener> & websocket_server; // not yet ported to Rust
 	nano::unchecked_map & unchecked; // ported to Rust
-	nano::gap_cache & gap_cache; // not yet ported to Rust
+	nano::gap_cache & gap_cache; // ported to Rust
 	nano::bootstrap_initiator & bootstrap_initiator; // not yet ported to Rust
 	nano::write_database_queue & write_database_queue;
 	nano::mutex mutex{ mutex_identifier (mutexes::block_processor) };

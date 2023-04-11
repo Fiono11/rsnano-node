@@ -1,7 +1,7 @@
 use rsnano_core::{BlockHash, Account};
 use core::ffi::c_void;
-use std::sync::Arc;
-use crate::{VoidPointerCallback, utils::ContextWrapper, NodeConfigDto, online_reps::OnlineRepsHandle, ledger::datastore::{LedgerHandle, lmdb::LmdbStoreHandle}, NodeFlagsHandle, voting::VoteHandle};
+use std::{sync::Arc, ffi::{CStr, c_char}};
+use crate::{VoidPointerCallback, utils::{ContextWrapper, ContainerInfoComponentHandle}, NodeConfigDto, online_reps::OnlineRepsHandle, ledger::datastore::{LedgerHandle, lmdb::LmdbStoreHandle}, NodeFlagsHandle, voting::VoteHandle};
 use rsnano_node::{GapCache, config::NodeConfig};
 
 pub struct GapCacheHandle(GapCache);
@@ -77,29 +77,20 @@ pub unsafe extern "C" fn rsn_gap_cache_bootstrap_check(
 ) -> bool {
     let byte_slice = std::slice::from_raw_parts(voters, size);
 
-    let chunk_size = size / 32;
-    let chunks = byte_slice.chunks(chunk_size);
+    let chunk_size = size / std::mem::size_of::<Account>();
+    let chunks = byte_slice.chunks_exact(chunk_size);
 
-    let mut voters: Vec<Account> = Vec::new();
-    for chunk in chunks {
-        let mut chunk_array = [0u8; 32];
-        // Check if the chunk size is exactly 32, if not then return error or fill the array with default value
-        if chunk.len() != 32 {
-            // fill the remaining with 0s
-            for i in 0..32 {
-                chunk_array[i] = chunk.get(i).copied().unwrap_or(0u8);
-            }
-        } else {
-            chunk_array.copy_from_slice(chunk);
-        }
-        let account = Account::from_bytes(chunk_array);
-        voters.push(account);
-    }
+    let voters: Vec<Account> = chunks
+        .map(|chunk| {
+            let mut chunk_array = [0u8; 32];
+            chunk_array[..chunk.len()].copy_from_slice(chunk);
+            Account::from_bytes(chunk_array)
+        })
+        .collect();
 
     let mut bytes = [0; 32];
     bytes.copy_from_slice(std::slice::from_raw_parts(hash, 32));
-    (*handle).0.bootstrap_check(&voters.into_iter().collect(), &BlockHash::from_bytes(bytes));
-    true
+    (*handle).0.bootstrap_check(&voters.into_iter().collect(), &BlockHash::from_bytes(bytes))
 }
 
 #[no_mangle]
@@ -160,6 +151,22 @@ unsafe fn wrap_start_bootstrap_callback(
             block_hash.as_bytes().as_ptr(),
         );
     })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_gap_cache_size_of_element() -> usize {
+    GapCache::size_of_element()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsn_gap_cache_collect_container_info(
+    handle: *const GapCacheHandle,
+    name: *const c_char,
+) -> *mut ContainerInfoComponentHandle {
+    let container_info = (*handle)
+        .0
+        .collect_container_info(CStr::from_ptr(name).to_str().unwrap().to_owned());
+    Box::into_raw(Box::new(ContainerInfoComponentHandle(container_info)))
 }
 
 
