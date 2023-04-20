@@ -1,0 +1,77 @@
+add_executable(
+  core_test
+  core_test_main.cc
+  fakes/websocket_client.hpp
+  fakes/work_peer.hpp
+  active_transactions.cpp
+  backlog.cpp
+  block.cpp
+  block_store.cpp
+  blockprocessor.cpp
+  bootstrap.cpp
+  bootstrap_ascending.cpp
+  bootstrap_server.cpp
+  cli.cpp
+  confirmation_height.cpp
+  confirmation_solicitor.cpp
+  conflicts.cpp
+  difficulty.cpp
+  distributed_work.cpp
+  election.cpp
+  election_scheduler.cpp
+  enums.cpp
+  epochs.cpp
+  frontiers_confirmation.cpp
+  gap_cache.cpp
+  ipc.cpp
+  ledger.cpp
+  ledger_walker.cpp
+  locks.cpp
+  logger.cpp
+  message.cpp
+  message_deserializer.cpp
+  memory_pool.cpp
+  network.cpp
+  network_filter.cpp
+  node.cpp
+  optimistic_scheduler.cpp
+  processing_queue.cpp
+  processor_service.cpp
+  peer_container.cpp
+  prioritization.cpp
+  request_aggregator.cpp
+  signal_manager.cpp
+  signing.cpp
+  socket.cpp
+  system.cpp
+  telemetry.cpp
+  toml.cpp
+  timer.cpp
+  uint256_union.cpp
+  unchecked_map.cpp
+  utility.cpp
+  vote_cache.cpp
+  vote_processor.cpp
+  voting.cpp
+  wallet.cpp
+  wallets.cpp
+  websocket.cpp
+  work_pool.cpp)
+
+target_compile_definitions(
+  core_test PRIVATE -DTAG_VERSION_STRING=${TAG_VERSION_STRING}
+                    -DGIT_COMMIT_HASH=${GIT_COMMIT_HASH} -DCI=${CI_TEST})
+
+target_link_libraries(
+  core_test
+  node
+  secure
+  test_common
+  gtest
+  libminiupnpc-static
+  Boost::log_setup
+  Boost::log)
+
+include_directories(${CMAKE_SOURCE_DIR}/submodules)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/cpptoml/include)
+include_directories(${CMAKE_SOURCE_DIR}/submodules/gtest/googletest/include)
