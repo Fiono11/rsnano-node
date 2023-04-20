@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nano/lib/numbers.hpp"
 #include <nano/secure/common.hpp>
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/store.hpp>
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <memory>
 #include <unordered_set>
+#include <_types/_uint8_t.h>
 
 namespace nano
 {
@@ -23,6 +25,7 @@ public:
 	uint64_t timestamp;
 	nano::block_hash hash;
 	nano::vote_type type;
+	uint8_t round;
 };
 
 class vote_with_weight_info final
@@ -70,6 +73,7 @@ struct election_extended_status final
 	nano::election_status status;
 	std::unordered_map<nano::account, nano::vote_info> votes;
 	nano::tally_t tally;
+	nano::round_tally_t round_tally;
 };
 
 class election final : public std::enable_shared_from_this<nano::election>
@@ -202,8 +206,10 @@ private:
 
 	mutable nano::mutex mutex;
 
-	uint64_t current_round{ 0 };
+	uint8_t current_round{ 0 };
 	bool voted_in_current_round{ false };
+	nano::block_hash committed_value;
+	uint8_t proof_round;
 
 private: // Constants
 	static std::size_t constexpr max_blocks{ 10 };

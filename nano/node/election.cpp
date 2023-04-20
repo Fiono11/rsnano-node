@@ -1,4 +1,5 @@
 #include "nano/secure/common.hpp"
+#include "nano/secure/ledger.hpp"
 #include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/election.hpp>
 #include <nano/node/network.hpp>
@@ -289,17 +290,45 @@ nano::tally_t nano::election::tally_impl () const
 {
 	std::unordered_map<nano::block_hash, nano::uint128_t> block_weights;
 	std::unordered_map<nano::block_hash, nano::uint128_t> final_weights_l;
+	round_tally_t round_tallies_local;
 	for (auto const & [account, info] : last_votes)
 	{
 		auto rep_weight (node.ledger.weight (account));
 		block_weights[info.hash] += rep_weight;
 		if (info.timestamp == std::numeric_limits<uint64_t>::max ())
+		//if (info.type == nano::vote_type::commit)
 		{
 			final_weights_l[info.hash] += rep_weight;
 		}
+
+		// Add the tallies per round
+        uint8_t round = info.round;
+        auto round_iter = round_tallies_local.find(round);
+        if (round_iter == round_tallies_local.end())
+        {
+            round_tallies_local.emplace(round, tally_t{});
+            round_iter = round_tallies_local.find(round);
+        }
+
+        auto block = last_blocks.find(info.hash);
+        if (block != last_blocks.end())
+        {
+            auto tally_iter = round_iter->second.find(rep_weight);
+            if (tally_iter == round_iter->second.end())
+            {
+                round_iter->second.emplace(rep_weight, block->second);
+            }
+            else
+            {
+                auto new_weight = tally_iter->first + rep_weight;
+                round_iter->second.erase(tally_iter);
+                round_iter->second.emplace(new_weight, block->second);
+            }
+        }
 	}
 	last_tally = block_weights;
 	nano::tally_t result;
+	nano::round_tally_t round_tally;
 	for (auto const & [hash, amount] : block_weights)
 	{
 		auto block (last_blocks.find (hash));
@@ -308,6 +337,14 @@ nano::tally_t nano::election::tally_impl () const
 			result.emplace (amount, block->second);
 		}
 	}
+
+	nano::uint128_t total_voting_weight = 0;
+	for (const auto &block_tally : result) {
+		total_voting_weight += block_tally.first;
+	}
+
+	if (total_voting_weight >= 2 / 3 )
+
 	// Calculate final votes sum for winner
 	if (!final_weights_l.empty () && !result.empty ())
 	{

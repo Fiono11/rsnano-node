@@ -1,3 +1,4 @@
+#include "nano/secure/common.hpp"
 #include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/election.hpp>
 #include <nano/node/nodeconfig.hpp>
@@ -65,6 +66,7 @@ bool nano::confirmation_solicitor::add (nano::election const & election_a)
 		auto existing (election_a.last_votes.find (rep.account));
 		bool const exists (existing != election_a.last_votes.end ());
 		bool const is_final (exists && (!election_a.is_quorum.load () || existing->second.timestamp == std::numeric_limits<uint64_t>::max ()));
+		//bool const is_final (exists && (!election_a.is_quorum.load () || existing->second.type == nano::vote_type::commit));
 		bool const different (exists && existing->second.hash != hash);
 		if (!exists || !is_final || different)
 		{
