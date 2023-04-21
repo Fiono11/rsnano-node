@@ -57,7 +57,7 @@ public:
 
 		nano::block_hash hash;
 		std::vector<std::pair<nano::account, uint64_t>> voters; // <rep, timestamp> pair
-		std::vector<std::pair<nano::account, nano::vote_type>> voters1; // <rep, vote_type> pair
+		std::vector<std::pair<nano::account, std::tuple<uint64_t, nano::vote_type, uint8_t>>> voters1;
 		nano::uint128_t tally{ 0 };
 
 		/**

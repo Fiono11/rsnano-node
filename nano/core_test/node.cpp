@@ -3496,6 +3496,7 @@ TEST (node, rollback_vote_self)
 		ASSERT_EQ (0, election->votes_with_weight ().size ());
 		// Vote with key to switch the winner
 		election->vote (key.pub, 0, fork->hash ());
+		// election->vote1 (key.pub, 0, fork->hash ());
 		ASSERT_EQ (1, election->votes_with_weight ().size ());
 		// The winner changed
 		ASSERT_EQ (election->winner ()->hash (), fork->hash ());
