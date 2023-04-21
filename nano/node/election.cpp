@@ -580,12 +580,12 @@ std::shared_ptr<nano::block> nano::election::find (nano::block_hash const & hash
 
 	if (!confirmed ())
 	{
-		confirm_if_quorum (lock);
+		confirm_if_quorum1 (lock);
 	}
 	return nano::election_vote_result (false, true);
 }*/
 
-nano::election_vote_result nano::election::vote1 (nano::account const & rep, uint64_t timestamp_a, nano::block_hash const & block_hash_a, vote_source vote_source_a, nano::vote_type type_a, uint8_t round_a)
+nano::election_vote_result nano::election::vote1 (nano::account const & rep, uint64_t timestamp_a, nano::block_hash const & block_hash_a, nano::vote_type type_a, uint8_t round_a, vote_source vote_source_a)
 {
 	auto weight = node.ledger.weight (rep);
 	if (!node.network_params.network.is_dev_network () && weight <= node.minimum_principal_weight ())

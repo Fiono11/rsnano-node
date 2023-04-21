@@ -506,12 +506,12 @@ nano::vote::vote (bool & error_a, nano::stream & stream_a)
 	error_a = deserialize (stream_a);
 }
 
-nano::vote::vote (nano::account const & account_a, nano::raw_key const & prv_a, uint64_t timestamp_a, uint8_t duration, std::vector<nano::block_hash> const & hashes,
-nano::vote_type type_a, uint8_t round_a) :
+nano::vote::vote (nano::account const & account_a, nano::raw_key const & prv_a, uint64_t timestamp_a, uint8_t duration, std::vector<nano::block_hash> const & hashes, nano::vote_type type_a, uint8_t round_a) :
 	hashes{ hashes },
 	timestamp_m{ packed_timestamp (timestamp_a, duration) },
 	account (account_a),
-	type (type_a)
+	type (type_a),
+	round (round_a)
 {
 	signature = nano::sign_message (prv_a, account_a, hash ());
 }

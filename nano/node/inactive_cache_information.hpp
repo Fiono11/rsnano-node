@@ -1,29 +1,62 @@
 #pragma once
 
+#include "nano/secure/common.hpp"
 #include <nano/lib/numbers.hpp>
 #include <nano/node/inactive_cache_status.hpp>
-
+#include "nano/node/election.hpp"
 #include <chrono>
+#include <_types/_uint8_t.h>
 
 namespace nano
 {
 class inactive_cache_information final
-{
+/*{
 public:
 	inactive_cache_information () = default;
-	inactive_cache_information (std::chrono::steady_clock::time_point arrival, nano::block_hash hash, nano::account initial_rep_a, uint64_t initial_timestamp_a, nano::inactive_cache_status status) :
+	inactive_cache_information (std::chrono::steady_clock::time_point arrival, nano::block_hash hash, nano::account initial_rep_a, uint64_t initial_timestamp_a, nano::inactive_cache_status status, nano::vote_type type, uint8_t round) :
 		arrival (arrival),
 		hash (hash),
 		status (status)
 	{
 		voters.reserve (8);
-		voters.emplace_back (initial_rep_a, initial_timestamp_a);
+		voters.emplace_back(initial_rep_a, initial_timestamp_a);
 	}
 
 	std::chrono::steady_clock::time_point arrival;
 	nano::block_hash hash;
 	nano::inactive_cache_status status;
 	std::vector<std::pair<nano::account, uint64_t>> voters;
+
+	bool needs_eval () const
+	{
+		return !status.bootstrap_started || !status.election_started || !status.confirmed;
+	}
+
+	std::string to_string () const;*/
+
+	/**
+	 * Inserts votes stored in this entry into an election
+	 * @return number of votes inserted
+	 */
+	//std::size_t fill (std::shared_ptr<nano::election> election) const;
+//};
+
+{
+public:
+	inactive_cache_information () = default;
+	inactive_cache_information (std::chrono::steady_clock::time_point arrival, nano::block_hash hash, nano::account initial_rep_a, uint64_t initial_timestamp_a, nano::inactive_cache_status status, nano::vote_type type, uint8_t round) :
+		arrival (arrival),
+		hash (hash),
+		status (status)
+	{
+		voters.reserve (8);
+		voters.emplace_back(initial_rep_a, std::make_tuple(initial_timestamp_a, type, round));
+	}
+
+	std::chrono::steady_clock::time_point arrival;
+	nano::block_hash hash;
+	nano::inactive_cache_status status;
+	std::vector<std::pair<nano::account, std::tuple<uint64_t, nano::vote_type, uint8_t>>> voters;
 
 	bool needs_eval () const
 	{

@@ -18,6 +18,7 @@
 
 #include <array>
 #include <unordered_map>
+#include <_types/_uint8_t.h>
 
 namespace boost
 {
@@ -289,7 +290,7 @@ public:
 	static uint8_t constexpr duration_max = { 0x0fu };
 
 	vote_type type;
-
+	uint8_t round;
 private:
 	// Vote timestamp
 	uint64_t timestamp_m;

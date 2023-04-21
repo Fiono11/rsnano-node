@@ -471,7 +471,8 @@ nano::vote_code nano::active_transactions::vote (std::shared_ptr<nano::vote> con
 		bool processed (false);
 		for (auto const & [election, block_hash] : process)
 		{
-			auto const result_l = election->vote (vote_a->account, vote_a->timestamp (), block_hash);
+			//auto const result_l = election->vote (vote_a->account, vote_a->timestamp (), block_hash);
+			auto const result_l = election->vote1 (vote_a->account, vote_a->timestamp (), block_hash, vote_a->type, vote_a->round);
 			processed = processed || result_l.processed;
 			replay = replay || result_l.replay;
 		}
