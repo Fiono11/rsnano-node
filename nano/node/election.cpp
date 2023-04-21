@@ -280,6 +280,23 @@ bool nano::election::have_quorum (nano::tally_t const & tally_a) const
 	return result;
 }
 
+bool nano::election::have_quorum1 (nano::round_tally_t const & round_tally_a) const
+{
+	auto iter = round_tally_a.find(current_round);
+    if (iter == round_tally_a.end()) {
+        // The round was not found, return false
+        return false;
+    }
+
+    // Get the tally for the current round
+    const tally_t & current_round_tally = iter->second;
+
+    // Check if there's a quorum
+    auto delta_l (node.online_reps.delta () * 2/3);
+    bool result{ current_round_tally.begin()->first >= delta_l };
+    return result;
+}
+
 nano::tally_t nano::election::tally () const
 {
 	nano::lock_guard<nano::mutex> guard{ mutex };
@@ -296,35 +313,9 @@ nano::tally_t nano::election::tally_impl () const
 		auto rep_weight (node.ledger.weight (account));
 		block_weights[info.hash] += rep_weight;
 		if (info.timestamp == std::numeric_limits<uint64_t>::max ())
-		//if (info.type == nano::vote_type::commit)
 		{
 			final_weights_l[info.hash] += rep_weight;
 		}
-
-		// Add the tallies per round
-        uint8_t round = info.round;
-        auto round_iter = round_tallies_local.find(round);
-        if (round_iter == round_tallies_local.end())
-        {
-            round_tallies_local.emplace(round, tally_t{});
-            round_iter = round_tallies_local.find(round);
-        }
-
-        auto block = last_blocks.find(info.hash);
-        if (block != last_blocks.end())
-        {
-            auto tally_iter = round_iter->second.find(rep_weight);
-            if (tally_iter == round_iter->second.end())
-            {
-                round_iter->second.emplace(rep_weight, block->second);
-            }
-            else
-            {
-                auto new_weight = tally_iter->first + rep_weight;
-                round_iter->second.erase(tally_iter);
-                round_iter->second.emplace(new_weight, block->second);
-            }
-        }
 	}
 	last_tally = block_weights;
 	nano::tally_t result;
@@ -338,13 +329,6 @@ nano::tally_t nano::election::tally_impl () const
 		}
 	}
 
-	nano::uint128_t total_voting_weight = 0;
-	for (const auto &block_tally : result) {
-		total_voting_weight += block_tally.first;
-	}
-
-	if (total_voting_weight >= 2 / 3 )
-
 	// Calculate final votes sum for winner
 	if (!final_weights_l.empty () && !result.empty ())
 	{
@@ -356,6 +340,61 @@ nano::tally_t nano::election::tally_impl () const
 		}
 	}
 	return result;
+}
+
+nano::round_tally_t nano::election::tally_impl1 () const
+{
+	std::unordered_map<nano::block_hash, nano::uint128_t> block_weights;
+	std::unordered_map<nano::block_hash, nano::uint128_t> final_weights_l;
+	round_tally_t round_tallies_local;
+	for (auto const & [account, info] : last_votes)
+	{
+		auto rep_weight (node.ledger.weight (account));
+		block_weights[info.hash] += rep_weight;
+		if (info.type == nano::vote_type::commit)
+		{
+			final_weights_l[info.hash] += rep_weight;
+		}
+
+		// Add the tallies per round
+		uint8_t round = info.round;
+		auto round_iter = round_tallies_local.find(round);
+		if (round_iter == round_tallies_local.end())
+		{
+			round_tallies_local.emplace(round, tally_t{});
+			round_iter = round_tallies_local.find(round);
+		}
+
+		auto block = last_blocks.find(info.hash);
+		if (block != last_blocks.end())
+		{
+			auto tally_iter = round_iter->second.find(rep_weight);
+			if (tally_iter == round_iter->second.end())
+			{
+				round_iter->second.emplace(rep_weight, block->second);
+			}
+			else
+			{
+				auto new_weight = tally_iter->first + rep_weight;
+				round_iter->second.erase(tally_iter);
+				round_iter->second.emplace(new_weight, block->second);
+			}
+		}
+	}
+	last_tally = block_weights;
+
+	// Calculate final votes sum for winner
+	if (!final_weights_l.empty ())
+	{
+		auto winner_hash (last_blocks.begin ()->second->hash ());
+		auto find_final (final_weights_l.find (winner_hash));
+		if (find_final != final_weights_l.end ())
+		{
+			final_weight = find_final->second;
+		}
+	}
+
+	return round_tallies_local;
 }
 
 void nano::election::confirm_if_quorum (nano::unique_lock<nano::mutex> & lock_a)
@@ -471,10 +510,21 @@ nano::election_vote_result nano::election::vote (nano::account const & rep, uint
 			return nano::election_vote_result (false, false);
 		}
 	}
+
 	last_votes[rep] = { std::chrono::steady_clock::now (), timestamp_a, block_hash_a };
 	if (vote_source_a == vote_source::live)
 	{
 		live_vote_action (rep);
+	}
+
+	nano::tally_t tally = tally_impl();
+	nano::uint128_t total_voting_weight = 0;
+	for (const auto &block_tally : tally) {
+		total_voting_weight += block_tally.first;
+	}
+
+	if (total_voting_weight == 2 / 3 * node.online_reps.delta ()) {
+		current_round += 1;
 	}
 
 	node.stats.inc (nano::stat::type::election, vote_source_a == vote_source::live ? nano::stat::detail::vote_new : nano::stat::detail::vote_cached);

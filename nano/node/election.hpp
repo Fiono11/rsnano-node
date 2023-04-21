@@ -137,6 +137,7 @@ public: // Status
 	void log_votes (nano::tally_t const &, std::string const & = "") const;
 	nano::tally_t tally () const;
 	bool have_quorum (nano::tally_t const &) const;
+	bool have_quorum1 (nano::round_tally_t const &) const;
 
 	// Guarded by mutex
 	nano::election_status status;
@@ -172,6 +173,7 @@ public: // Information
 
 private:
 	nano::tally_t tally_impl () const;
+	nano::round_tally_t tally_impl1 () const;
 	// lock_a does not own the mutex on return
 	void confirm_once (nano::unique_lock<nano::mutex> & lock_a, nano::election_status_type = nano::election_status_type::active_confirmed_quorum);
 	void broadcast_block (nano::confirmation_solicitor &);

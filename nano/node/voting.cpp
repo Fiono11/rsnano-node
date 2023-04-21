@@ -125,6 +125,7 @@ std::vector<std::shared_ptr<nano::vote>> nano::local_vote_history::votes (nano::
 	auto range (history.get<tag_root> ().equal_range (root_a));
 	// clang-format off
 	nano::transform_if (range.first, range.second, std::back_inserter (result),
+		// [&hash_a, is_final_a](auto const & entry) { return entry.hash == hash_a && (!is_final_a || entry.vote->type == nano::vote_type::commit); },
 		[&hash_a, is_final_a](auto const & entry) { return entry.hash == hash_a && (!is_final_a || entry.vote->timestamp () == std::numeric_limits<uint64_t>::max ()); },
 		[](auto const & entry) { return entry.vote; });
 	// clang-format on
@@ -365,6 +366,9 @@ void nano::vote_generator::vote (std::vector<nano::block_hash> const & hashes_a,
 		auto timestamp = this->is_final ? nano::vote::timestamp_max : nano::milliseconds_since_epoch ();
 		uint8_t duration = this->is_final ? nano::vote::duration_max : /*8192ms*/ 0x9;
 		nano::vote_type type = nano::vote_type::vote;
+		if (this->is_final) {
+			type = nano::vote_type::decided; 
+		}
 		votes_l.emplace_back (std::make_shared<nano::vote> (pub_a, prv_a, timestamp, duration, hashes_a, type, 0));
 	});
 	for (auto const & vote_l : votes_l)

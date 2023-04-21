@@ -101,6 +101,11 @@ nano::uint128_t nano::online_reps::delta () const
 	return ((weight * online_weight_quorum) / 100).convert_to<nano::uint128_t> ();
 }
 
+nano::uint128_t nano::online_reps::quorum () const
+{
+	return (delta() * 2 + 1)/3; // delta() = n = 3f + 1, so 2f + 1 = n - f = n - ((n-1) / 3) = (2n + 1) / 3
+}
+
 std::vector<nano::account> nano::online_reps::list ()
 {
 	std::vector<nano::account> result;

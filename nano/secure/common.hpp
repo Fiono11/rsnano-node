@@ -87,6 +87,7 @@ enum class vote_type
 {
 	vote,
 	commit,
+	decided,
 };
 
 /**
