@@ -135,8 +135,9 @@ public: // Status
 	std::atomic<unsigned> confirmation_request_count{ 0 };
 
 	void log_votes (nano::tally_t const &, std::string const & = "") const;
-	nano::tally_t tally () const;
-	bool have_quorum (nano::tally_t const &) const;
+	//nano::tally_t tally () const;
+	nano::round_tally_t tally1 () const;
+	//bool have_quorum (nano::tally_t const &) const;
 	bool have_quorum1 (nano::round_tally_t const &) const;
 
 	// Guarded by mutex
@@ -150,10 +151,12 @@ public: // Interface
 	 * Process vote. Internally uses cooldown to throttle non-final votes
 	 * If the election reaches consensus, it will be confirmed
 	 */
-	nano::election_vote_result vote (nano::account const & representative, uint64_t timestamp, nano::block_hash const & block_hash, vote_source = vote_source::live, nano::vote_type type = nano::vote_type::vote, uint8_t round = 0);
+	//nano::election_vote_result vote (nano::account const & representative, uint64_t timestamp, nano::block_hash const & block_hash, vote_source = vote_source::live, nano::vote_type type = nano::vote_type::vote, uint8_t round = 0);
+	nano::election_vote_result vote1 (nano::account const & representative, uint64_t timestamp, nano::block_hash const & block_hash, vote_source = vote_source::live, nano::vote_type type = nano::vote_type::vote, uint8_t round = 0);
 	bool publish (std::shared_ptr<nano::block> const & block_a);
 	// Confirm this block if quorum is met
-	void confirm_if_quorum (nano::unique_lock<nano::mutex> &);
+	//void confirm_if_quorum (nano::unique_lock<nano::mutex> &);
+	void confirm_if_quorum1 (nano::unique_lock<nano::mutex> &);
 
 	/**
 	 * Broadcasts vote for the current winner of this election

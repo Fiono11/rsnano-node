@@ -63,6 +63,7 @@ public:
 	void confirmation_active ();
 	void confirmation_history ();
 	void confirmation_info ();
+	void confirmation_info1 ();
 	void confirmation_quorum ();
 	void confirmation_height_currently_processing ();
 	void debug_bootstrap_priority_info ();

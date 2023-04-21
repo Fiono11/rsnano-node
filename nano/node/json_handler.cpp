@@ -2107,9 +2107,88 @@ void nano::json_handler::confirmation_info ()
 	response_errors ();
 }
 
+void nano::json_handler::confirmation_info1 ()
+{
+	bool const representatives = request.get<bool> ("representatives", false);
+	bool const contents = request.get<bool> ("contents", true);
+	bool const json_block_l = request.get<bool> ("json_block", false);
+	std::string root_text (request.get<std::string> ("root"));
+	nano::qualified_root root;
+	if (!root.decode_hex (root_text))
+	{
+		auto election (node.active.election (root));
+		if (election != nullptr && !election->confirmed ())
+		{
+			auto info = election->current_status ();
+			response_l.put ("announcements", std::to_string (info.status.confirmation_request_count));
+			response_l.put ("voters", std::to_string (info.votes.size ()));
+			response_l.put ("last_winner", info.status.winner->hash ().to_string ());
+			nano::uint128_t total (0);
+			boost::property_tree::ptree blocks;
+			for (auto const & round_tally : info.round_tally)
+			{
+				for (auto const & [tally, block] : round_tally.second)
+				{
+					boost::property_tree::ptree entry;
+					entry.put ("tally", tally.convert_to<std::string> ());
+					entry.put ("round", round_tally.first);
+					total += tally;
+					if (contents)
+					{
+						if (json_block_l)
+						{
+							boost::property_tree::ptree block_node_l;
+							block->serialize_json (block_node_l);
+							entry.add_child ("contents", block_node_l);
+						}
+						else
+						{
+							std::string contents;
+							block->serialize_json (contents);
+							entry.put ("contents", contents);
+						}
+					}
+					if (representatives)
+					{
+						std::multimap<nano::uint128_t, nano::account, std::greater<nano::uint128_t>> representatives;
+						for (auto const & [representative, vote] : info.votes)
+						{
+							if (block->hash () == vote.hash)
+							{
+								auto amount (node.ledger.cache.rep_weights.representation_get (representative));
+								representatives.emplace (std::move (amount), representative);
+							}
+						}
+						boost::property_tree::ptree representatives_list;
+						for (auto const & [amount, representative] : representatives)
+						{
+							representatives_list.put (representative.to_account (), amount.convert_to<std::string> ());
+						}
+						entry.add_child ("representatives", representatives_list);
+					}
+					blocks.add_child ((block->hash ()).to_string (), entry);
+				}
+			}
+			response_l.put ("total_tally", total.convert_to<std::string> ());
+			response_l.put ("final_tally", info.status.final_tally.to_string_dec ());
+			response_l.add_child ("blocks", blocks);
+		}
+		else
+		{
+			ec = nano::error_rpc::confirmation_not_found;
+		}
+	}
+	else
+	{
+		ec = nano::error_rpc::invalid_root;
+	}
+	response_errors ();
+}
+
 void nano::json_handler::confirmation_quorum ()
 {
 	response_l.put ("quorum_delta", node.online_reps.delta ().convert_to<std::string> ());
+	// response_l.put ("quorum", node.online_reps.quorum ().convert_to<std::string> ());
 	response_l.put ("online_weight_quorum_percent", std::to_string (node.online_reps.online_weight_quorum));
 	response_l.put ("online_weight_minimum", node.config.online_weight_minimum.to_string_dec ());
 	response_l.put ("online_stake_total", node.online_reps.online ().convert_to<std::string> ());
