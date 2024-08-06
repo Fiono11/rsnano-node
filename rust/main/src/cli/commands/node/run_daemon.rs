@@ -151,24 +151,17 @@ impl RunDaemonArgs {
             Box::new(|_, _, _, _| {}),
         ));
 
-        //node.start();
+        node.start();
 
         use rsnano_rpc::run_server;
 
-        /*let filter = tracing_subscriber::EnvFilter::try_from_default_env()?
-            .add_directive("jsonrpsee[method_call{name = \"say_hello\"}]=trace".parse()?);
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(filter)
-            .finish()
-            .try_init()?;*/
-
-        run_server(node).await.unwrap();
+        run_server(node.clone()).await.unwrap();
 
         let finished = Arc::new((Mutex::new(false), Condvar::new()));
         let finished_clone = finished.clone();
 
         ctrlc::set_handler(move || {
-            //node.stop();
+            node.stop();
             *finished_clone.0.lock().unwrap() = true;
             finished_clone.1.notify_all();
         })
