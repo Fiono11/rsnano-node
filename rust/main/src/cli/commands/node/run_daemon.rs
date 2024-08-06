@@ -1,9 +1,12 @@
-use crate::cli::{get_path, init_tracing};
+use crate::cli::{commands::read_toml, get_path, init_tracing};
 use anyhow::{anyhow, Result};
 use clap::{ArgGroup, Parser};
 use rsnano_core::{utils::get_cpu_count, work::WorkPoolImpl};
 use rsnano_node::{
-    config::{NetworkConstants, NodeConfig, NodeFlags},
+    config::{
+        get_node_toml_config_path, DaemonConfig, DaemonToml, NetworkConstants, NodeConfig,
+        NodeFlags,
+    },
     node::{Node, NodeExt},
     utils::AsyncRuntime,
     NetworkParams,
@@ -13,6 +16,7 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
+use toml::from_str;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -123,11 +127,17 @@ impl RunDaemonArgs {
 
         std::fs::create_dir_all(&path).map_err(|e| anyhow!("Create dir failed: {:?}", e))?;
 
-        let config = NodeConfig::new(
-            Some(network_params.network.default_node_port),
-            &network_params,
-            get_cpu_count(),
-        );
+        let node_toml_config_path = get_node_toml_config_path(&path);
+
+        let daemon_config = if node_toml_config_path.exists() {
+            let toml_str = read_toml(&node_toml_config_path)?;
+
+            let daemon_toml: DaemonToml = from_str(&toml_str)?;
+
+            (&daemon_toml).into()
+        } else {
+            DaemonConfig::default()
+        };
 
         let mut flags = NodeFlags::new();
         self.set_flags(&mut flags);
@@ -136,14 +146,14 @@ impl RunDaemonArgs {
 
         let work = Arc::new(WorkPoolImpl::new(
             network_params.work.clone(),
-            config.work_threads as usize,
-            Duration::from_nanos(config.pow_sleep_interval_ns as u64),
+            daemon_config.node.work_threads as usize,
+            Duration::from_nanos(daemon_config.node.pow_sleep_interval_ns as u64),
         ));
 
         let node = Arc::new(Node::new(
             async_rt.clone(),
             path,
-            config,
+            daemon_config.node,
             network_params,
             flags,
             work,
@@ -154,14 +164,20 @@ impl RunDaemonArgs {
 
         node.start();
 
-        let handle = run_server(node.clone()).await.unwrap();
+        let server_handle = if daemon_config.rpc_enable {
+            Some(run_server(node.clone()).await.unwrap())
+        } else {
+            None
+        };
 
         let finished = Arc::new((Mutex::new(false), Condvar::new()));
         let finished_clone = finished.clone();
 
         ctrlc::set_handler(move || {
             node.stop();
-            handle.stop().unwrap();
+            if let Some(handle) = &server_handle {
+                handle.stop().unwrap();
+            }
             *finished_clone.0.lock().unwrap() = true;
             finished_clone.1.notify_all();
         })

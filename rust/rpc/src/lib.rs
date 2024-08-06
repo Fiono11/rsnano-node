@@ -9,20 +9,20 @@ use std::sync::Arc;
 
 #[rpc(server)]
 pub trait Rpc {
-    #[method(name = "say_hello")]
-    async fn say_hello(&self) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "version")]
+    async fn version(&self) -> Result<String, ErrorObjectOwned>;
 }
 
-struct MyRpc {
+struct NanoRpc {
     node: Arc<Node>,
 }
 
 #[async_trait]
-impl RpcServer for MyRpc {
-    async fn say_hello(&self) -> Result<String, ErrorObjectOwned> {
-        // Here you can access self.node
-        let response = self.node.config.allow_local_peers;
-        Ok(response.to_string())
+impl RpcServer for NanoRpc {
+    async fn version(&self) -> Result<String, ErrorObjectOwned> {
+        let mut txn = self.node.store.env.tx_begin_read();
+        let version = self.node.store.version.get(&mut txn);
+        Ok(format!("store_version: {}", version.unwrap()).to_string())
     }
 }
 
@@ -33,7 +33,7 @@ pub async fn run_server(node: Arc<Node>) -> anyhow::Result<ServerHandle> {
         .await?;
     let mut module = RpcModule::new(());
 
-    let my_rpc = MyRpc { node };
+    let my_rpc = NanoRpc { node };
 
     module.merge(RpcServer::into_rpc(my_rpc))?;
 
