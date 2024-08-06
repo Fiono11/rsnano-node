@@ -2,10 +2,8 @@ use anyhow::{anyhow, Result};
 use reqwest::Url;
 use rsnano_core::{utils::get_cpu_count, DEV_GENESIS_KEY};
 use rsnano_node::{
-    config::{
-        get_node_toml_config_path, get_rpc_toml_config_path, DaemonConfig, NetworkConstants,
-        RpcConfig,
-    },
+    config::{get_node_toml_config_path, get_rpc_toml_config_path, DaemonConfig, NetworkConstants},
+    rpc::RpcConfig,
     unique_path,
     utils::TomlConfig,
     NetworkParams, DEV_NETWORK_PARAMS,

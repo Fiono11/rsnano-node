@@ -44,6 +44,7 @@ pub use optimistic_scheduler_toml::*;
 pub use priority_bucket_toml::*;
 pub use rep_crawler_toml::*;
 pub use request_aggregator_toml::*;
+pub use rpc_toml::*;
 pub use stats_toml::*;
 pub use vote_cache_toml::*;
 pub use vote_processor_toml::*;
