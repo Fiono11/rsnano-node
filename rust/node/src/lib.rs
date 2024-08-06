@@ -19,7 +19,6 @@ mod node_id_key_file;
 pub mod nullable_fs;
 pub mod pruning;
 pub mod representatives;
-pub mod rpc;
 mod secure;
 pub mod stats;
 mod telemetry;

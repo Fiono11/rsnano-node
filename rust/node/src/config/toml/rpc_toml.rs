@@ -1,5 +1,6 @@
-use crate::rpc::{RpcConfig, RpcLoggingConfig, RpcProcessConfig};
 use serde::{Deserialize, Serialize};
+
+use crate::config::{RpcConfig, RpcLoggingConfig, RpcProcessConfig};
 
 #[derive(Deserialize, Serialize)]
 pub struct RpcToml {

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
 #[command(group = ArgGroup::new("input")
@@ -110,7 +110,7 @@ pub(crate) struct RunDaemonArgs {
 }
 
 impl RunDaemonArgs {
-    pub(crate) fn run_daemon(&self) -> Result<()> {
+    pub(crate) async fn run_daemon(&self) -> Result<()> {
         let dirs = std::env::var(EnvFilter::DEFAULT_ENV).unwrap_or(String::from(
             "rsnano_ffi=debug,rsnano_node=debug,rsnano_messages=debug,rsnano_ledger=debug,rsnano_store_lmdb=debug,rsnano_core=debug",
         ));
@@ -118,7 +118,6 @@ impl RunDaemonArgs {
         init_tracing(dirs);
 
         let path = get_path(&self.data_path, &self.network);
-
         let network_params = NetworkParams::new(NetworkConstants::active_network());
 
         std::fs::create_dir_all(&path).map_err(|e| anyhow!("Create dir failed: {:?}", e))?;
@@ -141,7 +140,7 @@ impl RunDaemonArgs {
         ));
 
         let node = Arc::new(Node::new(
-            async_rt,
+            async_rt.clone(),
             path,
             config,
             network_params,
@@ -152,13 +151,24 @@ impl RunDaemonArgs {
             Box::new(|_, _, _, _| {}),
         ));
 
-        node.start();
+        //node.start();
+
+        use rsnano_rpc::run_server;
+
+        /*let filter = tracing_subscriber::EnvFilter::try_from_default_env()?
+            .add_directive("jsonrpsee[method_call{name = \"say_hello\"}]=trace".parse()?);
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter(filter)
+            .finish()
+            .try_init()?;*/
+
+        run_server(node).await.unwrap();
 
         let finished = Arc::new((Mutex::new(false), Condvar::new()));
         let finished_clone = finished.clone();
 
         ctrlc::set_handler(move || {
-            node.stop();
+            //node.stop();
             *finished_clone.0.lock().unwrap() = true;
             finished_clone.1.notify_all();
         })

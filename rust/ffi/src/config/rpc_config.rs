@@ -1,10 +1,7 @@
 use super::NetworkConstantsDto;
 use crate::utils::FfiToml;
 use rsnano_core::utils::get_cpu_count;
-use rsnano_node::{
-    config::NetworkConstants,
-    rpc::{RpcConfig, RpcLoggingConfig, RpcProcessConfig},
-};
+use rsnano_node::config::{NetworkConstants, RpcConfig, RpcLoggingConfig, RpcProcessConfig};
 use std::{convert::TryFrom, ffi::c_void};
 
 #[repr(C)]

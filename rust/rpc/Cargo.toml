@@ -1,0 +1,18 @@
+[package]
+name = "rsnano_rpc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jsonrpsee = { version = "0.23", features = ["server", "macros"] }
+tokio = { version = "1", features = [
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "time",
+    "macros",
+    "sync",
+] }
+anyhow = "1.0.40"
+async-trait = "0"
+rsnano_node = { path = "../node" }

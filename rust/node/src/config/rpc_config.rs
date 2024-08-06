@@ -1,4 +1,4 @@
-use crate::config::NetworkConstants;
+use super::NetworkConstants;
 use anyhow::Result;
 use rsnano_core::utils::{get_cpu_count, TomlWriter};
 use std::{
@@ -170,9 +170,7 @@ impl RpcProcessConfig {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
-    use rsnano_node::config::get_default_rpc_filepath_from;
-    use std::path::Path;
+    use super::*;
 
     #[test]
     fn default_rpc_filepath() -> Result<()> {
