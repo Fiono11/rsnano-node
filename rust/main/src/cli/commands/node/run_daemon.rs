@@ -8,11 +8,12 @@ use rsnano_node::{
     utils::AsyncRuntime,
     NetworkParams,
 };
+use rsnano_rpc::run_server;
 use std::{
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
-use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(group = ArgGroup::new("input")
@@ -153,15 +154,14 @@ impl RunDaemonArgs {
 
         node.start();
 
-        use rsnano_rpc::run_server;
-
-        run_server(node.clone()).await.unwrap();
+        let handle = run_server(node.clone()).await.unwrap();
 
         let finished = Arc::new((Mutex::new(false), Condvar::new()));
         let finished_clone = finished.clone();
 
         ctrlc::set_handler(move || {
             node.stop();
+            handle.stop().unwrap();
             *finished_clone.0.lock().unwrap() = true;
             finished_clone.1.notify_all();
         })
