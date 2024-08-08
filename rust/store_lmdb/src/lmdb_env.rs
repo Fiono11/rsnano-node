@@ -89,7 +89,7 @@ pub struct LmdbEnv {
     pub environment: LmdbEnvironment,
     next_txn_id: AtomicU64,
     txn_tracker: Arc<dyn TransactionTracker>,
-    env_id: usize,
+    pub env_id: usize,
 }
 
 static ENV_COUNT: AtomicUsize = AtomicUsize::new(0);

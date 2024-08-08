@@ -4,7 +4,10 @@ use axum::{
     middleware::map_request,
     Router,
 };
+use rsnano_core::Account;
 use rsnano_node::node::Node;
+use rsnano_node::working_path;
+use rsnano_store_lmdb::{LmdbAccountStore, LmdbEnv};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -46,13 +49,18 @@ async fn handle_rpc(
     match rpc_request.action.as_str() {
         "version" => {
             let response = service.version().await;
-            let json_response = Json(RpcResponse { message: response });
+            let json_response = Json(RpcResponse(response));
+            (StatusCode::OK, json_response).into_response()
+        }
+        "account_block_count" => {
+            let response = service
+                .account_block_count(rpc_request.account.unwrap())
+                .await;
+            let json_response = Json(RpcResponse(response));
             (StatusCode::OK, json_response).into_response()
         }
         _ => {
-            let error_response = Json(RpcResponse {
-                message: "Invalid action".to_string(),
-            });
+            let error_response = Json(RpcResponse("Invalid action".to_string()));
             (StatusCode::BAD_REQUEST, error_response).into_response()
         }
     }
@@ -61,16 +69,17 @@ async fn handle_rpc(
 #[derive(Deserialize)]
 struct RpcRequest {
     action: String,
+    account: Option<String>,
 }
 
 #[derive(Serialize)]
-struct RpcResponse {
-    message: String,
-}
+struct RpcResponse(String);
 
 #[async_trait::async_trait]
 pub trait RpcService {
     async fn version(&self) -> String;
+
+    async fn account_block_count(&self, account: String) -> String;
 }
 
 #[async_trait::async_trait]
@@ -79,5 +88,18 @@ impl RpcService for Service {
         let mut txn = self.0.store.env.tx_begin_read();
         let version = self.0.store.version.get(&mut txn);
         format!("store_version: {}", version.unwrap()).to_string()
+    }
+
+    async fn account_block_count(&self, account_str: String) -> String {
+        let tx = self.0.ledger.read_txn();
+        match Account::decode_account(&account_str) {
+            Ok(account) => match self.0.ledger.store.account.get(&tx, &account) {
+                Some(account_info) => {
+                    format!("block_count: {}", account_info.block_count).to_string()
+                }
+                None => "Account not found".to_string(),
+            },
+            Err(e) => e.to_string(),
+        }
     }
 }
