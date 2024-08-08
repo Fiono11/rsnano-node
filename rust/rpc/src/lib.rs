@@ -9,6 +9,7 @@ use rsnano_node::node::Node;
 use rsnano_node::working_path;
 use rsnano_store_lmdb::{LmdbAccountStore, LmdbEnv};
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
@@ -59,6 +60,18 @@ async fn handle_rpc(
             let json_response = Json(RpcResponse(response));
             (StatusCode::OK, json_response).into_response()
         }
+        "account_balance" => {
+            let only_confirmed = if let Some(confirmed) = rpc_request.only_confirmed {
+                confirmed
+            } else {
+                true
+            };
+            let response = service
+                .account_balance(rpc_request.account.unwrap(), only_confirmed)
+                .await;
+            let json_response = response;
+            (StatusCode::OK, json_response).into_response()
+        }
         _ => {
             let error_response = Json(RpcResponse("Invalid action".to_string()));
             (StatusCode::BAD_REQUEST, error_response).into_response()
@@ -70,6 +83,7 @@ async fn handle_rpc(
 struct RpcRequest {
     action: String,
     account: Option<String>,
+    only_confirmed: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -80,6 +94,8 @@ pub trait RpcService {
     async fn version(&self) -> String;
 
     async fn account_block_count(&self, account: String) -> String;
+
+    async fn account_balance(&self, account: String, only_confirmed: bool) -> String;
 }
 
 #[async_trait::async_trait]
@@ -102,4 +118,34 @@ impl RpcService for Service {
             Err(e) => e.to_string(),
         }
     }
+
+    async fn account_balance(&self, account_str: String, only_confirmed: bool) -> String {
+        let tx = self.0.ledger.read_txn();
+        match Account::decode_account(&account_str) {
+            Ok(account) => {
+                let balance = match self.0.ledger.confirmed().account_balance(&tx, &account) {
+                    Some(balance) => balance,
+                    None => return "Account not found".to_string(),
+                };
+                let pending = self
+                    .0
+                    .ledger
+                    .account_receivable(&tx, &account, only_confirmed);
+                let account = AccountBalance {
+                    balance: balance.number().to_string(),
+                    pending: pending.number().to_string(),
+                    receivable: pending.number().to_string(),
+                };
+                to_string_pretty(&account).unwrap()
+            }
+            Err(e) => e.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct AccountBalance {
+    balance: String,
+    pending: String,
+    receivable: String,
 }
