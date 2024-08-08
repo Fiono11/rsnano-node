@@ -1,46 +1,66 @@
-use async_trait::async_trait;
-use jsonrpsee::proc_macros::rpc;
-use jsonrpsee::server::{Server, ServerHandle};
-use jsonrpsee::types::ErrorObjectOwned;
-use jsonrpsee::RpcModule;
 use rsnano_node::node::Node;
-use std::net::SocketAddr;
+use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
+use tarpc::context::Context;
+use tokio::signal;
+use warp::Filter;
 
-#[rpc(server)]
-pub trait Rpc {
-    #[method(name = "version")]
-    async fn version(&self) -> Result<String, ErrorObjectOwned>;
+pub async fn run_server(node: Arc<Node>) -> anyhow::Result<()> {
+    let service = Service(node);
+
+    let rpc_route = warp::path::end()
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(move |rpc_request: RpcRequest| {
+            let service = service.clone();
+            async move {
+                if rpc_request.action == "version" {
+                    let response = service.version(Context::current()).await;
+                    let json_response = warp::reply::json(&RpcResponse { message: response });
+                    Ok::<_, warp::Rejection>(json_response)
+                } else {
+                    let error_response = warp::reply::json(&"Invalid action".to_string());
+                    Ok::<_, warp::Rejection>(error_response)
+                }
+            }
+        });
+
+    let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), 7076);
+    let (addr, server) = warp::serve(rpc_route).bind_with_graceful_shutdown(server_addr, async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to listen for ctrl+c signal");
+    });
+
+    println!("Server running on http://{}", addr);
+    server.await;
+
+    Ok(())
 }
 
-struct NanoRpc {
-    node: Arc<Node>,
+#[tarpc::service]
+pub trait RpcService {
+    async fn version() -> String;
 }
 
-#[async_trait]
-impl RpcServer for NanoRpc {
-    async fn version(&self) -> Result<String, ErrorObjectOwned> {
-        let mut txn = self.node.store.env.tx_begin_read();
-        let version = self.node.store.version.get(&mut txn);
-        Ok(format!("store_version: {}", version.unwrap()).to_string())
+#[derive(Clone)]
+struct Service(Arc<Node>);
+
+impl RpcService for Service {
+    async fn version(self, _: Context) -> String {
+        let mut txn = self.0.store.env.tx_begin_read();
+        let version = self.0.store.version.get(&mut txn);
+        format!("store_version: {}", version.unwrap()).to_string()
     }
 }
 
-pub async fn run_server(node: Arc<Node>) -> anyhow::Result<ServerHandle> {
-    let port = 9944;
-    let server = Server::builder()
-        .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>()?)
-        .await?;
-    let mut module = RpcModule::new(());
+#[derive(Deserialize)]
+struct RpcRequest {
+    action: String,
+}
 
-    let my_rpc = NanoRpc { node };
-
-    module.merge(RpcServer::into_rpc(my_rpc))?;
-
-    let addr = server.local_addr()?;
-    println!("Server listening on {}", addr);
-
-    let handle = server.start(module);
-
-    Ok(handle)
+#[derive(Serialize)]
+struct RpcResponse {
+    message: String,
 }

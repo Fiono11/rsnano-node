@@ -164,20 +164,13 @@ impl RunDaemonArgs {
 
         node.start();
 
-        let server_handle = if daemon_config.rpc_enable {
-            Some(run_server(node.clone()).await.unwrap())
-        } else {
-            None
-        };
+        run_server(node.clone()).await.unwrap();
 
         let finished = Arc::new((Mutex::new(false), Condvar::new()));
         let finished_clone = finished.clone();
 
         ctrlc::set_handler(move || {
             node.stop();
-            if let Some(handle) = &server_handle {
-                handle.stop().unwrap();
-            }
             *finished_clone.0.lock().unwrap() = true;
             finished_clone.1.notify_all();
         })
