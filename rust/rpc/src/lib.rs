@@ -2,7 +2,6 @@ use rsnano_node::node::Node;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
-use tarpc::context::Context;
 use tokio::signal;
 use warp::Filter;
 
@@ -16,7 +15,7 @@ pub async fn run_server(node: Arc<Node>) -> anyhow::Result<()> {
             let service = service.clone();
             async move {
                 if rpc_request.action == "version" {
-                    let response = service.version(Context::current()).await;
+                    let response = service.version().await;
                     let json_response = warp::reply::json(&RpcResponse { message: response });
                     Ok::<_, warp::Rejection>(json_response)
                 } else {
@@ -39,16 +38,16 @@ pub async fn run_server(node: Arc<Node>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tarpc::service]
+//#[tarpc::service]
 pub trait RpcService {
-    async fn version() -> String;
+    async fn version(&self) -> String;
 }
 
 #[derive(Clone)]
 struct Service(Arc<Node>);
 
 impl RpcService for Service {
-    async fn version(self, _: Context) -> String {
+    async fn version(&self) -> String {
         let mut txn = self.0.store.env.tx_begin_read();
         let version = self.0.store.version.get(&mut txn);
         format!("store_version: {}", version.unwrap()).to_string()
