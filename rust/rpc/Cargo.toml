@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-jsonrpsee = { version = "0.23", features = ["server", "macros"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0.40"
 async-trait = "0"
 rsnano_node = { path = "../node" }
-warp = "0.3"
+axum = "0.7.5"
