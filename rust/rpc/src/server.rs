@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse, routing::post, Json};
 use axum::{
@@ -13,6 +13,10 @@ use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
+
+use crate::calls::{
+    handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
+};
 
 #[derive(Clone)]
 pub(crate) struct Service {
@@ -65,51 +69,17 @@ async fn handle_rpc(
 ) -> RpcResponse {
     let response = match rpc_request.action.as_str() {
         "version" => Ok(service.version().await),
-        "account_block_count" => handle_account_block_count(&service, rpc_request.account).await,
+        "account_block_count" => handle_account_block_count(&service, rpc_request).await,
         "account_balance" => handle_account_balance(&service, rpc_request).await,
-        "account_get" => handle_account_get(&service, rpc_request.key).await,
-        "account_key" => handle_account_key(&service, rpc_request.account).await,
-        _ => Err(json_error("Unknown command")),
+        "account_get" => handle_account_get(&service, rpc_request).await,
+        "account_key" => handle_account_key(&service, rpc_request).await,
+        _ => Err(anyhow!(to_string_pretty(
+            &json!({ "error": "Unknown command" })
+        )
+        .unwrap())),
     };
 
     response
         .map(|res| (StatusCode::OK, res).into_response())
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())
-}
-
-async fn handle_account_block_count(service: &Service, account: Option<String>) -> Result<String> {
-    if let Some(account) = account {
-        Ok(service.account_block_count(account).await)
-    } else {
-        Err(json_error("Unable to parse JSON"))
-    }
-}
-
-async fn handle_account_balance(service: &Service, rpc_request: RpcRequest) -> Result<String> {
-    let only_confirmed = rpc_request.only_confirmed.unwrap_or(true);
-    if let Some(account) = rpc_request.account {
-        Ok(service.account_balance(account, only_confirmed).await)
-    } else {
-        Err(json_error("Unable to parse JSON"))
-    }
-}
-
-async fn handle_account_get(service: &Service, key: Option<String>) -> Result<String> {
-    if let Some(key) = key {
-        Ok(service.account_get(key).await)
-    } else {
-        Err(json_error("Unable to parse JSON"))
-    }
-}
-
-async fn handle_account_key(service: &Service, account: Option<String>) -> Result<String> {
-    if let Some(account) = account {
-        Ok(service.account_key(account).await)
-    } else {
-        Err(json_error("Unable to parse JSON"))
-    }
-}
-
-fn json_error(message: &str) -> Error {
-    anyhow!(to_string_pretty(&json!({ "error": message })).unwrap())
 }

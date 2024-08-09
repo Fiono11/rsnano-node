@@ -40,7 +40,7 @@ impl Version {
 }
 
 impl Service {
-    pub async fn version(&self) -> String {
+    pub(crate) async fn version(&self) -> String {
         let mut txn = self.node.store.env.tx_begin_read();
         let rpc_version = String::from("1");
         let store_version = self.node.store.version.get(&mut txn).unwrap().to_string();

@@ -1,4 +1,5 @@
-use crate::server::Service;
+use crate::server::{RpcRequest, Service};
+use anyhow::{anyhow, Result};
 use rsnano_core::Account;
 use serde::Serialize;
 use serde_json::{json, to_string_pretty};
@@ -9,7 +10,7 @@ struct AccountBlockCount {
 }
 
 impl Service {
-    pub async fn account_block_count(&self, account_str: String) -> String {
+    pub(crate) async fn account_block_count(&self, account_str: String) -> String {
         let tx = self.node.ledger.read_txn();
         match Account::decode_account(&account_str) {
             Ok(account) => match self.node.ledger.store.account.get(&tx, &account) {
@@ -29,5 +30,19 @@ impl Service {
                 to_string_pretty(&error).unwrap()
             }
         }
+    }
+}
+
+pub(crate) async fn handle_account_block_count(
+    service: &Service,
+    rpc_request: RpcRequest,
+) -> Result<String> {
+    if let Some(account) = rpc_request.account {
+        Ok(service.account_block_count(account).await)
+    } else {
+        Err(anyhow!(to_string_pretty(
+            &json!({ "error": "Unable to parse JSON" })
+        )
+        .unwrap()))
     }
 }

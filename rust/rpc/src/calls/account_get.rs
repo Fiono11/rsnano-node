@@ -1,4 +1,5 @@
-use crate::server::Service;
+use crate::server::{RpcRequest, Service};
+use anyhow::{anyhow, Result};
 use rsnano_core::Account;
 use serde::Serialize;
 use serde_json::{json, to_string_pretty};
@@ -9,7 +10,7 @@ struct AccountGet {
 }
 
 impl Service {
-    pub async fn account_get(&self, key: String) -> String {
+    pub(crate) async fn account_get(&self, key: String) -> String {
         match Account::decode_hex(&key) {
             Ok(pk) => {
                 let account_get = AccountGet {
@@ -22,5 +23,19 @@ impl Service {
                 to_string_pretty(&error).unwrap()
             }
         }
+    }
+}
+
+pub(crate) async fn handle_account_get(
+    service: &Service,
+    rpc_request: RpcRequest,
+) -> Result<String> {
+    if let Some(key) = rpc_request.key {
+        Ok(service.account_get(key).await)
+    } else {
+        Err(anyhow!(to_string_pretty(
+            &json!({ "error": "Unable to parse JSON" })
+        )
+        .unwrap()))
     }
 }

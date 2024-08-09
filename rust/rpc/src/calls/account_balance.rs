@@ -1,4 +1,5 @@
-use crate::server::Service;
+use crate::server::{RpcRequest, Service};
+use anyhow::{anyhow, Result};
 use rsnano_core::Account;
 use serde::Serialize;
 use serde_json::{json, to_string_pretty};
@@ -21,7 +22,11 @@ impl AccountBalance {
 }
 
 impl Service {
-    pub async fn account_balance(&self, account_str: String, only_confirmed: bool) -> String {
+    pub(crate) async fn account_balance(
+        &self,
+        account_str: String,
+        only_confirmed: bool,
+    ) -> String {
         let tx = self.node.ledger.read_txn();
         match Account::decode_account(&account_str) {
             Ok(account) => {
@@ -45,5 +50,20 @@ impl Service {
                 to_string_pretty(&error).unwrap()
             }
         }
+    }
+}
+
+pub(crate) async fn handle_account_balance(
+    service: &Service,
+    rpc_request: RpcRequest,
+) -> Result<String> {
+    let only_confirmed = rpc_request.only_confirmed.unwrap_or(true);
+    if let Some(account) = rpc_request.account {
+        Ok(service.account_balance(account, only_confirmed).await)
+    } else {
+        Err(anyhow!(to_string_pretty(
+            &json!({ "error": "Unable to parse JSON" })
+        )
+        .unwrap()))
     }
 }
