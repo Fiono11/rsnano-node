@@ -1,3 +1,7 @@
+use crate::calls::{
+    handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
+    handle_account_representative,
+};
 use anyhow::{anyhow, Context, Error, Result};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse, routing::post, Json};
@@ -13,10 +17,6 @@ use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
-
-use crate::calls::{
-    handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
-};
 
 #[derive(Clone)]
 pub(crate) struct Service {
@@ -63,6 +63,7 @@ async fn handle_rpc(
         "account_balance" => handle_account_balance(&service, rpc_request).await,
         "account_get" => handle_account_get(&service, rpc_request).await,
         "account_key" => handle_account_key(&service, rpc_request).await,
+        "account_representative" => handle_account_representative(&service, rpc_request).await,
         _ => Err(json_error("Unknown command")),
     };
 
