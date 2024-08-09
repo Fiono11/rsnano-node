@@ -20,6 +20,7 @@ pub(crate) struct RpcRequest {
     pub(crate) action: String,
     pub(crate) account: Option<String>,
     pub(crate) only_confirmed: Option<bool>,
+    pub(crate) key: Option<String>,
 }
 
 async fn set_header<B>(mut request: Request<B>) -> Request<B> {
@@ -68,6 +69,14 @@ async fn handle_rpc(
             let response = service
                 .account_balance(rpc_request.account.unwrap(), only_confirmed)
                 .await;
+            (StatusCode::OK, response).into_response()
+        }
+        "account_get" => {
+            let response = service.account_get(rpc_request.key.unwrap()).await;
+            (StatusCode::OK, response).into_response()
+        }
+        "account_key" => {
+            let response = service.account_key(rpc_request.account.unwrap()).await;
             (StatusCode::OK, response).into_response()
         }
         _ => {
