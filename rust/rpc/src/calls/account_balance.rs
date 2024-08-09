@@ -1,5 +1,5 @@
-use crate::server::{RpcRequest, Service};
-use anyhow::{anyhow, Result};
+use crate::server::{json_error, RpcRequest, Service};
+use anyhow::Result;
 use rsnano_core::Account;
 use serde::Serialize;
 use serde_json::{json, to_string_pretty};
@@ -61,9 +61,6 @@ pub(crate) async fn handle_account_balance(
     if let Some(account) = rpc_request.account {
         Ok(service.account_balance(account, only_confirmed).await)
     } else {
-        Err(anyhow!(to_string_pretty(
-            &json!({ "error": "Unable to parse JSON" })
-        )
-        .unwrap()))
+        Err(json_error("Unable to parse JSON"))
     }
 }

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Error, Result};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse, routing::post, Json};
 use axum::{
@@ -31,13 +31,6 @@ pub(crate) struct RpcRequest {
     pub(crate) key: Option<String>,
 }
 
-async fn set_header<B>(mut request: Request<B>) -> Request<B> {
-    request
-        .headers_mut()
-        .insert("Content-Type", "application/json".parse().unwrap());
-    request
-}
-
 type RpcResponse = Result<Response, Response>;
 
 pub async fn run_server(node: Arc<Node>) -> Result<()> {
@@ -50,12 +43,9 @@ pub async fn run_server(node: Arc<Node>) -> Result<()> {
 
     let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7076);
 
-    //info!("Server running on http://{}", server_addr);
-
     let listener = TcpListener::bind(server_addr)
         .await
         .context("Failed to bind to address")?;
-    //info!("Listening on {}", listener.local_addr()?);
 
     axum::serve(listener, app)
         .await
@@ -73,13 +63,21 @@ async fn handle_rpc(
         "account_balance" => handle_account_balance(&service, rpc_request).await,
         "account_get" => handle_account_get(&service, rpc_request).await,
         "account_key" => handle_account_key(&service, rpc_request).await,
-        _ => Err(anyhow!(to_string_pretty(
-            &json!({ "error": "Unknown command" })
-        )
-        .unwrap())),
+        _ => Err(json_error("Unknown command")),
     };
 
     response
         .map(|res| (StatusCode::OK, res).into_response())
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())
+}
+
+async fn set_header<B>(mut request: Request<B>) -> Request<B> {
+    request
+        .headers_mut()
+        .insert("Content-Type", "application/json".parse().unwrap());
+    request
+}
+
+pub(crate) fn json_error(message: &str) -> Error {
+    anyhow!(to_string_pretty(&json!({ "error": message })).unwrap())
 }
