@@ -1,13 +1,23 @@
 use crate::server::Service;
 use rsnano_core::Account;
 use serde::Serialize;
-use serde_json::to_string_pretty;
+use serde_json::{json, to_string_pretty};
 
 #[derive(Serialize)]
 struct AccountBalance {
     balance: String,
     pending: String,
     receivable: String,
+}
+
+impl AccountBalance {
+    fn new(balance: String, pending: String, receivable: String) -> Self {
+        Self {
+            balance,
+            pending,
+            receivable,
+        }
+    }
 }
 
 impl Service {
@@ -23,14 +33,17 @@ impl Service {
                     .node
                     .ledger
                     .account_receivable(&tx, &account, only_confirmed);
-                let account = AccountBalance {
-                    balance: balance.number().to_string(),
-                    pending: pending.number().to_string(),
-                    receivable: pending.number().to_string(),
-                };
+                let account = AccountBalance::new(
+                    balance.number().to_string(),
+                    pending.number().to_string(),
+                    pending.number().to_string(),
+                );
                 to_string_pretty(&account).unwrap()
             }
-            Err(e) => e.to_string(),
+            Err(_) => {
+                let error = json!({ "error": "Bad account number" });
+                to_string_pretty(&error).unwrap()
+            }
         }
     }
 }
