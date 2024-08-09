@@ -1,6 +1,6 @@
 use crate::calls::{
     handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
-    handle_account_representative,
+    handle_account_representative, handle_account_weight,
 };
 use anyhow::{anyhow, Context, Error, Result};
 use axum::response::Response;
@@ -64,6 +64,7 @@ async fn handle_rpc(
         "account_get" => handle_account_get(&service, rpc_request).await,
         "account_key" => handle_account_key(&service, rpc_request).await,
         "account_representative" => handle_account_representative(&service, rpc_request).await,
+        "account_weight" => handle_account_weight(&service, rpc_request).await,
         _ => Err(json_error("Unknown command")),
     };
 
