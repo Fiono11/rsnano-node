@@ -41,9 +41,9 @@ impl Version {
 
 impl Service {
     pub(crate) async fn version(&self) -> String {
-        let mut txn = self.node.store.env.tx_begin_read();
+        let mut tx = self.node.store.env.tx_begin_read();
         let rpc_version = String::from("1");
-        let store_version = self.node.store.version.get(&mut txn).unwrap().to_string();
+        let store_version = self.node.store.version.get(&mut tx).unwrap().to_string();
         let protocol_version = self
             .node
             .network_params

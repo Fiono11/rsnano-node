@@ -65,6 +65,7 @@ async fn handle_rpc(
         "account_key" => handle_account_key(&service, rpc_request).await,
         "account_representative" => handle_account_representative(&service, rpc_request).await,
         "account_weight" => handle_account_weight(&service, rpc_request).await,
+        "available_supply" => Ok(service.available_supply().await),
         _ => Err(json_error("Unknown command")),
     };
 
