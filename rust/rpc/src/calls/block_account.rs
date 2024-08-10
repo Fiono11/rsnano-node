@@ -27,7 +27,7 @@ impl Service {
                 }
                 None => to_string_pretty(&json!({ "error": "Block not found" })).unwrap(),
             },
-            Err(_) => to_string_pretty(&json!({ "error": "Account not found" })).unwrap(),
+            Err(_) => to_string_pretty(&json!({ "error": "Invalid block hash" })).unwrap(),
         }
     }
 }

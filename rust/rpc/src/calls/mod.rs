@@ -6,6 +6,7 @@ mod account_representative;
 mod account_weight;
 mod available_supply;
 mod block_account;
+mod block_confirm;
 mod version;
 
 pub(crate) use account_balance::*;
@@ -15,3 +16,4 @@ pub(crate) use account_key::*;
 pub(crate) use account_representative::*;
 pub(crate) use account_weight::*;
 pub(crate) use block_account::*;
+pub(crate) use block_confirm::*;
