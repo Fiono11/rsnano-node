@@ -25,15 +25,9 @@ impl Service {
                         AccountRepresentative::new(account_info.representative.encode_account());
                     to_string_pretty(&account_representative).unwrap()
                 }
-                None => {
-                    let error = json!({ "error": "Account not found" });
-                    to_string_pretty(&error).unwrap()
-                }
+                None => to_string_pretty(&json!({ "error": "Account not found" })).unwrap(),
             },
-            Err(_) => {
-                let error = json!({ "error": "Bad account number" });
-                to_string_pretty(&error).unwrap()
-            }
+            Err(_) => to_string_pretty(&json!({ "error": "Bad account number" })).unwrap(),
         }
     }
 }

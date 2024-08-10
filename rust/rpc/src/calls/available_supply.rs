@@ -1,7 +1,6 @@
 use crate::server::Service;
 use rsnano_core::Account;
 use rsnano_ledger::DEV_GENESIS;
-use rsnano_node::{BUILD_INFO, VERSION_STRING};
 use serde::Serialize;
 use serde_json::to_string_pretty;
 
@@ -18,7 +17,7 @@ impl AvailableSupply {
 
 impl Service {
     pub(crate) async fn available_supply(&self) -> String {
-        let mut tx = self.node.store.env.tx_begin_read();
+        let tx = self.node.store.env.tx_begin_read();
         let genesis_balance = self
             .node
             .balance(

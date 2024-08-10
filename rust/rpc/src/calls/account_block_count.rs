@@ -20,15 +20,9 @@ impl Service {
                     };
                     to_string_pretty(&account_block_count).unwrap()
                 }
-                None => {
-                    let error = json!({ "error": "Account not found" });
-                    to_string_pretty(&error).unwrap()
-                }
+                None => to_string_pretty(&json!({ "error": "Account not found" })).unwrap(),
             },
-            Err(_) => {
-                let error = json!({ "error": "Bad account number" });
-                to_string_pretty(&error).unwrap()
-            }
+            Err(_) => to_string_pretty(&json!({ "error": "Bad account number" })).unwrap(),
         }
     }
 }

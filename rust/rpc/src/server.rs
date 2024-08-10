@@ -1,6 +1,6 @@
 use crate::calls::{
     handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
-    handle_account_representative, handle_account_weight,
+    handle_account_representative, handle_account_weight, handle_block_account,
 };
 use anyhow::{anyhow, Context, Error, Result};
 use axum::response::Response;
@@ -29,6 +29,7 @@ pub(crate) struct RpcRequest {
     pub(crate) account: Option<String>,
     pub(crate) only_confirmed: Option<bool>,
     pub(crate) key: Option<String>,
+    pub(crate) hash: Option<String>,
 }
 
 type RpcResponse = Result<Response, Response>;
@@ -66,6 +67,7 @@ async fn handle_rpc(
         "account_representative" => handle_account_representative(&service, rpc_request).await,
         "account_weight" => handle_account_weight(&service, rpc_request).await,
         "available_supply" => Ok(service.available_supply().await),
+        "block_account" => handle_block_account(&service, rpc_request).await,
         _ => Err(json_error("Unknown command")),
     };
 

@@ -18,10 +18,7 @@ impl Service {
                 };
                 to_string_pretty(&account_key).unwrap()
             }
-            Err(_) => {
-                let error = json!({ "error": "Bad account number" });
-                to_string_pretty(&error).unwrap()
-            }
+            Err(_) => to_string_pretty(&json!({ "error": "Bad account number" })).unwrap(),
         }
     }
 }

@@ -18,10 +18,7 @@ impl Service {
                 };
                 to_string_pretty(&account_get).unwrap()
             }
-            Err(_) => {
-                let error = json!({ "error": "Bad public key" });
-                to_string_pretty(&error).unwrap()
-            }
+            Err(_) => to_string_pretty(&json!({ "error": "Bad public key" })).unwrap(),
         }
     }
 }
