@@ -7,6 +7,7 @@ mod account_weight;
 mod available_supply;
 mod block_account;
 mod block_confirm;
+mod block_count;
 mod version;
 
 pub(crate) use account_balance::*;

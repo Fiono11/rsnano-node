@@ -9,15 +9,20 @@ struct AccountBlockCount {
     block_count: String,
 }
 
+impl AccountBlockCount {
+    fn new(block_count: String) -> Self {
+        Self { block_count }
+    }
+}
+
 impl Service {
     pub(crate) async fn account_block_count(&self, account_str: String) -> String {
         let tx = self.node.ledger.read_txn();
         match Account::decode_account(&account_str) {
             Ok(account) => match self.node.ledger.store.account.get(&tx, &account) {
                 Some(account_info) => {
-                    let account_block_count = AccountBlockCount {
-                        block_count: account_info.block_count.to_string(),
-                    };
+                    let account_block_count =
+                        AccountBlockCount::new(account_info.block_count.to_string());
                     to_string_pretty(&account_block_count).unwrap()
                 }
                 None => to_string_pretty(&json!({ "error": "Account not found" })).unwrap(),

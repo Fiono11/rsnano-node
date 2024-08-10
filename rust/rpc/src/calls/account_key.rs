@@ -9,15 +9,16 @@ struct AccountKey {
     key: String,
 }
 
+impl AccountKey {
+    fn new(key: String) -> Self {
+        Self { key }
+    }
+}
+
 impl Service {
     pub(crate) async fn account_key(&self, account: String) -> String {
         match Account::decode_account(&account) {
-            Ok(account) => {
-                let account_key = AccountKey {
-                    key: account.encode_hex(),
-                };
-                to_string_pretty(&account_key).unwrap()
-            }
+            Ok(account) => to_string_pretty(&AccountKey::new(account.encode_hex())).unwrap(),
             Err(_) => to_string_pretty(&json!({ "error": "Bad account number" })).unwrap(),
         }
     }

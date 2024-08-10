@@ -29,22 +29,21 @@ impl Service {
     ) -> String {
         let tx = self.node.ledger.read_txn();
         match Account::decode_account(&account_str) {
-            Ok(account) => {
-                let balance = match self.node.ledger.confirmed().account_balance(&tx, &account) {
-                    Some(balance) => balance,
-                    None => return "Account not found".to_string(),
-                };
-                let pending = self
-                    .node
-                    .ledger
-                    .account_receivable(&tx, &account, only_confirmed);
-                let account = AccountBalance::new(
-                    balance.number().to_string(),
-                    pending.number().to_string(),
-                    pending.number().to_string(),
-                );
-                to_string_pretty(&account).unwrap()
-            }
+            Ok(account) => match self.node.ledger.confirmed().account_balance(&tx, &account) {
+                Some(balance) => {
+                    let pending =
+                        self.node
+                            .ledger
+                            .account_receivable(&tx, &account, only_confirmed);
+                    let account = AccountBalance::new(
+                        balance.number().to_string(),
+                        pending.number().to_string(),
+                        pending.number().to_string(),
+                    );
+                    to_string_pretty(&account).unwrap()
+                }
+                None => to_string_pretty(&json!({ "error": "Account not found" })).unwrap(),
+            },
             Err(_) => to_string_pretty(&json!({ "error": "Bad account number" })).unwrap(),
         }
     }

@@ -70,6 +70,7 @@ async fn handle_rpc(
         "available_supply" => Ok(service.available_supply().await),
         "block_account" => handle_block_account(&service, rpc_request).await,
         "block_confirm" => handle_block_confirm(&service, rpc_request).await,
+        "block_count" => Ok(service.block_count().await),
         _ => Err(json_error("Unknown command")),
     };
 

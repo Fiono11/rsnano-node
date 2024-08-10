@@ -9,15 +9,16 @@ struct AccountGet {
     account: String,
 }
 
+impl AccountGet {
+    fn new(account: String) -> Self {
+        Self { account }
+    }
+}
+
 impl Service {
     pub(crate) async fn account_get(&self, key: String) -> String {
         match Account::decode_hex(&key) {
-            Ok(pk) => {
-                let account_get = AccountGet {
-                    account: pk.encode_account(),
-                };
-                to_string_pretty(&account_get).unwrap()
-            }
+            Ok(pk) => to_string_pretty(&AccountGet::new(pk.encode_account())).unwrap(),
             Err(_) => to_string_pretty(&json!({ "error": "Bad public key" })).unwrap(),
         }
     }
