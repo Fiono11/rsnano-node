@@ -1,9 +1,10 @@
-use crate::calls::{
-    handle_account_balance, handle_account_block_count, handle_account_get, handle_account_key,
-    handle_account_representative, handle_account_weight, handle_block_account,
-    handle_block_confirm,
+use crate::format_error_message;
+use crate::request::RpcRequest;
+use crate::response::{
+    account_balance, account_block_count, account_get, account_key, account_representative,
+    account_weight, available_supply, block_account, block_confirm, block_count, version,
 };
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{Context, Result};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse, routing::post, Json};
 use axum::{
@@ -12,36 +13,16 @@ use axum::{
     Router,
 };
 use rsnano_node::node::Node;
-use serde::Deserialize;
-use serde_json::{json, to_string_pretty};
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
-#[derive(Clone)]
-pub(crate) struct Service {
-    pub(crate) node: Arc<Node>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct RpcRequest {
-    pub(crate) action: String,
-    pub(crate) account: Option<String>,
-    pub(crate) only_confirmed: Option<bool>,
-    pub(crate) key: Option<String>,
-    pub(crate) hash: Option<String>,
-}
-
-type RpcResponse = Result<Response, Response>;
-
 pub async fn run_server(node: Arc<Node>) -> Result<()> {
-    let service = Service { node };
-
     let app = Router::new()
         .route("/", post(handle_rpc))
         .layer(map_request(set_header))
-        .with_state(service);
+        .with_state(node);
 
     let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7076);
 
@@ -56,27 +37,30 @@ pub async fn run_server(node: Arc<Node>) -> Result<()> {
 }
 
 async fn handle_rpc(
-    State(service): State<Service>,
+    State(node): State<Arc<Node>>,
     Json(rpc_request): Json<RpcRequest>,
-) -> RpcResponse {
-    let response = match rpc_request.action.as_str() {
-        "version" => Ok(service.version().await),
-        "account_block_count" => handle_account_block_count(&service, rpc_request).await,
-        "account_balance" => handle_account_balance(&service, rpc_request).await,
-        "account_get" => handle_account_get(&service, rpc_request).await,
-        "account_key" => handle_account_key(&service, rpc_request).await,
-        "account_representative" => handle_account_representative(&service, rpc_request).await,
-        "account_weight" => handle_account_weight(&service, rpc_request).await,
-        "available_supply" => Ok(service.available_supply().await),
-        "block_account" => handle_block_account(&service, rpc_request).await,
-        "block_confirm" => handle_block_confirm(&service, rpc_request).await,
-        "block_count" => Ok(service.block_count().await),
-        _ => Err(json_error("Unknown command")),
+) -> Response {
+    let response = match rpc_request {
+        RpcRequest::Version => version(node).await,
+        RpcRequest::AccountBlockCount { account } => account_block_count(node, account).await,
+        RpcRequest::AccountBalance {
+            account,
+            only_confirmed,
+        } => account_balance(node, account, only_confirmed).await,
+        RpcRequest::AccountGet { key } => account_get(key).await,
+        RpcRequest::AccountKey { account } => account_key(account).await,
+        RpcRequest::AccountRepresentative { account } => {
+            account_representative(node, account).await
+        }
+        RpcRequest::AccountWeight { account } => account_weight(node, account).await,
+        RpcRequest::AvailableSupply => available_supply(node).await,
+        RpcRequest::BlockCount => block_count(node).await,
+        RpcRequest::BlockAccount { hash } => block_account(node, hash).await,
+        RpcRequest::BlockConfirm { hash } => block_confirm(node, hash).await,
+        RpcRequest::UnknownCommand => format_error_message("Unknown command"),
     };
 
-    response
-        .map(|res| (StatusCode::OK, res).into_response())
-        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())
+    (StatusCode::OK, response).into_response()
 }
 
 async fn set_header<B>(mut request: Request<B>) -> Request<B> {
@@ -84,8 +68,4 @@ async fn set_header<B>(mut request: Request<B>) -> Request<B> {
         .headers_mut()
         .insert("Content-Type", "application/json".parse().unwrap());
     request
-}
-
-pub(crate) fn json_error(message: &str) -> Error {
-    anyhow!(to_string_pretty(&json!({ "error": message })).unwrap())
 }
