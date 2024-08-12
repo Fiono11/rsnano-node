@@ -3,7 +3,7 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(tag = "action")]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RpcRequest {
+pub(crate) enum NodeRpcRequest {
     Version,
     AccountBlockCount {
         account: String,
@@ -32,13 +32,4 @@ pub(crate) enum RpcRequest {
         hash: String,
     },
     BlockCount,
-    AccountCreate {
-        wallet: String,
-        index: Option<u32>,
-    },
-    AccountList {
-        wallet: String,
-    },
-    #[serde(other)]
-    UnknownCommand,
 }

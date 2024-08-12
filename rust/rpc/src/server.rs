@@ -1,5 +1,5 @@
 use crate::format_error_message;
-use crate::request::RpcRequest;
+use crate::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
 use crate::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
     account_representative, account_weight, available_supply, block_account, block_confirm,
@@ -39,24 +39,32 @@ async fn handle_rpc(
     Json(rpc_request): Json<RpcRequest>,
 ) -> Response {
     let response = match rpc_request {
-        RpcRequest::Version => version(node).await,
-        RpcRequest::AccountBlockCount { account } => account_block_count(node, account).await,
-        RpcRequest::AccountBalance {
+        RpcRequest::Node(NodeRpcRequest::Version) => version(node).await,
+        RpcRequest::Node(NodeRpcRequest::AccountBlockCount { account }) => {
+            account_block_count(node, account).await
+        }
+        RpcRequest::Node(NodeRpcRequest::AccountBalance {
             account,
             only_confirmed,
-        } => account_balance(node, account, only_confirmed).await,
-        RpcRequest::AccountGet { key } => account_get(key).await,
-        RpcRequest::AccountKey { account } => account_key(account).await,
-        RpcRequest::AccountRepresentative { account } => {
+        }) => account_balance(node, account, only_confirmed).await,
+        RpcRequest::Node(NodeRpcRequest::AccountGet { key }) => account_get(key).await,
+        RpcRequest::Node(NodeRpcRequest::AccountKey { account }) => account_key(account).await,
+        RpcRequest::Node(NodeRpcRequest::AccountRepresentative { account }) => {
             account_representative(node, account).await
         }
-        RpcRequest::AccountWeight { account } => account_weight(node, account).await,
-        RpcRequest::AvailableSupply => available_supply(node).await,
-        RpcRequest::BlockCount => block_count(node).await,
-        RpcRequest::BlockAccount { hash } => block_account(node, hash).await,
-        RpcRequest::BlockConfirm { hash } => block_confirm(node, hash).await,
-        RpcRequest::AccountCreate { wallet, index } => account_create(node, wallet, index).await,
-        RpcRequest::AccountList { wallet } => account_list(node, wallet).await,
+        RpcRequest::Node(NodeRpcRequest::AccountWeight { account }) => {
+            account_weight(node, account).await
+        }
+        RpcRequest::Node(NodeRpcRequest::AvailableSupply) => available_supply(node).await,
+        RpcRequest::Node(NodeRpcRequest::BlockCount) => block_count(node).await,
+        RpcRequest::Node(NodeRpcRequest::BlockAccount { hash }) => block_account(node, hash).await,
+        RpcRequest::Node(NodeRpcRequest::BlockConfirm { hash }) => block_confirm(node, hash).await,
+        RpcRequest::Wallet(WalletRpcRequest::AccountCreate { wallet, index }) => {
+            account_create(node, wallet, index).await
+        }
+        RpcRequest::Wallet(WalletRpcRequest::AccountList { wallet }) => {
+            account_list(node, wallet).await
+        }
         RpcRequest::UnknownCommand => format_error_message("Unknown command"),
     };
 
