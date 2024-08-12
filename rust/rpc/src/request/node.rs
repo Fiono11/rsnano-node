@@ -32,4 +32,6 @@ pub(crate) enum NodeRpcRequest {
         hash: String,
     },
     BlockCount,
+    #[serde(other)]
+    UnknownCommand,
 }

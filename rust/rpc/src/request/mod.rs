@@ -6,9 +6,8 @@ use serde::Deserialize;
 pub(crate) use wallet::*;
 
 #[derive(Deserialize)]
+#[serde(untagged)]
 pub(crate) enum RpcRequest {
     Node(NodeRpcRequest),
     Wallet(WalletRpcRequest),
-    #[serde(other)]
-    UnknownCommand,
 }
