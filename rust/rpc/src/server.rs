@@ -1,7 +1,7 @@
 use crate::format_error_message;
 use crate::request::RpcRequest;
 use crate::response::{
-    account_balance, account_block_count, account_create, account_get, account_key,
+    account_balance, account_block_count, account_create, account_get, account_key, account_list,
     account_representative, account_weight, available_supply, block_account, block_confirm,
     block_count, version,
 };
@@ -15,7 +15,6 @@ use axum::{
 };
 use rsnano_node::node::Node;
 use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -57,6 +56,7 @@ async fn handle_rpc(
         RpcRequest::BlockAccount { hash } => block_account(node, hash).await,
         RpcRequest::BlockConfirm { hash } => block_confirm(node, hash).await,
         RpcRequest::AccountCreate { wallet, index } => account_create(node, wallet, index).await,
+        RpcRequest::AccountList { wallet } => account_list(node, wallet).await,
         RpcRequest::UnknownCommand => format_error_message("Unknown command"),
     };
 

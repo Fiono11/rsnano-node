@@ -14,7 +14,6 @@ use rsnano_node::{
 use rsnano_rpc::run_rpc_server;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };

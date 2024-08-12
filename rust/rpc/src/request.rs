@@ -36,6 +36,9 @@ pub(crate) enum RpcRequest {
         wallet: String,
         index: Option<u32>,
     },
+    AccountList {
+        wallet: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }
