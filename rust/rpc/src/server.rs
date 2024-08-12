@@ -1,8 +1,9 @@
 use crate::format_error_message;
 use crate::request::RpcRequest;
 use crate::response::{
-    account_balance, account_block_count, account_get, account_key, account_representative,
-    account_weight, available_supply, block_account, block_confirm, block_count, version,
+    account_balance, account_block_count, account_create, account_get, account_key,
+    account_representative, account_weight, available_supply, block_account, block_confirm,
+    block_count, version,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -57,6 +58,7 @@ async fn handle_rpc(
         RpcRequest::BlockCount => block_count(node).await,
         RpcRequest::BlockAccount { hash } => block_account(node, hash).await,
         RpcRequest::BlockConfirm { hash } => block_confirm(node, hash).await,
+        RpcRequest::AccountCreate { wallet, index } => account_create(node, wallet, index).await,
         RpcRequest::UnknownCommand => format_error_message("Unknown command"),
     };
 

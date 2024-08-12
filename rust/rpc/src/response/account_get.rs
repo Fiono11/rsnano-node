@@ -1,6 +1,8 @@
 use rsnano_core::Account;
 use serde::Serialize;
-use serde_json::{json, to_string_pretty};
+use serde_json::to_string_pretty;
+
+use crate::format_error_message;
 
 #[derive(Serialize)]
 struct AccountGet {
@@ -16,6 +18,6 @@ impl AccountGet {
 pub(crate) async fn account_get(key: String) -> String {
     match Account::decode_hex(&key) {
         Ok(pk) => to_string_pretty(&AccountGet::new(pk.encode_account())).unwrap(),
-        Err(_) => to_string_pretty(&json!({ "error": "Bad public key" })).unwrap(),
+        Err(_) => format_error_message("Bad public key"),
     }
 }

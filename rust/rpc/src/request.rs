@@ -32,6 +32,10 @@ pub(crate) enum RpcRequest {
         hash: String,
     },
     BlockCount,
+    AccountCreate {
+        wallet: String,
+        index: Option<u32>,
+    },
     #[serde(other)]
     UnknownCommand,
 }
