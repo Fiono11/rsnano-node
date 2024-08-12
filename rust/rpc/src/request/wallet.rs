@@ -6,4 +6,5 @@ use serde::Deserialize;
 pub(crate) enum WalletRpcRequest {
     AccountCreate { wallet: String, index: Option<u32> },
     AccountList { wallet: String },
+    AccountRemove { wallet: String, account: String },
 }
