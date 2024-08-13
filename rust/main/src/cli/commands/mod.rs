@@ -1,14 +1,14 @@
+pub(crate) mod ledger;
+pub(crate) mod node;
+pub(crate) mod utils;
+pub(crate) mod wallets;
+
 use anyhow::Result;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
     path::PathBuf,
 };
-
-pub(crate) mod ledger;
-pub(crate) mod node;
-pub(crate) mod utils;
-pub(crate) mod wallets;
 
 fn read_toml(path: &PathBuf) -> Result<String> {
     let file = File::open(path)?;

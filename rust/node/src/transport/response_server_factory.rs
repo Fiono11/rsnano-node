@@ -1,9 +1,6 @@
-use rsnano_core::KeyPair;
-use rsnano_ledger::Ledger;
-
 use super::{
-    ChannelEnum, InboundMessageQueue, LatestKeepalives, Network, OutboundBandwidthLimiter,
-    ResponseServer, ResponseServerExt, SynCookies,
+    Channel, InboundMessageQueue, LatestKeepalives, Network, ResponseServer, ResponseServerExt,
+    SynCookies,
 };
 use crate::{
     block_processing::BlockProcessor,
@@ -13,6 +10,8 @@ use crate::{
     utils::{AsyncRuntime, ThreadPool, ThreadPoolImpl},
     NetworkParams,
 };
+use rsnano_core::KeyPair;
+use rsnano_ledger::Ledger;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct ResponseServerFactory {
@@ -57,7 +56,6 @@ impl ResponseServerFactory {
                 workers,
                 network_params.clone(),
                 stats,
-                Arc::new(OutboundBandwidthLimiter::default()),
                 block_processor,
                 None,
                 ledger,
@@ -71,9 +69,9 @@ impl ResponseServerFactory {
         }
     }
 
-    pub(crate) fn start_response_server(&self, channel: Arc<ChannelEnum>) -> Arc<ResponseServer> {
+    pub(crate) fn start_response_server(&self, channel: Arc<Channel>) -> Arc<ResponseServer> {
         let server = Arc::new(ResponseServer::new(
-            &self.network.clone(),
+            self.network.clone(),
             self.inbound_queue.clone(),
             channel,
             Arc::clone(&self.network.publish_filter),

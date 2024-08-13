@@ -17,7 +17,9 @@ use crate::{
     block_processing::{BlockProcessor, BlockSource},
     bootstrap::ascending::ordered_tags::QueryType,
     stats::{DetailType, Direction, Sample, StatType, Stats},
-    transport::{BandwidthLimiter, BufferDropPolicy, ChannelEnum, Network, TrafficType},
+    transport::{
+        BandwidthLimiter, Channel, ChannelId, DropPolicy, MessagePublisher, Network, TrafficType,
+    },
 };
 use num::integer::sqrt;
 use rand::{thread_rng, RngCore};
@@ -50,6 +52,7 @@ pub struct BootstrapAscending {
     ledger: Arc<Ledger>,
     stats: Arc<Stats>,
     network: Arc<Network>,
+    message_publisher: Mutex<MessagePublisher>,
     thread: Mutex<Option<JoinHandle<()>>>,
     timeout_thread: Mutex<Option<JoinHandle<()>>>,
     mutex: Mutex<BootstrapAscendingImpl>,
@@ -61,11 +64,12 @@ pub struct BootstrapAscending {
 }
 
 impl BootstrapAscending {
-    pub fn new(
+    pub(crate) fn new(
         block_processor: Arc<BlockProcessor>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<Network>,
+        message_publisher: MessagePublisher,
         config: BootstrapAscendingConfig,
     ) -> Self {
         Self {
@@ -86,6 +90,7 @@ impl BootstrapAscending {
             stats,
             network,
             ledger,
+            message_publisher: Mutex::new(message_publisher),
         }
     }
 
@@ -100,7 +105,7 @@ impl BootstrapAscending {
         }
     }
 
-    fn send(&self, channel: &Arc<ChannelEnum>, tag: AsyncTag) {
+    fn send(&self, channel: &Arc<Channel>, tag: AsyncTag) {
         debug_assert!(matches!(
             tag.query_type,
             QueryType::BlocksByHash | QueryType::BlocksByAccount
@@ -127,7 +132,12 @@ impl BootstrapAscending {
         );
 
         // TODO: There is no feedback mechanism if bandwidth limiter starts dropping our requests
-        channel.try_send(&request, BufferDropPolicy::Limiter, TrafficType::Bootstrap);
+        self.message_publisher.lock().unwrap().try_send(
+            channel.channel_id(),
+            &request,
+            DropPolicy::CanDrop,
+            TrafficType::Bootstrap,
+        );
     }
 
     pub fn priority_len(&self) -> usize {
@@ -156,7 +166,7 @@ impl BootstrapAscending {
         }
     }
 
-    fn wait_available_channel(&self) -> Option<Arc<ChannelEnum>> {
+    fn wait_available_channel(&self) -> Option<Arc<Channel>> {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
             let channel = guard.scoring.channel();
@@ -194,7 +204,7 @@ impl BootstrapAscending {
         Account::zero()
     }
 
-    fn request(&self, account: Account, channel: &Arc<ChannelEnum>) -> bool {
+    fn request(&self, account: Account, channel: &Arc<Channel>) -> bool {
         let info = {
             let tx = self.ledger.read_txn();
             self.ledger.store.account.get(&tx, &account)
@@ -269,7 +279,7 @@ impl BootstrapAscending {
     fn run_timeouts(&self) {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
-            guard.scoring.sync(&self.network.list_channels(0));
+            guard.scoring.sync(&self.network.list_realtime_channels(0));
             guard.scoring.timeout();
             guard
                 .throttle
@@ -292,7 +302,7 @@ impl BootstrapAscending {
     }
 
     /// Process `asc_pull_ack` message coming from network
-    pub fn process(&self, message: &AscPullAck, channel: &Arc<ChannelEnum>) {
+    pub fn process(&self, message: &AscPullAck, channel: &Arc<Channel>) {
         let mut guard = self.mutex.lock().unwrap();
 
         // Only process messages that have a known tag
@@ -336,8 +346,11 @@ impl BootstrapAscending {
                 );
 
                 for block in response.blocks() {
-                    self.block_processor
-                        .add(Arc::new(block.clone()), BlockSource::Bootstrap, None);
+                    self.block_processor.add(
+                        Arc::new(block.clone()),
+                        BlockSource::Bootstrap,
+                        ChannelId::LOOPBACK,
+                    );
                 }
                 let mut guard = self.mutex.lock().unwrap();
                 guard.throttle.add(true);

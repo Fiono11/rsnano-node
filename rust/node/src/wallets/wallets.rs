@@ -5,7 +5,7 @@ use crate::{
     config::{NetworkConstants, NodeConfig},
     representatives::OnlineReps,
     stats::Stats,
-    transport::{BufferDropPolicy, Network},
+    transport::{DropPolicy, Network},
     utils::{AsyncRuntime, ThreadPool, ThreadPoolImpl},
     work::DistributedWorkFactory,
     NetworkParams,
@@ -275,10 +275,10 @@ impl Wallets {
 
     pub fn foreach_representative<F>(&self, mut action: F)
     where
-        F: FnMut(&Account, &RawKey),
+        F: FnMut(&KeyPair),
     {
         if self.node_config.enable_voting {
-            let mut action_accounts_l: Vec<(PublicKey, RawKey)> = Vec::new();
+            let mut action_accounts_l: Vec<KeyPair> = Vec::new();
             {
                 let transaction_l = self.env.tx_begin_read();
                 let ledger_txn = self.ledger.read_txn();
@@ -294,7 +294,7 @@ impl Wallets {
                                         .fetch(&transaction_l, &account)
                                         .expect("could not fetch account from wallet");
 
-                                    action_accounts_l.push((account, prv));
+                                    action_accounts_l.push(prv.into());
                                 } else {
                                     let mut last_log_guard = self.last_log.lock().unwrap();
                                     let should_log = match last_log_guard.as_ref() {
@@ -311,8 +311,8 @@ impl Wallets {
                     }
                 }
             }
-            for (pub_key, prv_key) in action_accounts_l {
-                action(&pub_key, &prv_key);
+            for keys in action_accounts_l {
+                action(&keys);
             }
         }
     }
@@ -646,7 +646,7 @@ impl Wallets {
             cached_block = true;
             let msg = Message::Publish(Publish::new_forward(block.clone()));
             self.network
-                .flood_message2(&msg, BufferDropPolicy::NoLimiterDrop, 1.0);
+                .flood_message2(&msg, DropPolicy::ShouldNotDrop, 1.0);
         } else {
             cached_block = false;
             if wallet.store.valid_password(tx) {

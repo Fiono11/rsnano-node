@@ -87,3 +87,34 @@ impl From<&BootstrapAscendingToml> for BootstrapAscendingConfig {
         config
     }
 }
+
+impl From<&AccountSetsToml> for AccountSetsConfig {
+    fn from(toml: &AccountSetsToml) -> Self {
+        let mut config = AccountSetsConfig::default();
+
+        if let Some(blocking_max) = toml.blocking_max {
+            config.blocking_max = blocking_max;
+        }
+        if let Some(consideration_count) = toml.consideration_count {
+            config.consideration_count = consideration_count;
+        }
+        if let Some(priorities_max) = toml.priorities_max {
+            config.priorities_max = priorities_max;
+        }
+        if let Some(cooldown) = &toml.cooldown {
+            config.cooldown = Duration::from_millis(*cooldown);
+        }
+        config
+    }
+}
+
+impl From<&AccountSetsConfig> for AccountSetsToml {
+    fn from(value: &AccountSetsConfig) -> Self {
+        Self {
+            consideration_count: Some(value.consideration_count),
+            priorities_max: Some(value.priorities_max),
+            blocking_max: Some(value.blocking_max),
+            cooldown: Some(value.cooldown.as_millis() as u64),
+        }
+    }
+}

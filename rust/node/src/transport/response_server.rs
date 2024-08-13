@@ -1,5 +1,5 @@
 use super::{
-    ChannelEnum, HandshakeProcess, HandshakeStatus, InboundMessageQueue, LatestKeepalives,
+    Channel, HandshakeProcess, HandshakeStatus, InboundMessageQueue, LatestKeepalives,
     MessageDeserializer, Network, NetworkFilter, SynCookies,
 };
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     },
     config::NodeFlags,
     stats::{DetailType, Direction, StatType, Stats},
-    transport::{ChannelMode, NetworkExt},
+    transport::ChannelMode,
     utils::{AsyncRuntime, ThreadPool},
     NetworkParams,
 };
@@ -25,7 +25,7 @@ use std::{
     net::SocketAddrV6,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -65,7 +65,7 @@ impl Default for TcpConfig {
 }
 
 pub struct ResponseServer {
-    channel: Arc<ChannelEnum>,
+    channel: Arc<Channel>,
     pub disable_bootstrap_listener: bool,
     pub connections_max: usize,
 
@@ -78,7 +78,7 @@ pub struct ResponseServer {
     stats: Arc<Stats>,
     pub disable_bootstrap_bulk_pull_server: bool,
     allow_bootstrap: bool,
-    network: Weak<Network>,
+    network: Arc<Network>,
     inbound_queue: Arc<InboundMessageQueue>,
     handshake_process: HandshakeProcess,
     initiate_handshake_listener: OutputListenerMt<()>,
@@ -96,9 +96,9 @@ static NEXT_UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
 
 impl ResponseServer {
     pub fn new(
-        network: &Arc<Network>,
+        network: Arc<Network>,
         inbound_queue: Arc<InboundMessageQueue>,
-        channel: Arc<ChannelEnum>,
+        channel: Arc<Channel>,
         publish_filter: Arc<NetworkFilter>,
         network_params: Arc<NetworkParams>,
         stats: Arc<Stats>,
@@ -116,7 +116,7 @@ impl ResponseServer {
         let network_constants = network_params.network.clone();
         let remote_endpoint = channel.remote_addr();
         Self {
-            network: Arc::downgrade(network),
+            network,
             inbound_queue,
             channel,
             disable_bootstrap_listener: false,
@@ -148,7 +148,7 @@ impl ResponseServer {
         }
     }
 
-    pub fn channel(&self) -> &Arc<ChannelEnum> {
+    pub fn channel(&self) -> &Arc<Channel> {
         &self.channel
     }
 
@@ -187,11 +187,7 @@ impl ResponseServer {
             return false;
         }
 
-        let Some(network) = self.network.upgrade() else {
-            return false;
-        };
-
-        if network.count_by_mode(ChannelMode::Bootstrap) >= self.connections_max {
+        if self.network.count_by_mode(ChannelMode::Bootstrap) >= self.connections_max {
             return false;
         }
 
@@ -221,8 +217,7 @@ impl ResponseServer {
         self.channel.mode() == ChannelMode::Realtime
     }
 
-    fn queue_realtime(&self, message: DeserializedMessage) {
-        self.channel.set_last_packet_received(SystemTime::now());
+    fn queue_realtime(&self, message: Message) {
         self.inbound_queue.put(message, self.channel.clone());
         // TODO: Throttle if not added
     }
@@ -269,9 +264,9 @@ pub trait BootstrapMessageVisitor: MessageVisitor {
 pub trait ResponseServerExt {
     fn to_realtime_connection(&self, node_id: &Account) -> bool;
     async fn run(&self);
-    async fn process_message(&self, message: DeserializedMessage) -> ProcessResult;
-    fn process_realtime(&self, message: DeserializedMessage) -> ProcessResult;
-    fn process_bootstrap(&self, message: DeserializedMessage) -> ProcessResult;
+    async fn process_message(&self, message: Message) -> ProcessResult;
+    fn process_realtime(&self, message: Message) -> ProcessResult;
+    fn process_bootstrap(&self, message: Message) -> ProcessResult;
 }
 
 pub enum ProcessResult {
@@ -287,15 +282,8 @@ impl ResponseServerExt for Arc<ResponseServer> {
             return false;
         }
 
-        let Some(network) = self.network.upgrade() else {
-            return false;
-        };
-
-        let remote = self.channel.remote_addr();
-
-        network.upgrade_to_realtime_connection(&remote, *node_id);
-        debug!("Switched to realtime mode ({})", self.remote_endpoint());
-        return true;
+        self.network
+            .upgrade_to_realtime_connection(self.channel.channel_id(), *node_id)
     }
 
     async fn run(&self) {
@@ -321,7 +309,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
             }
 
             let result = match message_deserializer.read().await {
-                Ok(msg) => self.process_message(msg).await,
+                Ok(msg) => self.process_message(msg.message).await,
                 Err(ParseMessageError::DuplicatePublishMessage) => {
                     // Avoid too much noise about `duplicate_publish_message` errors
                     self.stats.inc_dir(
@@ -366,10 +354,10 @@ impl ResponseServerExt for Arc<ResponseServer> {
         }
     }
 
-    async fn process_message(&self, message: DeserializedMessage) -> ProcessResult {
+    async fn process_message(&self, message: Message) -> ProcessResult {
         self.stats.inc_dir(
             StatType::TcpServer,
-            DetailType::from(message.message.message_type()),
+            DetailType::from(message.message_type()),
             Direction::In,
         );
 
@@ -391,7 +379,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
          * In bootstrap mode any realtime messages are ignored
          */
         if self.is_undefined_connection() {
-            let result = match &message.message {
+            let result = match &message {
                 Message::BulkPull(_)
                 | Message::BulkPullAccount(_)
                 | Message::BulkPush
@@ -406,7 +394,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
             };
 
             match result {
-                HandshakeStatus::Abort => {
+                HandshakeStatus::Abort | HandshakeStatus::AbortOwnNodeId => {
                     self.stats.inc_dir(
                         StatType::TcpServer,
                         DetailType::HandshakeAbort,
@@ -414,9 +402,14 @@ impl ResponseServerExt for Arc<ResponseServer> {
                     );
                     debug!(
                         "Aborting handshake: {:?} ({})",
-                        message.message.message_type(),
+                        message.message_type(),
                         self.remote_endpoint()
                     );
+                    if matches!(result, HandshakeStatus::AbortOwnNodeId) {
+                        if let Some(peering_addr) = self.channel.peering_endpoint() {
+                            self.network.perma_ban(peering_addr);
+                        }
+                    }
                     return ProcessResult::Abort;
                 }
                 HandshakeStatus::Handshake => {
@@ -447,7 +440,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
                         );
                         debug!(
                             "Error switching to bootstrap mode: {:?} ({})",
-                            message.message.message_type(),
+                            message.message_type(),
                             self.remote_endpoint()
                         );
                         return ProcessResult::Abort;
@@ -468,8 +461,8 @@ impl ResponseServerExt for Arc<ResponseServer> {
         ProcessResult::Abort
     }
 
-    fn process_realtime(&self, message: DeserializedMessage) -> ProcessResult {
-        let process = match &message.message {
+    fn process_realtime(&self, message: Message) -> ProcessResult {
+        let process = match &message {
             Message::Keepalive(keepalive) => {
                 self.set_last_keepalive(keepalive.clone());
                 true
@@ -505,8 +498,8 @@ impl ResponseServerExt for Arc<ResponseServer> {
         ProcessResult::Progress
     }
 
-    fn process_bootstrap(&self, message: DeserializedMessage) -> ProcessResult {
-        match &message.message {
+    fn process_bootstrap(&self, message: Message) -> ProcessResult {
+        match &message {
             Message::BulkPull(payload) => {
                 if self.flags.disable_bootstrap_bulk_pull_server {
                     return ProcessResult::Progress;

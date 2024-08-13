@@ -18,7 +18,7 @@ use crate::{
     block_processing::UncheckedMap,
     config::NodeConfig,
     stats::{DetailType, StatType, Stats},
-    transport::{BufferDropPolicy, ChannelEnum, ChannelMode, Network, TrafficType},
+    transport::{Channel, ChannelMode, DropPolicy, MessagePublisher, Network, TrafficType},
     NetworkParams,
 };
 
@@ -42,15 +42,16 @@ pub struct Telemetry {
     mutex: Mutex<TelemetryImpl>,
     network_params: NetworkParams,
     network: Arc<Network>,
+    message_publisher: Mutex<MessagePublisher>,
     node_id: KeyPair,
     startup_time: Instant,
-    notify: Mutex<Vec<Box<dyn Fn(&TelemetryData, &Arc<ChannelEnum>) + Send + Sync>>>,
+    notify: Mutex<Vec<Box<dyn Fn(&TelemetryData, &Arc<Channel>) + Send + Sync>>>,
 }
 
 impl Telemetry {
     const MAX_SIZE: usize = 1024;
 
-    pub fn new(
+    pub(crate) fn new(
         config: TelementryConfig,
         node_config: NodeConfig,
         stats: Arc<Stats>,
@@ -58,6 +59,7 @@ impl Telemetry {
         unchecked: Arc<UncheckedMap>,
         network_params: NetworkParams,
         network: Arc<Network>,
+        message_publisher: MessagePublisher,
         node_id: KeyPair,
     ) -> Self {
         Self {
@@ -68,6 +70,7 @@ impl Telemetry {
             unchecked,
             network_params,
             network,
+            message_publisher: Mutex::new(message_publisher),
             thread: Mutex::new(None),
             condition: Condvar::new(),
             mutex: Mutex::new(TelemetryImpl {
@@ -91,11 +94,11 @@ impl Telemetry {
         }
     }
 
-    pub fn add_callback(&self, f: Box<dyn Fn(&TelemetryData, &Arc<ChannelEnum>) + Send + Sync>) {
+    pub fn add_callback(&self, f: Box<dyn Fn(&TelemetryData, &Arc<Channel>) + Send + Sync>) {
         self.notify.lock().unwrap().push(f);
     }
 
-    fn verify(&self, telemetry: &TelemetryAck, channel: &Arc<ChannelEnum>) -> bool {
+    fn verify(&self, telemetry: &TelemetryAck, channel: &Arc<Channel>) -> bool {
         let Some(data) = &telemetry.0 else {
             self.stats
                 .inc(StatType::Telemetry, DetailType::EmptyPayload);
@@ -128,7 +131,7 @@ impl Telemetry {
     }
 
     /// Process telemetry message from network
-    pub fn process(&self, telemetry: &TelemetryAck, channel: &Arc<ChannelEnum>) {
+    pub fn process(&self, telemetry: &TelemetryAck, channel: &Arc<Channel>) {
         if !self.verify(telemetry, channel) {
             return;
         }
@@ -208,7 +211,6 @@ impl Telemetry {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
             self.stats.inc(StatType::Telemetry, DetailType::Loop);
-
             self.cleanup(&mut guard);
 
             if self.request_predicate(&guard) {
@@ -243,33 +245,39 @@ impl Telemetry {
     }
 
     fn run_requests(&self) {
-        let peers = self.network.random_list(usize::MAX, 0);
+        let peers = self.network.random_list_realtime(usize::MAX, 0);
         for channel in peers {
             self.request(&channel);
         }
     }
 
-    fn request(&self, channel: &ChannelEnum) {
+    fn request(&self, channel: &Channel) {
         self.stats.inc(StatType::Telemetry, DetailType::Request);
-        channel.try_send(
+        self.message_publisher.lock().unwrap().try_send(
+            channel.channel_id(),
             &Message::TelemetryReq,
-            BufferDropPolicy::Limiter,
+            DropPolicy::CanDrop,
             TrafficType::Generic,
         );
     }
 
     fn run_broadcasts(&self) {
         let telemetry = self.local_telemetry();
-        let peers = self.network.random_list(usize::MAX, 0);
+        let peers = self.network.random_list_realtime(usize::MAX, 0);
         let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
         for channel in peers {
             self.broadcast(&channel, &message);
         }
     }
 
-    fn broadcast(&self, channel: &ChannelEnum, message: &Message) {
+    fn broadcast(&self, channel: &Channel, message: &Message) {
         self.stats.inc(StatType::Telemetry, DetailType::Broadcast);
-        channel.try_send(message, BufferDropPolicy::Limiter, TrafficType::Generic)
+        self.message_publisher.lock().unwrap().try_send(
+            channel.channel_id(),
+            message,
+            DropPolicy::CanDrop,
+            TrafficType::Generic,
+        );
     }
 
     fn cleanup(&self, data: &mut TelemetryImpl) {

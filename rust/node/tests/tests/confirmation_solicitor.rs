@@ -10,8 +10,7 @@ use rsnano_node::{
     DEV_NETWORK_PARAMS,
 };
 use std::sync::Arc;
-
-use super::helpers::{establish_tcp, System};
+use test_helpers::{establish_tcp, System};
 
 #[test]
 fn batches() {
@@ -26,11 +25,15 @@ fn batches() {
     let representative = PeeredRep::new(
         *DEV_GENESIS_ACCOUNT,
         channel1.channel_id(),
-        node2.relative_time.elapsed(),
+        node2.steady_clock.now(),
     );
     let representatives = vec![representative];
 
-    let mut solicitor = ConfirmationSolicitor::new(&DEV_NETWORK_PARAMS, &node2.network);
+    let mut solicitor = ConfirmationSolicitor::new(
+        &DEV_NETWORK_PARAMS,
+        &node2.network,
+        node2.message_publisher.lock().unwrap().clone(),
+    );
     solicitor.prepare(&representatives);
 
     let send = Arc::new(BlockEnum::State(StateBlock::new(
@@ -103,11 +106,15 @@ fn different_hashes() {
     let representative = PeeredRep::new(
         *DEV_GENESIS_ACCOUNT,
         channel1.channel_id(),
-        node2.relative_time.elapsed(),
+        node2.steady_clock.now(),
     );
     let representatives = vec![representative];
 
-    let mut solicitor = ConfirmationSolicitor::new(&DEV_NETWORK_PARAMS, &node2.network);
+    let mut solicitor = ConfirmationSolicitor::new(
+        &DEV_NETWORK_PARAMS,
+        &node2.network,
+        node2.message_publisher.lock().unwrap().clone(),
+    );
     solicitor.prepare(&representatives);
 
     let send = Arc::new(BlockEnum::State(StateBlock::new(
@@ -160,7 +167,11 @@ fn bypass_max_requests_cap() {
     let node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
 
-    let mut solicitor = ConfirmationSolicitor::new(&DEV_NETWORK_PARAMS, &node2.network);
+    let mut solicitor = ConfirmationSolicitor::new(
+        &DEV_NETWORK_PARAMS,
+        &node2.network,
+        node2.message_publisher.lock().unwrap().clone(),
+    );
 
     let mut representatives = Vec::new();
     const MAX_REPRESENTATIVES: usize = 50;
@@ -169,7 +180,7 @@ fn bypass_max_requests_cap() {
         let rep = PeeredRep::new(
             Account::from(i as u64),
             ChannelId::from(i),
-            node2.relative_time.elapsed(),
+            node2.steady_clock.now(),
         );
         representatives.push(rep);
     }

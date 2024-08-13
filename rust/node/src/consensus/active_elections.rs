@@ -10,8 +10,8 @@ use crate::{
     consensus::VoteApplierExt,
     representatives::OnlineReps,
     stats::{DetailType, Direction, Sample, StatType, Stats},
-    transport::{BufferDropPolicy, Network},
-    utils::HardenedConstants,
+    transport::{DropPolicy, MessagePublisher, Network},
+    utils::{HardenedConstants, SteadyClock},
     wallets::Wallets,
     NetworkParams,
 };
@@ -69,7 +69,7 @@ impl Default for ActiveElectionsConfig {
 }
 
 pub struct ActiveElections {
-    relative_time: Instant,
+    steady_clock: Arc<SteadyClock>,
     pub mutex: Mutex<ActiveElectionsState>,
     pub condition: Condvar,
     network_params: NetworkParams,
@@ -98,6 +98,7 @@ pub struct ActiveElections {
     pub vote_applier: Arc<VoteApplier>,
     pub vote_router: Arc<VoteRouter>,
     vote_cache_processor: Arc<VoteCacheProcessor>,
+    message_publisher: MessagePublisher,
 }
 
 impl ActiveElections {
@@ -120,7 +121,8 @@ impl ActiveElections {
         vote_applier: Arc<VoteApplier>,
         vote_router: Arc<VoteRouter>,
         vote_cache_processor: Arc<VoteCacheProcessor>,
-        relative_time: Instant,
+        steady_clock: Arc<SteadyClock>,
+        message_publisher: MessagePublisher,
     ) -> Self {
         Self {
             mutex: Mutex::new(ActiveElectionsState {
@@ -159,7 +161,8 @@ impl ActiveElections {
             vote_applier,
             vote_router,
             vote_cache_processor,
-            relative_time,
+            steady_clock,
+            message_publisher,
         }
     }
 
@@ -495,7 +498,7 @@ impl ActiveElections {
                     election_guard.status.winner = Some(Arc::clone(block));
                     let message = Message::Publish(Publish::new_forward(block.as_ref().clone()));
                     self.network
-                        .flood_message2(&message, BufferDropPolicy::NoLimiterDrop, 1.0);
+                        .flood_message2(&message, DropPolicy::ShouldNotDrop, 1.0);
                 }
             } else {
                 election_guard
@@ -769,7 +772,11 @@ impl ActiveElections {
         let elections = Self::list_active_impl(this_loop_target, &guard);
         drop(guard);
 
-        let mut solicitor = ConfirmationSolicitor::new(&self.network_params, &self.network);
+        let mut solicitor = ConfirmationSolicitor::new(
+            &self.network_params,
+            &self.network,
+            self.message_publisher.clone(),
+        );
         solicitor.prepare(&self.online_reps.lock().unwrap().peered_principal_reps());
 
         /*
@@ -1269,13 +1276,10 @@ impl ActiveElectionsExt for Arc<ActiveElections> {
             if !self.recently_confirmed.root_exists(&root) {
                 inserted = true;
                 let online_reps = self.online_reps.clone();
-                let relative_time = self.relative_time;
+                let clock = self.steady_clock.clone();
                 let observer_rep_cb = Box::new(move |rep| {
                     // Representative is defined as online if replying to live votes or rep_crawler queries
-                    online_reps
-                        .lock()
-                        .unwrap()
-                        .vote_observed(rep, relative_time.elapsed());
+                    online_reps.lock().unwrap().vote_observed(rep, clock.now());
                 });
 
                 let id = NEXT_ELECTION_ID.fetch_add(1, Ordering::Relaxed);

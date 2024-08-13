@@ -1,4 +1,4 @@
-use super::{ChannelEnum, SynCookies};
+use super::{Channel, SynCookies};
 use crate::{
     stats::{DetailType, Direction, StatType, Stats},
     transport::TrafficType,
@@ -19,6 +19,7 @@ use tracing::{debug, warn};
 
 pub enum HandshakeStatus {
     Abort,
+    AbortOwnNodeId,
     Handshake,
     Realtime(PublicKey),
     Bootstrap,
@@ -68,7 +69,7 @@ impl HandshakeProcess {
         }
     }
 
-    pub(crate) async fn initiate_handshake(&self, channel: &ChannelEnum) -> Result<(), ()> {
+    pub(crate) async fn initiate_handshake(&self, channel: &Channel) -> Result<(), ()> {
         let endpoint = self.remote_endpoint;
         let query = self.prepare_query(&endpoint);
         if query.is_none() {
@@ -115,7 +116,7 @@ impl HandshakeProcess {
     pub(crate) async fn process_handshake(
         &self,
         message: &NodeIdHandshake,
-        channel: &ChannelEnum,
+        channel: &Channel,
     ) -> HandshakeStatus {
         if message.query.is_none() && message.response.is_none() {
             self.stats.inc_dir(
@@ -186,7 +187,7 @@ impl HandshakeProcess {
                         "This node tried to connect to itself. Closing channel ({})",
                         self.remote_endpoint
                     );
-                    return HandshakeStatus::Abort;
+                    return HandshakeStatus::AbortOwnNodeId;
                 }
                 Err(e) => {
                     self.stats
@@ -211,7 +212,7 @@ impl HandshakeProcess {
         &self,
         query: &NodeIdHandshakeQuery,
         v2: bool,
-        channel: &ChannelEnum,
+        channel: &Channel,
     ) -> anyhow::Result<()> {
         let response = self.prepare_response(query, v2);
         let own_query = self.prepare_query(&self.remote_endpoint);
