@@ -1,25 +1,9 @@
-use super::NetworkConstants;
 use anyhow::Result;
 use rsnano_core::utils::{get_cpu_count, TomlWriter};
-use std::{
-    net::Ipv6Addr,
-    path::{Path, PathBuf},
-};
+use rsnano_node::config::NetworkConstants;
+use std::net::Ipv6Addr;
 
-pub fn get_default_rpc_filepath() -> PathBuf {
-    get_default_rpc_filepath_from(std::env::current_exe().unwrap_or_default().as_path())
-}
-
-fn get_default_rpc_filepath_from(node_exe_path: &Path) -> PathBuf {
-    let mut result = node_exe_path.to_path_buf();
-    result.pop();
-    result.push("nano_rpc");
-    if let Some(ext) = node_exe_path.extension() {
-        result.set_extension(ext);
-    }
-    result
-}
-
+#[derive(Debug, PartialEq)]
 pub struct RpcConfig {
     pub address: String,
     pub port: u16,
@@ -28,6 +12,12 @@ pub struct RpcConfig {
     pub max_request_size: u64,
     pub rpc_logging: RpcLoggingConfig,
     pub rpc_process: RpcProcessConfig,
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self::new(&NetworkConstants::default(), get_cpu_count())
+    }
 }
 
 impl RpcConfig {
@@ -116,12 +106,7 @@ impl RpcConfig {
     }
 }
 
-impl Default for RpcConfig {
-    fn default() -> Self {
-        Self::new(&NetworkConstants::default(), get_cpu_count())
-    }
-}
-
+#[derive(Debug, PartialEq)]
 pub struct RpcLoggingConfig {
     pub log_rpc: bool,
 }
@@ -138,11 +123,18 @@ impl RpcLoggingConfig {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct RpcProcessConfig {
     pub io_threads: u32,
     pub ipc_address: String,
     pub ipc_port: u16,
     pub num_ipc_connections: u32,
+}
+
+impl Default for RpcProcessConfig {
+    fn default() -> Self {
+        Self::new(&NetworkConstants::default(), get_cpu_count())
+    }
 }
 
 impl RpcProcessConfig {
@@ -170,7 +162,10 @@ impl RpcProcessConfig {
 
 #[cfg(test)]
 mod tests {
+    use rsnano_node::config::get_default_rpc_filepath_from;
+
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn default_rpc_filepath() -> Result<()> {

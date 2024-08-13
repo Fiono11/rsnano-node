@@ -18,11 +18,26 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
-pub async fn run_rpc_server(node: Arc<Node>, server_addr: SocketAddr) -> Result<()> {
+#[derive(Clone)]
+struct Service {
+    node: Arc<Node>,
+    enable_control: bool,
+}
+
+pub async fn run_rpc_server(
+    node: Arc<Node>,
+    server_addr: SocketAddr,
+    enable_control: bool,
+) -> Result<()> {
+    let service = Service {
+        node,
+        enable_control,
+    };
+
     let app = Router::new()
         .route("/", post(handle_rpc))
         .layer(map_request(set_header))
-        .with_state(node);
+        .with_state(service);
 
     let listener = TcpListener::bind(server_addr)
         .await
@@ -35,41 +50,56 @@ pub async fn run_rpc_server(node: Arc<Node>, server_addr: SocketAddr) -> Result<
 }
 
 async fn handle_rpc(
-    State(node): State<Arc<Node>>,
+    State(service): State<Service>,
     Json(rpc_request): Json<RpcRequest>,
 ) -> Response {
     let response = match rpc_request {
         RpcRequest::Node(node_request) => match node_request {
-            NodeRpcRequest::Version => version(node).await,
+            NodeRpcRequest::Version => version(service.node).await,
             NodeRpcRequest::AccountBlockCount { account } => {
-                account_block_count(node, account).await
+                account_block_count(service.node, account).await
             }
             NodeRpcRequest::AccountBalance {
                 account,
                 only_confirmed,
-            } => account_balance(node, account, only_confirmed).await,
+            } => account_balance(service.node, account, only_confirmed).await,
             NodeRpcRequest::AccountGet { key } => account_get(key).await,
             NodeRpcRequest::AccountKey { account } => account_key(account).await,
             NodeRpcRequest::AccountRepresentative { account } => {
-                account_representative(node, account).await
+                account_representative(service.node, account).await
             }
-            NodeRpcRequest::AccountWeight { account } => account_weight(node, account).await,
-            NodeRpcRequest::AvailableSupply => available_supply(node).await,
-            NodeRpcRequest::BlockCount => block_count(node).await,
-            NodeRpcRequest::BlockAccount { hash } => block_account(node, hash).await,
-            NodeRpcRequest::BlockConfirm { hash } => block_confirm(node, hash).await,
-            NodeRpcRequest::UnknownCommand => format_error_message("Unknown command"),
+            NodeRpcRequest::AccountWeight { account } => {
+                account_weight(service.node, account).await
+            }
+            NodeRpcRequest::AvailableSupply => available_supply(service.node).await,
+            NodeRpcRequest::BlockCount { include_cemented } => {
+                block_count(service.node, include_cemented).await
+            }
+            NodeRpcRequest::BlockAccount { hash } => block_account(service.node, hash).await,
+            NodeRpcRequest::BlockConfirm { hash } => block_confirm(service.node, hash).await,
         },
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {
-                account_create(node, wallet, index).await
+                if service.enable_control {
+                    account_create(service.node, wallet, index).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::AccountsCreate { wallet, count } => {
-                accounts_create(node, wallet, count).await
+                if service.enable_control {
+                    accounts_create(service.node, wallet, count).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
-            WalletRpcRequest::AccountList { wallet } => account_list(node, wallet).await,
+            WalletRpcRequest::AccountList { wallet } => account_list(service.node, wallet).await,
             WalletRpcRequest::AccountRemove { wallet, account } => {
-                account_remove(node, wallet, account).await
+                if service.enable_control {
+                    account_remove(service.node, wallet, account).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::UnknownCommand => format_error_message("Unknown command"),
         },

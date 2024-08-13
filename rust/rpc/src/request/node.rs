@@ -31,7 +31,7 @@ pub(crate) enum NodeRpcRequest {
     BlockConfirm {
         hash: String,
     },
-    BlockCount,
-    #[serde(other)]
-    UnknownCommand,
+    BlockCount {
+        include_cemented: Option<bool>,
+    },
 }

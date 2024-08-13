@@ -5,15 +5,16 @@ use rsnano_core::work::WorkPoolImpl;
 use rsnano_node::{
     config::{
         get_node_toml_config_path, get_rpc_toml_config_path, DaemonConfig, DaemonToml,
-        NetworkConstants, NodeFlags, RpcConfig, RpcToml,
+        NetworkConstants, NodeFlags,
     },
     node::{Node, NodeExt},
     utils::AsyncRuntime,
     NetworkParams,
 };
-use rsnano_rpc::run_rpc_server;
+use rsnano_rpc::{run_rpc_server, RpcConfig, RpcToml};
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
@@ -124,6 +125,7 @@ impl RunDaemonArgs {
         init_tracing(dirs);
 
         let path = get_path(&self.data_path, &self.network);
+
         let network_params = NetworkParams::new(NetworkConstants::active_network());
 
         std::fs::create_dir_all(&path).map_err(|e| anyhow!("Create dir failed: {:?}", e))?;
@@ -140,15 +142,16 @@ impl RunDaemonArgs {
             DaemonConfig::default()
         };
 
+        let node_config = daemon_config.node;
+
         let rpc_toml_config_path = get_rpc_toml_config_path(&path);
 
-        let rpc_config = if node_toml_config_path.exists() {
-            let toml_str = read_toml(&node_toml_config_path)?;
+        let rpc_config = if rpc_toml_config_path.exists() {
+            let toml_str = read_toml(&rpc_toml_config_path)?;
 
             let rpc_toml: RpcToml = from_str(&toml_str)?;
 
-            //(&rpc_toml).into()
-            RpcConfig::default()
+            (&rpc_toml).into()
         } else {
             RpcConfig::default()
         };
@@ -160,14 +163,14 @@ impl RunDaemonArgs {
 
         let work = Arc::new(WorkPoolImpl::new(
             network_params.work.clone(),
-            daemon_config.node.work_threads as usize,
-            Duration::from_nanos(daemon_config.node.pow_sleep_interval_ns as u64),
+            node_config.work_threads as usize,
+            Duration::from_nanos(node_config.pow_sleep_interval_ns as u64),
         ));
 
         let node = Arc::new(Node::new(
-            async_rt.clone(),
+            async_rt,
             path,
-            daemon_config.node,
+            node_config,
             network_params,
             flags,
             work,
@@ -179,9 +182,12 @@ impl RunDaemonArgs {
         node.start();
 
         let rpc_server = if daemon_config.rpc_enable {
+            let ip_addr = IpAddr::from_str(&rpc_config.address)?;
+            let socket_addr = SocketAddr::new(ip_addr, rpc_config.port);
             Some(tokio::spawn(run_rpc_server(
                 node.clone(),
-                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), rpc_config.port),
+                socket_addr,
+                rpc_config.enable_control,
             )))
         } else {
             None
