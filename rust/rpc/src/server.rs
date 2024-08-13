@@ -2,8 +2,8 @@ use crate::format_error_message;
 use crate::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
 use crate::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
-    account_remove, account_representative, account_weight, available_supply, block_account,
-    block_confirm, block_count, version,
+    account_remove, account_representative, account_weight, accounts_create, available_supply,
+    block_account, block_confirm, block_count, version,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -63,6 +63,9 @@ async fn handle_rpc(
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {
                 account_create(node, wallet, index).await
+            }
+            WalletRpcRequest::AccountsCreate { wallet, count } => {
+                accounts_create(node, wallet, count).await
             }
             WalletRpcRequest::AccountList { wallet } => account_list(node, wallet).await,
             WalletRpcRequest::AccountRemove { wallet, account } => {

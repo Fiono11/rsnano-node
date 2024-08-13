@@ -8,6 +8,10 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         index: Option<u32>,
     },
+    AccountsCreate {
+        wallet: String,
+        count: u32,
+    },
     AccountList {
         wallet: String,
     },
