@@ -19,6 +19,11 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         account: String,
     },
+    AccountRepresentativeSet {
+        wallet: String,
+        account: String,
+        representative: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }

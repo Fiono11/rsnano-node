@@ -1,8 +1,8 @@
 use super::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
 use super::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
-    account_remove, account_representative, account_weight, accounts_create, available_supply,
-    block_account, block_confirm, block_count, version,
+    account_remove, account_representative, account_representative_set, account_weight,
+    accounts_create, available_supply, block_account, block_confirm, block_count, version,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -82,14 +82,37 @@ async fn handle_rpc(
         },
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {
-                account_create(service.node, wallet, index).await
+                if service.enable_control {
+                    account_create(service.node, wallet, index).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::AccountsCreate { wallet, count } => {
-                accounts_create(service.node, wallet, count).await
+                if service.enable_control {
+                    accounts_create(service.node, wallet, count).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::AccountList { wallet } => account_list(service.node, wallet).await,
             WalletRpcRequest::AccountRemove { wallet, account } => {
-                account_remove(service.node, wallet, account).await
+                if service.enable_control {
+                    account_remove(service.node, wallet, account).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
+            }
+            WalletRpcRequest::AccountRepresentativeSet {
+                wallet,
+                account,
+                representative,
+            } => {
+                if service.enable_control {
+                    account_representative_set(service.node, wallet, account, representative).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::UnknownCommand => format_error_message("Unknown command"),
         },
