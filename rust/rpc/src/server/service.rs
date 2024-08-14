@@ -3,7 +3,7 @@ use super::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
     account_move, account_remove, account_representative, account_representative_set,
     account_weight, accounts_create, available_supply, block_account, block_confirm, block_count,
-    version, wallet_add, wallet_balances,
+    version, wallet_add, wallet_balances, wallet_create,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -137,6 +137,13 @@ async fn handle_rpc(
             }
             WalletRpcRequest::WalletBalances { wallet, threshold } => {
                 wallet_balances(service.node, wallet, threshold).await
+            }
+            WalletRpcRequest::WalletCreate { seed } => {
+                if service.enable_control {
+                    wallet_create(service.node, seed).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
             }
             WalletRpcRequest::UnknownCommand => format_error_message("Unknown command"),
         },

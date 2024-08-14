@@ -39,6 +39,9 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         threshold: Option<u128>,
     },
+    WalletCreate {
+        seed: Option<String>,
+    },
     #[serde(other)]
     UnknownCommand,
 }
