@@ -1,3 +1,9 @@
+use super::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
+use super::response::{
+    account_balance, account_block_count, account_create, account_get, account_key, account_list,
+    account_remove, account_representative, account_weight, accounts_create, available_supply,
+    block_account, block_confirm, block_count, version,
+};
 use anyhow::{Context, Result};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse, routing::post, Json};
@@ -12,9 +18,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
-
-use super::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
-use super::response::{account_balance, account_create};
 
 #[derive(Clone)]
 struct Service {
@@ -56,18 +59,37 @@ async fn handle_rpc(
 ) -> Response {
     let response = match rpc_request {
         RpcRequest::Node(node_request) => match node_request {
+            NodeRpcRequest::Version => version(service.node).await,
+            NodeRpcRequest::AccountBlockCount { account } => {
+                account_block_count(service.node, account).await
+            }
             NodeRpcRequest::AccountBalance {
                 account,
                 only_confirmed,
             } => account_balance(service.node, account, only_confirmed).await,
+            NodeRpcRequest::AccountGet { key } => account_get(key).await,
+            NodeRpcRequest::AccountKey { account } => account_key(account).await,
+            NodeRpcRequest::AccountRepresentative { account } => {
+                account_representative(service.node, account).await
+            }
+            NodeRpcRequest::AccountWeight { account } => {
+                account_weight(service.node, account).await
+            }
+            NodeRpcRequest::AvailableSupply => available_supply(service.node).await,
+            NodeRpcRequest::BlockCount => block_count(service.node).await,
+            NodeRpcRequest::BlockAccount { hash } => block_account(service.node, hash).await,
+            NodeRpcRequest::BlockConfirm { hash } => block_confirm(service.node, hash).await,
         },
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {
-                if service.enable_control {
-                    account_create(service.node, wallet, index).await
-                } else {
-                    format_error_message("Enable control is disabled")
-                }
+                account_create(service.node, wallet, index).await
+            }
+            WalletRpcRequest::AccountsCreate { wallet, count } => {
+                accounts_create(service.node, wallet, count).await
+            }
+            WalletRpcRequest::AccountList { wallet } => account_list(service.node, wallet).await,
+            WalletRpcRequest::AccountRemove { wallet, account } => {
+                account_remove(service.node, wallet, account).await
             }
             WalletRpcRequest::UnknownCommand => format_error_message("Unknown command"),
         },

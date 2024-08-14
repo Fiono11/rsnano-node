@@ -8,6 +8,17 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         index: Option<u32>,
     },
+    AccountsCreate {
+        wallet: String,
+        count: u32,
+    },
+    AccountList {
+        wallet: String,
+    },
+    AccountRemove {
+        wallet: String,
+        account: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }
