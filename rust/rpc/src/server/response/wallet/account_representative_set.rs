@@ -39,7 +39,7 @@ pub(crate) async fn account_representative_set(
                             result_clone.0.notify_all();
                         }),
                         0,
-                        true,
+                        work.unwrap_or(true),
                     );
 
                     if change_async_result.is_err() {

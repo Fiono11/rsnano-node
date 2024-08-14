@@ -30,6 +30,11 @@ pub(crate) enum WalletRpcRequest {
         source: String,
         accounts: Vec<String>,
     },
+    WalletAdd {
+        wallet: String,
+        key: String,
+        work: Option<bool>,
+    },
     #[serde(other)]
     UnknownCommand,
 }
