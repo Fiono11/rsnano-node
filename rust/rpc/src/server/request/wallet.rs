@@ -23,6 +23,12 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         account: String,
         representative: String,
+        work: Option<bool>,
+    },
+    AccountMove {
+        wallet: String,
+        source: String,
+        accounts: Vec<String>,
     },
     #[serde(other)]
     UnknownCommand,

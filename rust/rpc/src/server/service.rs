@@ -1,8 +1,9 @@
 use super::request::{NodeRpcRequest, RpcRequest, WalletRpcRequest};
 use super::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
-    account_remove, account_representative, account_representative_set, account_weight,
-    accounts_create, available_supply, block_account, block_confirm, block_count, version,
+    account_move, account_remove, account_representative, account_representative_set,
+    account_weight, accounts_create, available_supply, block_account, block_confirm, block_count,
+    version,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -107,9 +108,22 @@ async fn handle_rpc(
                 wallet,
                 account,
                 representative,
+                work,
             } => {
                 if service.enable_control {
-                    account_representative_set(service.node, wallet, account, representative).await
+                    account_representative_set(service.node, wallet, account, representative, work)
+                        .await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
+            }
+            WalletRpcRequest::AccountMove {
+                wallet,
+                source,
+                accounts,
+            } => {
+                if service.enable_control {
+                    account_move(service.node, wallet, source, accounts).await
                 } else {
                     format_error_message("Enable control is disabled")
                 }

@@ -21,6 +21,7 @@ pub(crate) async fn account_representative_set(
     wallet: String,
     account: String,
     representative: String,
+    work: Option<bool>,
 ) -> String {
     match WalletId::decode_hex(&wallet) {
         Ok(wallet) => match Account::decode_account(&account) {
