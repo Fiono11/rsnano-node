@@ -6,14 +6,14 @@ use serde_json::to_string_pretty;
 use std::sync::Arc;
 
 #[derive(Serialize)]
-struct AccountBalance {
+pub(crate) struct AccountBalance {
     balance: String,
     pending: String,
     receivable: String,
 }
 
 impl AccountBalance {
-    fn new(balance: String, pending: String, receivable: String) -> Self {
+    pub(crate) fn new(balance: String, pending: String, receivable: String) -> Self {
         Self {
             balance,
             pending,

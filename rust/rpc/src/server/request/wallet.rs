@@ -35,6 +35,10 @@ pub(crate) enum WalletRpcRequest {
         key: String,
         work: Option<bool>,
     },
+    WalletBalances {
+        wallet: String,
+        threshold: Option<u128>,
+    },
     #[serde(other)]
     UnknownCommand,
 }
