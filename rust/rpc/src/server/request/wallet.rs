@@ -45,6 +45,10 @@ pub(crate) enum WalletRpcRequest {
     WalletDestroy {
         wallet: String,
     },
+    WalletContains {
+        wallet: String,
+        account: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }
