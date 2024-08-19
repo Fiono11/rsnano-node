@@ -21,6 +21,7 @@ use crate::{
         BandwidthLimiter, Channel, ChannelId, DropPolicy, MessagePublisher, Network, TrafficType,
     },
 };
+pub use account_sets::AccountSetsConfig;
 use num::integer::sqrt;
 use rand::{thread_rng, RngCore};
 use rsnano_core::{
@@ -38,8 +39,6 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-
-pub use account_sets::AccountSetsConfig;
 
 enum VerifyResult {
     Ok,

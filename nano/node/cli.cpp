@@ -628,20 +628,31 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	else if (vm.count ("generate_config"))
 	{
 		auto type = vm["generate_config"].as<std::string> ();
-		if (type == "node")
+		std::string toml_str;
+
+		if (type == "node" || type == "rpc")
 		{
-			nano::network_params network_params{ nano::network_constants::active_network () };
-			nano::daemon_config config{ data_path, network_params };
-			// set the peering port to the default value so that it is printed in the example toml file
-			config.node.peering_port = network_params.network.default_node_port;
-			auto toml_str{ config.serialize_toml () };
+			if (type == "node")
+			{
+				nano::network_params network_params{ nano::network_constants::active_network () };
+				nano::daemon_config config{ data_path, network_params };
+
+				// Set the peering port to the default value so that it is printed in the example TOML file
+				config.node.peering_port = network_params.network.default_node_port;
+				toml_str = config.serialize_toml ();
+			}
+			else if (type == "rpc")
+			{
+				nano::rpc_config config{ nano::dev::network_params.network };
+				toml_str = config.serialize_toml ();
+			}
 
 			std::cout << "# This is an example configuration file for Nano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
 					  << "# Fields may need to be defined in the context of a [category] above them.\n"
 					  << "# The desired configuration changes should be placed in config-" << type << ".toml in the node data path.\n"
 					  << "# To change a value from its default, uncomment (erasing #) the corresponding field.\n"
 					  << "# It is not recommended to uncomment every field, as the default value for important fields may change in the future. Only change what you need.\n"
-					  << "# Additional information for notable configuration options is available in https://docs.nano.org/running-a-node/configuration/#notable-configuration-options\n\n";
+					  << "# Additional information for notable configuration options is available in https://docs.nano.org/running-a-node/configuration/#notable-configuration-options\n";
 
 			if (vm.count ("use_defaults"))
 			{
@@ -651,21 +662,6 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 			{
 				std::cout << commented (toml_str) << std::endl;
 			}
-		}
-		else if (type == "rpc")
-		{
-			nano::tomlconfig toml;
-			nano::rpc_config config{ nano::dev::network_params.network };
-			config.serialize_toml (toml);
-
-			std::cout << "# This is an example configuration file for Nano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
-					  << "# Fields may need to be defined in the context of a [category] above them.\n"
-					  << "# The desired configuration changes should be placed in config-" << type << ".toml in the node data path.\n"
-					  << "# To change a value from its default, uncomment (erasing #) the corresponding field.\n"
-					  << "# It is not recommended to uncomment every field, as the default value for important fields may change in the future. Only change what you need.\n"
-					  << "# Additional information for notable configuration options is available in https://docs.nano.org/running-a-node/configuration/#notable-configuration-options\n";
-
-			std::cout << toml_str << std::endl;
 		}
 		else
 		{
