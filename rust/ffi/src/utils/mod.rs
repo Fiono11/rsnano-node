@@ -20,7 +20,6 @@ use std::{
 };
 pub use stream::FfiStream;
 pub use thread_pool::ThreadPoolHandle;
-pub use toml::FfiToml;
 
 pub struct ContextWrapper {
     context: *mut c_void,

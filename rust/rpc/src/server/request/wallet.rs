@@ -42,6 +42,9 @@ pub(crate) enum WalletRpcRequest {
     WalletCreate {
         seed: Option<String>,
     },
+    WalletDestroy {
+        wallet: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }

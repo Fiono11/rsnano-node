@@ -1,11 +1,10 @@
+use crate::format_error_message;
 use rand::{thread_rng, Rng};
 use rsnano_core::WalletId;
 use rsnano_node::{node::Node, wallets::WalletsExt};
 use serde::Serialize;
 use serde_json::to_string_pretty;
 use std::sync::Arc;
-
-use crate::format_error_message;
 
 #[derive(Serialize)]
 struct WalletCreate {
