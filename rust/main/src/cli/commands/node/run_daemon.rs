@@ -13,6 +13,7 @@ use rsnano_node::{
 };
 use rsnano_rpc::{run_rpc_server, RpcConfig, RpcToml};
 use std::{
+    fs,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{Arc, Condvar, Mutex},
@@ -133,7 +134,7 @@ impl RunDaemonArgs {
         let node_toml_config_path = get_node_toml_config_path(&path);
 
         let daemon_config = if node_toml_config_path.exists() {
-            let toml_str = read_toml(&node_toml_config_path)?;
+            let toml_str = fs::read_to_string(node_toml_config_path)?;
 
             let daemon_toml: DaemonToml = from_str(&toml_str)?;
 

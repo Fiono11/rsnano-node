@@ -372,16 +372,14 @@ impl Node {
                 workers.clone(),
                 block_processor.clone(),
                 online_reps.clone(),
-                network.clone(),
                 confirming_set.clone(),
+                message_publisher.clone(),
             )
             .expect("Could not create wallet"),
         );
         wallets.initialize2();
 
         let vote_broadcaster = Arc::new(VoteBroadcaster::new(
-            online_reps.clone(),
-            network.clone(),
             vote_processor_queue.clone(),
             message_publisher.clone(),
         ));
@@ -475,6 +473,13 @@ impl Node {
             block_processor.clone(),
             websocket.clone(),
             ledger.clone(),
+            MessagePublisher::new_with_buffer_size(
+                online_reps.clone(),
+                network.clone(),
+                stats.clone(),
+                network_params.network.protocol_info(),
+                512,
+            ),
         ));
         bootstrap_initiator.initialize();
         bootstrap_initiator.start();
@@ -579,7 +584,9 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            network.clone(),
         ));
+        dead_channel_cleanup.add(&request_aggregator);
 
         let backlog_population = Arc::new(BacklogPopulation::new(
             global_config.into(),
@@ -726,7 +733,7 @@ impl Node {
         let ledger_w = Arc::downgrade(&ledger);
         let vote_cache_w = Arc::downgrade(&vote_cache);
         let wallets_w = Arc::downgrade(&wallets);
-        let channels_w = Arc::downgrade(&network);
+        let publisher_l = Mutex::new(message_publisher.clone());
         vote_router.add_vote_processed_observer(Box::new(move |vote, source, results| {
             let Some(ledger) = ledger_w.upgrade() else {
                 return;
@@ -735,9 +742,6 @@ impl Node {
                 return;
             };
             let Some(wallets) = wallets_w.upgrade() else {
-                return;
-            };
-            let Some(channels) = channels_w.upgrade() else {
                 return;
             };
             let rep_weight = ledger.weight(&vote.voting_account);
@@ -753,7 +757,10 @@ impl Node {
                     let ack = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
                         vote.as_ref().clone(),
                     ));
-                    channels.flood_message(&ack, 0.5);
+                    publisher_l
+                        .lock()
+                        .unwrap()
+                        .flood(&ack, DropPolicy::CanDrop, 0.5);
                 }
             }
         }));
@@ -1194,6 +1201,13 @@ impl Node {
         }
     }
 
+    pub fn insert_into_wallet(&self, keys: &KeyPair) {
+        let wallet_id = self.wallets.wallet_ids()[0];
+        self.wallets
+            .insert_adhoc2(&wallet_id, &keys.private_key(), true)
+            .unwrap();
+    }
+
     pub fn process_active(&self, block: BlockEnum) {
         self.block_processor.process_active(Arc::new(block));
     }
@@ -1508,7 +1522,10 @@ impl NodeExt for Arc<Node> {
     ) {
         if let Some(block) = blocks.pop_front() {
             let publish = Message::Publish(Publish::new_forward(block));
-            self.network.flood_message(&publish, 1.0);
+            self.message_publisher
+                .lock()
+                .unwrap()
+                .flood(&publish, DropPolicy::CanDrop, 1.0);
             if blocks.is_empty() {
                 callback()
             } else {

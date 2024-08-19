@@ -25,9 +25,9 @@ use std::{
     net::SocketAddrV6,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, Weak,
     },
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 use tracing::{debug, info};
 
@@ -83,11 +83,11 @@ pub struct ResponseServer {
     handshake_process: HandshakeProcess,
     initiate_handshake_listener: OutputListenerMt<()>,
     publish_filter: Arc<NetworkFilter>,
-    runtime: Arc<AsyncRuntime>,
+    runtime: Weak<AsyncRuntime>,
     ledger: Arc<Ledger>,
     workers: Arc<dyn ThreadPool>,
     block_processor: Arc<BlockProcessor>,
-    bootstrap_initiator: Arc<BootstrapInitiator>,
+    bootstrap_initiator: Weak<BootstrapInitiator>,
     latest_keepalives: Arc<Mutex<LatestKeepalives>>,
     flags: NodeFlags,
 }
@@ -114,7 +114,7 @@ impl ResponseServer {
         latest_keepalives: Arc<Mutex<LatestKeepalives>>,
     ) -> Self {
         let network_constants = network_params.network.clone();
-        let remote_endpoint = channel.remote_addr();
+        let remote_endpoint = channel.peer_addr();
         Self {
             network,
             inbound_queue,
@@ -138,11 +138,11 @@ impl ResponseServer {
             allow_bootstrap,
             initiate_handshake_listener: OutputListenerMt::new(),
             publish_filter,
-            runtime,
+            runtime: Arc::downgrade(&runtime),
             ledger,
             workers,
             block_processor,
-            bootstrap_initiator,
+            bootstrap_initiator: Arc::downgrade(&bootstrap_initiator),
             flags,
             latest_keepalives,
         }
@@ -291,7 +291,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
         {
             let mut guard = self.remote_endpoint.lock().unwrap();
             if guard.port() == 0 {
-                *guard = self.channel.remote_addr();
+                *guard = self.channel.peer_addr();
             }
             debug!("Starting response server for peer: {}", *guard);
         }
@@ -303,13 +303,25 @@ impl ResponseServerExt for Arc<ResponseServer> {
             self.channel.clone(),
         );
 
+        let mut first_message = true;
+
         loop {
             if self.is_stopped() {
                 break;
             }
 
             let result = match message_deserializer.read().await {
-                Ok(msg) => self.process_message(msg.message).await,
+                Ok(msg) => {
+                    if first_message {
+                        // TODO: if version using changes => peer misbehaved!
+                        self.network.set_protocol_version(
+                            self.channel.channel_id(),
+                            msg.protocol.version_using,
+                        );
+                        first_message = false;
+                    }
+                    self.process_message(msg.message).await
+                }
                 Err(ParseMessageError::DuplicatePublishMessage) => {
                     // Avoid too much noise about `duplicate_publish_message` errors
                     self.stats.inc_dir(
@@ -406,7 +418,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
                         self.remote_endpoint()
                     );
                     if matches!(result, HandshakeStatus::AbortOwnNodeId) {
-                        if let Some(peering_addr) = self.channel.peering_endpoint() {
+                        if let Some(peering_addr) = self.channel.peering_addr() {
                             self.network.perma_ban(peering_addr);
                         }
                     }
@@ -499,6 +511,12 @@ impl ResponseServerExt for Arc<ResponseServer> {
     }
 
     fn process_bootstrap(&self, message: Message) -> ProcessResult {
+        let Some(runtime) = self.runtime.upgrade() else {
+            return ProcessResult::Abort;
+        };
+        let Some(bootstrap_initiator) = self.bootstrap_initiator.upgrade() else {
+            return ProcessResult::Abort;
+        };
         match &message {
             Message::BulkPull(payload) => {
                 if self.flags.disable_bootstrap_bulk_pull_server {
@@ -512,7 +530,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
                     Arc::clone(self),
                     self.ledger.clone(),
                     self.workers.clone(),
-                    self.runtime.clone(),
+                    runtime.clone(),
                 );
                 self.workers.push_task(Box::new(move || {
                     bulk_pull_server.send_next();
@@ -531,7 +549,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
                     payload.clone(),
                     self.workers.clone(),
                     self.ledger.clone(),
-                    self.runtime.clone(),
+                    runtime.clone(),
                 );
                 self.workers.push_task(Box::new(move || {
                     bulk_pull_account_server.send_frontier();
@@ -542,11 +560,11 @@ impl ResponseServerExt for Arc<ResponseServer> {
             Message::BulkPush => {
                 // original code TODO: Add completion callback to bulk pull server
                 let bulk_push_server = BulkPushServer::new(
-                    self.runtime.clone(),
+                    runtime.clone(),
                     Arc::clone(self),
                     self.workers.clone(),
                     self.block_processor.clone(),
-                    self.bootstrap_initiator.clone(),
+                    bootstrap_initiator.clone(),
                     self.stats.clone(),
                     self.network_params.network.work.clone(),
                 );
@@ -564,7 +582,7 @@ impl ResponseServerExt for Arc<ResponseServer> {
                     payload.clone(),
                     self.workers.clone(),
                     self.ledger.clone(),
-                    self.runtime.clone(),
+                    runtime.clone(),
                 );
                 self.workers.push_task(Box::new(move || {
                     response.send_next();

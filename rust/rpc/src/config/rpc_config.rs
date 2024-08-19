@@ -163,12 +163,10 @@ impl RpcProcessConfig {
 #[cfg(test)]
 mod tests {
     use rsnano_node::config::get_default_rpc_filepath_from;
-
-    use super::*;
     use std::path::Path;
 
     #[test]
-    fn default_rpc_filepath() -> Result<()> {
+    fn default_rpc_filepath() {
         assert_eq!(
             get_default_rpc_filepath_from(Path::new("/path/to/nano_node")),
             Path::new("/path/to/nano_rpc")
@@ -183,7 +181,5 @@ mod tests {
             get_default_rpc_filepath_from(Path::new("/bin/nano_node.exe")),
             Path::new("/bin/nano_rpc.exe")
         );
-
-        Ok(())
     }
 }

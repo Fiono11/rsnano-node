@@ -1,4 +1,4 @@
-use super::{message_publisher, Channel, MessagePublisher, Network};
+use super::{Channel, MessagePublisher, Network};
 use crate::{
     block_processing::{BlockProcessor, BlockSource},
     bootstrap::{BootstrapAscending, BootstrapServer},
@@ -76,12 +76,14 @@ impl RealtimeMessageHandler {
             Message::Keepalive(keepalive) => {
                 // Check for special node port data
                 let peer0 = keepalive.peers[0];
+                // The first entry is used to inform us of the peering address of the sending node
                 if peer0.ip().is_unspecified() && peer0.port() != 0 {
-                    let new_endpoint =
-                        SocketAddrV6::new(*channel.remote_addr().ip(), peer0.port(), 0, 0);
+                    let peering_addr =
+                        SocketAddrV6::new(*channel.peer_addr().ip(), peer0.port(), 0, 0);
 
                     // Remember this for future forwarding to other peers
-                    channel.set_peering_endpoint(new_endpoint);
+                    self.network
+                        .set_peering_addr(channel.channel_id(), peering_addr);
                 }
             }
             Message::Publish(publish) => {
@@ -106,7 +108,7 @@ impl RealtimeMessageHandler {
                 // TODO: This check should be cached somewhere
                 if self.config.enable_voting && self.wallets.voting_reps_count() > 0 {
                     self.request_aggregator
-                        .request(req.roots_hashes, channel.clone());
+                        .request(req.roots_hashes, channel.channel_id());
                 }
             }
             Message::ConfirmAck(ack) => {

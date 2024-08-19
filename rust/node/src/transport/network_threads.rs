@@ -180,7 +180,8 @@ pub struct KeepaliveFactory {
 impl KeepaliveFactory {
     pub fn create_keepalive_self(&self) -> Keepalive {
         let mut result = Keepalive::default();
-        self.network.random_fill_realtime(&mut result.peers);
+        self.network
+            .random_fill_peering_endpoints(&mut result.peers);
         // We will clobber values in index 0 and 1 and if there are only 2 nodes in the system, these are the only positions occupied
         // Move these items to index 2 and 3 so they propagate
         result.peers[2] = result.peers[0];
@@ -261,17 +262,18 @@ impl KeepaliveLoop {
         }
     }
 
-    fn flood_keepalive(&self, scale: f32) {
+    fn flood_keepalive(&mut self, scale: f32) {
         let mut keepalive = Keepalive::default();
-        self.network.random_fill_realtime(&mut keepalive.peers);
         self.network
-            .flood_message(&Message::Keepalive(keepalive), scale);
+            .random_fill_peering_endpoints(&mut keepalive.peers);
+        self.message_publisher
+            .flood(&Message::Keepalive(keepalive), DropPolicy::CanDrop, scale);
     }
 
-    fn flood_keepalive_self(&self, scale: f32) {
+    fn flood_keepalive_self(&mut self, scale: f32) {
         let keepalive = self.keepalive_factory.create_keepalive_self();
-        self.network
-            .flood_message(&Message::Keepalive(keepalive), scale);
+        self.message_publisher
+            .flood(&Message::Keepalive(keepalive), DropPolicy::CanDrop, scale);
     }
 }
 

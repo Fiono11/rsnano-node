@@ -13,6 +13,7 @@
 namespace
 {
 void reset_confirmation_heights (nano::store::write_transaction const & transaction, nano::ledger_constants & constants, nano::store::component & store);
+std::string commented (const std::string & toml_str);
 }
 
 std::string nano::error_cli_messages::message (int ev) const
@@ -627,31 +628,36 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 	else if (vm.count ("generate_config"))
 	{
 		auto type = vm["generate_config"].as<std::string> ();
-		nano::tomlconfig toml;
-		std::string toml_str;
-		bool valid_type = false;
 		if (type == "node")
 		{
-			valid_type = true;
 			nano::network_params network_params{ nano::network_constants::active_network () };
 			nano::daemon_config config{ data_path, network_params };
 			// set the peering port to the default value so that it is printed in the example toml file
 			config.node.peering_port = network_params.network.default_node_port;
-			toml_str = config.serialize_toml ();
+			auto toml_str{ config.serialize_toml () };
+
+			std::cout << "# This is an example configuration file for Nano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
+					  << "# Fields may need to be defined in the context of a [category] above them.\n"
+					  << "# The desired configuration changes should be placed in config-" << type << ".toml in the node data path.\n"
+					  << "# To change a value from its default, uncomment (erasing #) the corresponding field.\n"
+					  << "# It is not recommended to uncomment every field, as the default value for important fields may change in the future. Only change what you need.\n"
+					  << "# Additional information for notable configuration options is available in https://docs.nano.org/running-a-node/configuration/#notable-configuration-options\n\n";
+
+			if (vm.count ("use_defaults"))
+			{
+				std::cout << toml_str << std::endl;
+			}
+			else
+			{
+				std::cout << commented (toml_str) << std::endl;
+			}
 		}
 		else if (type == "rpc")
 		{
-			valid_type = true;
+			nano::tomlconfig toml;
 			nano::rpc_config config{ nano::dev::network_params.network };
-			toml_str = config.serialize_toml ();
-		}
-		else
-		{
-			std::cerr << "Invalid configuration type " << type << ". Must be node or rpc." << std::endl;
-		}
+			config.serialize_toml (toml);
 
-		if (valid_type)
-		{
 			std::cout << "# This is an example configuration file for Nano. Visit https://docs.nano.org/running-a-node/configuration/ for more information.\n#\n"
 					  << "# Fields may need to be defined in the context of a [category] above them.\n"
 					  << "# The desired configuration changes should be placed in config-" << type << ".toml in the node data path.\n"
@@ -660,6 +666,10 @@ std::error_code nano::handle_node_options (boost::program_options::variables_map
 					  << "# Additional information for notable configuration options is available in https://docs.nano.org/running-a-node/configuration/#notable-configuration-options\n";
 
 			std::cout << toml_str << std::endl;
+		}
+		else
+		{
+			std::cerr << "Invalid configuration type " << type << ". Must be node or rpc." << std::endl;
 		}
 	}
 	else if (vm.count ("diagnostics"))
@@ -1209,5 +1219,27 @@ void reset_confirmation_heights (nano::store::write_transaction const & transact
 
 	// Then make sure the confirmation height of the genesis account open block is 1
 	store.confirmation_height ().put (transaction, constants.genesis->account (), { 1, constants.genesis->hash () });
+}
+
+std::string commented (const std::string & toml_str)
+{
+	std::stringstream ss (toml_str), ss_processed;
+	std::string line;
+	while (std::getline (ss, line, '\n'))
+	{
+		if (!line.empty () && line[0] != '[')
+		{
+			if (line[0] == '#') // Already commented
+			{
+				line = "\t" + line;
+			}
+			else
+			{
+				line = "\t# " + line;
+			}
+		}
+		ss_processed << line << std::endl;
+	}
+	return ss_processed.str ();
 }
 }

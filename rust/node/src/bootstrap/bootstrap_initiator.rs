@@ -8,7 +8,7 @@ use crate::{
     bootstrap::BootstrapAttemptWallet,
     config::NodeFlags,
     stats::{DetailType, Direction, StatType, Stats},
-    transport::Network,
+    transport::{MessagePublisher, Network},
     utils::{AsyncRuntime, ThreadPool, ThreadPoolImpl},
     websocket::WebsocketListener,
     NetworkParams,
@@ -16,7 +16,7 @@ use crate::{
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoComponent},
     work::WorkThresholds,
-    Account, Amount, HashOrAccount, Networks, XRB_RATIO,
+    Account, Amount, HashOrAccount, Networks, ACTIVE_NETWORK, XRB_RATIO,
 };
 use rsnano_ledger::Ledger;
 use rsnano_messages::ProtocolInfo;
@@ -52,9 +52,11 @@ pub struct BootstrapInitiatorConfig {
     pub receive_minimum: Amount,
 }
 
-impl Default for BootstrapInitiatorConfig {
-    fn default() -> Self {
+impl BootstrapInitiatorConfig {
+    pub fn default_for(network: Networks) -> Self {
         Self {
+            work_thresholds: WorkThresholds::default_for(network),
+            protocol: ProtocolInfo::default_for(network),
             bootstrap_connections: 4,
             bootstrap_connections_max: 64,
             tcp_io_timeout: Duration::from_secs(15),
@@ -63,15 +65,19 @@ impl Default for BootstrapInitiatorConfig {
             disable_legacy_bootstrap: false,
             idle_timeout: Duration::from_secs(120),
             lazy_max_pull_blocks: 512,
-            work_thresholds: Default::default(),
             lazy_retry_limit: 64,
-            protocol: Default::default(),
             frontier_request_count: 1024 * 1024,
             frontier_retry_limit: 16,
             disable_bulk_push_client: false,
             bootstrap_initiator_threads: 1,
             receive_minimum: Amount::raw(*XRB_RATIO),
         }
+    }
+}
+
+impl Default for BootstrapInitiatorConfig {
+    fn default() -> Self {
+        Self::default_for(ACTIVE_NETWORK.lock().unwrap().clone())
     }
 }
 
@@ -117,6 +123,7 @@ impl BootstrapInitiator {
         block_processor: Arc<BlockProcessor>,
         websocket: Option<Arc<WebsocketListener>>,
         ledger: Arc<Ledger>,
+        message_publisher: MessagePublisher,
     ) -> Self {
         let attempts = Arc::new(Mutex::new(BootstrapAttempts::new()));
         let cache = Arc::new(Mutex::new(PullsCache::new()));
@@ -148,6 +155,7 @@ impl BootstrapInitiator {
                 stats,
                 block_processor,
                 cache,
+                message_publisher,
             )),
         }
     }
@@ -402,7 +410,9 @@ impl BootstrapInitiatorExt for Arc<BootstrapInitiator> {
                 .insert(incremental_id, Arc::clone(&attempt));
             self.attempts.lock().unwrap().add(attempt);
             if !self.network.is_excluded(&remote_addr) {
-                self.connections.add_connection(remote_addr);
+                self.runtime
+                    .tokio
+                    .block_on(self.connections.add_connection(remote_addr));
             }
         }
         self.condition.notify_all();

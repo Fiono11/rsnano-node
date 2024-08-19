@@ -13,7 +13,6 @@ use rsnano_core::{
     utils::{seconds_since_epoch, NULL_ENDPOINT},
     Account,
 };
-use rsnano_messages::{Message, MessageSerializer, ProtocolInfo};
 use std::{
     fmt::Display,
     net::{Ipv6Addr, SocketAddrV6},
@@ -24,14 +23,14 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::time::sleep;
-use tracing::{debug, trace};
+use tracing::debug;
 
 pub struct ChannelData {
     last_bootstrap_attempt: SystemTime,
     last_packet_received: SystemTime,
     last_packet_sent: SystemTime,
     node_id: Option<Account>,
-    peering_endpoint: Option<SocketAddrV6>,
+    peering_addr: Option<SocketAddrV6>,
 }
 
 /// Default timeout in seconds
@@ -40,13 +39,12 @@ const DEFAULT_TIMEOUT: u64 = 120;
 pub struct Channel {
     channel_id: ChannelId,
     channel_mutex: Mutex<ChannelData>,
-    network_version: AtomicU8,
+    protocol_version: AtomicU8,
     limiter: Arc<OutboundBandwidthLimiter>,
-    message_serializer: Mutex<MessageSerializer>, // TODO remove mutex
     stats: Arc<Stats>,
 
     /// The other end of the connection
-    remote: SocketAddrV6,
+    peer_addr: SocketAddrV6,
 
     /// the timestamp (in seconds since epoch) of the last time there was successful activity on the socket
     last_activity: AtomicU64,
@@ -79,20 +77,20 @@ impl Channel {
         channel_id: ChannelId,
         stream: Arc<TcpStream>,
         direction: ChannelDirection,
-        protocol: ProtocolInfo,
+        protocol_version: u8,
         stats: Arc<Stats>,
         limiter: Arc<OutboundBandwidthLimiter>,
     ) -> (Self, WriteQueueReceiver) {
-        let remote = stream
+        let peer_addr = stream
             .peer_addr()
             .map(into_ipv6_socket_address)
             .unwrap_or(NULL_ENDPOINT);
 
         let (write_queue, receiver) = WriteQueue::new(Self::MAX_QUEUE_SIZE);
 
-        let peering_endpoint = match direction {
+        let peering_addr = match direction {
             ChannelDirection::Inbound => None,
-            ChannelDirection::Outbound => Some(remote),
+            ChannelDirection::Outbound => Some(peer_addr),
         };
 
         let now = SystemTime::now();
@@ -103,13 +101,12 @@ impl Channel {
                 last_packet_received: now,
                 last_packet_sent: now,
                 node_id: None,
-                peering_endpoint,
+                peering_addr,
             }),
-            network_version: AtomicU8::new(protocol.version_using),
+            protocol_version: AtomicU8::new(protocol_version),
             limiter,
-            message_serializer: Mutex::new(MessageSerializer::new(protocol)),
             stats,
-            remote,
+            peer_addr,
             last_activity: AtomicU64::new(seconds_since_epoch()),
             timeout_seconds: AtomicU64::new(DEFAULT_TIMEOUT),
             direction,
@@ -133,7 +130,7 @@ impl Channel {
             id.into(),
             Arc::new(TcpStream::new_null()),
             ChannelDirection::Inbound,
-            ProtocolInfo::default(),
+            200,
             Arc::new(Stats::default()),
             Arc::new(OutboundBandwidthLimiter::default()),
         );
@@ -146,14 +143,20 @@ impl Channel {
         channel_id: ChannelId,
         stream: TcpStream,
         direction: ChannelDirection,
-        protocol: ProtocolInfo,
+        protocol_version: u8,
         stats: Arc<Stats>,
         limiter: Arc<OutboundBandwidthLimiter>,
     ) -> Arc<Self> {
         let stream = Arc::new(stream);
         let stream_l = stream.clone();
-        let (channel, mut receiver) =
-            Self::new(channel_id, stream, direction, protocol, stats, limiter);
+        let (channel, mut receiver) = Self::new(
+            channel_id,
+            stream,
+            direction,
+            protocol_version,
+            stats,
+            limiter,
+        );
         //
         // process write queue:
         tokio::spawn(async move {
@@ -190,12 +193,12 @@ impl Channel {
         channel
     }
 
-    pub(crate) fn set_peering_endpoint(&self, address: SocketAddrV6) {
+    pub(crate) fn set_peering_addr(&self, address: SocketAddrV6) {
         let mut lock = self.channel_mutex.lock().unwrap();
-        lock.peering_endpoint = Some(address);
+        lock.peering_addr = Some(address);
     }
 
-    pub(crate) fn max(&self, traffic_type: TrafficType) -> bool {
+    pub(crate) fn is_queue_full(&self, traffic_type: TrafficType) -> bool {
         self.write_queue.capacity(traffic_type) <= Self::MAX_QUEUE_SIZE
     }
 
@@ -256,16 +259,20 @@ impl Channel {
             .unwrap_or(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0))
     }
 
-    pub fn remote_addr(&self) -> SocketAddrV6 {
-        self.remote
+    pub fn peer_addr(&self) -> SocketAddrV6 {
+        self.peer_addr
     }
 
-    pub fn peering_endpoint(&self) -> Option<SocketAddrV6> {
-        self.channel_mutex.lock().unwrap().peering_endpoint
+    pub fn peering_addr(&self) -> Option<SocketAddrV6> {
+        self.channel_mutex.lock().unwrap().peering_addr
     }
 
-    pub fn network_version(&self) -> u8 {
-        self.network_version.load(Ordering::Relaxed)
+    pub fn protocol_version(&self) -> u8 {
+        self.protocol_version.load(Ordering::Relaxed)
+    }
+
+    pub fn set_protocol_version(&self, version: u8) {
+        self.protocol_version.store(version, Ordering::Relaxed);
     }
 
     pub fn direction(&self) -> ChannelDirection {
@@ -290,7 +297,7 @@ impl Channel {
         buffer: &[u8],
         traffic_type: TrafficType,
     ) -> anyhow::Result<()> {
-        while self.max(traffic_type) {
+        while self.is_queue_full(traffic_type) {
             // TODO: better implementation
             sleep(Duration::from_millis(20)).await;
         }
@@ -323,7 +330,7 @@ impl Channel {
         } else {
             self.stats
                 .inc_dir(StatType::Tcp, DetailType::TcpWriteError, Direction::In);
-            debug!(channel_id = %self.channel_id(), remote_addr = ?self.remote_addr(), "Closing channel after write error");
+            debug!(channel_id = %self.channel_id(), remote_addr = ?self.peer_addr(), "Closing channel after write error");
             self.close();
         }
 
@@ -343,7 +350,7 @@ impl Channel {
             return false;
         }
 
-        if drop_policy == DropPolicy::CanDrop && self.max(traffic_type) {
+        if drop_policy == DropPolicy::CanDrop && self.is_queue_full(traffic_type) {
             return false;
         }
 
@@ -373,41 +380,9 @@ impl Channel {
             self.stats
                 .inc_dir(StatType::Tcp, DetailType::TcpWriteError, Direction::In);
             self.close();
-            debug!(peer_addr = ?self.remote, channel_id = %self.channel_id(), mode = ?self.mode(), "Closing socket after write error");
+            debug!(peer_addr = ?self.peer_addr, channel_id = %self.channel_id(), mode = ?self.mode(), "Closing socket after write error");
         }
         inserted
-    }
-
-    // TODO extract into MessagePublisher
-    pub fn try_send(&self, message: &Message, drop_policy: DropPolicy, traffic_type: TrafficType) {
-        let buffer = {
-            let mut serializer = self.message_serializer.lock().unwrap();
-            serializer.serialize(message).to_vec()
-        };
-
-        if self.try_send_buffer(&buffer, drop_policy, traffic_type) {
-            self.stats
-                .inc_dir_aggregate(StatType::Message, message.into(), Direction::Out);
-            trace!(channel_id = %self.channel_id, message = ?message, "Message sent");
-        } else {
-            let detail_type = message.into();
-            self.stats
-                .inc_dir_aggregate(StatType::Drop, detail_type, Direction::Out);
-            trace!(channel_id = %self.channel_id, message = ?message, "Message dropped");
-        }
-    }
-
-    // TODO extract into MessagePublisher
-    pub async fn send(&self, message: &Message, traffic_type: TrafficType) -> anyhow::Result<()> {
-        let buffer = {
-            let mut serializer = self.message_serializer.lock().unwrap();
-            serializer.serialize(message).to_vec()
-        };
-        self.send_buffer(&buffer, traffic_type).await?;
-        self.stats
-            .inc_dir_aggregate(StatType::Message, message.into(), Direction::Out);
-        trace!(channel_id = %self.channel_id, message = ?message, "Message sent");
-        Ok(())
     }
 
     pub fn close(&self) {
@@ -417,11 +392,11 @@ impl Channel {
     }
 
     pub fn ipv4_address_or_ipv6_subnet(&self) -> Ipv6Addr {
-        ipv4_address_or_ipv6_subnet(&self.remote_addr().ip())
+        ipv4_address_or_ipv6_subnet(&self.peer_addr().ip())
     }
 
     pub fn subnetwork(&self) -> Ipv6Addr {
-        map_address_to_subnetwork(self.remote_addr().ip())
+        map_address_to_subnetwork(self.peer_addr().ip())
     }
 
     async fn ongoing_checkup(&self) {
@@ -430,7 +405,7 @@ impl Channel {
             // If the socket is already dead, close just in case, and stop doing checkups
             if !self.is_alive() {
                 debug!(
-                    remote_addr = ?self.remote,
+                    remote_addr = ?self.peer_addr,
                     "Stopping checkup for dead channel"
                 );
                 return;
@@ -456,7 +431,7 @@ impl Channel {
             }
 
             if condition_to_disconnect {
-                debug!(channel_id = %self.channel_id(), remote_addr = ?self.remote_addr(), mode = ?self.mode(), direction = ?self.direction(), "Closing channel due to timeout");
+                debug!(channel_id = %self.channel_id(), remote_addr = ?self.peer_addr(), mode = ?self.mode(), direction = ?self.direction(), "Closing channel due to timeout");
                 self.timed_out.store(true, Ordering::SeqCst);
                 self.close();
             }
@@ -466,7 +441,7 @@ impl Channel {
 
 impl Display for Channel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.remote.fmt(f)
+        self.peer_addr.fmt(f)
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
         FairQueue, MessagePublisher, TrafficType,
     },
 };
-use rsnano_core::{BlockEnum, BlockHash, Frontier, NoValue};
+use rsnano_core::{BlockEnum, BlockHash, Frontier};
 use rsnano_ledger::Ledger;
 use rsnano_messages::{
     AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
@@ -50,8 +50,8 @@ pub struct BootstrapServer {
 
 impl BootstrapServer {
     /** Maximum number of blocks to send in a single response, cannot be higher than capacity of a single `asc_pull_ack` message */
-    const MAX_BLOCKS: usize = BlocksAckPayload::MAX_BLOCKS;
-    const MAX_FRONTIERS: usize = AscPullAck::MAX_FRONTIERS;
+    pub const MAX_BLOCKS: usize = BlocksAckPayload::MAX_BLOCKS;
+    pub const MAX_FRONTIERS: usize = AscPullAck::MAX_FRONTIERS;
 
     pub(crate) fn new(
         config: BootstrapServerConfig,
@@ -122,7 +122,7 @@ impl BootstrapServer {
 
         // If channel is full our response will be dropped anyway, so filter that early
         // TODO: Add per channel limits (this ideally should be done on the channel message processing side)
-        if channel.max(TrafficType::Bootstrap) {
+        if channel.is_queue_full(TrafficType::Bootstrap) {
             self.stats.inc_dir(
                 StatType::BootstrapServer,
                 DetailType::ChannelFull,
@@ -215,7 +215,7 @@ impl BootstrapServerImpl {
         for (_, (request, channel)) in batch {
             tx.refresh_if_needed();
 
-            if !channel.max(TrafficType::Bootstrap) {
+            if !channel.is_queue_full(TrafficType::Bootstrap) {
                 let response = self.process(&tx, request);
                 self.respond(response, channel);
             } else {

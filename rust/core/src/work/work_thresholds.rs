@@ -1,13 +1,12 @@
 use crate::{
-    BlockDetails, BlockEnum, BlockType, Difficulty, DifficultyV1, Epoch, Root, StubDifficulty,
-    WorkVersion,
+    BlockDetails, BlockEnum, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
+    StubDifficulty, WorkVersion, ACTIVE_NETWORK,
 };
 use once_cell::sync::Lazy;
 use std::cmp::{max, min};
 
 pub static WORK_THRESHOLDS_STUB: Lazy<WorkThresholds> = Lazy::new(|| WorkThresholds::new_stub());
 
-#[derive(Debug)]
 pub struct WorkThresholds {
     pub epoch_1: u64,
     pub epoch_2: u64,
@@ -43,6 +42,18 @@ impl PartialEq for WorkThresholds {
             && self.entry == other.entry
             && self.difficulty.get_difficulty(&Root::default(), 0)
                 == other.difficulty.get_difficulty(&Root::default(), 0)
+    }
+}
+
+impl std::fmt::Debug for WorkThresholds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkThresholds")
+            .field("epoch_1", &self.epoch_1)
+            .field("epoch_2", &self.epoch_2)
+            .field("epoch_2_receive", &self.epoch_2_receive)
+            .field("base", &self.base)
+            .field("entry", &self.entry)
+            .finish()
     }
 }
 
@@ -117,6 +128,18 @@ impl WorkThresholds {
             epoch_2,
             epoch_2_receive,
         )
+    }
+
+    pub fn default_for(network: Networks) -> Self {
+        match network {
+            Networks::NanoDevNetwork => Self::publish_dev().clone(),
+            Networks::NanoBetaNetwork => Self::publish_beta().clone(),
+            Networks::NanoLiveNetwork => Self::publish_full().clone(),
+            Networks::NanoTestNetwork => Self::publish_test().clone(),
+            Networks::Invalid => {
+                panic!("no default network set")
+            }
+        }
     }
 
     pub fn new_stub() -> Self {
@@ -272,7 +295,7 @@ impl WorkThresholds {
 
 impl Default for WorkThresholds {
     fn default() -> Self {
-        PUBLISH_FULL.clone()
+        Self::default_for(ACTIVE_NETWORK.lock().unwrap().clone())
     }
 }
 
@@ -291,7 +314,7 @@ mod tests {
     fn difficulty_block() {
         let block = BlockEnum::new_test_instance();
         assert_eq!(
-            WorkThresholds::default().difficulty_block(&block),
+            WorkThresholds::publish_full().difficulty_block(&block),
             9665579333895977632
         );
     }
@@ -299,7 +322,7 @@ mod tests {
     #[test]
     fn threshold_epoch0_send() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch0,
@@ -315,7 +338,7 @@ mod tests {
     #[test]
     fn threshold_epoch0_receive() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch0,
@@ -331,7 +354,7 @@ mod tests {
     #[test]
     fn threshold_epoch1_send() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch1,
@@ -347,7 +370,7 @@ mod tests {
     #[test]
     fn threshold_epoch1_receive() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch1,
@@ -363,7 +386,7 @@ mod tests {
     #[test]
     fn threshold_epoch2_send() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch2,
@@ -379,7 +402,7 @@ mod tests {
     #[test]
     fn threshold_epoch2_receive() {
         assert_eq!(
-            WorkThresholds::default().threshold2(
+            WorkThresholds::publish_full().threshold2(
                 WorkVersion::Work1,
                 &BlockDetails {
                     epoch: Epoch::Epoch2,

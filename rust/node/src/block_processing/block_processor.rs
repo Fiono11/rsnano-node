@@ -147,6 +147,15 @@ impl Default for BlockProcessorConfig {
     }
 }
 
+impl BlockProcessorConfig {
+    pub fn new(work_thresholds: WorkThresholds) -> Self {
+        Self {
+            work_thresholds,
+            ..Default::default()
+        }
+    }
+}
+
 pub struct BlockProcessor {
     thread: Mutex<Option<JoinHandle<()>>>,
     processor_loop: Arc<BlockProcessorLoop>,

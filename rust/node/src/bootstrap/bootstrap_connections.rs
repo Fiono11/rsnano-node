@@ -6,9 +6,12 @@ use super::{
 use crate::{
     block_processing::BlockProcessor,
     stats::{DetailType, Direction, StatType, Stats},
-    transport::{AcceptResult, ChannelDirection, ChannelMode, Network, TcpStreamFactory},
+    transport::{
+        AcceptResult, ChannelDirection, ChannelMode, MessagePublisher, Network, TcpStreamFactory,
+    },
     utils::{AsyncRuntime, ThreadPool, ThreadPoolImpl},
 };
+use async_trait::async_trait;
 use ordered_float::OrderedFloat;
 use rsnano_core::{utils::PropertyTree, Account, BlockHash};
 use std::{
@@ -42,6 +45,7 @@ pub struct BootstrapConnections {
     block_processor: Arc<BlockProcessor>,
     bootstrap_initiator: Mutex<Option<Weak<BootstrapInitiator>>>,
     pulls_cache: Arc<Mutex<PullsCache>>,
+    message_publisher: MessagePublisher,
 }
 
 impl BootstrapConnections {
@@ -54,6 +58,7 @@ impl BootstrapConnections {
         stats: Arc<Stats>,
         block_processor: Arc<BlockProcessor>,
         pulls_cache: Arc<Mutex<PullsCache>>,
+        message_publisher: MessagePublisher,
     ) -> Self {
         Self {
             condition: Condvar::new(),
@@ -75,6 +80,7 @@ impl BootstrapConnections {
             block_processor,
             pulls_cache,
             bootstrap_initiator: Mutex::new(None),
+            message_publisher,
         }
     }
 
@@ -95,6 +101,7 @@ impl BootstrapConnections {
             block_processor: Arc::new(BlockProcessor::new_null()),
             bootstrap_initiator: Mutex::new(None),
             pulls_cache: Arc::new(Mutex::new(PullsCache::new())),
+            message_publisher: MessagePublisher::new_null(),
         }
     }
 
@@ -199,6 +206,7 @@ impl BootstrapConnections {
     }
 }
 
+#[async_trait]
 pub trait BootstrapConnectionsExt {
     fn pool_connection(&self, client: Arc<BootstrapClient>, new_client: bool, push_front: bool);
     fn requeue_pull(&self, pull: PullInfo, network_error: bool);
@@ -208,14 +216,15 @@ pub trait BootstrapConnectionsExt {
     fn add_pull(&self, pull: PullInfo);
     fn connection(&self, use_front_connection: bool) -> (Option<Arc<BootstrapClient>>, bool);
     fn find_connection(&self, endpoint: SocketAddrV6) -> Option<Arc<BootstrapClient>>;
-    fn add_connection(&self, endpoint: SocketAddrV6);
-    fn connect_client(&self, endpoint: SocketAddrV6, push_front: bool) -> bool;
+    async fn add_connection(&self, endpoint: SocketAddrV6) -> bool;
+    async fn connect_client(&self, endpoint: SocketAddrV6, push_front: bool) -> bool;
     fn request_pull<'a>(
         &'a self,
         guard: MutexGuard<'a, BootstrapConnectionsData>,
     ) -> MutexGuard<'a, BootstrapConnectionsData>;
 }
 
+#[async_trait]
 impl BootstrapConnectionsExt for Arc<BootstrapConnections> {
     fn pool_connection(&self, client_a: Arc<BootstrapClient>, new_client: bool, push_front: bool) {
         let mut guard = self.mutex.lock().unwrap();
@@ -483,10 +492,15 @@ impl BootstrapConnectionsExt for Arc<BootstrapConnections> {
                         || !endpoints.contains(&endpoint))
                     && !self.network.is_excluded(&endpoint)
                 {
-                    self.connect_client(endpoint, false);
-                    endpoints.insert(endpoint);
-                    let _guard = self.mutex.lock().unwrap();
-                    self.new_connections_empty.store(false, Ordering::SeqCst);
+                    let success = self
+                        .runtime
+                        .tokio
+                        .block_on(self.connect_client(endpoint, false));
+                    if success {
+                        endpoints.insert(endpoint);
+                        let _guard = self.mutex.lock().unwrap();
+                        self.new_connections_empty.store(false, Ordering::SeqCst);
+                    }
                 } else if self.connections_count.load(Ordering::SeqCst) == 0 {
                     {
                         let _guard = self.mutex.lock().unwrap();
@@ -509,17 +523,16 @@ impl BootstrapConnectionsExt for Arc<BootstrapConnections> {
         }
     }
 
-    fn add_connection(&self, endpoint: SocketAddrV6) {
-        self.connect_client(endpoint, true);
+    async fn add_connection(&self, endpoint: SocketAddrV6) -> bool {
+        self.connect_client(endpoint, true).await
     }
 
-    fn connect_client(&self, peer_addr: SocketAddrV6, push_front: bool) -> bool {
+    async fn connect_client(&self, peer_addr: SocketAddrV6, push_front: bool) -> bool {
         if !self.network.add_attempt(peer_addr) {
             return false;
         }
 
-        let self_l = Arc::clone(self);
-        if self_l.network.can_add_connection(
+        if self.network.can_add_connection(
             &peer_addr,
             ChannelDirection::Outbound,
             ChannelMode::Bootstrap,
@@ -532,51 +545,53 @@ impl BootstrapConnectionsExt for Arc<BootstrapConnections> {
             return false;
         }
 
-        self.runtime.tokio.spawn(async move {
-            let tcp_stream_factory = Arc::new(TcpStreamFactory::new());
-            let tcp_stream = match tokio::time::timeout(
-                self_l.config.tcp_io_timeout,
-                tcp_stream_factory.connect(peer_addr),
+        let tcp_stream_factory = Arc::new(TcpStreamFactory::new());
+        let tcp_stream = match tokio::time::timeout(
+            self.config.tcp_io_timeout,
+            tcp_stream_factory.connect(peer_addr),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(e)) => {
+                debug!(
+                    "Error initiating bootstrap connection to: {} ({:?})",
+                    peer_addr, e
+                );
+                self.connections_count.fetch_sub(1, Ordering::SeqCst);
+                return false;
+            }
+            Err(_) => {
+                debug!("Timeout connecting to: {}", peer_addr);
+                self.connections_count.fetch_sub(1, Ordering::SeqCst);
+                return false;
+            }
+        };
+
+        let Ok(channel) = self
+            .network
+            .add(
+                tcp_stream,
+                ChannelDirection::Outbound,
+                ChannelMode::Bootstrap,
             )
             .await
-            {
-                Ok(Ok(stream)) => stream,
-                Ok(Err(e)) => {
-                    debug!(
-                        "Error initiating bootstrap connection to: {} ({:?})",
-                        peer_addr, e
-                    );
-                    self_l.connections_count.fetch_sub(1, Ordering::SeqCst);
-                    return;
-                }
-                Err(_) => {
-                    debug!("Timeout connecting to: {}", peer_addr);
-                    self_l.connections_count.fetch_sub(1, Ordering::SeqCst);
-                    return;
-                }
-            };
+        else {
+            debug!(remote_addr = ?peer_addr, "Bootstrap connection rejected");
+            return false;
+        };
+        debug!("Bootstrap connection established to: {}", peer_addr);
 
-            let Ok(channel) = self_l
-                .network
-                .add(
-                    tcp_stream,
-                    ChannelDirection::Outbound,
-                    ChannelMode::Bootstrap,
-                )
-                .await
-            else {
-                debug!(remote_addr = ?peer_addr, "Bootstrap connection rejected");
-                return;
-            };
-            debug!("Bootstrap connection established to: {}", peer_addr);
+        channel.set_mode(ChannelMode::Bootstrap);
 
-            channel.set_mode(ChannelMode::Bootstrap);
-
-            let client = Arc::new(BootstrapClient::new(&self_l, channel));
-            self_l.connections_count.fetch_add(1, Ordering::SeqCst);
-            self_l.network.remove_attempt(&peer_addr);
-            self_l.pool_connection(client, true, push_front);
-        });
+        let client = Arc::new(BootstrapClient::new(
+            &self,
+            channel,
+            self.message_publisher.clone(),
+        ));
+        self.connections_count.fetch_add(1, Ordering::SeqCst);
+        self.network.remove_attempt(&peer_addr);
+        self.pool_connection(client, true, push_front);
 
         true
     }

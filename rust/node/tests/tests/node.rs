@@ -13,9 +13,9 @@ use rsnano_node::{
     wallets::WalletsExt,
 };
 use std::{sync::Arc, thread::sleep, time::Duration};
-use test_helpers::{activate_hashes, assert_timely, start_election, start_elections};
 use test_helpers::{
-    assert_always_eq, assert_never, assert_timely_eq, assert_timely_msg, make_fake_channel, System,
+    activate_hashes, assert_always_eq, assert_never, assert_timely, assert_timely_eq,
+    assert_timely_msg, make_fake_channel, start_election, start_elections, System,
 };
 
 #[test]
@@ -803,7 +803,7 @@ fn rollback_vote_self() {
         let channel = make_fake_channel(&node);
 
         node.request_aggregator
-            .request(vec![(send2.hash(), send2.root())], channel);
+            .request(vec![(send2.hash(), send2.root())], channel.channel_id());
 
         assert_always_eq(
             Duration::from_secs(1),

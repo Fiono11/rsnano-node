@@ -42,8 +42,8 @@ fn last_contacted() {
         .unwrap();
 
     // check that the endpoints are part of the same connection
-    assert_eq!(channel0.local_addr(), channel1.remote_addr());
-    assert_eq!(channel1.local_addr(), channel0.remote_addr());
+    assert_eq!(channel0.local_addr(), channel1.peer_addr());
+    assert_eq!(channel1.local_addr(), channel0.peer_addr());
 
     // capture the state before and ensure the clock ticks at least once
     let timestamp_before_keepalive = channel0.get_last_packet_received();
@@ -98,7 +98,6 @@ fn last_contacted() {
 }
 
 #[test]
-#[ignore = "todo"]
 fn send_discarded_publish() {
     let mut system = System::new();
     let node1 = system.make_node();
@@ -106,17 +105,19 @@ fn send_discarded_publish() {
 
     let block = BlockEnum::State(StateBlock::new(
         *DEV_GENESIS_ACCOUNT,
-        999.into(),
-        *DEV_GENESIS_ACCOUNT,
-        Amount::MAX - Amount::nano(100),
-        Account::from(123).into(),
+        2.into(),
+        3.into(),
+        Amount::MAX,
+        4.into(),
         &DEV_GENESIS_KEY,
-        node1.work_generate_dev((*DEV_GENESIS_HASH).into()),
+        node1.work_generate_dev(2.into()),
     ));
 
-    node1
-        .network
-        .flood_message(&Message::Publish(Publish::new_forward(block)), 1.0);
+    node1.message_publisher.lock().unwrap().flood(
+        &Message::Publish(Publish::new_forward(block)),
+        DropPolicy::ShouldNotDrop,
+        1.0,
+    );
 
     assert_eq!(node1.latest(&DEV_GENESIS_ACCOUNT), *DEV_GENESIS_HASH);
     assert_eq!(node2.latest(&DEV_GENESIS_ACCOUNT), *DEV_GENESIS_HASH);
