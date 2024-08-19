@@ -49,6 +49,12 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         account: String,
     },
+    WalletLock {
+        wallet: String,
+    },
+    WalletLocked {
+        wallet: String,
+    },
     #[serde(other)]
     UnknownCommand,
 }

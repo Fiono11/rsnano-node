@@ -4,6 +4,7 @@ use super::response::{
     account_move, account_remove, account_representative, account_representative_set,
     account_weight, accounts_create, available_supply, block_account, block_confirm, block_count,
     version, wallet_add, wallet_balances, wallet_contains, wallet_create, wallet_destroy,
+    wallet_lock, wallet_locked,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -155,6 +156,14 @@ async fn handle_rpc(
             WalletRpcRequest::WalletContains { wallet, account } => {
                 wallet_contains(service.node, wallet, account).await
             }
+            WalletRpcRequest::WalletLock { wallet } => {
+                if service.enable_control {
+                    wallet_lock(service.node, wallet).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
+            }
+            WalletRpcRequest::WalletLocked { wallet } => wallet_locked(service.node, wallet).await,
             WalletRpcRequest::UnknownCommand => format_error_message("Unknown command"),
         },
     };

@@ -9,6 +9,8 @@ mod wallet_balances;
 mod wallet_contains;
 mod wallet_create;
 mod wallet_destroy;
+mod wallet_lock;
+mod wallet_locked;
 
 pub(crate) use account_create::*;
 pub(crate) use account_list::*;
@@ -21,3 +23,5 @@ pub(crate) use wallet_balances::*;
 pub(crate) use wallet_contains::*;
 pub(crate) use wallet_create::*;
 pub(crate) use wallet_destroy::*;
+pub(crate) use wallet_lock::*;
+pub(crate) use wallet_locked::*;
