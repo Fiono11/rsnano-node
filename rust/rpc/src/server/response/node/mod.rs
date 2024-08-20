@@ -10,6 +10,7 @@ mod available_supply;
 mod block_account;
 mod block_confirm;
 mod block_count;
+mod uptime;
 mod version;
 
 pub(crate) use account_balance::*;
@@ -25,3 +26,4 @@ pub(crate) use account_weight::*;
 pub(crate) use block_account::*;
 pub(crate) use block_confirm::*;
 pub(crate) use block_count::*;
+pub(crate) use uptime::*;

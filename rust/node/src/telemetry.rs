@@ -46,7 +46,7 @@ pub struct Telemetry {
     network: Arc<Network>,
     message_publisher: Mutex<MessagePublisher>,
     node_id: KeyPair,
-    startup_time: Instant,
+    pub startup_time: Instant,
     telemetry_processed_callbacks:
         Mutex<Vec<Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>>>,
 }

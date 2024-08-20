@@ -32,4 +32,5 @@ pub(crate) enum NodeRpcRequest {
         hash: String,
     },
     BlockCount,
+    Uptime,
 }
