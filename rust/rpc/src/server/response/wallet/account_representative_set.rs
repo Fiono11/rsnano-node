@@ -21,53 +21,71 @@ pub(crate) async fn account_representative_set(
     wallet: String,
     account: String,
     representative: String,
-    work: Option<bool>,
+    work: Option<String>,
 ) -> String {
+    // Decode the wallet
     match WalletId::decode_hex(&wallet) {
-        Ok(wallet) => match Account::decode_account(&account) {
-            Ok(account) => match Account::decode_account(&representative) {
-                Ok(representative) => {
-                    let result = Arc::new((Condvar::new(), Mutex::new((false, None))));
-                    let result_clone = Arc::clone(&result);
+        Ok(wallet) => {
+            // Decode the account
+            match Account::decode_account(&account) {
+                Ok(account) => {
+                    // Decode the representative
+                    match Account::decode_account(&representative) {
+                        Ok(representative) => {
+                            // Determine if work should be generated; default to `true`
+                            let generate_work = work
+                                .as_ref()
+                                .map(|w| w.parse::<bool>().unwrap_or(true))
+                                .unwrap_or(true);
 
-                    let change_async_result = node.wallets.change_async(
-                        wallet,
-                        account,
-                        representative,
-                        Box::new(move |block| {
-                            *result_clone.1.lock().unwrap() = (true, block);
-                            result_clone.0.notify_all();
-                        }),
-                        0,
-                        work.unwrap_or(true),
-                    );
+                            let result = Arc::new((Condvar::new(), Mutex::new((false, None))));
+                            let result_clone = Arc::clone(&result);
 
-                    if change_async_result.is_err() {
-                        return format_error_message(
-                            "Failed to initiate account representative change",
-                        );
-                    }
+                            let change_async_result = node.wallets.change_async(
+                                wallet,
+                                account,
+                                representative,
+                                Box::new(move |block| {
+                                    *result_clone.1.lock().unwrap() = (true, block);
+                                    result_clone.0.notify_all();
+                                }),
+                                0,
+                                generate_work,
+                            );
 
-                    let block: Option<BlockEnum> = {
-                        let (ref condvar, ref mutex) = *result;
-                        let mut result_guard = mutex.lock().unwrap();
-                        while !result_guard.0 {
-                            result_guard = condvar.wait(result_guard).unwrap();
+                            // Check if initiation of the change was successful
+                            if change_async_result.is_err() {
+                                return format_error_message(
+                                    "Failed to initiate account representative change",
+                                );
+                            }
+
+                            // Wait for the block to be processed
+                            let block: Option<BlockEnum> = {
+                                let (ref condvar, ref mutex) = *result;
+                                let mut result_guard = mutex.lock().unwrap();
+                                while !result_guard.0 {
+                                    result_guard = condvar.wait(result_guard).unwrap();
+                                }
+                                result_guard.1.clone()
+                            };
+
+                            // Check if the block is set, and return the response
+                            if let Some(block) = block {
+                                to_string_pretty(&AccountRepresentativeSet::new(
+                                    block.hash().encode_hex(),
+                                ))
+                                .unwrap_or_else(|_| format_error_message("Serialization error"))
+                            } else {
+                                format_error_message("Failed to set account representative")
+                            }
                         }
-                        result_guard.1.clone()
-                    };
-
-                    if let Some(block) = block {
-                        to_string_pretty(&AccountRepresentativeSet::new(block.hash().encode_hex()))
-                            .unwrap()
-                    } else {
-                        format_error_message("Failed to set account representative")
+                        Err(_) => format_error_message("Bad representative"),
                     }
                 }
-                Err(_) => format_error_message("Bad representative"),
-            },
-            Err(_) => format_error_message("Bad account number"),
-        },
+                Err(_) => format_error_message("Bad account number"),
+            }
+        }
         Err(_) => format_error_message("Bad wallet"),
     }
 }

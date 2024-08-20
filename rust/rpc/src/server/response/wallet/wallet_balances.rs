@@ -19,7 +19,7 @@ impl WalletBalances {
 pub(crate) async fn wallet_balances(
     node: Arc<Node>,
     wallet: String,
-    threshold: Option<u128>,
+    threshold: Option<String>,
 ) -> String {
     match WalletId::decode_hex(&wallet) {
         Ok(wallet) => {

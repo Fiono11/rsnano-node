@@ -6,11 +6,11 @@ use serde::Deserialize;
 pub(crate) enum WalletRpcRequest {
     AccountCreate {
         wallet: String,
-        index: Option<u32>,
+        index: Option<String>,
     },
     AccountsCreate {
         wallet: String,
-        count: u32,
+        count: String,
     },
     AccountList {
         wallet: String,
@@ -23,7 +23,7 @@ pub(crate) enum WalletRpcRequest {
         wallet: String,
         account: String,
         representative: String,
-        work: Option<bool>,
+        work: Option<String>,
     },
     AccountMove {
         wallet: String,
@@ -33,11 +33,11 @@ pub(crate) enum WalletRpcRequest {
     WalletAdd {
         wallet: String,
         key: String,
-        work: Option<bool>,
+        work: Option<String>,
     },
     WalletBalances {
         wallet: String,
-        threshold: Option<u128>,
+        threshold: Option<String>,
     },
     WalletCreate {
         seed: Option<String>,

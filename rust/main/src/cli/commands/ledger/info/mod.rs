@@ -49,7 +49,7 @@ impl InfoCommand {
             Some(InfoSubcommands::CementedBlockCount(args)) => args.cemented_block_count()?,
             Some(InfoSubcommands::Peers(args)) => args.peers()?,
             Some(InfoSubcommands::TrendedOnlineWeight(args)) => args.trended_online_weight()?,
-            Some(InfoSubcommands::Representatives(args)) => args.dump_representatives()?,
+            Some(InfoSubcommands::Representatives(args)) => args.representatives()?,
             None => InfoCommand::command().print_long_help()?,
         }
 

@@ -16,17 +16,25 @@ impl AccountsCreate {
     }
 }
 
-pub(crate) async fn accounts_create(node: Arc<Node>, wallet: String, count: u32) -> String {
+pub(crate) async fn accounts_create(node: Arc<Node>, wallet: String, count: String) -> String {
     match WalletId::decode_hex(&wallet) {
-        Ok(wallet) => {
-            let mut accounts = vec![];
-            for _ in 0..count {
-                let public_key = node.wallets.deterministic_insert2(&wallet, false).unwrap();
-                let account = Account::encode_account(&public_key);
-                accounts.push(account);
+        Ok(wallet) => match count.parse::<u32>() {
+            Ok(count) => {
+                let mut accounts = vec![];
+                for _ in 0..count {
+                    match node.wallets.deterministic_insert2(&wallet, false) {
+                        Ok(public_key) => {
+                            let account = Account::encode_account(&public_key);
+                            accounts.push(account);
+                        }
+                        Err(_) => return format_error_message("Failed to create account"),
+                    }
+                }
+                to_string_pretty(&AccountsCreate::new(accounts))
+                    .unwrap_or_else(|_| format_error_message("Serialization error"))
             }
-            to_string_pretty(&AccountsCreate::new(accounts)).unwrap()
-        }
+            Err(_) => format_error_message("Invalid count"),
+        },
         Err(_) => format_error_message("Bad wallet"),
     }
 }

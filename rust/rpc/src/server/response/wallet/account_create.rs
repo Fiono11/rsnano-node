@@ -16,11 +16,20 @@ impl AccountCreate {
     }
 }
 
-pub(crate) async fn account_create(node: Arc<Node>, wallet: String, index: Option<u32>) -> String {
+pub(crate) async fn account_create(
+    node: Arc<Node>,
+    wallet: String,
+    index: Option<String>,
+) -> String {
     match WalletId::decode_hex(&wallet) {
         Ok(wallet) => {
-            let result = if let Some(i) = index {
-                node.wallets.deterministic_insert_at(&wallet, i, false)
+            let result = if let Some(index_str) = index {
+                match index_str.parse::<u32>() {
+                    Ok(i) => node.wallets.deterministic_insert_at(&wallet, i, false),
+                    Err(_) => {
+                        return format_error_message("Invalid index");
+                    }
+                }
             } else {
                 node.wallets.deterministic_insert2(&wallet, false)
             };

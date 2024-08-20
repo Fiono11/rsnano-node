@@ -89,6 +89,7 @@ async fn handle_rpc(
                     format_error_message("Enable control is disabled")
                 }
             }
+            NodeRpcRequest::Representatives { count, sorting } => todo!(),
         },
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {

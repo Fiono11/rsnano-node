@@ -20,7 +20,7 @@ pub(crate) struct RepresentativesArgs {
 }
 
 impl RepresentativesArgs {
-    pub(crate) fn dump_representatives(&self) -> Result<()> {
+    pub(crate) fn representatives(&self) -> Result<()> {
         let path = get_path(&self.data_path, &self.network).join("data.ldb");
 
         let network_params = NetworkParams::new(NetworkConstants::active_network());

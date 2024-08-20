@@ -10,7 +10,7 @@ pub(crate) enum NodeRpcRequest {
     },
     AccountBalance {
         account: String,
-        only_confirmed: Option<bool>,
+        only_confirmed: Option<String>,
     },
     AccountGet {
         key: String,
@@ -34,4 +34,8 @@ pub(crate) enum NodeRpcRequest {
     BlockCount,
     Uptime,
     Stop,
+    Representatives {
+        count: Option<String>,
+        sorting: Option<String>,
+    },
 }
