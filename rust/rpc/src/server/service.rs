@@ -3,8 +3,8 @@ use super::response::{
     account_balance, account_block_count, account_create, account_get, account_key, account_list,
     account_move, account_remove, account_representative, account_representative_set,
     account_weight, accounts_create, available_supply, block_account, block_confirm, block_count,
-    uptime, version, wallet_add, wallet_balances, wallet_contains, wallet_create, wallet_destroy,
-    wallet_lock, wallet_locked,
+    stop, uptime, version, wallet_add, wallet_balances, wallet_contains, wallet_create,
+    wallet_destroy, wallet_lock, wallet_locked,
 };
 use anyhow::{Context, Result};
 use axum::response::Response;
@@ -82,6 +82,13 @@ async fn handle_rpc(
             NodeRpcRequest::BlockAccount { hash } => block_account(service.node, hash).await,
             NodeRpcRequest::BlockConfirm { hash } => block_confirm(service.node, hash).await,
             NodeRpcRequest::Uptime => uptime(service.node).await,
+            NodeRpcRequest::Stop => {
+                if service.enable_control {
+                    stop(service.node).await
+                } else {
+                    format_error_message("Enable control is disabled")
+                }
+            }
         },
         RpcRequest::Wallet(wallet_request) => match wallet_request {
             WalletRpcRequest::AccountCreate { wallet, index } => {

@@ -33,4 +33,5 @@ pub(crate) enum NodeRpcRequest {
     },
     BlockCount,
     Uptime,
+    Stop,
 }
