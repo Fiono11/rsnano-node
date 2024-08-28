@@ -1,10 +1,9 @@
+use crate::service::responses::format_error_message;
 use rsnano_core::{Account, BlockEnum, WalletId};
 use rsnano_node::{node::Node, wallets::WalletsExt};
 use rsnano_rpc_messages::AccountRepresentativeSetDto;
 use serde_json::to_string_pretty;
 use std::sync::{Arc, Condvar, Mutex};
-
-use crate::service::responses::format_error_message;
 
 pub async fn account_representative_set(
     node: Arc<Node>,

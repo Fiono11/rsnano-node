@@ -1,3 +1,4 @@
+use crate::RpcCommand;
 use rsnano_core::{RawKey, WalletId};
 use serde::{Deserialize, Serialize};
 
@@ -7,15 +8,24 @@ pub struct WalletAddArgs {
     pub key: RawKey,
 }
 
+impl RpcCommand {
+    pub fn wallet_add(wallet_id: WalletId, key: RawKey) -> Self {
+        Self::WalletAdd(WalletAddArgs {
+            wallet: wallet_id,
+            key,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::commands::WalletsRpcCommand;
+    use crate::RpcCommand;
     use serde_json::to_string_pretty;
 
     #[test]
     fn serialize_wallet_add_command() {
         assert_eq!(
-            to_string_pretty(&WalletsRpcCommand::wallet_add(1.into(), 2.into())).unwrap(),
+            to_string_pretty(&RpcCommand::wallet_add(1.into(), 2.into())).unwrap(),
             r#"{
   "action": "wallet_add",
   "wallet": "0000000000000000000000000000000000000000000000000000000000000001",
