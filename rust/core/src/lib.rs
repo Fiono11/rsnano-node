@@ -20,7 +20,10 @@ use blake2::{
 };
 pub use block_hash::{BlockHash, BlockHashBuilder};
 use rand::{thread_rng, Rng};
-use serde::de::{Unexpected, Visitor};
+use serde::{
+    de::{Unexpected, Visitor},
+    Deserializer, Serializer,
+};
 pub use vote::*;
 
 mod key_pair;
@@ -356,7 +359,26 @@ impl FromStr for Networks {
         }
     }
 }
-//
+
+impl serde::Serialize for Networks {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Networks {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Networks::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 //todo: make configurable in builld script again!
 pub static ACTIVE_NETWORK: LazyLock<Mutex<Networks>> =
     LazyLock::new(|| Mutex::new(Networks::NanoBetaNetwork));

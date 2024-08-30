@@ -98,6 +98,11 @@ impl NanoRpcClient {
         Ok(())
     }
 
+    pub async fn version(&self) -> Result<()> {
+        self.rpc_request(&RpcCommand::Version).await?;
+        Ok(())
+    }
+
     async fn rpc_request<T>(&self, request: &T) -> Result<serde_json::Value>
     where
         T: Serialize,

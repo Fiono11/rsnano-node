@@ -20,6 +20,7 @@ pub enum RpcCommand {
     Send(SendArgs),
     WalletAdd(WalletAddArgs),
     WalletCreate,
+    Version,
 }
 
 #[cfg(test)]
@@ -33,6 +34,16 @@ mod tests {
             to_string_pretty(&RpcCommand::Stop).unwrap(),
             r#"{
   "action": "stop"
+}"#
+        )
+    }
+
+    #[test]
+    fn serialize_version_command() {
+        assert_eq!(
+            to_string_pretty(&RpcCommand::Version).unwrap(),
+            r#"{
+  "action": "version"
 }"#
         )
     }
