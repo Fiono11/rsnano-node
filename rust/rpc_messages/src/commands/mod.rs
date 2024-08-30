@@ -26,7 +26,7 @@ pub enum RpcCommand {
 #[cfg(test)]
 mod tests {
     use crate::RpcCommand;
-    use serde_json::to_string_pretty;
+    use serde_json::{from_str, to_string_pretty};
 
     #[test]
     fn serialize_stop_command() {
@@ -46,5 +46,12 @@ mod tests {
   "action": "version"
 }"#
         )
+    }
+
+    #[test]
+    fn deserialize_version_command() {
+        let json = r#"{"action": "version"}"#;
+        let cmd: RpcCommand = from_str(json).unwrap();
+        assert_eq!(cmd, RpcCommand::Version);
     }
 }
