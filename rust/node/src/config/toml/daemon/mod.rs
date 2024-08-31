@@ -1,5 +1,11 @@
-use super::{NodeRpcToml, NodeToml, OpenclToml};
+mod node;
+mod node_rpc;
+mod opencl;
+
 use crate::config::DaemonConfig;
+pub use node::*;
+pub use node_rpc::*;
+pub use opencl::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]

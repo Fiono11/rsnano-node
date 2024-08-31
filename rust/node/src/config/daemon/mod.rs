@@ -1,5 +1,11 @@
-use super::{NodeConfig, NodeRpcConfig, OpenclConfig};
+mod node;
+mod node_rpc;
+mod opencl;
+
 use crate::NetworkParams;
+pub use node::*;
+pub use node_rpc::*;
+pub use opencl::*;
 
 #[derive(Debug, PartialEq)]
 pub struct DaemonConfig {

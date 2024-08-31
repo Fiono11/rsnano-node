@@ -1,4 +1,4 @@
-use super::get_default_rpc_filepath;
+use crate::config::get_default_rpc_filepath;
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]

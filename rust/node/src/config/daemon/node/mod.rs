@@ -1,4 +1,5 @@
-use super::{DiagnosticsConfig, Networks};
+mod diagnostics;
+
 use crate::{
     block_processing::{BlockProcessorConfig, LocalBlockBroadcasterConfig},
     bootstrap::{BootstrapAscendingConfig, BootstrapInitiatorConfig, BootstrapServerConfig},
@@ -12,11 +13,12 @@ use crate::{
     websocket::WebsocketConfig,
     IpcConfig, NetworkParams, DEV_NETWORK_PARAMS,
 };
+pub use diagnostics::*;
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
 use rsnano_core::{
     utils::{get_env_or_default_string, is_sanitizer_build},
-    Account, Amount, PublicKey, GXRB_RATIO, XRB_RATIO,
+    Account, Amount, Networks, PublicKey, GXRB_RATIO, XRB_RATIO,
 };
 use rsnano_store_lmdb::LmdbConfig;
 use std::{cmp::max, fmt, net::Ipv6Addr, str::FromStr, time::Duration};

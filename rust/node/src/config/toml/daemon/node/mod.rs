@@ -1,9 +1,45 @@
-use super::{
-    ActiveElectionsToml, BlockProcessorToml, BootstrapAscendingToml, BootstrapServerToml,
-    DiagnosticsToml, ExperimentalToml, HintedSchedulerToml, HttpcallbackToml, IpcToml, LmdbToml,
-    MessageProcessorToml, MonitorToml, OptimisticSchedulerToml, PriorityBucketToml, RepCrawlerToml,
-    RequestAggregatorToml, StatsToml, VoteCacheToml, VoteProcessorToml, WebsocketToml,
-};
+mod active_elections;
+mod block_processor;
+mod bootstrap_ascending;
+mod bootstrap_server;
+mod diagnostics;
+mod experimental;
+mod hinted_scheduler;
+mod httpcallback;
+mod ipc;
+mod lmdb;
+mod message_processor;
+mod monitor;
+mod optimistic_scheduler;
+mod priority_bucket;
+mod rep_crawler;
+mod request_aggregator;
+mod stats;
+mod vote_cache;
+mod vote_processor;
+mod websocket;
+
+pub use active_elections::*;
+pub use block_processor::*;
+pub use bootstrap_ascending::*;
+pub use bootstrap_server::*;
+pub use diagnostics::*;
+pub use experimental::*;
+pub use hinted_scheduler::*;
+pub use httpcallback::*;
+pub use ipc::*;
+pub use lmdb::*;
+pub use message_processor::*;
+pub use monitor::*;
+pub use optimistic_scheduler::*;
+pub use priority_bucket::*;
+pub use rep_crawler::*;
+pub use request_aggregator::*;
+pub use stats::*;
+pub use vote_cache::*;
+pub use vote_processor::*;
+pub use websocket::*;
+
 use crate::config::{FrontiersConfirmationMode, NodeConfig, Peer};
 use rsnano_core::{Account, Amount};
 use serde::{Deserialize, Serialize};
@@ -240,74 +276,74 @@ impl NodeConfig {
         if let Some(work_threads) = toml.work_threads {
             self.work_threads = work_threads;
         }
-        if let Some(optimistic_scheduler_toml) = &toml.optimistic_scheduler {
-            self.optimistic_scheduler = optimistic_scheduler_toml.into();
+        if let Some(optimistic_scheduler) = &toml.optimistic_scheduler {
+            self.optimistic_scheduler = optimistic_scheduler.into();
         }
-        if let Some(hinted_scheduler_toml) = &toml.hinted_scheduler {
-            self.hinted_scheduler = hinted_scheduler_toml.into();
+        if let Some(hinted_scheduler) = &toml.hinted_scheduler {
+            self.hinted_scheduler = hinted_scheduler.into();
         }
-        if let Some(priority_bucket_toml) = &toml.priority_bucket {
-            self.priority_bucket = priority_bucket_toml.into();
+        if let Some(priority_bucket) = &toml.priority_bucket {
+            self.priority_bucket = priority_bucket.into();
         }
-        if let Some(ascending_toml) = &toml.bootstrap_ascending {
+        if let Some(ascending) = &toml.bootstrap_ascending {
             let config = &mut self.bootstrap_ascending;
-            if let Some(enable) = &ascending_toml.enable {
+            if let Some(enable) = &ascending.enable {
                 config.enable = *enable;
             }
-            if let Some(enable) = &ascending_toml.enable_dependency_walker {
+            if let Some(enable) = &ascending.enable_dependency_walker {
                 config.enable_dependency_walker = *enable;
             }
-            if let Some(enable) = &ascending_toml.enable_databaser_scan {
+            if let Some(enable) = &ascending.enable_databaser_scan {
                 config.enable_database_scan = *enable;
             }
-            if let Some(account_sets) = &ascending_toml.account_sets {
+            if let Some(account_sets) = &ascending.account_sets {
                 config.account_sets = account_sets.into();
             }
-            if let Some(block_wait_count) = ascending_toml.block_processor_threshold {
+            if let Some(block_wait_count) = ascending.block_processor_threshold {
                 config.block_processor_theshold = block_wait_count;
             }
-            if let Some(database_rate_limit) = ascending_toml.database_rate_limit {
+            if let Some(database_rate_limit) = ascending.database_rate_limit {
                 config.database_rate_limit = database_rate_limit;
             }
-            if let Some(database_warmup_ratio) = ascending_toml.database_warmup_ratio {
+            if let Some(database_warmup_ratio) = ascending.database_warmup_ratio {
                 config.database_warmup_ratio = database_warmup_ratio;
             }
-            if let Some(pull_count) = ascending_toml.max_pull_count {
+            if let Some(pull_count) = ascending.max_pull_count {
                 config.max_pull_count = pull_count;
             }
-            if let Some(requests_limit) = ascending_toml.channel_limit {
+            if let Some(requests_limit) = ascending.channel_limit {
                 config.channel_limit = requests_limit;
             }
-            if let Some(timeout) = &ascending_toml.request_timeout {
+            if let Some(timeout) = &ascending.request_timeout {
                 config.request_timeout = Duration::from_millis(*timeout);
             }
-            if let Some(throttle_wait) = &ascending_toml.throttle_wait {
+            if let Some(throttle_wait) = &ascending.throttle_wait {
                 config.throttle_wait = Duration::from_millis(*throttle_wait);
             }
-            if let Some(throttle_coefficient) = ascending_toml.throttle_coefficient {
+            if let Some(throttle_coefficient) = ascending.throttle_coefficient {
                 config.throttle_coefficient = throttle_coefficient;
             }
-            if let Some(max) = ascending_toml.max_requests {
+            if let Some(max) = ascending.max_requests {
                 config.max_requests = max;
             }
         }
-        if let Some(bootstrap_server_toml) = &toml.bootstrap_server {
-            self.bootstrap_server = bootstrap_server_toml.into();
+        if let Some(bootstrap_server) = &toml.bootstrap_server {
+            self.bootstrap_server = bootstrap_server.into();
         }
-        if let Some(websocket_config_toml) = &toml.websocket {
-            self.websocket_config.merge_toml(&websocket_config_toml);
+        if let Some(websocket_config) = &toml.websocket {
+            self.websocket_config.merge_toml(&websocket_config);
         }
-        if let Some(ipc_config_toml) = &toml.ipc {
-            self.ipc_config.merge_toml(ipc_config_toml);
+        if let Some(ipc_config) = &toml.ipc {
+            self.ipc_config.merge_toml(ipc_config);
         }
-        if let Some(diagnostics_config_toml) = &toml.diagnostics {
-            self.diagnostics_config = diagnostics_config_toml.into();
+        if let Some(diagnostics_config) = &toml.diagnostics {
+            self.diagnostics_config = diagnostics_config.into();
         }
-        if let Some(stat_config_toml) = &toml.statistics {
-            self.stat_config = stat_config_toml.into();
+        if let Some(stat_config) = &toml.statistics {
+            self.stat_config = stat_config.into();
         }
-        if let Some(lmdb_config_toml) = &toml.lmdb {
-            self.lmdb_config = lmdb_config_toml.into();
+        if let Some(lmdb_config) = &toml.lmdb {
+            self.lmdb_config = lmdb_config.into();
         }
         if let Some(backlog_scan_batch_size) = toml.backlog_scan_batch_size {
             self.backlog_scan_batch_size = backlog_scan_batch_size;
@@ -315,26 +351,26 @@ impl NodeConfig {
         if let Some(backlog_scan_frequency) = toml.backlog_scan_frequency {
             self.backlog_scan_frequency = backlog_scan_frequency;
         }
-        if let Some(vote_cache_toml) = &toml.vote_cache {
-            self.vote_cache = vote_cache_toml.into();
+        if let Some(vote_cache) = &toml.vote_cache {
+            self.vote_cache = vote_cache.into();
         }
-        if let Some(block_processor_toml) = &toml.block_processor {
-            self.block_processor = block_processor_toml.into();
+        if let Some(block_processor) = &toml.block_processor {
+            self.block_processor = block_processor.into();
         }
-        if let Some(active_elections_toml) = &toml.active_elections {
-            self.active_elections = active_elections_toml.into();
+        if let Some(active_elections) = &toml.active_elections {
+            self.active_elections = active_elections.into();
         }
-        if let Some(vote_processor_toml) = &toml.vote_processor {
-            self.vote_processor.merge_toml(&vote_processor_toml);
+        if let Some(vote_processor) = &toml.vote_processor {
+            self.vote_processor.merge_toml(&vote_processor);
         }
-        if let Some(request_aggregator_toml) = &toml.request_aggregator {
-            self.request_aggregator.merge_toml(request_aggregator_toml);
+        if let Some(request_aggregator) = &toml.request_aggregator {
+            self.request_aggregator.merge_toml(request_aggregator);
         }
-        if let Some(message_processor_toml) = &toml.message_processor {
-            self.message_processor.merge_toml(message_processor_toml);
+        if let Some(message_processor) = &toml.message_processor {
+            self.message_processor.merge_toml(message_processor);
         }
-        if let Some(monitor_toml) = &toml.monitor {
-            self.monitor = monitor_toml.into();
+        if let Some(monitor) = &toml.monitor {
+            self.monitor = monitor.into();
         }
         if let Some(rep_crawler_weight_minimum) = &toml.rep_crawler_weight_minimum {
             self.rep_crawler_weight_minimum = Amount::decode_dec(&rep_crawler_weight_minimum)
@@ -452,15 +488,15 @@ mod tests {
     use crate::config::toml::AccountSetsToml;
 
     #[test]
-    fn merge_bootstrap_ascending_toml() {
-        let sets_toml = AccountSetsToml {
+    fn merge_bootstrap_ascending() {
+        let sets = AccountSetsToml {
             blocking_max: Some(200),
             consideration_count: Some(201),
             cooldown: Some(203),
             priorities_max: Some(204),
         };
 
-        let ascending_toml = BootstrapAscendingToml {
+        let ascending = BootstrapAscendingToml {
             enable: Some(false),
             enable_databaser_scan: Some(false),
             enable_dependency_walker: Some(false),
@@ -473,11 +509,11 @@ mod tests {
             request_timeout: Some(106),
             max_requests: Some(107),
             database_warmup_ratio: Some(108),
-            account_sets: Some(sets_toml),
+            account_sets: Some(sets),
         };
 
         let toml = NodeToml {
-            bootstrap_ascending: Some(ascending_toml),
+            bootstrap_ascending: Some(ascending),
             ..Default::default()
         };
 
@@ -506,27 +542,27 @@ mod tests {
     }
 
     #[test]
-    fn create_bootstrap_ascending_toml() {
+    fn create_bootstrap_ascending() {
         let cfg = NodeConfig::new_test_instance();
         let toml = NodeToml::from(&cfg);
-        let ascending_toml = toml.bootstrap_ascending.as_ref().unwrap();
-        assert_eq!(ascending_toml.enable, Some(true));
-        assert_eq!(ascending_toml.enable_databaser_scan, Some(true));
-        assert_eq!(ascending_toml.enable_dependency_walker, Some(true));
-        assert_eq!(ascending_toml.block_processor_threshold, Some(1000));
-        assert_eq!(ascending_toml.database_rate_limit, Some(256));
-        assert_eq!(ascending_toml.database_warmup_ratio, Some(10));
-        assert_eq!(ascending_toml.max_pull_count, Some(128));
-        assert_eq!(ascending_toml.channel_limit, Some(16));
-        assert_eq!(ascending_toml.throttle_coefficient, Some(1024 * 8));
-        assert_eq!(ascending_toml.throttle_wait, Some(100));
-        assert_eq!(ascending_toml.request_timeout, Some(3000));
-        assert_eq!(ascending_toml.max_requests, Some(1024));
+        let ascending = toml.bootstrap_ascending.as_ref().unwrap();
+        assert_eq!(ascending.enable, Some(true));
+        assert_eq!(ascending.enable_databaser_scan, Some(true));
+        assert_eq!(ascending.enable_dependency_walker, Some(true));
+        assert_eq!(ascending.block_processor_threshold, Some(1000));
+        assert_eq!(ascending.database_rate_limit, Some(256));
+        assert_eq!(ascending.database_warmup_ratio, Some(10));
+        assert_eq!(ascending.max_pull_count, Some(128));
+        assert_eq!(ascending.channel_limit, Some(16));
+        assert_eq!(ascending.throttle_coefficient, Some(1024 * 8));
+        assert_eq!(ascending.throttle_wait, Some(100));
+        assert_eq!(ascending.request_timeout, Some(3000));
+        assert_eq!(ascending.max_requests, Some(1024));
 
-        let sets_toml = ascending_toml.account_sets.as_ref().unwrap();
-        assert_eq!(sets_toml.consideration_count, Some(4));
-        assert_eq!(sets_toml.priorities_max, Some(1024 * 256));
-        assert_eq!(sets_toml.blocking_max, Some(1024 * 256));
-        assert_eq!(sets_toml.cooldown, Some(3000));
+        let sets = ascending.account_sets.as_ref().unwrap();
+        assert_eq!(sets.consideration_count, Some(4));
+        assert_eq!(sets.priorities_max, Some(1024 * 256));
+        assert_eq!(sets.blocking_max, Some(1024 * 256));
+        assert_eq!(sets.cooldown, Some(3000));
     }
 }

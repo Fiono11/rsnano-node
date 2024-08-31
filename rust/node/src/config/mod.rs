@@ -1,21 +1,13 @@
 mod converters;
-mod daemon_config;
-mod diagnostics_config;
+mod daemon;
 mod network_constants;
-mod node_config;
 mod node_flags;
-mod node_rpc_config;
-mod opencl_config;
 mod toml;
 
 use crate::NetworkParams;
-pub use daemon_config::*;
-pub use diagnostics_config::*;
+pub use daemon::*;
 pub use network_constants::*;
-pub use node_config::*;
 pub use node_flags::*;
-pub use node_rpc_config::*;
-pub use opencl_config::*;
 pub use rsnano_core::Networks;
 use std::path::{Path, PathBuf};
 pub use toml::DaemonToml;
