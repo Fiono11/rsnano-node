@@ -283,7 +283,7 @@ impl Stats {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct CounterKey {
     pub stat_type: StatType,
     pub detail: DetailType,
@@ -291,7 +291,7 @@ pub struct CounterKey {
 }
 
 impl CounterKey {
-    fn new(stat_type: StatType, detail: DetailType, dir: Direction) -> Self {
+    pub fn new(stat_type: StatType, detail: DetailType, dir: Direction) -> Self {
         Self {
             stat_type,
             detail,
@@ -300,13 +300,13 @@ impl CounterKey {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct SamplerKey {
-    sample: Sample,
+    pub sample: Sample,
 }
 
 impl SamplerKey {
-    fn new(sample: Sample) -> Self {
+    pub fn new(sample: Sample) -> Self {
         Self { sample }
     }
 }
@@ -404,10 +404,11 @@ impl<'de> Deserialize<'de> for CounterEntry {
     }
 }
 
+#[derive(Debug)]
 pub struct CounterEntry(AtomicU64);
 
 impl CounterEntry {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self(AtomicU64::new(0))
     }
 
@@ -422,7 +423,7 @@ impl From<&CounterEntry> for u64 {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SamplerEntry {
     #[serde(with = "mutex_bounded_vec_deque")]
     samples: Mutex<BoundedVecDeque<i64>>,
