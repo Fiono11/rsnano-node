@@ -1,31 +1,20 @@
 use rsnano_node::{node::Node, stats::StatCategory};
-use serde_json::{json, Value};
+use rsnano_rpc_messages::StatsDto;
+use serde_json::to_string_pretty;
 use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
 pub async fn stats(node: Arc<Node>, stat_category: StatCategory) -> String {
     let stats = node.stats.mutables.read().unwrap();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-    //let created = chrono::Utc::now().format("%Y.%m.%d %H:%M:%S").to_string();
-
-    let entries: Value = match stat_category {
-        StatCategory::Counters => json!(stats.counters.keys().collect::<Vec<_>>()),
-        StatCategory::Samples => json!(stats.samplers),
-    };
-
-    let result = json!({
-        "type": match stat_category {
-            StatCategory::Counters => "counters",
-            StatCategory::Samples => "samples",
-        },
-        "created": timestamp,
-        "entries": entries,
-    });
-
-    serde_json::to_string_pretty(&result).unwrap()
+    match stat_category {
+        StatCategory::Counters => {
+            to_string_pretty(&StatsDto::new(StatCategory::Counters, &stats.counters.keys().collect::<Vec<_>>(), timestamp)).unwrap()
+        }
+        StatCategory::Samples => {
+            to_string_pretty(&StatsDto::new(StatCategory::Samples, &stats.samplers.keys().collect::<Vec<_>>(), timestamp)).unwrap()
+        }
+    }
 }
 
 #[cfg(test)]
