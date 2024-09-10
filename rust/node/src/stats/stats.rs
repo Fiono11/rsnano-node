@@ -5,6 +5,7 @@ use bounded_vec_deque::BoundedVecDeque;
 use once_cell::sync::Lazy;
 use rsnano_core::utils::get_env_bool;
 use rsnano_messages::MessageType;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     sync::{atomic::AtomicU64, Arc, Condvar, Mutex, RwLock},
@@ -15,7 +16,7 @@ use tracing::debug;
 
 pub struct Stats {
     config: StatsConfig,
-    mutables: Arc<RwLock<StatMutables>>,
+    pub mutables: Arc<RwLock<StatMutables>>,
     thread: Mutex<Option<JoinHandle<()>>>,
     stats_loop: Arc<StatsLoop>,
     enable_logging: bool,
@@ -282,11 +283,11 @@ impl Stats {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-struct CounterKey {
-    stat_type: StatType,
-    detail: DetailType,
-    dir: Direction,
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+pub struct CounterKey {
+    pub stat_type: StatType,
+    pub detail: DetailType,
+    pub dir: Direction,
 }
 
 impl CounterKey {
@@ -299,8 +300,8 @@ impl CounterKey {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-struct SamplerKey {
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+pub struct SamplerKey {
     sample: Sample,
 }
 
@@ -310,18 +311,21 @@ impl SamplerKey {
     }
 }
 
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum StatCategory {
     Counters,
     Samples,
 }
 
-struct StatMutables {
+#[derive(Serialize)]
+pub struct StatMutables {
     /// Stat entries are sorted by key to simplify processing of log output
-    counters: BTreeMap<CounterKey, CounterEntry>,
-    samplers: BTreeMap<SamplerKey, SamplerEntry>,
+    pub counters: BTreeMap<CounterKey, CounterEntry>,
+    pub samplers: BTreeMap<SamplerKey, SamplerEntry>,
 
     /// Time of last clear() call
-    timestamp: Instant,
+    #[serde(skip)]
+    pub timestamp: Instant,
 }
 
 impl StatMutables {
@@ -380,7 +384,27 @@ impl StatMutables {
     }
 }
 
-struct CounterEntry(AtomicU64);
+impl Serialize for CounterEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let value = self.0.load(std::sync::atomic::Ordering::SeqCst);
+        serializer.serialize_u64(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for CounterEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        Ok(CounterEntry(AtomicU64::new(value)))
+    }
+}
+
+pub struct CounterEntry(AtomicU64);
 
 impl CounterEntry {
     fn new() -> Self {
@@ -398,9 +422,40 @@ impl From<&CounterEntry> for u64 {
     }
 }
 
-struct SamplerEntry {
+#[derive(Serialize, Deserialize)]
+pub struct SamplerEntry {
+    #[serde(with = "mutex_bounded_vec_deque")]
     samples: Mutex<BoundedVecDeque<i64>>,
     pub expected_min_max: (i64, i64),
+}
+
+mod mutex_bounded_vec_deque {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(
+        mutex: &Mutex<BoundedVecDeque<i64>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let guard = mutex.lock().unwrap();
+        let vec: Vec<_> = guard.iter().cloned().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Mutex<BoundedVecDeque<i64>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec = Vec::<i64>::deserialize(deserializer)?;
+        let mut bounded = BoundedVecDeque::new(vec.len());
+        bounded.extend(vec);
+        Ok(Mutex::new(bounded))
+    }
 }
 
 impl SamplerEntry {

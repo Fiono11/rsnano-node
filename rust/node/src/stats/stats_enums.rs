@@ -1,9 +1,9 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_variant::to_variant_name;
 
 /// Primary statistics type
 #[repr(u8)]
-#[derive(FromPrimitive, Serialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(FromPrimitive, Serialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StatType {
     TrafficTcp,
@@ -95,7 +95,7 @@ impl StatType {
 
 // Optional detail type
 #[repr(u16)]
-#[derive(FromPrimitive, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(FromPrimitive, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetailType {
     // common
@@ -517,7 +517,7 @@ impl DetailType {
 }
 
 /// Direction of the stat. If the direction is irrelevant, use In
-#[derive(FromPrimitive, PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
+#[derive(FromPrimitive, PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Direction {
     In,
@@ -534,7 +534,7 @@ impl Direction {
 }
 
 #[repr(u8)]
-#[derive(FromPrimitive, Serialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(FromPrimitive, Serialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sample {
     ActiveElectionDuration,
