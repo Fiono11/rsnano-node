@@ -1,5 +1,6 @@
 use rsnano_core::Amount;
 use serde::{Deserialize, Serialize};
+use axum::{response::{IntoResponse, Response}, Json};
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct AccountBalanceDto {
@@ -15,6 +16,12 @@ impl AccountBalanceDto {
             pending,
             receivable,
         }
+    }
+}
+
+impl IntoResponse for AccountBalanceDto {
+    fn into_response(self) -> Response {
+        Json(self).into_response()
     }
 }
 

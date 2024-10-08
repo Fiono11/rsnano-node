@@ -1,13 +1,22 @@
 use serde::{Deserialize, Serialize};
+use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use serde_json::json;
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ErrorDto {
-    error: String,
+    pub error: String,
 }
 
 impl ErrorDto {
     pub fn new(error: String) -> Self {
         Self { error }
+    }
+}
+
+impl IntoResponse for ErrorDto {
+    fn into_response(self) -> Response {
+        let body = Json(json!({ "error": self.error }));
+        (StatusCode::BAD_REQUEST, body).into_response()
     }
 }
 

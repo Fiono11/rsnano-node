@@ -1,14 +1,17 @@
+use axum::Json;
 use rsnano_core::{Account, Amount};
 use rsnano_node::node::Node;
 use rsnano_rpc_messages::AccountBalanceDto;
 use serde_json::to_string_pretty;
 use std::sync::Arc;
+use serde::Serialize;
+use crate::{PrettyJson, RpcResult};
 
 pub async fn account_balance(
     node: Arc<Node>,
     account: Account,
     only_confirmed: Option<bool>,
-) -> String {
+) -> RpcResult<AccountBalanceDto> {
     let tx = node.ledger.read_txn();
     let only_confirmed = only_confirmed.unwrap_or(true);
 
@@ -28,9 +31,7 @@ pub async fn account_balance(
         .ledger
         .account_receivable(&tx, &account, only_confirmed);
 
-    let account_balance = AccountBalanceDto::new(balance, pending, pending);
-
-    to_string_pretty(&account_balance).unwrap()
+    Ok(PrettyJson(AccountBalanceDto::new(balance, pending, pending)))
 }
 
 #[cfg(test)]
