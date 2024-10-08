@@ -95,7 +95,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 
 // Define a common result type for RPC responses
-pub type RpcResult<T> = std::result::Result<PrettyJson<T>, (StatusCode, PrettyJson<ErrorDto>)>;
+pub type RpcResult<T> = std::result::Result<PrettyJson<T>, PrettyJson<ErrorDto>>;
 
 #[derive(Clone)]
 struct RpcService {
@@ -134,15 +134,20 @@ pub async fn run_rpc_server(
 async fn handle_rpc(
     State(rpc_service): State<RpcService>,
     Json(rpc_command): Json<RpcCommand>,
-) -> RpcResult<impl Serialize> {
+) -> impl IntoResponse {
     match rpc_command {
-        RpcCommand::AccountBalance(args) => {
-            account_balance(rpc_service.node, args.account, args.include_only_confirmed).await
-        }
+        RpcCommand::AccountBalance(args) => account_balance(
+            rpc_service.node,
+            args.account,
+            args.include_only_confirmed,
+        )
+        .await
+        .into_response(),
+        RpcCommand::AccountList(args) => account_list(rpc_service.node, args.wallet)
+            .await
+            .into_response(),
         // ... other commands ...
-        _ => Err((StatusCode::NOT_IMPLEMENTED, PrettyJson(ErrorDto {
-            error: "Command not implemented".to_string(),
-        }))),
+        _ => PrettyJson(ErrorDto::new("Command not implemented".to_string())).into_response(),
     }
 }
 
@@ -175,3 +180,4 @@ where
         }
     }
 }
+
