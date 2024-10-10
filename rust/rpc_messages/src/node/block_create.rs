@@ -2,73 +2,43 @@ use crate::{BlockTypeDto, RpcCommand, WorkVersionDto};
 use rsnano_core::{Account, Amount, BlockHash, JsonBlock, Link, RawKey, WalletId, WorkNonce};
 use serde::{Deserialize, Serialize};
 
-impl RpcCommand {
-    pub fn block_create(block_create_args: BlockCreateArgs) -> Self {
-        Self::BlockCreate(block_create_args)
-    }
-}
-
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BlockCreateArgs {
     #[serde(rename = "type")]
     pub block_type: BlockTypeDto,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub balance: Option<Amount>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<RawKey>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wallet: Option<WalletId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub account: Option<Account>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<BlockHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination: Option<Account>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub representative: Option<Account>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub link: Option<Link>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous: Option<BlockHash>,
+    pub balance: Amount,
+    #[serde(flatten)]
+    pub account_identifier: AccountIdentifier,
+    #[serde(flatten)]
+    pub transaction_info: TransactionInfo,
+    pub representative: Account,
+    pub previous: BlockHash,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work: Option<WorkNonce>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<WorkVersionDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub difficulty: Option<u64>,
+    pub difficulty: Option<WorkNonce>,
 }
 
-impl BlockCreateArgs {
-    pub fn new(
-        block_type: BlockTypeDto,
-        balance: Option<Amount>,
-        key: Option<RawKey>,
-        wallet: Option<WalletId>,
-        account: Option<Account>,
-        source: Option<BlockHash>,
-        destination: Option<Account>,
-        representative: Option<Account>,
-        link: Option<Link>,
-        previous: Option<BlockHash>,
-        work: Option<WorkNonce>,
-        version: Option<WorkVersionDto>,
-        difficulty: Option<u64>,
-    ) -> Self {
-        Self {
-            block_type,
-            balance,
-            key,
-            wallet,
-            account,
-            source,
-            destination,
-            representative,
-            link,
-            previous,
-            work,
-            version,
-            difficulty,
-        }
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AccountIdentifier {
+    WalletAccount { wallet: WalletId, account: Account },
+    PrivateKey { key: RawKey },
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TransactionInfo {
+    Send { destination: Account },
+    Receive { source: BlockHash },
+    Link { link: Link },
+}
+
+impl RpcCommand {
+    pub fn block_create(block_create_args: BlockCreateArgs) -> Self {
+        Self::BlockCreate(block_create_args)
     }
 }
 
@@ -89,151 +59,233 @@ impl BlockCreateDto {
     }
 }
 
+impl BlockCreateArgs {
+    pub fn builder(block_type: BlockTypeDto, balance: Amount, account_identifier: AccountIdentifier, transaction_info: TransactionInfo, previous: BlockHash, representative: Account) -> BlockCreateArgsBuilder {
+        BlockCreateArgsBuilder::new(block_type, balance, account_identifier, transaction_info, previous, representative)
+    }
+}
+
+pub struct BlockCreateArgsBuilder {
+    args: BlockCreateArgs,
+}
+
+impl BlockCreateArgsBuilder {
+    fn new(block_type: BlockTypeDto, balance: Amount, account_identifier: AccountIdentifier, transaction_info: TransactionInfo, previous: BlockHash, representative: Account) -> Self {
+        Self {
+            args: BlockCreateArgs {
+                block_type,
+                balance,
+                account_identifier,
+                transaction_info,
+                representative,
+                previous,
+                work: None,
+                version: None,
+                difficulty: None,
+            },
+        }
+    }
+
+    pub fn work(mut self, work: WorkNonce) -> Self {
+        self.args.work = Some(work);
+        self
+    }
+
+    pub fn version(mut self, version: WorkVersionDto) -> Self {
+        self.args.version = Some(version);
+        self
+    }
+
+    pub fn difficulty(mut self, difficulty: WorkNonce) -> Self {
+        self.args.difficulty = Some(difficulty);
+        self
+    }
+
+    pub fn build(self) -> Result<BlockCreateArgs, &'static str> {
+        Ok(self.args)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_core::{Block, KeyPair, RawKey, StateBlock};
-    use serde_json::json;
+    use rsnano_core::{Account, Amount, BlockHash, Link, RawKey, WalletId, WorkNonce};
 
     #[test]
-    fn serialize_block_create_command() {
-        // Create a test StateBlock instance
-        let state_block = StateBlock::new_test_instance();
-        let key_pair = KeyPair::new();
-        let raw_key = RawKey::from(key_pair.private_key());
+    fn test_block_create_args_builder() {
+        let wallet = WalletId::zero();
+        let account = Account::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let destination = Account::zero();
 
-        // Create BlockCreateArgs using the test StateBlock data
-        let block_create_args = BlockCreateArgs {
-            block_type: BlockTypeDto::State,
-            balance: Some(state_block.balance()),
-            key: Some(raw_key),
-            wallet: None,
-            account: Some(state_block.account()),
-            source: None,
-            destination: None,
-            representative: Some(state_block.mandatory_representative().as_account()),
-            link: Some(state_block.link()),
-            previous: Some(state_block.previous()),
-            work: Some(WorkNonce::from(state_block.work())),
-            version: Some(WorkVersionDto::Work1),
-            difficulty: None,
-        };
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
+            .work(WorkNonce::from(10))
+            .version(WorkVersionDto::Work1)
+            .difficulty(1234.into())
+            .build()
+            .unwrap();
 
-        // Create the RpcCommand
-        let command = RpcCommand::block_create(block_create_args);
+        assert_eq!(args.block_type, BlockTypeDto::State);
+        assert_eq!(args.balance, balance);
+        assert_eq!(args.account_identifier, AccountIdentifier::WalletAccount { wallet, account });
+        assert_eq!(args.transaction_info, TransactionInfo::Send { destination });
+        assert_eq!(args.representative, representative);
+        assert_eq!(args.previous, previous);
+        assert_eq!(args.work, Some(WorkNonce::from(10)));
+        assert_eq!(args.version, Some(WorkVersionDto::Work1));
+        assert_eq!(args.difficulty, Some(1234.into()));
 
-        // Serialize the command to JSON
-        let serialized = serde_json::to_string_pretty(&command).unwrap();
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
 
-        // Expected JSON
-        let expected_json = json!({
-            "action": "block_create",
+        assert_eq!(args, deserialized);
+    }
+
+    #[test]
+    fn test_block_create_args_builder_private_key() {
+        let key = RawKey::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let source = BlockHash::zero();
+
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::PrivateKey { key }, TransactionInfo::Receive { source }, previous, representative)
+            .build()
+            .unwrap();
+
+        assert_eq!(args.account_identifier, AccountIdentifier::PrivateKey { key });
+        assert_eq!(args.transaction_info, TransactionInfo::Receive { source });
+        assert_eq!(args.representative, representative);
+        assert_eq!(args.previous, previous);
+
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(args, deserialized);
+    }
+
+    #[test]
+    fn test_block_create_args_builder_link() {
+        let wallet = WalletId::zero();
+        let account = Account::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let link = Link::zero();
+
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Link { link }, previous, representative)
+            .build()
+            .unwrap();
+
+        assert_eq!(args.account_identifier, AccountIdentifier::WalletAccount { wallet, account });
+        assert_eq!(args.transaction_info, TransactionInfo::Link { link });
+        assert_eq!(args.representative, representative);
+        assert_eq!(args.previous, previous);
+
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(args, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_block_create_args() {
+        let wallet = WalletId::zero();
+        let account = Account::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let destination = Account::zero();
+
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
+            .work(WorkNonce::from(10))
+            .version(WorkVersionDto::Work1)
+            .difficulty(1234.into())
+            .build()
+            .unwrap();
+
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(args, deserialized);
+    }
+
+    #[test]
+    fn test_deserialize_block_create_args_send() {
+        let json = r#"{
             "type": "state",
-            "balance": state_block.balance().to_string_dec(),
-            "key": raw_key.encode_hex(),
-            "account": state_block.account().encode_account(),
-            "representative": state_block.mandatory_representative().as_account(),
-            "link": state_block.link().encode_hex(),
-            "previous": state_block.previous().encode_hex(),
-            "work": format!("{:016X}", state_block.work()),
-            "version": "work1"
-        });
+            "balance": "1000",
+            "wallet": "0000000000000000000000000000000000000000000000000000000000000000",
+            "account": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "destination": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "representative": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "previous": "0000000000000000000000000000000000000000000000000000000000000000",
+            "work": "0000000000000000",
+            "version": "work1",
+            "difficulty": "0000000000000000"
+        }"#;
 
-        // Deserialize the expected JSON to a Value
-        let expected_value: serde_json::Value = expected_json;
+        let args: BlockCreateArgs = serde_json::from_str(json).unwrap();
 
-        // Deserialize the serialized command to a Value
-        let serialized_value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-
-        // Assert that the serialized command matches the expected JSON
-        assert_eq!(serialized_value, expected_value);
+        assert_eq!(args.block_type, BlockTypeDto::State);
+        assert_eq!(args.balance, Amount::raw(1000));
+        assert!(matches!(args.account_identifier, AccountIdentifier::WalletAccount { .. }));
+        assert!(matches!(args.transaction_info, TransactionInfo::Send { .. }));
+        assert_eq!(args.representative, Account::zero());
+        assert_eq!(args.previous, BlockHash::zero());
+        assert_eq!(args.work, Some(WorkNonce::from(0)));
+        assert_eq!(args.version, Some(WorkVersionDto::Work1));
+        assert_eq!(args.difficulty, Some(0.into()));
     }
 
     #[test]
-    fn deserialize_block_create_command() {
-        // Create a test StateBlock instance
-        let state_block = StateBlock::new_test_instance();
-        let key_pair = KeyPair::new();
-        let raw_key = RawKey::from(key_pair.private_key());
-
-        // Create JSON representation
-        let json = json!({
-            "action": "block_create",
+    fn test_deserialize_block_create_args_receive() {
+        let json = r#"{
             "type": "state",
-            "balance": state_block.balance().to_string_dec(),
-            "key": raw_key.encode_hex(),
-            "account": state_block.account().encode_account(),
-            "representative": state_block.mandatory_representative().as_account(),
-            "link": state_block.link().encode_hex(),
-            "previous": state_block.previous().encode_hex(),
-            "work": format!("{:016X}", state_block.work()),
-            "version": "work1"
-        });
+            "balance": "2000",
+            "key": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source": "0000000000000000000000000000000000000000000000000000000000000000",
+            "representative": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "previous": "0000000000000000000000000000000000000000000000000000000000000000"
+        }"#;
 
-        // Serialize JSON to string
-        let json_string = serde_json::to_string(&json).unwrap();
+        let args: BlockCreateArgs = serde_json::from_str(json).unwrap();
 
-        // Deserialize the string to RpcCommand
-        let command: RpcCommand = serde_json::from_str(&json_string).unwrap();
-
-        // Expected BlockCreateArgs
-        let expected_args = BlockCreateArgs {
-            block_type: BlockTypeDto::State,
-            balance: Some(state_block.balance()),
-            key: Some(raw_key),
-            wallet: None,
-            account: Some(state_block.account()),
-            source: None,
-            destination: None,
-            representative: Some(state_block.representative_field().unwrap().into()),
-            link: Some(state_block.link()),
-            previous: Some(state_block.previous()),
-            work: Some(WorkNonce::from(state_block.work())),
-            version: Some(WorkVersionDto::Work1),
-            difficulty: None,
-        };
-
-        // Expected command
-        let expected_command = RpcCommand::block_create(expected_args);
-
-        // Assert that the deserialized command matches the expected command
-        assert_eq!(command, expected_command);
+        assert_eq!(args.block_type, BlockTypeDto::State);
+        assert_eq!(args.balance, Amount::raw(2000));
+        assert!(matches!(args.account_identifier, AccountIdentifier::PrivateKey { .. }));
+        assert!(matches!(args.transaction_info, TransactionInfo::Receive { .. }));
+        assert_eq!(args.representative, Account::zero());
+        assert_eq!(args.previous, BlockHash::zero());
+        assert_eq!(args.work, None);
+        assert_eq!(args.version, None);
+        assert_eq!(args.difficulty, None);
     }
 
     #[test]
-    fn serialize_block_create_dto() {
-        let block = StateBlock::new_test_instance();
+    fn test_deserialize_block_create_args_link() {
+        let json = r#"{
+            "type": "state",
+            "balance": "3000",
+            "wallet": "0000000000000000000000000000000000000000000000000000000000000000",
+            "account": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "link": "0000000000000000000000000000000000000000000000000000000000000000",
+            "representative": "nano_1111111111111111111111111111111111111111111111111111hifc8npp",
+            "previous": "0000000000000000000000000000000000000000000000000000000000000000"
+        }"#;
 
-        let dto = BlockCreateDto::new(block.hash(), 10.into(), block.json_representation());
+        let args: BlockCreateArgs = serde_json::from_str(json).unwrap();
 
-        let serialized = serde_json::to_string_pretty(&dto).unwrap();
-        let deserialized: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-
-        let expected_json = json!({
-            "hash": block.hash(),
-            "difficulty": "000000000000000A",
-            "block": block.json_representation()
-        });
-
-        assert_eq!(deserialized, expected_json);
-    }
-
-    #[test]
-    fn deserialize_block_create_dto() {
-        let block = StateBlock::new_test_instance();
-
-        let json = json!({
-            "hash": block.hash(),
-            "difficulty": "000000000000000A",
-            "block": block.json_representation()
-        });
-
-        let json_string = serde_json::to_string(&json).unwrap();
-
-        let dto: BlockCreateDto = serde_json::from_str(&json_string).unwrap();
-
-        assert_eq!(dto.hash, block.hash());
-        assert_eq!(dto.difficulty, 10.into());
-        assert_eq!(dto.block, block.json_representation());
+        assert_eq!(args.block_type, BlockTypeDto::State);
+        assert_eq!(args.balance, Amount::raw(3000));
+        assert!(matches!(args.account_identifier, AccountIdentifier::WalletAccount { .. }));
+        assert!(matches!(args.transaction_info, TransactionInfo::Link { .. }));
+        assert_eq!(args.representative, Account::zero());
+        assert_eq!(args.previous, BlockHash::zero());
+        assert_eq!(args.work, None);
+        assert_eq!(args.version, None);
+        assert_eq!(args.difficulty, None);
     }
 }
