@@ -5,7 +5,7 @@ use rsnano_rpc_messages::{AccountIdentifier, BlockCreateArgs, BlockTypeDto, Tran
 use test_helpers::{confirm_block, process_block_local, send_block, send_block_to, setup_rpc_client_and_server, System};
 
 #[test]
-fn block_create_send() {
+fn block_create_send_with_private_key() {
     let mut system = System::new();
     let mut config = System::default_config();
     config.online_weight_minimum = Amount::MAX;
@@ -28,6 +28,60 @@ fn block_create_send() {
                     Amount::MAX - Amount::raw(100),
                     AccountIdentifier::PrivateKey {
                         key: DEV_GENESIS_KEY.private_key(),
+                    },
+                    TransactionInfo::Send {
+                        destination: key1.account(),
+                    },
+                    *DEV_GENESIS_HASH,
+                    *DEV_GENESIS_ACCOUNT,
+                )
+                .build()
+                .unwrap(),
+            )
+            .await
+            .unwrap()
+    });
+
+    let block_hash = result.hash;
+    let block: BlockEnum = result.block.into();
+
+    assert_eq!(block.block_type(), BlockType::State);
+    assert_eq!(block.hash(), block_hash);
+
+    node.process(block.clone()).unwrap();
+
+    let tx = node.ledger.read_txn();
+    assert_eq!(
+        node.ledger.any().block_account(&tx, &block.hash()),
+        Some(*DEV_GENESIS_ACCOUNT)
+    );
+}
+
+#[test]
+fn block_create_send_with_wallet_account() {
+    let mut system = System::new();
+    let mut config = System::default_config();
+    config.online_weight_minimum = Amount::MAX;
+    let node = system.build_node().config(config).finish();
+
+    let wallet_id = WalletId::zero();
+    node.wallets.create(wallet_id);
+    node.wallets
+        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.private_key(), false)
+        .unwrap();
+    let key1 = KeyPair::new();
+
+    let (rpc_client, _server) = setup_rpc_client_and_server(node.clone(), true);
+
+    let result = node.runtime.block_on(async {
+        rpc_client
+            .block_create(
+                BlockCreateArgs::builder(
+                    BlockTypeDto::State,
+                    Amount::MAX - Amount::raw(100),
+                    AccountIdentifier::WalletAccount {
+                        wallet: wallet_id,
+                        account: *DEV_GENESIS_ACCOUNT,
                     },
                     TransactionInfo::Send {
                         destination: key1.account(),

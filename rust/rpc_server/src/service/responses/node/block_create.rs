@@ -34,32 +34,7 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
     match args.account_identifier {
         AccountIdentifier::WalletAccount { wallet, account: acc } => {
             account = acc;
-
-            let wallets = node.wallets.mutex.lock().unwrap();
-            let wallet_ptr = wallets.get(&wallet);
-            if wallet_ptr.is_none() {
-                return to_string_pretty(&ErrorDto::new("Wallet not found".to_string())).unwrap();
-            }
-            if node.wallets.get_accounts_of_wallet(&wallet).is_err() {
-                return to_string_pretty(&ErrorDto::new("Account not found in wallet".to_string()))
-                    .unwrap();
-            }
-
-            let wallet = wallet_ptr.unwrap();
-            let tx = node.ledger.read_txn();
-            previous = node
-                .ledger
-                .any()
-                .account_head(&tx, &account)
-                .unwrap_or(BlockHash::zero());
-            balance = node
-                .ledger
-                .any()
-                .account_balance(&tx, &account)
-                .unwrap_or(Amount::zero());
-
-            // Get the private key from the wallet to sign the block
-            prv_key = wallet.store.entry_get_raw(&tx, &account.into()).key;
+            prv_key = node.wallets.fetch(&wallet, &account.into()).unwrap();
         }
         AccountIdentifier::PrivateKey { key } => {
             prv_key = key;
