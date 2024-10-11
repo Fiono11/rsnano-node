@@ -540,6 +540,8 @@ pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block
         "not active on node",
     );
 
+    node.confirm(send.clone().hash());
+
     send
 }
 
@@ -569,6 +571,36 @@ pub fn process_block_local(node: Arc<Node>, account: Account, amount: Amount) ->
     ));
 
     node.process_local(send.clone()).unwrap();
+
+    send
+}
+
+pub fn confirm_block(node: Arc<Node>, account: Account, amount: Amount) -> BlockEnum {
+    let transaction = node.ledger.read_txn();
+
+    let previous = node
+        .ledger
+        .any()
+        .account_head(&transaction, &*DEV_GENESIS_ACCOUNT)
+        .unwrap_or(*DEV_GENESIS_HASH);
+
+    let balance = node
+        .ledger
+        .any()
+        .account_balance(&transaction, &*DEV_GENESIS_ACCOUNT)
+        .unwrap_or(Amount::MAX);
+
+    let send = BlockEnum::State(StateBlock::new(
+        *DEV_GENESIS_ACCOUNT,
+        previous,
+        *DEV_GENESIS_PUB_KEY,
+        balance - amount,
+        account.into(),
+        &DEV_GENESIS_KEY,
+        node.work_generate_dev(previous.into()),
+    ));
+
+    node.confirm(send.hash());
 
     send
 }

@@ -4,7 +4,7 @@ use rsnano_core::{
 };
 use rsnano_node::Node;
 use rsnano_rpc_messages::{
-    BlockCreateArgs, BlockCreateDto, BlockTypeDto, ErrorDto, WorkVersionDto,
+    AccountIdentifier, BlockCreateArgs, BlockCreateDto, BlockTypeDto, ErrorDto, TransactionInfo, WorkVersionDto
 };
 use serde_json::to_string_pretty;
 use std::sync::Arc;
@@ -15,38 +15,57 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
     }
 
     let work_version = args.version.unwrap_or(WorkVersionDto::Work1).into();
-    let difficulty = args
+    let mut difficulty = args
         .difficulty
-        .unwrap_or_else(|| node.ledger.constants.work.threshold_base(work_version));
+        .unwrap_or_else(|| node.network_params.work.threshold_base(work_version).into());
 
-    let wallet = args.wallet;
-    let account = args.account;
-    let representative = args.representative;
-    let destination = args.destination;
-    let source = args.source;
-    let amount = args.balance;
-    let work = args.work;
-
-    let mut previous = args.previous.unwrap_or(BlockHash::zero());
-    let mut balance = args.balance.unwrap_or(Amount::zero());
+    let mut previous = args.previous;
+    let mut balance = args.balance;
     let mut prv_key = RawKey::default();
+    let mut account = Account::zero();
+
+    let work = args.work;
 
     if work.is_none() && !node.distributed_work.work_generation_enabled() {
         return to_string_pretty(&ErrorDto::new("Work generation is disabled".to_string()))
             .unwrap();
     }
 
-    if let (Some(wallet_id), Some(account)) = (wallet, account) {
-        if let Err(e) = node.wallets.fetch(&wallet_id, &account.into()) {
-            return to_string_pretty(&ErrorDto::new(e.to_string())).unwrap();
-        }
-        let tx = node.ledger.read_txn();
-        previous = node.ledger.any().account_head(&tx, &account).unwrap();
-        balance = node.ledger.any().account_balance(&tx, &account).unwrap();
-    }
+    match args.account_identifier {
+        AccountIdentifier::WalletAccount { wallet, account: acc } => {
+            account = acc;
 
-    if let Some(key) = args.key {
-        prv_key = key;
+            let wallets = node.wallets.mutex.lock().unwrap();
+            let wallet_ptr = wallets.get(&wallet);
+            if wallet_ptr.is_none() {
+                return to_string_pretty(&ErrorDto::new("Wallet not found".to_string())).unwrap();
+            }
+            if node.wallets.get_accounts_of_wallet(&wallet).is_err() {
+                return to_string_pretty(&ErrorDto::new("Account not found in wallet".to_string()))
+                    .unwrap();
+            }
+
+            let wallet = wallet_ptr.unwrap();
+            let tx = node.ledger.read_txn();
+            previous = node
+                .ledger
+                .any()
+                .account_head(&tx, &account)
+                .unwrap_or(BlockHash::zero());
+            balance = node
+                .ledger
+                .any()
+                .account_balance(&tx, &account)
+                .unwrap_or(Amount::zero());
+
+            // Get the private key from the wallet to sign the block
+            prv_key = wallet.store.entry_get_raw(&tx, &account.into()).key;
+        }
+        AccountIdentifier::PrivateKey { key } => {
+            prv_key = key;
+            let pub_key: PublicKey = (&prv_key).try_into().unwrap();
+            account = pub_key.into();
+        }
     }
 
     if prv_key.is_zero() {
@@ -54,82 +73,81 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
     }
 
     let pub_key: PublicKey = (&prv_key).try_into().unwrap();
-    let pub_key: Account = pub_key.into();
+    let pub_account: Account = pub_key.into();
 
-    if let Some(account) = account {
-        if account != pub_key {
-            return to_string_pretty(&ErrorDto::new(
-                "Block create public key mismatch".to_string(),
-            ))
-            .unwrap();
-        }
+    if account != Account::zero() && account != pub_account {
+        return to_string_pretty(&ErrorDto::new(
+            "Block create public key mismatch".to_string(),
+        ))
+        .unwrap();
     }
 
-    let key_pair: KeyPair = prv_key.into();
+    let key_pair = KeyPair::from(prv_key);
 
+    // Build the block
     let mut block = match args.block_type {
         BlockTypeDto::State => {
-            if !representative.is_none()
-                && (!args.link.unwrap_or_default().is_zero() || args.link.is_some())
-            {
-                let builder = BlockBuilder::state();
-                builder
-                    .account(pub_key)
-                    .previous(previous)
-                    .representative(representative.unwrap())
-                    .balance(balance)
-                    .link(args.link.unwrap_or_default())
-                    .sign(&key_pair)
-                    .build()
-            } else {
-                return to_string_pretty(&ErrorDto::new("Invalid block type".to_string())).unwrap();
-            }
+            let builder = BlockBuilder::state();
+            builder
+                .account(pub_account)
+                .previous(previous)
+                .representative(args.representative)
+                .balance(balance)
+                .link(match args.transaction_info {
+                    TransactionInfo::Send { destination } => destination.into(),
+                    TransactionInfo::Receive { source } => source.into(),
+                    TransactionInfo::Link { link } => link,
+                })
+                .sign(&key_pair)
+                .build()
         }
         BlockTypeDto::Open => {
-            if !representative.is_none() && source.is_some() {
+            if let TransactionInfo::Receive { source } = args.transaction_info {
                 let builder = BlockBuilder::legacy_open();
                 builder
-                    .account(pub_key)
-                    .source(source.unwrap())
-                    .representative(representative.unwrap().into())
+                    .account(pub_account)
+                    .source(source.into())
+                    .representative(args.representative.into())
                     .sign(&key_pair)
                     .build()
             } else {
-                return to_string_pretty(&ErrorDto::new("Invalid block type".to_string())).unwrap();
+                return to_string_pretty(&ErrorDto::new(
+                    "Invalid transaction info for open block".to_string(),
+                ))
+                .unwrap();
             }
         }
         BlockTypeDto::Receive => {
-            if source.is_some() {
+            if let TransactionInfo::Receive { source } = args.transaction_info {
                 let builder = BlockBuilder::legacy_receive();
                 builder
                     .previous(previous)
-                    .source(source.unwrap())
+                    .source(source.into())
                     .sign(&key_pair)
                     .build()
             } else {
-                return to_string_pretty(&ErrorDto::new("Invalid block type".to_string())).unwrap();
+                return to_string_pretty(&ErrorDto::new(
+                    "Invalid transaction info for receive block".to_string(),
+                ))
+                .unwrap();
             }
         }
         BlockTypeDto::Change => {
-            if !representative.is_none() {
-                let builder = BlockBuilder::legacy_change();
-                builder
-                    .previous(previous)
-                    .representative(representative.unwrap().into())
-                    .sign(&key_pair)
-                    .build()
-            } else {
-                return to_string_pretty(&ErrorDto::new("Invalid block type".to_string())).unwrap();
-            }
+            let builder = BlockBuilder::legacy_change();
+            builder
+                .previous(previous)
+                .representative(args.representative.into())
+                .sign(&key_pair)
+                .build()
         }
         BlockTypeDto::Send => {
-            if destination.is_some() && !balance.is_zero() && !amount.is_none() {
-                let amount = amount.unwrap();
+            if let TransactionInfo::Send { destination } = args.transaction_info {
+                let amount = args.balance; // Adjusted: assuming balance field represents the amount to send
                 if balance >= amount {
                     let builder = BlockBuilder::legacy_send();
                     builder
                         .previous(previous)
-                        .destination(destination.unwrap())
+                        .destination(destination)
                         .balance(balance - amount)
                         .sign(key_pair)
                         .build()
@@ -138,7 +156,10 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
                         .unwrap();
                 }
             } else {
-                return to_string_pretty(&ErrorDto::new("Invalid block type".to_string())).unwrap();
+                return to_string_pretty(&ErrorDto::new(
+                    "Invalid transaction info for send block".to_string(),
+                ))
+                .unwrap();
             }
         }
     };
@@ -146,19 +167,19 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
     let root = if !previous.is_zero() {
         previous
     } else {
-        pub_key.into()
+        pub_account.into()
     };
 
     if work.is_none() {
-        let difficulty = if args.difficulty.is_none() {
-            difficulty_ledger(node.clone(), &block)
+        difficulty = if args.difficulty.is_none() {
+            difficulty_ledger(node.clone(), &block).into()
         } else {
             difficulty
         };
 
         let work = match node
             .distributed_work
-            .make(root.into(), difficulty, Some(pub_key))
+            .make(root.into(), difficulty.into(), Some(pub_account))
             .await
         {
             Some(work) => work,
