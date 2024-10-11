@@ -88,16 +88,22 @@ impl BlockCreateArgsBuilder {
 
     pub fn work(mut self, work: WorkNonce) -> Self {
         self.args.work = Some(work);
+        self.args.version = None; 
+        self.args.difficulty = None; 
         self
     }
 
     pub fn version(mut self, version: WorkVersionDto) -> Self {
-        self.args.version = Some(version);
+        if self.args.work.is_none() {
+            self.args.version = Some(version);
+        }
         self
     }
 
     pub fn difficulty(mut self, difficulty: WorkNonce) -> Self {
-        self.args.difficulty = Some(difficulty);
+        if self.args.work.is_none() {
+            self.args.difficulty = Some(difficulty);
+        }
         self
     }
 
@@ -122,8 +128,8 @@ mod tests {
 
         let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
             .work(WorkNonce::from(10))
-            .version(WorkVersionDto::Work1)
-            .difficulty(1234.into())
+            .version(WorkVersionDto::Work1) // This should be ignored
+            .difficulty(WorkNonce::from(0x1234567890abcdef)) // This should be ignored
             .build()
             .unwrap();
 
@@ -134,8 +140,8 @@ mod tests {
         assert_eq!(args.representative, representative);
         assert_eq!(args.previous, previous);
         assert_eq!(args.work, Some(WorkNonce::from(10)));
-        assert_eq!(args.version, Some(WorkVersionDto::Work1));
-        assert_eq!(args.difficulty, Some(1234.into()));
+        assert_eq!(args.version, None);
+        assert_eq!(args.difficulty, None);
 
         let serialized = serde_json::to_string(&args).unwrap();
         let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
@@ -202,7 +208,7 @@ mod tests {
         let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
             .work(WorkNonce::from(10))
             .version(WorkVersionDto::Work1)
-            .difficulty(1234.into())
+            .difficulty(WorkNonce::from(0x1234567890abcdef))
             .build()
             .unwrap();
 
@@ -224,7 +230,7 @@ mod tests {
             "previous": "0000000000000000000000000000000000000000000000000000000000000000",
             "work": "0000000000000000",
             "version": "work1",
-            "difficulty": "0000000000000000"
+            "difficulty": "1234567890abcdef"
         }"#;
 
         let args: BlockCreateArgs = serde_json::from_str(json).unwrap();
@@ -237,7 +243,7 @@ mod tests {
         assert_eq!(args.previous, BlockHash::zero());
         assert_eq!(args.work, Some(WorkNonce::from(0)));
         assert_eq!(args.version, Some(WorkVersionDto::Work1));
-        assert_eq!(args.difficulty, Some(0.into()));
+        assert_eq!(args.difficulty, Some(WorkNonce::from(0x1234567890abcdef)));
     }
 
     #[test]
@@ -287,5 +293,53 @@ mod tests {
         assert_eq!(args.work, None);
         assert_eq!(args.version, None);
         assert_eq!(args.difficulty, None);
+    }
+
+    #[test]
+    fn test_block_create_args_builder_with_version_and_difficulty() {
+        let wallet = WalletId::zero();
+        let account = Account::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let destination = Account::zero();
+
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
+            .version(WorkVersionDto::Work1)
+            .difficulty(WorkNonce::from(0x1234567890abcdef))
+            .build()
+            .unwrap();
+
+        assert_eq!(args.work, None);
+        assert_eq!(args.version, Some(WorkVersionDto::Work1));
+        assert_eq!(args.difficulty, Some(WorkNonce::from(0x1234567890abcdef)));
+
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(args, deserialized);
+    }
+
+    #[test]
+    fn test_block_create_args_builder_default_version() {
+        let wallet = WalletId::zero();
+        let account = Account::zero();
+        let balance = Amount::raw(1000);
+        let representative = Account::zero();
+        let previous = BlockHash::zero();
+        let destination = Account::zero();
+
+        let args = BlockCreateArgs::builder(BlockTypeDto::State, balance, AccountIdentifier::WalletAccount { wallet, account }, TransactionInfo::Send { destination }, previous, representative)
+            .build()
+            .unwrap();
+
+        assert_eq!(args.work, None);
+        assert_eq!(args.version, None);
+        assert_eq!(args.difficulty, None);
+
+        let serialized = serde_json::to_string(&args).unwrap();
+        let deserialized: BlockCreateArgs = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(args, deserialized);
     }
 }

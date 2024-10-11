@@ -1,5 +1,5 @@
 use rsnano_core::{
-    Account, Amount, BlockBuilder, BlockDetails, BlockEnum, BlockHash, Epoch, KeyPair, PendingKey,
+    Account, BlockBuilder, BlockDetails, BlockEnum, Epoch, KeyPair, PendingKey,
     PublicKey, RawKey,
 };
 use rsnano_node::Node;
@@ -19,8 +19,8 @@ pub async fn block_create(node: Arc<Node>, enable_control: bool, args: BlockCrea
         .difficulty
         .unwrap_or_else(|| node.network_params.work.threshold_base(work_version).into());
 
-    let mut previous = args.previous;
-    let mut balance = args.balance;
+    let previous = args.previous;
+    let balance = args.balance;
     let mut prv_key = RawKey::default();
     let mut account = Account::zero();
 

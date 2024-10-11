@@ -1,4 +1,4 @@
-use rsnano_core::{Amount, BlockEnum, BlockHash, BlockType, KeyPair, Link, Root, WalletId, DEV_GENESIS_KEY};
+use rsnano_core::{Amount, BlockEnum, BlockType, KeyPair, Link, Root, WalletId, DEV_GENESIS_KEY};
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH};
 use rsnano_node::wallets::WalletsExt;
 use rsnano_rpc_messages::{AccountIdentifier, BlockCreateArgs, BlockTypeDto, TransactionInfo};
@@ -379,6 +379,7 @@ fn block_create_change_with_private_key() {
     node.wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.private_key(), false)
         .unwrap();
+    let key1 = KeyPair::new();
 
     let (rpc_client, _server) = setup_rpc_client_and_server(node.clone(), true);
 
@@ -395,7 +396,7 @@ fn block_create_change_with_private_key() {
                         link: Link::zero(),
                     },
                     *DEV_GENESIS_HASH,
-                    *DEV_GENESIS_ACCOUNT,
+                    key1.account(),
                 )
                 .build()
                 .unwrap(),
