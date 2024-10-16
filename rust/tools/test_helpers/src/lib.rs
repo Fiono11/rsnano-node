@@ -8,7 +8,6 @@ use rsnano_node::{
     config::{NodeConfig, NodeFlags},
     consensus::{ActiveElectionsExt, Election},
     unique_path,
-    utils::AsyncRuntime,
     wallets::WalletsExt,
     NetworkParams, Node, NodeBuilder, NodeExt,
 };
@@ -25,8 +24,12 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing_subscriber::EnvFilter;
+use tokio::runtime::{Handle, Runtime};
+use tokio::net::TcpListener as TokioTcpListener;
+
 pub struct System {
-    runtime: Arc<AsyncRuntime>,
+    runtime: Option<Runtime>,              
+    handle: Handle,                       
     network_params: NetworkParams,
     pub work: Arc<WorkPoolImpl>,
     nodes: Vec<Arc<Node>>,
@@ -37,8 +40,20 @@ impl System {
         init_tracing();
         let network_params = NetworkParams::new(Networks::NanoDevNetwork);
 
+        // Attempt to get the current runtime handle
+        let (runtime, handle) = if let Ok(handle) = Handle::try_current() {
+            // In an async context, use the existing runtime
+            (None, handle)
+        } else {
+            // Not in an async context, create a new runtime
+            let runtime = Runtime::new().expect("Failed to create runtime");
+            let handle = runtime.handle().clone();
+            (Some(runtime), handle)
+        };
+
         Self {
-            runtime: Arc::new(AsyncRuntime::default()),
+            runtime, // May or may not own the runtime
+            handle,
             work: Arc::new(WorkPoolImpl::new(
                 network_params.work.clone(),
                 1,
@@ -122,7 +137,7 @@ impl System {
     fn new_node(&self, config: NodeConfig, flags: NodeFlags) -> Arc<Node> {
         let path = unique_path().expect("Could not get a unique path");
         let node = NodeBuilder::new(self.network_params.network.current_network)
-            .runtime(self.runtime.tokio.handle().clone())
+            .runtime(self.handle.clone())
             .data_path(path)
             .config(config)
             .network_params(self.network_params.clone())
@@ -139,12 +154,15 @@ impl System {
             std::fs::remove_dir_all(&node.data_path).expect("Could not delete node data dir");
         }
         self.work.stop();
+        // The runtime will be dropped automatically if we own it
     }
 }
 
 impl Drop for System {
     fn drop(&mut self) {
         self.stop();
+        // The runtime will be dropped here if we own it
+        // If we're in an async context, `runtime` will be `None` and we won't drop any runtime
     }
 }
 
@@ -475,8 +493,6 @@ pub fn setup_independent_blocks(node: &Node, count: usize, source: &KeyPair) -> 
     blocks
 }
 
-use tokio::net::TcpListener as TokioTcpListener;
-
 pub fn setup_rpc_client_and_server(
     node: Arc<Node>,
     enable_control: bool,
@@ -496,6 +512,26 @@ pub fn setup_rpc_client_and_server(
     let server = node
         .runtime
         .spawn(run_rpc_server(node.clone(), listener, enable_control));
+
+    let rpc_url = format!("http://[::1]:{}/", port);
+    let rpc_client = Arc::new(NanoRpcClient::new(Url::parse(&rpc_url).unwrap()));
+
+    (rpc_client, server)
+}
+
+pub async fn setup_rpc_client_and_server_async(
+    node: Arc<Node>,
+    enable_control: bool,
+) -> (
+    Arc<NanoRpcClient>,
+    tokio::task::JoinHandle<Result<(), anyhow::Error>>,
+) {
+    let port = get_available_port();
+    let socket_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port);
+
+    let listener = TokioTcpListener::bind(socket_addr).await.unwrap();
+
+    let server = tokio::spawn(run_rpc_server(node.clone(), listener, enable_control));
 
     let rpc_url = format!("http://[::1]:{}/", port);
     let rpc_client = Arc::new(NanoRpcClient::new(Url::parse(&rpc_url).unwrap()));

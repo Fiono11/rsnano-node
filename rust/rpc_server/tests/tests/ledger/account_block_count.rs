@@ -1,36 +1,32 @@
 use rsnano_core::Account;
 use rsnano_ledger::DEV_GENESIS_ACCOUNT;
-use test_helpers::{setup_rpc_client_and_server, System};
+use test_helpers::{setup_rpc_client_and_server_async, System};
 
-#[test]
-fn account_block_count() {
+#[tokio::test]
+async fn account_block_count() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let (rpc_client, server) = setup_rpc_client_and_server(node.clone(), true);
+    let (rpc_client, server) = setup_rpc_client_and_server_async(node.clone(), true).await;
 
-    let result = node.runtime.block_on(async {
-        rpc_client
+    let result = rpc_client
             .account_block_count(DEV_GENESIS_ACCOUNT.to_owned())
             .await
-            .unwrap()
-    });
+            .unwrap();
 
     assert_eq!(result.count, 1);
 
     server.abort();
 }
 
-#[test]
-fn account_block_count_fails_with_account_not_found() {
+#[tokio::test]
+async fn account_block_count_fails_with_account_not_found() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let (rpc_client, server) = setup_rpc_client_and_server(node.clone(), true);
+    let (rpc_client, server) = setup_rpc_client_and_server_async(node.clone(), true).await;
 
-    let result = node
-        .runtime
-        .block_on(async { rpc_client.account_block_count(Account::zero()).await });
+    let result = rpc_client.account_block_count(Account::zero()).await;
 
     assert_eq!(
         result.err().map(|e| e.to_string()),
