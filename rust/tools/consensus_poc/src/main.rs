@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-
+use rand::{thread_rng, Rng};
+use rand::seq::SliceRandom;
 use crossbeam_channel::{bounded, Receiver, Sender};
 
 // Define the number of nodes and faulty nodes (f)
@@ -37,6 +38,7 @@ struct Node {
     channels: Vec<Sender<Message>>,
     receiver: Receiver<Message>,
     decided: bool,
+    byzantine: bool,
 }
 
 impl Node {
@@ -45,6 +47,7 @@ impl Node {
         channels: Vec<Sender<Message>>,
         receiver: Receiver<Message>,
     ) -> Self {
+        let byzantine = thread_rng().gen_bool(0.25); // 25% chance of being byzantine
         Node {
             id,
             tx_set: vec!['A', 'B'],
@@ -56,18 +59,47 @@ impl Node {
             channels,
             receiver,
             decided: false,
+            byzantine,
         }
     }
 
     fn broadcast(&self, msg: Message) {
-        println!("Node {} broadcasting message: {:?}", self.id, msg);
-        for ch in &self.channels {
-            ch.send(msg.clone()).expect("Failed to send message");
+        if self.byzantine {
+            // Byzantine nodes may send random messages or not send at all
+            let mut rng = thread_rng();
+            if rng.gen_bool(0.5) { // 50% chance to not send any messages
+                println!("Byzantine Node {} decided not to broadcast any messages", self.id);
+                return;
+            }
+            // Randomly modify the message or send a different message
+            let random_tx = *self.tx_set.choose(&mut rng).unwrap();
+            let modified_msg = match msg {
+                Message::Vote { from, .. } => Message::Vote {
+                    from,
+                    tx: random_tx,
+                    round: self.round,
+                },
+                Message::Commit { from, .. } => Message::Commit {
+                    from,
+                    tx: random_tx,
+                    round: self.round,
+                    proof_round: self.round - 1,
+                },
+            };
+            println!("Byzantine Node {} broadcasting modified message: {:?}", self.id, modified_msg);
+            for ch in &self.channels {
+                ch.send(modified_msg.clone()).expect("Failed to send message");
+            }
+        } else {
+            println!("Node {} broadcasting message: {:?}", self.id, msg);
+            for ch in &self.channels {
+                ch.send(msg.clone()).expect("Failed to send message");
+            }
         }
     }    
 
-    fn run(&mut self) {
-        println!("Node {} starting run loop", self.id);
+    fn run(&mut self) -> Option<char> {
+        println!("Node {} starting run loop (Byzantine: {})", self.id, self.byzantine);
         while !self.decided {
             match self.round {
                 1 => self.round_one(),
@@ -75,12 +107,13 @@ impl Node {
             }
         }
         println!("Node {} has decided", self.id);
+        self.current_tx
     }
 
     fn round_one(&mut self) {
         println!("Node {} entering round 1", self.id);
         // Proposer role: Node 0
-        if self.id == 0 {
+        if self.id == 0 && !self.byzantine {
             let tx = self.tx_set[0]; // Proposer selects 'A'
             self.current_tx = Some(tx);
             let msg = Message::Vote {
@@ -113,8 +146,8 @@ impl Node {
                             self.broadcast(vote_msg);
                         }
                         // Check if received > f votes
-                        if self.votes.len() > 2 * F + 1 {
-                            println!("Node {} received more than 2F votes, proceeding to next round", self.id);
+                        if self.votes.len() > F {
+                            println!("Node {} received more than F votes, proceeding to next round", self.id);
                             self.round += 1;
                             break;
                         }
@@ -226,6 +259,7 @@ impl Node {
                             // Decide on tx
                             println!("Node {} DECIDES on tx {}", self.id, tx);
                             self.decided = true;
+                            self.current_tx = Some(tx);
                             return;
                         }
                     }
@@ -279,5 +313,49 @@ fn main() {
 
     for handle in handles {
         handle.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_consensus_among_honest_nodes() {
+        // Set up channels for nodes
+        let mut senders = Vec::new();
+        let mut receivers = Vec::new();
+
+        for _ in 0..NUM_NODES {
+            let (s, r) = bounded::<Message>(100);
+            senders.push(s);
+            receivers.push(r);
+        }
+
+        // Shared senders for nodes
+        let shared_senders = Arc::new(senders);
+        let mut handles = Vec::new();
+        let mut results = Vec::new();
+
+        // Create and run nodes
+        for i in 0..NUM_NODES {
+            let channels = shared_senders.clone();
+            let receiver = receivers[i].clone();
+            let mut node = Node::new(i, channels.to_vec(), receiver);
+
+            let handle = thread::spawn(move || node.run());
+            handles.push(handle);
+        }
+
+        // Collect decisions
+        for handle in handles {
+            if let Ok(result) = handle.join() {
+                results.push(result);
+            }
+        }
+
+        // Assert that all honest nodes agree on the decision
+        let honest_results: Vec<_> = results.into_iter().filter_map(|d| d).collect();
+        assert!(honest_results.windows(2).all(|w| w[0] == w[1]), "Honest nodes did not agree on the same value");
     }
 }
