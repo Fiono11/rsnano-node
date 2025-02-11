@@ -382,6 +382,7 @@ impl SavedBlock {
             balance: block.balance_field().unwrap(),
             details: BlockDetails::new(Epoch::Epoch2, false, true, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         };
         Self::new(block, sideband)
     }
@@ -407,6 +408,7 @@ impl SavedBlock {
             balance: block.balance_field().unwrap(),
             details: BlockDetails::new(Epoch::Epoch2, true, false, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     }
 

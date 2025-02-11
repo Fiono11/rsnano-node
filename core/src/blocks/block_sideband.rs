@@ -14,6 +14,7 @@ pub struct BlockSideband {
     pub balance: Amount,
     pub details: BlockDetails,
     pub source_epoch: Epoch,
+    pub is_final_voted: bool, 
 }
 
 impl BlockSideband {
@@ -81,6 +82,7 @@ impl BlockSideband {
             balance: Amount::zero(),
             details: BlockDetails::new(Epoch::Epoch0, false, false, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         };
         result.deserialize(stream, block_type)?;
         Ok(result)
@@ -138,6 +140,7 @@ impl BlockSideband {
                 is_epoch: false,
             },
             source_epoch: Epoch::Epoch2,
+            is_final_voted: false,
         }
     }
 }
@@ -158,6 +161,7 @@ mod tests {
             balance: 3.into(),
             details,
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         };
         let mut stream = MemoryStream::new();
         sideband.serialize(&mut stream, BlockType::LegacyReceive);

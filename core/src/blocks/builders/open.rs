@@ -80,6 +80,7 @@ impl TestLegacyOpenBlockBuilder {
             balance: 5.into(),
             details,
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         };
 
         SavedBlock::new(block, sideband)

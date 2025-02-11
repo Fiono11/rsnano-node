@@ -109,6 +109,7 @@ pub fn genesis_sideband(genesis_account: Account) -> BlockSideband {
         balance: Amount::MAX,
         details: BlockDetails::new(Epoch::Epoch0, false, false, false),
         source_epoch: Epoch::Epoch0,
+        is_final_voted: false,
     }
 }
 

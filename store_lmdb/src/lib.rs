@@ -9,6 +9,7 @@ mod block_store;
 mod confirmation_height_store;
 mod fan;
 mod final_vote_store;
+mod non_final_vote_store;
 mod iterator;
 mod lmdb_config;
 mod lmdb_env;

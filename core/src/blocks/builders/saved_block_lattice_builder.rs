@@ -113,7 +113,8 @@ impl SavedBlockLatticeBuilder {
             account,
             balance: new_frontier.balance,
             details: BlockDetails::new(Epoch::Epoch0, is_send, is_receive, false), //TODO epoch
-            source_epoch: Epoch::Epoch0,                                           //TODO
+            source_epoch: Epoch::Epoch0,     
+            is_final_voted: false,                                      //TODO
         }
     }
 

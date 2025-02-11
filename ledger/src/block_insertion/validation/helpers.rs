@@ -215,6 +215,7 @@ impl<'a> BlockValidator<'a> {
             balance: self.new_balance(),
             details: self.block_details(),
             source_epoch: self.source_epoch(),
+            is_final_voted: false,
         }
     }
 

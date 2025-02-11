@@ -338,6 +338,7 @@ impl SavedAccountChain {
             balance: self.balance,
             details: BlockDetails::new(self.epoch, false, false, false),
             source_epoch,
+            is_final_voted: false,
         };
 
         if !self.blocks.is_empty() {

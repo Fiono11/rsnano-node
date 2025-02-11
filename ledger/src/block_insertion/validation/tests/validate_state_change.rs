@@ -33,7 +33,8 @@ fn valid_change_block() {
             account: change_block.account_field().unwrap(),
             balance: old_account_info.balance,
             details: BlockDetails::new(old_account_info.epoch, false, false, false),
-            source_epoch: Epoch::Epoch0
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         },
         "sideband"
     );

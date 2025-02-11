@@ -197,6 +197,7 @@ impl TestStateBlockBuilder {
             balance: block.balance_field().unwrap(),
             details,
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         };
         SavedBlock::new(block, sideband)
     }

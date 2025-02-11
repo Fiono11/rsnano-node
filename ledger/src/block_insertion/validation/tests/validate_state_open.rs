@@ -20,7 +20,8 @@ fn valid_open_block() {
             account: open_block.account_field().unwrap(),
             balance: open_block.balance_field().unwrap(),
             details: BlockDetails::new(Epoch::Epoch2, false, true, false),
-            source_epoch: Epoch::Epoch2
+            source_epoch: Epoch::Epoch2,
+            is_final_voted: false,
         }
     );
     assert_eq!(

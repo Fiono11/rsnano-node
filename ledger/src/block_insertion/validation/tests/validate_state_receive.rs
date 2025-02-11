@@ -32,7 +32,8 @@ fn valid_receive_block() {
             account: receive.account_field().unwrap(),
             balance: receive.balance_field().unwrap(),
             details: BlockDetails::new(old_account_info.epoch, false, true, false),
-            source_epoch: Epoch::Epoch0
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         },
         "sideband"
     );

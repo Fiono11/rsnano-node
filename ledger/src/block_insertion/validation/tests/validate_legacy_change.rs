@@ -24,6 +24,7 @@ fn valid_legacy_change_block() {
             balance: test.chain.account_info().balance,
             details: BlockDetails::new(Epoch::Epoch0, false, false, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     );
     assert_eq!(

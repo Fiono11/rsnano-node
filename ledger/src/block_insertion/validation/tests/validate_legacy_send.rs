@@ -19,7 +19,8 @@ fn valid_legacy_send_block() {
             account: test.chain.account(),
             balance: test.chain.account_info().balance - Amount::raw(1),
             details: BlockDetails::new(Epoch::Epoch0, true, false, false),
-            source_epoch: Epoch::Epoch0
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     );
     assert_eq!(result.delete_pending, None);

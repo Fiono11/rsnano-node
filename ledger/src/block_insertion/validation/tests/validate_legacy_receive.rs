@@ -19,6 +19,7 @@ fn valid_legacy_receive_block() {
             balance: test.chain.account_info().balance + Amount::raw(10),
             details: BlockDetails::new(Epoch::Epoch0, false, true, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     );
     assert_eq!(

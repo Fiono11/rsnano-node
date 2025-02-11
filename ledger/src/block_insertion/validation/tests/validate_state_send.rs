@@ -52,7 +52,8 @@ fn valid_send_block() {
             account: send_block.account_field().unwrap(),
             balance: send_block.balance_field().unwrap(),
             details: BlockDetails::new(old_account_info.epoch, true, false, false),
-            source_epoch: Epoch::Epoch0
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         },
         "sideband"
     );

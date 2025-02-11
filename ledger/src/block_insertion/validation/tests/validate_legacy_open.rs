@@ -22,7 +22,8 @@ fn valid_legacy_open_block() {
             account: test.chain.account(),
             balance: Amount::raw(100),
             details: BlockDetails::new(Epoch::Epoch0, false, true, false),
-            source_epoch: Epoch::Epoch0
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     );
     assert_eq!(
