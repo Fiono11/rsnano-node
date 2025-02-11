@@ -303,6 +303,7 @@ impl SharedState {
                 timestamp,
                 duration,
                 hashes.clone(),
+                0, // get last era from the era store, which is the current one
             )));
         });
 

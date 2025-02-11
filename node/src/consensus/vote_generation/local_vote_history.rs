@@ -230,7 +230,7 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys, 0, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new(&keys, 0, 0, Vec::new(), 0));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
@@ -250,9 +250,9 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys1 = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys1, 0, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new(&keys1, 0, 0, Vec::new(), 0));
         let keys2 = PrivateKey::new();
-        let vote3 = Arc::new(Vote::new(&keys2, 0, 0, Vec::new()));
+        let vote3 = Arc::new(Vote::new(&keys2, 0, 0, Vec::new(), 0));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);

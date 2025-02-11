@@ -13,7 +13,7 @@ use super::{
     election_schedulers::ElectionSchedulers, Election, ElectionData, LocalVoteHistory,
     RecentlyConfirmedCache, TallyKey, VoteGenerators,
 };
-use rsnano_core::{Amount, BlockHash, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
+use rsnano_core::{Amount, BlockHash, Era, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
 use rsnano_ledger::Ledger;
 use rsnano_network::ChannelId;
 use std::{
@@ -157,6 +157,7 @@ pub trait VoteApplierExt {
         timestamp: u64,
         block_hash: &BlockHash,
         vote_source: VoteSource,
+        era: Era,
     ) -> VoteCode;
     fn confirm_if_quorum(&self, election_lock: MutexGuard<ElectionData>, election: &Arc<Election>);
     fn confirm_once(&self, election_lock: MutexGuard<ElectionData>, election: &Arc<Election>);
@@ -170,6 +171,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
         timestamp: u64,
         block_hash: &BlockHash,
         vote_source: VoteSource,
+        era: Era,
     ) -> VoteCode {
         let weight = self.ledger.weight(rep);
         if !self.network_params.network.is_dev_network()
@@ -203,7 +205,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
         }
         guard
             .last_votes
-            .insert(*rep, VoteInfo::new(timestamp, *block_hash));
+            .insert(*rep, VoteInfo::new(timestamp, *block_hash, era));
 
         if vote_source != VoteSource::Cache {
             (election.live_vote_action)(*rep);

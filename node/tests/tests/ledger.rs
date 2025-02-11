@@ -40,6 +40,7 @@ mod votes {
             Vote::TIMESTAMP_MIN,
             0,
             vec![send1.hash()],
+            0
         ));
         assert_eq!(
             node1
@@ -55,6 +56,7 @@ mod votes {
             Vote::TIMESTAMP_MIN * 2,
             0,
             vec![send1.hash()],
+            0
         ));
 
         // Ignored due to vote cooldown
@@ -109,6 +111,7 @@ mod votes {
             Vote::TIMESTAMP_MIN,
             0,
             vec![send1.hash()],
+            0
         ));
         node1.vote_router.vote(&vote1, VoteSource::Live);
         // Block is already processed from vote
@@ -140,6 +143,7 @@ mod votes {
             Vote::TIMESTAMP_MIN * 2,
             0,
             vec![send2.hash()],
+            0
         ));
         // Pretend we've waited the timeout
         election1

@@ -138,7 +138,7 @@ fn different_hashes() {
     let mut data = election.mutex.lock().unwrap();
     // Add a vote for something else, not the winner
     data.last_votes
-        .insert(*DEV_GENESIS_PUB_KEY, VoteInfo::new(1, 1.into()));
+        .insert(*DEV_GENESIS_PUB_KEY, VoteInfo::new(1, 1.into(), 0));
     // Ensure the request and broadcast goes through
     assert_eq!(solicitor.add(&election, &data), false);
     solicitor.broadcast(&data).unwrap();
@@ -203,7 +203,7 @@ fn bypass_max_requests_cap() {
     // Add a vote for something else, not the winner
     for rep in &representatives {
         data.last_votes
-            .insert(rep.rep_key, VoteInfo::new(1, 1.into()));
+            .insert(rep.rep_key, VoteInfo::new(1, 1.into(), 0));
     }
     // Ensure the request and broadcast goes through
     assert_eq!(solicitor.add(&election, &data), false);

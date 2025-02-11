@@ -478,7 +478,7 @@ fn vote_options_type() {
         ws_stream.next().await.unwrap().unwrap();
 
 	    // Custom made votes for simplicity
-        let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH]);
+        let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH], 0);
 
         spawn_blocking(move ||{
             websocket.broadcast(&vote_received(&vote, VoteCode::Replay));

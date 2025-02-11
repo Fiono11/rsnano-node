@@ -166,6 +166,7 @@ impl VoteRouter {
                 vote.timestamp(),
                 &block_hash,
                 source,
+                vote.era,
             );
             results.insert(block_hash, vote_result);
         }

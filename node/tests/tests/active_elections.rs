@@ -57,7 +57,7 @@ fn fork_replacement_tally() {
         let open = lattice.account(&keys[i]).receive(&send);
         node1.process_active(open.clone());
         // Confirmation
-        let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash(), open.hash()]);
+        let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash(), open.hash()], 0);
         node1
             .vote_processor_queue
             .vote(Arc::new(vote), None, VoteSource::Live);
@@ -97,7 +97,7 @@ fn fork_replacement_tally() {
     for i in 0..REPS_COUNT {
         let mut fork_l = fork_lattice.clone();
         let fork = fork_l.genesis().send(&key, Amount::raw(1 + i as u128));
-        let vote = Arc::new(Vote::new(&keys[i], 0, 0, vec![fork.hash()]));
+        let vote = Arc::new(Vote::new(&keys[i], 0, 0, vec![fork.hash()], 0));
         node1
             .vote_processor_queue
             .vote(vote, None, VoteSource::Live);
@@ -151,7 +151,7 @@ fn fork_replacement_tally() {
     assert!(!blocks1.contains_key(&send_last.hash()));
 
     // Process vote for correct block & replace existing lowest tally block
-    let vote = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send_last.hash()]));
+    let vote = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send_last.hash()], 0));
     node1
         .vote_processor_queue
         .vote(vote, None, VoteSource::Live);
@@ -199,7 +199,7 @@ fn inactive_votes_cache_basic() {
     let key = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(&key, Amount::raw(100));
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]));
+    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()], 0));
     node.vote_processor_queue.vote(vote, None, VoteSource::Live);
     assert_timely_eq(
         Duration::from_secs(5),
@@ -229,7 +229,7 @@ fn non_final() {
     let send = lattice.genesis().send(Account::from(42), 100);
 
     // Non-final vote
-    let vote = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send.hash()]));
+    let vote = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send.hash()], 0));
     node.vote_processor_queue.vote(vote, None, VoteSource::Live);
     assert_timely_eq(
         Duration::from_secs(5),
@@ -282,7 +282,7 @@ fn inactive_votes_cache_fork() {
     let send1 = lattice1.genesis().send(&key, 100);
     let send2 = lattice2.genesis().send(&key, 200);
 
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     node.vote_processor_queue.vote(vote, None, VoteSource::Live);
 
     assert_timely_eq(
@@ -343,7 +343,7 @@ fn inactive_votes_cache_existing_vote() {
     );
 
     // Insert vote
-    let vote1 = Arc::new(Vote::new(&key, 0, 0, vec![send.hash()]));
+    let vote1 = Arc::new(Vote::new(&key, 0, 0, vec![send.hash()], 0));
     node.vote_processor_queue
         .vote(vote1.clone(), None, VoteSource::Live);
 
@@ -412,11 +412,11 @@ fn inactive_votes_cache_multiple_votes() {
     node.process(open.clone());
 
     // Process votes
-    let vote1 = Arc::new(Vote::new(&key, 0, 0, vec![send1.hash()]));
+    let vote1 = Arc::new(Vote::new(&key, 0, 0, vec![send1.hash()], 0));
     node.vote_processor_queue
         .vote(vote1, None, VoteSource::Live);
 
-    let vote2 = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send1.hash()]));
+    let vote2 = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send1.hash()], 0));
     node.vote_processor_queue
         .vote(vote2, None, VoteSource::Live);
 
@@ -472,6 +472,7 @@ fn inactive_votes_cache_election_start() {
         0,
         0,
         vec![open1.hash(), open2.hash(), send4.hash()],
+        0
     ));
     node.vote_processor_queue
         .vote(vote1, None, VoteSource::Live);
@@ -485,6 +486,7 @@ fn inactive_votes_cache_election_start() {
         0,
         0,
         vec![open1.hash(), open2.hash(), send4.hash()],
+        0
     ));
     node.vote_processor_queue
         .vote(vote2, None, VoteSource::Live);
@@ -496,6 +498,7 @@ fn inactive_votes_cache_election_start() {
     let vote0 = Arc::new(Vote::new_final(
         &DEV_GENESIS_KEY,
         vec![open1.hash(), open2.hash(), send4.hash()],
+        0
     ));
     node.vote_processor_queue
         .vote(vote0, None, VoteSource::Live);
@@ -573,7 +576,7 @@ fn republish_winner() {
     });
 
     let election = node1.active.election(&fork.qualified_root()).unwrap();
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
+    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()], 0));
     node1
         .vote_processor_queue
         .vote(vote, None, VoteSource::Live);
@@ -1052,7 +1055,7 @@ fn conflicting_block_vote_existing_election() {
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let fork = fork_lattice.genesis().send(&key, 200);
 
-    let vote_fork = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
+    let vote_fork = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()], 0));
 
     assert_eq!(
         node.process_local(send.clone()).unwrap(),
@@ -1229,7 +1232,7 @@ fn vote_replays() {
     assert_eq!(node.active.len(), 2);
 
     // First vote is not a replay and confirms the election, second vote should be a replay since the election has confirmed but not yet removed
-    let vote_send1 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    let vote_send1 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     assert_eq!(
         node.vote_router
             .vote(&vote_send1, VoteSource::Live)
@@ -1256,7 +1259,7 @@ fn vote_replays() {
     );
 
     // Open new account
-    let vote_open1 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash()]));
+    let vote_open1 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash()], 0));
     assert_eq!(
         node.vote_router
             .vote(&vote_open1, VoteSource::Live)
@@ -1290,8 +1293,8 @@ fn vote_replays() {
     assert_eq!(node.active.len(), 1);
 
     // vote2_send2 is a non final vote with little weight, vote1_send2 is the vote that confirms the election
-    let vote1_send2 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
-    let vote2_send2 = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send2.hash()]));
+    let vote1_send2 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()], 0));
+    let vote2_send2 = Arc::new(Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![send2.hash()], 0));
 
     // this vote cannot confirm the election
     assert_eq!(

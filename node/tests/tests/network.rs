@@ -144,7 +144,7 @@ fn receivable_processor_confirm_insufficient_pos() {
 
     let election = start_election(&node1, &send1.hash());
     let key1 = PrivateKey::new();
-    let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()], 0));
     let channel = make_fake_channel(&node1);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -166,7 +166,7 @@ fn receivable_processor_confirm_sufficient_pos() {
     node1.process(send1.clone());
 
     let election = start_election(&node1, &send1.hash());
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     let channel = make_fake_channel(&node1);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -306,7 +306,7 @@ fn duplicate_vote_detection() {
     let node0 = system.make_node();
     let node1 = system.make_node();
 
-    let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH]);
+    let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH], 0);
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP
@@ -381,10 +381,10 @@ fn duplicate_revert_vote() {
         })
         .finish();
 
-    let vote1 = Vote::new(&DEV_GENESIS_KEY, 1, 0, vec![*DEV_GENESIS_HASH]);
+    let vote1 = Vote::new(&DEV_GENESIS_KEY, 1, 0, vec![*DEV_GENESIS_HASH], 0);
     let message1 = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote1));
 
-    let vote2 = Vote::new(&DEV_GENESIS_KEY, 2, 2, vec![*DEV_GENESIS_HASH]);
+    let vote2 = Vote::new(&DEV_GENESIS_KEY, 2, 2, vec![*DEV_GENESIS_HASH], 0);
     let message2 = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote2));
 
     // Publish duplicate detection through TCP
@@ -459,7 +459,7 @@ fn expire_duplicate_filter() {
         })
         .finish();
 
-    let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH]);
+    let vote = Vote::new(&DEV_GENESIS_KEY, 0, 0, vec![*DEV_GENESIS_HASH], 0);
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP

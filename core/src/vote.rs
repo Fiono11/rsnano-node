@@ -6,6 +6,8 @@ use crate::{utils::Serialize, Amount, PublicKey};
 use anyhow::Result;
 use std::time::{Duration, SystemTime};
 
+pub type Era = u64;
+
 #[derive(FromPrimitive, Copy, Clone, PartialEq, Eq, Debug)]
 pub enum VoteSource {
     Live,
@@ -47,6 +49,9 @@ pub struct Vote {
 
     // The hashes for which this vote directly covers
     pub hashes: Vec<BlockHash>,
+
+    // References a previous agreed global ledger state and, implicitly, a set of voting weights
+    pub era: Era,
 }
 
 static HASH_PREFIX: &str = "vote ";
@@ -59,12 +64,13 @@ impl Vote {
             voting_account: PublicKey::zero(),
             signature: Signature::new(),
             hashes: Vec::new(),
+            era: 0,
         }
     }
 
-    pub fn new_final(key: &PrivateKey, hashes: Vec<BlockHash>) -> Self {
+    pub fn new_final(key: &PrivateKey, hashes: Vec<BlockHash>, era: Era) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
-        Self::new(key, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes)
+        Self::new(key, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes, era)
     }
 
     pub fn new(
@@ -72,6 +78,7 @@ impl Vote {
         timestamp: u64,
         duration: u8,
         hashes: Vec<BlockHash>,
+        era: Era,
     ) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
         let mut result = Self {
@@ -79,6 +86,7 @@ impl Vote {
             timestamp: packed_timestamp(timestamp, duration),
             signature: Signature::new(),
             hashes,
+            era,
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
@@ -86,7 +94,7 @@ impl Vote {
 
     pub fn new_test_instance() -> Self {
         let key = PrivateKey::from(42);
-        Self::new(&key, 1, 2, vec![BlockHash::from(5)])
+        Self::new(&key, 1, 2, vec![BlockHash::from(5)], 0)
     }
 
     /// Timestamp for final vote

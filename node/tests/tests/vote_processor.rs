@@ -27,6 +27,7 @@ fn codes() {
         Vote::TIMESTAMP_MIN,
         0,
         vec![blocks[0].hash()],
+        0
     );
     let mut vote_invalid = vote.clone();
     vote_invalid.signature = Signature::new();
@@ -92,7 +93,7 @@ fn invalid_signature() {
     let node = system.make_node();
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
     let key = PrivateKey::new();
-    let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
+    let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()], 0);
     let mut vote_invalid = vote.clone();
     vote_invalid.signature = Signature::new();
 
@@ -125,6 +126,7 @@ fn overflow() {
         Vote::TIMESTAMP_MIN,
         0,
         vec![*DEV_GENESIS_HASH],
+        0
     ));
     let start_time = Instant::now();
     // No way to lock the processor, but queueing votes in quick succession must result in overflow
@@ -157,7 +159,7 @@ fn overflow() {
 #[test]
 fn empty_hashes() {
     let key = PrivateKey::new();
-    let vote = Arc::new(Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![]));
+    let vote = Arc::new(Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![], 0));
 
     assert_eq!(vote.voting_account, key.public_key());
     assert_eq!(vote.timestamp, Vote::TIMESTAMP_MIN);
@@ -171,7 +173,7 @@ fn empty_hashes() {
 fn timestamp_and_duration_masking() {
     let key = PrivateKey::new();
     let hash = vec![*DEV_GENESIS_HASH];
-    let vote = Arc::new(Vote::new(&key, 0x123f, 0xf, hash));
+    let vote = Arc::new(Vote::new(&key, 0x123f, 0xf, hash, 0));
 
     assert_eq!(vote.timestamp(), 0x1230);
     assert_eq!(vote.duration().as_millis(), 524288);

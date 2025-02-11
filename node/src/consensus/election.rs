@@ -4,7 +4,7 @@ use crate::{
     utils::HardenedConstants,
 };
 use rsnano_core::{
-    Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock,
+    Amount, Block, BlockHash, Era, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock
 };
 use std::{
     collections::HashMap,
@@ -59,7 +59,7 @@ impl Election {
             },
             last_votes: HashMap::from([(
                 HardenedConstants::get().not_an_account_key,
-                VoteInfo::new(0, block.hash()),
+                VoteInfo::new(0, block.hash(),0),
             )]),
             last_blocks: HashMap::from([(block.hash(), MaybeSavedBlock::Saved(block))]),
             state: ElectionState::Passive,
@@ -278,21 +278,23 @@ pub struct VoteInfo {
     pub time: SystemTime, // TODO use Instant
     pub timestamp: u64,
     pub hash: BlockHash,
+    pub era: Era,
 }
 
 impl VoteInfo {
-    pub fn new(timestamp: u64, hash: BlockHash) -> Self {
+    pub fn new(timestamp: u64, hash: BlockHash, era: Era) -> Self {
         Self {
             time: SystemTime::now(),
             timestamp,
             hash,
+            era,
         }
     }
 }
 
 impl Default for VoteInfo {
     fn default() -> Self {
-        Self::new(0, BlockHash::zero())
+        Self::new(0, BlockHash::zero(), 0)
     }
 }
 

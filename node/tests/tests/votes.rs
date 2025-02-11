@@ -28,7 +28,7 @@ fn check_signature() {
     node.process(send1.clone());
     let election1 = start_election(&node, &send1.hash());
     assert_eq!(1, election1.vote_count());
-    let mut vote1 = Vote::new(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()]);
+    let mut vote1 = Vote::new(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()], 0);
     let good_signature = vote1.signature;
     vote1.signature = Signature::new();
     let channel = make_fake_channel(&node);
@@ -80,6 +80,7 @@ fn add_old() {
         Vote::TIMESTAMP_MIN * 2,
         0,
         vec![send1.hash()],
+        0
     ));
     let channel = make_fake_channel(&node);
     node.vote_processor
@@ -92,6 +93,7 @@ fn add_old() {
         Vote::TIMESTAMP_MIN * 1,
         0,
         vec![send2.hash()],
+        0
     ));
 
     election1
@@ -131,6 +133,7 @@ fn add_cooldown() {
         Vote::TIMESTAMP_MIN * 1,
         0,
         vec![send1.hash()],
+        0
     ));
     let channel = make_fake_channel(&node);
     node.vote_processor
@@ -143,6 +146,7 @@ fn add_cooldown() {
         Vote::TIMESTAMP_MIN * 2,
         0,
         vec![send2.hash()],
+        0
     ));
 
     node.vote_processor
