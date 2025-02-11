@@ -67,7 +67,7 @@ mod tests {
     use std::path::PathBuf;
 
     static CUSTOM_TOML_STR: &str = r#"[node]
-        new_consensus = true
+        global_ordering = true
         allow_local_peers = false
         backup_before_upgrade = true
         bandwidth_limit = 999
@@ -279,8 +279,8 @@ mod tests {
 
         // Node section
         assert_ne!(
-            deserialized.node.new_consensus,
-            default_cfg.node.new_consensus
+            deserialized.node.global_ordering,
+            default_cfg.node.global_ordering
         );
         assert_ne!(
             deserialized.node.allow_local_peers,

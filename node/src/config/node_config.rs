@@ -27,7 +27,7 @@ use std::{cmp::max, net::Ipv6Addr, time::Duration};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
-    pub new_consensus: bool,
+    pub global_ordering: bool,
     pub peering_port: Option<u16>,
     pub default_peering_port: u16,
     pub optimistic_scheduler: OptimisticSchedulerConfig,
@@ -225,7 +225,7 @@ impl NodeConfig {
         let block_processor_cfg = BlockProcessorConfig::new(network_params.work.clone());
 
         Self {
-            new_consensus: false,
+            global_ordering: false,
             peering_port,
             default_peering_port: network_params.network.default_node_port,
             bootstrap_fraction_numerator: 1,

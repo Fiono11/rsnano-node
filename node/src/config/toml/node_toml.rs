@@ -8,7 +8,7 @@ use tcp_toml::TcpToml;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct NodeToml {
-    pub new_consensus: Option<bool>,
+    pub global_ordering: Option<bool>,
     pub allow_local_peers: Option<bool>,
     pub background_threads: Option<u32>,
     pub backup_before_upgrade: Option<bool>,
@@ -76,8 +76,8 @@ pub struct NodeToml {
 
 impl NodeConfig {
     pub fn merge_toml(&mut self, toml: &NodeToml) {
-        if let Some(new_consensus) = toml.new_consensus {
-            self.new_consensus = new_consensus;
+        if let Some(global_ordering) = toml.global_ordering {
+            self.global_ordering = global_ordering;
         }
         if let Some(allow_local_peers) = toml.allow_local_peers {
             self.allow_local_peers = allow_local_peers;
@@ -363,7 +363,7 @@ impl NodeConfig {
 impl From<&NodeConfig> for NodeToml {
     fn from(config: &NodeConfig) -> Self {
         Self {
-            new_consensus: Some(config.new_consensus),
+            global_ordering: Some(config.global_ordering),
             allow_local_peers: Some(config.allow_local_peers),
             background_threads: Some(config.background_threads),
             backup_before_upgrade: Some(config.backup_before_upgrade),
