@@ -103,6 +103,7 @@ pub struct ActiveElections {
     vote_cache_processor: Arc<VoteCacheProcessor>,
     message_flooder: Mutex<MessageFlooder>,
     vacancy_updated_observers: RwLock<Vec<Box<dyn Fn() + Send + Sync>>>,
+    ordering: bool,
 }
 
 impl ActiveElections {
@@ -166,6 +167,7 @@ impl ActiveElections {
             steady_clock,
             message_flooder: Mutex::new(message_flooder),
             vacancy_updated_observers: RwLock::new(Vec::new()),
+            ordering: false,
         }
     }
 
@@ -591,7 +593,7 @@ impl ActiveElections {
             return;
         }
         election_guard.set_last_vote();
-        if self.node_config.enable_voting && self.wallets.voting_reps_count() > 0 {
+        if self.node_config.enable_voting && self.wallets.voting_reps_count() > 0 && !self.ordering {
             self.stats
                 .inc(StatType::Election, DetailType::BroadcastVote);
             election_guard.status.vote_broadcast_count += 1;
