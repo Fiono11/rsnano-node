@@ -135,6 +135,7 @@ impl ActiveElections {
                 priority_count: 0,
                 hinted_count: 0,
                 optimistic_count: 0,
+                ordering_count: 0,
             }),
             condition: Condvar::new(),
             network_params,
@@ -380,6 +381,7 @@ impl ActiveElections {
             ElectionBehavior::Optimistic => {
                 self.config.optimistic_limit_percentage * self.config.size / 100
             }
+            ElectionBehavior::Ordering => 1,
         }
     }
 
@@ -400,6 +402,7 @@ impl ActiveElections {
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => {
                 self.limit(behavior) as i64 - guard.count_by_behavior(behavior) as i64
             }
+            ElectionBehavior::Ordering => 1,
         }
     }
 
@@ -719,7 +722,7 @@ impl ActiveElections {
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_time(&self, election_data: &ElectionData) -> Duration {
         match election_data.behavior {
-            ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted => {
+            ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted | ElectionBehavior::Ordering => {
                 self.base_latency() * 5
             }
             ElectionBehavior::Optimistic => self.base_latency() * 2,
@@ -1013,6 +1016,7 @@ pub struct ActiveElectionsState {
     priority_count: usize,
     hinted_count: usize,
     optimistic_count: usize,
+    ordering_count: usize,
 }
 
 impl ActiveElectionsState {
@@ -1022,6 +1026,7 @@ impl ActiveElectionsState {
             ElectionBehavior::Priority => self.priority_count,
             ElectionBehavior::Hinted => self.hinted_count,
             ElectionBehavior::Optimistic => self.optimistic_count,
+            ElectionBehavior::Ordering => self.ordering_count,
         }
     }
 
@@ -1031,6 +1036,7 @@ impl ActiveElectionsState {
             ElectionBehavior::Priority => &mut self.priority_count,
             ElectionBehavior::Hinted => &mut self.hinted_count,
             ElectionBehavior::Optimistic => &mut self.optimistic_count,
+            ElectionBehavior::Ordering => &mut self.ordering_count,
         }
     }
 

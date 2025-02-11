@@ -234,7 +234,7 @@ impl ElectionData {
 
     pub fn time_to_live(&self) -> Duration {
         match self.behavior {
-            ElectionBehavior::Manual | ElectionBehavior::Priority => Duration::from_secs(60 * 5),
+            ElectionBehavior::Manual | ElectionBehavior::Priority | ElectionBehavior::Ordering => Duration::from_secs(60 * 5),
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => Duration::from_secs(30),
         }
     }
@@ -357,6 +357,12 @@ pub enum ElectionBehavior {
      * - more frequent confirmation requests
      */
     Optimistic,
+        /**
+     * Ordering elections:
+     * - reach agreement on the global state of the ledger
+     * - run from a defined time to time
+     */
+    Ordering,
 }
 
 impl From<ElectionBehavior> for DetailType {
@@ -366,6 +372,7 @@ impl From<ElectionBehavior> for DetailType {
             ElectionBehavior::Priority => DetailType::Priority,
             ElectionBehavior::Hinted => DetailType::Hinted,
             ElectionBehavior::Optimistic => DetailType::Optimistic,
+            ElectionBehavior::Ordering => DetailType::Ordering,
         }
     }
 }
