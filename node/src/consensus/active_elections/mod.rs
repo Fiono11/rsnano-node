@@ -2,7 +2,7 @@ mod root_container;
 
 use std::{
     cmp::{max, min},
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     mem::size_of,
     ops::Deref,
     sync::{atomic::Ordering, Arc, Condvar, Mutex, MutexGuard, RwLock},
@@ -30,8 +30,8 @@ use super::{
     VoteCache, VoteCacheProcessor, VoteGenerators, VoteRouter, NEXT_ELECTION_ID,
 };
 use crate::{
-    block_processing::LedgerNotifications,
-    cementation::ConfirmingSet,
+    block_processing::BlockContext,
+    cementation::{CementingContext, ConfirmingSet},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::VoteApplierExt,
     representatives::OnlineReps,
@@ -84,10 +84,9 @@ pub struct ActiveElections {
     config: ActiveElectionsConfig,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
-    pub recently_confirmed: Arc<RecentlyConfirmedCache>,
+    recently_confirmed: Arc<RecentlyConfirmedCache>,
     /// Helper container for storing recently cemented elections (a block from election might be confirmed but not yet cemented by confirmation height processor)
     recently_cemented: Arc<Mutex<BoundedVecDeque<ElectionStatus>>>,
-    notifications: LedgerNotifications,
     vote_generators: Arc<VoteGenerators>,
     network_filter: Arc<NetworkFilter>,
     network: Arc<RwLock<Network>>,
@@ -100,7 +99,7 @@ pub struct ActiveElections {
     thread: Mutex<Option<JoinHandle<()>>>,
     flags: NodeFlags,
     pub vote_applier: Arc<VoteApplier>,
-    pub vote_router: Arc<VoteRouter>,
+    vote_router: Arc<VoteRouter>,
     vote_cache_processor: Arc<VoteCacheProcessor>,
     message_flooder: Mutex<MessageFlooder>,
     vacancy_updated_observers: RwLock<Vec<Box<dyn Fn() + Send + Sync>>>,
@@ -114,7 +113,6 @@ impl ActiveElections {
         node_config: NodeConfig,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
-        notifications: LedgerNotifications,
         vote_generators: Arc<VoteGenerators>,
         network_filter: Arc<NetworkFilter>,
         network: Arc<RwLock<Network>>,
@@ -150,7 +148,6 @@ impl ActiveElections {
             ))),
             config: node_config.active_elections.clone(),
             node_config,
-            notifications,
             vote_generators,
             network_filter,
             network,
@@ -496,7 +493,11 @@ impl ActiveElections {
 
     /// Broadcasts vote for the current winner of this election
     /// Checks if sufficient amount of time (`vote_generation_interval`) passed since the last vote generation
-    fn broadcast_vote(&self, election: &Election, election_guard: &mut MutexGuard<ElectionData>) {
+    fn try_broadcast_vote(
+        &self,
+        election: &Election,
+        election_guard: &mut MutexGuard<ElectionData>,
+    ) {
         if election_guard.last_vote_elapsed() >= self.network_params.network.vote_broadcast_interval
         {
             self.broadcast_vote_locked(election_guard, election);
@@ -826,7 +827,7 @@ impl ActiveElections {
                 }
             }
             ElectionState::Active => {
-                self.broadcast_vote(election, &mut guard);
+                self.try_broadcast_vote(election, &mut guard);
                 self.broadcast_block(solicitor, election, &mut guard);
                 self.send_confirm_req(solicitor, election, &guard);
             }
@@ -1092,10 +1093,44 @@ impl ActiveElections {
         // Votes are generated for inserted or ongoing elections
         if let Some(election) = &election_result {
             let mut guard = election.mutex.lock().unwrap();
-            self.broadcast_vote(election, &mut guard);
+            self.try_broadcast_vote(election, &mut guard);
         }
 
         (inserted, election_result)
+    }
+
+    pub fn handle_cementations(&self, cemented: &VecDeque<CementingContext>) {
+        let mut results = Vec::new();
+        {
+            let mut guard = self.mutex.lock().unwrap();
+            // Process all cemented blocks while holding the lock to avoid
+            // races where an election for a block that is already
+            // cemented is inserted
+            for context in cemented {
+                let result = self.block_cemented(
+                    &mut guard,
+                    &context.block,
+                    &context.confirmation_root,
+                    &context.election,
+                );
+                results.push(result)
+            }
+        }
+
+        // TODO: This could be offloaded to a separate notification worker, profiling is needed
+        let mut any = self.ledger.any();
+        for (status, votes) in results {
+            any.refresh_if_needed();
+            self.notify_observers(&any, &status, &votes);
+        }
+    }
+
+    pub fn handle_processed_blocks(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
+        for (status, context) in batch {
+            if *status == BlockStatus::Fork {
+                self.publish_block(&context.block);
+            }
+        }
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -1213,60 +1248,11 @@ impl ActiveElectionsState {
 }
 
 pub trait ActiveElectionsExt {
-    fn initialize(&self);
     fn start(&self);
     fn stop(&self);
 }
 
 impl ActiveElectionsExt for Arc<ActiveElections> {
-    fn initialize(&self) {
-        let self_w = Arc::downgrade(self);
-        // Cementing blocks might implicitly confirm dependent elections
-        self.confirming_set
-            .on_batch_cemented(Box::new(move |cemented| {
-                if let Some(active) = self_w.upgrade() {
-                    {
-                        let mut results = Vec::new();
-                        {
-                            let mut guard = active.mutex.lock().unwrap();
-                            // Process all cemented blocks while holding the lock to avoid
-                            // races where an election for a block that is already
-                            // cemented is inserted
-                            for context in cemented {
-                                let result = active.block_cemented(
-                                    &mut guard,
-                                    &context.block,
-                                    &context.confirmation_root,
-                                    &context.election,
-                                );
-                                results.push(result)
-                            }
-                        }
-
-                        // TODO: This could be offloaded to a separate notification worker, profiling is needed
-                        let mut any = active.ledger.any();
-                        for (status, votes) in results {
-                            any.refresh_if_needed();
-                            active.notify_observers(&any, &status, &votes);
-                        }
-                    }
-                }
-            }));
-
-        let self_w = Arc::downgrade(self);
-        // Notify elections about alternative (forked) blocks
-        self.notifications
-            .on_blocks_processed(Box::new(move |batch| {
-                if let Some(active) = self_w.upgrade() {
-                    for (status, context) in batch {
-                        if *status == BlockStatus::Fork {
-                            active.publish_block(&context.block);
-                        }
-                    }
-                }
-            }));
-    }
-
     fn start(&self) {
         if self.flags.disable_request_loop {
             return;

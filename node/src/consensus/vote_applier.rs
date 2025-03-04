@@ -206,7 +206,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
             .insert(*rep, VoteInfo::new(timestamp, *block_hash, era));
 
         if vote_source != VoteSource::Cache {
-            (election.live_vote_action)(*rep);
+            (election.live_vote_callback)(*rep);
         }
 
         self.stats.inc(StatType::Election, DetailType::Vote);
