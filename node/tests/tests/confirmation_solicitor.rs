@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rsnano_core::{Account, Amount, PublicKey};
 use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_PUB_KEY};
@@ -48,24 +48,12 @@ fn batches() {
     let send = node2.process(send);
 
     {
-        for i in 0..ConfirmReq::HASHES_MAX {
-            let election = Election::new(
-                i,
-                send.clone(),
-                ElectionBehavior::Priority,
-                Box::new(|_| {}),
-            );
-
-            let data = election.mutex.lock().unwrap();
-            assert_eq!(solicitor.add(&election, &data), false);
+        for _ in 0..ConfirmReq::HASHES_MAX {
+            let election = Election::new(send.clone(), ElectionBehavior::Priority, None);
+            assert_eq!(solicitor.add(&election), false);
         }
         // Reached the maximum amount of requests for the channel
-        let election = Election::new(
-            1000,
-            send.clone(),
-            ElectionBehavior::Priority,
-            Box::new(|_| {}),
-        );
+        let election = Election::new(send.clone(), ElectionBehavior::Priority, None);
         // Broadcasting should be immediate
         assert_eq!(
             0,
@@ -73,8 +61,7 @@ fn batches() {
                 .stats
                 .count(StatType::Message, DetailType::Publish, Direction::Out)
         );
-        let data = election.mutex.lock().unwrap();
-        solicitor.broadcast(&data).unwrap();
+        solicitor.broadcast(&election).unwrap();
     }
     // One publish through directed broadcasting and another through random flooding
     assert_eq!(
@@ -126,18 +113,17 @@ fn different_hashes() {
     let send = lattice.genesis().send(Account::from(123), 100);
     let send = node2.process(send);
 
-    let election = Election::new(
-        100,
+    let election = Mutex::new(Election::new(
         send.clone(),
         ElectionBehavior::Priority,
-        Box::new(|_| {}),
-    );
-    let mut data = election.mutex.lock().unwrap();
+        None,
+    ));
+    let mut data = election.lock().unwrap();
     // Add a vote for something else, not the winner
     data.last_votes
         .insert(*DEV_GENESIS_PUB_KEY, VoteInfo::new(1, 1.into(), 0));
     // Ensure the request and broadcast goes through
-    assert_eq!(solicitor.add(&election, &data), false);
+    assert_eq!(solicitor.add(&data), false);
     solicitor.broadcast(&data).unwrap();
     // One publish through directed broadcasting and another through random flooding
 
@@ -189,22 +175,16 @@ fn bypass_max_requests_cap() {
     let send = lattice.genesis().send(Account::from(123), 100);
     let send = node2.process(send);
 
-    let election = Election::new(
-        100,
-        send.clone(),
-        ElectionBehavior::Priority,
-        Box::new(|_| {}),
-    );
-    let mut data = election.mutex.lock().unwrap();
+    let mut election = Election::new(send.clone(), ElectionBehavior::Priority, None);
     // Add a vote for something else, not the winner
     for rep in &representatives {
-        data.last_votes
+        election
+            .last_votes
             .insert(rep.rep_key, VoteInfo::new(1, 1.into(), 0));
     }
     // Ensure the request and broadcast goes through
-    assert_eq!(solicitor.add(&election, &data), false);
-    solicitor.broadcast(&data).unwrap();
-    drop(data);
+    assert_eq!(solicitor.add(&election), false);
+    solicitor.broadcast(&election).unwrap();
     // All requests went through, the last one would normally not go through due to the cap but a vote for a different hash does not count towards the cap
     // TODO port remainder of test!
 }

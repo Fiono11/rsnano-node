@@ -4,13 +4,7 @@ use rsnano_core::{
     Amount, Block, BlockHash, Era, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock
 };
 use std::{
-    collections::HashMap,
-    fmt::Debug,
-    sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
-        Mutex, RwLock,
-    },
-    time::{Duration, Instant, SystemTime},
+    collections::{BTreeMap, HashMap}, fmt::Debug, sync::atomic::AtomicUsize, time::{Duration, Instant, SystemTime}
 };
 
 use rsnano_stats::{DetailType, StatType};
@@ -18,41 +12,45 @@ use rsnano_stats::{DetailType, StatType};
 pub static NEXT_ELECTION_ID: AtomicUsize = AtomicUsize::new(1);
 
 //TODO remove the many RwLocks
-pub struct Election {
-    pub id: usize,
-    pub root: Root,
-    pub qualified_root: QualifiedRoot,
-    height: u64,
-    pub election_start: Instant,
-    pub live_vote_callback: Box<dyn Fn(PublicKey) + Send + Sync>,
+use rsnano_core::VoteWithWeightInfo;
+use rsnano_ledger::RepWeightCache;
 
-    pub mutex: Mutex<ElectionData>,
-    pub is_quorum: AtomicBool,
-    pub confirmation_request_count: AtomicU32,
-    // These are modified while not holding the mutex from transition_time only
-    last_block: RwLock<Instant>,
-    pub last_req: RwLock<Option<Instant>>,
+use super::{ElectionStatusType, TallyKey};
+
+pub struct Election {
+    qualified_root: QualifiedRoot,
+    pub status: ElectionStatus,
+    pub state: ElectionState,
+    pub last_blocks: HashMap<BlockHash, MaybeSavedBlock>,
+    pub last_votes: HashMap<PublicKey, VoteInfo>,
+    pub final_weight: Amount,
+    pub last_tally: HashMap<BlockHash, Amount>,
+
+    /// The last time a vote for this election was generated
+    pub last_vote: Option<Instant>,
+    pub last_block_hash: BlockHash,
+    pub behavior: ElectionBehavior,
+    is_quorum: bool,
+    last_req: Option<Instant>,
+    pub confirmation_request_count: u32,
+    last_block: Instant,
+    pub live_vote_callback: Option<Box<dyn Fn(PublicKey) + Send + Sync>>,
+    election_start: Instant,
 }
 
 impl Election {
-    pub const PASSIVE_DURATION_FACTOR: u32 = 5;
-
     pub fn new(
-        id: usize,
         block: SavedBlock,
         behavior: ElectionBehavior,
-        live_vote_callback: Box<dyn Fn(PublicKey) + Send + Sync>,
+        live_vote_callback: Option<Box<dyn Fn(PublicKey) + Send + Sync>>,
     ) -> Self {
-        let root = block.root();
-        let qualified_root = block.qualified_root();
-        let height = block.height();
-
-        let data = ElectionData {
+        Self {
+            qualified_root: block.qualified_root(),
             status: ElectionStatus {
-                winner: Some(rsnano_core::MaybeSavedBlock::Saved(block.clone())),
+                winner: Some(MaybeSavedBlock::Saved(block.clone())),
                 election_end: SystemTime::now(),
                 block_count: 1,
-                election_status_type: super::ElectionStatusType::Ongoing,
+                election_status_type: ElectionStatusType::Ongoing,
                 ..Default::default()
             },
             last_votes: HashMap::from([(
@@ -61,144 +59,83 @@ impl Election {
             )]),
             last_blocks: HashMap::from([(block.hash(), MaybeSavedBlock::Saved(block))]),
             state: ElectionState::Passive,
-            state_start: Instant::now(),
             last_tally: HashMap::new(),
             final_weight: Amount::zero(),
             last_vote: None,
             last_block_hash: BlockHash::zero(),
             behavior,
-        };
-
-        Self {
-            id,
-            mutex: Mutex::new(data),
-            root,
-            qualified_root,
-            is_quorum: AtomicBool::new(false),
-            confirmation_request_count: AtomicU32::new(0),
-            last_block: RwLock::new(Instant::now()),
-            election_start: Instant::now(),
-            last_req: RwLock::new(None),
+            is_quorum: false,
+            last_req: None,
+            confirmation_request_count: 0,
+            last_block: Instant::now(),
             live_vote_callback,
-            height,
+            election_start: Instant::now(),
         }
     }
 
-    pub fn duration(&self) -> Duration {
-        self.election_start.elapsed()
+    pub fn root(&self) -> &Root {
+        &self.qualified_root.root
     }
 
-    pub fn state(&self) -> ElectionState {
-        self.mutex.lock().unwrap().state
+    pub fn qualified_root(&self) -> &QualifiedRoot {
+        &self.qualified_root
     }
 
-    pub fn transition_active(&self) {
-        let _ = self
-            .mutex
-            .lock()
-            .unwrap()
-            .state_change(ElectionState::Passive, ElectionState::Active);
+    pub fn swap_quorum_on(&mut self) -> bool {
+        if !self.is_quorum {
+            self.is_quorum = true;
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn transition_priority(&self) -> bool {
-        let mut guard = self.mutex.lock().unwrap();
+    pub fn is_quorum(&self) -> bool {
+        self.is_quorum
+    }
+
+    pub fn set_winner(&mut self, winner: MaybeSavedBlock) {
+        self.status.winner = Some(winner);
+    }
+
+    pub fn cancel(&mut self) {
+        let current = self.state;
+        let _ = self.state_change(current, ElectionState::Cancelled);
+    }
+
+    pub fn vote_count(&self) -> usize {
+        self.last_votes.len()
+    }
+
+    pub fn transition_active(&mut self) {
+        let _ = self.state_change(ElectionState::Passive, ElectionState::Active);
+    }
+
+    pub fn maybe_transition_behavior(&mut self, election_behavior: ElectionBehavior) -> bool {
+        if election_behavior == ElectionBehavior::Priority
+            && self.behavior != ElectionBehavior::Priority
+        {
+            self.transition_priority()
+        } else {
+            false
+        }
+    }
+
+    pub fn transition_priority(&mut self) -> bool {
         if matches!(
-            guard.behavior,
+            self.behavior,
             ElectionBehavior::Priority | ElectionBehavior::Manual
         ) {
             return false;
         }
 
-        guard.behavior = ElectionBehavior::Priority;
+        self.behavior = ElectionBehavior::Priority;
 
         // allow new outgoing votes immediately
-        guard.last_vote = None;
+        self.last_vote = None;
         true
     }
 
-    pub fn cancel(&self) {
-        let mut guard = self.mutex.lock().unwrap();
-        let current = guard.state;
-        let _ = guard.state_change(current, ElectionState::Cancelled);
-    }
-
-    pub fn confirm_request_sent(&self) {
-        *self.last_req.write().unwrap() = Some(Instant::now());
-        self.confirmation_request_count
-            .fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn last_confirm_request_elapsed(&self) -> Duration {
-        match self.last_req.read().unwrap().as_ref() {
-            Some(i) => i.elapsed(),
-            None => Duration::MAX,
-        }
-    }
-
-    pub fn set_last_block(&self) {
-        *self.last_block.write().unwrap() = Instant::now();
-    }
-
-    pub fn last_block_elapsed(&self) -> Duration {
-        self.last_block.read().unwrap().elapsed()
-    }
-
-    pub fn age(&self) -> Duration {
-        self.mutex.lock().unwrap().state_start.elapsed()
-    }
-
-    pub fn failed(&self) -> bool {
-        self.mutex.lock().unwrap().state == ElectionState::ExpiredUnconfirmed
-    }
-
-    pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.mutex.lock().unwrap().last_blocks.contains_key(hash)
-    }
-
-    pub fn vote_count(&self) -> usize {
-        self.mutex.lock().unwrap().last_votes.len()
-    }
-
-    pub fn winner_hash(&self) -> Option<BlockHash> {
-        self.mutex
-            .lock()
-            .unwrap()
-            .status
-            .winner
-            .as_ref()
-            .map(|w| w.hash())
-    }
-
-    pub fn behavior(&self) -> ElectionBehavior {
-        self.mutex.lock().unwrap().behavior
-    }
-}
-
-impl Debug for Election {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Election")
-            .field("id", &self.id)
-            .field("qualified_root", &self.qualified_root)
-            .field("height", &self.height)
-            .finish()
-    }
-}
-
-pub struct ElectionData {
-    pub status: ElectionStatus,
-    pub state: ElectionState,
-    pub state_start: Instant,
-    pub last_blocks: HashMap<BlockHash, MaybeSavedBlock>,
-    pub last_votes: HashMap<PublicKey, VoteInfo>,
-    pub final_weight: Amount,
-    pub last_tally: HashMap<BlockHash, Amount>,
-    /** The last time vote for this election was generated */
-    pub last_vote: Option<Instant>,
-    pub last_block_hash: BlockHash,
-    pub behavior: ElectionBehavior,
-}
-
-impl ElectionData {
     pub fn is_confirmed(&self) -> bool {
         matches!(
             self.state,
@@ -206,11 +143,34 @@ impl ElectionData {
         )
     }
 
-    pub fn update_status_to_confirmed(&mut self, election: &Election) {
+    pub fn set_last_block(&mut self) {
+        self.last_block = Instant::now();
+    }
+
+    pub fn last_block_elapsed(&self) -> Duration {
+        self.last_block.elapsed()
+    }
+
+    pub fn winner_hash(&self) -> Option<BlockHash> {
+        self.status.winner.as_ref().map(|w| w.hash())
+    }
+
+    pub fn confirm_request_sent(&mut self) {
+        self.last_req = Some(Instant::now());
+        self.confirmation_request_count += 1;
+    }
+
+    pub fn last_confirm_request_elapsed(&self) -> Duration {
+        match self.last_req {
+            Some(i) => i.elapsed(),
+            None => Duration::MAX,
+        }
+    }
+
+    pub fn update_status_to_confirmed(&mut self) {
         self.status.election_end = SystemTime::now();
-        self.status.election_duration = election.election_start.elapsed();
-        self.status.confirmation_request_count =
-            election.confirmation_request_count.load(Ordering::SeqCst);
+        self.status.election_duration = self.duration();
+        self.status.confirmation_request_count = self.confirmation_request_count;
         self.status.block_count = self.last_blocks.len() as u32;
         self.status.voter_count = self.last_votes.len() as u32;
     }
@@ -219,16 +179,19 @@ impl ElectionData {
         &mut self,
         expected: ElectionState,
         desired: ElectionState,
-    ) -> Result<(), ()> {
+    ) -> anyhow::Result<()> {
         if Self::valid_change(expected, desired) {
             if self.state == expected {
                 self.state = desired;
-                self.state_start = Instant::now();
                 return Ok(());
             }
         }
 
-        Err(())
+        Err(anyhow!(
+            "Invalid state change from {:?} to {:?}",
+            expected,
+            desired
+        ))
     }
 
     pub fn time_to_live(&self) -> Duration {
@@ -269,6 +232,37 @@ impl ElectionData {
             Some(i) => i.elapsed(),
             None => Duration::from_secs(60 * 60 * 24 * 365), // Duration::MAX caused problems with C++
         }
+    }
+
+    pub fn duration(&self) -> Duration {
+        self.election_start.elapsed()
+    }
+
+    pub fn votes_with_weight(&self, rep_weights: &RepWeightCache) -> Vec<VoteWithWeightInfo> {
+        let mut sorted_votes: BTreeMap<TallyKey, Vec<VoteWithWeightInfo>> = BTreeMap::new();
+        for (&representative, info) in &self.last_votes {
+            if representative == HardenedConstants::get().not_an_account_key {
+                continue;
+            }
+            let weight = rep_weights.weight(&representative);
+            let vote_with_weight = VoteWithWeightInfo {
+                representative,
+                time: info.time,
+                timestamp: info.timestamp,
+                hash: info.hash,
+                weight,
+            };
+            sorted_votes
+                .entry(TallyKey(weight))
+                .or_default()
+                .push(vote_with_weight);
+        }
+        let result: Vec<_> = sorted_votes
+            .values_mut()
+            .map(|i| std::mem::take(i))
+            .flatten()
+            .collect();
+        result
     }
 }
 

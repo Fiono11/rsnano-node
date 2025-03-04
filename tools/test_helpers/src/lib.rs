@@ -23,7 +23,7 @@ use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener},
     sync::{
         atomic::{AtomicU16, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
     thread::sleep,
     time::{Duration, Instant},
@@ -387,7 +387,7 @@ pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
         .0
 }
 
-pub fn start_election(node: &Node, hash: &BlockHash) -> Arc<Election> {
+pub fn start_election(node: &Node, hash: &BlockHash) -> Arc<Mutex<Election>> {
     assert_timely_msg(
         Duration::from_secs(5),
         || node.block_exists(hash),
@@ -403,7 +403,7 @@ pub fn start_election(node: &Node, hash: &BlockHash) -> Arc<Election> {
         "election not active",
     );
     let election = node.active.election(&block.qualified_root()).unwrap();
-    election.transition_active();
+    election.lock().unwrap().transition_active();
     election
 }
 

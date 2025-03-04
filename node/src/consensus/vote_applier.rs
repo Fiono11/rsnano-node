@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{atomic::Ordering, Arc, Mutex, MutexGuard, RwLock, Weak},
+    sync::{Arc, Mutex, MutexGuard, RwLock, Weak},
     time::{Duration, SystemTime},
 };
 
@@ -12,8 +12,8 @@ use rsnano_network::ChannelId;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::{
-    election_schedulers::ElectionSchedulers, Election, ElectionData, LocalVoteHistory,
-    RecentlyConfirmedCache, TallyKey, VoteGenerators,
+    election_schedulers::ElectionSchedulers, Election, LocalVoteHistory, RecentlyConfirmedCache,
+    TallyKey, VoteGenerators,
 };
 use crate::{
     block_processing::{BlockProcessor, BlockSource},
@@ -88,10 +88,7 @@ impl VoteApplier {
         }
     }
 
-    pub fn tally_impl(
-        &self,
-        guard: &mut MutexGuard<ElectionData>,
-    ) -> BTreeMap<TallyKey, MaybeSavedBlock> {
+    pub fn tally_impl(&self, guard: &mut Election) -> BTreeMap<TallyKey, MaybeSavedBlock> {
         let mut block_weights: HashMap<BlockHash, Amount> = HashMap::new();
         let mut final_weights: HashMap<BlockHash, Amount> = HashMap::new();
         for (account, info) in &guard.last_votes {
@@ -121,20 +118,16 @@ impl VoteApplier {
         result
     }
 
-    pub fn remove_votes(
-        &self,
-        election: &Election,
-        guard: &mut MutexGuard<ElectionData>,
-        hash: &BlockHash,
-    ) {
+    pub fn remove_votes(&self, election: &mut Election, hash: &BlockHash) {
         if self.node_config.enable_voting && self.wallets.voting_reps_count() > 0 {
             // Remove votes from election
-            let list_generated_votes = self.history.votes(&election.root, hash, false);
+            let root = *election.root();
+            let list_generated_votes = self.history.votes(&root, hash, false);
             for vote in list_generated_votes {
-                guard.last_votes.remove(&vote.voting_account);
+                election.last_votes.remove(&vote.voting_account);
             }
             // Clear votes cache
-            self.history.erase(&election.root);
+            self.history.erase(&root);
         }
     }
 
@@ -150,21 +143,25 @@ impl VoteApplier {
 pub trait VoteApplierExt {
     fn vote(
         &self,
-        election: &Arc<Election>,
+        election: &Arc<Mutex<Election>>,
         rep: &PublicKey,
         timestamp: u64,
         block_hash: &BlockHash,
         vote_source: VoteSource,
         era: Era,
     ) -> VoteCode;
-    fn confirm_if_quorum(&self, election_lock: MutexGuard<ElectionData>, election: &Arc<Election>);
-    fn confirm_once(&self, election_lock: MutexGuard<ElectionData>, election: &Arc<Election>);
+    fn confirm_if_quorum(
+        &self,
+        election_lock: MutexGuard<Election>,
+        election: &Arc<Mutex<Election>>,
+    );
+    fn confirm_once(&self, election_lock: &mut Election, election: &Arc<Mutex<Election>>);
 }
 
 impl VoteApplierExt for Arc<VoteApplier> {
     fn vote(
         &self,
-        election: &Arc<Election>,
+        election: &Arc<Mutex<Election>>,
         rep: &PublicKey,
         timestamp: u64,
         block_hash: &BlockHash,
@@ -178,7 +175,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
             return VoteCode::Indeterminate;
         }
 
-        let mut guard = election.mutex.lock().unwrap();
+        let mut guard = election.lock().unwrap();
 
         if let Some(last_vote) = guard.last_votes.get(rep) {
             if last_vote.timestamp > timestamp {
@@ -206,13 +203,14 @@ impl VoteApplierExt for Arc<VoteApplier> {
             .insert(*rep, VoteInfo::new(timestamp, *block_hash, era));
 
         if vote_source != VoteSource::Cache {
-            (election.live_vote_callback)(*rep);
+            if let Some(callback) = &guard.live_vote_callback {
+                callback(*rep);
+            }
         }
 
         self.stats.inc(StatType::Election, DetailType::Vote);
         self.stats.inc(StatType::ElectionVote, vote_source.into());
         tracing::trace!(
-            qualified_root = ?election.qualified_root,
             account = %rep,
             hash = %block_hash,
             timestamp,
@@ -228,8 +226,8 @@ impl VoteApplierExt for Arc<VoteApplier> {
 
     fn confirm_if_quorum(
         &self,
-        mut election_lock: MutexGuard<ElectionData>,
-        election: &Arc<Election>,
+        mut election_lock: MutexGuard<Election>,
+        election: &Arc<Mutex<Election>>,
     ) {
         let tally = self.tally_impl(&mut election_lock);
         assert!(!tally.is_empty());
@@ -237,7 +235,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
         let winner_hash = block.hash();
         election_lock.status.tally = amount.amount();
         election_lock.status.final_tally = election_lock.final_weight;
-        let status_winner_hash = election_lock.status.winner.as_ref().unwrap().hash();
+        let status_winner_hash = election_lock.winner_hash().unwrap();
         let mut sum = Amount::zero();
         for k in tally.keys() {
             sum += k.amount();
@@ -246,18 +244,18 @@ impl VoteApplierExt for Arc<VoteApplier> {
             && winner_hash != status_winner_hash
         {
             election_lock.status.winner = Some(block.clone());
-            self.remove_votes(election, &mut election_lock, &status_winner_hash);
+            self.remove_votes(&mut election_lock, &status_winner_hash);
             self.block_processor.force(block.clone().into());
         }
 
         if self.have_quorum(&tally) {
-            if !election.is_quorum.swap(true, Ordering::SeqCst)
+            if election_lock.swap_quorum_on()
                 && self.node_config.enable_voting
                 && self.wallets.voting_reps_count() > 0
             {
                 election_lock.status.vote_broadcast_count += 1;
                 self.vote_generators
-                    .generate_final_vote(&election.root, &status_winner_hash);
+                    .generate_final_vote(election_lock.root(), &status_winner_hash);
             }
             let quorum_delta = self.online_reps.lock().unwrap().quorum_delta();
             if election_lock.final_weight >= quorum_delta {
@@ -268,27 +266,27 @@ impl VoteApplierExt for Arc<VoteApplier> {
                     BlockSource::Election,
                     ChannelId::LOOPBACK,
                 );
-                self.confirm_once(election_lock, election);
+                self.confirm_once(&mut election_lock, election);
             }
         }
     }
 
-    fn confirm_once(&self, mut election_lock: MutexGuard<ElectionData>, election: &Arc<Election>) {
+    fn confirm_once(&self, election_lock: &mut Election, election: &Arc<Mutex<Election>>) {
         let just_confirmed = election_lock.state != ElectionState::Confirmed;
         election_lock.state = ElectionState::Confirmed;
 
         if just_confirmed {
-            election_lock.update_status_to_confirmed(election);
+            election_lock.update_status_to_confirmed();
             let status = election_lock.status.clone();
 
             self.recently_confirmed.put(
-                election.qualified_root.clone(),
+                election_lock.qualified_root().clone(),
                 status.winner.as_ref().unwrap().hash(),
             );
 
             self.stats.inc(StatType::Election, DetailType::ConfirmOnce);
             trace!(
-                qualified_root = ?election.qualified_root,
+                qualified_root = ?election_lock.qualified_root(),
                 "election confirmed"
             );
 

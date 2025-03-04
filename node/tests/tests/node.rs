@@ -440,15 +440,11 @@ fn confirm_quorum() {
         )
         .unwrap();
 
-    assert_timely_msg(
-        Duration::from_secs(2),
-        || node1.active.election(&send1.qualified_root()).is_some(),
-        "Election not found",
-    );
+    assert_timely2(|| node1.active.election(&send1.qualified_root()).is_some());
 
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert!(!node1.active.confirmed(&election));
-    assert_eq!(1, election.mutex.lock().unwrap().last_votes.len());
+    assert!(!election.lock().unwrap().is_confirmed());
+    assert_eq!(1, election.lock().unwrap().last_votes.len());
     assert_eq!(Amount::zero(), node1.balance(&DEV_GENESIS_ACCOUNT));
 }
 
@@ -681,10 +677,10 @@ fn rep_self_vote() {
     let election1 = start_election(&node0, &block0.hash());
 
     // Wait until representatives are activated & make vote
-    assert_timely_eq2(|| election1.vote_count(), 3);
+    assert_timely_eq2(|| election1.lock().unwrap().vote_count(), 3);
 
     // Election should receive votes from representatives hosted on the same node
-    let rep_votes = election1.mutex.lock().unwrap().last_votes.clone();
+    let rep_votes = election1.lock().unwrap().last_votes.clone();
     assert!(rep_votes.contains_key(&DEV_GENESIS_KEY.public_key()));
     assert!(rep_votes.contains_key(&rep_big.public_key()));
 }
@@ -790,7 +786,6 @@ fn fork_multi_flip() {
 
     assert_timely2(|| {
         election
-            .mutex
             .lock()
             .unwrap()
             .last_blocks
@@ -802,12 +797,11 @@ fn fork_multi_flip() {
     assert!(!node2.ledger.any().block_exists(&send2.hash()));
     assert!(!node2.ledger.any().block_exists_or_pruned(&send3.hash()));
 
-    let winner = election.winner_hash().unwrap();
+    let winner = election.lock().unwrap().winner_hash().unwrap();
     assert_eq!(send1.hash(), winner);
     assert_eq!(
         Amount::MAX - Amount::raw(100),
         *election
-            .mutex
             .lock()
             .unwrap()
             .last_tally
@@ -834,11 +828,11 @@ fn fork_publish() {
     assert_timely2(|| node1.active.active(&send2));
     let election = node1.active.election(&send1.qualified_root()).unwrap();
     // Wait until the genesis rep activated & makes vote
-    assert_timely_eq2(|| election.vote_count(), 2);
-    let votes1 = election.mutex.lock().unwrap().last_votes.clone();
+    assert_timely_eq2(|| election.lock().unwrap().vote_count(), 2);
+    let votes1 = election.lock().unwrap().last_votes.clone();
     let existing1 = votes1.get(&DEV_GENESIS_PUB_KEY).unwrap();
     assert_eq!(send1.hash(), existing1.hash);
-    assert_eq!(election.winner_hash(), Some(send1.hash()));
+    assert_eq!(election.lock().unwrap().winner_hash(), Some(send1.hash()));
 }
 
 // In test case there used to be a race condition, it was worked around in:.
@@ -884,24 +878,23 @@ fn fork_publish_inactive() {
 
     assert_timely_eq(
         Duration::from_secs(5),
-        || election.mutex.lock().unwrap().last_blocks.len(),
+        || election.lock().unwrap().last_blocks.len(),
         2,
     );
 
-    let find_block = |hash: BlockHash| {
-        election
-            .mutex
-            .lock()
-            .unwrap()
-            .last_blocks
-            .contains_key(&hash)
-    };
+    let find_block = |hash: BlockHash| election.lock().unwrap().last_blocks.contains_key(&hash);
 
     assert!(find_block(send1.hash()));
     assert!(find_block(send2.hash()));
 
-    assert_eq!(election.winner_hash().unwrap(), send1.hash());
-    assert_ne!(election.winner_hash().unwrap(), send2.hash());
+    assert_eq!(
+        election.lock().unwrap().winner_hash().unwrap(),
+        send1.hash()
+    );
+    assert_ne!(
+        election.lock().unwrap().winner_hash().unwrap(),
+        send2.hash()
+    );
 }
 
 #[test]
@@ -1791,21 +1784,20 @@ fn fork_open() {
     // we expect to find 2 blocks in the election and we expect the first block to be the winner just because it was first
     assert_timely_eq(
         Duration::from_secs(5),
-        || election.mutex.lock().unwrap().last_blocks.len(),
+        || election.lock().unwrap().last_blocks.len(),
         2,
     );
-    assert_eq!(open1.hash(), election.winner_hash().unwrap());
+    assert_eq!(
+        open1.hash(),
+        election.lock().unwrap().winner_hash().unwrap()
+    );
 
     // wait for a second and check that the election did not get confirmed
     sleep(Duration::from_millis(1000));
-    assert_eq!(node.active.confirmed(&election), false);
+    assert_eq!(election.lock().unwrap().is_confirmed(), false);
 
     // check that only the first block is saved to the ledger
-    assert_timely_msg(
-        Duration::from_secs(5),
-        || node.block_exists(&open1.hash()),
-        "open1 not in ledger",
-    );
+    assert_timely2(|| node.block_exists(&open1.hash()));
     assert_eq!(node.block_exists(&open2.hash()), false);
 }
 
@@ -2002,7 +1994,7 @@ fn fork_election_invalid_block_signature() {
         "not active on node 1",
     );
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_eq!(1, election.mutex.lock().unwrap().last_blocks.len());
+    assert_eq!(1, election.lock().unwrap().last_blocks.len());
 
     node1.inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send3)),
@@ -2014,12 +2006,11 @@ fn fork_election_invalid_block_signature() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || election.mutex.lock().unwrap().last_blocks.len() > 1,
+        || election.lock().unwrap().last_blocks.len() > 1,
         "block len was < 2",
     );
     assert_eq!(
         election
-            .mutex
             .lock()
             .unwrap()
             .last_blocks
@@ -2104,16 +2095,26 @@ fn rollback_vote_self() {
     node.process_active(fork.clone());
     assert_timely_eq(
         Duration::from_secs(5),
-        || election.mutex.lock().unwrap().last_blocks.len(),
+        || election.lock().unwrap().last_blocks.len(),
         2,
     );
-    assert_eq!(election.winner_hash().unwrap(), send2.hash());
+    assert_eq!(
+        election.lock().unwrap().winner_hash().unwrap(),
+        send2.hash()
+    );
 
     {
         // The write guard prevents the block processor from performing the rollback
         let _write_guard = node.ledger.store.write_queue.wait(Writer::Testing);
 
-        assert_eq!(0, node.active.votes_with_weight(&election).len());
+        assert_eq!(
+            0,
+            election
+                .lock()
+                .unwrap()
+                .votes_with_weight(&node.ledger.rep_weights)
+                .len()
+        );
         // Vote with key to switch the winner
         node.active.vote_applier.vote(
             &election,
@@ -2123,9 +2124,16 @@ fn rollback_vote_self() {
             VoteSource::Live,
             0
         );
-        assert_eq!(1, node.active.votes_with_weight(&election).len());
+        assert_eq!(
+            1,
+            election
+                .lock()
+                .unwrap()
+                .votes_with_weight(&node.ledger.rep_weights)
+                .len()
+        );
         // The winner changed
-        assert_eq!(election.winner_hash().unwrap(), fork.hash(),);
+        assert_eq!(election.lock().unwrap().winner_hash().unwrap(), fork.hash(),);
 
         // Insert genesis key in the wallet
         node.wallets
@@ -2159,12 +2167,20 @@ fn rollback_vote_self() {
     // A vote is eventually generated from the local representative
     let is_genesis_vote = |info: &&VoteWithWeightInfo| info.representative == *DEV_GENESIS_PUB_KEY;
 
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || node.active.votes_with_weight(&election).len(),
+    assert_timely_eq2(
+        || {
+            election
+                .lock()
+                .unwrap()
+                .votes_with_weight(&node.ledger.rep_weights)
+                .len()
+        },
         2,
     );
-    let votes_with_weight = node.active.votes_with_weight(&election);
+    let votes_with_weight = election
+        .lock()
+        .unwrap()
+        .votes_with_weight(&node.ledger.rep_weights);
     assert_eq!(1, votes_with_weight.iter().filter(is_genesis_vote).count());
     let vote = votes_with_weight.iter().find(is_genesis_vote).unwrap();
     assert_eq!(fork.hash(), vote.hash);
@@ -2407,8 +2423,8 @@ fn node_receive_quorum() {
     );
 
     let election = node1.active.election(&send.qualified_root()).unwrap();
-    assert!(!node1.active.confirmed(&election));
-    assert_eq!(1, election.mutex.lock().unwrap().last_votes.len());
+    assert!(!election.lock().unwrap().is_confirmed());
+    assert_eq!(1, election.lock().unwrap().last_votes.len());
 
     let node2 = system.make_disconnected_node();
     let wallet_id2 = node2.wallets.wallet_ids()[0];
@@ -2533,7 +2549,7 @@ fn fork_open_flip() {
         "election for open1 not found",
     );
     let election = node1.active.election(&open1.qualified_root()).unwrap();
-    election.transition_active();
+    election.lock().unwrap().transition_active();
 
     // create node2, with blocks send1 and open2 pre-initialised in the ledger,
     // so that block open1 cannot possibly get in the ledger before open2 via background sync
@@ -2556,7 +2572,7 @@ fn fork_open_flip() {
         "election for open2 not found",
     );
     let election2 = node2.active.election(&open2.qualified_root()).unwrap();
-    election2.transition_active();
+    election2.lock().unwrap().transition_active();
 
     assert_timely_eq(Duration::from_secs(5), || node1.active.len(), 2);
     assert_timely_eq(Duration::from_secs(5), || node2.active.len(), 2);
@@ -2576,7 +2592,7 @@ fn fork_open_flip() {
     node1.process_active(open2.clone().into());
     node2.process_active(open1.clone().into());
 
-    assert_timely_eq(Duration::from_secs(5), || election.vote_count(), 2); // one more than expected due to elections having dummy votes
+    assert_timely_eq2(|| election.lock().unwrap().vote_count(), 2); // one more than expected due to elections having dummy votes
 
     // Node2 should eventually settle on open1
     assert_timely_msg(
@@ -2584,12 +2600,8 @@ fn fork_open_flip() {
         || node2.block_exists(&open1.hash()),
         "open1 not found on node2",
     );
-    assert_timely_msg(
-        Duration::from_secs(5),
-        || node1.block_confirmed(&open1.hash()),
-        "open1 not confirmed on node1",
-    );
-    let election_status = election.mutex.lock().unwrap().status.clone();
+    assert_timely2(|| node1.block_confirmed(&open1.hash()));
+    let election_status = election.lock().unwrap().status.clone();
     assert_eq!(open1.hash(), election_status.winner.unwrap().hash());
     assert_eq!(Amount::MAX - Amount::raw(1), election_status.tally);
 
@@ -3058,13 +3070,15 @@ fn fork_keep() {
             *DEV_GENESIS_HASH,
         ))
         .unwrap();
-    assert_eq!(election1.vote_count(), 1);
+    assert_eq!(election1.lock().unwrap().vote_count(), 1);
     assert!(node1.block_exists(&send1.hash()));
     assert!(node2.block_exists(&send1.hash()));
     // Wait until the genesis rep makes a vote
-    assert_timely(Duration::from_secs(60), || election1.vote_count() != 1);
+    assert_timely(Duration::from_secs(60), || {
+        election1.lock().unwrap().vote_count() != 1
+    });
     // The vote should be in agreement with what we already have.
-    let guard = election1.mutex.lock().unwrap();
+    let guard = election1.lock().unwrap();
     let (winner_hash, winner_tally) = guard.last_tally.iter().next().unwrap();
     assert_eq!(*winner_hash, send1.hash());
     assert_eq!(*winner_tally, Amount::MAX - Amount::raw(100));

@@ -5,7 +5,8 @@ use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::{config::NodeConfig, consensus::ElectionBehavior, wallets::WalletsExt};
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    assert_timely, assert_timely_eq, get_available_port, setup_chain, start_election, System,
+    assert_timely, assert_timely2, assert_timely_eq, get_available_port, setup_chain,
+    start_election, System,
 };
 
 // FIXME: this test fails on rare occasions. It needs a review.
@@ -56,7 +57,7 @@ fn quorum_minimum_update_weight_before_quorum_checks() {
         node1.active.election(&send1.qualified_root()).is_some()
     });
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_eq!(1, election.mutex.lock().unwrap().last_blocks.len());
+    assert_eq!(1, election.lock().unwrap().last_blocks.len());
 
     let vote1 = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     node1.vote_router.vote(&vote1, VoteSource::Live);
@@ -72,7 +73,7 @@ fn quorum_minimum_update_weight_before_quorum_checks() {
     let vote2 = Arc::new(Vote::new_final(&key1, vec![send1.hash()], 0));
     node1.rep_crawler.force_process2(vote2.clone(), channel);
 
-    assert_eq!(node1.active.confirmed(&election), false);
+    assert_eq!(election.lock().unwrap().is_confirmed(), false);
     // Modify online_m for online_reps to more than is available, this checks that voting below updates it to current online reps.
     node1
         .online_reps
@@ -80,7 +81,7 @@ fn quorum_minimum_update_weight_before_quorum_checks() {
         .unwrap()
         .set_online(config.online_weight_minimum + Amount::raw(20));
     node1.vote_router.vote(&vote2, VoteSource::Live);
-    assert_timely(Duration::from_secs(5), || node1.active.confirmed(&election));
+    assert_timely2(|| election.lock().unwrap().is_confirmed());
     assert!(node1.block(&send1.hash()).is_some());
 }
 
@@ -144,7 +145,7 @@ fn quorum_minimum_confirm_fail() {
         node1.active.election(&send1.qualified_root()).is_some()
     });
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_eq!(1, election.mutex.lock().unwrap().last_blocks.len());
+    assert_eq!(1, election.lock().unwrap().last_blocks.len());
 
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     node1.vote_router.vote(&vote, VoteSource::Live);
@@ -154,7 +155,7 @@ fn quorum_minimum_confirm_fail() {
 
     // It should not confirm because there should not be enough quorum
     assert!(node1.block(&send1.hash()).is_some());
-    assert_eq!(node1.active.confirmed(&election), false);
+    assert_eq!(election.lock().unwrap().is_confirmed(), false);
 }
 
 // This test ensures blocks can be confirmed precisely at the quorum minimum
@@ -186,13 +187,13 @@ fn quorum_minimum_confirm_success() {
         node1.active.election(&send1.qualified_root()).is_some()
     });
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_eq!(1, election.mutex.lock().unwrap().last_blocks.len());
+    assert_eq!(1, election.lock().unwrap().last_blocks.len());
 
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()], 0));
     node1.vote_router.vote(&vote, VoteSource::Live);
 
     assert!(node1.block_exists(&send1.hash()));
-    assert_timely(Duration::from_secs(5), || node1.active.confirmed(&election));
+    assert_timely2(|| election.lock().unwrap().is_confirmed());
 }
 
 #[test]
@@ -228,7 +229,7 @@ fn quorum_minimum_flip_fail() {
     node1.process_active(send2.clone());
     assert_timely(Duration::from_secs(5), || {
         let election = node1.active.election(&send2.qualified_root()).unwrap();
-        let election_guard = election.mutex.lock().unwrap();
+        let election_guard = election.lock().unwrap();
         election_guard.last_blocks.len() == 2
     });
 
@@ -241,7 +242,7 @@ fn quorum_minimum_flip_fail() {
     std::thread::sleep(Duration::from_secs(1));
 
     let election = node1.active.election(&send2.qualified_root()).unwrap();
-    assert_eq!(node1.active.confirmed(&election), false);
+    assert_eq!(election.lock().unwrap().is_confirmed(), false);
     assert_eq!(node1.block_confirmed(&send2.hash()), false);
 }
 
@@ -270,15 +271,13 @@ fn quorum_minimum_flip_success() {
 
     // Process send1 and wait until its election appears
     node1.process_active(send1.clone());
-    assert_timely(Duration::from_secs(5), || {
-        node1.active.election(&send1.qualified_root()).is_some()
-    });
+    assert_timely2(|| node1.active.election(&send1.qualified_root()).is_some());
 
     // Process send2 and wait until it is added to the existing election
     node1.process_active(send2.clone());
-    assert_timely(Duration::from_secs(5), || {
+    assert_timely2(|| {
         let election = node1.active.election(&send2.qualified_root()).unwrap();
-        let election_guard = election.mutex.lock().unwrap();
+        let election_guard = election.lock().unwrap();
         election_guard.last_blocks.len() == 2
     });
 
@@ -288,10 +287,10 @@ fn quorum_minimum_flip_success() {
 
     // Wait for the election to be confirmed
     let election = node1.active.election(&send2.qualified_root()).unwrap();
-    assert_timely(Duration::from_secs(5), || node1.active.confirmed(&election));
+    assert_timely2(|| election.lock().unwrap().is_confirmed());
 
     // Check that send2 is the winner
-    let winner = election.winner_hash();
+    let winner = election.lock().unwrap().winner_hash();
     assert!(winner.is_some());
     assert_eq!(winner.unwrap(), send2.hash());
 }
@@ -303,5 +302,5 @@ fn election_behavior() {
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
 
     let election = start_election(&node, &chain[0].hash());
-    assert_eq!(election.behavior(), ElectionBehavior::Manual);
+    assert_eq!(election.lock().unwrap().behavior, ElectionBehavior::Manual);
 }

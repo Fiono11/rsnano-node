@@ -88,7 +88,7 @@ impl VoteRouter {
     /// Add a route for 'hash' to 'election'
     /// Existing routes will be replaced
     /// Election must hold the block for the hash being passed in
-    pub fn connect(&self, hash: BlockHash, election: Weak<Election>) {
+    pub fn connect(&self, hash: BlockHash, election: Weak<Mutex<Election>>) {
         self.shared
             .1
             .lock()
@@ -98,9 +98,9 @@ impl VoteRouter {
     }
 
     /// Remove all routes to this election
-    pub fn disconnect_election(&self, election: &Election) {
+    pub fn disconnect_election(&self, election: &Mutex<Election>) {
         let mut state = self.shared.1.lock().unwrap();
-        let election_guard = election.mutex.lock().unwrap();
+        let election_guard = election.lock().unwrap();
         for hash in election_guard.last_blocks.keys() {
             state.elections.remove(hash);
         }
@@ -112,7 +112,7 @@ impl VoteRouter {
         state.elections.remove(hash);
     }
 
-    pub fn election(&self, hash: &BlockHash) -> Option<Arc<Election>> {
+    pub fn election(&self, hash: &BlockHash) -> Option<Arc<Mutex<Election>>> {
         let state = self.shared.1.lock().unwrap();
         state.elections.get(hash)?.upgrade()
     }
@@ -217,7 +217,7 @@ impl VoteRouter {
         [(
             "elections",
             guard.elections.len(),
-            size_of::<BlockHash>() + size_of::<Weak<Election>>(),
+            size_of::<BlockHash>() + size_of::<Weak<Mutex<Election>>>(),
         )]
         .into()
     }
@@ -234,7 +234,7 @@ struct State {
     stopped: bool,
     // Mapping of block hashes to elections.
     // Election already contains the associated block
-    elections: HashMap<BlockHash, Weak<Election>>,
+    elections: HashMap<BlockHash, Weak<Mutex<Election>>>,
 }
 
 impl State {

@@ -1,4 +1,4 @@
-use super::{Election, ElectionData};
+use super::Election;
 use crate::{config::NetworkParams, representatives::PeeredRepInfo, transport::MessageFlooder};
 use rsnano_core::{BlockHash, Root};
 use rsnano_messages::{ConfirmReq, Message, Publish};
@@ -6,7 +6,7 @@ use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::{atomic::Ordering, Arc, MutexGuard, RwLock},
+    sync::{Arc, RwLock},
 };
 
 /// This struct accepts elections that need further votes before they can be confirmed and bundles them in to single confirm_req packets
@@ -60,7 +60,7 @@ impl ConfirmationSolicitor {
     }
 
     /// Broadcast the winner of an election if the broadcast limit has not been reached. Returns false if the broadcast was performed
-    pub fn broadcast(&mut self, guard: &MutexGuard<ElectionData>) -> Result<(), ()> {
+    pub fn broadcast(&mut self, guard: &Election) -> Result<(), ()> {
         debug_assert!(self.prepared);
         self.rebroadcasted += 1;
         if self.rebroadcasted >= self.max_block_broadcasts {
@@ -95,11 +95,11 @@ impl ConfirmationSolicitor {
     }
 
     /// Add an election that needs to be confirmed. Returns false if successfully added
-    pub fn add(&mut self, election: &Election, guard: &MutexGuard<ElectionData>) -> bool {
+    pub fn add(&mut self, election: &Election) -> bool {
         debug_assert!(self.prepared);
         let mut error = true;
         let mut count = 0;
-        let winner = guard.status.winner.as_ref().unwrap();
+        let winner = election.status.winner.as_ref().unwrap();
         let hash = winner.hash();
         let mut to_remove = Vec::new();
         for rep in &self.representative_requests {
@@ -107,10 +107,10 @@ impl ConfirmationSolicitor {
                 break;
             }
             let mut full_queue = false;
-            let existing = guard.last_votes.get(&rep.rep_key);
+            let existing = election.last_votes.get(&rep.rep_key);
             let exists = existing.is_some();
             let is_final = if let Some(existing) = existing {
-                !election.is_quorum.load(Ordering::SeqCst) || existing.timestamp == u64::MAX
+                !election.is_quorum() || existing.timestamp == u64::MAX
             } else {
                 false
             };

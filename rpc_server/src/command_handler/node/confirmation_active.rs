@@ -12,13 +12,11 @@ impl RpcCommandHandler {
 
         let active_elections = self.node.active.list_active(usize::MAX);
         for election in active_elections {
-            if election
-                .confirmation_request_count
-                .load(std::sync::atomic::Ordering::Relaxed) as u64
-                >= announcements
-            {
-                if !self.node.active.confirmed(&election) {
-                    elections.push(election.qualified_root.clone());
+            let req_count = election.lock().unwrap().confirmation_request_count;
+            if req_count as u64 >= announcements {
+                let el = election.lock().unwrap();
+                if !el.is_confirmed() {
+                    elections.push(el.qualified_root().clone());
                 } else {
                     confirmed += 1;
                 }
