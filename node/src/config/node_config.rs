@@ -32,6 +32,8 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
+    pub global_ordering: bool,
+    pub peering_port: Option<u16>,
     pub default_peering_port: u16,
     pub optimistic_scheduler: OptimisticSchedulerConfig,
     pub hinted_scheduler: HintedSchedulerConfig,
@@ -231,6 +233,8 @@ impl NodeConfig {
         let block_processor_cfg = BlockProcessorConfig::new(network_params.work.clone());
 
         Self {
+            global_ordering: false,
+            peering_port,
             default_peering_port: network_params.network.default_node_port,
             bootstrap_fraction_numerator: 1,
             receive_minimum: Amount::micronano(1),

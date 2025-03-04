@@ -6,7 +6,7 @@ use std::{
 
 use tracing::trace;
 
-use rsnano_core::{Amount, BlockHash, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
+use rsnano_core::{Amount, BlockHash, Era, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
 use rsnano_ledger::Ledger;
 use rsnano_network::ChannelId;
 use rsnano_stats::{DetailType, StatType, Stats};

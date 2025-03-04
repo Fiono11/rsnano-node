@@ -1,3 +1,8 @@
+use super::ElectionStatus;
+use crate::utils::HardenedConstants;
+use rsnano_core::{
+    Amount, Block, BlockHash, Era, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock
+};
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -8,11 +13,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use rsnano_core::{Amount, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock};
 use rsnano_stats::{DetailType, StatType};
-
-use super::ElectionStatus;
-use crate::utils::HardenedConstants;
 
 pub static NEXT_ELECTION_ID: AtomicUsize = AtomicUsize::new(1);
 

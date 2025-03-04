@@ -29,6 +29,7 @@ impl BlockSideband {
             balance: block.balance_field().unwrap(),
             details: BlockDetails::new(Epoch::Epoch2, false, false, false),
             source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
         }
     }
 

@@ -377,6 +377,8 @@ impl SavedBlock {
         let sideband = BlockSideband {
             height: 1,
             details: BlockDetails::new(Epoch::Epoch2, false, true, false),
+            source_epoch: Epoch::Epoch0,
+            is_final_voted: false,
             ..BlockSideband::new_test_instance_for(&block)
         };
         Self::new(block, sideband)

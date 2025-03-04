@@ -531,7 +531,7 @@ impl OrderedVoters {
 mod tests {
     use super::*;
     use mock_instant::thread_local::MockClock;
-    use rsnano_core::PrivateKey;
+    use rsnano_core::{Era, PrivateKey};
     use rsnano_stats::Direction;
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64, era: Era) -> Arc<Vote> {
