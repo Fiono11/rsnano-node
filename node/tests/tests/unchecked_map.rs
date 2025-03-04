@@ -1,10 +1,13 @@
-use rsnano_core::{
-    Amount, Block, PrivateKey, StateBlockArgs, UncheckedInfo, UncheckedKey,
-    UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY,
-};
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY};
-use rsnano_node::{block_processing::UncheckedMap, stats::Stats};
 use std::{sync::Arc, time::Duration};
+
+use rsnano_core::{
+    Amount, Block, PrivateKey, StateBlockArgs, UncheckedInfo, UncheckedKey, DEV_GENESIS_KEY,
+};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY,
+};
+use rsnano_node::block_processing::UncheckedMap;
+use rsnano_stats::Stats;
 use test_helpers::{assert_timely, assert_timely_eq};
 
 #[test]
@@ -121,7 +124,7 @@ fn multiple_get() {
         representative: *DEV_GENESIS_PUB_KEY,
         balance: Amount::raw(1),
         link: (*DEV_GENESIS_ACCOUNT).into(),
-        work: 0,
+        work: 0.into(),
     }
     .into();
 
@@ -132,7 +135,7 @@ fn multiple_get() {
         representative: *DEV_GENESIS_PUB_KEY,
         balance: Amount::raw(1),
         link: (*DEV_GENESIS_ACCOUNT).into(),
-        work: 0,
+        work: 0.into(),
     }
     .into();
 
@@ -143,7 +146,7 @@ fn multiple_get() {
         representative: *DEV_GENESIS_PUB_KEY,
         balance: Amount::raw(1),
         link: (*DEV_GENESIS_ACCOUNT).into(),
-        work: 0,
+        work: 0.into(),
     }
     .into();
     // Add the blocks' info to the unchecked table

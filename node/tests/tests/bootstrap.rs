@@ -1,10 +1,11 @@
-use rsnano_core::{Account, PrivateKey, UnsavedBlockLatticeBuilder};
+use rsnano_core::{Account, PrivateKey};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
 };
 use std::time::Duration;
-use test_helpers::{assert_always_eq, assert_timely, System};
+use test_helpers::{assert_always_eq, assert_timely, get_available_port, System};
 
 /**
  * Tests the base case for returning
@@ -111,14 +112,9 @@ fn frontier_scan() {
     node0.process_multi(&updates);
 
     // No blocks should be broadcast to the other node
-    let node1 = system
-        .build_node()
-        .flags(flags)
-        .config(NodeConfig {
-            peering_port: System::default_config().peering_port,
-            ..config
-        })
-        .finish();
+    let mut config2 = config.clone();
+    config2.network.listening_port = System::default_config().network.listening_port;
+    let node1 = system.build_node().flags(flags).config(config2).finish();
 
     assert_always_eq(
         Duration::from_millis(100),
@@ -185,14 +181,9 @@ fn frontier_scan_pending() {
     node0.process_multi(&opens);
 
     // No blocks should be broadcast to the other node
-    let node1 = system
-        .build_node()
-        .flags(flags)
-        .config(NodeConfig {
-            peering_port: System::default_config().peering_port,
-            ..config
-        })
-        .finish();
+    let mut config2 = config.clone();
+    config2.network.listening_port = System::default_config().network.listening_port;
+    let node1 = system.build_node().flags(flags).config(config2).finish();
 
     assert_always_eq(
         Duration::from_millis(100),
@@ -269,14 +260,9 @@ fn frontier_scan_cannot_prioritize() {
     node0.process_multi(&opens2);
 
     // No blocks should be broadcast to the other node
-    let node1 = system
-        .build_node()
-        .flags(flags)
-        .config(NodeConfig {
-            peering_port: System::default_config().peering_port,
-            ..config
-        })
-        .finish();
+    let mut config2 = config.clone();
+    config2.network.listening_port = get_available_port();
+    let node1 = system.build_node().flags(flags).config(config2).finish();
 
     assert_always_eq(
         Duration::from_millis(100),

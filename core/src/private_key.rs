@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use super::{PublicKey, RawKey, Signature};
 use crate::{Account, Link, Root};
 use anyhow::Context;
@@ -35,7 +37,7 @@ impl PrivateKeyFactory {
 impl Default for PrivateKeyFactory {
     fn default() -> Self {
         Self {
-            rng: NullableRng::thread_rng(),
+            rng: NullableRng::rng(),
         }
     }
 }
@@ -50,6 +52,8 @@ impl Default for PrivateKey {
         PrivateKeyFactory::default().create_key()
     }
 }
+
+pub static TEST_KEY: LazyLock<PrivateKey> = LazyLock::new(|| PrivateKey::from(42));
 
 impl PrivateKey {
     pub fn new() -> Self {

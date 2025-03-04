@@ -1,27 +1,28 @@
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{atomic::Ordering, Arc, Mutex, MutexGuard, RwLock, Weak},
+    time::{Duration, SystemTime},
+};
+
+use tracing::trace;
+
+use rsnano_core::{Amount, BlockHash, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
+use rsnano_ledger::Ledger;
+use rsnano_network::ChannelId;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::{
+    election_schedulers::ElectionSchedulers, Election, ElectionData, LocalVoteHistory,
+    RecentlyConfirmedCache, TallyKey, VoteGenerators,
+};
 use crate::{
     block_processing::{BlockProcessor, BlockSource},
     cementation::ConfirmingSet,
     config::{NetworkParams, NodeConfig},
     consensus::{ElectionState, VoteInfo},
     representatives::OnlineReps,
-    stats::{DetailType, StatType, Stats},
-    utils::ThreadPool,
     wallets::Wallets,
 };
-
-use super::{
-    election_schedulers::ElectionSchedulers, Election, ElectionData, LocalVoteHistory,
-    RecentlyConfirmedCache, TallyKey, VoteGenerators,
-};
-use rsnano_core::{Amount, BlockHash, Era, MaybeSavedBlock, PublicKey, VoteCode, VoteSource};
-use rsnano_ledger::Ledger;
-use rsnano_network::ChannelId;
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::{atomic::Ordering, Arc, Mutex, MutexGuard, RwLock, Weak},
-    time::{Duration, SystemTime},
-};
-use tracing::trace;
 
 pub struct VoteApplier {
     ledger: Arc<Ledger>,
@@ -35,7 +36,6 @@ pub struct VoteApplier {
     wallets: Arc<Wallets>,
     recently_confirmed: Arc<RecentlyConfirmedCache>,
     confirming_set: Arc<ConfirmingSet>,
-    workers: Arc<dyn ThreadPool>,
     election_schedulers: RwLock<Option<Weak<ElectionSchedulers>>>,
 }
 
@@ -52,7 +52,6 @@ impl VoteApplier {
         wallets: Arc<Wallets>,
         recently_confirmed: Arc<RecentlyConfirmedCache>,
         confirming_set: Arc<ConfirmingSet>,
-        workers: Arc<dyn ThreadPool>,
     ) -> Self {
         Self {
             ledger,
@@ -66,7 +65,6 @@ impl VoteApplier {
             wallets,
             recently_confirmed,
             confirming_set,
-            workers,
             election_schedulers: RwLock::new(None),
         }
     }
@@ -298,14 +296,6 @@ impl VoteApplierExt for Arc<VoteApplier> {
                 status.winner.as_ref().unwrap().hash(),
                 Some(election.clone()),
             );
-
-            drop(election_lock);
-
-            let election = Arc::clone(election);
-            self.workers.post(Box::new(move || {
-                let block = status.winner.as_ref().unwrap().clone();
-                (election.confirmation_action)(block.into());
-            }));
         } else {
             self.stats
                 .inc(StatType::Election, DetailType::ConfirmOnceFailed);

@@ -1,18 +1,19 @@
-use super::{HandshakeProcess, HandshakeStatus, InboundMessageQueue, LatestKeepalives};
-use crate::{
-    config::NetworkParams,
-    stats::{DetailType, Direction, StatType, Stats},
+use std::{
+    sync::{Arc, Mutex, RwLock, Weak},
+    time::Instant,
 };
+
+use tracing::debug;
+
 use rsnano_core::NodeId;
 use rsnano_messages::*;
 use rsnano_network::{
     Channel, ChannelDirection, ChannelMode, DataReceiver, Network, ReceiveResult,
 };
-use std::{
-    sync::{Arc, Mutex, RwLock, Weak},
-    time::Instant,
-};
-use tracing::debug;
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+
+use super::{HandshakeProcess, HandshakeStatus, InboundMessageQueue, LatestKeepalives};
+use crate::config::NetworkParams;
 
 pub(crate) struct NanoDataReceiver {
     channel: Arc<Channel>,

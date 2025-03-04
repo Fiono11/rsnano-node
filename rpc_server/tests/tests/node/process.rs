@@ -1,5 +1,5 @@
-use rsnano_core::{UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-use rsnano_ledger::DEV_GENESIS_ACCOUNT;
+use rsnano_core::DEV_GENESIS_KEY;
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
 use rsnano_rpc_messages::{BlockSubTypeDto, ProcessArgs};
 use test_helpers::{setup_rpc_client_and_server, System};
 
@@ -34,7 +34,7 @@ fn process_fails_with_low_work() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 100);
-    send1.set_work(1);
+    send1.set_work(1.into());
 
     let args: ProcessArgs = ProcessArgs::build(send1.json_representation())
         .subtype(BlockSubTypeDto::Send)

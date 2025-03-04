@@ -1,11 +1,12 @@
+use std::sync::LazyLock;
+
 use rsnano_core::{
     epoch_v1_link, epoch_v2_link,
     utils::{get_env_or_default_string, UnixTimestamp},
-    work::{WorkThresholds, WORK_THRESHOLDS_STUB},
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, Epoch, Epochs, Networks,
     PublicKey, SavedBlock, DEV_GENESIS_KEY,
 };
-use std::sync::LazyLock;
+use rsnano_work::{WorkThresholds, WORK_THRESHOLDS_STUB};
 
 static BETA_PUBLIC_KEY_DATA: &str =
     "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC";
@@ -59,7 +60,11 @@ static TEST_GENESIS_DATA: LazyLock<String> = LazyLock::new(|| {
 });
 
 pub static LEDGER_CONSTANTS_STUB: LazyLock<LedgerConstants> =
-    LazyLock::new(|| LedgerConstants::new(WORK_THRESHOLDS_STUB.clone(), Networks::NanoDevNetwork));
+    LazyLock::new(|| LedgerConstants::new(WorkThresholds::none(), Networks::NanoDevNetwork));
+
+#[cfg(test)]
+pub static IMPOSSIBLE_WORK: LazyLock<WorkThresholds> =
+    LazyLock::new(|| WorkThresholds::impossible());
 
 pub static DEV_GENESIS_BLOCK: LazyLock<SavedBlock> =
     LazyLock::new(|| LEDGER_CONSTANTS_STUB.genesis_block.clone());

@@ -55,11 +55,7 @@ fn wallet_receivable_options_none() {
         .unwrap();
 
     let send = send_block_to(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger.confirm(&mut node.ledger.rw_txn(), send.hash());
-
-    node.ledger
-        .confirmed()
-        .block_exists_or_pruned(&node.ledger.read_txn(), &send.hash());
+    node.ledger.confirm(send.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
@@ -99,9 +95,9 @@ fn wallet_receivable_threshold_some() {
         .unwrap();
 
     let send = send_block_to(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger.confirm(&mut node.ledger.rw_txn(), send.hash());
+    node.ledger.confirm(send.hash());
     let send2 = send_block_to(node.clone(), public_key.into(), Amount::raw(2));
-    node.ledger.confirm(&mut node.ledger.rw_txn(), send2.hash());
+    node.ledger.confirm(send2.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 

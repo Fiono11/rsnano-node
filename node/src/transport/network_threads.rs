@@ -1,16 +1,16 @@
-use super::{keepalive::KeepaliveMessageFactory, LatestKeepalives, MessageFlooder, SynCookies};
-use crate::{
-    config::{NetworkParams, NodeFlags},
-    stats::{DetailType, StatType, Stats},
-};
-use rsnano_messages::{Keepalive, Message, NetworkFilter};
-use rsnano_network::{DeadChannelCleanup, Network, PeerConnector, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
 use std::{
     sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
+
+use rsnano_messages::{Keepalive, Message, NetworkFilter};
+use rsnano_network::{DeadChannelCleanup, Network, NetworkConfig, PeerConnector, TrafficType};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::{keepalive::KeepaliveMessageFactory, LatestKeepalives, MessageFlooder, SynCookies};
+use crate::config::{NetworkParams, NodeFlags};
 
 pub(crate) struct NetworkThreads {
     cleanup_thread: Option<JoinHandle<()>>,
@@ -21,6 +21,7 @@ pub(crate) struct NetworkThreads {
     peer_connector: Arc<PeerConnector>,
     flags: NodeFlags,
     network_params: NetworkParams,
+    network_config: NetworkConfig,
     stats: Arc<Stats>,
     syn_cookies: Arc<SynCookies>,
     network_filter: Arc<NetworkFilter>,
@@ -37,6 +38,7 @@ impl NetworkThreads {
         peer_connector: Arc<PeerConnector>,
         flags: NodeFlags,
         network_params: NetworkParams,
+        network_config: NetworkConfig,
         stats: Arc<Stats>,
         syn_cookies: Arc<SynCookies>,
         network_filter: Arc<NetworkFilter>,
@@ -55,6 +57,7 @@ impl NetworkThreads {
             peer_connector,
             flags,
             network_params,
+            network_config,
             stats,
             syn_cookies,
             network_filter,
@@ -100,10 +103,10 @@ impl NetworkThreads {
                 .unwrap(),
         );
 
-        if !self.network_params.network.merge_period.is_zero() {
+        if !self.network_config.peer_reachout.is_zero() {
             let reachout = ReachoutLoop {
                 stopped: self.stopped.clone(),
-                reachout_interval: self.network_params.network.merge_period,
+                reachout_interval: self.network_config.peer_reachout,
                 stats: self.stats.clone(),
                 peer_connector: self.peer_connector.clone(),
                 latest_keepalives: self.latest_keepalives.clone(),

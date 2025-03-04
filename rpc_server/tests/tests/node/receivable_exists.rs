@@ -1,4 +1,5 @@
-use rsnano_core::{Block, BlockHash, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
+use rsnano_core::{Block, BlockHash, DEV_GENESIS_KEY};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::Node;
 use rsnano_rpc_messages::ReceivableExistsArgs;
 use std::sync::Arc;

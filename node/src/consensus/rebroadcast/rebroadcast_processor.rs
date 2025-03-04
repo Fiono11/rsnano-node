@@ -1,13 +1,12 @@
-use super::wallet_reps_cache::WalletRepsCache;
-use crate::{
-    stats::{DetailType, StatType, Stats},
-    transport::MessageFlooder,
-    wallets::WalletRepresentatives,
-};
+use std::sync::{Arc, Mutex};
+
 use rsnano_core::Vote;
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
-use std::sync::{Arc, Mutex};
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::wallet_reps_cache::WalletRepsCache;
+use crate::{transport::MessageFlooder, wallets::WalletRepresentatives};
 
 /// Rebroadcasts a given vote if necessary
 pub(super) struct RebroadcastProcessor {
@@ -55,8 +54,12 @@ impl RebroadcastProcessor {
         self.update_stats(vote);
         let message = self.create_ack_message(vote);
 
-        self.message_flooder
+        let sent = self
+            .message_flooder
             .flood(&message, TrafficType::VoteRebroadcast, 0.5);
+
+        self.stats
+            .add(StatType::VoteRebroadcaster, DetailType::Sent, sent as u64);
     }
 
     fn create_ack_message(&self, vote: &Vote) -> Message {

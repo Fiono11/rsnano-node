@@ -1,13 +1,3 @@
-use super::{BlockSource, LedgerNotifications};
-use crate::{
-    cementation::ConfirmingSet,
-    stats::{DetailType, Direction, StatType, Stats},
-    transport::MessageFlooder,
-};
-use rsnano_core::{utils::ContainerInfo, Block, BlockHash, Networks};
-use rsnano_ledger::{BlockStatus, Ledger};
-use rsnano_messages::{Message, Publish};
-use rsnano_network::{bandwidth_limiter::RateLimiter, TrafficType};
 use std::{
     cmp::min,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -16,7 +6,17 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+
 use tracing::debug;
+
+use rsnano_core::{utils::ContainerInfo, Block, BlockHash, Networks};
+use rsnano_ledger::{BlockStatus, ConfirmedSet, Ledger};
+use rsnano_messages::{Message, Publish};
+use rsnano_network::{bandwidth_limiter::RateLimiter, TrafficType};
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+
+use super::{BlockSource, LedgerNotifications};
+use crate::{cementation::ConfirmingSet, transport::MessageFlooder};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalBlockBroadcasterConfig {
@@ -216,7 +216,7 @@ impl LocalBlockBroadcaster {
         drop(data);
         let mut already_confirmed = HashSet::new();
         {
-            let tx = self.ledger.read_txn();
+            let confirmed = self.ledger.confirmed();
             for entry in local_blocks_copy {
                 // This block has never been broadcasted, keep it so it's broadcasted at least once
                 if entry.last_broadcast.is_none() {
@@ -224,10 +224,7 @@ impl LocalBlockBroadcaster {
                 }
 
                 if self.confirming_set.contains(&entry.block.hash())
-                    || self
-                        .ledger
-                        .confirmed()
-                        .block_exists_or_pruned(&tx, &entry.block.hash())
+                    || confirmed.block_exists_or_pruned(&entry.block.hash())
                 {
                     self.stats.inc(
                         StatType::LocalBlockBroadcaster,
@@ -295,7 +292,7 @@ impl LocalBlockBroadcasterExt for Arc<LocalBlockBroadcaster> {
                     if *result == BlockStatus::Progress && context.source == BlockSource::Local {
                         let mut guard = self_l.mutex.lock().unwrap();
                         guard.local_blocks.push_back(LocalEntry {
-                            block: Arc::new(context.block.lock().unwrap().clone()),
+                            block: Arc::new(context.block.clone()),
                             last_broadcast: None,
                             next_broadcast: Instant::now(),
                             rebroadcasts: 0,

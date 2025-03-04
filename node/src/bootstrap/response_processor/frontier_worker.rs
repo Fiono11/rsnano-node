@@ -1,12 +1,11 @@
-use super::frontier_checker::{FrontierChecker, OutdatedAccounts};
-use crate::{
-    bootstrap::state::{BootstrapState, CandidateAccounts},
-    stats::{DetailType, StatType, Stats},
-};
-use rsnano_core::Frontier;
-use rsnano_ledger::Ledger;
-use rsnano_store_lmdb::LmdbReadTransaction;
 use std::sync::Mutex;
+
+use rsnano_core::Frontier;
+use rsnano_ledger::OwningAnySet;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::frontier_checker::FrontierChecker;
+use crate::bootstrap::state::{BootstrapState, OutdatedAccounts};
 
 /// Handles received frontiers
 pub(crate) struct FrontierWorker<'a> {
@@ -17,32 +16,21 @@ pub(crate) struct FrontierWorker<'a> {
 
 impl<'a> FrontierWorker<'a> {
     pub(crate) fn new(
-        ledger: &'a Ledger,
-        tx: &'a LmdbReadTransaction,
+        any: &'a OwningAnySet<'a>,
         stats: &'a Stats,
         state: &'a Mutex<BootstrapState>,
     ) -> Self {
         Self {
             stats,
             state,
-            checker: FrontierChecker::new(ledger, tx),
+            checker: FrontierChecker::new(any),
         }
     }
 
     pub fn process(&mut self, frontiers: Vec<Frontier>) {
         let outdated = self.checker.get_outdated_accounts(&frontiers);
         self.update_stats(&frontiers, &outdated);
-
-        let mut guard = self.state.lock().unwrap();
-        guard.counters.received_frontiers += frontiers.len();
-        guard.counters.outdated_accounts_found += outdated.accounts.len();
-
-        for account in outdated.accounts {
-            // Use the lowest possible priority here
-            guard
-                .candidate_accounts
-                .priority_set(&account, CandidateAccounts::PRIORITY_CUTOFF);
-        }
+        self.state.lock().unwrap().frontiers_processed(&outdated);
     }
 
     fn update_stats(&self, frontiers: &[Frontier], outdated: &OutdatedAccounts) {
@@ -72,15 +60,17 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrap::state::CandidateAccounts;
     use rsnano_core::{Account, AccountInfo, BlockHash};
+    use rsnano_ledger::Ledger;
 
     #[test]
     fn empty() {
         let ledger = Ledger::new_null();
-        let tx = ledger.read_txn();
+        let any = ledger.any();
         let stats = Stats::default();
-        let state = Mutex::new(BootstrapState::new_test_instance());
-        let mut worker = FrontierWorker::new(&ledger, &tx, &stats, &state);
+        let state = Mutex::new(BootstrapState::default());
+        let mut worker = FrontierWorker::new(&any, &stats, &state);
 
         worker.process(Vec::new());
 
@@ -99,10 +89,10 @@ mod tests {
                 },
             )
             .finish();
-        let tx = ledger.read_txn();
+        let any = ledger.any();
         let stats = Stats::default();
-        let state = Mutex::new(BootstrapState::new_test_instance());
-        let mut worker = FrontierWorker::new(&ledger, &tx, &stats, &state);
+        let state = Mutex::new(BootstrapState::default());
+        let mut worker = FrontierWorker::new(&any, &stats, &state);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 

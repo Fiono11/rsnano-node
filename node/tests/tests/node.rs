@@ -1,21 +1,3 @@
-use rsnano_core::{
-    utils::milliseconds_since_epoch, work::WorkPool, Account, Amount, Block, BlockHash,
-    DifficultyV1, PrivateKey, PublicKey, QualifiedRoot, Root, Signature, StateBlockArgs,
-    UncheckedInfo, UnsavedBlockLatticeBuilder, Vote, VoteSource, VoteWithWeightInfo,
-    DEV_GENESIS_KEY,
-};
-use rsnano_ledger::{
-    BlockStatus, Writer, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
-};
-use rsnano_messages::{ConfirmAck, Message, Publish};
-use rsnano_network::{ChannelId, TrafficType};
-use rsnano_node::{
-    block_processing::{BacklogScanConfig, BlockSource, BoundedBacklogConfig},
-    config::{NodeConfig, NodeFlags},
-    consensus::{ActiveElectionsExt, AggregatorRequest, VoteApplierExt},
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
 use std::{
     collections::HashMap,
     sync::{
@@ -25,6 +7,25 @@ use std::{
     thread::sleep,
     time::Duration,
 };
+
+use rsnano_core::{
+    utils::milliseconds_since_epoch, Account, Amount, Block, BlockHash, DifficultyV1, PrivateKey,
+    PublicKey, QualifiedRoot, Root, Signature, StateBlockArgs, UncheckedInfo, Vote, VoteSource,
+    VoteWithWeightInfo, DEV_GENESIS_KEY,
+};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, BlockStatus, ConfirmedSet, LedgerSet, Writer,
+    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
+};
+use rsnano_messages::{ConfirmAck, Message, Publish};
+use rsnano_network::{ChannelId, TrafficType};
+use rsnano_node::{
+    block_processing::{BacklogScanConfig, BlockSource, BoundedBacklogConfig},
+    config::{NodeConfig, NodeFlags},
+    consensus::{AggregatorRequest, VoteApplierExt},
+    wallets::WalletsExt,
+};
+use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
     activate_hashes, assert_always_eq, assert_never, assert_timely, assert_timely2,
     assert_timely_eq, assert_timely_eq2, assert_timely_msg, establish_tcp, get_available_port,
@@ -80,21 +81,12 @@ fn pruning_depth_max_depth() {
     assert_eq!(node1.ledger.pruned_count(), 1);
     assert_eq!(node1.ledger.block_count(), 3);
 
-    let tx = node1.ledger.read_txn();
+    let any = node1.ledger.any();
 
     // Ensure that the genesis block, send1, and send2 either exist or are pruned
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &*DEV_GENESIS_HASH));
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &send1.hash()));
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &send2.hash()));
+    assert!(any.block_exists_or_pruned(&*DEV_GENESIS_HASH));
+    assert!(any.block_exists_or_pruned(&send1.hash()));
+    assert!(any.block_exists_or_pruned(&send2.hash()));
 }
 
 // Test that a node configured with `enable_pruning` and `max_pruning_age = 1s` will automatically
@@ -144,20 +136,10 @@ fn pruning_automatic() {
     assert_eq!(node1.ledger.pruned_count(), 1);
     assert_eq!(node1.ledger.block_count(), 3);
 
-    let tx = node1.ledger.read_txn();
-
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &*DEV_GENESIS_HASH));
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &send1.hash()));
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&tx, &send2.hash()));
+    let any = node1.ledger.any();
+    assert!(any.block_exists_or_pruned(&*DEV_GENESIS_HASH));
+    assert!(any.block_exists_or_pruned(&send1.hash()));
+    assert!(any.block_exists_or_pruned(&send2.hash()));
 }
 
 #[test]
@@ -264,16 +246,14 @@ fn deferred_dependent_elections() {
     });
     assert!(!node1
         .ledger
-        .dependents_confirmed_for_unsaved_block(&node1.store.tx_begin_read(), &receive));
+        .any()
+        .dependents_confirmed_for_unsaved_block(&receive));
 
     assert_never(std::time::Duration::from_millis(500), || {
         node1.active.election(&receive.qualified_root()).is_some()
     });
 
-    node1
-        .ledger
-        .rollback(&mut node1.store.tx_begin_write(), &receive.hash())
-        .unwrap();
+    node1.ledger.rollback(&receive.hash()).unwrap();
     assert!(!node1.block_exists(&receive.hash()));
 
     node1.process_local(receive.clone().into()).unwrap();
@@ -307,9 +287,7 @@ fn deferred_dependent_elections() {
 #[test]
 fn rollback_gap_source() {
     let mut system = System::new();
-    let mut node_config = System::default_config();
-    node_config.peering_port = Some(get_available_port());
-    let node = system.build_node().config(node_config).finish();
+    let node = system.build_node().finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
@@ -390,8 +368,7 @@ fn vote_by_hash_bundle() {
     }
 
     // Confirm the last block to confirm the entire chain
-    node.ledger
-        .confirm(&mut node.ledger.rw_txn(), blocks.last().unwrap().hash());
+    node.ledger.confirm(blocks.last().unwrap().hash());
 
     // Insert the genesis key and a new key into the wallet
     node.wallets
@@ -457,7 +434,7 @@ fn confirm_quorum() {
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_ACCOUNT,
             new_balance,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -494,7 +471,7 @@ fn send_callback() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         node.config.receive_minimum,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -542,7 +519,7 @@ fn no_voting() {
             *DEV_GENESIS_ACCOUNT,
             key1.account(),
             Amount::nano(1),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -593,7 +570,7 @@ fn bootstrap_fork_open() {
     node_config.enable_optimistic_scheduler = false;
 
     let node0 = system.build_node().config(node_config.clone()).finish();
-    node_config.peering_port = Some(get_available_port());
+    node_config.network.listening_port = get_available_port();
     let node1 = system.build_node().config(node_config).finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -787,7 +764,7 @@ fn fork_multi_flip() {
         .flags(flags.clone())
         .finish();
 
-    config.peering_port = Some(get_available_port());
+    config.network.listening_port = get_available_port();
     // Reduce cooldown to speed up fork resolution
     config.bootstrap.candidate_accounts.cooldown = Duration::from_millis(100);
     let node2 = system.build_node().config(config).flags(flags).finish();
@@ -821,20 +798,9 @@ fn fork_multi_flip() {
     });
 
     node1.confirm(send1.hash());
-    assert_timely2(|| {
-        node2
-            .ledger
-            .any()
-            .block_exists_or_pruned(&node2.ledger.read_txn(), &send1.hash())
-    });
-    assert!(!node2
-        .ledger
-        .any()
-        .block_exists(&node2.ledger.read_txn(), &send2.hash()));
-    assert!(!node2
-        .ledger
-        .any()
-        .block_exists_or_pruned(&node2.ledger.read_txn(), &send3.hash()));
+    assert_timely2(|| node2.ledger.any().block_exists_or_pruned(&send1.hash()));
+    assert!(!node2.ledger.any().block_exists(&send2.hash()));
+    assert!(!node2.ledger.any().block_exists_or_pruned(&send3.hash()));
 
     let winner = election.winner_hash().unwrap();
     assert_eq!(send1.hash(), winner);
@@ -957,7 +923,7 @@ fn unlock_search() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1004,7 +970,7 @@ fn search_receivable_confirmed() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1020,7 +986,7 @@ fn search_receivable_confirmed() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1081,7 +1047,7 @@ fn search_receivable_pruned() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node2.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1094,7 +1060,7 @@ fn search_receivable_pruned() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node2.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1104,13 +1070,8 @@ fn search_receivable_pruned() {
     assert_timely(Duration::from_secs(10), || {
         node1.active.len() == 0 && node2.active.len() == 0
     });
-    assert_timely(Duration::from_secs(5), || {
-        node1
-            .ledger
-            .confirmed()
-            .block_exists(&node1.ledger.read_txn(), &send2.hash())
-    });
-    assert_timely_eq(Duration::from_secs(5), || node2.ledger.cemented_count(), 3);
+    assert_timely2(|| node1.ledger.confirmed().block_exists(&send2.hash()));
+    assert_timely_eq2(|| node2.ledger.cemented_count(), 3);
 
     node1
         .wallets
@@ -1118,20 +1079,9 @@ fn search_receivable_pruned() {
         .unwrap();
 
     // Pruning
-    {
-        let mut transaction = node2.store.tx_begin_write();
-        assert_eq!(
-            1,
-            node2
-                .ledger
-                .pruning_action(&mut transaction, &send1.hash(), 1)
-        );
-    }
+    assert_eq!(1, node2.ledger.prune_one(&send1.hash(), 1));
     assert_eq!(1, node2.ledger.pruned_count());
-    assert!(node2
-        .ledger
-        .any()
-        .block_exists_or_pruned(&node2.ledger.read_txn(), &send1.hash())); // true for pruned
+    assert!(node2.ledger.any().block_exists_or_pruned(&send1.hash())); // true for pruned
 
     // Receive pruned block
     node2
@@ -1162,7 +1112,7 @@ fn search_receivable() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1195,7 +1145,7 @@ fn search_receivable_same() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         node.config.receive_minimum,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -1205,7 +1155,7 @@ fn search_receivable_same() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         node.config.receive_minimum,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -1241,7 +1191,7 @@ fn search_receivable_multiple() {
             *DEV_GENESIS_ACCOUNT,
             key3.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1257,7 +1207,7 @@ fn search_receivable_multiple() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1268,7 +1218,7 @@ fn search_receivable_multiple() {
             key3.account(),
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1317,7 +1267,7 @@ fn auto_bootstrap_reverse() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         node0.config.receive_minimum,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -1422,7 +1372,7 @@ fn send_single_observing_peer() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node1.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1472,7 +1422,7 @@ fn send_single() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node1.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1511,7 +1461,7 @@ fn send_self() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1680,7 +1630,7 @@ fn fork_no_vote_quorum() {
             *DEV_GENESIS_ACCOUNT,
             key4.into(),
             Amount::MAX / 4,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1703,7 +1653,7 @@ fn fork_no_vote_quorum() {
             *DEV_GENESIS_ACCOUNT,
             key1.into(),
             node1.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -2161,7 +2111,7 @@ fn rollback_vote_self() {
 
     {
         // The write guard prevents the block processor from performing the rollback
-        let _write_guard = node.ledger.write_queue.wait(Writer::Testing);
+        let _write_guard = node.ledger.store.write_queue.wait(Writer::Testing);
 
         assert_eq!(0, node.active.votes_with_weight(&election).len());
         // Vote with key to switch the winner
@@ -2512,7 +2462,7 @@ fn auto_bootstrap() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             node0.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -2677,7 +2627,7 @@ fn unconfirmed_send() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::nano(2),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -2696,14 +2646,12 @@ fn unconfirmed_send() {
     );
 
     // wait until receive1 (auto-receive created by wallet) is cemented
-    assert_timely_eq(
-        Duration::from_secs(5),
+    assert_timely_eq2(
         || {
-            let tx = node2.store.tx_begin_read();
             node2
-                .store
-                .confirmation_height
-                .get(&tx, &key2.account())
+                .ledger
+                .confirmed()
+                .get_conf_info(&key2.account())
                 .unwrap_or_default()
                 .height
         },
@@ -2712,13 +2660,11 @@ fn unconfirmed_send() {
 
     assert_eq!(node2.balance(&key2.account()), Amount::nano(2));
 
-    let recv1 = {
-        let tx = node2.store.tx_begin_read();
-        node2
-            .ledger
-            .find_receive_block_by_send_hash(&tx, &key2.account(), &send1.hash())
-            .unwrap()
-    };
+    let recv1 = node2
+        .ledger
+        .any()
+        .find_receive_block_by_send_hash(&key2.account(), &send1.hash())
+        .unwrap();
 
     // create send2 to send from node2 to node1 and save it to node2's ledger without triggering an election (node1 does not hear about it)
     let send2: Block = StateBlockArgs {
@@ -2727,7 +2673,7 @@ fn unconfirmed_send() {
         representative: *DEV_GENESIS_PUB_KEY,
         balance: Amount::nano(1),
         link: (*DEV_GENESIS_ACCOUNT).into(),
-        work: system.work.generate_dev2(recv1.hash().into()).unwrap(),
+        work: system.work.generate_dev(recv1.hash().into()).unwrap(),
     }
     .into();
 
@@ -2743,7 +2689,7 @@ fn unconfirmed_send() {
             key2.account(),
             *DEV_GENESIS_ACCOUNT,
             Amount::nano(1),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -2864,25 +2810,13 @@ fn block_confirm() {
         true
     );
 
-    assert_timely(Duration::from_secs(5), || {
-        node1
-            .ledger
-            .any()
-            .block_exists_or_pruned(&node1.store.tx_begin_read(), &hash1)
-            && node2
-                .ledger
-                .any()
-                .block_exists_or_pruned(&node2.store.tx_begin_read(), &hash1)
+    assert_timely2(|| {
+        node1.ledger.any().block_exists_or_pruned(&hash1)
+            && node2.ledger.any().block_exists_or_pruned(&hash1)
     });
 
-    assert!(node1
-        .ledger
-        .any()
-        .block_exists_or_pruned(&node1.ledger.read_txn(), &hash1));
-    assert!(node2
-        .ledger
-        .any()
-        .block_exists_or_pruned(&node2.ledger.read_txn(), &hash1));
+    assert!(node1.ledger.any().block_exists_or_pruned(&hash1));
+    assert!(node2.ledger.any().block_exists_or_pruned(&hash1));
 
     // Confirm send1 on node2 so it can vote for send2
     start_election(&node2, &hash1);

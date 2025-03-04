@@ -1,24 +1,24 @@
-use crate::bootstrap::{
-    state::BootstrapState, AscPullQuerySpec, BootstrapConfig, BootstrapPromise,
-};
-use crate::{block_processing::BlockProcessor, stats::Stats, transport::MessageSender};
-use rsnano_ledger::Ledger;
-use rsnano_network::bandwidth_limiter::RateLimiter;
-use rsnano_nullable_clock::SteadyClock;
 use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Condvar, Mutex,
-    },
+    sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
 };
 
-use super::bootstrap_promise_runner::BootstrapPromiseRunner;
-use super::query_sender::QuerySender;
-use super::send_queries_promise::SendQueriesPromise;
+use rsnano_ledger::Ledger;
+use rsnano_network::bandwidth_limiter::RateLimiter;
+use rsnano_network::Network;
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::Stats;
+
 use super::{
-    channel_waiter::ChannelWaiter, dependency_requester::DependencyRequester,
-    frontier_requester::FrontierRequester, priority::PriorityRequester,
+    bootstrap_promise_runner::BootstrapPromiseRunner, channel_waiter::ChannelWaiter,
+    dependency_requester::DependencyRequester, frontier_requester::FrontierRequester,
+    priority::PriorityRequester, query_sender::QuerySender,
+    send_queries_promise::SendQueriesPromise,
+};
+use crate::{
+    block_processing::BlockProcessor,
+    bootstrap::{state::BootstrapState, AscPullQuerySpec, BootstrapConfig, BootstrapPromise},
+    transport::MessageSender,
 };
 
 /// Manages the threads that send out AscPullReqs
@@ -28,12 +28,12 @@ pub(crate) struct Requesters {
     stats: Arc<Stats>,
     message_sender: MessageSender,
     state: Arc<Mutex<BootstrapState>>,
-    condition: Arc<Condvar>,
+    state_changed: Arc<Condvar>,
     clock: Arc<SteadyClock>,
     threads: Mutex<Option<RequesterThreads>>,
-    stopped: Arc<AtomicBool>,
     ledger: Arc<Ledger>,
     block_processor: Arc<BlockProcessor>,
+    network: Arc<RwLock<Network>>,
 }
 
 impl Requesters {
@@ -43,10 +43,11 @@ impl Requesters {
         stats: Arc<Stats>,
         message_sender: MessageSender,
         state: Arc<Mutex<BootstrapState>>,
-        condition: Arc<Condvar>,
+        state_changed: Arc<Condvar>,
         clock: Arc<SteadyClock>,
         ledger: Arc<Ledger>,
         block_processor: Arc<BlockProcessor>,
+        network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
             limiter,
@@ -54,25 +55,25 @@ impl Requesters {
             stats,
             message_sender,
             state,
-            condition,
+            state_changed,
             clock,
             ledger,
             block_processor,
+            network,
             threads: Mutex::new(None),
-            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn start(&self) {
         let limiter = self.limiter.clone();
         let max_requests = self.config.max_requests;
-        let channel_waiter = ChannelWaiter::new(limiter.clone(), max_requests);
+        let channel_waiter =
+            ChannelWaiter::new(self.network.clone(), limiter.clone(), max_requests);
 
         let runner = Arc::new(BootstrapPromiseRunner {
             state: self.state.clone(),
-            config: self.config.clone(),
-            condition: self.condition.clone(),
-            stopped: self.stopped.clone(),
+            throttle_wait: self.config.throttle_wait,
+            state_changed: self.state_changed.clone(),
         });
 
         let frontiers = if self.config.enable_frontier_scan {
@@ -127,10 +128,10 @@ impl Requesters {
 
     pub fn stop(&self) {
         {
-            let _guard = self.state.lock().unwrap();
-            self.stopped.store(true, Ordering::SeqCst);
+            let mut state = self.state.lock().unwrap();
+            state.stopped = true;
         }
-        self.condition.notify_all();
+        self.state_changed.notify_all();
 
         let threads = self.threads.lock().unwrap().take();
         if let Some(mut threads) = threads {
@@ -147,12 +148,12 @@ impl Requesters {
     where
         T: BootstrapPromise<AscPullQuerySpec> + Send + 'static,
     {
-        let query_sender = QuerySender {
-            message_sender: self.message_sender.clone(),
-            clock: self.clock.clone(),
-            config: self.config.clone(),
-            stats: self.stats.clone(),
-        };
+        let mut query_sender = QuerySender::new(
+            self.message_sender.clone(),
+            self.clock.clone(),
+            self.stats.clone(),
+        );
+        query_sender.set_request_timeout(self.config.request_timeout);
 
         let send_promise = SendQueriesPromise::new(query_factory, query_sender);
 

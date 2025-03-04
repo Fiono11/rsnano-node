@@ -1,28 +1,24 @@
 use super::{peer_score::PeerScore, peer_score_container::PeerScoreContainer};
-use crate::bootstrap::BootstrapConfig;
+use rand::seq::SliceRandom;
 use rsnano_core::utils::ContainerInfo;
-use rsnano_network::{Channel, ChannelId, Network, TrafficType};
-use std::sync::{Arc, RwLock};
+use rsnano_network::ChannelId;
 
 /// Container for tracking and scoring peers with respect to bootstrapping
 pub(crate) struct PeerScoring {
     scoring: PeerScoreContainer,
-    config: BootstrapConfig,
-    network: Arc<RwLock<Network>>,
+    channel_limit: usize,
 }
 
 impl PeerScoring {
-    pub fn new(config: BootstrapConfig, network: Arc<RwLock<Network>>) -> Self {
+    pub fn new() -> Self {
         Self {
             scoring: PeerScoreContainer::default(),
-            config,
-            network,
+            channel_limit: 16,
         }
     }
 
-    #[cfg(test)]
-    pub fn add_test_channel(&mut self) -> Arc<Channel> {
-        self.network.write().unwrap().add_test_channel()
+    pub fn set_channel_limit(&mut self, limit: usize) {
+        self.channel_limit = limit;
     }
 
     pub fn received_message(&mut self, channel_id: ChannelId) {
@@ -34,77 +30,51 @@ impl PeerScoring {
         });
     }
 
-    pub fn channel(&mut self) -> Option<Arc<Channel>> {
-        self.network
-            .read()
-            .unwrap()
-            .shuffled_channels()
+    pub fn channel(&mut self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
+        candidates.shuffle(&mut rand::rng());
+        candidates
             .iter()
-            .find(|c| {
-                if !c.should_drop(TrafficType::BootstrapRequests) {
-                    if !Self::try_send_message(&mut self.scoring, c, &self.config) {
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
+            .find(|channel_id| {
+                Self::try_send_message(&mut self.scoring, **channel_id, self.channel_limit)
             })
             .cloned()
     }
 
     fn try_send_message(
         scoring: &mut PeerScoreContainer,
-        channel: &Arc<Channel>,
-        config: &BootstrapConfig,
+        channel_id: ChannelId,
+        channel_limit: usize,
     ) -> bool {
-        let mut result = false;
-        let modified = scoring.modify(channel.channel_id(), |i| {
-            if i.outstanding < config.channel_limit {
+        let mut success = true;
+        let modified = scoring.modify(channel_id, |i| {
+            if i.outstanding < channel_limit {
                 i.outstanding += 1;
                 i.request_count_total += 1;
             } else {
-                result = true;
+                success = false;
             }
         });
         if !modified {
-            scoring.insert(PeerScore::new(channel));
+            scoring.insert(PeerScore::new(channel_id));
         }
-        result
+        success
     }
 
     pub fn len(&self) -> usize {
         self.scoring.len()
     }
 
-    pub fn available(&self) -> usize {
-        self.network
-            .read()
-            .unwrap()
-            .channels()
-            .filter(|c| !self.limit_exceeded(c))
-            .count()
-    }
-
-    fn limit_exceeded(&self, channel: &Channel) -> bool {
-        if let Some(existing) = self.scoring.get(channel.channel_id()) {
-            existing.outstanding >= self.config.channel_limit
-        } else {
-            false
-        }
-    }
-
-    pub fn timeout(&mut self) {
-        self.scoring.retain(|i| i.is_alive());
+    pub fn decay(&mut self) {
         self.scoring.modify_all(|i| i.decay());
     }
 
+    pub fn clean_up_dead_channels(&mut self, dead_channel_ids: &[ChannelId]) {
+        for channel_id in dead_channel_ids {
+            self.scoring.remove(*channel_id);
+        }
+    }
+
     pub fn container_info(&self) -> ContainerInfo {
-        [
-            ("scores", self.len(), 0),
-            ("available", self.available(), 0),
-        ]
-        .into()
+        [("scores", self.len(), 0)].into()
     }
 }

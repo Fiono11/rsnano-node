@@ -65,8 +65,6 @@ pub use difficulty::{Difficulty, DifficultyV1, StubDifficulty, WorkVersion};
 mod blocks;
 pub use blocks::*;
 
-pub mod work;
-
 mod unchecked_info;
 pub use unchecked_info::{UncheckedInfo, UncheckedKey};
 
@@ -302,6 +300,34 @@ impl Networks {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+pub struct ProtocolInfo {
+    pub version_using: u8,
+    pub version_max: u8,
+    pub version_min: u8,
+    pub network: Networks,
+}
+
+impl Default for ProtocolInfo {
+    fn default() -> Self {
+        Self {
+            version_using: 0x15,
+            version_max: 0x15,
+            version_min: 0x14,
+            network: Networks::NanoLiveNetwork,
+        }
+    }
+}
+
+impl ProtocolInfo {
+    pub fn default_for(network: Networks) -> Self {
+        Self {
+            network,
+            ..Default::default()
+        }
+    }
+}
+
 impl FromStr for Networks {
     type Err = &'static str;
 
@@ -353,6 +379,16 @@ impl Serialize for Frontier {
 
 #[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Default)]
 pub struct WorkNonce(u64);
+
+impl WorkNonce {
+    pub fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+}
 
 impl Display for WorkNonce {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

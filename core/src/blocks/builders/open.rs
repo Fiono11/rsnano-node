@@ -1,23 +1,18 @@
 use crate::{
-    blocks::open_block::OpenBlockArgs,
-    utils::UnixTimestamp,
-    work::{WorkPool, STUB_WORK_POOL},
-    Account, Block, BlockDetails, BlockHash, BlockSideband, Epoch, PrivateKey, PublicKey,
-    SavedBlock,
+    blocks::open_block::OpenBlockArgs, utils::UnixTimestamp, Block, BlockDetails, BlockHash,
+    BlockSideband, Epoch, PrivateKey, PublicKey, SavedBlock, WorkNonce,
 };
 
 pub struct TestLegacyOpenBlockBuilder {
-    account: Option<Account>,
     representative: Option<PublicKey>,
     source: Option<BlockHash>,
     prv_key: Option<PrivateKey>,
-    work: Option<u64>,
+    work: Option<WorkNonce>,
 }
 
 impl TestLegacyOpenBlockBuilder {
     pub(super) fn new() -> Self {
         Self {
-            account: None,
             representative: None,
             source: None,
             prv_key: None,
@@ -40,18 +35,15 @@ impl TestLegacyOpenBlockBuilder {
         self
     }
 
-    pub fn work(mut self, work: u64) -> Self {
-        self.work = Some(work);
+    pub fn work(mut self, work: impl Into<WorkNonce>) -> Self {
+        self.work = Some(work.into());
         self
     }
     pub fn build(self) -> Block {
         let source = self.source.unwrap_or(BlockHash::from(1));
         let prv_key = self.prv_key.unwrap_or_default();
-        let account = self.account.unwrap_or_else(|| prv_key.account());
         let representative = self.representative.unwrap_or(PublicKey::from(2));
-        let work = self
-            .work
-            .unwrap_or_else(|| STUB_WORK_POOL.generate_dev2(account.into()).unwrap());
+        let work = self.work.unwrap_or(42.into());
 
         OpenBlockArgs {
             key: &prv_key,
@@ -90,7 +82,7 @@ impl TestLegacyOpenBlockBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{work::WORK_THRESHOLDS_STUB, Amount, BlockBase, Signature, TestBlockBuilder};
+    use crate::{Account, Amount, BlockBase, Signature, TestBlockBuilder};
 
     #[test]
     fn create_open_block() {
@@ -101,7 +93,7 @@ mod tests {
         assert_eq!(open.source(), BlockHash::from(1));
         assert_eq!(open.representative(), PublicKey::from(2));
         assert_ne!(open.account(), Account::zero());
-        assert_eq!(WORK_THRESHOLDS_STUB.validate_entry_block(&block), true);
+        assert_eq!(open.work(), WorkNonce::new(42));
         assert_ne!(*open.signature(), Signature::new());
 
         assert!(block.successor().is_none());

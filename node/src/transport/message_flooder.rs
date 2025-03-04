@@ -1,12 +1,15 @@
-use super::{try_send_serialized_message, MessageSender};
-use crate::{representatives::OnlineReps, stats::Stats};
-use rsnano_messages::{Message, MessageSerializer};
-use rsnano_network::{Channel, Network, TrafficType};
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use std::{
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock},
 };
+
+use rsnano_messages::{Message, MessageSerializer};
+use rsnano_network::{Channel, Network, TrafficType};
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_stats::Stats;
+
+use super::{try_send_serialized_message, MessageSender};
+use crate::representatives::OnlineReps;
 
 /// Floods messages to PRs and non PRs
 pub struct MessageFlooder {
@@ -49,10 +52,13 @@ impl MessageFlooder {
         message: &Message,
         traffic_type: TrafficType,
         scale: f32,
-    ) {
+    ) -> FloodCount {
+        let mut flood_count = FloodCount::default();
         let peered_prs = self.online_reps.lock().unwrap().peered_principal_reps();
         for rep in peered_prs {
-            self.sender.try_send(&rep.channel, &message, traffic_type);
+            if self.sender.try_send(&rep.channel, &message, traffic_type) {
+                flood_count.principal_reps += 1;
+            }
         }
 
         let mut channels;
@@ -60,24 +66,28 @@ impl MessageFlooder {
         {
             let network = self.network.read().unwrap();
             fanout = network.fanout(scale);
-            channels = network.shuffled_channels()
+            channels = network.shuffled_channels(traffic_type)
         }
 
-        self.remove_no_pr(&mut channels, fanout);
+        self.remove_principal_reps(&mut channels, fanout);
         for peer in channels {
-            self.sender.try_send(&peer, &message, traffic_type);
+            if self.sender.try_send(&peer, &message, traffic_type) {
+                flood_count.non_principal_reps += 1;
+            }
         }
+
+        flood_count
     }
 
-    fn remove_no_pr(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
+    fn remove_principal_reps(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
         {
             let reps = self.online_reps.lock().unwrap();
-            channels.retain(|c| !reps.is_pr(c.channel_id()));
+            channels.retain(|c| !reps.is_principal_rep(c.channel_id()));
         }
         channels.truncate(count);
     }
 
-    pub fn flood(&mut self, message: &Message, traffic_type: TrafficType, scale: f32) {
+    pub fn flood(&mut self, message: &Message, traffic_type: TrafficType, scale: f32) -> usize {
         if self.flood_listener.is_tracked() {
             self.flood_listener.emit(FloodEvent {
                 message: message.clone(),
@@ -87,19 +97,30 @@ impl MessageFlooder {
         }
 
         let buffer = self.message_serializer.serialize(message);
-        let channels;
-        {
-            let network = self.network.read().unwrap();
-            channels = network.random_fanout(scale);
-        }
+        let network = self.network.read().unwrap();
+        let channels = Self::random_fanout(&network, traffic_type, scale);
+        let mut sent = 0;
 
         for channel in channels {
-            try_send_serialized_message(&channel, &self.stats, buffer, message, traffic_type);
+            if try_send_serialized_message(&channel, &self.stats, buffer, message, traffic_type) {
+                sent += 1;
+            }
         }
+        sent
     }
 
     pub fn track_floods(&self) -> Arc<OutputTrackerMt<FloodEvent>> {
         self.flood_listener.track()
+    }
+
+    fn random_fanout(
+        network: &Network,
+        traffic_type: TrafficType,
+        scale: f32,
+    ) -> Vec<Arc<Channel>> {
+        let mut channels = network.shuffled_channels(traffic_type);
+        channels.truncate(network.fanout(scale));
+        channels
     }
 }
 
@@ -136,6 +157,12 @@ impl DerefMut for MessageFlooder {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.sender
     }
+}
+
+#[derive(Default)]
+pub struct FloodCount {
+    pub principal_reps: usize,
+    pub non_principal_reps: usize,
 }
 
 #[cfg(test)]

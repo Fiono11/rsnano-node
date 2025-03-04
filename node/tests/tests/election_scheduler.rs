@@ -119,13 +119,13 @@ mod election_scheduler {
     use std::time::Duration;
 
     use super::*;
-    use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-    use rsnano_ledger::DEV_GENESIS_ACCOUNT;
+    use rsnano_core::{Amount, PrivateKey, DEV_GENESIS_KEY};
+    use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
     use rsnano_node::{
         config::NodeConfig,
-        consensus::{ActiveElectionsExt, ElectionBehavior, OptimisticSchedulerConfig},
-        stats::{DetailType, Direction, StatType},
+        consensus::{ElectionBehavior, OptimisticSchedulerConfig},
     };
+    use rsnano_stats::{DetailType, Direction, StatType};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]
@@ -134,17 +134,15 @@ mod election_scheduler {
         let node = system.make_node();
 
         let mut lattice = UnsavedBlockLatticeBuilder::new();
-        let mut send1 = lattice
+        let send1 = lattice
             .genesis()
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-        node.ledger
-            .process(&mut node.ledger.rw_txn(), &mut send1)
-            .unwrap();
+        node.ledger.process_one(&send1).unwrap();
 
         node.election_schedulers
             .priority
-            .activate(&node.store.tx_begin_read(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
 
         assert_timely2(|| node.active.election(&send1.qualified_root()).is_some());
     }
@@ -156,19 +154,17 @@ mod election_scheduler {
         let mut lattice = UnsavedBlockLatticeBuilder::new();
 
         // Create a send block
-        let mut send1 = lattice
+        let send1 = lattice
             .genesis()
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
         // Process the block
-        node.ledger
-            .process(&mut node.store.tx_begin_write(), &mut send1)
-            .unwrap();
+        node.ledger.process_one(&send1).unwrap();
 
         // Activate the account
         node.election_schedulers
             .priority
-            .activate(&node.store.tx_begin_read(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
 
         // Assert that the election is created within 5 seconds
         assert_timely2(|| node.active.election(&send1.qualified_root()).is_some());
@@ -228,7 +224,7 @@ mod election_scheduler {
         // There is vacancy so it should be inserted
         node.election_schedulers
             .priority
-            .activate(&node.ledger.read_txn(), &DEV_GENESIS_ACCOUNT);
+            .activate(&node.ledger.any(), &DEV_GENESIS_ACCOUNT);
         let mut election = None;
         assert_timely2(|| match node.active.election(&block1.qualified_root()) {
             Some(el) => {
@@ -244,7 +240,7 @@ mod election_scheduler {
         // There is no vacancy so it should stay queued
         node.election_schedulers
             .priority
-            .activate(&node.ledger.read_txn(), &key.account());
+            .activate(&node.ledger.any(), &key.account());
         assert_timely_eq2(|| node.election_schedulers.priority.len(), 1);
         assert!(node.active.election(&block2.qualified_root()).is_none());
 

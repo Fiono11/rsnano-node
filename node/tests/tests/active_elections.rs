@@ -1,15 +1,3 @@
-use rsnano_core::{
-    utils::MemoryStream, Account, Amount, PrivateKey, UnsavedBlockLatticeBuilder, Vote, VoteCode,
-    VoteSource, DEV_GENESIS_KEY,
-};
-use rsnano_ledger::{BlockStatus, Writer, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY};
-use rsnano_node::{
-    bootstrap::BootstrapConfig,
-    config::{NodeConfig, NodeFlags},
-    consensus::{ActiveElectionsExt, ElectionBehavior},
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
 use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc},
@@ -17,6 +5,21 @@ use std::{
     time::Duration,
     usize,
 };
+
+use rsnano_core::{
+    utils::MemoryStream, Account, Amount, PrivateKey, Vote, VoteCode, VoteSource, DEV_GENESIS_KEY,
+};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, BlockStatus, LedgerSet, Writer, DEV_GENESIS_ACCOUNT,
+    DEV_GENESIS_PUB_KEY,
+};
+use rsnano_node::{
+    bootstrap::BootstrapConfig,
+    config::{NodeConfig, NodeFlags},
+    consensus::ElectionBehavior,
+    wallets::WalletsExt,
+};
+use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
     assert_always_eq, assert_never, assert_timely, assert_timely2, assert_timely_eq,
     assert_timely_eq2, assert_timely_msg, get_available_port, process_open_block,
@@ -515,11 +518,7 @@ fn inactive_votes_cache_election_start() {
     assert_eq!(3, send4_cache.len());
     node.process_active(send3.clone());
     // An election is started for send6 but does not
-    let tx = node.ledger.read_txn();
-    assert_eq!(
-        node.ledger.confirmed().block_exists(&tx, &send3.hash()),
-        false
-    );
+    assert_eq!(node.ledger.confirmed().block_exists(&send3.hash()), false);
     assert_eq!(node.confirming_set.contains(&send3.hash()), false);
     // send7 cannot be voted on but an election should be started from inactive votes
     node.process_active(send4);
@@ -531,7 +530,7 @@ fn republish_winner() {
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();
     let node1 = system.build_node().config(config.clone()).finish();
-    config.peering_port = Some(get_available_port());
+    config.network.listening_port = get_available_port();
     let node2 = system.build_node().config(config).finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
@@ -799,8 +798,7 @@ fn bound_election_winners() {
 
     {
         // Prevent cementing of confirmed blocks
-        let _write_guard = node.ledger.write_queue.wait(Writer::Testing);
-        let _tx = node.ledger.rw_txn();
+        let _tx = node.ledger.store.tx_begin_write(Writer::Testing);
 
         // Ensure that when the number of election winners reaches the limit, AEC vacancy reflects that
         // Confirming more elections should make the vacancy negative
@@ -835,18 +833,8 @@ fn broadcast_block_on_activation() {
     config2.active_elections.size = 0;
     config2.bootstrap.enable = false;
 
-    // Disables bootstrap listener to make sure the block won't be shared by this channel.
-    let flags = NodeFlags {
-        disable_bootstrap_listener: true,
-        ..Default::default()
-    };
-
-    let node1 = system
-        .build_node()
-        .config(config1)
-        .flags(flags.clone())
-        .finish();
-    let node2 = system.build_node().config(config2).flags(flags).finish();
+    let node1 = system.build_node().config(config1).finish();
+    let node2 = system.build_node().config(config2).finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(*DEV_GENESIS_ACCOUNT, 1000);
@@ -860,10 +848,8 @@ fn broadcast_block_on_activation() {
 
     // Activating the election should broadcast the block
     node1.election_schedulers.add_manual(send1.clone());
-    assert_timely(Duration::from_secs(5), || {
-        node1.active.active_root(&send1.qualified_root())
-    });
-    assert_timely(Duration::from_secs(5), || node2.block_exists(&send1.hash()));
+    assert_timely2(|| node1.active.active_root(&send1.qualified_root()));
+    assert_timely2(|| node2.block_exists(&send1.hash()));
 }
 
 // Tests that blocks are correctly cleared from the duplicate filter for unconfirmed elections
@@ -955,7 +941,7 @@ fn confirmation_consistency() {
                 *DEV_GENESIS_ACCOUNT,
                 Account::from(0),
                 node.config.receive_minimum,
-                0,
+                0.into(),
                 true,
                 None,
             )
@@ -995,32 +981,22 @@ fn fork_filter_cleanup() {
         let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
         let fork = fork_lattice.genesis().send(&key, Amount::raw(1 + i));
         node1.process_active(fork.clone());
-        assert_timely(Duration::from_secs(5), || {
-            node1.active.election(&fork.qualified_root()).is_some()
-        });
+        assert_timely2(|| node1.active.election(&fork.qualified_root()).is_some());
     }
 
     // All forks were merged into the same election
-    assert_timely(Duration::from_secs(5), || {
-        node1.active.election(&send1.qualified_root()).is_some()
-    });
+    assert_timely2(|| node1.active.election(&send1.qualified_root()).is_some());
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || election.mutex.lock().unwrap().last_blocks.len(),
-        10,
-    );
+    assert_timely_eq2(|| election.mutex.lock().unwrap().last_blocks.len(), 10);
     assert_eq!(1, node1.active.len());
 
     // Instantiate a new node
-    config.peering_port = Some(get_available_port());
+    config.network.listening_port = get_available_port();
     let node2 = system.build_node().config(config).finish();
 
     // Process the first initial block on node2
     node2.process_active(send1.clone());
-    assert_timely(Duration::from_secs(5), || {
-        node2.active.election(&send1.qualified_root()).is_some()
-    });
+    assert_timely2(|| node2.active.election(&send1.qualified_root()).is_some());
 
     // TODO: questions: why doesn't node2 pick up "fork" from node1? because it connected to node1 after node1
     //                  already process_active()d the fork? shouldn't it broadcast it anyway, even later?
@@ -1028,13 +1004,11 @@ fn fork_filter_cleanup() {
     //                  how about node1 picking up "send1" from node2? we know it does because we assert at
     //                  the end that it is within node1's AEC, but why node1.block_count doesn't increase?
     //
-    assert_timely_eq(Duration::from_secs(5), || node2.ledger.block_count(), 2);
-    assert_timely_eq(Duration::from_secs(5), || node1.ledger.block_count(), 2);
+    assert_timely_eq2(|| node2.ledger.block_count(), 2);
+    assert_timely_eq2(|| node1.ledger.block_count(), 2);
 
     // Block is erased from the duplicate filter
-    assert_timely(Duration::from_secs(5), || {
-        !node1.network_filter.apply(&send_block_bytes).1
-    });
+    assert_timely2(|| !node1.network_filter.apply(&send_block_bytes).1);
 }
 
 // Ensures votes are tallied on election::publish even if no vote is inserted through inactive_votes_cache

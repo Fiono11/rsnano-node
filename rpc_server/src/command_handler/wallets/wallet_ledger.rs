@@ -1,6 +1,7 @@
 use crate::command_handler::RpcCommandHandler;
 use rsnano_core::utils::UnixTimestamp;
 use rsnano_core::Account;
+use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_node::Node;
 use rsnano_rpc_messages::{AccountInfo, WalletLedgerArgs, WalletLedgerResponse};
 use std::collections::HashMap;
@@ -39,25 +40,23 @@ fn get_accounts_info(
     receivable: bool,
     modified_since: UnixTimestamp,
 ) -> HashMap<Account, AccountInfo> {
-    let tx = node.store.tx_begin_read();
+    let any = node.ledger.any();
     let mut account_dtos = HashMap::new();
 
     for account in accounts {
-        if let Some(info) = node.ledger.any().get_account(&tx, &account) {
+        if let Some(info) = any.get_account(&account) {
             if info.modified >= modified_since {
                 let entry = AccountInfo {
                     frontier: info.head,
                     open_block: info.open_block,
-                    representative_block: node.ledger.representative_block_hash(&tx, &info.head),
+                    representative_block: any.representative_block_hash(&info.head),
                     balance: info.balance,
                     modified_timestamp: info.modified.as_u64().into(),
                     block_count: info.block_count.into(),
                     representative: representative.then(|| info.representative.as_account()),
-                    weight: weight.then(|| node.ledger.weight_exact(&tx, account.into())),
-                    receivable: receivable
-                        .then(|| node.ledger.account_receivable(&tx, &account, false)),
-                    pending: receivable
-                        .then(|| node.ledger.account_receivable(&tx, &account, false)),
+                    weight: weight.then(|| any.weight_exact(account.into())),
+                    receivable: receivable.then(|| any.account_receivable(&account)),
+                    pending: receivable.then(|| any.account_receivable(&account)),
                 };
 
                 account_dtos.insert(account, entry);

@@ -1,34 +1,36 @@
-use super::DependentBlocksFinder;
 use crate::{
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
-    ledger_set_confirmed::LedgerSetConfirmed,
-    BlockRollbackPerformer, GenerateCacheFlags, LedgerConstants, LedgerSetAny, RepWeightCache,
-    RepWeightsUpdater, RepresentativeBlockFinder, WriteGuard, WriteQueue,
+    vote_verifier::VoteVerifier,
+    AnySet, BlockRollbackPerformer, BorrowingAnySet, ConfirmedSet, GenerateCacheFlags,
+    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
+    RepWeightCache, RepWeightsUpdater, Writer,
 };
 use rsnano_core::{
-    block_priority,
     utils::{ContainerInfo, UnixTimestamp},
-    Account, AccountInfo, Amount, Block, BlockHash, BlockSubType, ConfirmationHeightInfo,
-    DependentBlocks, Epoch, Link, PendingInfo, PendingKey, PublicKey, Root, SavedBlock,
+    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, Epoch, Link,
+    PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock,
 };
+use rsnano_stats::{DetailType, StatType, Stats};
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
     ConfiguredPendingDatabaseBuilder, ConfiguredPrunedDatabaseBuilder, LedgerCache,
     LmdbAccountStore, LmdbBlockStore, LmdbConfirmationHeightStore, LmdbEnv, LmdbFinalVoteStore,
-    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbPrunedStore, LmdbReadTransaction,
-    LmdbRepWeightStore, LmdbStore, LmdbVersionStore, LmdbWriteTransaction, Transaction,
+    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbPrunedStore, LmdbRepWeightStore,
+    LmdbStore, LmdbVersionStore, LmdbWriteTransaction, MemoryStats, Transaction, WriteQueue,
 };
+use rsnano_work::WorkThresholds;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::SocketAddrV6,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
+use tracing::{debug, error};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, FromPrimitive)]
 #[repr(u8)]
@@ -79,32 +81,34 @@ impl BlockStatus {
     }
 }
 
-pub trait LedgerObserver: Send + Sync {
-    fn blocks_cemented(&self, _cemented_count: u64) {}
-    fn block_rolled_back(&self, _block_type: BlockSubType) {}
-    fn block_rolled_back2(&self, _block: &Block, _is_epoch: bool) {}
-    fn block_added(&self, _block: &Block, _is_epoch: bool) {}
-    fn dependent_unconfirmed(&self) {}
-}
-
-pub struct NullLedgerObserver {}
-
-impl NullLedgerObserver {
-    pub fn new() -> Self {
-        Self {}
+impl From<BlockStatus> for DetailType {
+    fn from(value: BlockStatus) -> Self {
+        match value {
+            BlockStatus::Progress => Self::Progress,
+            BlockStatus::BadSignature => Self::BadSignature,
+            BlockStatus::Old => Self::Old,
+            BlockStatus::NegativeSpend => Self::NegativeSpend,
+            BlockStatus::Fork => Self::Fork,
+            BlockStatus::Unreceivable => Self::Unreceivable,
+            BlockStatus::GapPrevious => Self::GapPrevious,
+            BlockStatus::GapSource => Self::GapSource,
+            BlockStatus::GapEpochOpenPending => Self::GapEpochOpenPending,
+            BlockStatus::OpenedBurnAccount => Self::OpenedBurnAccount,
+            BlockStatus::BalanceMismatch => Self::BalanceMismatch,
+            BlockStatus::RepresentativeMismatch => Self::RepresentativeMismatch,
+            BlockStatus::BlockPosition => Self::BlockPosition,
+            BlockStatus::InsufficientWork => Self::InsufficientWork,
+        }
     }
 }
-
-impl LedgerObserver for NullLedgerObserver {}
 
 pub struct Ledger {
     pub store: Arc<LmdbStore>,
     pub rep_weights_updater: RepWeightsUpdater,
     pub rep_weights: Arc<RepWeightCache>,
     pub constants: LedgerConstants,
-    pub observer: Arc<dyn LedgerObserver>,
     pruning: AtomicBool,
-    pub write_queue: Arc<WriteQueue>,
+    pub(crate) stats: Arc<Stats>,
 }
 
 pub struct NullLedgerBuilder {
@@ -182,6 +186,7 @@ impl NullLedgerBuilder {
         );
 
         let store = LmdbStore {
+            write_queue: Arc::new(WriteQueue::new()),
             cache: Arc::new(LedgerCache::new()),
             env: env.clone(),
             account: Arc::new(LmdbAccountStore::new(env.clone()).unwrap()),
@@ -200,6 +205,7 @@ impl NullLedgerBuilder {
             LedgerConstants::unit_test(),
             self.min_rep_weight,
             Arc::new(RepWeightCache::new()),
+            Arc::new(Stats::default()),
         )
         .unwrap()
     }
@@ -212,6 +218,7 @@ impl Ledger {
             LedgerConstants::unit_test(),
             Amount::zero(),
             Arc::new(RepWeightCache::new()),
+            Arc::new(Stats::default()),
         )
         .unwrap()
     }
@@ -225,6 +232,7 @@ impl Ledger {
         constants: LedgerConstants,
         min_rep_weight: Amount,
         rep_weights: Arc<RepWeightCache>,
+        stats: Arc<Stats>,
     ) -> anyhow::Result<Self> {
         let rep_weights_updater =
             RepWeightsUpdater::new(store.rep_weight.clone(), min_rep_weight, &rep_weights);
@@ -234,9 +242,8 @@ impl Ledger {
             rep_weights_updater,
             store,
             constants,
-            observer: Arc::new(NullLedgerObserver::new()),
             pruning: AtomicBool::new(false),
-            write_queue: Arc::new(WriteQueue::new()),
+            stats,
         };
 
         ledger.initialize(&GenerateCacheFlags::new())?;
@@ -244,21 +251,16 @@ impl Ledger {
         Ok(ledger)
     }
 
-    pub fn set_observer(&mut self, observer: Arc<dyn LedgerObserver>) {
-        self.observer = observer;
-    }
-
-    pub fn read_txn(&self) -> LmdbReadTransaction {
-        self.store.tx_begin_read()
-    }
-
-    pub fn rw_txn(&self) -> LmdbWriteTransaction {
-        self.store.tx_begin_write()
-    }
-
     fn initialize(&mut self, generate_cache: &GenerateCacheFlags) -> anyhow::Result<()> {
-        if self.store.account.iter(&self.read_txn()).next().is_none() {
-            self.add_genesis_block(&mut self.rw_txn());
+        if self
+            .store
+            .account
+            .iter(&self.store.tx_begin_read())
+            .next()
+            .is_none()
+        {
+            let mut tx = self.store.tx_begin_write(Writer::Generic);
+            self.add_genesis_block(&mut tx);
         }
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
@@ -299,11 +301,15 @@ impl Ledger {
             });
         }
 
-        let transaction = self.store.tx_begin_read();
+        let tx = self.store.tx_begin_read();
         self.store
             .cache
             .pruned_count
-            .fetch_add(self.store.pruned.count(&transaction), Ordering::SeqCst);
+            .fetch_add(self.store.pruned.count(&tx), Ordering::SeqCst);
+
+        if self.store.pruned.count(&tx) > 0 {
+            self.enable_pruning();
+        }
 
         Ok(())
     }
@@ -337,30 +343,18 @@ impl Ledger {
             .put(txn, genesis_account.into(), Amount::MAX);
     }
 
-    pub fn refresh_if_needed(
-        &self,
-        write_guard: WriteGuard,
-        mut tx: LmdbWriteTransaction,
-    ) -> (WriteGuard, LmdbWriteTransaction) {
-        if tx.elapsed() > Duration::from_millis(500) {
-            let writer = write_guard.writer;
-            tx.commit();
-            drop(write_guard);
-
-            let write_guard = self.write_queue.wait(writer);
-            tx.renew();
-            (write_guard, tx)
-        } else {
-            (write_guard, tx)
-        }
+    pub fn any(&self) -> OwningAnySet {
+        OwningAnySet::new(&self.store, &self.constants)
     }
 
-    pub fn any(&self) -> LedgerSetAny {
-        LedgerSetAny::new(&self.store)
+    pub fn confirmed(&self) -> OwningConfirmedSet<'_> {
+        let tx = self.store.tx_begin_read();
+        OwningConfirmedSet::new(&self.store, tx)
     }
 
-    pub fn confirmed(&self) -> LedgerSetConfirmed {
-        LedgerSetConfirmed::new(&self.store)
+    pub fn unconfirmed(&self) -> impl LedgerSet + use<'_> {
+        let tx = self.store.tx_begin_read();
+        OwningUnconfirmedSet::new(&self.store, tx)
     }
 
     pub fn pruning_enabled(&self) -> bool {
@@ -375,81 +369,11 @@ impl Ledger {
         self.rep_weights.bootstrap_weight_max_blocks()
     }
 
-    pub fn unconfirmed_exists(&self, tx: &dyn Transaction, hash: &BlockHash) -> bool {
-        self.any().block_exists(tx, hash) && !self.confirmed().block_exists(tx, hash)
-    }
-
-    pub fn account_receivable(
-        &self,
-        txn: &dyn Transaction,
-        account: &Account,
-        only_confirmed: bool,
-    ) -> Amount {
-        let mut result = Amount::zero();
-
-        for (key, info) in
-            self.any()
-                .account_receivable_upper_bound(txn, *account, BlockHash::zero())
-        {
-            if !only_confirmed
-                || self
-                    .confirmed()
-                    .block_exists_or_pruned(txn, &key.send_block_hash)
-            {
-                result += info.amount;
-            }
-        }
-
-        result
-    }
-
-    pub fn random_blocks(&self, tx: &dyn Transaction, count: usize) -> Vec<SavedBlock> {
-        let mut result = Vec::with_capacity(count);
-        let starting_hash = BlockHash::random();
-
-        // It is more efficient to choose a random starting point and pick a few sequential blocks from there
-        let mut it = self.store.block.iter_range(tx, starting_hash..);
-        while result.len() < count {
-            match it.next() {
-                Some(block) => result.push(block),
-                None => {
-                    // Wrap around when reaching the end
-                    it = self.store.block.iter_range(tx, BlockHash::zero()..);
-                }
-            }
-        }
-
-        result
-    }
-
     /// Returns the cached vote weight for the given representative.
     /// If the weight is below the cache limit it returns 0.
     /// During bootstrap it returns the preconfigured bootstrap weights.
     pub fn weight(&self, rep: &PublicKey) -> Amount {
         self.rep_weights.weight(rep)
-    }
-
-    /// Returns the exact vote weight for the given representative by doing a database lookup
-    pub fn weight_exact(&self, txn: &dyn Transaction, representative: PublicKey) -> Amount {
-        self.store
-            .rep_weight
-            .get(txn, &representative)
-            .unwrap_or_default()
-    }
-
-    /// Return latest root for account, account number if there are no blocks for this account
-    pub fn latest_root(&self, txn: &dyn Transaction, account: &Account) -> Root {
-        match self.account_info(txn, account) {
-            Some(info) => info.head.into(),
-            None => account.into(),
-        }
-    }
-
-    pub fn version(&self, txn: &dyn Transaction, hash: &BlockHash) -> Epoch {
-        self.any()
-            .get_block(txn, hash)
-            .map(|block| block.epoch())
-            .unwrap_or(Epoch::Epoch0)
     }
 
     pub fn is_epoch_link(&self, link: &Link) -> bool {
@@ -460,37 +384,11 @@ impl Ledger {
         self.constants.epochs.epoch_signer(link)
     }
 
-    /// Given the block hash of a send block, find the associated receive block that receives that send.
-    /// The send block hash is not checked in any way, it is assumed to be correct.
-    /// Return the receive block on success and None on failure
-    pub fn find_receive_block_by_send_hash(
-        &self,
-        txn: &dyn Transaction,
-        destination: &Account,
-        send_block_hash: &BlockHash,
-    ) -> Option<SavedBlock> {
-        // get the cemented frontier
-        let info = self.store.confirmation_height.get(txn, destination)?;
-        let mut possible_receive_block = self.any().get_block(txn, &info.frontier);
-
-        // walk down the chain until the source field of a receive block matches the send block hash
-        while let Some(current) = possible_receive_block {
-            if current.is_receive() && Some(*send_block_hash) == current.source() {
-                // we have a match
-                return Some(current);
-            }
-
-            possible_receive_block = self.any().get_block(txn, &current.previous());
-        }
-
-        None
-    }
-
     pub fn epoch_link(&self, epoch: Epoch) -> Option<Link> {
         self.constants.epochs.link(epoch).cloned()
     }
 
-    pub fn update_account(
+    pub(crate) fn update_account(
         &self,
         txn: &mut LmdbWriteTransaction,
         account: &Account,
@@ -520,19 +418,46 @@ impl Ledger {
         }
     }
 
-    pub fn pruning_action(
+    pub fn prune_batch(&self, targets: &mut VecDeque<BlockHash>, batch_size: usize) -> usize {
+        let mut transaction_write_count = 0;
+        // TODO break loop if node stopped
+        if !targets.is_empty() {
+            let mut tx = self.store.tx_begin_write(Writer::Pruning);
+            while !targets.is_empty() && transaction_write_count < batch_size {
+                let pruning_hash = targets.front().unwrap();
+                let account_pruned_count =
+                    self.pruning_action(&mut tx, pruning_hash, batch_size as u64);
+                transaction_write_count += account_pruned_count as usize;
+                targets.pop_front();
+            }
+        }
+        transaction_write_count
+    }
+
+    pub fn prune_one(&self, target: &BlockHash, batch_size: usize) -> usize {
+        let mut tx = self.store.tx_begin_write(Writer::Pruning);
+        self.pruning_action(&mut tx, target, batch_size as u64) as usize
+    }
+
+    fn pruning_action(
         &self,
         txn: &mut LmdbWriteTransaction,
         hash: &BlockHash,
         batch_size: u64,
     ) -> u64 {
+        self.stats.inc(StatType::Pruning, DetailType::PruningTarget);
         let mut pruned_count = 0;
         let mut hash = *hash;
         let genesis_hash = self.constants.genesis_block.hash();
+        let mut any = BorrowingAnySet {
+            constants: &self.constants,
+            store: &self.store,
+            tx: txn,
+        };
 
         while !hash.is_zero() && hash != genesis_hash {
-            if let Some(block) = self.any().get_block(txn, &hash) {
-                assert!(self.confirmed().block_exists_or_pruned(txn, &hash));
+            if let Some(block) = any.get_block(&hash) {
+                assert!(any.confirmed().block_exists_or_pruned(&hash));
                 self.store.block.del(txn, &hash);
                 self.store.pruned.put(txn, &hash);
                 hash = block.previous();
@@ -542,6 +467,11 @@ impl Ledger {
                     txn.commit();
                     txn.renew();
                 }
+                any = BorrowingAnySet {
+                    constants: &self.constants,
+                    store: &self.store,
+                    tx: txn,
+                };
             } else if self.store.pruned.exists(txn, &hash) {
                 hash = BlockHash::zero();
             } else {
@@ -549,127 +479,332 @@ impl Ledger {
             }
         }
 
+        self.stats
+            .add(StatType::Pruning, DetailType::PrunedCount, pruned_count);
+
         pruned_count
     }
-
-    pub fn dependents_confirmed(&self, txn: &dyn Transaction, block: &SavedBlock) -> bool {
-        self.dependent_blocks(txn, block)
-            .iter()
-            .all(|hash| self.confirmed().block_exists_or_pruned(txn, hash))
-    }
-
-    pub fn dependent_blocks(&self, txn: &dyn Transaction, block: &SavedBlock) -> DependentBlocks {
-        DependentBlocksFinder::new(self, txn).find_dependent_blocks(block)
-    }
-
-    pub fn dependents_confirmed_for_unsaved_block(
-        &self,
-        txn: &dyn Transaction,
-        block: &Block,
-    ) -> bool {
-        self.dependent_blocks_for_unsaved_block(txn, block)
-            .iter()
-            .all(|hash| self.confirmed().block_exists_or_pruned(txn, hash))
-    }
-
-    fn dependent_blocks_for_unsaved_block(
-        &self,
-        txn: &dyn Transaction,
-        block: &Block,
-    ) -> DependentBlocks {
-        DependentBlocksFinder::new(self, txn).find_dependent_blocks_for_unsaved_block(block)
-    }
-
     ///
     /// Rollback blocks until `block' doesn't exist or it tries to penetrate the confirmation height
     pub fn rollback(
         &self,
-        txn: &mut LmdbWriteTransaction,
         block: &BlockHash,
     ) -> Result<Vec<SavedBlock>, (anyhow::Error, Vec<SavedBlock>)> {
-        let mut performer = BlockRollbackPerformer::new(self, txn);
+        let mut tx = self.store.tx_begin_write(Writer::BoundedBacklog);
+        self.rollback_with_tx(&mut tx, block)
+    }
+
+    fn rollback_with_tx(
+        &self,
+        tx: &mut LmdbWriteTransaction,
+        block: &BlockHash,
+    ) -> Result<Vec<SavedBlock>, (anyhow::Error, Vec<SavedBlock>)> {
+        let mut performer = BlockRollbackPerformer::new(self, tx);
         match performer.roll_back(block) {
             Ok(()) => Ok(performer.rolled_back),
             Err(e) => Err((e, performer.rolled_back)),
         }
     }
 
-    /// Returns the latest block with representative information
-    pub fn representative_block_hash(&self, txn: &dyn Transaction, hash: &BlockHash) -> BlockHash {
-        let hash = RepresentativeBlockFinder::new(txn, self.store.as_ref()).find_rep_block(*hash);
-        debug_assert!(hash.is_zero() || self.store.block.exists(txn, &hash));
-        hash
+    pub fn rollback_batch(
+        &self,
+        targets: &[BlockHash],
+        max_rollbacks: usize,
+        can_roll_back: impl Fn(&BlockHash) -> bool,
+    ) -> BatchRollbackResult {
+        self.stats
+            .inc(StatType::BoundedBacklog, DetailType::PerformingRollbacks);
+
+        let mut rolled_back_count = 0;
+        let mut processed = Vec::new();
+        let mut processed_hashes = Vec::new();
+        {
+            let mut tx = self.store.tx_begin_write(Writer::BoundedBacklog);
+
+            for hash in targets {
+                // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
+                if !can_roll_back(hash) {
+                    self.stats
+                        .inc(StatType::BoundedBacklog, DetailType::RollbackSkipped);
+                    continue;
+                }
+
+                // Here we check that the block is still OK to rollback, there could be a delay between gathering the targets and performing the rollbacks
+                if let Some(block) = self.store.block.get(&tx, hash) {
+                    debug!(
+                        "Rolling back: {}, account: {}",
+                        hash,
+                        block.account().encode_account()
+                    );
+
+                    let rollback_list = match self.rollback_with_tx(&mut tx, &block.hash()) {
+                        Ok(rollback_list) => {
+                            self.stats
+                                .inc(StatType::BoundedBacklog, DetailType::Rollback);
+                            rollback_list
+                        }
+                        Err((_, rollback_list)) => {
+                            self.stats
+                                .inc(StatType::BoundedBacklog, DetailType::RollbackFailed);
+                            rollback_list
+                        }
+                    };
+
+                    rolled_back_count += rollback_list.len();
+                    for b in &rollback_list {
+                        processed_hashes.push(b.hash());
+                    }
+                    processed.push((rollback_list, block.qualified_root()));
+
+                    // Return early if we reached the maximum number of rollbacks
+                    if rolled_back_count >= max_rollbacks {
+                        break;
+                    }
+                } else {
+                    self.stats
+                        .inc(StatType::BoundedBacklog, DetailType::RollbackMissingBlock);
+                    rolled_back_count += 1;
+                    processed_hashes.push(*hash);
+                }
+            }
+        }
+
+        BatchRollbackResult {
+            processed,
+            processed_hashes,
+        }
     }
 
-    pub fn process(
+    pub fn process_batch<'a>(
+        &self,
+        batch: impl IntoIterator<Item = (&'a Block, bool)>,
+    ) -> BatchProcessResult {
+        let mut tx = self.store.tx_begin_write(Writer::BlockProcessor);
+        let mut processed = Vec::new();
+        let mut rolled_back = Vec::new();
+
+        for (block, force) in batch.into_iter() {
+            tx.refresh_if_needed();
+
+            if force {
+                let rolled_back_blocks = self.rollback_competitor(&mut tx, block);
+                if !rolled_back_blocks.is_empty() {
+                    rolled_back.push((rolled_back_blocks, block.qualified_root()));
+                }
+            }
+
+            match self.process(&mut tx, block) {
+                Ok(saved_block) => {
+                    processed.push((BlockStatus::Progress, Some(saved_block)));
+                }
+                Err(status) => {
+                    processed.push((status, None));
+                }
+            }
+        }
+
+        BatchProcessResult {
+            processed,
+            rolled_back,
+        }
+    }
+
+    pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockStatus> {
+        let mut tx = self.store.tx_begin_write(Writer::BlockProcessor);
+        self.process(&mut tx, block)
+    }
+
+    fn process(
         &self,
         txn: &mut LmdbWriteTransaction,
         block: &Block,
     ) -> Result<SavedBlock, BlockStatus> {
-        let validator = BlockValidatorFactory::new(self, txn, block).create_validator();
+        let any = BorrowingAnySet {
+            constants: &self.constants,
+            store: &self.store,
+            tx: txn,
+        };
+        let validator = BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
         let instructions = validator.validate()?;
         let inserted = BlockInserter::new(self, txn, block, &instructions).insert();
         Ok(inserted)
     }
 
-    pub fn get_block(&self, txn: &dyn Transaction, hash: &BlockHash) -> Option<SavedBlock> {
-        self.store.block.get(txn, hash)
-    }
-
-    pub fn account_info(
+    fn rollback_competitor(
         &self,
-        transaction: &dyn Transaction,
-        account: &Account,
-    ) -> Option<AccountInfo> {
-        self.store.account.get(transaction, account)
+        tx: &mut LmdbWriteTransaction,
+        fork_block: &Block,
+    ) -> Vec<SavedBlock> {
+        let mut rollback_list = Vec::new();
+        let hash = fork_block.hash();
+        if let Some(successor) =
+            self.block_successor_by_qualified_root(tx, &fork_block.qualified_root())
+        {
+            if successor != hash {
+                // Replace our block with the winner and roll back any dependent blocks
+                debug!("Rolling back: {} and replacing with: {}", successor, hash);
+                rollback_list = match self.rollback_with_tx(tx, &successor) {
+                    Ok(rollback_list) => {
+                        self.stats.inc(StatType::Ledger, DetailType::Rollback);
+                        debug!("Blocks rolled back: {}", rollback_list.len());
+                        rollback_list
+                    }
+                    Err((e, rollback_list)) => {
+                        self.stats.inc(StatType::Ledger, DetailType::RollbackFailed);
+                        error!(
+                            ?e,
+                            "Failed to roll back: {} because it or a successor was confirmed",
+                            successor
+                        );
+                        rollback_list
+                    }
+                };
+            }
+        }
+        rollback_list
     }
 
-    pub fn get_confirmation_height(
+    fn block_successor_by_qualified_root(
         &self,
-        txn: &dyn Transaction,
-        account: &Account,
-    ) -> Option<ConfirmationHeightInfo> {
-        self.store.confirmation_height.get(txn, account)
+        tx: &dyn Transaction,
+        root: &QualifiedRoot,
+    ) -> Option<BlockHash> {
+        if !root.previous.is_zero() {
+            self.store.block.successor(tx, &root.previous)
+        } else {
+            self.store
+                .account
+                .get(tx, &root.root.into())
+                .map(|i| i.open_block)
+        }
     }
 
-    pub fn confirm(&self, txn: &mut LmdbWriteTransaction, hash: BlockHash) -> Vec<SavedBlock> {
-        self.confirm_max(txn, hash, 1024 * 128)
+    pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
+        let mut tx = self.store.tx_begin_write(Writer::ConfirmationHeight);
+        self.confirm_max(&mut tx, hash, 1024 * 128)
     }
 
     /// Both stack and result set are bounded to limit maximum memory usage
     /// Callers must ensure that the target block was confirmed, and if not, call this function multiple times
-    pub fn confirm_max(
+    fn confirm_max(
         &self,
         txn: &mut LmdbWriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
     ) -> Vec<SavedBlock> {
-        BlockCementer::new(&self.store, self.observer.as_ref(), &self.constants).confirm(
+        BlockCementer::new(&self.store, &self.constants, &self.stats).confirm(
             txn,
             target_hash,
             max_blocks,
         )
     }
 
-    /// Returned priority balance is maximum of block balance and previous block balance
-    /// to handle full account balance send cases.
-    /// Returned timestamp is the previous block timestamp or the current timestamp
-    /// if there's no previous block.
-    pub fn block_priority(
+    pub fn confirm_batch<'a, O, T>(
         &self,
-        tx: &dyn Transaction,
-        block: &SavedBlock,
-    ) -> (Amount, UnixTimestamp) {
-        let previous_block = self.previous_block(tx, block);
-        block_priority(block, previous_block.as_ref())
+        batch: impl IntoIterator<Item = (BlockHash, T)>,
+        stopped: &AtomicBool,
+        max_blocks: usize,
+        observer: &mut O,
+    ) where
+        O: CementingObserver<T>,
+    {
+        let mut blocks_cemented = 0;
+        {
+            let mut tx = self.store.tx_begin_write(Writer::ConfirmationHeight);
+
+            for (hash, context) in batch.into_iter() {
+                let mut success = false;
+                loop {
+                    tx.refresh_if_needed();
+
+                    // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
+                    if stopped.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    // Issue notifications here, so that `cemented` set is not too large before we add more blocks
+                    if blocks_cemented >= max_blocks {
+                        tx.commit();
+                        blocks_cemented = 0;
+                        self.stats
+                            .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
+                        observer.max_blocks_reached();
+                        tx.renew();
+                    }
+
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::Cementing);
+
+                    // The block might be rolled back before it's fully cemented
+                    if !self.store.block.exists(&tx, &hash) {
+                        self.stats
+                            .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
+                        break;
+                    }
+
+                    let added = self.confirm_max(&mut tx, hash, max_blocks);
+
+                    if !added.is_empty() {
+                        // Confirming this block may implicitly confirm more
+                        self.stats.add(
+                            StatType::ConfirmingSet,
+                            DetailType::Cemented,
+                            added.len() as u64,
+                        );
+                        blocks_cemented += added.len();
+                        for block in added {
+                            observer.cemented(block, &hash, &context)
+                        }
+                    } else {
+                        self.stats
+                            .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
+                        observer.already_cemented(&hash);
+                    }
+
+                    success = {
+                        if let Some(block) = self.store.block.get(&tx, &hash) {
+                            if let Some(conf_info) =
+                                self.store.confirmation_height.get(&tx, &block.account())
+                            {
+                                block.height() <= conf_info.height
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+
+                    if success {
+                        break;
+                    }
+                }
+
+                if success {
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::CementedHash);
+                } else {
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::CementingFailed);
+
+                    // Requeue failed blocks for processing later
+                    // Add them to the deferred set while still holding the exclusive database write transaction to avoid block processor races
+                    observer.cementing_failed(&hash, context);
+                }
+            }
+        }
     }
 
-    pub fn previous_block(&self, tx: &dyn Transaction, block: &SavedBlock) -> Option<SavedBlock> {
-        if block.previous().is_zero() {
-            None
-        } else {
-            self.any().get_block(tx, &block.previous())
-        }
+    pub fn verify_votes(
+        &self,
+        candidates: VecDeque<(Root, BlockHash)>,
+        is_final: bool,
+    ) -> VecDeque<(Root, BlockHash)> {
+        let verifier = VoteVerifier {
+            constants: &self.constants,
+            store: &self.store,
+        };
+        verifier.verify_votes(candidates, is_final)
     }
 
     pub fn cemented_count(&self) -> u64 {
@@ -698,9 +833,47 @@ impl Ledger {
         }
     }
 
+    pub fn genesis_hash(&self) -> BlockHash {
+        self.constants.genesis_block.hash()
+    }
+
+    pub fn work_thresholds(&self) -> &WorkThresholds {
+        &self.constants.work
+    }
+
+    pub fn version(&self) -> u32 {
+        let tx = self.store.tx_begin_read();
+        self.store.version.get(&tx).unwrap_or_default() as u32
+    }
+
+    pub fn store_vendor(&self) -> String {
+        self.store.vendor()
+    }
+
+    pub fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
+        self.store.memory_stats()
+    }
+
     pub fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("rep_weights", self.rep_weights.container_info())
             .finish()
     }
+}
+
+pub struct BatchRollbackResult {
+    pub processed: Vec<(Vec<SavedBlock>, QualifiedRoot)>,
+    pub processed_hashes: Vec<BlockHash>,
+}
+
+pub struct BatchProcessResult {
+    pub processed: Vec<(BlockStatus, Option<SavedBlock>)>,
+    pub rolled_back: Vec<(Vec<SavedBlock>, QualifiedRoot)>,
+}
+
+pub trait CementingObserver<T> {
+    fn cemented(&mut self, block: SavedBlock, root: &BlockHash, context: &T);
+    fn already_cemented(&mut self, hash: &BlockHash);
+    fn max_blocks_reached(&mut self);
+    fn cementing_failed(&mut self, hash: &BlockHash, context: T);
 }

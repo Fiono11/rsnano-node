@@ -1,22 +1,24 @@
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use rsnano_ledger::Ledger;
+use rsnano_messages::{AscPullAck, AscPullAckType};
+use rsnano_network::ChannelId;
+use rsnano_nullable_clock::Timestamp;
+use rsnano_stats::Stats;
+
 use super::{
     super::state::{BootstrapState, QueryType, RunningQuery},
     account_ack_processor::AccountAckProcessor,
     block_ack_processor::BlockAckProcessor,
     frontier_ack_processor::FrontierAckProcessor,
 };
-use crate::{block_processing::BlockProcessor, stats::Stats};
-use rsnano_ledger::Ledger;
-use rsnano_messages::{AscPullAck, AscPullAckType};
-use rsnano_network::ChannelId;
-use rsnano_nullable_clock::Timestamp;
-use std::{
-    sync::{Arc, Condvar, Mutex},
-    time::Duration,
-};
+use crate::block_processing::BlockProcessor;
 
 pub(crate) struct ResponseProcessor {
     state: Arc<Mutex<BootstrapState>>,
-    condition: Arc<Condvar>,
     frontiers: FrontierAckProcessor,
     accounts: AccountAckProcessor,
     blocks: BlockAckProcessor,
@@ -47,17 +49,14 @@ impl ResponseProcessor {
         state: Arc<Mutex<BootstrapState>>,
         stats: Arc<Stats>,
         block_processor: Arc<BlockProcessor>,
-        condition: Arc<Condvar>,
         ledger: Arc<Ledger>,
     ) -> Self {
         let frontiers = FrontierAckProcessor::new(stats.clone(), ledger, state.clone());
         let accounts = AccountAckProcessor::new(stats.clone(), state.clone());
-        let blocks =
-            BlockAckProcessor::new(state.clone(), stats, condition.clone(), block_processor);
+        let blocks = BlockAckProcessor::new(state.clone(), stats, block_processor);
 
         Self {
             state,
-            condition,
             frontiers,
             accounts,
             blocks,
@@ -77,7 +76,6 @@ impl ResponseProcessor {
         let query = self.take_running_query_for(&response)?;
         self.process_response(&query, response)?;
         self.update_peer_scoring(channel_id);
-        self.condition.notify_all();
         Ok(ProcessInfo::new(&query, now))
     }
 

@@ -1,14 +1,10 @@
-use crate::{
-    blocks::receive_block::ReceiveBlockArgs,
-    work::{WorkPool, STUB_WORK_POOL},
-    Block, BlockHash, PrivateKey,
-};
+use crate::{blocks::receive_block::ReceiveBlockArgs, Block, BlockHash, PrivateKey, WorkNonce};
 
 pub struct TestLegacyReceiveBlockBuilder {
     previous: Option<BlockHash>,
     source: Option<BlockHash>,
     key_pair: Option<PrivateKey>,
-    work: Option<u64>,
+    work: Option<WorkNonce>,
 }
 
 impl TestLegacyReceiveBlockBuilder {
@@ -36,7 +32,7 @@ impl TestLegacyReceiveBlockBuilder {
         self
     }
 
-    pub fn work(mut self, work: u64) -> Self {
+    pub fn work(mut self, work: WorkNonce) -> Self {
         self.work = Some(work);
         self
     }
@@ -45,9 +41,7 @@ impl TestLegacyReceiveBlockBuilder {
         let key = self.key_pair.unwrap_or_default();
         let previous = self.previous.unwrap_or(BlockHash::from(1));
         let source = self.source.unwrap_or(BlockHash::from(2));
-        let work = self
-            .work
-            .unwrap_or_else(|| STUB_WORK_POOL.generate_dev2(previous.into()).unwrap());
+        let work = self.work.unwrap_or(42.into());
 
         ReceiveBlockArgs {
             key: &key,
@@ -61,7 +55,7 @@ impl TestLegacyReceiveBlockBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::{work::WORK_THRESHOLDS_STUB, Block, BlockBase, BlockHash, TestBlockBuilder};
+    use crate::{Block, BlockBase, BlockHash, TestBlockBuilder};
 
     #[test]
     fn receive_block() {
@@ -71,6 +65,6 @@ mod tests {
         };
         assert_eq!(receive.previous(), BlockHash::from(1));
         assert_eq!(receive.source(), BlockHash::from(2));
-        assert_eq!(WORK_THRESHOLDS_STUB.validate_entry_block(&block), true);
+        assert_eq!(receive.work(), 42.into());
     }
 }

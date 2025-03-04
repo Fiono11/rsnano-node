@@ -1,11 +1,3 @@
-use super::SynCookies;
-use crate::stats::{DetailType, Direction, StatType, Stats};
-use rsnano_core::{BlockHash, NodeId, PrivateKey};
-use rsnano_messages::{
-    Message, MessageSerializer, NodeIdHandshake, NodeIdHandshakeQuery, NodeIdHandshakeResponse,
-    ProtocolInfo,
-};
-use rsnano_network::{Channel, TrafficType};
 use std::{
     net::SocketAddrV6,
     sync::{
@@ -13,7 +5,17 @@ use std::{
         Arc,
     },
 };
+
 use tracing::{debug, warn};
+
+use rsnano_core::{BlockHash, NodeId, PrivateKey, ProtocolInfo};
+use rsnano_messages::{
+    Message, MessageSerializer, NodeIdHandshake, NodeIdHandshakeQuery, NodeIdHandshakeResponse,
+};
+use rsnano_network::{Channel, TrafficType};
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+
+use super::SynCookies;
 
 pub enum HandshakeStatus {
     Abort,

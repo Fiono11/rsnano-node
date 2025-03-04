@@ -1,9 +1,8 @@
 use crate::blocks::state_block::EpochBlockArgs;
-use crate::work::WorkPool;
-use crate::{work::STUB_WORK_POOL, StateBlock};
+use crate::StateBlock;
 use crate::{
     Account, Amount, Block, BlockBase, BlockDetails, BlockHash, BlockSideband, Epoch, Link,
-    PrivateKey, PublicKey, SavedBlock, Signature, StateBlockArgs,
+    PrivateKey, PublicKey, SavedBlock, Signature, StateBlockArgs, WorkNonce,
 };
 use anyhow::Result;
 
@@ -14,9 +13,11 @@ pub struct TestStateBlockBuilder {
     balance: Amount,
     link: Link,
     priv_key: PrivateKey,
-    work: Option<u64>,
+    work: Option<WorkNonce>,
     signature: Option<Signature>,
     previous_balance: Option<Amount>,
+    is_send: bool,
+    is_receive: bool,
 }
 
 impl TestStateBlockBuilder {
@@ -32,6 +33,8 @@ impl TestStateBlockBuilder {
             previous_balance: None,
             work: None,
             signature: None,
+            is_send: true,
+            is_receive: false,
         }
     }
 
@@ -125,8 +128,8 @@ impl TestStateBlockBuilder {
         self.signature(Signature::new())
     }
 
-    pub fn work(mut self, work: u64) -> Self {
-        self.work = Some(work);
+    pub fn work(mut self, work: impl Into<WorkNonce>) -> Self {
+        self.work = Some(work.into());
         self
     }
 
@@ -137,20 +140,24 @@ impl TestStateBlockBuilder {
         self.balance = Amount::zero();
         self.link = Link::zero();
         self.signature = None;
-        self.work = Some(0);
+        self.work = Some(0.into());
+        self
+    }
+
+    pub fn is_send(mut self) -> Self {
+        self.is_send = true;
+        self.is_receive = false;
+        self
+    }
+
+    pub fn is_receive(mut self) -> Self {
+        self.is_send = false;
+        self.is_receive = true;
         self
     }
 
     pub fn build(self) -> Block {
-        let account = self.account.unwrap_or_else(|| self.priv_key.account());
-        let work = self.work.unwrap_or_else(|| {
-            let root = if self.previous.is_zero() {
-                account.into()
-            } else {
-                self.previous.into()
-            };
-            STUB_WORK_POOL.generate_dev2(root).unwrap()
-        });
+        let work = self.work.unwrap_or(42.into());
 
         let mut block: Block = match self.account {
             Some(account) => {
@@ -186,9 +193,9 @@ impl TestStateBlockBuilder {
     }
 
     pub fn build_saved(self) -> SavedBlock {
+        let details = BlockDetails::new(Epoch::Epoch0, self.is_send, self.is_receive, false);
         let block = self.build();
 
-        let details = BlockDetails::new(Epoch::Epoch0, true, false, false);
         let sideband = BlockSideband {
             height: 5,
             timestamp: 6.into(),
@@ -325,7 +332,7 @@ mod tests {
             representative: 3.into(),
             balance: 2.into(),
             link: 4.into(),
-            work: 5,
+            work: 5.into(),
         }
         .into();
 
@@ -341,5 +348,23 @@ mod tests {
 
         assert_eq!(block1.hash(), block2.hash());
         assert_eq!(block1.work(), block2.work());
+    }
+
+    #[test]
+    fn is_receive() {
+        let block = TestBlockBuilder::state().is_receive().build_saved();
+        assert_eq!(block.is_send(), false);
+        assert_eq!(block.is_open(), false);
+        assert_eq!(block.is_receive(), true);
+        assert_eq!(block.is_epoch(), false);
+    }
+
+    #[test]
+    fn is_send() {
+        let block = TestBlockBuilder::state().is_send().build_saved();
+        assert_eq!(block.is_send(), true);
+        assert_eq!(block.is_open(), false);
+        assert_eq!(block.is_receive(), false);
+        assert_eq!(block.is_epoch(), false);
     }
 }

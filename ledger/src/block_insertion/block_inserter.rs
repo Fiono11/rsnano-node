@@ -48,9 +48,6 @@ impl<'a> BlockInserter<'a> {
         self.insert_new_pending_info();
         self.update_representative_cache();
         self.ledger
-            .observer
-            .block_added(self.block, self.instructions.is_epoch_block);
-        self.ledger
             .store
             .cache
             .block_count
@@ -105,6 +102,7 @@ impl<'a> BlockInserter<'a> {
 mod tests {
     use super::*;
     use rsnano_core::{BlockHash, PublicKey, TestBlockBuilder};
+    use rsnano_store_lmdb::Writer;
 
     #[test]
     fn insert_open_state_block() {
@@ -187,7 +185,7 @@ mod tests {
         block: &mut Block,
         instructions: &BlockInsertInstructions,
     ) -> InsertResult {
-        let mut txn = ledger.rw_txn();
+        let mut txn = ledger.store.tx_begin_write(Writer::Testing);
         let saved_blocks = ledger.store.block.track_puts();
         let saved_accounts = ledger.store.account.track_puts();
         let saved_pending = ledger.store.pending.track_puts();

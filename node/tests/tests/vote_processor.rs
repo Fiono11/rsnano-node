@@ -1,11 +1,7 @@
 use rsnano_core::{Amount, PrivateKey, Signature, Vote, VoteCode, VoteSource, DEV_GENESIS_KEY};
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_node::{
-    config::NodeFlags,
-    consensus::RepTier,
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
+use rsnano_node::{config::NodeFlags, consensus::RepTier, wallets::WalletsExt};
+use rsnano_stats::{DetailType, Direction, StatType};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -226,7 +222,7 @@ fn weights() {
         *DEV_GENESIS_ACCOUNT,
         key0.account(),
         level0,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -235,7 +231,7 @@ fn weights() {
         *DEV_GENESIS_ACCOUNT,
         key1.account(),
         level1,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -245,7 +241,7 @@ fn weights() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         level2,
-        0,
+        0.into(),
         true,
         None,
     );

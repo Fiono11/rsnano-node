@@ -1,17 +1,17 @@
-use rsnano_core::{
-    Amount, Epoch, PrivateKey, Signature, UnsavedBlockLatticeBuilder, Vote, VoteCode, VoteSource,
-    WalletId, DEV_GENESIS_KEY,
-};
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_node::{
-    config::NodeFlags,
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+
+use rsnano_core::{
+    Amount, Epoch, PrivateKey, Signature, Vote, VoteCode, VoteSource, WalletId, DEV_GENESIS_KEY,
+};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+    DEV_GENESIS_PUB_KEY,
+};
+use rsnano_node::{config::NodeFlags, wallets::WalletsExt};
+use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
     assert_timely, assert_timely_eq2, make_fake_channel, start_election, upgrade_epoch, System,
 };
@@ -220,7 +220,7 @@ fn vote_generator_multiple_representatives() {
         *DEV_GENESIS_ACCOUNT,
         key1.account(),
         amount,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -229,7 +229,7 @@ fn vote_generator_multiple_representatives() {
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
         amount,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -238,7 +238,7 @@ fn vote_generator_multiple_representatives() {
         *DEV_GENESIS_ACCOUNT,
         key3.account(),
         amount,
-        0,
+        0.into(),
         true,
         None,
     );
@@ -251,12 +251,27 @@ fn vote_generator_multiple_representatives() {
     });
 
     // Change representatives
-    node.wallets
-        .change_action2(&wallet_id, key1.account(), key1.public_key(), 0, true);
-    node.wallets
-        .change_action2(&wallet_id, key2.account(), key2.public_key(), 0, true);
-    node.wallets
-        .change_action2(&wallet_id, key3.account(), key3.public_key(), 0, true);
+    node.wallets.change_action2(
+        &wallet_id,
+        key1.account(),
+        key1.public_key(),
+        0.into(),
+        true,
+    );
+    node.wallets.change_action2(
+        &wallet_id,
+        key2.account(),
+        key2.public_key(),
+        0.into(),
+        true,
+    );
+    node.wallets.change_action2(
+        &wallet_id,
+        key3.account(),
+        key3.public_key(),
+        0.into(),
+        true,
+    );
 
     assert_eq!(node.ledger.weight(&key1.public_key()), amount);
     assert_eq!(node.ledger.weight(&key2.public_key()), amount);
@@ -270,7 +285,7 @@ fn vote_generator_multiple_representatives() {
         *DEV_GENESIS_ACCOUNT,
         *DEV_GENESIS_ACCOUNT,
         Amount::raw(1),
-        0,
+        0.into(),
         true,
         None,
     );
@@ -319,9 +334,7 @@ fn vote_spacing_vote_generator() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
-    node.ledger
-        .process(&mut node.store.tx_begin_write(), &send1)
-        .unwrap();
+    node.ledger.process_one(&send1).unwrap();
     assert_eq!(
         node.stats.count(
             StatType::VoteGenerator,
@@ -344,12 +357,8 @@ fn vote_spacing_vote_generator() {
         1,
     );
 
-    node.ledger
-        .rollback(&mut node.store.tx_begin_write(), &send1.hash())
-        .unwrap();
-    node.ledger
-        .process(&mut node.store.tx_begin_write(), &send2)
-        .unwrap();
+    node.ledger.rollback(&send1.hash()).unwrap();
+    node.ledger.process_one(&send2).unwrap();
     node.vote_generators
         .generate_non_final_vote(&(*DEV_GENESIS_HASH).into(), &send2.hash().into());
 
@@ -431,12 +440,8 @@ fn vote_spacing_rapid() {
         1,
     );
 
-    node.ledger
-        .rollback(&mut node.ledger.rw_txn(), &send1.hash())
-        .unwrap();
-    node.ledger
-        .process(&mut node.ledger.rw_txn(), &send2)
-        .unwrap();
+    node.ledger.rollback(&send1.hash()).unwrap();
+    node.ledger.process_one(&send2).unwrap();
     node.vote_generators
         .generate_non_final_vote(&(*DEV_GENESIS_HASH).into(), &send2.hash().into());
 

@@ -32,7 +32,7 @@ pub use builders::*;
 use crate::{
     utils::{BufferWriter, Deserialize, MemoryStream, Stream, UnixTimestamp},
     Account, Amount, BlockHash, Epoch, Epochs, Link, PrivateKey, PublicKey, QualifiedRoot, Root,
-    Signature,
+    Signature, WorkNonce,
 };
 use num::FromPrimitive;
 use std::{
@@ -105,8 +105,8 @@ pub trait BlockBase {
     fn link_field(&self) -> Option<Link>;
     fn signature(&self) -> &Signature;
     fn set_signature(&mut self, signature: Signature);
-    fn work(&self) -> u64;
-    fn set_work(&mut self, work: u64);
+    fn work(&self) -> WorkNonce;
+    fn set_work(&mut self, work: WorkNonce);
     fn previous(&self) -> BlockHash;
     fn serialize_without_block_type(&self, writer: &mut dyn BufferWriter);
     fn to_json(&self) -> anyhow::Result<String> {
@@ -159,7 +159,7 @@ impl Block {
             representative: 789.into(),
             balance: 420.into(),
             link: 111.into(),
-            work: 69420,
+            work: 69420.into(),
         }
         .into()
     }
@@ -172,7 +172,7 @@ impl Block {
             representative: 789.into(),
             balance: 420.into(),
             link: 111.into(),
-            work: 69420,
+            work: 69420.into(),
         }
         .into()
     }
@@ -376,13 +376,29 @@ impl SavedBlock {
         let block = Block::new_test_open();
         let sideband = BlockSideband {
             height: 1,
-            timestamp: 222222.into(),
-            successor: BlockHash::zero(),
-            account: block.account_field().unwrap(),
-            balance: block.balance_field().unwrap(),
             details: BlockDetails::new(Epoch::Epoch2, false, true, false),
-            source_epoch: Epoch::Epoch0,
-            is_final_voted: false,
+            ..BlockSideband::new_test_instance_for(&block)
+        };
+        Self::new(block, sideband)
+    }
+
+    pub fn new_test_change_block() -> Self {
+        Self::new_test_block_with_details(BlockDetails::new(Epoch::Epoch2, false, false, false))
+    }
+
+    pub fn new_test_send_block() -> Self {
+        Self::new_test_block_with_details(BlockDetails::new(Epoch::Epoch2, true, false, false))
+    }
+
+    pub fn new_test_receive_block() -> Self {
+        Self::new_test_block_with_details(BlockDetails::new(Epoch::Epoch2, false, true, false))
+    }
+
+    fn new_test_block_with_details(details: BlockDetails) -> Self {
+        let block = Block::new_test_instance();
+        let sideband = BlockSideband {
+            details,
+            ..BlockSideband::new_test_instance_for(&block)
         };
         Self::new(block, sideband)
     }
@@ -673,6 +689,12 @@ impl DependentBlocks {
             .iter()
             .flat_map(|i| if i.is_zero() { None } else { Some(i) })
     }
+}
+
+pub struct DetailedBlock {
+    pub block: SavedBlock,
+    pub amount: Option<Amount>,
+    pub confirmed: bool,
 }
 
 #[cfg(test)]

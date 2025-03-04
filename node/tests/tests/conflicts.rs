@@ -1,4 +1,5 @@
-use rsnano_core::{Amount, BlockSideband, PrivateKey, SavedBlock, UnsavedBlockLatticeBuilder};
+use rsnano_core::{Amount, BlockSideband, PrivateKey, SavedBlock};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_network::ChannelId;
 use rsnano_node::block_processing::BlockSource;
 use std::time::Duration;

@@ -2,9 +2,9 @@
 extern crate num_derive;
 
 use rsnano_core::{
-    utils::milliseconds_since_epoch, work::WorkThresholds, BlockHash, DifficultyV1, SavedBlock,
-    WorkVersion,
+    utils::milliseconds_since_epoch, BlockHash, DifficultyV1, SavedBlock, WorkNonce, WorkVersion,
 };
+use rsnano_work::WorkThresholds;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt::Debug, hash::Hash, time::Duration};
@@ -116,7 +116,7 @@ struct WorkResult {
 
 pub fn work_generation_message(
     root: &BlockHash,
-    work: u64,
+    work: WorkNonce,
     difficulty: u64,
     publish_threshold: u64,
     duration: Duration,
@@ -140,7 +140,7 @@ pub fn work_generation_message(
 
         Some(WorkResult {
             source: peer.to_string(),
-            work: format!("{:016x}", work),
+            work: work.to_string(),
             difficulty: format!("{:016x}", result_difficulty),
             multiplier: format!("{:.10}", result_multiplier),
         })
