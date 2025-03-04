@@ -1,8 +1,5 @@
 use super::ElectionStatus;
-use crate::{
-    stats::{DetailType, StatType},
-    utils::HardenedConstants,
-};
+use crate::utils::HardenedConstants;
 use rsnano_core::{
     Amount, Block, BlockHash, Era, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock
 };
@@ -15,6 +12,8 @@ use std::{
     },
     time::{Duration, Instant, SystemTime},
 };
+
+use rsnano_stats::{DetailType, StatType};
 
 pub static NEXT_ELECTION_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -30,7 +29,6 @@ pub struct Election {
     last_block: RwLock<Instant>,
     pub last_req: RwLock<Option<Instant>>,
     pub election_start: Instant,
-    pub confirmation_action: Box<dyn Fn(Block) + Send + Sync>,
     pub live_vote_action: Box<dyn Fn(PublicKey) + Send + Sync>,
     height: u64,
 }
@@ -42,7 +40,6 @@ impl Election {
         id: usize,
         block: SavedBlock,
         behavior: ElectionBehavior,
-        confirmation_action: Box<dyn Fn(Block) + Send + Sync>,
         live_vote_action: Box<dyn Fn(PublicKey) + Send + Sync>,
     ) -> Self {
         let root = block.root();
@@ -81,7 +78,6 @@ impl Election {
             last_block: RwLock::new(Instant::now()),
             election_start: Instant::now(),
             last_req: RwLock::new(None),
-            confirmation_action,
             live_vote_action,
             height,
         }
@@ -125,14 +121,16 @@ impl Election {
         let _ = guard.state_change(current, ElectionState::Cancelled);
     }
 
-    pub fn set_last_req(&self) {
+    pub fn confirm_request_sent(&self) {
         *self.last_req.write().unwrap() = Some(Instant::now());
+        self.confirmation_request_count
+            .fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn last_req_elapsed(&self) -> Duration {
+    pub fn last_confirm_request_elapsed(&self) -> Duration {
         match self.last_req.read().unwrap().as_ref() {
             Some(i) => i.elapsed(),
-            None => Duration::from_secs(60 * 60 * 24 * 365), // Duration::MAX caused problems with C++
+            None => Duration::MAX,
         }
     }
 

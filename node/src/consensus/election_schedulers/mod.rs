@@ -1,22 +1,22 @@
-use crate::{
-    cementation::ConfirmingSet,
-    config::{NetworkConstants, NodeConfig},
-    representatives::OnlineReps,
-    stats::Stats,
+use std::sync::{Arc, Mutex};
+
+use rsnano_core::{
+    utils::ContainerInfo, Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
 };
+use rsnano_ledger::{AnySet, Ledger};
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_stats::Stats;
 
 use super::{
     ActiveElections, HintedScheduler, HintedSchedulerExt, ManualScheduler, ManualSchedulerExt,
     OptimisticScheduler, OptimisticSchedulerExt, PriorityScheduler, PrioritySchedulerExt,
     VoteCache,
 };
-use rsnano_core::{
-    utils::ContainerInfo, Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
+use crate::{
+    cementation::ConfirmingSet,
+    config::{NetworkConstants, NodeConfig},
+    representatives::OnlineReps,
 };
-use rsnano_ledger::Ledger;
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_store_lmdb::{LmdbReadTransaction, Transaction};
-use std::sync::{Arc, Mutex};
 
 pub struct ElectionSchedulers {
     pub priority: Arc<PriorityScheduler>,
@@ -64,7 +64,6 @@ impl ElectionSchedulers {
 
         let priority = Arc::new(PriorityScheduler::new(
             config.priority_bucket.clone(),
-            ledger.clone(),
             stats.clone(),
             active_elections.clone(),
         ));
@@ -84,24 +83,24 @@ impl ElectionSchedulers {
         self.manual.contains(hash) || self.priority.contains(hash)
     }
 
-    pub fn activate_successors(&self, tx: &LmdbReadTransaction, block: &SavedBlock) {
-        self.priority.activate_successors(tx, block);
+    pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
+        self.priority.activate_successors(any, block);
     }
 
     pub fn activate_backlog(
         &self,
-        txn: &dyn Transaction,
+        any: &impl AnySet,
         account: &Account,
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) {
         self.optimistic.activate(account, account_info, conf_info);
         self.priority
-            .activate_with_info(txn, account, account_info, conf_info);
+            .activate_with_info(any, account, account_info, conf_info);
     }
 
-    pub fn activate(&self, tx: &dyn Transaction, account: &Account) -> bool {
-        self.priority.activate(tx, account)
+    pub fn activate(&self, any: &impl AnySet, account: &Account) -> bool {
+        self.priority.activate(any, account)
     }
 
     pub fn notify(&self) {

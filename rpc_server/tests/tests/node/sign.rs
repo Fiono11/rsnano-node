@@ -1,5 +1,5 @@
-use rsnano_core::UnsavedBlockLatticeBuilder;
 use rsnano_core::{Account, Amount, Block, WalletId, DEV_GENESIS_KEY};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::wallets::WalletsExt;
 use rsnano_rpc_messages::SignArgs;
 use test_helpers::{setup_rpc_client_and_server, System};

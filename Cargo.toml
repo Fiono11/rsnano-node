@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "core",
     "nullables/output_tracker",
     "nullables/fs",
     "nullables/tcp",
@@ -8,6 +7,9 @@ members = [
     "nullables/http_client",
     "nullables/clock",
     "nullables/random",
+    "core",
+	"stats",
+	"work",
     "messages",
     "network",
     "rpc_messages",
@@ -24,6 +26,8 @@ members = [
 	"tools/insight", 
     "daemon", 
     "nullables/console", 
-    "websocket_messages"
-, "tools/record-rep-weights"]
+    "websocket_messages", 
+	"tools/record-rep-weights"
+	]
+
 resolver = "2"

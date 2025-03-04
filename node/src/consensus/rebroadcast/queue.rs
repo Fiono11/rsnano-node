@@ -1,5 +1,3 @@
-use crate::stats::{DetailType, StatType, Stats};
-use rsnano_core::{utils::ContainerInfo, BlockHash, Vote, VoteCode};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -7,6 +5,9 @@ use std::{
         Arc, Condvar, Mutex,
     },
 };
+
+use rsnano_core::{utils::ContainerInfo, BlockHash, Vote, VoteCode};
+use rsnano_stats::{DetailType, StatType, Stats};
 
 pub(crate) struct VoteRebroadcastQueueBuilder {
     stats: Option<Arc<Stats>>,

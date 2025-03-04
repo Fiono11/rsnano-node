@@ -1,7 +1,11 @@
-use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY};
-use rsnano_node::stats::{DetailType, Direction, StatType};
 use std::time::Duration;
+
+use rsnano_core::{Amount, PrivateKey, DEV_GENESIS_KEY};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, ConfirmedSet, LedgerSet, DEV_GENESIS_ACCOUNT,
+    DEV_GENESIS_PUB_KEY,
+};
+use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{assert_timely_eq, System};
 
 #[test]
@@ -15,26 +19,21 @@ fn single() {
     let latest1 = node.latest(&DEV_GENESIS_ACCOUNT);
     let send1 = lattice.genesis().send(&key1, 100);
     node.process(send1.clone());
-    let mut tx = node.ledger.rw_txn();
-    assert_eq!(
-        node.ledger.confirmed().block_exists(&tx, &send1.hash()),
-        false
-    );
-    node.ledger.confirm(&mut tx, send1.hash());
-    assert_eq!(
-        node.ledger.confirmed().block_exists(&tx, &send1.hash()),
-        true
-    );
-    let conf_height = node
+    assert_eq!(node.ledger.confirmed().block_exists(&send1.hash()), false);
+    node.ledger.confirm(send1.hash());
+
+    assert_eq!(node.ledger.confirmed().block_exists(&send1.hash()), true);
+    let conf_info = node
         .ledger
-        .get_confirmation_height(&tx, &DEV_GENESIS_ACCOUNT)
+        .confirmed()
+        .get_conf_info(&DEV_GENESIS_ACCOUNT)
         .unwrap();
-    assert_eq!(conf_height.height, 2);
-    assert_eq!(conf_height.frontier, send1.hash());
+    assert_eq!(conf_info.height, 2);
+    assert_eq!(conf_info.frontier, send1.hash());
 
     // Rollbacks should fail as these blocks have been cemented
-    assert!(node.ledger.rollback(&mut tx, &latest1).is_err());
-    assert!(node.ledger.rollback(&mut tx, &send1.hash()).is_err());
+    assert!(node.ledger.rollback(&latest1).is_err());
+    assert!(node.ledger.rollback(&send1.hash()).is_err());
     assert_eq!(
         node.stats.count(
             StatType::ConfirmationHeight,
@@ -93,31 +92,36 @@ fn multiple_accounts() {
 
     // Check confirmation heights of all the accounts (except genesis) are uninitialized (0),
     // as we have any just added them to the ledger and not processed any live transactions yet.
-    let mut tx = node.ledger.rw_txn();
     assert_eq!(
         node.ledger
-            .get_confirmation_height(&tx, &DEV_GENESIS_ACCOUNT)
+            .confirmed()
+            .get_conf_info(&DEV_GENESIS_ACCOUNT)
             .unwrap()
             .height,
         1
     );
     assert!(node
         .ledger
-        .get_confirmation_height(&tx, &key1.public_key().as_account())
+        .confirmed()
+        .get_conf_info(&key1.public_key().as_account())
         .is_none());
     assert!(node
         .ledger
-        .get_confirmation_height(&tx, &key2.public_key().as_account())
+        .confirmed()
+        .get_conf_info(&key2.public_key().as_account())
         .is_none());
     assert!(node
         .ledger
-        .get_confirmation_height(&tx, &key3.public_key().as_account())
+        .confirmed()
+        .get_conf_info(&key3.public_key().as_account())
         .is_none());
 
     // The nodes process a live receive which propagates across to all accounts
     let receive3 = lattice.account(&key3).receive(&send6);
-    node.ledger.process(&mut tx, &receive3).unwrap();
-    let confirmed = node.ledger.confirm(&mut tx, receive3.hash());
+    node.ledger.process_one(&receive3).unwrap();
+
+    let confirmed = node.ledger.confirm(receive3.hash());
+
     assert_eq!(confirmed.len(), 10);
     assert_eq!(
         node.stats.count(
@@ -128,40 +132,35 @@ fn multiple_accounts() {
         10
     );
     assert_eq!(node.ledger.cemented_count(), 11);
-    assert!(node.ledger.confirmed().block_exists(&tx, &receive3.hash()));
+    let any = node.ledger.any();
+    assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
-        node.ledger
-            .any()
-            .get_account(&tx, &DEV_GENESIS_ACCOUNT)
-            .unwrap()
-            .block_count,
+        any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
         4
     );
     assert_eq!(
-        node.ledger
-            .get_confirmation_height(&tx, &DEV_GENESIS_ACCOUNT)
+        any.confirmed()
+            .get_conf_info(&DEV_GENESIS_ACCOUNT)
             .unwrap()
             .height,
         4
     );
     assert_eq!(
-        node.ledger
-            .get_confirmation_height(&tx, &DEV_GENESIS_ACCOUNT)
+        any.confirmed()
+            .get_conf_info(&DEV_GENESIS_ACCOUNT)
             .unwrap()
             .frontier,
         send3.hash()
     );
     assert_eq!(
-        node.ledger
-            .any()
-            .get_account(&tx, &key1.public_key().as_account())
+        any.get_account(&key1.public_key().as_account())
             .unwrap()
             .block_count,
         3
     );
     assert_eq!(
-        node.ledger
-            .get_confirmation_height(&tx, &key1.public_key().as_account())
+        any.confirmed()
+            .get_conf_info(&key1.public_key().as_account())
             .unwrap()
             .height,
         2
@@ -169,18 +168,18 @@ fn multiple_accounts() {
 
     // The accounts for key1 and key2 have 1 more block in the chain than is confirmed.
     // So this can be rolled back, but the one before that cannot. Check that this is the case
-    assert!(node.ledger.rollback(&mut tx, &receive2.hash()).is_ok());
-    assert!(node.ledger.rollback(&mut tx, &send5.hash()).is_ok());
-    assert!(node.ledger.rollback(&mut tx, &send4.hash()).is_err());
-    assert!(node.ledger.rollback(&mut tx, &send6.hash()).is_err());
+    assert!(node.ledger.rollback(&receive2.hash()).is_ok());
+    assert!(node.ledger.rollback(&send5.hash()).is_ok());
+    assert!(node.ledger.rollback(&send4.hash()).is_err());
+    assert!(node.ledger.rollback(&send6.hash()).is_err());
 
     // Confirm the other latest can't be rolled back either
-    assert!(node.ledger.rollback(&mut tx, &receive3.hash()).is_err());
-    assert!(node.ledger.rollback(&mut tx, &send3.hash()).is_err());
+    assert!(node.ledger.rollback(&receive3.hash()).is_err());
+    assert!(node.ledger.rollback(&send3.hash()).is_err());
 
     // Attempt some others which have been cemented
-    assert!(node.ledger.rollback(&mut tx, &open1.hash()).is_err());
-    assert!(node.ledger.rollback(&mut tx, &send2.hash()).is_err());
+    assert!(node.ledger.rollback(&open1.hash()).is_err());
+    assert!(node.ledger.rollback(&send2.hash()).is_err());
 }
 
 #[test]
@@ -230,8 +229,7 @@ fn send_receive_between_2_accounts() {
         receive4.clone(),
     ]);
 
-    let mut tx = node.ledger.rw_txn();
-    let confirmed = node.ledger.confirm(&mut tx, receive4.hash());
+    let confirmed = node.ledger.confirm(receive4.hash());
     assert_eq!(confirmed.len(), 10);
     assert_eq!(
         node.stats.count(
@@ -274,16 +272,13 @@ fn send_receive_self() {
         send4.clone(),
     ]);
 
-    let mut tx = node.ledger.rw_txn();
-    let confirmed = node.ledger.confirm(&mut tx, receive3.hash());
+    let confirmed = node.ledger.confirm(receive3.hash());
+
     assert_eq!(confirmed.len(), 6);
-    assert!(node.ledger.confirmed().block_exists(&tx, &receive3.hash()));
+    let any = node.ledger.any();
+    assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
-        node.ledger
-            .any()
-            .get_account(&tx, &DEV_GENESIS_ACCOUNT)
-            .unwrap()
-            .block_count,
+        any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
         8
     );
     assert_eq!(node.ledger.cemented_count(), 7);
@@ -340,8 +335,7 @@ fn all_block_types() {
         state_send4,
         state_receive3,
     ]);
-    let mut tx = node.ledger.rw_txn();
-    let confirmed = node.ledger.confirm(&mut tx, state_send2.hash());
+    let confirmed = node.ledger.confirm(state_send2.hash());
     assert_eq!(confirmed.len(), 15);
     assert_eq!(node.ledger.cemented_count(), 16);
 }

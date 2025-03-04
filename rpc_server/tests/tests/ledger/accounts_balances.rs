@@ -1,5 +1,5 @@
-use rsnano_core::{Amount, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-use rsnano_ledger::DEV_GENESIS_ACCOUNT;
+use rsnano_core::{Amount, DEV_GENESIS_KEY};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
 use rsnano_node::Node;
 use rsnano_rpc_messages::AccountsBalancesArgs;
 use std::sync::Arc;

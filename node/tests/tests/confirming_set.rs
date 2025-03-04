@@ -1,11 +1,11 @@
-use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-use rsnano_ledger::Writer;
-use rsnano_node::{
-    consensus::ActiveElectionsExt,
-    stats::{DetailType, Direction, StatType},
-};
 use std::time::Duration;
-use test_helpers::{assert_always_eq, assert_timely, assert_timely_eq, start_election, System};
+
+use rsnano_core::{Amount, PrivateKey, DEV_GENESIS_KEY};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, LedgerSet, Writer};
+use rsnano_stats::{DetailType, Direction, StatType};
+use test_helpers::{
+    assert_always_eq, assert_timely, assert_timely2, assert_timely_eq, start_election, System,
+};
 
 #[test]
 fn observer_callbacks() {
@@ -61,7 +61,7 @@ fn confirmed_history() {
     let election = start_election(&node, &send1.hash());
     {
         // The write guard prevents the confirmation height processor doing any writes
-        let _write_guard = node.ledger.write_queue.wait(Writer::Testing);
+        let _write_guard = node.ledger.store.write_queue.wait(Writer::Testing);
 
         // Confirm send1
         node.active.force_confirm(&election);
@@ -69,14 +69,13 @@ fn confirmed_history() {
         assert_eq!(node.active.recently_cemented_count(), 0);
         assert_eq!(node.active.len(), 0);
 
-        let tx = node.ledger.read_txn();
-        assert_eq!(
-            node.ledger.confirmed().block_exists(&tx, &send.hash()),
-            false
-        );
+        assert_eq!(node.ledger.confirmed().block_exists(&send.hash()), false);
 
         assert_timely(Duration::from_secs(10), || {
-            node.ledger.write_queue.contains(Writer::ConfirmationHeight)
+            node.ledger
+                .store
+                .write_queue
+                .contains(Writer::ConfirmationHeight)
         });
 
         // Confirm that no inactive callbacks have been called when the
@@ -95,14 +94,14 @@ fn confirmed_history() {
     }
 
     assert_timely(Duration::from_secs(10), || {
-        !node.ledger.write_queue.contains(Writer::ConfirmationHeight)
+        !node
+            .ledger
+            .store
+            .write_queue
+            .contains(Writer::ConfirmationHeight)
     });
 
-    assert_timely(Duration::from_secs(5), || {
-        node.ledger
-            .confirmed()
-            .block_exists(&node.ledger.read_txn(), &send.hash())
-    });
+    assert_timely2(|| node.ledger.confirmed().block_exists(&send.hash()));
 
     assert_timely_eq(Duration::from_secs(10), || node.active.len(), 0);
     assert_timely_eq(

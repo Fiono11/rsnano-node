@@ -16,9 +16,17 @@ impl DaemonConfig {
         }
         if let Some(opencl) = &toml.opencl {
             if let Some(enable) = opencl.enable {
-                self.opencl_enable = enable;
+                self.node.enable_opencl = enable;
             }
-            self.opencl.merge_toml(opencl);
+            if let Some(device) = opencl.device {
+                self.node.opencl.device = device;
+            }
+            if let Some(platform) = opencl.platform {
+                self.node.opencl.platform = platform;
+            }
+            if let Some(threads) = opencl.threads {
+                self.node.opencl.threads = threads;
+            }
         }
         if let Some(rpc) = &toml.rpc {
             if let Some(enable) = rpc.enable {
@@ -52,10 +60,10 @@ impl From<&DaemonConfig> for NodeRpcToml {
 impl From<&DaemonConfig> for OpenclToml {
     fn from(config: &DaemonConfig) -> Self {
         Self {
-            enable: Some(config.opencl_enable),
-            platform: Some(config.opencl.platform),
-            device: Some(config.opencl.device),
-            threads: Some(config.opencl.threads),
+            enable: Some(config.node.enable_opencl),
+            platform: Some(config.node.opencl.platform),
+            device: Some(config.node.opencl.device),
+            threads: Some(config.node.opencl.threads),
         }
     }
 }
@@ -229,6 +237,7 @@ mod tests {
         consideration_count = 999
         cooldown = 999
         priorities_max = 999
+        blocking_decay = 999
 
         [node.bootstrap_server]
         max_queue = 999
@@ -243,6 +252,15 @@ mod tests {
         [node.message_processor]
         threads = 999
         max_queue = 999
+
+        [node.network]
+        peer_reachout = 999
+        cached_peer_reachout = 9999
+        max_peers_per_ip = 99
+        max_peers_per_subnetwork = 99
+        duplicate_filter_size = 9999999
+        duplicate_filter_cutoff = 999
+        minimum_fanout = 99
 
         [node.tcp]
         max_inbound_connections = 999
@@ -366,10 +384,6 @@ mod tests {
         assert_ne!(
             deserialized.node.password_fanout,
             default_cfg.node.password_fanout
-        );
-        assert_ne!(
-            deserialized.node.peering_port,
-            default_cfg.node.peering_port
         );
         assert_ne!(
             deserialized.node.pow_sleep_interval_ns,
@@ -764,6 +778,14 @@ mod tests {
                 .priorities_max,
             default_cfg.node.bootstrap.candidate_accounts.priorities_max
         );
+        assert_ne!(
+            deserialized
+                .node
+                .bootstrap
+                .candidate_accounts
+                .blocking_decay,
+            default_cfg.node.bootstrap.candidate_accounts.blocking_decay
+        );
 
         // Bootstrap Server section
         assert_ne!(
@@ -804,10 +826,22 @@ mod tests {
         );
 
         // OpenCL section
-        assert_ne!(deserialized.opencl.device, default_cfg.opencl.device);
-        assert_ne!(deserialized.opencl_enable, default_cfg.opencl_enable);
-        assert_ne!(deserialized.opencl.platform, default_cfg.opencl.platform);
-        assert_ne!(deserialized.opencl.threads, default_cfg.opencl.threads);
+        assert_ne!(
+            deserialized.node.opencl.device,
+            default_cfg.node.opencl.device
+        );
+        assert_ne!(
+            deserialized.node.enable_opencl,
+            default_cfg.node.enable_opencl
+        );
+        assert_ne!(
+            deserialized.node.opencl.platform,
+            default_cfg.node.opencl.platform
+        );
+        assert_ne!(
+            deserialized.node.opencl.threads,
+            default_cfg.node.opencl.threads
+        );
 
         // RPC section
         assert_ne!(deserialized.rpc_enable, default_cfg.rpc_enable);
@@ -862,6 +896,35 @@ mod tests {
         assert_ne!(
             deserialized.node.tcp.connect_timeout,
             default_cfg.node.tcp.connect_timeout
+        );
+
+        assert_ne!(
+            deserialized.node.network.peer_reachout,
+            default_cfg.node.network.peer_reachout
+        );
+        assert_ne!(
+            deserialized.node.network.cached_peer_reachout,
+            default_cfg.node.network.cached_peer_reachout
+        );
+        assert_ne!(
+            deserialized.node.network.max_peers_per_ip,
+            default_cfg.node.network.max_peers_per_ip
+        );
+        assert_ne!(
+            deserialized.node.network.max_peers_per_subnetwork,
+            default_cfg.node.network.max_peers_per_subnetwork
+        );
+        assert_ne!(
+            deserialized.node.network_duplicate_filter_size,
+            default_cfg.node.network_duplicate_filter_size
+        );
+        assert_ne!(
+            deserialized.node.network_duplicate_filter_cutoff,
+            default_cfg.node.network_duplicate_filter_cutoff
+        );
+        assert_ne!(
+            deserialized.node.network.minimum_fanout,
+            default_cfg.node.network.minimum_fanout
         );
     }
 

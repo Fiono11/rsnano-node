@@ -1,5 +1,5 @@
-use rsnano_core::{Amount, BlockHash, PrivateKey, UnsavedBlockLatticeBuilder, WalletId};
-use rsnano_ledger::DEV_GENESIS_ACCOUNT;
+use rsnano_core::{Amount, BlockHash, PrivateKey, WalletId};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
 use rsnano_node::{wallets::WalletsExt, Node};
 use rsnano_rpc_messages::BlockTypeDto;
 use std::sync::Arc;

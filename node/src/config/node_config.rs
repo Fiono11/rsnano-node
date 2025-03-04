@@ -1,3 +1,18 @@
+use std::{cmp::max, net::Ipv6Addr, time::Duration};
+
+use once_cell::sync::Lazy;
+use rand::Rng;
+
+use rsnano_core::{
+    utils::{get_env_or_default_string, Peer},
+    Account, Amount, PublicKey,
+};
+use rsnano_network::NetworkConfig;
+use rsnano_nullable_http_client::Url;
+use rsnano_stats::StatsConfig;
+use rsnano_store_lmdb::LmdbConfig;
+use rsnano_work::OpenClConfig;
+
 use super::{
     websocket_config::WebsocketConfig, DiagnosticsConfig, NetworkParams, Networks,
     DEV_NETWORK_PARAMS,
@@ -12,18 +27,8 @@ use crate::{
         ActiveElectionsConfig, HintedSchedulerConfig, OptimisticSchedulerConfig,
         PriorityBucketConfig, RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig,
     },
-    stats::StatsConfig,
     transport::MessageProcessorConfig,
 };
-use once_cell::sync::Lazy;
-use rand::{thread_rng, Rng};
-use rsnano_core::{
-    utils::{get_env_or_default_string, Peer},
-    Account, Amount, PublicKey,
-};
-use rsnano_nullable_http_client::Url;
-use rsnano_store_lmdb::LmdbConfig;
-use std::{cmp::max, net::Ipv6Addr, time::Duration};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
@@ -43,6 +48,8 @@ pub struct NodeConfig {
     pub io_threads: usize,
     pub network_threads: u32,
     pub work_threads: u32,
+    pub enable_opencl: bool,
+    pub opencl: OpenClConfig,
     pub background_threads: u32,
     pub signature_checker_threads: u32,
     pub enable_voting: bool,
@@ -65,8 +72,6 @@ pub struct NodeConfig {
     pub use_memory_pools: bool,
     pub bandwidth_limit: usize,
     pub bandwidth_limit_burst_ratio: f64,
-    pub max_peers_per_ip: u16,
-    pub max_peers_per_subnetwork: u16,
     pub bootstrap: BootstrapConfig,
     pub bootstrap_responder: BootstrapResponderConfig,
     pub bootstrap_bandwidth_limit: usize,
@@ -104,8 +109,10 @@ pub struct NodeConfig {
     pub monitor: MonitorConfig,
     pub backlog_scan: BacklogScanConfig,
     pub bounded_backlog: BoundedBacklogConfig,
+    pub network_duplicate_filter_size: usize,
     pub network_duplicate_filter_cutoff: u64,
     pub max_ledger_notifications: usize,
+    pub network: NetworkConfig,
 }
 
 static DEFAULT_LIVE_PEER_NETWORK: Lazy<String> =
@@ -146,7 +153,8 @@ impl NodeConfig {
         let mut preconfigured_peers = Vec::new();
         let mut preconfigured_representatives = Vec::new();
         let default_port = network_params.network.default_node_port;
-        match network_params.network.current_network {
+        let network = network_params.network.current_network;
+        match network {
             Networks::NanoDevNetwork => {
                 enable_voting = true;
                 preconfigured_representatives.push(network_params.ledger.genesis_account.into());
@@ -236,6 +244,8 @@ impl NodeConfig {
             io_threads: max(parallelism, 4),
             network_threads: max(parallelism, 4) as u32,
             work_threads: max(parallelism, 4) as u32,
+            enable_opencl: false,
+            opencl: Default::default(),
             background_threads: max(parallelism, 4) as u32,
             /* Use half available threads on the system for signature checking. The calling thread does checks as well, so these are extra worker threads */
             signature_checker_threads: (parallelism / 2) as u32,
@@ -263,8 +273,6 @@ impl NodeConfig {
             bandwidth_limit: 10 * 1024 * 1024,
             // By default, allow bursts of 15MB/s (not sustainable)
             bandwidth_limit_burst_ratio: 3_f64,
-            max_peers_per_ip: network_params.network.max_peers_per_ip as u16,
-            max_peers_per_subnetwork: network_params.network.max_peers_per_subnetwork as u16,
             // Default bootstrap outbound traffic limit is 5MB/s
             bootstrap_bandwidth_limit: 5 * 1024 * 1024,
             // Bootstrap traffic does not need bursts
@@ -319,15 +327,18 @@ impl NodeConfig {
             },
             request_aggregator: RequestAggregatorConfig::new(parallelism),
             message_processor: MessageProcessorConfig::new(parallelism),
-            local_block_broadcaster: LocalBlockBroadcasterConfig::new(
-                network_params.network.current_network,
-            ),
+            local_block_broadcaster: LocalBlockBroadcasterConfig::new(network),
             confirming_set: Default::default(),
             monitor: Default::default(),
             backlog_scan: Default::default(),
             bounded_backlog: Default::default(),
+            network_duplicate_filter_size: 1024 * 1024,
             network_duplicate_filter_cutoff: 60,
             max_ledger_notifications: 8,
+            network: NetworkConfig {
+                listening_port: peering_port.unwrap_or_default(),
+                ..NetworkConfig::default_for(network)
+            },
         }
     }
 
@@ -336,7 +347,7 @@ impl NodeConfig {
     }
 
     pub fn random_representative(&self) -> PublicKey {
-        let i = thread_rng().gen_range(0..self.preconfigured_representatives.len());
+        let i = rand::rng().random_range(0..self.preconfigured_representatives.len());
         return self.preconfigured_representatives[i];
     }
 

@@ -1,6 +1,6 @@
-use crate::stats::DetailType;
 use rsnano_core::{Block, SavedBlock};
 use rsnano_ledger::BlockStatus;
+use rsnano_stats::DetailType;
 use std::{
     sync::{Arc, Condvar, Mutex},
     time::Instant,
@@ -39,7 +39,7 @@ impl From<BlockSource> for DetailType {
 pub type BlockProcessorCallback = Box<dyn Fn(BlockStatus) + Send + Sync>;
 
 pub struct BlockContext {
-    pub block: Mutex<Block>,
+    pub block: Block,
     pub saved_block: Mutex<Option<SavedBlock>>,
     pub source: BlockSource,
     pub callback: Option<BlockProcessorCallback>,
@@ -54,7 +54,7 @@ impl BlockContext {
         callback: Option<BlockProcessorCallback>,
     ) -> Self {
         Self {
-            block: Mutex::new(block),
+            block,
             saved_block: Mutex::new(None),
             source,
             arrival: Instant::now(),

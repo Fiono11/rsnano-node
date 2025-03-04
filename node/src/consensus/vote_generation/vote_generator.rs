@@ -1,20 +1,3 @@
-use super::{LocalVoteHistory, VoteSpacing};
-use crate::{
-    consensus::VoteBroadcaster,
-    stats::{DetailType, Direction, Sample, StatType, Stats},
-    transport::MessageSender,
-    utils::ProcessingQueue,
-    wallets::Wallets,
-};
-use rsnano_core::{
-    utils::{milliseconds_since_epoch, ContainerInfo},
-    BlockHash, Root, SavedBlock, Vote,
-};
-use rsnano_ledger::{Ledger, Writer};
-use rsnano_messages::{ConfirmAck, Message};
-use rsnano_network::{Channel, ChannelId, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_store_lmdb::{LmdbReadTransaction, LmdbWriteTransaction, Transaction};
 use std::{
     collections::VecDeque,
     mem::size_of,
@@ -24,6 +7,21 @@ use std::{
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
+};
+
+use rsnano_core::{
+    utils::{milliseconds_since_epoch, ContainerInfo},
+    BlockHash, Root, SavedBlock, Vote,
+};
+use rsnano_ledger::{AnySet, Ledger};
+use rsnano_messages::{ConfirmAck, Message};
+use rsnano_network::{Channel, ChannelId, TrafficType};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
+
+use super::{LocalVoteHistory, VoteSpacing};
+use crate::{
+    consensus::VoteBroadcaster, transport::MessageSender, utils::ProcessingQueue, wallets::Wallets,
 };
 
 pub struct VoteGeneratorRequest {
@@ -83,7 +81,7 @@ impl VoteGenerator {
             vote_generation_queue: ProcessingQueue::new(
                 Arc::clone(&stats),
                 StatType::VoteGenerator,
-                "Voting que".to_string(),
+                Self::thread_name(is_final),
                 1,         // single threaded
                 1024 * 32, // max queue size
                 256,       // max batch size,
@@ -95,11 +93,19 @@ impl VoteGenerator {
         }
     }
 
+    fn thread_name(is_final: bool) -> String {
+        if is_final {
+            "Voting final".to_owned()
+        } else {
+            "Voting".to_owned()
+        }
+    }
+
     pub(crate) fn start(&self) {
         let shared_state_clone = Arc::clone(&self.shared_state);
         *self.thread.lock().unwrap() = Some(
             thread::Builder::new()
-                .name("voting".to_owned())
+                .name(Self::thread_name(self.shared_state.is_final))
                 .spawn(move || shared_state_clone.run())
                 .unwrap(),
         );
@@ -127,11 +133,11 @@ impl VoteGenerator {
     /// Queue blocks for vote generation, returning the number of successful candidates.
     pub(crate) fn generate(&self, blocks: &[SavedBlock], channel: &Arc<Channel>) -> usize {
         let req_candidates = {
-            let txn = self.ledger.read_txn();
+            let any = self.ledger.any();
             blocks
                 .iter()
                 .filter_map(|i| {
-                    if self.ledger.dependents_confirmed(&txn, i) {
+                    if any.dependents_confirmed(i) {
                         Some((i.root(), i.hash()))
                     } else {
                         None
@@ -370,26 +376,7 @@ impl SharedState {
     }
 
     fn process_batch(&self, batch: VecDeque<(Root, BlockHash)>) {
-        let mut verified = VecDeque::new();
-
-        if self.is_final {
-            let mut write_guard = self.ledger.write_queue.wait(Writer::VotingFinal);
-            let mut tx = self.ledger.rw_txn();
-            for (root, hash) in &batch {
-                (write_guard, tx) = self.ledger.refresh_if_needed(write_guard, tx);
-                if self.should_vote_final(&mut tx, root, hash) {
-                    verified.push_back((*root, *hash));
-                }
-            }
-        } else {
-            let mut tx = self.ledger.read_txn();
-            for (root, hash) in &batch {
-                tx.refresh_if_needed();
-                if self.should_vote_non_final(&tx, root, hash) {
-                    verified.push_back((*root, *hash));
-                }
-            }
-        };
+        let verified = self.ledger.verify_votes(batch, self.is_final);
 
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
@@ -403,37 +390,6 @@ impl SharedState {
                 self.condition.notify_all();
             }
         }
-    }
-
-    fn should_vote_non_final(
-        &self,
-        txn: &LmdbReadTransaction,
-        root: &Root,
-        hash: &BlockHash,
-    ) -> bool {
-        let Some(block) = self.ledger.any().get_block(txn, hash) else {
-            return false;
-        };
-        debug_assert!(block.root() == *root);
-        self.ledger.dependents_confirmed(txn, &block)
-    }
-
-    fn should_vote_final(
-        &self,
-        txn: &mut LmdbWriteTransaction,
-        root: &Root,
-        hash: &BlockHash,
-    ) -> bool {
-        let Some(block) = self.ledger.any().get_block(txn, hash) else {
-            return false;
-        };
-        debug_assert!(block.root() == *root);
-        self.ledger.dependents_confirmed(txn, &block)
-            && self
-                .ledger
-                .store
-                .final_vote
-                .put(txn, &block.qualified_root(), hash)
     }
 }
 

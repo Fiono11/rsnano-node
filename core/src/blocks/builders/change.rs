@@ -1,13 +1,12 @@
-use crate::work::WorkPool;
-use crate::{work::STUB_WORK_POOL, BlockHash};
-use crate::{Account, Block, ChangeBlockArgs, PrivateKey, PublicKey};
+use crate::BlockHash;
+use crate::{Account, Block, ChangeBlockArgs, PrivateKey, PublicKey, WorkNonce};
 
 pub struct TestLegacyChangeBlockBuilder {
     account: Option<Account>,
     representative: Option<PublicKey>,
     previous: Option<BlockHash>,
     prv_key: Option<PrivateKey>,
-    work: Option<u64>,
+    work: Option<WorkNonce>,
 }
 
 impl TestLegacyChangeBlockBuilder {
@@ -41,8 +40,8 @@ impl TestLegacyChangeBlockBuilder {
         self
     }
 
-    pub fn work(mut self, work: u64) -> Self {
-        self.work = Some(work);
+    pub fn work(mut self, work: impl Into<WorkNonce>) -> Self {
+        self.work = Some(work.into());
         self
     }
 
@@ -50,9 +49,7 @@ impl TestLegacyChangeBlockBuilder {
         let previous = self.previous.unwrap_or(BlockHash::from(1));
         let prv_key = self.prv_key.unwrap_or_default();
         let representative = self.representative.unwrap_or(PublicKey::from(2));
-        let work = self
-            .work
-            .unwrap_or_else(|| STUB_WORK_POOL.generate_dev2(previous.into()).unwrap());
+        let work = self.work.unwrap_or(42.into());
 
         ChangeBlockArgs {
             key: &prv_key,

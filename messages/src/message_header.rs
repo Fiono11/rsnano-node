@@ -3,8 +3,9 @@ use bitvec::prelude::*;
 use num_traits::FromPrimitive;
 use rsnano_core::{
     utils::{BufferWriter, MemoryStream, Serialize, Stream},
-    Networks,
+    Networks, ProtocolInfo,
 };
+use rsnano_stats::DetailType;
 use std::{
     fmt::{Debug, Display},
     mem::size_of,
@@ -60,34 +61,6 @@ impl MessageType {
 impl Debug for MessageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
-pub struct ProtocolInfo {
-    pub version_using: u8,
-    pub version_max: u8,
-    pub version_min: u8,
-    pub network: Networks,
-}
-
-impl Default for ProtocolInfo {
-    fn default() -> Self {
-        Self {
-            version_using: 0x15,
-            version_max: 0x15,
-            version_min: 0x14,
-            network: Networks::NanoLiveNetwork,
-        }
-    }
-}
-
-impl ProtocolInfo {
-    pub fn default_for(network: Networks) -> Self {
-        Self {
-            network,
-            ..Default::default()
-        }
     }
 }
 
@@ -258,6 +231,28 @@ impl Display for MessageHeader {
 impl Debug for MessageHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
+    }
+}
+
+impl From<MessageType> for DetailType {
+    fn from(msg: MessageType) -> Self {
+        match msg {
+            MessageType::Invalid => DetailType::Invalid,
+            MessageType::NotAType => DetailType::NotAType,
+            MessageType::Keepalive => DetailType::Keepalive,
+            MessageType::Publish => DetailType::Publish,
+            MessageType::ConfirmReq => DetailType::ConfirmReq,
+            MessageType::ConfirmAck => DetailType::ConfirmAck,
+            MessageType::BulkPull => DetailType::BulkPull,
+            MessageType::BulkPush => DetailType::BulkPush,
+            MessageType::FrontierReq => DetailType::FrontierReq,
+            MessageType::NodeIdHandshake => DetailType::NodeIdHandshake,
+            MessageType::BulkPullAccount => DetailType::BulkPullAccount,
+            MessageType::TelemetryReq => DetailType::TelemetryReq,
+            MessageType::TelemetryAck => DetailType::TelemetryAck,
+            MessageType::AscPullReq => DetailType::AscPullReq,
+            MessageType::AscPullAck => DetailType::AscPullAck,
+        }
     }
 }
 

@@ -1,12 +1,14 @@
-use super::{ActiveElections, ActiveElectionsExt, ElectionBehavior};
-use crate::stats::{DetailType, StatType, Stats};
-use rsnano_core::{utils::ContainerInfo, Amount, Block, BlockHash, SavedBlock};
 use std::{
     collections::VecDeque,
     mem::size_of,
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
+
+use rsnano_core::{utils::ContainerInfo, Amount, Block, BlockHash, SavedBlock};
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::{ActiveElections, ElectionBehavior};
 
 pub struct ManualScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,

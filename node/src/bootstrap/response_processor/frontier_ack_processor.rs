@@ -1,12 +1,14 @@
+use std::sync::{Arc, Mutex};
+
+use rsnano_core::Frontier;
+use rsnano_ledger::Ledger;
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+
 use super::frontier_worker::FrontierWorker;
 use crate::{
     bootstrap::state::{BootstrapState, RunningQuery, VerifyResult},
-    stats::{DetailType, Direction, StatType, Stats},
     utils::{ThreadPool, ThreadPoolImpl},
 };
-use rsnano_core::Frontier;
-use rsnano_ledger::Ledger;
-use std::sync::{Arc, Mutex};
 
 /// Processes responses to AscPullReqs by the frontier scan
 pub(crate) struct FrontierAckProcessor {
@@ -33,14 +35,8 @@ impl FrontierAckProcessor {
         }
     }
 
+    /// Returns true if the frontiers were valid
     pub fn process(&self, query: &RunningQuery, frontiers: Vec<Frontier>) -> bool {
-        if frontiers.is_empty() {
-            self.stats
-                .inc(StatType::BootstrapProcess, DetailType::FrontiersEmpty);
-            // OK, but nothing to do
-            return true;
-        }
-
         self.stats
             .inc(StatType::BootstrapProcess, DetailType::Frontiers);
 
@@ -54,6 +50,7 @@ impl FrontierAckProcessor {
             VerifyResult::NothingNew => {
                 self.stats
                     .inc(StatType::BootstrapVerifyFrontiers, DetailType::NothingNew);
+                // OK, but nothing to do
                 true
             }
             VerifyResult::Invalid => {
@@ -81,8 +78,8 @@ impl FrontierAckProcessor {
         let stats = self.stats.clone();
         let state = self.state.clone();
         self.workers.post(Box::new(move || {
-            let tx = ledger.read_txn();
-            let mut worker = FrontierWorker::new(&ledger, &tx, &stats, &state);
+            let any = ledger.any();
+            let mut worker = FrontierWorker::new(&any, &stats, &state);
             worker.process(frontiers);
         }));
     }
@@ -100,31 +97,141 @@ mod tests {
     use crate::bootstrap::state::{QuerySource, QueryType};
 
     #[test]
-    fn update_account_ranges() {
-        let stats = Arc::new(Stats::default());
-        let ledger = Arc::new(Ledger::new_null());
-        let state = Arc::new(Mutex::new(BootstrapState::new_test_instance()));
-        let processor = FrontierAckProcessor::new(stats, ledger, state.clone());
+    fn empty_frontiers() {
+        let fixture = create_fixture();
+        let query = running_query();
 
-        let query = RunningQuery {
-            source: QuerySource::Frontiers,
-            query_type: QueryType::Frontiers,
-            start: 1.into(),
-            ..RunningQuery::new_test_instance()
-        };
+        let success = fixture.processor.process(&query, Vec::new());
 
-        let success = processor.process(&query, Vec::new());
-        assert!(success);
-
-        let success = processor.process(&query, vec![Frontier::new_test_instance()]);
         assert!(success);
         assert_eq!(
-            state
+            fixture.stats.count(
+                StatType::BootstrapProcess,
+                DetailType::Frontiers,
+                Direction::In
+            ),
+            1
+        );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapVerifyFrontiers,
+                DetailType::Ok,
+                Direction::In
+            ),
+            0
+        );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapVerifyFrontiers,
+                DetailType::NothingNew,
+                Direction::In
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn update_account_ranges() {
+        let fixture = create_fixture();
+        let query = running_query();
+
+        let success = fixture
+            .processor
+            .process(&query, vec![Frontier::new_test_instance()]);
+
+        assert!(success);
+        assert_eq!(
+            fixture
+                .state
                 .lock()
                 .unwrap()
                 .frontier_scan
                 .total_requests_completed(),
             1
         );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapProcess,
+                DetailType::Frontiers,
+                Direction::In
+            ),
+            1
+        );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapVerifyFrontiers,
+                DetailType::Ok,
+                Direction::In
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn invalid_frontiers() {
+        let fixture = create_fixture();
+        let query = running_query();
+
+        let frontiers = vec![
+            Frontier::new(3.into(), 100.into()),
+            Frontier::new(1.into(), 200.into()), // descending order is invalid!
+        ];
+
+        let success = fixture.processor.process(&query, frontiers);
+
+        assert!(!success);
+        assert_eq!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .frontier_scan
+                .total_requests_completed(),
+            0
+        );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapProcess,
+                DetailType::Frontiers,
+                Direction::In
+            ),
+            1
+        );
+        assert_eq!(
+            fixture.stats.count(
+                StatType::BootstrapVerifyFrontiers,
+                DetailType::Invalid,
+                Direction::In
+            ),
+            1
+        );
+    }
+
+    fn create_fixture() -> Fixture {
+        let stats = Arc::new(Stats::default());
+        let ledger = Arc::new(Ledger::new_null());
+        let state = Arc::new(Mutex::new(BootstrapState::default()));
+        let processor = FrontierAckProcessor::new(stats.clone(), ledger, state.clone());
+
+        Fixture {
+            stats,
+            processor,
+            state,
+        }
+    }
+
+    fn running_query() -> RunningQuery {
+        RunningQuery {
+            source: QuerySource::Frontiers,
+            query_type: QueryType::Frontiers,
+            start: 1.into(),
+            ..RunningQuery::new_test_instance()
+        }
+    }
+
+    struct Fixture {
+        stats: Arc<Stats>,
+        processor: FrontierAckProcessor,
+        state: Arc<Mutex<BootstrapState>>,
     }
 }

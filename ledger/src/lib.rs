@@ -12,12 +12,12 @@ mod generate_cache_flags;
 mod ledger;
 mod ledger_constants;
 mod ledger_context;
-mod ledger_set_any;
-mod ledger_set_confirmed;
+mod ledger_sets;
 mod rep_weight_cache;
 mod rep_weights_updater;
 mod representative_block_finder;
-mod write_queue;
+pub mod test_helpers;
+mod vote_verifier;
 
 #[cfg(test)]
 mod ledger_tests;
@@ -30,9 +30,8 @@ pub use ledger_constants::{
     LedgerConstants, DEV_GENESIS_ACCOUNT, DEV_GENESIS_BLOCK, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
 };
 pub use ledger_context::LedgerContext;
-pub use ledger_set_any::*;
-pub use ledger_set_confirmed::*;
+pub use ledger_sets::*;
 pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
-pub use write_queue::{WriteGuard, WriteQueue, Writer};
+pub use rsnano_store_lmdb::{WriteGuard, WriteQueue, Writer};

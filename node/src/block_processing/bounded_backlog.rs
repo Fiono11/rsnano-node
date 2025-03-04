@@ -1,24 +1,23 @@
-use super::{
-    backlog_index::{BacklogEntry, BacklogIndex},
-    backlog_scan::ActivatedInfo,
-    BlockContext, BlockProcessor,
-};
-use crate::{
-    consensus::Bucketing,
-    stats::{DetailType, StatType, Stats},
-};
-use rsnano_core::{
-    utils::ContainerInfo, Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
-};
-use rsnano_ledger::{BlockStatus, Ledger};
-use rsnano_network::bandwidth_limiter::RateLimiter;
-use rsnano_store_lmdb::{LmdbReadTransaction, Transaction};
 use std::{
     cmp::min,
     sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
+
+use rsnano_core::{
+    utils::ContainerInfo, Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
+};
+use rsnano_ledger::{AnySet, BlockStatus, Ledger, LedgerSet, OwningAnySet};
+use rsnano_network::bandwidth_limiter::RateLimiter;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::{
+    backlog_index::{BacklogEntry, BacklogIndex},
+    backlog_scan::UnconfirmedInfo,
+    BlockContext, BlockProcessor,
+};
+use crate::consensus::Bucketing;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
@@ -115,28 +114,28 @@ impl BoundedBacklog {
         *self.backlog_impl.can_rollback.write().unwrap() = Box::new(f);
     }
 
-    pub fn activate_batch(&self, batch: &[ActivatedInfo]) {
-        let mut tx = self.backlog_impl.ledger.read_txn();
+    pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
+        let mut any = self.backlog_impl.ledger.any();
         for info in batch {
-            self.activate(&mut tx, &info.account, &info.account_info, &info.conf_info);
+            self.activate(&mut any, &info.account, &info.account_info, &info.conf_info);
         }
     }
 
     pub fn insert_batch(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
-        let tx = self.backlog_impl.ledger.read_txn();
+        let any = self.backlog_impl.ledger.any();
         for (result, context) in batch {
             if *result == BlockStatus::Progress {
                 if let Some(block) = context.saved_block.lock().unwrap().clone() {
-                    self.insert(&tx, &block);
+                    self.insert(&any, &block);
                 }
             }
         }
     }
 
-    pub fn erase_accounts(&self, accounts: impl IntoIterator<Item = Account>) {
+    pub fn erase_accounts(&self, accounts: &[Account]) {
         let mut guard = self.backlog_impl.mutex.lock().unwrap();
-        for account in accounts.into_iter() {
-            guard.index.erase_account(&account);
+        for account in accounts {
+            guard.index.erase_account(account);
         }
     }
 
@@ -152,9 +151,9 @@ impl BoundedBacklog {
         guard.index.contains(hash)
     }
 
-    fn activate(
-        &self,
-        tx: &mut LmdbReadTransaction,
+    fn activate<'a>(
+        &'a self,
+        any: &mut OwningAnySet<'a>,
         _account: &Account,
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
@@ -162,11 +161,7 @@ impl BoundedBacklog {
         debug_assert!(conf_info.frontier != account_info.head);
 
         // Insert blocks into the index starting from the account head block
-        let mut block = self
-            .backlog_impl
-            .ledger
-            .any()
-            .get_block(tx, &account_info.head);
+        let mut block = any.get_block(&account_info.head);
 
         while let Some(blk) = block {
             // We reached the confirmed frontier, no need to track more blocks
@@ -179,26 +174,23 @@ impl BoundedBacklog {
                 break;
             }
 
-            let inserted = self.insert(tx, &blk);
+            let inserted = self.insert(any, &blk);
 
             // If the block was not inserted, we already have it in the backlog
             if !inserted {
                 break;
             }
 
-            tx.refresh_if_needed();
+            if any.should_refresh() {
+                *any = self.backlog_impl.ledger.any();
+            }
 
-            block = self
-                .backlog_impl
-                .ledger
-                .any()
-                .get_block(tx, &blk.previous());
+            block = any.get_block(&blk.previous());
         }
     }
 
-    pub fn insert(&self, tx: &LmdbReadTransaction, block: &SavedBlock) -> bool {
-        let (priority_balance, priority_timestamp) =
-            self.backlog_impl.ledger.block_priority(tx, block);
+    pub fn insert(&self, any: &impl AnySet, block: &SavedBlock) -> bool {
+        let (priority_balance, priority_timestamp) = any.block_priority(block);
         let bucket_index = self.bucketing.bucket_index(priority_balance);
 
         self.backlog_impl
@@ -336,11 +328,11 @@ impl BoundedBacklogImpl {
 
                 drop(guard);
                 {
-                    let tx = self.ledger.read_txn();
+                    let unconfirmed = self.ledger.unconfirmed();
                     for hash in batch {
                         self.stats
                             .inc(StatType::BoundedBacklog, DetailType::Scanned);
-                        self.update(&tx, &hash);
+                        self.update(&unconfirmed, &hash);
                         last = hash;
                     }
                 }
@@ -349,9 +341,9 @@ impl BoundedBacklogImpl {
         }
     }
 
-    fn update(&self, tx: &LmdbReadTransaction, hash: &BlockHash) {
+    fn update(&self, unconfirmed: &impl LedgerSet, hash: &BlockHash) {
         // Erase if the block is either confirmed or missing
-        if !self.ledger.unconfirmed_exists(tx, hash) {
+        if !unconfirmed.block_exists(hash) {
             self.mutex.lock().unwrap().index.erase_hash(hash);
         }
     }

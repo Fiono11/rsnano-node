@@ -3,11 +3,13 @@ mod fair_queue;
 mod peer;
 mod stream;
 
+use chrono::{DateTime, TimeZone, Utc};
 pub use container_info::*;
 pub use fair_queue::*;
 pub use peer::*;
 use std::{
     net::{Ipv6Addr, SocketAddrV6},
+    ops::Add,
     sync::{Arc, Condvar, Mutex},
     thread::available_parallelism,
     time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH},
@@ -134,6 +136,10 @@ impl UnixTimestamp {
         Self(seconds_since_epoch)
     }
 
+    pub const fn new_test_instance() -> Self {
+        Self::new(1740000000)
+    }
+
     pub fn now() -> Self {
         Self(Self::seconds_since_unix_epoch())
     }
@@ -160,11 +166,25 @@ impl UnixTimestamp {
     pub fn add(&self, seconds: u64) -> Self {
         Self(self.0 + seconds)
     }
+
+    pub fn utc(&self) -> DateTime<Utc> {
+        Utc.timestamp_opt(self.0 as i64, 0)
+            .latest()
+            .unwrap_or_default()
+    }
 }
 
 impl From<u64> for UnixTimestamp {
     fn from(value: u64) -> Self {
         Self::new(value)
+    }
+}
+
+impl Add<Duration> for UnixTimestamp {
+    type Output = UnixTimestamp;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self(self.0 + rhs.as_secs())
     }
 }
 
@@ -231,21 +251,27 @@ pub fn new_test_timestamp() -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(1_000_000)
 }
 
+/// contains (done, Option<result>)
 #[derive(Clone)]
-pub struct OneShotNotification(Arc<(Mutex<bool>, Condvar)>);
+pub struct OneShotNotification<T>(Arc<(Mutex<(bool, Option<T>)>, Condvar)>);
 
-impl OneShotNotification {
+impl<T> OneShotNotification<T> {
     pub fn new() -> Self {
-        Self(Arc::new((Mutex::new(false), Condvar::new())))
+        Self(Arc::new((Mutex::new((false, None)), Condvar::new())))
     }
 
-    pub fn notify(&self) {
-        *self.0 .0.lock().unwrap() = true;
+    pub fn notify(&self, t: T) {
+        *self.0 .0.lock().unwrap() = (true, Some(t));
         self.0 .1.notify_one();
     }
 
-    pub fn wait(&self) {
+    pub fn cancel(&self) {
+        *self.0 .0.lock().unwrap() = (true, None);
+        self.0 .1.notify_one();
+    }
+
+    pub fn wait(&self) -> Option<T> {
         let guard = self.0 .0.lock().unwrap();
-        drop(self.0 .1.wait_while(guard, |i| !*i).unwrap())
+        self.0 .1.wait_while(guard, |i| !i.0).unwrap().1.take()
     }
 }

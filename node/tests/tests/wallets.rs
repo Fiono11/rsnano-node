@@ -1,8 +1,9 @@
-use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, WalletId, DEV_GENESIS_KEY};
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY};
+use rsnano_core::{Amount, PrivateKey, WalletId, DEV_GENESIS_KEY};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY,
+};
 use rsnano_node::{
     config::{NodeConfig, NodeFlags},
-    consensus::ActiveElectionsExt,
     wallets::WalletsExt,
 };
 use std::time::Duration;
@@ -12,7 +13,7 @@ use test_helpers::{assert_timely, assert_timely_eq, System};
 fn open_create() {
     let mut system = System::new();
     let node = system.make_node();
-    assert_eq!(node.wallets.mutex.lock().unwrap().len(), 1); // it starts out with a default wallet
+    assert_eq!(node.wallets.wallet_count(), 1); // it starts out with a default wallet
     let id = WalletId::random();
     assert_eq!(node.wallets.wallet_exists(&id), false);
     node.wallets.create(id);
@@ -182,7 +183,7 @@ fn search_receivable() {
         let receive_hash = node
             .ledger
             .any()
-            .account_head(&node.ledger.read_txn(), &DEV_GENESIS_ACCOUNT)
+            .account_head(&DEV_GENESIS_ACCOUNT)
             .unwrap();
         let receive = node.block(&receive_hash).unwrap();
         assert_eq!(receive.height(), 3);

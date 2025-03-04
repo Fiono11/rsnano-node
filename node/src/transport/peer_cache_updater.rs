@@ -1,17 +1,18 @@
-use crate::{
-    stats::{DetailType, StatType, Stats},
-    utils::{CancellationToken, Runnable},
-};
-use rsnano_ledger::Ledger;
-use rsnano_network::{Channel, Network};
-use rsnano_nullable_clock::SystemTimeFactory;
-use rsnano_store_lmdb::LmdbWriteTransaction;
 use std::{
     net::SocketAddrV6,
     sync::{Arc, RwLock},
     time::Duration,
 };
+
 use tracing::debug;
+
+use rsnano_ledger::{Ledger, Writer};
+use rsnano_network::{Channel, Network};
+use rsnano_nullable_clock::SystemTimeFactory;
+use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_store_lmdb::LmdbWriteTransaction;
+
+use crate::utils::{CancellationToken, Runnable};
 
 /// Writes a snapshot of the current peers to the database,
 /// so that we can reconnect to them when the node is restarted
@@ -73,8 +74,8 @@ impl PeerCacheUpdater {
     }
 
     fn get_old_peers(&self, tx: &LmdbWriteTransaction) -> Vec<SocketAddrV6> {
-        let cutoff = self.time_factory.now() - self.erase_cutoff;
         let now = self.time_factory.now();
+        let cutoff = now - self.erase_cutoff;
         self.ledger
             .store
             .peer
@@ -93,7 +94,7 @@ impl PeerCacheUpdater {
 impl Runnable for PeerCacheUpdater {
     fn run(&mut self, _cancel_token: &CancellationToken) {
         self.stats.inc(StatType::PeerHistory, DetailType::Loop);
-        let mut tx = self.ledger.rw_txn();
+        let mut tx = self.ledger.store.tx_begin_write(Writer::Generic);
         self.save_peers(&mut tx);
         self.delete_old_peers(&mut tx);
     }
@@ -101,15 +102,18 @@ impl Runnable for PeerCacheUpdater {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::stats::Direction;
+    use std::{net::SocketAddrV6, time::SystemTime};
+
+    use tracing_test::traced_test;
+
     use rsnano_core::utils::{
         new_test_timestamp, NULL_ENDPOINT, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3,
     };
     use rsnano_network::{ChannelDirection, ChannelMode};
     use rsnano_nullable_clock::Timestamp;
-    use std::{net::SocketAddrV6, time::SystemTime};
-    use tracing_test::traced_test;
+    use rsnano_stats::Direction;
+
+    use super::*;
 
     #[tokio::test]
     async fn no_peers() {

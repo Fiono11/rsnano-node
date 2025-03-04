@@ -4,9 +4,10 @@ use crate::bootstrap::{AscPullQuerySpec, BootstrapConfig};
 use rsnano_core::Account;
 use rsnano_core::{utils::ContainerInfo, BlockHash};
 use rsnano_messages::AscPullReqType;
-use rsnano_network::{Channel, Network};
+use rsnano_network::Channel;
 use rsnano_nullable_clock::Timestamp;
-use std::sync::{Arc, RwLock};
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 pub(crate) struct BootstrapState {
     pub candidate_accounts: CandidateAccounts,
@@ -15,31 +16,25 @@ pub(crate) struct BootstrapState {
     pub frontier_scan: FrontierScan,
     pub counters: BootstrapCounters,
     pub frontier_ack_processor_busy: bool,
+    pub last_outdated_accounts: VecDeque<Account>,
+    pub stopped: bool,
 }
 
 impl BootstrapState {
-    pub fn new(config: BootstrapConfig, network: Arc<RwLock<Network>>) -> Self {
+    pub fn new(config: BootstrapConfig) -> Self {
+        let mut scoring = PeerScoring::new();
+        scoring.set_channel_limit(config.channel_limit);
+
         Self {
             candidate_accounts: CandidateAccounts::new(config.candidate_accounts.clone()),
-            scoring: PeerScoring::new(config.clone(), network),
+            scoring,
             frontier_scan: FrontierScan::new(config.frontier_scan.clone()),
             running_queries: RunningQueryContainer::default(),
             counters: BootstrapCounters::default(),
             frontier_ack_processor_busy: false,
+            last_outdated_accounts: VecDeque::new(),
+            stopped: false,
         }
-    }
-
-    #[cfg(test)]
-    pub fn new_test_instance() -> Self {
-        Self::new(
-            BootstrapConfig::default(),
-            Arc::new(RwLock::new(Network::new_test_instance())),
-        )
-    }
-
-    #[cfg(test)]
-    pub fn add_test_channel(&mut self) -> Arc<Channel> {
-        self.scoring.add_test_channel()
     }
 
     pub fn next_blocking_query(&self, channel: &Arc<Channel>) -> Option<AscPullQuerySpec> {
@@ -84,15 +79,24 @@ impl BootstrapState {
 
     /* Waits for next available blocking block */
     pub fn next_blocking(&self) -> BlockHash {
-        let blocking = self
-            .candidate_accounts
-            .next_blocking(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0);
+        self.candidate_accounts
+            .next_blocking(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
+    }
 
-        if blocking.is_zero() {
-            return blocking;
+    pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {
+        self.counters.received_frontiers += outdated.fontiers_received;
+        self.counters.outdated_accounts_found += outdated.accounts.len();
+
+        for account in &outdated.accounts {
+            // Use the lowest possible priority here
+            self.candidate_accounts
+                .priority_set(account, CandidateAccounts::PRIORITY_CUTOFF);
+
+            self.last_outdated_accounts.push_back(*account);
+            if self.last_outdated_accounts.len() > 20 {
+                self.last_outdated_accounts.pop_front();
+            }
         }
-
-        blocking
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -109,8 +113,25 @@ impl BootstrapState {
     }
 }
 
+impl Default for BootstrapState {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct BootstrapCounters {
     pub received_frontiers: usize,
     pub outdated_accounts_found: usize,
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct OutdatedAccounts {
+    pub accounts: Vec<Account>,
+    /// Accounts that exist but are outdated
+    pub outdated: usize,
+    /// Accounts that don't exist but have pending blocks in the ledger
+    pub pending: usize,
+    /// Total count of received frontiers
+    pub fontiers_received: usize,
 }

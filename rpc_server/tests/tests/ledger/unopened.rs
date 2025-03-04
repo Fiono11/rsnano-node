@@ -1,4 +1,5 @@
-use rsnano_core::{Account, Amount, UnsavedBlockLatticeBuilder};
+use rsnano_core::{Account, Amount};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::Node;
 use rsnano_rpc_messages::UnopenedArgs;
 use std::sync::Arc;

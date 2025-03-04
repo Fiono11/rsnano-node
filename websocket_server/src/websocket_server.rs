@@ -1,14 +1,9 @@
 use super::WebsocketListener;
-use rsnano_core::{
-    Account, Amount, BlockHash, BlockType, SavedBlock, Vote, VoteCode, VoteWithWeightInfo,
-};
+use rsnano_core::{Account, Amount, BlockHash, SavedBlock, Vote, VoteCode, VoteWithWeightInfo};
 use rsnano_ledger::BlockStatus;
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
-    block_processing::BlockContext,
-    config::WebsocketConfig,
-    consensus::{ElectionStatus, ElectionStatusType},
-    Node,
+    block_processing::BlockContext, config::WebsocketConfig, consensus::ElectionStatus, Node,
 };
 use rsnano_websocket_messages::{new_block_arrived_message, OutgoingMessageEnvelope, Topic};
 use serde::{Deserialize, Serialize};
@@ -36,6 +31,7 @@ pub fn create_websocket_server(
     let server = Arc::new(WebsocketListener::new(
         endpoint,
         node.wallets.clone(),
+        node.ledger.clone(),
         node.runtime.clone(),
     ));
 
@@ -43,31 +39,10 @@ pub fn create_websocket_server(
     node.active.on_election_ended(Box::new(
         move |status: &ElectionStatus,
               votes: &Vec<VoteWithWeightInfo>,
-              account: Account,
               block: &SavedBlock,
-              amount: Amount,
-              is_state_send: bool,
-              is_state_epoch: bool| {
+              amount: Amount| {
             if let Some(server) = server_w.upgrade() {
-                debug_assert!(status.election_status_type != ElectionStatusType::Ongoing);
-
-                if server.any_subscriber(Topic::Confirmation) {
-                    let subtype = if is_state_send {
-                        "send"
-                    } else if block.block_type() == BlockType::State {
-                        if block.is_change() {
-                            "change"
-                        } else if is_state_epoch {
-                            "epoch"
-                        } else {
-                            "receive"
-                        }
-                    } else {
-                        ""
-                    };
-
-                    server.broadcast_confirmation(block, &account, &amount, subtype, status, votes);
-                }
+                server.broadcast_confirmation(block, &amount, status, votes);
             }
         },
     ));

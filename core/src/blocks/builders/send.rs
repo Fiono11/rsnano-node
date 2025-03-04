@@ -1,7 +1,6 @@
 use crate::{
-    blocks::send_block::SendBlockArgs,
-    work::{WorkPool, STUB_WORK_POOL},
-    Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, Epoch, PrivateKey, SavedBlock,
+    blocks::send_block::SendBlockArgs, Account, Amount, Block, BlockDetails, BlockHash,
+    BlockSideband, Epoch, PrivateKey, SavedBlock, WorkNonce,
 };
 
 pub struct TestLegacySendBlockBuilder {
@@ -9,7 +8,7 @@ pub struct TestLegacySendBlockBuilder {
     destination: Option<Account>,
     balance: Option<Amount>,
     previous_balance: Option<Amount>,
-    work: Option<u64>,
+    work: Option<WorkNonce>,
     priv_key: Option<PrivateKey>,
 }
 
@@ -58,8 +57,8 @@ impl TestLegacySendBlockBuilder {
         self
     }
 
-    pub fn work(mut self, work: u64) -> Self {
-        self.work = Some(work);
+    pub fn work(mut self, work: impl Into<WorkNonce>) -> Self {
+        self.work = Some(work.into());
         self
     }
 
@@ -68,9 +67,7 @@ impl TestLegacySendBlockBuilder {
         let previous = self.previous.unwrap_or(BlockHash::from(1));
         let destination = self.destination.unwrap_or(Account::from(2));
         let balance = self.balance.unwrap_or(Amount::raw(3));
-        let work = self
-            .work
-            .unwrap_or_else(|| STUB_WORK_POOL.generate_dev2(previous.into()).unwrap());
+        let work = self.work.unwrap_or(42.into());
 
         SendBlockArgs {
             key: &priv_key,

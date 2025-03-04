@@ -6,7 +6,7 @@ use lmdb::{DatabaseFlags, WriteFlags};
 use num_traits::FromPrimitive;
 use rsnano_core::{
     utils::{BufferReader, Deserialize, FixedSizeSerialize},
-    Block, BlockHash, BlockSideband, BlockType, SavedBlock,
+    BlockHash, BlockSideband, BlockType, SavedBlock,
 };
 use rsnano_nullable_lmdb::ConfiguredDatabase;
 #[cfg(feature = "output_tracking")]
@@ -117,16 +117,6 @@ impl LmdbBlockStore {
             SavedBlock::deserialize(&mut stream)
                 .unwrap_or_else(|_| panic!("Could not deserialize block {}!", hash))
         })
-    }
-
-    pub fn get_no_sideband(&self, txn: &dyn Transaction, hash: &BlockHash) -> Option<Block> {
-        match self.block_raw_get(txn, hash) {
-            None => None,
-            Some(bytes) => {
-                let mut stream = BufferReader::new(bytes);
-                Some(Block::deserialize(&mut stream).unwrap())
-            }
-        }
     }
 
     pub fn del(&self, txn: &mut LmdbWriteTransaction, hash: &BlockHash) {

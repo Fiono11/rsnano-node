@@ -1,16 +1,19 @@
-use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
-use rsnano_messages::ConfirmAck;
-use rsnano_node::{
-    config::NodeFlags,
-    consensus::{AggregatorRequest, VoteGenerationEvent},
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
-use rsnano_output_tracker::OutputTrackerMt;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+
+use rsnano_core::{Amount, PrivateKey, DEV_GENESIS_KEY};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, AnySet};
+use rsnano_messages::ConfirmAck;
+use rsnano_node::{
+    config::NodeFlags,
+    consensus::{AggregatorRequest, VoteGenerationEvent},
+    wallets::WalletsExt,
+};
+use rsnano_output_tracker::OutputTrackerMt;
+use rsnano_stats::{DetailType, Direction, StatType};
+
 use test_helpers::{
     assert_timely2, assert_timely_eq, assert_timely_msg, make_fake_channel, System,
 };
@@ -29,7 +32,7 @@ fn one() {
         .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let mut send1 = lattice
+    let send1 = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
@@ -58,9 +61,7 @@ fn one() {
     );
 
     // Process and confirm
-    node.ledger
-        .process(&mut node.ledger.rw_txn(), &mut send1)
-        .unwrap();
+    node.ledger.process_one(&send1).unwrap();
     node.confirm(send1.hash());
 
     // In the ledger but no vote generated yet
@@ -546,11 +547,7 @@ fn cannot_vote() {
         )
         .unwrap();
 
-    assert_eq!(
-        node.ledger
-            .dependents_confirmed(&node.ledger.read_txn(), &send2),
-        false
-    );
+    assert_eq!(node.ledger.any().dependents_confirmed(&send2), false);
 
     let dummy_channel = make_fake_channel(&node);
     // correct + incorrect

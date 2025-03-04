@@ -4,7 +4,8 @@ use std::{
     time::Duration,
 };
 
-use rsnano_core::{Amount, PrivateKey, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY};
+use rsnano_core::{Amount, PrivateKey, DEV_GENESIS_KEY};
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use test_helpers::{assert_timely, assert_timely_eq, setup_independent_blocks, System};
 
 /*
@@ -17,7 +18,7 @@ fn backlog_scan() {
     let mut system = System::new();
     let node = system.make_node();
 
-    node.backlog_scan.on_batch_activated(move |batch| {
+    node.backlog_scan.on_unconfirmed_found(move |batch| {
         for info in batch {
             activated2.lock().unwrap().insert(info.account);
         }

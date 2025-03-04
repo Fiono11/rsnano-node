@@ -1,10 +1,45 @@
+use std::{
+    collections::{HashMap, VecDeque},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+    },
+    time::Duration,
+};
+
+use tracing::{debug, error, info, warn};
+
+use rsnano_core::{
+    utils::{ContainerInfo, Peer},
+    Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, Root, SavedBlock, VoteCode,
+    VoteSource, WorkNonce,
+};
+use rsnano_ledger::{AnySet, BlockStatus, Ledger, LedgerSet, RepWeightCache};
+use rsnano_messages::NetworkFilter;
+use rsnano_network::{
+    ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
+    TcpListenerExt, TcpNetworkAdapter, TrafficType,
+};
+use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
+use rsnano_output_tracker::OutputListenerMt;
+use rsnano_stats::Stats;
+use rsnano_store_lmdb::{
+    EnvOptions, LmdbConfig, LmdbEnv, LmdbStore, NullTransactionTracker, SyncStrategy,
+    TransactionTracker,
+};
+use rsnano_work::WorkPool;
+
 use crate::{
     block_processing::{
         BacklogScan, BlockProcessor, BlockProcessorCleanup, BlockSource, BoundedBacklog,
         LedgerNotificationThread, LedgerNotifications, LocalBlockBroadcaster,
         LocalBlockBroadcasterExt, UncheckedMap,
     },
-    bootstrap::{BootstrapExt, BootstrapResponder, BootstrapResponderCleanup, Bootstrapper},
+    bootstrap::{
+        BootstrapExt, BootstrapResponder, BootstrapResponderCleanup, Bootstrapper,
+        BootstrapperCleanup,
+    },
     cementation::ConfirmingSet,
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
@@ -21,9 +56,9 @@ use crate::{
     representatives::{
         OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
     },
-    stats::{
-        adapters::{LedgerStats, NetworkStats},
-        Stats,
+    stats::adapters::NetworkStats,
+    telemetry::{
+        TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, BUILD_INFO, VERSION_STRING,
     },
     tokio_runner::TokioRunner,
     transport::{
@@ -38,37 +73,8 @@ use crate::{
     },
     wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
     work::DistributedWorkFactory,
-    NodeCallbacks, OnlineWeightSampler, TelementryConfig, TelementryExt, Telemetry, BUILD_INFO,
-    VERSION_STRING,
+    NodeCallbacks, OnlineWeightSampler,
 };
-use rsnano_core::{
-    utils::{ContainerInfo, Peer},
-    work::{WorkPool, WorkPoolImpl},
-    Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, Root, SavedBlock, VoteCode,
-    VoteSource,
-};
-use rsnano_ledger::{BlockStatus, Ledger, RepWeightCache, Writer};
-use rsnano_messages::NetworkFilter;
-use rsnano_network::{
-    ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
-    TcpListenerExt, TcpNetworkAdapter, TrafficType,
-};
-use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
-use rsnano_output_tracker::OutputListenerMt;
-use rsnano_store_lmdb::{
-    EnvOptions, LmdbConfig, LmdbEnv, LmdbStore, NullTransactionTracker, SyncStrategy,
-    TransactionTracker,
-};
-use std::{
-    collections::{HashMap, VecDeque},
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
-    },
-    time::Duration,
-};
-use tracing::{debug, error, info, warn};
 
 pub struct Node {
     is_nulled: bool,
@@ -81,11 +87,9 @@ pub struct Node {
     pub stats: Arc<Stats>,
     pub workers: Arc<dyn ThreadPool>,
     wallet_workers: Arc<dyn ThreadPool>,
-    election_workers: Arc<dyn ThreadPool>,
     pub flags: NodeFlags,
-    pub work: Arc<WorkPoolImpl>,
+    pub work: Arc<WorkPool>,
     pub distributed_work: Arc<DistributedWorkFactory>,
-    pub store: Arc<LmdbStore>,
     pub unchecked: Arc<UncheckedMap>,
     pub ledger: Arc<Ledger>,
     pub syn_cookies: Arc<SynCookies>,
@@ -143,7 +147,7 @@ pub(crate) struct NodeArgs {
     pub config: NodeConfig,
     pub network_params: NetworkParams,
     pub flags: NodeFlags,
-    pub work: Arc<WorkPoolImpl>,
+    pub work: Arc<WorkPool>,
     pub callbacks: NodeCallbacks,
 }
 
@@ -157,7 +161,7 @@ impl NodeArgs {
             config,
             flags: Default::default(),
             callbacks: Default::default(),
-            work: Arc::new(WorkPoolImpl::new_null(123)),
+            work: Arc::new(WorkPool::new_null(WorkNonce::from(123))),
         }
     }
 }
@@ -195,7 +199,11 @@ impl Node {
         let work = args.work;
         // Time relative to the start of the node. This makes time exlicit and enables us to
         // write time relevant unit tests with ease.
-        let steady_clock = Arc::new(SteadyClock::default());
+        let steady_clock = if is_nulled {
+            Arc::new(SteadyClock::new_null())
+        } else {
+            Arc::new(SteadyClock::default())
+        };
 
         let network_label = network_params.network.get_current_network_as_string();
         let global_config = GlobalConfig {
@@ -223,11 +231,11 @@ impl Node {
             .expect("Could not create LMDB store")
         };
 
+        info!("Network: {}", network_label);
         info!("Version: {}", VERSION_STRING);
-        info!("Build information: {}", BUILD_INFO);
-        info!("Active network: {}", network_label);
-        info!("Database backend: {}", store.vendor());
         info!("Data path: {:?}", application_path);
+        info!("Build information: {}", BUILD_INFO);
+        info!("Database backend: {}", store.vendor());
         info!(
             "Work pool threads: {} ({})",
             work.thread_count(),
@@ -251,15 +259,21 @@ impl Node {
             store.cache.clone(),
         ));
 
-        let mut ledger = Ledger::new(
-            store.clone(),
+        info!("Loading ledger, this may take a while...");
+        let ledger = Ledger::new(
+            store,
             network_params.ledger.clone(),
             config.representative_vote_weight_minimum,
             rep_weights.clone(),
+            stats.clone(),
         )
         .expect("Could not initialize ledger");
-        ledger.set_observer(Arc::new(LedgerStats::new(stats.clone())));
         let ledger = Arc::new(ledger);
+        info!("Block count:    {}", ledger.block_count());
+        info!("Cemented count: {}", ledger.cemented_count());
+        info!("Account count:  {}", ledger.account_count());
+        info!("Pruned count:   {}", ledger.pruned_count());
+        info!("Representative count: {}", ledger.rep_weights.len());
 
         log_bootstrap_weights(&ledger.rep_weights);
 
@@ -271,11 +285,9 @@ impl Node {
         ));
         let wallet_workers: Arc<dyn ThreadPool> =
             Arc::new(ThreadPoolImpl::create(1, "Wallet work"));
-        let election_workers: Arc<dyn ThreadPool> =
-            Arc::new(ThreadPoolImpl::create(1, "Election work"));
 
         let network_observer = Arc::new(NetworkStats::new(stats.clone()));
-        let mut network = Network::new(global_config.into());
+        let mut network = Network::new(config.network.clone());
         network.set_observer(network_observer.clone());
         let network = Arc::new(RwLock::new(network));
 
@@ -285,7 +297,7 @@ impl Node {
             network_params.network.cleanup_cutoff(),
         );
 
-        let mut network_filter = NetworkFilter::new(1024 * 1024);
+        let mut network_filter = NetworkFilter::new(config.network_duplicate_filter_size);
         network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
         let network_filter = Arc::new(network_filter);
 
@@ -304,7 +316,6 @@ impl Node {
         ));
 
         let telemetry_config = TelementryConfig {
-            enable_ongoing_requests: false,
             enable_ongoing_broadcasts: !flags.disable_providing_telemetry_metrics,
         };
 
@@ -344,16 +355,23 @@ impl Node {
             message_sender.clone(),
         );
 
+        let telemetry_factory = TelemetryFactory {
+            ledger: ledger.clone(),
+            network: network.clone(),
+            node_id_key: node_id.clone(),
+            unchecked: unchecked.clone(),
+            startup_time: steady_clock.now(),
+            clock: steady_clock.clone(),
+        };
+
         let telemetry = Arc::new(Telemetry::new(
+            telemetry_factory,
             telemetry_config,
-            config.clone(),
             stats.clone(),
-            ledger.clone(),
-            unchecked.clone(),
+            ledger.genesis_hash(),
             network_params.clone(),
             network.clone(),
             message_sender.clone(),
-            node_id.clone(),
             steady_clock.clone(),
         ));
 
@@ -464,6 +482,7 @@ impl Node {
         let vote_broadcaster = Arc::new(VoteBroadcaster::new(
             vote_processor_queue.clone(),
             message_flooder.clone(),
+            stats.clone(),
         ));
 
         let vote_generators = Arc::new(VoteGenerators::new(
@@ -490,7 +509,6 @@ impl Node {
             wallets.clone(),
             recently_confirmed.clone(),
             confirming_set.clone(),
-            election_workers.clone(),
         ));
 
         let vote_router = Arc::new(VoteRouter::new(
@@ -562,7 +580,7 @@ impl Node {
                 return;
             };
 
-            let tx = ledger_l.read_txn();
+            let any = ledger_l.any();
             for (status, context) in batch {
                 if *status == BlockStatus::Progress {
                     let account = context
@@ -572,7 +590,7 @@ impl Node {
                         .as_ref()
                         .unwrap()
                         .account();
-                    schedulers.activate(&tx, &account);
+                    schedulers.activate(&any, &account);
                 }
             }
         }));
@@ -592,9 +610,9 @@ impl Node {
                 let Some(schedulers) = schedulers_w.upgrade() else {
                     return;
                 };
-                let tx = ledger_l.read_txn();
+                let any = ledger_l.any();
                 for context in batch {
-                    schedulers.activate_successors(&tx, &context.block);
+                    schedulers.activate_successors(&any, &context.block);
                 }
             }));
         }
@@ -705,12 +723,12 @@ impl Node {
         //  TODO: Hook this direclty in the schedulers
         let schedulers_w = Arc::downgrade(&election_schedulers);
         let ledger_l = ledger.clone();
-        backlog_scan.on_batch_activated(move |batch| {
+        backlog_scan.on_unconfirmed_found(move |batch| {
             if let Some(schedulers) = schedulers_w.upgrade() {
-                let tx = ledger_l.read_txn();
+                let any = ledger_l.any();
                 for info in batch {
                     schedulers.activate_backlog(
-                        &tx,
+                        &any,
                         &info.account,
                         &info.account_info,
                         &info.conf_info,
@@ -729,7 +747,7 @@ impl Node {
 
         // Activate accounts with unconfirmed blocks
         let backlog_w = Arc::downgrade(&bounded_backlog);
-        backlog_scan.on_batch_activated(move |batch| {
+        backlog_scan.on_unconfirmed_found(move |batch| {
             if let Some(backlog) = backlog_w.upgrade() {
                 backlog.activate_batch(batch);
             }
@@ -737,9 +755,9 @@ impl Node {
 
         // Erase accounts with all confirmed blocks
         let backlog_w = Arc::downgrade(&bounded_backlog);
-        backlog_scan.on_batch_scanned(move |batch| {
+        backlog_scan.on_up_to_date(move |batch| {
             if let Some(backlog) = backlog_w.upgrade() {
-                backlog.erase_accounts(batch.iter().map(|i| i.account));
+                backlog.erase_accounts(batch);
             }
         });
 
@@ -780,6 +798,7 @@ impl Node {
             &network_params.ledger.genesis_account,
             &ledger_notifications,
         );
+        dead_channel_cleanup.add_step(BootstrapperCleanup(bootstrapper.clone()));
 
         let local_block_broadcaster = Arc::new(LocalBlockBroadcaster::new(
             config.local_block_broadcaster.clone(),
@@ -903,6 +922,7 @@ impl Node {
             peer_connector.clone(),
             flags.clone(),
             network_params.clone(),
+            config.network.clone(),
             stats.clone(),
             syn_cookies.clone(),
             network_filter.clone(),
@@ -914,7 +934,6 @@ impl Node {
         )));
 
         let message_processor = Mutex::new(MessageProcessor::new(
-            flags.clone(),
             config.clone(),
             inbound_message_queue.clone(),
             realtime_message_handler.clone(),
@@ -1061,11 +1080,8 @@ impl Node {
             }
         }
 
-        {
-            let tx = ledger.read_txn();
-            if flags.enable_pruning || ledger.store.pruned.count(&tx) > 0 {
-                ledger.enable_pruning();
-            }
+        if flags.enable_pruning {
+            ledger.enable_pruning();
         }
 
         if ledger.pruning_enabled() {
@@ -1107,18 +1123,9 @@ impl Node {
                 stats: stats.clone(),
                 callback_url,
             };
-            active_elections.on_election_ended(Box::new(
-                move |status, _weights, account, block, amount, is_state_send, is_state_epoch| {
-                    http_callbacks.execute(
-                        status,
-                        account,
-                        block,
-                        amount,
-                        is_state_send,
-                        is_state_epoch,
-                    );
-                },
-            ))
+            active_elections.on_election_ended(Box::new(move |status, _weights, block, amount| {
+                http_callbacks.execute(status, block, amount);
+            }))
         }
 
         let time_factory = SystemTimeFactory::default();
@@ -1139,7 +1146,7 @@ impl Node {
             ledger.clone(),
             peer_connector.clone(),
             stats.clone(),
-            network_params.network.merge_period,
+            config.network.cached_peer_reachout,
         );
 
         let ledger_pruning = Arc::new(LedgerPruning::new(
@@ -1184,14 +1191,12 @@ impl Node {
             node_id,
             workers,
             wallet_workers,
-            election_workers,
             distributed_work,
             unchecked,
             telemetry,
             syn_cookies,
             network,
             ledger,
-            store,
             stats,
             data_path: application_path,
             network_params,
@@ -1321,9 +1326,7 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockStatus> {
-        let _guard = self.ledger.write_queue.wait(Writer::Testing);
-        let mut tx = self.ledger.rw_txn();
-        self.ledger.process(&mut tx, &block)
+        self.ledger.process_one(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -1338,10 +1341,8 @@ impl Node {
     }
 
     pub fn process_multi(&self, blocks: &[Block]) {
-        let _guard = self.ledger.write_queue.wait(Writer::Testing);
-        let mut tx = self.ledger.rw_txn();
         for (i, block) in blocks.iter().enumerate() {
-            match self.ledger.process(&mut tx, &mut block.clone()) {
+            match self.ledger.process_one(block) {
                 Ok(_) | Err(BlockStatus::Old) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
@@ -1376,29 +1377,23 @@ impl Node {
     }
 
     pub fn block(&self, hash: &BlockHash) -> Option<SavedBlock> {
-        let tx = self.ledger.read_txn();
-        self.ledger.any().get_block(&tx, hash)
+        self.ledger.any().get_block(hash)
     }
 
     pub fn latest(&self, account: &Account) -> BlockHash {
-        let tx = self.ledger.read_txn();
-        self.ledger
-            .any()
-            .account_head(&tx, account)
-            .unwrap_or_default()
+        self.ledger.any().account_head(account).unwrap_or_default()
     }
 
     pub fn get_node_id(&self) -> NodeId {
         self.node_id.public_key().into()
     }
 
-    pub fn work_generate_dev(&self, root: impl Into<Root>) -> u64 {
-        self.work.generate_dev2(root.into()).unwrap()
+    pub fn work_generate_dev(&self, root: impl Into<Root>) -> WorkNonce {
+        self.work.generate_dev(root.into()).unwrap()
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
-        let tx = self.ledger.read_txn();
-        self.ledger.any().block_exists(&tx, hash)
+        self.ledger.any().block_exists(hash)
     }
 
     pub fn blocks_exist(&self, hashes: &[Block]) -> bool {
@@ -1406,18 +1401,12 @@ impl Node {
     }
 
     pub fn block_hashes_exist(&self, hashes: impl IntoIterator<Item = BlockHash>) -> bool {
-        let tx = self.ledger.read_txn();
-        hashes
-            .into_iter()
-            .all(|h| self.ledger.any().block_exists(&tx, &h))
+        let any = self.ledger.any();
+        hashes.into_iter().all(|h| any.block_exists(&h))
     }
 
     pub fn balance(&self, account: &Account) -> Amount {
-        let tx = self.ledger.read_txn();
-        self.ledger
-            .any()
-            .account_balance(&tx, account)
-            .unwrap_or_default()
+        self.ledger.any().account_balance(account)
     }
 
     pub fn confirm_multi(&self, blocks: &[Block]) {
@@ -1427,28 +1416,21 @@ impl Node {
     }
 
     pub fn confirm(&self, hash: BlockHash) {
-        let _guard = self.ledger.write_queue.wait(Writer::Testing);
-        let mut tx = self.ledger.rw_txn();
-        self.ledger.confirm(&mut tx, hash);
+        self.ledger.confirm(hash);
     }
 
     pub fn block_confirmed(&self, hash: &BlockHash) -> bool {
-        let tx = self.ledger.read_txn();
-        self.ledger.confirmed().block_exists(&tx, hash)
+        self.ledger.confirmed().block_exists(hash)
     }
 
     pub fn block_hashes_confirmed(&self, blocks: &[BlockHash]) -> bool {
-        let tx = self.ledger.read_txn();
-        blocks
-            .iter()
-            .all(|b| self.ledger.confirmed().block_exists(&tx, b))
+        let confirmed = self.ledger.confirmed();
+        blocks.iter().all(|b| confirmed.block_exists(b))
     }
 
     pub fn blocks_confirmed(&self, blocks: &[Block]) -> bool {
-        let tx = self.ledger.read_txn();
-        blocks
-            .iter()
-            .all(|b| self.ledger.confirmed().block_exists(&tx, &b.hash()))
+        let confirmed = self.ledger.confirmed();
+        blocks.iter().all(|b| confirmed.block_exists(&b.hash()))
     }
 
     pub fn flood_block_many(
@@ -1467,10 +1449,11 @@ impl Node {
             return; // TODO better nullability implementation
         }
 
-        if !self.ledger.any().block_exists_or_pruned(
-            &self.ledger.read_txn(),
-            &self.network_params.ledger.genesis_block.hash(),
-        ) {
+        if !self
+            .ledger
+            .any()
+            .block_exists_or_pruned(&self.network_params.ledger.genesis_block.hash())
+        {
             error!("Genesis block not found. This commonly indicates a configuration issue, check that the --network or --data_path command line arguments are correct, and also the ledger backend node config option. If using a read-only CLI command a ledger must already exist, start the node with --daemon first.");
 
             if self.network_params.network.is_beta_network() {
@@ -1496,9 +1479,7 @@ impl Node {
             self.rep_crawler.start();
         }
 
-        if self.config.tcp.max_inbound_connections > 0
-            && !(self.flags.disable_bootstrap_listener && self.flags.disable_tcp_realtime)
-        {
+        if self.config.tcp.max_inbound_connections > 0 {
             self.tcp_listener.start();
         } else {
             warn!("Peering is disabled");
@@ -1544,9 +1525,9 @@ impl Node {
             .start_delayed(peer_cache_update_interval);
         self.ledger_notification_thread.start();
 
-        if !self.network_params.network.merge_period.is_zero() {
+        if !self.config.network.peer_reachout.is_zero() {
             self.peer_cache_connector
-                .start(self.network_params.network.merge_period);
+                .start(self.config.network.cached_peer_reachout);
         }
         self.vote_router.start();
 
@@ -1604,7 +1585,6 @@ impl Node {
         self.vote_rebroadcaster.stop();
 
         self.wallet_workers.stop();
-        self.election_workers.stop();
         self.workers.stop();
 
         self.tokio_runner.stop();
@@ -1678,7 +1658,7 @@ mod tests {
     #[test]
     fn start_peer_cache_connector() {
         let mut node = TestNode::new();
-        let merge_period = node.network_params.network.merge_period;
+        let merge_period = node.config.network.cached_peer_reachout;
         let start_tracker = node.peer_cache_connector.track_start();
 
         node.start();
@@ -1722,11 +1702,12 @@ mod tests {
             app_path.push(format!("rsnano-test-{}", Uuid::new_v4().simple()));
             let config = NodeConfig::new_test_instance();
             let network_params = NetworkParams::new(Networks::NanoDevNetwork);
-            let work = Arc::new(WorkPoolImpl::new(
-                network_params.work.clone(),
-                1,
-                Duration::ZERO,
-            ));
+            let work = Arc::new(
+                WorkPool::builder()
+                    .network(Networks::NanoDevNetwork)
+                    .threads(1)
+                    .finish(),
+            );
 
             let node = NodeBuilder::new(Networks::NanoDevNetwork)
                 .data_path(app_path.clone())

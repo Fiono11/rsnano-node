@@ -1,10 +1,13 @@
-use super::{rebroadcast_processor::RebroadcastProcessor, VoteRebroadcastQueue};
-use crate::{stats::Stats, transport::MessageFlooder, wallets::WalletRepresentatives};
-use rsnano_core::utils::ContainerInfo;
 use std::{
     sync::{Arc, Mutex},
     thread::JoinHandle,
 };
+
+use rsnano_core::utils::ContainerInfo;
+use rsnano_stats::Stats;
+
+use super::{rebroadcast_processor::RebroadcastProcessor, VoteRebroadcastQueue};
+use crate::{transport::MessageFlooder, wallets::WalletRepresentatives};
 
 /// Rebroadcasts votes that were created by other nodes
 pub(crate) struct VoteRebroadcaster {
@@ -92,7 +95,7 @@ mod tests {
 
         let done = OneShotNotification::new();
         let done2 = done.clone();
-        rebroadcaster.on_vote_processed(move || done2.notify());
+        rebroadcaster.on_vote_processed(move || done2.notify(()));
         rebroadcaster.start();
 
         queue.enqueue(Arc::new(Vote::new_test_instance()));

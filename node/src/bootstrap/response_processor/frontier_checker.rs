@@ -1,7 +1,7 @@
-use super::{account_crawler::AccountDatabaseCrawler, pending_crawler::PendingDatabaseCrawler};
+use super::database_crawler::{AccountCrawlSource, DatabaseCrawler, PendingCrawlSource};
+use crate::bootstrap::state::OutdatedAccounts;
 use rsnano_core::{Account, Frontier};
-use rsnano_ledger::Ledger;
-use rsnano_store_lmdb::LmdbReadTransaction;
+use rsnano_ledger::{AnySet, OwningAnySet};
 
 pub(crate) enum FrontierCheckResult {
     /// Account doesn't exist in the ledger and has no pending blocks, can't be prioritized right now
@@ -14,30 +14,19 @@ pub(crate) enum FrontierCheckResult {
     Pending,
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
-pub(crate) struct OutdatedAccounts {
-    pub accounts: Vec<Account>,
-    /// Accounts that exist but are outdated
-    pub outdated: usize,
-    /// Accounts that don't exist but have pending blocks in the ledger
-    pub pending: usize,
-}
-
 /// Checks if a given frontier is up to date or outdated
 pub(crate) struct FrontierChecker<'a> {
-    ledger: &'a Ledger,
-    tx: &'a LmdbReadTransaction,
-    account_crawler: AccountDatabaseCrawler<'a>,
-    pending_crawler: PendingDatabaseCrawler<'a>,
+    any: &'a OwningAnySet<'a>,
+    account_crawler: DatabaseCrawler<'a, AccountCrawlSource<'a>>,
+    pending_crawler: DatabaseCrawler<'a, PendingCrawlSource<'a>>,
 }
 
 impl<'a> FrontierChecker<'a> {
-    pub(crate) fn new(ledger: &'a Ledger, tx: &'a LmdbReadTransaction) -> Self {
+    pub(crate) fn new(any: &'a OwningAnySet<'a>) -> Self {
         Self {
-            ledger,
-            tx,
-            account_crawler: AccountDatabaseCrawler::new(ledger, tx),
-            pending_crawler: PendingDatabaseCrawler::new(ledger, tx),
+            any,
+            account_crawler: DatabaseCrawler::new(AccountCrawlSource::new(any)),
+            pending_crawler: DatabaseCrawler::new(PendingCrawlSource::new(any)),
         }
     }
 
@@ -69,11 +58,12 @@ impl<'a> FrontierChecker<'a> {
             accounts,
             outdated,
             pending,
+            fontiers_received: frontiers.len(),
         }
     }
 
     fn check_frontier(&mut self, frontier: &Frontier) -> FrontierCheckResult {
-        self.advance_to(&frontier.account);
+        self.advance_to(frontier.account);
 
         // Check if account exists in our ledger
         if let Some((account, info)) = &self.account_crawler.current {
@@ -81,11 +71,7 @@ impl<'a> FrontierChecker<'a> {
                 // Check for frontier mismatch
                 if info.head != frontier.hash {
                     // Check if frontier block exists in our ledger
-                    if !self
-                        .ledger
-                        .any()
-                        .block_exists_or_pruned(self.tx, &frontier.hash)
-                    {
+                    if !self.any.block_exists_or_pruned(&frontier.hash) {
                         return FrontierCheckResult::Outdated; // Frontier is outdated
                     }
                 }
@@ -94,8 +80,8 @@ impl<'a> FrontierChecker<'a> {
         }
 
         // Check if account has pending blocks in our ledger
-        if let Some((key, _)) = &self.pending_crawler.current {
-            if key.receiving_account == frontier.account {
+        if let Some((account, _)) = &self.pending_crawler.current {
+            if *account == frontier.account {
                 return FrontierCheckResult::Pending;
             }
         }
@@ -108,7 +94,7 @@ impl<'a> FrontierChecker<'a> {
         self.pending_crawler.seek(start);
     }
 
-    fn advance_to(&mut self, account: &Account) {
+    fn advance_to(&mut self, account: Account) {
         self.account_crawler.advance_to(account);
         self.pending_crawler.advance_to(account);
     }
@@ -118,6 +104,7 @@ impl<'a> FrontierChecker<'a> {
 mod tests {
     use super::*;
     use rsnano_core::{AccountInfo, BlockHash, PendingInfo, PendingKey};
+    use rsnano_ledger::Ledger;
 
     #[test]
     fn no_frontiers_and_empty_ledger() {
@@ -130,7 +117,12 @@ mod tests {
         assert_frontier_check(
             LedgerSpec::default(),
             &frontiers,
-            OutdatedAccounts::default(),
+            OutdatedAccounts {
+                accounts: Vec::new(),
+                outdated: 0,
+                pending: 0,
+                fontiers_received: 1,
+            },
         );
     }
 
@@ -146,6 +138,7 @@ mod tests {
             accounts: vec![account],
             outdated: 1,
             pending: 0,
+            fontiers_received: 1,
         };
         assert_frontier_check(ledger, &frontiers, expected);
     }
@@ -157,7 +150,12 @@ mod tests {
             frontiers: vec![frontier.clone()],
             ..Default::default()
         };
-        let expected = OutdatedAccounts::default();
+        let expected = OutdatedAccounts {
+            accounts: Vec::new(),
+            outdated: 0,
+            pending: 0,
+            fontiers_received: 1,
+        };
         assert_frontier_check(ledger, &[frontier], expected);
     }
 
@@ -173,6 +171,7 @@ mod tests {
             accounts: vec![account],
             outdated: 0,
             pending: 1,
+            fontiers_received: 1,
         };
         assert_frontier_check(ledger, &frontiers, expected);
     }
@@ -188,7 +187,12 @@ mod tests {
             ..Default::default()
         };
         let frontiers = [Frontier::new(account, frontier)];
-        let expected = OutdatedAccounts::default();
+        let expected = OutdatedAccounts {
+            accounts: Vec::new(),
+            outdated: 0,
+            pending: 0,
+            fontiers_received: 1,
+        };
         assert_frontier_check(ledger, &frontiers, expected);
     }
 
@@ -199,7 +203,12 @@ mod tests {
             ..Default::default()
         };
         let frontiers = [Frontier::new(Account::from(1), BlockHash::from(2))];
-        let expected = OutdatedAccounts::default();
+        let expected = OutdatedAccounts {
+            accounts: Vec::new(),
+            outdated: 0,
+            pending: 0,
+            fontiers_received: 1,
+        };
         assert_frontier_check(ledger, &frontiers, expected);
     }
 
@@ -210,7 +219,12 @@ mod tests {
             ..Default::default()
         };
         let frontiers = [Frontier::new(Account::from(1), BlockHash::from(2))];
-        let expected = OutdatedAccounts::default();
+        let expected = OutdatedAccounts {
+            accounts: Vec::new(),
+            outdated: 0,
+            pending: 0,
+            fontiers_received: 1,
+        };
         assert_frontier_check(ledger, &frontiers, expected);
     }
 
@@ -225,8 +239,8 @@ mod tests {
     }
 
     fn get_outdated_accounts(ledger: &Ledger, frontiers: &[Frontier]) -> OutdatedAccounts {
-        let tx = ledger.read_txn();
-        let mut checker = FrontierChecker::new(&ledger, &tx);
+        let any = ledger.any();
+        let mut checker = FrontierChecker::new(&any);
         checker.get_outdated_accounts(frontiers)
     }
 

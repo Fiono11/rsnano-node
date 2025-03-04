@@ -1,19 +1,3 @@
-use super::{InsertResult, OnlineReps};
-use crate::{
-    config::{NetworkParams, NodeConfig},
-    consensus::ActiveElections,
-    stats::{DetailType, Direction, Sample, StatType, Stats},
-    transport::{
-        keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
-        MessageSender,
-    },
-};
-use bounded_vec_deque::BoundedVecDeque;
-use rsnano_core::{utils::ContainerInfo, Account, BlockHash, Root, Vote};
-use rsnano_ledger::Ledger;
-use rsnano_messages::{ConfirmReq, Message};
-use rsnano_network::{Channel, ChannelId, Network, TrafficType};
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use std::{
     collections::HashMap,
     mem::size_of,
@@ -22,7 +6,26 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+
+use bounded_vec_deque::BoundedVecDeque;
 use tracing::{debug, info, warn};
+
+use rsnano_core::{utils::ContainerInfo, Account, BlockHash, Root, Vote};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_messages::{ConfirmReq, Message};
+use rsnano_network::{Channel, ChannelId, Network, TrafficType};
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
+
+use super::{InsertResult, OnlineReps};
+use crate::{
+    config::{NetworkParams, NodeConfig},
+    consensus::ActiveElections,
+    transport::{
+        keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
+        MessageSender,
+    },
+};
 
 /// Crawls the network for representatives. Queries are performed by requesting confirmation of a
 /// random block and observing the corresponding vote.
@@ -280,8 +283,11 @@ impl RepCrawler {
                     AGGRESSIVE_COUNT
                 };
 
-                /* include channels with ephemeral remote ports */
-                let mut random_peers = self.network.read().unwrap().shuffled_channels();
+                let mut random_peers = self
+                    .network
+                    .read()
+                    .unwrap()
+                    .shuffled_channels(TrafficType::RepCrawler);
                 random_peers.truncate(required_peer_count);
 
                 guard = self.rep_crawler_impl.lock().unwrap();
@@ -350,8 +356,8 @@ impl RepCrawler {
 
     fn prepare_query_target(&self) -> (BlockHash, Root) {
         const MAX_ATTEMPTS: usize = 32;
-        let tx = self.ledger.read_txn();
-        let random_blocks = self.ledger.random_blocks(&tx, MAX_ATTEMPTS);
+        let any = self.ledger.any();
+        let random_blocks = any.random_blocks(MAX_ATTEMPTS);
 
         for block in &random_blocks {
             // Avoid blocks that could still have live votes coming in
@@ -360,7 +366,7 @@ impl RepCrawler {
             }
 
             // Nodes will not respond to queries for blocks that are not confirmed
-            if !self.ledger.confirmed().block_exists(&tx, &block.hash()) {
+            if !any.confirmed().block_exists(&block.hash()) {
                 continue;
             }
 

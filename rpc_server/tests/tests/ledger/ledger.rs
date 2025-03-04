@@ -1,7 +1,5 @@
-use rsnano_core::{
-    Amount, Block, PrivateKey, StateBlockArgs, UnsavedBlockLatticeBuilder, DEV_GENESIS_KEY,
-};
-use rsnano_ledger::BlockStatus;
+use rsnano_core::{Amount, Block, PrivateKey, StateBlockArgs, DEV_GENESIS_KEY};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, BlockStatus};
 use rsnano_node::Node;
 use rsnano_rpc_messages::LedgerArgs;
 use std::sync::Arc;

@@ -1,5 +1,6 @@
 use crate::command_handler::RpcCommandHandler;
 use rsnano_core::{Amount, Epoch};
+use rsnano_ledger::{AnySet, ConfirmedSet, LedgerSet};
 use rsnano_rpc_messages::{unwrap_bool_or_false, AccountInfoArgs, AccountInfoResponse};
 
 impl RpcCommandHandler {
@@ -7,21 +8,16 @@ impl RpcCommandHandler {
         &self,
         args: AccountInfoArgs,
     ) -> anyhow::Result<AccountInfoResponse> {
-        let txn = self.node.ledger.read_txn();
+        let any = self.node.ledger.any();
         let include_confirmed = unwrap_bool_or_false(args.include_confirmed);
-        let info = self.load_account(&txn, &args.account)?;
+        let info = self.load_account(&any, &args.account)?;
 
-        let confirmation_height_info = self
-            .node
-            .store
-            .confirmation_height
-            .get(&txn, &args.account)
-            .unwrap();
+        let conf_info = any.confirmed().get_conf_info(&args.account).unwrap();
 
         let mut account_info = AccountInfoResponse {
             frontier: info.head,
             open_block: info.open_block,
-            representative_block: self.node.ledger.representative_block_hash(&txn, &info.head),
+            representative_block: any.representative_block_hash(&info.head),
             balance: info.balance,
             modified_timestamp: info.modified.as_u64().into(),
             block_count: info.block_count.into(),
@@ -41,48 +37,35 @@ impl RpcCommandHandler {
         };
 
         if include_confirmed {
-            let confirmed_balance = if info.block_count != confirmation_height_info.height {
-                self.node
-                    .ledger
-                    .any()
-                    .block_balance(&txn, &confirmation_height_info.frontier)
+            let confirmed_balance = if info.block_count != conf_info.height {
+                any.block_balance(&conf_info.frontier)
                     .unwrap_or(Amount::zero())
             } else {
                 // block_height and confirmed height are the same, so can just reuse balance
                 info.balance
             };
             account_info.confirmed_balance = Some(confirmed_balance);
-            account_info.confirmed_height = Some(confirmation_height_info.height.into());
-            account_info.confirmation_height = Some(confirmation_height_info.height.into());
-            account_info.confirmed_frontier = Some(confirmation_height_info.frontier);
+            account_info.confirmed_height = Some(conf_info.height.into());
+            account_info.confirmation_height = Some(conf_info.height.into());
+            account_info.confirmed_frontier = Some(conf_info.frontier);
         } else {
             // For backwards compatibility purposes
-            account_info.confirmation_height = Some(confirmation_height_info.height.into());
-            account_info.confirmed_height = Some(confirmation_height_info.height.into());
-            account_info.confirmation_height_frontier = Some(confirmation_height_info.frontier);
+            account_info.confirmation_height = Some(conf_info.height.into());
+            account_info.confirmed_height = Some(conf_info.height.into());
+            account_info.confirmation_height_frontier = Some(conf_info.frontier);
         }
 
         if unwrap_bool_or_false(args.representative) {
             account_info.representative = Some(info.representative.into());
             if include_confirmed {
-                let confirmed_representative = if confirmation_height_info.height > 0 {
-                    if let Some(confirmed_frontier_block) = self
-                        .node
-                        .ledger
-                        .any()
-                        .get_block(&txn, &confirmation_height_info.frontier)
-                    {
+                let confirmed_representative = if conf_info.height > 0 {
+                    if let Some(confirmed_frontier_block) = any.get_block(&conf_info.frontier) {
                         confirmed_frontier_block
                             .representative_field()
                             .unwrap_or_else(|| {
-                                let rep_block_hash = self.node.ledger.representative_block_hash(
-                                    &txn,
-                                    &confirmation_height_info.frontier,
-                                );
-                                self.node
-                                    .ledger
-                                    .any()
-                                    .get_block(&txn, &rep_block_hash)
+                                let rep_block_hash =
+                                    any.representative_block_hash(&conf_info.frontier);
+                                any.get_block(&rep_block_hash)
                                     .unwrap()
                                     .representative_field()
                                     .unwrap()
@@ -98,23 +81,17 @@ impl RpcCommandHandler {
         }
 
         if unwrap_bool_or_false(args.weight) {
-            account_info.weight = Some(self.node.ledger.weight_exact(&txn, args.account.into()));
+            account_info.weight = Some(self.node.ledger.any().weight_exact(args.account.into()));
         }
 
         let receivable = unwrap_bool_or_false(args.receivable);
         if receivable {
-            let account_receivable =
-                self.node
-                    .ledger
-                    .account_receivable(&txn, &args.account, false);
+            let account_receivable = any.account_receivable(&args.account);
             account_info.pending = Some(account_receivable);
             account_info.receivable = Some(account_receivable);
 
             if include_confirmed {
-                let confirmed_receivable =
-                    self.node
-                        .ledger
-                        .account_receivable(&txn, &args.account, true);
+                let confirmed_receivable = any.confirmed().account_receivable(&args.account);
                 account_info.confirmed_pending = Some(confirmed_receivable);
                 account_info.confirmed_receivable = Some(confirmed_receivable);
             }

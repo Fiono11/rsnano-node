@@ -1,21 +1,24 @@
 use rsnano_core::{
     utils::{NULL_ENDPOINT, TEST_ENDPOINT_1},
-    work::WorkPoolImpl,
     Account, Amount, Block, BlockHash, Epoch, Networks, PrivateKey, PublicKey, SavedBlock,
     StateBlockArgs, WalletId, DEV_GENESIS_KEY,
 };
-use rsnano_ledger::{BlockStatus, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
+use rsnano_ledger::{
+    AnySet, BlockStatus, LedgerSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
+};
 use rsnano_network::{Channel, ChannelDirection};
 use rsnano_node::{
     block_processing::BacklogScanConfig,
     config::{NetworkParams, NodeConfig, NodeFlags},
-    consensus::{ActiveElectionsExt, Election},
+    consensus::Election,
     unique_path,
     wallets::WalletsExt,
     Node, NodeBuilder,
 };
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
+use rsnano_store_lmdb::SyncStrategy;
+use rsnano_work::WorkPool;
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener},
     sync::{
@@ -29,7 +32,7 @@ use tracing_subscriber::EnvFilter;
 
 pub struct System {
     pub network_params: NetworkParams,
-    pub work: Arc<WorkPoolImpl>,
+    pub work: Arc<WorkPool>,
     pub nodes: Vec<Arc<Node>>,
     pub initialization_blocks: Vec<Block>,
     pub initialization_blocks_cemented: Vec<Block>,
@@ -41,11 +44,12 @@ impl System {
         let network_params = NetworkParams::new(Networks::NanoDevNetwork);
 
         Self {
-            work: Arc::new(WorkPoolImpl::new(
-                network_params.work.clone(),
-                1,
-                Duration::ZERO,
-            )),
+            work: Arc::new(
+                WorkPool::builder()
+                    .network(Networks::NanoDevNetwork)
+                    .one_cpu_only()
+                    .finish(),
+            ),
             network_params,
             nodes: Vec::new(),
             initialization_blocks: Vec::new(),
@@ -59,6 +63,7 @@ impl System {
         let mut config = NodeConfig::new(Some(port), &network_params, 1);
         config.representative_vote_weight_minimum = Amount::zero();
         config.io_threads = 1;
+        config.lmdb_config.sync = SyncStrategy::NosyncUnsafeWriteMap;
         config
     }
 
@@ -90,14 +95,13 @@ impl System {
     }
 
     fn setup_node(&mut self, node: &Node) {
-        let mut tx = node.store.tx_begin_write();
-        for block in &mut self.initialization_blocks {
-            node.ledger.process(&mut tx, block).unwrap();
+        for block in &self.initialization_blocks {
+            node.ledger.process_one(block).unwrap();
         }
 
-        for block in &mut self.initialization_blocks_cemented {
-            node.ledger.process(&mut tx, block).unwrap();
-            node.ledger.confirm(&mut tx, block.hash());
+        for block in &self.initialization_blocks_cemented {
+            node.ledger.process_one(block).unwrap();
+            node.ledger.confirm(block.hash());
         }
     }
 
@@ -116,10 +120,7 @@ impl System {
         node.start();
 
         // Check that we don't start more nodes than limit for single IP address
-        debug_assert!(
-            self.nodes.len() < node.config.max_peers_per_ip.into()
-                || node.flags.disable_max_peers_per_ip
-        );
+        debug_assert!(self.nodes.len() < node.config.network.max_peers_per_ip.into());
         let node = Arc::new(node);
         self.nodes.push(node.clone());
 
@@ -630,19 +631,13 @@ pub fn send_block(node: Arc<Node>) -> BlockHash {
 }
 
 pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let transaction = node.ledger.read_txn();
+    let any = node.ledger.any();
 
-    let previous = node
-        .ledger
-        .any()
-        .account_head(&transaction, &*DEV_GENESIS_ACCOUNT)
+    let previous = any
+        .account_head(&*DEV_GENESIS_ACCOUNT)
         .unwrap_or(*DEV_GENESIS_HASH);
 
-    let balance = node
-        .ledger
-        .any()
-        .account_balance(&transaction, &*DEV_GENESIS_ACCOUNT)
-        .unwrap_or(Amount::MAX);
+    let balance = any.account_balance(&*DEV_GENESIS_ACCOUNT);
 
     let send: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
@@ -665,19 +660,13 @@ pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block
 }
 
 pub fn process_block_local(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let transaction = node.ledger.read_txn();
+    let any = node.ledger.any();
 
-    let previous = node
-        .ledger
-        .any()
-        .account_head(&transaction, &*DEV_GENESIS_ACCOUNT)
+    let previous = any
+        .account_head(&*DEV_GENESIS_ACCOUNT)
         .unwrap_or(*DEV_GENESIS_HASH);
 
-    let balance = node
-        .ledger
-        .any()
-        .account_balance(&transaction, &*DEV_GENESIS_ACCOUNT)
-        .unwrap_or(Amount::MAX);
+    let balance = any.account_balance(&*DEV_GENESIS_ACCOUNT);
 
     let send: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
@@ -695,19 +684,13 @@ pub fn process_block_local(node: Arc<Node>, account: Account, amount: Amount) ->
 }
 
 pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let transaction = node.ledger.read_txn();
+    let any = node.ledger.any();
 
-    let previous = node
-        .ledger
-        .any()
-        .account_head(&transaction, &*DEV_GENESIS_ACCOUNT)
+    let previous = any
+        .account_head(&*DEV_GENESIS_ACCOUNT)
         .unwrap_or(*DEV_GENESIS_HASH);
 
-    let balance = node
-        .ledger
-        .any()
-        .account_balance(&transaction, &*DEV_GENESIS_ACCOUNT)
-        .unwrap_or(Amount::MAX);
+    let balance = any.account_balance(&*DEV_GENESIS_ACCOUNT);
 
     let send: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
@@ -725,13 +708,11 @@ pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> 
 }
 
 pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
-    let transaction = node.ledger.read_txn();
+    let any = node.ledger.any();
     let account = keys.account();
 
-    let (key, info) = node
-        .ledger
-        .any()
-        .account_receivable_upper_bound(&transaction, account, BlockHash::zero())
+    let (key, info) = any
+        .account_receivable_upper_bound(account, BlockHash::zero())
         .next()
         .unwrap();
 
@@ -755,18 +736,10 @@ pub fn upgrade_epoch(
     //pool: &mut WorkPoolImpl,
     epoch: Epoch,
 ) -> Block {
-    let transaction = node.ledger.read_txn();
+    let any = node.ledger.any();
     let account = *DEV_GENESIS_ACCOUNT;
-    let latest = node
-        .ledger
-        .any()
-        .account_head(&transaction, &account)
-        .unwrap();
-    let balance = node
-        .ledger
-        .any()
-        .account_balance(&transaction, &account)
-        .unwrap_or(Amount::zero());
+    let latest = any.account_head(&account).unwrap();
+    let balance = any.account_balance(&account);
 
     let epoch_block: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,

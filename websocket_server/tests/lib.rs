@@ -1,10 +1,13 @@
 use core::panic;
+use std::{sync::Arc, time::Duration};
+
 use futures_util::{SinkExt, StreamExt};
 use rsnano_core::{
-    Amount, Block, JsonBlock, Networks, PrivateKey, SendBlockArgs, UnsavedBlockLatticeBuilder,
-    Vote, VoteCode, DEV_GENESIS_KEY,
+    Amount, Block, JsonBlock, Networks, PrivateKey, SendBlockArgs, Vote, VoteCode, DEV_GENESIS_KEY,
 };
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+};
 use rsnano_messages::{Message, Publish};
 use rsnano_node::{
     config::{NetworkConstants, NodeConfig, WebsocketConfig},
@@ -15,7 +18,6 @@ use rsnano_websocket_server::{
     create_websocket_server, vote_received, BlockConfirmed, TelemetryReceived, VoteReceived,
     WebsocketListener, WebsocketListenerExt,
 };
-use std::{sync::Arc, time::Duration};
 use test_helpers::{assert_timely, get_available_port, make_fake_channel, System};
 use tokio::{net::TcpStream, task::spawn_blocking, time::timeout};
 use tokio_tungstenite::{connect_async, tungstenite, MaybeTlsStream, WebSocketStream};
@@ -30,7 +32,7 @@ fn started_election() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "started_election", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "started_election", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -70,7 +72,7 @@ fn stopped_election() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "stopped_election", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "stopped_election", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -115,7 +117,7 @@ fn subscription_edge() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -124,7 +126,7 @@ fn subscription_edge() {
         assert_eq!(websocket.subscriber_count(Topic::Confirmation), 1);
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -133,7 +135,7 @@ fn subscription_edge() {
         assert_eq!(websocket.subscriber_count(Topic::Confirmation), 1);
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -142,7 +144,7 @@ fn subscription_edge() {
         assert_eq!(websocket.subscriber_count(Topic::Confirmation), 0);
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -161,7 +163,7 @@ fn confirmation() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -187,7 +189,7 @@ fn confirmation() {
 
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.to_string(),
+                r#"{"action": "unsubscribe", "topic": "confirmation", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -213,7 +215,7 @@ fn confirmation_options() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active_quorum", "accounts": ["xrb_invalid"]}}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active_quorum", "accounts": ["xrb_invalid"]}}"#.into(),
             ))
             .await
             .unwrap();
@@ -236,7 +238,7 @@ fn confirmation_options() {
 
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active_quorum", "all_local_accounts": true, "include_election_info": true}}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active_quorum", "all_local_accounts": true, "include_election_info": true}}"#.into(),
             ))
             .await
             .unwrap();
@@ -265,7 +267,7 @@ fn confirmation_options() {
 
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "all_local_accounts": true} }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "all_local_accounts": true} }"#.into(),
             ))
             .await
             .unwrap();
@@ -297,7 +299,7 @@ fn confirmation_options_votes() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "include_election_info_with_votes": true, "include_block": false} }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "include_election_info_with_votes": true, "include_block": false} }"#.into(),
             ))
             .await
             .unwrap();
@@ -340,7 +342,7 @@ fn confirmation_options_sideband() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "include_block": false, "include_sideband_info": true} }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{"confirmation_type": "active_quorum", "include_block": false, "include_sideband_info": true} }"#.into(),
             ))
             .await
             .unwrap();
@@ -380,7 +382,7 @@ fn confirmation_options_update() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{} }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options":{} }"#.into(),
             ))
             .await
             .unwrap();
@@ -390,7 +392,7 @@ fn confirmation_options_update() {
 		// Now update filter with an account and wait for a response
         ws_stream
             .send(tungstenite::Message::Text(
-                format!(r#"{{"action": "update", "topic": "confirmation", "ack": true, "options":{{"accounts_add": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()),
+                format!(r#"{{"action": "update", "topic": "confirmation", "ack": true, "options":{{"accounts_add": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()).into(),
             ))
             .await
             .unwrap();
@@ -412,7 +414,7 @@ fn confirmation_options_update() {
 		// Update the filter again, removing the account
         ws_stream
             .send(tungstenite::Message::Text(
-                format!(r#"{{"action": "update", "topic": "confirmation", "ack": true, "options":{{"accounts_del": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()),
+                format!(r#"{{"action": "update", "topic": "confirmation", "ack": true, "options":{{"accounts_del": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()).into(),
             ))
             .await
             .unwrap();
@@ -438,7 +440,7 @@ fn vote() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "vote", "ack": true }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "vote", "ack": true }"#.into(),
             ))
             .await
             .unwrap();
@@ -470,7 +472,7 @@ fn vote_options_type() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "vote", "ack": true, "options": {"include_replays": true, "include_indeterminate": false} }"#.to_string(),
+                r#"{"action": "subscribe", "topic": "vote", "ack": true, "options": {"include_replays": true, "include_indeterminate": false} }"#.into(),
             ))
             .await
             .unwrap();
@@ -504,7 +506,7 @@ fn vote_options_representatives() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                format!(r#"{{"action": "subscribe", "topic": "vote", "ack": true, "options": {{"representatives": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()),
+                format!(r#"{{"action": "subscribe", "topic": "vote", "ack": true, "options": {{"representatives": ["{}"]}} }}"#, DEV_GENESIS_ACCOUNT.encode_account()).into(),
             ))
             .await
             .unwrap();
@@ -529,7 +531,7 @@ fn vote_options_representatives() {
 		// A list of invalid representatives is the same as no filter
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "vote", "ack": true, "options": {"representatives": ["xrb_invalid"]} }"#.to_string()
+                r#"{"action": "subscribe", "topic": "vote", "ack": true, "options": {"representatives": ["xrb_invalid"]} }"#.into()
             ))
             .await
             .unwrap();
@@ -560,9 +562,7 @@ fn ws_keepalive() {
     node1.runtime.block_on(async {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
-            .send(tungstenite::Message::Text(
-                r#"{"action": "ping"}"#.to_string(),
-            ))
+            .send(tungstenite::Message::Text(r#"{"action": "ping"}"#.into()))
             .await
             .unwrap();
         //await ack
@@ -580,7 +580,7 @@ fn telemetry() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "telemetry", "ack": true}"#.to_string(),
+                r#"{"action": "subscribe", "topic": "telemetry", "ack": true}"#.into(),
             ))
             .await
             .unwrap();
@@ -619,8 +619,7 @@ fn new_unconfirmed_block() {
         let mut ws_stream = connect_websocket(&node1).await;
         ws_stream
             .send(tungstenite::Message::Text(
-                r#"{"action": "subscribe", "topic": "new_unconfirmed_block", "ack": true}"#
-                    .to_string(),
+                r#"{"action": "subscribe", "topic": "new_unconfirmed_block", "ack": true}"#.into(),
             ))
             .await
             .unwrap();

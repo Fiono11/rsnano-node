@@ -1,5 +1,6 @@
 use crate::command_handler::RpcCommandHandler;
 use rsnano_core::{utils::UnixTimestamp, Account, Amount};
+use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{
     unwrap_bool_or_false, unwrap_u64_or_max, unwrap_u64_or_zero, LedgerAccountInfo, LedgerArgs,
     LedgerResponse,
@@ -18,15 +19,14 @@ impl RpcCommandHandler {
         let receivable = unwrap_bool_or_false(args.receivable);
 
         let mut accounts: HashMap<Account, LedgerAccountInfo> = HashMap::new();
-        let tx = self.node.store.tx_begin_read();
+        let any = self.node.ledger.any();
 
         if !sorting {
             // Simple
-            for (account, info) in self.node.store.account.iter_range(&tx, start..) {
+            for (account, info) in any.iter_account_range(start..) {
                 if info.modified >= modified_since && (receivable || info.balance >= threshold) {
                     let receivable = if receivable {
-                        let account_receivable =
-                            self.node.ledger.account_receivable(&tx, &account, false);
+                        let account_receivable = any.account_receivable(&account);
                         if info.balance + account_receivable < threshold {
                             continue;
                         }
@@ -38,15 +38,12 @@ impl RpcCommandHandler {
                     let entry = LedgerAccountInfo {
                         frontier: info.head,
                         open_block: info.open_block,
-                        representative_block: self
-                            .node
-                            .ledger
-                            .representative_block_hash(&tx, &info.head),
+                        representative_block: any.representative_block_hash(&info.head),
                         balance: info.balance,
                         modified_timestamp: info.modified.as_u64().into(),
                         block_count: info.block_count.into(),
                         representative: representative.then(|| info.representative.into()),
-                        weight: weight.then(|| self.node.ledger.weight_exact(&tx, account.into())),
+                        weight: weight.then(|| any.weight_exact(account.into())),
                         pending: receivable,
                         receivable,
                     };
@@ -59,7 +56,7 @@ impl RpcCommandHandler {
         } else {
             // Sorting
             let mut ledger: Vec<(Amount, Account)> = Vec::new();
-            for (account, info) in self.node.store.account.iter_range(&tx, start..) {
+            for (account, info) in any.iter_account_range(start..) {
                 if info.modified >= modified_since {
                     ledger.push((info.balance, account));
                 }
@@ -68,11 +65,10 @@ impl RpcCommandHandler {
             ledger.sort_by(|a, b| b.cmp(&a));
 
             for (_, account) in ledger {
-                if let Some(info) = self.node.store.account.get(&tx, &account) {
+                if let Some(info) = any.get_account(&account) {
                     if receivable || info.balance >= threshold {
                         let pending = if receivable {
-                            let account_receivable =
-                                self.node.ledger.account_receivable(&tx, &account, false);
+                            let account_receivable = any.account_receivable(&account);
                             if info.balance + account_receivable < threshold {
                                 continue;
                             }
@@ -84,16 +80,12 @@ impl RpcCommandHandler {
                         let entry = LedgerAccountInfo {
                             frontier: info.head,
                             open_block: info.open_block,
-                            representative_block: self
-                                .node
-                                .ledger
-                                .representative_block_hash(&tx, &info.head),
+                            representative_block: any.representative_block_hash(&info.head),
                             balance: info.balance,
                             modified_timestamp: info.modified.as_u64().into(),
                             block_count: info.block_count.into(),
                             representative: representative.then(|| info.representative.into()),
-                            weight: weight
-                                .then(|| self.node.ledger.weight_exact(&tx, account.into())),
+                            weight: weight.then(|| any.weight_exact(account.into())),
                             pending,
                             receivable: pending,
                         };

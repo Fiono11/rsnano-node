@@ -1,12 +1,12 @@
-use crate::stats::{DetailType, StatType};
-use crate::{
-    stats::Stats,
-    utils::{CancellationToken, Runnable},
-};
+use std::{net::SocketAddrV6, sync::Arc, time::Duration};
+
+use tracing::info;
+
 use rsnano_ledger::Ledger;
 use rsnano_network::PeerConnector;
-use std::{net::SocketAddrV6, sync::Arc, time::Duration};
-use tracing::info;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use crate::utils::{CancellationToken, Runnable};
 
 // Tries to connect to peers that are stored in the peer cache
 pub struct PeerCacheConnector {
@@ -35,7 +35,7 @@ impl PeerCacheConnector {
     }
 
     fn load_peers_from_cache(&self) -> Vec<SocketAddrV6> {
-        let tx = self.ledger.read_txn();
+        let tx = self.ledger.store.tx_begin_read();
         self.ledger
             .store
             .peer
@@ -70,12 +70,15 @@ impl Runnable for PeerCacheConnector {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::stats::Direction;
+    use std::time::UNIX_EPOCH;
+
+    use tracing_test::traced_test;
+
     use rsnano_core::utils::{parse_endpoint, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3};
     use rsnano_output_tracker::OutputTrackerMt;
-    use std::time::UNIX_EPOCH;
-    use tracing_test::traced_test;
+    use rsnano_stats::Direction;
+
+    use super::*;
 
     const REACHOUT_DELAY: Duration = Duration::from_secs(3);
 

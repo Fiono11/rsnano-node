@@ -1,32 +1,31 @@
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Condvar, Mutex, RwLock},
+    thread::JoinHandle,
+    time::Duration,
+};
+
+use tracing::warn;
+
+use rsnano_core::{utils::ContainerInfo, Account};
+use rsnano_ledger::{BlockStatus, Ledger};
+use rsnano_messages::{AscPullAck, BlocksAckPayload};
+use rsnano_network::{bandwidth_limiter::RateLimiter, ChannelId, DeadChannelCleanupStep, Network};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, Sample, StatType, Stats};
+
 use super::{
     block_inspector::BlockInspector,
     cleanup::BootstrapCleanup,
     requesters::Requesters,
     response_processor::{ProcessError, ResponseProcessor},
-    state::{
-        BootstrapCounters, BootstrapState, CandidateAccountsConfig, FrontierHeadInfo, QueryType,
-    },
+    state::{BootstrapCounters, BootstrapState, CandidateAccountsConfig, FrontierHeadInfo},
     FrontierScanConfig,
 };
 use crate::{
     block_processing::{BlockContext, BlockProcessor, LedgerNotifications},
-    stats::{DetailType, Sample, StatType, Stats},
     transport::MessageSender,
 };
-use rsnano_core::{utils::ContainerInfo, Account};
-use rsnano_ledger::{BlockStatus, Ledger};
-use rsnano_messages::{AscPullAck, AscPullReqType, BlocksAckPayload, HashType, Message};
-use rsnano_network::{bandwidth_limiter::RateLimiter, ChannelId, Network};
-use rsnano_nullable_clock::SteadyClock;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Condvar, Mutex, RwLock,
-    },
-    thread::JoinHandle,
-    time::Duration,
-};
-use tracing::warn;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapConfig {
@@ -86,11 +85,10 @@ pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
     state: Arc<Mutex<BootstrapState>>,
-    condition: Arc<Condvar>,
+    state_changed: Arc<Condvar>,
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
     response_handler: ResponseProcessor,
-    stopped: AtomicBool,
     block_inspector: BlockInspector,
     requesters: Requesters,
 }
@@ -110,40 +108,41 @@ impl Bootstrapper {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let limiter = Arc::new(RateLimiter::new(config.rate_limit));
-        let state = Arc::new(Mutex::new(BootstrapState::new(config.clone(), network)));
-        let condition = Arc::new(Condvar::new());
+        let state = Arc::new(Mutex::new(BootstrapState::new(config.clone())));
+        let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
             state.clone(),
             stats.clone(),
             block_processor.clone(),
-            condition.clone(),
             ledger.clone(),
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
-        let block_inspector = BlockInspector::new(state.clone(), ledger.clone(), stats.clone());
+        let block_inspector =
+            BlockInspector::new(state.clone(), ledger.clone(), stats.clone(), clock.clone());
+
         let requesters = Requesters::new(
             limiter.clone(),
             config.clone(),
             stats.clone(),
             message_sender.clone(),
             state.clone(),
-            condition.clone(),
+            state_changed.clone(),
             clock.clone(),
             ledger.clone(),
             block_processor.clone(),
+            network,
         );
 
         Self {
             threads: Mutex::new(None),
             state,
-            condition,
+            state_changed,
             config,
             stats,
             clock,
             response_handler,
-            stopped: AtomicBool::new(false),
             block_inspector,
             requesters,
         }
@@ -151,10 +150,10 @@ impl Bootstrapper {
 
     pub fn stop(&self) {
         {
-            let _guard = self.state.lock().unwrap();
-            self.stopped.store(true, Ordering::SeqCst);
+            let mut guard = self.state.lock().unwrap();
+            guard.stopped = true;
         }
-        self.condition.notify_all();
+        self.state_changed.notify_all();
 
         self.requesters.stop();
 
@@ -166,6 +165,12 @@ impl Bootstrapper {
 
     pub fn frontier_heads(&self) -> Vec<FrontierHeadInfo> {
         self.state.lock().unwrap().frontier_scan.heads()
+    }
+
+    /// Returns the last found outdated accounts by the frontier scan
+    /// The last entry is the newest found
+    pub fn last_outdated_accounts(&self) -> VecDeque<Account> {
+        self.state.lock().unwrap().last_outdated_accounts.clone()
     }
 
     pub fn counters(&self) -> BootstrapCounters {
@@ -182,15 +187,14 @@ impl Bootstrapper {
 
     fn run_timeouts(&self) {
         let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
-        let mut guard = self.state.lock().unwrap();
-        while !self.stopped.load(Ordering::SeqCst) {
-            cleanup.cleanup(&mut guard);
+        let mut state = self.state.lock().unwrap();
+        while !state.stopped {
+            cleanup.cleanup(&mut state);
+            self.state_changed.notify_all();
 
-            guard = self
-                .condition
-                .wait_timeout_while(guard, Duration::from_secs(1), |_| {
-                    !self.stopped.load(Ordering::SeqCst)
-                })
+            state = self
+                .state_changed
+                .wait_timeout_while(state, Duration::from_secs(1), |s| !s.stopped)
                 .unwrap()
                 .0;
         }
@@ -237,7 +241,7 @@ impl Bootstrapper {
 
     fn blocks_processed(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
         self.block_inspector.inspect(batch);
-        self.condition.notify_all();
+        self.state_changed.notify_all();
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -313,19 +317,15 @@ impl BootstrapExt for Arc<Bootstrapper> {
     }
 }
 
-impl From<&Message> for QueryType {
-    fn from(value: &Message) -> Self {
-        if let Message::AscPullReq(req) = value {
-            match &req.req_type {
-                AscPullReqType::Blocks(b) => match b.start_type {
-                    HashType::Account => QueryType::BlocksByAccount,
-                    HashType::Block => QueryType::BlocksByHash,
-                },
-                AscPullReqType::AccountInfo(_) => QueryType::AccountInfoByHash,
-                AscPullReqType::Frontiers(_) => QueryType::Frontiers,
-            }
-        } else {
-            QueryType::Invalid
-        }
+pub(crate) struct BootstrapperCleanup(pub Arc<Bootstrapper>);
+
+impl DeadChannelCleanupStep for BootstrapperCleanup {
+    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
+        self.0
+            .state
+            .lock()
+            .unwrap()
+            .scoring
+            .clean_up_dead_channels(dead_channel_ids);
     }
 }

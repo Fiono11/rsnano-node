@@ -2,6 +2,7 @@ use super::difficulty_ledger;
 use crate::command_handler::RpcCommandHandler;
 use anyhow::bail;
 use rsnano_core::{Block, BlockType, DifficultyV1};
+use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{WorkGenerateArgs, WorkGenerateDto};
 
 impl RpcCommandHandler {
@@ -30,18 +31,19 @@ impl RpcCommandHandler {
         }
 
         // Retrieving optional block
-        if let Some(block) = args.block {
-            let block_enum: Block = block.into();
-            if args.hash != block_enum.root().into() {
+        if let Some(json_block) = args.block {
+            let block: Block = json_block.into();
+            if args.hash != block.root().into() {
                 bail!("Block root mismatch");
             }
             // Recalculate difficulty if not provided
             if args.difficulty.is_none() && args.multiplier.is_none() {
-                difficulty = difficulty_ledger(self.node.clone(), &block_enum);
+                let any = self.node.ledger.any();
+                difficulty = difficulty_ledger(self.node.clone(), &any, &block);
             }
 
             // If optional block difficulty is higher than requested difficulty, send error
-            if self.node.network_params.work.difficulty_block(&block_enum) >= difficulty {
+            if self.node.network_params.work.difficulty_block(&block) >= difficulty {
                 bail!("Provided work is already enough for given difficulty");
             }
         }
@@ -59,9 +61,9 @@ impl RpcCommandHandler {
         } else {
             let _account = if let Some(_account) = args.account {
                 // Fetch account from block if not given
-                let tx = self.node.ledger.read_txn();
-                if self.node.ledger.any().block_exists(&tx, &args.hash) {
-                    self.node.ledger.any().block_account(&tx, &args.hash)
+                let any = self.node.ledger.any();
+                if any.block_exists(&args.hash) {
+                    any.block_account(&args.hash)
                 } else {
                     None
                 }

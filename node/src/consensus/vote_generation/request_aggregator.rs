@@ -1,19 +1,20 @@
-use super::{
-    request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
-    VoteGenerators,
-};
-use crate::stats::{DetailType, Direction, StatType, Stats};
-use rsnano_core::{
-    utils::{ContainerInfo, FairQueue},
-    BlockHash, Root,
-};
-use rsnano_ledger::Ledger;
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, TrafficType};
-use rsnano_store_lmdb::{LmdbReadTransaction, Transaction};
 use std::{
     cmp::{max, min},
     sync::{Arc, Condvar, Mutex, MutexGuard},
     thread::JoinHandle,
+};
+
+use rsnano_core::{
+    utils::{ContainerInfo, FairQueue},
+    BlockHash, Root,
+};
+use rsnano_ledger::{AnySet, Ledger};
+use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, TrafficType};
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+
+use super::{
+    request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
+    VoteGenerators,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -219,15 +220,17 @@ impl RequestAggregatorLoop {
         let batch = state.queue.next_batch(self.config.batch_size);
         drop(state);
 
-        let mut tx = self.ledger.read_txn();
+        let mut any = self.ledger.any();
 
         for (_, request) in &batch {
-            tx.refresh_if_needed();
+            if any.should_refresh() {
+                any = self.ledger.any();
+            }
 
             let should_drop = request.channel.should_drop(TrafficType::VoteReply);
 
             if !should_drop {
-                self.process(&tx, request);
+                self.process(&any, request);
             } else {
                 self.stats.inc_dir(
                     StatType::RequestAggregator,
@@ -240,8 +243,8 @@ impl RequestAggregatorLoop {
         self.mutex.lock().unwrap()
     }
 
-    fn process(&self, tx: &LmdbReadTransaction, request: &AggregatorRequest) {
-        let remaining = self.aggregate(tx, request);
+    fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        let remaining = self.aggregate(any, request);
 
         if !remaining.remaining_normal.is_empty() {
             self.stats
@@ -278,8 +281,8 @@ impl RequestAggregatorLoop {
 
     /// Aggregate requests and send cached votes to channel.
     /// Return the remaining hashes that need vote generation for each block for regular & final vote generators
-    fn aggregate(&self, tx: &LmdbReadTransaction, requests: &AggregatorRequest) -> AggregateResult {
-        let mut aggregator = RequestAggregatorImpl::new(&self.ledger, &self.stats, tx);
+    fn aggregate(&self, any: &dyn AnySet, requests: &AggregatorRequest) -> AggregateResult {
+        let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
         aggregator.add_votes(&requests.roots_hashes);
         aggregator.get_result()
     }

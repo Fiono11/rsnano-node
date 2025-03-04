@@ -1,18 +1,19 @@
-use super::state::{BootstrapState, PriorityUpResult};
-use crate::{
-    block_processing::{BlockContext, BlockSource},
-    stats::{DetailType, StatType, Stats},
-};
-use rsnano_core::{Account, Block, BlockType, SavedBlock};
-use rsnano_ledger::{BlockStatus, Ledger};
-use rsnano_store_lmdb::LmdbReadTransaction;
 use std::sync::{Arc, Mutex};
+
+use rsnano_core::{Account, Block, BlockType, SavedBlock};
+use rsnano_ledger::{AnySet, BlockStatus, Ledger};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::state::{BootstrapState, PriorityUpResult};
+use crate::block_processing::{BlockContext, BlockSource};
 
 /// Inspects a processed block and adjusts the bootstrap state accordingly
 pub(super) struct BlockInspector {
     state: Arc<Mutex<BootstrapState>>,
     ledger: Arc<Ledger>,
     stats: Arc<Stats>,
+    clock: Arc<SteadyClock>,
 }
 
 impl BlockInspector {
@@ -20,26 +21,27 @@ impl BlockInspector {
         state: Arc<Mutex<BootstrapState>>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
+        clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
             state,
             ledger,
             stats,
+            clock,
         }
     }
 
     pub fn inspect(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
         let mut state = self.state.lock().unwrap();
-        let tx = self.ledger.read_txn();
+        let any = self.ledger.any();
         for (result, context) in batch {
-            let block = context.block.lock().unwrap().clone();
             let saved_block = context.saved_block.lock().unwrap().clone();
-            let account = self.get_account(&tx, &block, &saved_block);
+            let account = self.get_account(&any, &context.block, &saved_block);
 
             self.inspect_block(
                 &mut state,
                 *result,
-                &block,
+                &context.block,
                 saved_block,
                 context.source,
                 &account,
@@ -49,18 +51,15 @@ impl BlockInspector {
 
     fn get_account(
         &self,
-        tx: &LmdbReadTransaction,
+        any: &dyn AnySet,
         block: &Block,
         saved_block: &Option<SavedBlock>,
     ) -> Account {
         match saved_block {
             Some(b) => b.account(),
-            None => block.account_field().unwrap_or_else(|| {
-                self.ledger
-                    .any()
-                    .block_account(tx, &block.previous())
-                    .unwrap_or_default()
-            }),
+            None => block
+                .account_field()
+                .unwrap_or_else(|| any.block_account(&block.previous()).unwrap_or_default()),
         }
     }
 
@@ -146,7 +145,10 @@ impl BlockInspector {
 
                     if !account.is_zero() && !source.is_zero() {
                         // Mark account as blocked because it is missing the source block
-                        let blocked = state.candidate_accounts.block(*account, source);
+                        let blocked =
+                            state
+                                .candidate_accounts
+                                .block(*account, source, self.clock.now());
                         if blocked {
                             self.stats.inc(
                                 StatType::BootstrapAccountSets,

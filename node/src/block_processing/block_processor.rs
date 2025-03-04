@@ -1,15 +1,3 @@
-use super::{
-    BlockContext, BlockProcessorCallback, BlockSource, LedgerNotificationQueue, UncheckedMap,
-};
-use crate::stats::{DetailType, StatType, Stats};
-use rsnano_core::{
-    utils::{ContainerInfo, FairQueue, FairQueueInfo},
-    work::WorkThresholds,
-    Block, BlockHash, BlockType, Epoch, Networks, SavedBlock, UncheckedInfo,
-};
-use rsnano_ledger::{BlockStatus, Ledger, Writer};
-use rsnano_network::{ChannelId, DeadChannelCleanupStep};
-use rsnano_store_lmdb::LmdbWriteTransaction;
 use std::{
     collections::VecDeque,
     mem::size_of,
@@ -17,8 +5,22 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+
 use strum::IntoEnumIterator;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
+
+use rsnano_core::{
+    utils::{ContainerInfo, FairQueue, FairQueueInfo},
+    Block, BlockHash, BlockType, Epoch, Networks, SavedBlock, UncheckedInfo,
+};
+use rsnano_ledger::{BlockStatus, Ledger};
+use rsnano_network::{ChannelId, DeadChannelCleanupStep};
+use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_work::WorkThresholds;
+
+use super::{
+    BlockContext, BlockProcessorCallback, BlockSource, LedgerNotificationQueue, UncheckedMap,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockProcessorConfig {
@@ -437,70 +439,16 @@ impl BlockProcessorLoopImpl {
     }
 
     fn process_rollback(&self, request: RollbackRequest) {
-        self.stats
-            .inc(StatType::BoundedBacklog, DetailType::PerformingRollbacks);
+        let can_roll_back = self.can_roll_back.read().unwrap();
+        let result =
+            self.ledger
+                .rollback_batch(&request.targets, request.max_rollbacks, &*can_roll_back);
 
-        let mut rolled_back_count = 0;
-        let mut processed = Vec::new();
-        let mut processed_hashes = Vec::new();
-        {
-            let can_roll_back = self.can_roll_back.read().unwrap();
-            let _guard = self.ledger.write_queue.wait(Writer::BoundedBacklog);
-            let mut tx = self.ledger.rw_txn();
-
-            for hash in &request.targets {
-                // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
-                if !can_roll_back(hash) {
-                    self.stats
-                        .inc(StatType::BoundedBacklog, DetailType::RollbackSkipped);
-                    continue;
-                }
-
-                // Here we check that the block is still OK to rollback, there could be a delay between gathering the targets and performing the rollbacks
-                if let Some(block) = self.ledger.any().get_block(&tx, hash) {
-                    debug!(
-                        "Rolling back: {}, account: {}",
-                        hash,
-                        block.account().encode_account()
-                    );
-
-                    let rollback_list = match self.ledger.rollback(&mut tx, &block.hash()) {
-                        Ok(rollback_list) => {
-                            self.stats
-                                .inc(StatType::BoundedBacklog, DetailType::Rollback);
-                            rollback_list
-                        }
-                        Err((_, rollback_list)) => {
-                            self.stats
-                                .inc(StatType::BoundedBacklog, DetailType::RollbackFailed);
-                            rollback_list
-                        }
-                    };
-
-                    rolled_back_count += rollback_list.len();
-                    for b in &rollback_list {
-                        processed_hashes.push(b.hash());
-                    }
-                    processed.push((rollback_list, block.qualified_root()));
-
-                    // Return early if we reached the maximum number of rollbacks
-                    if rolled_back_count >= request.max_rollbacks {
-                        break;
-                    }
-                } else {
-                    self.stats
-                        .inc(StatType::BoundedBacklog, DetailType::RollbackMissingBlock);
-                    rolled_back_count += 1;
-                    processed_hashes.push(*hash);
-                }
-            }
-        }
-
-        for (rolled_back, root) in processed {
+        for (rolled_back, root) in result.processed {
             self.notifier.notify_rollback(rolled_back, root);
         }
 
-        *request.result.rolled_back.lock().unwrap() = Some(processed_hashes);
+        *request.result.rolled_back.lock().unwrap() = Some(result.processed_hashes);
         request.result.done.notify_all();
     }
 
@@ -508,186 +456,130 @@ impl BlockProcessorLoopImpl {
         &self,
         mut guard: MutexGuard<BlockProcessorImpl>,
     ) -> Vec<(BlockStatus, Arc<BlockContext>)> {
-        let batch = self.next_batch(&mut guard, self.config.batch_size);
+        let mut batch = self.next_batch(&mut guard, self.config.batch_size);
         drop(guard);
-
-        let mut write_guard = self.ledger.write_queue.wait(Writer::BlockProcessor);
-        let mut tx = self.ledger.rw_txn();
-
         let timer = Instant::now();
 
-        // Processing blocks
-        let mut number_of_blocks_processed = 0;
-        let mut number_of_forced_processed = 0;
+        let mut result = self.ledger.process_batch(
+            batch
+                .iter()
+                .map(|c| (&c.block, c.source == BlockSource::Forced)),
+        );
 
-        let mut processed = Vec::new();
-        for ctx in batch {
-            let force = ctx.source == BlockSource::Forced;
-
-            (write_guard, tx) = self.ledger.refresh_if_needed(write_guard, tx);
-
-            if force {
-                number_of_forced_processed += 1;
-                let block = ctx.block.lock().unwrap().clone();
-                self.rollback_competitor(&mut tx, &block);
-            }
-
-            number_of_blocks_processed += 1;
-
-            let result = self.process_one(&mut tx, &ctx);
-            processed.push((result, ctx));
-        }
-
-        if number_of_blocks_processed != 0 && timer.elapsed() > Duration::from_millis(100) {
+        if result.processed.len() > 0 && timer.elapsed() > Duration::from_millis(100) {
             debug!(
-                "Processed {} blocks ({} blocks were forced) in {} ms",
-                number_of_blocks_processed,
-                number_of_forced_processed,
+                "Processed {} blocks in {} ms",
+                result.processed.len(),
                 timer.elapsed().as_millis(),
             );
         }
-        processed
-    }
 
-    pub fn process_one(
-        &self,
-        txn: &mut LmdbWriteTransaction,
-        context: &BlockContext,
-    ) -> BlockStatus {
-        let mut block = context.block.lock().unwrap().clone();
-        let hash = block.hash();
-        let mut saved_block = None;
+        for (rolled_back, root) in result.rolled_back {
+            // Notify observers of the rolled back blocks on a background thread while not holding the ledger write lock
+            self.notifier.notify_rollback(rolled_back, root);
+        }
 
-        let result = match self.ledger.process(txn, &mut block) {
-            Ok(saved) => {
-                saved_block = Some(saved.clone());
-                *context.saved_block.lock().unwrap() = Some(saved);
-                BlockStatus::Progress
-            }
-            Err(r) => r,
-        };
-
-        // reassign to copy sideband
-        *context.block.lock().unwrap() = block.clone();
-
-        self.stats
-            .inc(StatType::BlockProcessorResult, result.into());
-        self.stats
-            .inc(StatType::BlockProcessorSource, context.source.into());
-        trace!(?result, block = %block.hash(), source = ?context.source, "Block processed");
-
-        match result {
-            BlockStatus::Progress => {
-                self.unchecked.trigger(&hash.into());
-
-                /*
-                 * For send blocks check epoch open unchecked (gap pending).
-                 * For state blocks check only send subtype and only if block epoch is not last epoch.
-                 * If epoch is last, then pending entry shouldn't trigger same epoch open block for destination account.
-                 * */
-                let block = saved_block.unwrap();
-                if block.block_type() == BlockType::LegacySend
-                    || block.block_type() == BlockType::State
-                        && block.is_send()
-                        && block.epoch() < Epoch::MAX
-                {
-                    self.unchecked.trigger(&block.destination_or_link().into());
+        assert_eq!(result.processed.len(), batch.len());
+        let result: Vec<(BlockStatus, Arc<BlockContext>)> = result
+            .processed
+            .drain(..)
+            .zip(batch.drain(..))
+            .map(|((status, saved_block), block_ctx)| {
+                if saved_block.is_some() {
+                    *block_ctx.saved_block.lock().unwrap() = saved_block;
                 }
-            }
-            BlockStatus::GapPrevious => {
-                self.unchecked
-                    .put(block.previous().into(), UncheckedInfo::new(block));
-                self.stats.inc(StatType::Ledger, DetailType::GapPrevious);
-            }
-            BlockStatus::GapSource => {
-                self.unchecked.put(
-                    block
-                        .source_field()
-                        .unwrap_or(block.link_field().unwrap_or_default().into())
-                        .into(),
-                    UncheckedInfo::new(block),
-                );
-                self.stats.inc(StatType::Ledger, DetailType::GapSource);
-            }
-            BlockStatus::GapEpochOpenPending => {
-                // Specific unchecked key starting with epoch open block account public key
-                self.unchecked.put(
-                    block.account_field().unwrap().into(),
-                    UncheckedInfo::new(block),
-                );
-                self.stats.inc(StatType::Ledger, DetailType::GapSource);
-            }
-            BlockStatus::Old => {
-                self.stats.inc(StatType::Ledger, DetailType::Old);
-            }
-            // These are unexpected and indicate erroneous/malicious behavior, log debug info to highlight the issue
-            BlockStatus::BadSignature => {
-                debug!("Block signature is invalid: {}", hash)
-            }
-            BlockStatus::NegativeSpend => {
-                debug!("Block spends negative amount: {}", hash)
-            }
-            BlockStatus::Unreceivable => {
-                debug!("Block is unreceivable: {}", hash)
-            }
-            BlockStatus::Fork => {
-                self.stats.inc(StatType::Ledger, DetailType::Fork);
-                debug!("Block is a fork: {}", hash)
-            }
-            BlockStatus::OpenedBurnAccount => {
-                debug!("Block opens burn account: {}", hash)
-            }
-            BlockStatus::BalanceMismatch => {
-                debug!("Block balance mismatch: {}", hash)
-            }
-            BlockStatus::RepresentativeMismatch => {
-                debug!("Block representative mismatch: {}", hash)
-            }
-            BlockStatus::BlockPosition => {
-                debug!("Block is in incorrect position: {}", hash)
-            }
-            BlockStatus::InsufficientWork => {
-                debug!("Block has insufficient work: {}", hash)
+
+                (status, block_ctx)
+            })
+            .collect();
+
+        for (status, block_ctx) in &result {
+            self.stats
+                .inc(StatType::BlockProcessorResult, (*status).into());
+            self.stats
+                .inc(StatType::BlockProcessorSource, block_ctx.source.into());
+
+            let hash = &block_ctx.block.hash();
+            let block = &block_ctx.block;
+            let saved_block = block_ctx.saved_block.lock().unwrap().clone();
+
+            match status {
+                BlockStatus::Progress => {
+                    self.unchecked.trigger(&hash.into());
+
+                    /*
+                     * For send blocks check epoch open unchecked (gap pending).
+                     * For state blocks check only send subtype and only if block epoch is not last epoch.
+                     * If epoch is last, then pending entry shouldn't trigger same epoch open block for destination account.
+                     * */
+                    let block = saved_block.unwrap();
+                    if block.block_type() == BlockType::LegacySend
+                        || block.block_type() == BlockType::State
+                            && block.is_send()
+                            && block.epoch() < Epoch::MAX
+                    {
+                        self.unchecked.trigger(&block.destination_or_link().into());
+                    }
+                }
+                BlockStatus::GapPrevious => {
+                    self.unchecked
+                        .put(block.previous().into(), UncheckedInfo::new(block.clone()));
+                    self.stats.inc(StatType::Ledger, DetailType::GapPrevious);
+                }
+                BlockStatus::GapSource => {
+                    self.unchecked.put(
+                        block
+                            .source_field()
+                            .unwrap_or(block.link_field().unwrap_or_default().into())
+                            .into(),
+                        UncheckedInfo::new(block.clone()),
+                    );
+                    self.stats.inc(StatType::Ledger, DetailType::GapSource);
+                }
+                BlockStatus::GapEpochOpenPending => {
+                    // Specific unchecked key starting with epoch open block account public key
+                    self.unchecked.put(
+                        block.account_field().unwrap().into(),
+                        UncheckedInfo::new(block.clone()),
+                    );
+                    self.stats.inc(StatType::Ledger, DetailType::GapSource);
+                }
+                BlockStatus::Old => {
+                    self.stats.inc(StatType::Ledger, DetailType::Old);
+                }
+                // These are unexpected and indicate erroneous/malicious behavior, log debug info to highlight the issue
+                BlockStatus::BadSignature => {
+                    debug!("Block signature is invalid: {}", hash)
+                }
+                BlockStatus::NegativeSpend => {
+                    debug!("Block spends negative amount: {}", hash)
+                }
+                BlockStatus::Unreceivable => {
+                    debug!("Block is unreceivable: {}", hash)
+                }
+                BlockStatus::Fork => {
+                    self.stats.inc(StatType::Ledger, DetailType::Fork);
+                    debug!("Block is a fork: {}", hash)
+                }
+                BlockStatus::OpenedBurnAccount => {
+                    debug!("Block opens burn account: {}", hash)
+                }
+                BlockStatus::BalanceMismatch => {
+                    debug!("Block balance mismatch: {}", hash)
+                }
+                BlockStatus::RepresentativeMismatch => {
+                    debug!("Block representative mismatch: {}", hash)
+                }
+                BlockStatus::BlockPosition => {
+                    debug!("Block is in incorrect position: {}", hash)
+                }
+                BlockStatus::InsufficientWork => {
+                    debug!("Block has insufficient work: {}", hash)
+                }
             }
         }
 
         result
-    }
-
-    fn rollback_competitor(&self, transaction: &mut LmdbWriteTransaction, fork_block: &Block) {
-        let hash = fork_block.hash();
-        if let Some(successor) = self
-            .ledger
-            .any()
-            .block_successor_by_qualified_root(transaction, &fork_block.qualified_root())
-        {
-            if successor != hash {
-                // Replace our block with the winner and roll back any dependent blocks
-                debug!("Rolling back: {} and replacing with: {}", successor, hash);
-                let rollback_list = match self.ledger.rollback(transaction, &successor) {
-                    Ok(rollback_list) => {
-                        self.stats.inc(StatType::Ledger, DetailType::Rollback);
-                        debug!("Blocks rolled back: {}", rollback_list.len());
-                        rollback_list
-                    }
-                    Err((e, rollback_list)) => {
-                        self.stats.inc(StatType::Ledger, DetailType::RollbackFailed);
-                        error!(
-                            ?e,
-                            "Failed to roll back: {} because it or a successor was confirmed",
-                            successor
-                        );
-                        rollback_list
-                    }
-                };
-
-                if !rollback_list.is_empty() {
-                    // Notify observers of the rolled back blocks on a background thread while not holding the ledger write lock
-                    self.notifier
-                        .notify_rollback(rollback_list, fork_block.qualified_root());
-                }
-            }
-        }
     }
 
     pub fn info(&self) -> FairQueueInfo<BlockSource> {
@@ -788,7 +680,7 @@ impl RollbackResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stats::Direction;
+    use rsnano_stats::Direction;
 
     #[test]
     fn insufficient_work() {
@@ -801,7 +693,7 @@ mod tests {
             BlockProcessor::new(config, ledger, unchecked, stats.clone(), notifier.into());
 
         let mut block = Block::new_test_instance();
-        block.set_work(3);
+        block.set_work(3.into());
 
         block_processor.add(block, BlockSource::Live, ChannelId::LOOPBACK);
 

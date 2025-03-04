@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use rsnano_core::{Account, Amount, PublicKey, UnsavedBlockLatticeBuilder};
-use rsnano_ledger::DEV_GENESIS_PUB_KEY;
+use rsnano_core::{Account, Amount, PublicKey};
+use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_PUB_KEY};
 use rsnano_messages::ConfirmReq;
 use rsnano_network::Channel;
 use rsnano_node::{
     config::{NodeFlags, DEV_NETWORK_PARAMS},
     consensus::{ConfirmationSolicitor, Election, ElectionBehavior, VoteInfo},
     representatives::PeeredRepInfo,
-    stats::{DetailType, Direction, StatType},
 };
+use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::System;
 
 #[test]
@@ -54,7 +54,6 @@ fn batches() {
                 send.clone(),
                 ElectionBehavior::Priority,
                 Box::new(|_| {}),
-                Box::new(|_| {}),
             );
 
             let data = election.mutex.lock().unwrap();
@@ -65,7 +64,6 @@ fn batches() {
             1000,
             send.clone(),
             ElectionBehavior::Priority,
-            Box::new(|_| {}),
             Box::new(|_| {}),
         );
         // Broadcasting should be immediate
@@ -133,7 +131,6 @@ fn different_hashes() {
         send.clone(),
         ElectionBehavior::Priority,
         Box::new(|_| {}),
-        Box::new(|_| {}),
     );
     let mut data = election.mutex.lock().unwrap();
     // Add a vote for something else, not the winner
@@ -196,7 +193,6 @@ fn bypass_max_requests_cap() {
         100,
         send.clone(),
         ElectionBehavior::Priority,
-        Box::new(|_| {}),
         Box::new(|_| {}),
     );
     let mut data = election.mutex.lock().unwrap();

@@ -1,9 +1,12 @@
+use std::{collections::VecDeque, io::Read, sync::Arc};
+
+use rsnano_core::ProtocolInfo;
+use rsnano_work::WorkThresholds;
+
 use crate::{
     validate_header, DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter,
-    ParseMessageError, ProtocolInfo,
+    ParseMessageError,
 };
-use rsnano_core::work::WorkThresholds;
-use std::{collections::VecDeque, io::Read, sync::Arc};
 
 pub struct MessageDeserializer {
     buffer: VecDeque<u8>,
@@ -287,7 +290,7 @@ mod tests {
             let mut deserializer = create_deserializer();
 
             let mut publish = Publish::new_test_instance();
-            publish.block.set_work(0);
+            publish.block.set_work(0.into());
             let message = Message::Publish(publish);
 
             deserializer.push(&message_bytes(&message));

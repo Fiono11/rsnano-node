@@ -1,12 +1,13 @@
 use rsnano_core::{
     deterministic_key, Account, Amount, Block, BlockHash, Epoch, EpochBlockArgs,
-    KeyDerivationFunction, PrivateKey, PublicKey, RawKey, UnsavedBlockLatticeBuilder,
-    DEV_GENESIS_KEY,
+    KeyDerivationFunction, PrivateKey, PublicKey, RawKey, DEV_GENESIS_KEY,
 };
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, LedgerSet, DEV_GENESIS_ACCOUNT,
+    DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
+};
 use rsnano_node::{
     config::{NodeConfig, NodeFlags, DEV_NETWORK_PARAMS},
-    consensus::ActiveElectionsExt,
     unique_path,
     wallets::{WalletsError, WalletsExt},
     Node,
@@ -18,7 +19,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use test_helpers::{assert_timely, assert_timely_eq, System};
+use test_helpers::{assert_timely, assert_timely_eq, assert_timely_eq2, System};
 
 struct TestFixture {
     test_dir: PathBuf,
@@ -180,7 +181,7 @@ fn insufficient_spend_one() {
             *DEV_GENESIS_ACCOUNT,
             key1.account(),
             Amount::raw(500),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -193,7 +194,7 @@ fn insufficient_spend_one() {
             *DEV_GENESIS_ACCOUNT,
             key1.account(),
             Amount::MAX,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -214,20 +215,16 @@ fn spend_all_one() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::MAX,
-            0,
+            0.into(),
             true,
             None,
         )
         .unwrap();
 
-    let tx = node.ledger.read_txn();
-    let info2 = node
-        .ledger
-        .any()
-        .get_account(&tx, &DEV_GENESIS_ACCOUNT)
-        .unwrap();
+    let any = node.ledger.any();
+    let info2 = any.get_account(&DEV_GENESIS_ACCOUNT).unwrap();
     assert_ne!(info2.head, *DEV_GENESIS_HASH);
-    let block = node.ledger.any().get_block(&tx, &info2.head).unwrap();
+    let block = any.get_block(&info2.head).unwrap();
     assert_eq!(block.previous(), *DEV_GENESIS_HASH);
     assert_eq!(block.balance(), Amount::zero());
 }
@@ -250,7 +247,7 @@ fn send_async() {
             Box::new(move |b| {
                 *block2.lock().unwrap() = Some(b);
             }),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -278,7 +275,7 @@ fn spend() {
             Account::zero(),
             key2.account(),
             Amount::zero(),
-            0,
+            0.into(),
             true,
             None
         )
@@ -289,7 +286,7 @@ fn spend() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::MAX,
-            0,
+            0.into(),
             true,
             None,
         )
@@ -310,7 +307,7 @@ fn partial_spend() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::raw(500),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -342,7 +339,7 @@ fn spend_no_previous() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::raw(500),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -707,26 +704,19 @@ fn work_generate() {
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(100),
-            0,
+            0.into(),
             true,
             None,
         )
         .unwrap();
     assert_timely(Duration::from_secs(10), || {
-        let tx = node1.ledger.read_txn();
-        node1
-            .ledger
-            .any()
-            .account_balance(&tx, &DEV_GENESIS_ACCOUNT)
-            .unwrap()
-            != Amount::MAX
+        node1.ledger.any().account_balance(&DEV_GENESIS_ACCOUNT) != Amount::MAX
     });
 
     let start = Instant::now();
     loop {
-        let tx = node1.ledger.read_txn();
         let work1 = node1.wallets.work_get(&wallet_id, &account1.into());
-        let root = node1.ledger.latest_root(&tx, &account1);
+        let root = node1.ledger.any().latest_root(&account1);
         if DEV_NETWORK_PARAMS.work.difficulty(&root, work1)
             >= DEV_NETWORK_PARAMS.work.threshold_base()
         {
@@ -756,7 +746,7 @@ fn work_cache_delayed() {
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(100),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -768,7 +758,7 @@ fn work_cache_delayed() {
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(100),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -936,18 +926,18 @@ fn no_work() {
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
             Amount::MAX,
-            0,
+            0.into(),
             false,
             None,
         )
         .unwrap();
-    assert_ne!(block.work(), 0);
+    assert_ne!(block.work(), 0.into());
     assert!(
         DEV_NETWORK_PARAMS.work.difficulty_block(&block)
             >= DEV_NETWORK_PARAMS.work.threshold(block.details())
     );
     let cached_work = node1.wallets.work_get(&wallet_id, &DEV_GENESIS_PUB_KEY);
-    assert_eq!(cached_work, 0);
+    assert_eq!(cached_work, 0.into());
 }
 
 #[test]
@@ -968,7 +958,7 @@ fn send_race() {
                 *DEV_GENESIS_ACCOUNT,
                 key2.account(),
                 Amount::nano(1000),
-                0,
+                0.into(),
                 true,
                 None,
             )
@@ -1064,7 +1054,7 @@ fn change_seed() {
             *DEV_GENESIS_ACCOUNT,
             pub_key.into(),
             Amount::raw(100),
-            0,
+            0.into(),
             true,
             None,
         )
@@ -1103,7 +1093,7 @@ fn epoch_2_validation() {
                 *DEV_GENESIS_ACCOUNT,
                 *DEV_GENESIS_ACCOUNT,
                 amount,
-                1,
+                1.into(),
                 true,
                 None,
             )
@@ -1119,7 +1109,7 @@ fn epoch_2_validation() {
                 *DEV_GENESIS_PUB_KEY,
                 amount,
                 *DEV_GENESIS_ACCOUNT,
-                1,
+                1.into(),
                 true,
             )
             .unwrap()
@@ -1142,7 +1132,7 @@ fn epoch_2_validation() {
             &wallet_id,
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_PUB_KEY,
-            1,
+            1.into(),
             true,
         )
         .unwrap();
@@ -1185,7 +1175,7 @@ fn epoch_2_receive_propagation() {
                 *DEV_GENESIS_ACCOUNT,
                 key.account(),
                 amount,
-                1,
+                1.into(),
                 true,
                 None,
             )
@@ -1197,7 +1187,7 @@ fn epoch_2_receive_propagation() {
                 *DEV_GENESIS_PUB_KEY,
                 amount,
                 key.account(),
-                1,
+                1.into(),
                 true,
             )
             .unwrap();
@@ -1213,7 +1203,7 @@ fn epoch_2_receive_propagation() {
                 *DEV_GENESIS_ACCOUNT,
                 key.account(),
                 amount,
-                1,
+                1.into(),
                 true,
                 None,
             )
@@ -1226,7 +1216,7 @@ fn epoch_2_receive_propagation() {
                 *DEV_GENESIS_PUB_KEY,
                 amount,
                 key.account(),
-                1,
+                1.into(),
                 true,
             )
             .unwrap()
@@ -1236,8 +1226,14 @@ fn epoch_2_receive_propagation() {
                 DEV_NETWORK_PARAMS.work.difficulty_block(&receive2)
                     >= DEV_NETWORK_PARAMS.work.epoch_2_receive
             );
-            let tx = node.ledger.read_txn();
-            assert_eq!(node.ledger.version(&tx, &receive2.hash()), Epoch::Epoch2);
+            assert_eq!(
+                node.ledger
+                    .any()
+                    .get_block(&receive2.hash())
+                    .unwrap()
+                    .epoch(),
+                Epoch::Epoch2
+            );
             assert_eq!(receive2.source_epoch(), Epoch::Epoch2);
             break;
         }
@@ -1280,7 +1276,7 @@ fn epoch_2_receive_unopened() {
                 *DEV_GENESIS_ACCOUNT,
                 key.account(),
                 amount,
-                1,
+                1.into(),
                 true,
                 None,
             )
@@ -1316,7 +1312,7 @@ fn epoch_2_receive_unopened() {
                 key.public_key(),
                 amount,
                 key.account(),
-                1,
+                1.into(),
                 true,
             )
             .unwrap()
@@ -1326,8 +1322,14 @@ fn epoch_2_receive_unopened() {
                 DEV_NETWORK_PARAMS.work.difficulty_block(&receive1)
                     >= DEV_NETWORK_PARAMS.work.epoch_2_receive
             );
-            let tx = node.ledger.read_txn();
-            assert_eq!(node.ledger.version(&tx, &receive1.hash()), Epoch::Epoch2);
+            assert_eq!(
+                node.ledger
+                    .any()
+                    .get_block(&receive1.hash())
+                    .unwrap()
+                    .epoch(),
+                Epoch::Epoch2
+            );
             assert_eq!(receive1.source_epoch(), Epoch::Epoch1);
             break;
         }
@@ -1428,7 +1430,7 @@ fn search_receivable() {
     let receive_hash = node
         .ledger
         .any()
-        .account_head(&node.ledger.read_txn(), &DEV_GENESIS_ACCOUNT)
+        .account_head(&DEV_GENESIS_ACCOUNT)
         .unwrap();
     let receive = node.block(&receive_hash).unwrap();
     assert_eq!(receive.height(), 3);
@@ -1476,7 +1478,7 @@ fn receive_pruned() {
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             amount,
-            1,
+            1.into(),
             true,
             None,
         )
@@ -1488,18 +1490,15 @@ fn receive_pruned() {
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(1),
-            1,
+            1.into(),
             true,
             None,
         )
         .unwrap();
 
     // Pruning
-    assert_timely_eq(Duration::from_secs(5), || node2.ledger.cemented_count(), 3);
-    {
-        let mut tx = node2.ledger.rw_txn();
-        assert_eq!(node2.ledger.pruning_action(&mut tx, &send1.hash(), 2), 1);
-    }
+    assert_timely_eq2(|| node2.ledger.cemented_count(), 3);
+    assert_eq!(node2.ledger.prune_one(&send1.hash(), 2), 1);
 
     node2
         .wallets
@@ -1514,36 +1513,25 @@ fn receive_pruned() {
             key.public_key(),
             amount,
             key.account(),
-            1,
+            1.into(),
             true,
         )
         .unwrap()
         .unwrap();
 
     assert_eq!(
-        node2
-            .ledger
-            .any()
-            .block_balance(&node2.ledger.read_txn(), &open1.hash()),
+        node2.ledger.any().block_balance(&open1.hash()),
         Some(amount)
     );
-    assert_timely_eq(Duration::from_secs(5), || node2.ledger.cemented_count(), 4);
+    assert_timely_eq2(|| node2.ledger.cemented_count(), 4);
 }
 
 fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
-    let mut tx = node.ledger.rw_txn();
-    let latest = node
-        .ledger
-        .any()
-        .account_head(&tx, &DEV_GENESIS_ACCOUNT)
-        .unwrap();
-    let balance = node
-        .ledger
-        .any()
-        .account_balance(&tx, &DEV_GENESIS_ACCOUNT)
-        .unwrap();
+    let any = node.ledger.any();
+    let latest = any.account_head(&DEV_GENESIS_ACCOUNT).unwrap();
+    let balance = any.account_balance(&DEV_GENESIS_ACCOUNT);
 
-    let mut epoch: Block = EpochBlockArgs {
+    let epoch: Block = EpochBlockArgs {
         epoch_signer: &DEV_GENESIS_KEY,
         account: *DEV_GENESIS_ACCOUNT,
         previous: latest,
@@ -1553,5 +1541,5 @@ fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
         work: node.work_generate_dev(latest),
     }
     .into();
-    node.ledger.process(&mut tx, &mut epoch).unwrap();
+    node.ledger.process_one(&epoch).unwrap();
 }

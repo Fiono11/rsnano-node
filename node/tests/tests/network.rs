@@ -1,19 +1,17 @@
-use rsnano_core::{
-    Account, Amount, Block, Networks, PrivateKey, Root, StateBlockArgs, UnsavedBlockLatticeBuilder,
-    Vote, DEV_GENESIS_KEY,
-};
-use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH};
-use rsnano_messages::{
-    ConfirmAck, Keepalive, Message, MessageHeader, MessageSerializer, ProtocolInfo,
-};
-use rsnano_network::{ChannelMode, TrafficType};
-use rsnano_node::{
-    config::NodeConfig,
-    consensus::VoteProcessorConfig,
-    stats::{DetailType, Direction, StatType},
-    wallets::WalletsExt,
-};
 use std::{ops::Deref, sync::Arc, thread::sleep, time::Duration};
+
+use rsnano_core::{
+    Account, Amount, Block, Networks, PrivateKey, ProtocolInfo, Root, StateBlockArgs, Vote,
+    DEV_GENESIS_KEY,
+};
+use rsnano_ledger::{
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+};
+use rsnano_messages::{ConfirmAck, Keepalive, Message, MessageHeader, MessageSerializer};
+use rsnano_network::{ChannelMode, TrafficType};
+use rsnano_node::{config::NodeConfig, consensus::VoteProcessorConfig, wallets::WalletsExt};
+use rsnano_stats::{DetailType, Direction, StatType};
+
 use test_helpers::{
     assert_always_eq, assert_timely, assert_timely2, assert_timely_eq, assert_timely_eq2,
     assert_timely_msg, establish_tcp, make_fake_channel, start_election, System,
@@ -283,20 +281,14 @@ fn receive_weight_change() {
             *DEV_GENESIS_ACCOUNT,
             key2.public_key().as_account(),
             node1.config.receive_minimum,
-            0,
+            0.into(),
             true,
             None,
         )
         .unwrap();
     assert_timely(Duration::from_secs(10), || {
-        node1
-            .ledger
-            .weight_exact(&node1.ledger.read_txn(), key2.public_key())
-            == node1.config.receive_minimum
-            && node2
-                .ledger
-                .weight_exact(&node2.ledger.read_txn(), key2.public_key())
-                == node1.config.receive_minimum
+        node1.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
+            && node2.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
     });
 }
 

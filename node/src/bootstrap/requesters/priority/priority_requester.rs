@@ -1,17 +1,21 @@
-use super::priority_pull_count_decider::PriorityPullCountDecider;
-use super::priority_pull_type_decider::PriorityPullTypeDecider;
-use super::priority_query_factory::PriorityQueryFactory;
-use crate::bootstrap::requesters::channel_waiter::ChannelWaiter;
-use crate::bootstrap::BootstrapConfig;
-use crate::bootstrap::{state::BootstrapState, AscPullQuerySpec, BootstrapPromise, PollResult};
-use crate::{
-    block_processing::{BlockProcessor, BlockSource},
-    stats::{DetailType, StatType, Stats},
-};
+use std::sync::Arc;
+
 use rsnano_ledger::Ledger;
 use rsnano_network::Channel;
 use rsnano_nullable_clock::SteadyClock;
-use std::sync::Arc;
+use rsnano_stats::{DetailType, StatType, Stats};
+
+use super::{
+    pull_count_decider::PullCountDecider, pull_type_decider::PullTypeDecider,
+    query_factory::QueryFactory,
+};
+use crate::{
+    block_processing::{BlockProcessor, BlockSource},
+    bootstrap::{
+        requesters::channel_waiter::ChannelWaiter, state::BootstrapState, AscPullQuerySpec,
+        BootstrapConfig, BootstrapPromise, PollResult,
+    },
+};
 
 pub(crate) struct PriorityRequester {
     state: PriorityState,
@@ -19,7 +23,7 @@ pub(crate) struct PriorityRequester {
     stats: Arc<Stats>,
     channel_waiter: ChannelWaiter,
     pub block_processor_threshold: usize,
-    query_factory: PriorityQueryFactory,
+    query_factory: QueryFactory,
     clock: Arc<SteadyClock>,
 }
 
@@ -32,10 +36,9 @@ impl PriorityRequester {
         ledger: Arc<Ledger>,
         config: &BootstrapConfig,
     ) -> Self {
-        let pull_type_decider = PriorityPullTypeDecider::new(config.optimistic_request_percentage);
-        let pull_count_decider = PriorityPullCountDecider::new(config.max_pull_count);
-        let query_factory =
-            PriorityQueryFactory::new(ledger, pull_type_decider, pull_count_decider);
+        let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
+        let pull_count_decider = PullCountDecider::new(config.max_pull_count);
+        let query_factory = QueryFactory::new(ledger, pull_type_decider, pull_count_decider);
 
         Self {
             state: PriorityState::Initial,
@@ -101,6 +104,14 @@ impl BootstrapPromise<AscPullQuerySpec> for PriorityRequester {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, RwLock};
+
+    use rsnano_core::Account;
+    use rsnano_ledger::Ledger;
+    use rsnano_network::{bandwidth_limiter::RateLimiter, Network};
+    use rsnano_nullable_clock::SteadyClock;
+    use rsnano_stats::Stats;
+
     use super::PriorityRequester;
     use crate::{
         block_processing::BlockProcessor,
@@ -112,21 +123,16 @@ mod tests {
             state::BootstrapState,
             BootstrapConfig, PollResult,
         },
-        stats::Stats,
     };
-    use rsnano_core::Account;
-    use rsnano_ledger::Ledger;
-    use rsnano_nullable_clock::SteadyClock;
-    use std::sync::Arc;
 
     #[test]
     fn happy_path() {
-        let mut state = BootstrapState::new_test_instance();
-        state.add_test_channel();
+        let mut state = BootstrapState::default();
         let account = Account::from(42);
         state.candidate_accounts.priority_up(&account);
 
-        let mut requester = create_requester();
+        let (mut requester, network) = create_requester();
+        network.write().unwrap().add_test_channel();
         let PollResult::Finished(result) = progress(&mut requester, &mut state) else {
             panic!("Finished expected");
         };
@@ -136,9 +142,9 @@ mod tests {
 
     #[test]
     fn wait_block_processor() {
-        let mut state = BootstrapState::new_test_instance();
+        let mut state = BootstrapState::default();
 
-        let mut requester = create_requester();
+        let (mut requester, _) = create_requester();
         requester.block_processor_threshold = 0;
 
         let result = progress(&mut requester, &mut state);
@@ -149,8 +155,8 @@ mod tests {
 
     #[test]
     fn wait_channel() {
-        let mut state = BootstrapState::new_test_instance();
-        let mut requester = create_requester();
+        let mut state = BootstrapState::default();
+        let (mut requester, _) = create_requester();
 
         let result = progress(&mut requester, &mut state);
 
@@ -160,9 +166,9 @@ mod tests {
 
     #[test]
     fn wait_priority() {
-        let mut state = BootstrapState::new_test_instance();
-        let mut requester = create_requester();
-        state.add_test_channel();
+        let mut state = BootstrapState::default();
+        let (mut requester, network) = create_requester();
+        network.write().unwrap().add_test_channel();
 
         let result = progress(&mut requester, &mut state);
 
@@ -170,21 +176,25 @@ mod tests {
         assert!(matches!(requester.state, PriorityState::WaitPriority(_)));
     }
 
-    fn create_requester() -> PriorityRequester {
+    fn create_requester() -> (PriorityRequester, Arc<RwLock<Network>>) {
         let block_processor = Arc::new(BlockProcessor::new_null());
         let stats = Arc::new(Stats::default());
-        let channel_waiter = ChannelWaiter::default();
+        let network = Arc::new(RwLock::new(Network::new_test_instance()));
+        let rate_limiter = Arc::new(RateLimiter::new(1024));
+        let channel_waiter = ChannelWaiter::new(network.clone(), rate_limiter, 1024);
         let clock = Arc::new(SteadyClock::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let config = BootstrapConfig::default();
 
-        PriorityRequester::new(
+        let requester = PriorityRequester::new(
             block_processor,
             stats,
             channel_waiter,
             clock,
             ledger,
             &config,
-        )
+        );
+
+        (requester, network)
     }
 }

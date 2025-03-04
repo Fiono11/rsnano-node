@@ -49,7 +49,7 @@ impl OnlineWeightSampler {
     }
 
     fn load_samples(&self) -> Vec<Amount> {
-        let txn = self.ledger.read_txn();
+        let txn = self.ledger.store.tx_begin_read();
         self.ledger
             .store
             .online_weight
@@ -71,16 +71,14 @@ impl OnlineWeightSampler {
     /// Called periodically to sample online weight
     pub fn add_sample(&self, current_online_weight: Amount) {
         let now = SystemTime::now();
-        let _guard = self.ledger.write_queue.wait(Writer::OnlineReps);
-        let mut txn = self.ledger.rw_txn();
+        let mut txn = self.ledger.store.tx_begin_write(Writer::OnlineReps);
         self.sanitize_samples(&mut txn, now);
         self.insert_new_sample(&mut txn, current_online_weight, now);
     }
 
     pub fn sanitize(&self) {
         let now = SystemTime::now();
-        let _guard = self.ledger.write_queue.wait(Writer::OnlineReps);
-        let mut txn = self.ledger.rw_txn();
+        let mut txn = self.ledger.store.tx_begin_write(Writer::OnlineReps);
         self.sanitize_samples(&mut txn, now);
     }
 
