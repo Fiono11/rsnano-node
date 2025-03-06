@@ -1,6 +1,6 @@
 use crate::cementation::ConfirmingSet;
 
-use super::{ActiveElections, ElectionBehavior};
+use super::{ActiveElections, ElectionBehavior, OrderingElection};
 use rsnano_core::Era;
 use rsnano_stats::Stats;
 use std::{sync::{Arc, Condvar, Mutex, RwLock}, thread::JoinHandle};
@@ -21,11 +21,21 @@ pub struct OrderingScheduler {
     committed_blocks: RwLock<HashSet<BlockHash>>,
 }
 
-#[derive(Debug)]
 struct OrderingSchedulerImpl {
     current_era: Option<Era>,
     stopped: bool,
+    current_ordering_election: Option<Arc<Mutex<OrderingElection>>>,
 }
+
+impl Default for OrderingSchedulerImpl {
+    fn default() -> Self {
+        Self {
+            current_era: None,
+            stopped: false,
+            current_ordering_election: None,
+        }
+    }
+} 
 
 impl OrderingScheduler {
     pub fn new(
@@ -36,10 +46,7 @@ impl OrderingScheduler {
         Self {
             thread: Mutex::new(None),
             condition: Condvar::new(),
-            mutex: Mutex::new(OrderingSchedulerImpl {
-                current_era: None,
-                stopped: false,
-            }),
+            mutex: Mutex::new(OrderingSchedulerImpl::default()),
             stats,
             active,
             confirming_set,
@@ -88,3 +95,5 @@ impl OrderingScheduler {
         // This would involve creating a special block that references all the blocks to be ordered
     }
 }
+
+

@@ -97,6 +97,7 @@ pub enum StatType {
     MessageProcessorType,
     ProcessConfirmed,
     Pruning,
+    OrderingElection,
 }
 
 impl StatType {
