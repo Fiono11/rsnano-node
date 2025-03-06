@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, SyncSender},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -31,6 +32,7 @@ use rsnano_store_lmdb::{
 use rsnano_work::WorkPool;
 
 use crate::{
+    aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BlockProcessor, BlockProcessorCleanup, BlockSource, BoundedBacklog,
         LedgerNotificationThread, LedgerNotifications, LocalBlockBroadcaster,
@@ -140,6 +142,7 @@ pub struct Node {
     pub ledger_notifications: LedgerNotifications,
     vote_rebroadcaster: VoteRebroadcaster,
     tokio_runner: TokioRunner,
+    pub recently_confirmed: Arc<RwLock<RecentlyConfirmedCache>>,
 }
 
 pub(crate) struct NodeArgs {
@@ -149,6 +152,7 @@ pub(crate) struct NodeArgs {
     pub flags: NodeFlags,
     pub work: Arc<WorkPool>,
     pub callbacks: NodeCallbacks,
+    pub event_sender: Option<SyncSender<NodeEvent>>,
 }
 
 impl NodeArgs {
@@ -162,6 +166,7 @@ impl NodeArgs {
             flags: Default::default(),
             callbacks: Default::default(),
             work: Arc::new(WorkPool::new_null(WorkNonce::from(123))),
+            event_sender: None,
         }
     }
 }
@@ -197,6 +202,7 @@ impl Node {
         let config = args.config;
         let flags = args.flags;
         let work = args.work;
+        let node_event_sender = args.event_sender;
         // Time relative to the start of the node. This makes time exlicit and enables us to
         // write time relevant unit tests with ease.
         let steady_clock = if is_nulled {
@@ -414,9 +420,9 @@ impl Node {
             stats.clone(),
         )));
 
-        let recently_confirmed = Arc::new(RecentlyConfirmedCache::new(
+        let recently_confirmed = Arc::new(RwLock::new(RecentlyConfirmedCache::new(
             config.active_elections.confirmation_cache,
-        ));
+        )));
 
         let (ledger_notification_thread, ledger_notification_queue, ledger_notifications) =
             LedgerNotificationThread::new(config.max_ledger_notifications);
@@ -509,6 +515,7 @@ impl Node {
             wallets.clone(),
             recently_confirmed.clone(),
             confirming_set.clone(),
+            steady_clock.clone(),
         ));
 
         let vote_router = Arc::new(VoteRouter::new(
@@ -537,7 +544,8 @@ impl Node {
             config.vote_processor.clone(),
         ));
 
-        let active_elections = Arc::new(ActiveElections::new(
+        let (aec_sender, aec_receiver) = std::sync::mpsc::sync_channel(128);
+        let mut active_elections = ActiveElections::new(
             network_params.clone(),
             wallets.clone(),
             config.clone(),
@@ -554,9 +562,10 @@ impl Node {
             vote_applier.clone(),
             vote_router.clone(),
             vote_cache_processor.clone(),
-            steady_clock.clone(),
             message_flooder.clone(),
-        ));
+        );
+        active_elections.set_event_sink(aec_sender);
+        let active_elections = Arc::new(active_elections);
 
         let active_w = Arc::downgrade(&active_elections);
         // Cementing blocks might implicitly confirm dependent elections
@@ -846,7 +855,7 @@ impl Node {
             }
 
             if let Some(i) = recently_confirmed_w.upgrade() {
-                if i.hash_exists(hash) {
+                if i.read().unwrap().hash_exists(hash) {
                     return false;
                 }
             }
@@ -891,7 +900,7 @@ impl Node {
             }
 
             if let Some(i) = recently_confirmed_w.upgrade() {
-                if i.hash_exists(hash) {
+                if i.read().unwrap().hash_exists(hash) {
                     return false;
                 }
             }
@@ -998,7 +1007,7 @@ impl Node {
         let recently_confirmed_w = Arc::downgrade(&recently_confirmed);
         confirming_set.on_cementing_failed(move |hash| {
             if let Some(recent) = recently_confirmed_w.upgrade() {
-                recent.erase(hash);
+                recent.write().unwrap().erase(hash);
             }
         });
 
@@ -1195,6 +1204,19 @@ impl Node {
             workers: workers.clone(),
         };
 
+        let mut aec_event_processor = AecEventProcessor {
+            receiver: aec_receiver,
+            vote_cache_processor: vote_cache_processor.clone(),
+            node_event_sender,
+        };
+
+        std::thread::Builder::new()
+            .name("AEC ev proc".to_owned())
+            .spawn(move || {
+                aec_event_processor.run();
+            })
+            .unwrap();
+
         Self {
             is_nulled,
             steady_clock,
@@ -1258,6 +1280,7 @@ impl Node {
             ledger_notifications,
             vote_rebroadcaster,
             tokio_runner,
+            recently_confirmed,
         }
     }
 
@@ -1638,6 +1661,39 @@ fn make_store(
         .txn_tracker(txn_tracker)
         .build()?;
     Ok(Arc::new(store))
+}
+
+pub enum NodeEvent {
+    AecActiveStarted(BlockHash),
+}
+
+pub trait NodeEventHandler {
+    fn handle(&mut self, e: &NodeEvent);
+}
+
+pub struct CompositeNodeEventHandler {
+    receiver: Receiver<NodeEvent>,
+    handlers: Vec<Box<dyn NodeEventHandler + Send>>,
+}
+impl CompositeNodeEventHandler {
+    pub fn new(receiver: Receiver<NodeEvent>) -> Self {
+        Self {
+            receiver,
+            handlers: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, handler: impl NodeEventHandler + Send + 'static) {
+        self.handlers.push(Box::new(handler));
+    }
+
+    pub fn run(&mut self) {
+        while let Ok(event) = self.receiver.recv() {
+            for handler in self.handlers.iter_mut() {
+                handler.handle(&event);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

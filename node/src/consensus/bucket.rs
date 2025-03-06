@@ -174,18 +174,23 @@ impl BucketExt for Arc<Bucket> {
             guard.elections.erase(root);
         });
 
-        let (inserted, election) =
-            self.active
-                .insert(block, ElectionBehavior::Priority, Some(erase_callback));
+        let result = self
+            .active
+            .insert(block, ElectionBehavior::Priority, Some(erase_callback));
 
-        if inserted {
-            let election = election.unwrap();
-            let root = election.lock().unwrap().qualified_root().clone();
+        let inserted = if let Some(info) = result {
+            let root = info.election.lock().unwrap().qualified_root().clone();
             self.data.lock().unwrap().elections.insert(ElectionEntry {
                 root,
-                election,
+                election: info.election,
                 priority,
             });
+            true
+        } else {
+            false
+        };
+
+        if inserted {
             self.stats
                 .inc(StatType::ElectionBucket, DetailType::ActivateSuccess);
         } else {
