@@ -1,10 +1,10 @@
 use super::WebsocketListener;
-use rsnano_core::{Account, Amount, BlockHash, SavedBlock, Vote, VoteCode, VoteWithWeightInfo};
+use rsnano_core::{Account, BlockHash, Vote, VoteCode};
 use rsnano_ledger::BlockStatus;
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
-    block_processing::BlockContext, config::WebsocketConfig, consensus::ElectionStatus,
-    CompositeNodeEventHandler, Node, NodeEvent, NodeEventHandler,
+    block_processing::BlockContext, config::WebsocketConfig, CompositeNodeEventHandler, Node,
+    NodeEvent, NodeEventHandler,
 };
 use rsnano_websocket_messages::{new_block_arrived_message, OutgoingMessageEnvelope, Topic};
 use serde::{Deserialize, Serialize};
@@ -38,38 +38,8 @@ pub fn create_websocket_server(
     ));
 
     event_handlers.add(NodeEventProcessor {
-        websocket_server: server.clone(),
+        server: server.clone(),
     });
-
-    let server_w = Arc::downgrade(&server);
-    node.active.on_election_ended(Box::new(
-        move |status: &ElectionStatus,
-              votes: &Vec<VoteWithWeightInfo>,
-              block: &SavedBlock,
-              amount: Amount| {
-            if let Some(server) = server_w.upgrade() {
-                server.broadcast_confirmation(block, &amount, status, votes);
-            }
-        },
-    ));
-
-    let server_w = Arc::downgrade(&server);
-    node.active.on_active_started(Box::new(move |hash| {
-        if let Some(server) = server_w.upgrade() {
-            if server.any_subscriber(Topic::StartedElection) {
-                server.broadcast(&started_election(&hash));
-            }
-        }
-    }));
-
-    let server_w = Arc::downgrade(&server);
-    node.active.on_active_stopped(Box::new(move |hash| {
-        if let Some(server) = server_w.upgrade() {
-            if server.any_subscriber(Topic::StoppedElection) {
-                server.broadcast(&stopped_election(&hash));
-            }
-        }
-    }));
 
     let server_w = Arc::downgrade(&server);
     node.telemetry
@@ -224,16 +194,25 @@ pub struct VoteReceived {
 }
 
 pub struct NodeEventProcessor {
-    websocket_server: Arc<WebsocketListener>,
+    server: Arc<WebsocketListener>,
 }
 
 impl NodeEventHandler for NodeEventProcessor {
     fn handle(&mut self, event: &NodeEvent) {
         match event {
             NodeEvent::AecActiveStarted(hash) => {
-                if self.websocket_server.any_subscriber(Topic::StartedElection) {
-                    self.websocket_server.broadcast(&started_election(&hash));
+                if self.server.any_subscriber(Topic::StartedElection) {
+                    self.server.broadcast(&started_election(&hash));
                 }
+            }
+            NodeEvent::AecActiveStopped(hash) => {
+                if self.server.any_subscriber(Topic::StoppedElection) {
+                    self.server.broadcast(&stopped_election(&hash));
+                }
+            }
+            NodeEvent::ElectionEnded(status, votes, block, amount) => {
+                self.server
+                    .broadcast_confirmation(block, &amount, status, votes);
             }
         }
     }
