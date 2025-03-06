@@ -8,9 +8,7 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::Stats;
 
 use super::{
-    ActiveElections, HintedScheduler, HintedSchedulerExt, ManualScheduler, ManualSchedulerExt,
-    OptimisticScheduler, OptimisticSchedulerExt, PriorityScheduler, PrioritySchedulerExt,
-    VoteCache,
+    ActiveElections, HintedScheduler, HintedSchedulerExt, ManualScheduler, ManualSchedulerExt, OptimisticScheduler, OptimisticSchedulerExt, OrderingScheduler, PriorityScheduler, PrioritySchedulerExt, VoteCache
 };
 use crate::{
     cementation::ConfirmingSet,
@@ -23,6 +21,7 @@ pub struct ElectionSchedulers {
     optimistic: Arc<OptimisticScheduler>,
     hinted: Arc<HintedScheduler>,
     pub manual: Arc<ManualScheduler>,
+    ordering: Arc<OrderingScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
 }
@@ -68,11 +67,18 @@ impl ElectionSchedulers {
             active_elections.clone(),
         ));
 
+        let ordering = Arc::new(OrderingScheduler::new(
+            stats.clone(),
+            active_elections.clone(),
+            confirming_set.clone(),
+        ));
+
         Self {
             priority,
             optimistic,
             hinted,
             manual,
+            ordering,
             notify_listener: OutputListenerMt::new(),
             config,
         }
@@ -145,5 +151,9 @@ impl ElectionSchedulers {
             .node("optimistic", self.optimistic.container_info())
             .node("priority", self.priority.container_info())
             .finish()
+    }
+
+    pub fn ordering_scheduler(&self) -> Option<Arc<OrderingScheduler>> {
+        Some(self.ordering.clone())
     }
 }

@@ -13,6 +13,7 @@ use rsnano_core::utils::get_env_bool;
 
 use crate::{DetailType, Direction, Sample, StatFileWriter, StatType, StatsConfig, StatsLogSink};
 
+#[derive(Debug)]
 pub struct Stats {
     config: StatsConfig,
     mutables: Arc<RwLock<StatMutables>>,
@@ -274,7 +275,7 @@ impl Stats {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct CounterKey {
     stat_type: StatType,
     detail: DetailType,
@@ -291,7 +292,7 @@ impl CounterKey {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct SamplerKey {
     sample: Sample,
 }
@@ -307,6 +308,7 @@ pub enum StatCategory {
     Samples,
 }
 
+#[derive(Debug)]
 struct StatMutables {
     /// Stat entries are sorted by key to simplify processing of log output
     counters: BTreeMap<CounterKey, CounterEntry>,
@@ -372,6 +374,7 @@ impl StatMutables {
     }
 }
 
+#[derive(Debug)]
 struct CounterEntry(AtomicU64);
 
 impl CounterEntry {
@@ -390,6 +393,7 @@ impl From<&CounterEntry> for u64 {
     }
 }
 
+#[derive(Debug)]
 struct SamplerEntry {
     samples: Mutex<BoundedVecDeque<i64>>,
     pub expected_min_max: (i64, i64),
@@ -413,6 +417,7 @@ impl SamplerEntry {
     }
 }
 
+#[derive(Debug)]
 struct StatsLoop {
     mutables: Arc<RwLock<StatMutables>>,
     condition: Condvar,
@@ -475,6 +480,7 @@ impl StatsLoop {
     }
 }
 
+#[derive(Debug)]
 struct StatsLoopState {
     stopped: bool,
     log_last_count_writeout: Instant,

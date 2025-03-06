@@ -256,6 +256,13 @@ impl VoteApplierExt for Arc<VoteApplier> {
                 election_lock.status.vote_broadcast_count += 1;
                 self.vote_generators
                     .generate_final_vote(election_lock.root(), &status_winner_hash);
+                
+                // Increment the committed count in the ordering scheduler
+                if let Some(schedulers) = self.election_schedulers.read().unwrap().as_ref() {
+                    if let Some(ordering_scheduler) = schedulers.upgrade().and_then(|s| s.ordering_scheduler()) {
+                        ordering_scheduler.increment_committed_count();
+                    }
+                }
             }
             let quorum_delta = self.online_reps.lock().unwrap().quorum_delta();
             if election_lock.final_weight >= quorum_delta {
