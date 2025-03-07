@@ -142,6 +142,7 @@ impl ElectionSchedulers {
         self.manual.stop();
         self.optimistic.stop();
         self.priority.stop();
+        self.ordering.stop();
     }
 
     pub fn container_info(&self) -> ContainerInfo {

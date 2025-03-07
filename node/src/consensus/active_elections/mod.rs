@@ -2,7 +2,7 @@ mod root_container;
 
 use std::{
     cmp::{max, min},
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     mem::size_of,
     ops::Deref,
     sync::{mpsc::SyncSender, Arc, Condvar, Mutex, MutexGuard, RwLock},
@@ -913,6 +913,15 @@ impl ActiveElections {
         }
 
         result
+    }
+
+    pub fn insert_ordering(
+        &self,
+        blocks: HashSet<BlockHash>,
+        election_behavior: ElectionBehavior,
+        erased_callback: Option<ErasedCallback>,
+    ) -> Option<ElectionInsertInfo> {
+        None
     }
 
     pub fn insert(
