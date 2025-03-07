@@ -1,46 +1,66 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet, BTreeMap};
+use std::cmp::max;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rsnano_core::{BlockHash, PublicKey, Signature};
+use rsnano_core::{BlockHash, Era, PublicKey, Signature};
 use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, StatType, Stats};
 
-use super::{ActiveElections, Election, ElectionBehavior, ElectionState};
+use super::{ActiveElections, ElectionBehavior};
 use crate::wallets::Wallets;
 
-// Define certificate type for message validation
-type Certificate = Vec<Signature>;
-
-// Define message types for each step
-enum ArchipelagoMessage {
-    Register(u64, HashSet<BlockHash>, Certificate), // (rank, value, certificate)
-    Adopt(u64, HashSet<BlockHash>, Certificate),    // (rank, value, certificate)
-    Commit(u64, bool, HashSet<BlockHash>, Certificate), // (rank, flag, value, certificate)
+// Certificate types
+#[derive(Clone, Default)]
+struct PartialCertificate {
+    // Responses from previous step with their partial certificates
+    responses: HashMap<PublicKey, (Message, PartialCertificate)>,
 }
 
-// Define states for the protocol phases
-enum ArchipelagoState {
-    Register,
-    Adopt,
-    Commit,
+#[derive(Clone)]
+enum Message {
+    // R-Step messages
+    RStepQuery(u64, HashSet<BlockHash>),
+    RStepResponse(u64, u64, HashSet<BlockHash>), // Current rank, max rank, value
+    
+    // A-Step messages
+    AStepQuery(u64, HashSet<BlockHash>),
+    AStepResponse(u64, Vec<HashSet<BlockHash>>), // Current rank, values (up to 2)
+    
+    // B-Step messages
+    BStepQuery(u64, bool, HashSet<BlockHash>),
+    BStepResponse(u64, Vec<(bool, HashSet<BlockHash>)>), // Current rank, flag-value pairs
+}
+
+// Protocol state
+pub enum ArchipelagoState {
+    RStep,
+    AStep,
+    BStep,
     Completed,
 }
 
 pub struct OrderingElection {
-    rank: u64,                                // Current round number
-    state: ArchipelagoState,                  // Current protocol state
-    proposed_value: HashSet<BlockHash>,       // Our proposed block ordering
-    current_value: Option<HashSet<BlockHash>>, // Current value in consideration
-    adopted: bool,                            // Whether a value has been adopted
-    register_responses: HashMap<PublicKey, (u64, HashSet<BlockHash>)>, // Responses from R-step
-    adopt_responses: HashMap<PublicKey, (bool, HashSet<BlockHash>)>,   // Responses from A-step
-    commit_responses: HashMap<PublicKey, (bool, HashSet<BlockHash>)>,  // Responses from B-step
+    rank: u64,
+    state: ArchipelagoState,
+    proposed_value: HashSet<BlockHash>,
+    current_value: HashSet<BlockHash>,
+    
+    // Step-specific state
+    r_responses: HashMap<PublicKey, (u64, HashSet<BlockHash>)>,
+    a_responses: HashMap<PublicKey, Vec<HashSet<BlockHash>>>,
+    b_responses: HashMap<PublicKey, Vec<(bool, HashSet<BlockHash>)>>,
+    
+    // Last certificate for each step
+    last_certificate: PartialCertificate,
+    
+    // Dependencies
     stats: Arc<Stats>,
     wallets: Arc<Wallets>,
     ledger: Arc<Ledger>,
     active_elections: Arc<ActiveElections>,
-    timeout: Instant,                         // Timeout for each phase
+    era: Era,
+    timeout: Instant,
 }
 
 impl OrderingElection {
@@ -50,282 +70,328 @@ impl OrderingElection {
         wallets: Arc<Wallets>,
         ledger: Arc<Ledger>,
         active_elections: Arc<ActiveElections>,
+        era: Era,
     ) -> Self {
         Self {
             rank: 0,
-            state: ArchipelagoState::Register,
-            proposed_value: proposed_blocks,
-            current_value: None,
-            adopted: false,
-            register_responses: HashMap::new(),
-            adopt_responses: HashMap::new(),
-            commit_responses: HashMap::new(),
+            state: ArchipelagoState::RStep,
+            proposed_value: proposed_blocks.clone(),
+            current_value: proposed_blocks.clone(),
+            r_responses: HashMap::new(),
+            a_responses: HashMap::new(),
+            b_responses: HashMap::new(),
+            last_certificate: PartialCertificate::default(),
             stats,
             wallets,
             ledger,
             active_elections,
+            era,
             timeout: Instant::now() + Duration::from_secs(30),
         }
     }
 
-    // Start the ordering election
+    // Start the consensus process (Propose procedure)
     pub fn start(&mut self) {
-        // Broadcast initial Register message with our proposed blocks
-        self.broadcast_register();
+        self.run_r_step();
     }
-
-    // Handle received message from another participant
-    pub fn handle_message(&mut self, sender: PublicKey, message: ArchipelagoMessage) -> bool {
-        match message {
-            ArchipelagoMessage::Register(rank, value, certificate) => {
-                if self.verify_certificate(&certificate) {
-                    self.handle_register(sender, rank, value);
-                    true
-                } else {
-                    false
-                }
-            }
-            ArchipelagoMessage::Adopt(rank, value, certificate) => {
-                if self.verify_certificate(&certificate) {
-                    self.handle_adopt(sender, rank, value);
-                    true
-                } else {
-                    false
-                }
-            }
-            ArchipelagoMessage::Commit(rank, flag, value, certificate) => {
-                if self.verify_certificate(&certificate) {
-                    self.handle_commit(sender, rank, flag, value);
-                    true
-                } else {
-                    false
-                }
-            }
+    
+    // R-Step implementation
+    fn run_r_step(&mut self) {
+        self.state = ArchipelagoState::RStep;
+        self.r_responses.clear();
+        
+        // For rank 0, no certificate needed
+        let certificate = if self.rank == 0 {
+            PartialCertificate::default()
+        } else {
+            self.last_certificate.clone()
+        };
+        
+        // Broadcast query
+        self.broadcast_message(Message::RStepQuery(self.rank, self.current_value.clone()), certificate);
+    }
+    
+    // Handle received R-Step query
+    fn handle_r_step_query(&mut self, sender: PublicKey, rank: u64, value: HashSet<BlockHash>, certificate: PartialCertificate) -> bool {
+        // Check certificate validity (except for rank 0)
+        if rank > 0 && !self.verify_r_certificate(&certificate) {
+            return false;
         }
-    }
-
-    // Verify the certificate attached to a message
-    fn verify_certificate(&self, certificate: &Certificate) -> bool {
-        // Implementation of certificate verification
-        // For now just return true, but in a real system we would verify signatures
+        
+        // Update our current max rank/value if necessary
+        let our_max_rank = if rank > self.rank {
+            self.rank = rank;
+            self.current_value = value.clone();
+            rank
+        } else {
+            self.rank
+        };
+        
+        // Send response
+        let response = Message::RStepResponse(rank, our_max_rank, self.current_value.clone());
+        self.send_response(sender, response, PartialCertificate::default());
+        
         true
     }
-
-    // Handle Register message
-    fn handle_register(&mut self, sender: PublicKey, rank: u64, value: HashSet<BlockHash>) {
-        if rank >= self.rank {
-            self.register_responses.insert(sender, (rank, value));
-            
-            // Check if we have enough responses to proceed to A-step
-            if self.register_responses.len() >= self.quorum_size() {
-                self.process_register_responses();
-            }
+    
+    // Handle received R-Step response
+    fn handle_r_step_response(&mut self, sender: PublicKey, query_rank: u64, max_rank: u64, value: HashSet<BlockHash>) -> bool {
+        if query_rank != self.rank {
+            return false; // Not for our current rank
         }
-    }
-
-    // Process Register responses and transition to Adopt phase
-    fn process_register_responses(&mut self) {
-        // Find highest ranked value
-        let (max_rank, max_value) = self.register_responses.values()
-            .max_by_key(|(r, _)| r)
-            .map(|(r, v)| (*r, v.clone()))
-            .unwrap_or((self.rank, self.proposed_value.clone()));
-
-        self.current_value = Some(max_value);
-        self.state = ArchipelagoState::Adopt;
-        self.broadcast_adopt();
-    }
-
-    // Handle Adopt message
-    fn handle_adopt(&mut self, sender: PublicKey, rank: u64, value: HashSet<BlockHash>) {
-        if rank == self.rank {
-            // Count if multiple values exist
-            let existing_values: Vec<_> = self.adopt_responses.values()
-                .map(|(_, v)| v)
-                .collect();
-            
-            let multiple_values = existing_values.len() > 1 || 
-                (existing_values.len() == 1 && existing_values[0] != &value);
-
-            self.adopt_responses.insert(sender, (!multiple_values, value));
-            
-            // Check if we have enough responses to proceed to B-step
-            if self.adopt_responses.len() >= self.quorum_size() {
-                self.process_adopt_responses();
-            }
-        }
-    }
-
-    // Process Adopt responses and transition to Commit phase
-    fn process_adopt_responses(&mut self) {
-        // Check if we have a single consistent value
-        let values: Vec<&HashSet<BlockHash>> = self.adopt_responses.values()
-            .map(|(_, v)| v)
-            .collect();
-
-        // If all values are the same, we adopt it
-        let single_value = values.windows(2).all(|w| w[0] == w[1]);
         
-        // Get the value to use
-        let adopted_value = if single_value {
-            values.first().unwrap().clone()
-        } else {
-            // Take largest value as per protocol
-            values.iter()
-                .max_by_key(|v| v.len())
-                .unwrap()
-                .clone()
-        };
-
-        self.adopted = single_value;
-        self.current_value = Some(adopted_value.clone());
-        self.state = ArchipelagoState::Commit;
-        self.broadcast_commit();
-    }
-
-    // Handle Commit message
-    fn handle_commit(&mut self, sender: PublicKey, rank: u64, flag: bool, value: HashSet<BlockHash>) {
-        if rank == self.rank {
-            self.commit_responses.insert(sender, (flag, value));
-            
-            // Check if we have enough responses to make a decision
-            if self.commit_responses.len() >= self.quorum_size() {
-                self.process_commit_responses();
-            }
+        // Store response
+        self.r_responses.insert(sender, (max_rank, value));
+        
+        // Check if we have enough responses to proceed
+        if self.r_responses.len() >= self.quorum_size() {
+            self.process_r_responses();
         }
+        
+        true
     }
-
-    // Process Commit responses to reach consensus
-    fn process_commit_responses(&mut self) {
-        // Count flags
-        let true_count = self.commit_responses.values()
-            .filter(|(flag, _)| *flag)
+    
+    // A-Step implementation
+    fn run_a_step(&mut self) {
+        self.state = ArchipelagoState::AStep;
+        self.a_responses.clear();
+        
+        // Create certificate from R-Step responses
+        let certificate = self.create_certificate_from_r_responses();
+        self.last_certificate = certificate.clone();
+        
+        // Broadcast query
+        self.broadcast_message(Message::AStepQuery(self.rank, self.current_value.clone()), certificate);
+    }
+    
+    // Handle received A-Step query
+    fn handle_a_step_query(&mut self, sender: PublicKey, rank: u64, value: HashSet<BlockHash>, certificate: PartialCertificate) -> bool {
+        // Check certificate validity
+        if !self.verify_a_certificate(&certificate) {
+            return false;
+        }
+        
+        // Process according to Algorithm 5 lines 33-40
+        let mut response_values = Vec::new();
+        
+        // First value is always our highest value
+        response_values.push(self.current_value.clone());
+        
+        // If value differs from our current value and we have space, add it
+        if value != self.current_value && response_values.len() < 2 {
+            response_values.push(value);
+        }
+        
+        // Send response
+        let response = Message::AStepResponse(rank, response_values);
+        self.send_response(sender, response, PartialCertificate::default());
+        
+        true
+    }
+    
+    // Handle received A-Step response
+    fn handle_a_step_response(&mut self, sender: PublicKey, rank: u64, values: Vec<HashSet<BlockHash>>) -> bool {
+        if rank != self.rank {
+            return false; // Not for our current rank
+        }
+        
+        // Store response
+        self.a_responses.insert(sender, values);
+        
+        // Check if we have enough responses to proceed
+        if self.a_responses.len() >= self.quorum_size() {
+            self.process_a_responses();
+        }
+        
+        true
+    }
+    
+    // B-Step implementation
+    fn run_b_step(&mut self, flag: bool) {
+        self.state = ArchipelagoState::BStep;
+        self.b_responses.clear();
+        
+        // Create certificate from A-Step responses
+        let certificate = self.create_certificate_from_a_responses();
+        self.last_certificate = certificate.clone();
+        
+        // Broadcast query
+        self.broadcast_message(Message::BStepQuery(self.rank, flag, self.current_value.clone()), certificate);
+    }
+    
+    // Process functions to move between steps
+    fn process_r_responses(&mut self) {
+        // Find max rank and its value
+        let (max_rank, max_value) = self.r_responses.values()
+            .max_by_key(|(rank, _)| rank)
+            .map(|(rank, value)| (*rank, value.clone()))
+            .unwrap_or((self.rank, self.current_value.clone()));
+        
+        // Update current value and move to A-Step
+        self.current_value = max_value;
+        self.run_a_step();
+    }
+    
+    fn process_a_responses(&mut self) {
+        // Check if all responses contain the same value
+        let all_values: Vec<_> = self.a_responses.values()
+            .flat_map(|v| v.iter())
+            .collect();
+        
+        let consistent = all_values.iter()
+            .all(|v| **v == self.current_value);
+        
+        // Run B-Step with flag indicating consistency
+        self.run_b_step(consistent);
+    }
+    
+    fn process_b_responses(&mut self) {
+        // Count true flags
+        let true_responses = self.b_responses.values()
+            .filter(|pairs| pairs.iter().any(|(flag, _)| *flag))
             .count();
         
-        if true_count >= self.quorum_size() {
-            // All/majority have the same value, commit it
-            if let Some(value) = &self.current_value {
-                self.finalize_ordering(value.clone());
-                self.state = ArchipelagoState::Completed;
-            }
+        if true_responses >= self.quorum_size() {
+            // Consensus reached, finalize ordering
+            self.finalize_ordering();
+            self.state = ArchipelagoState::Completed;
+        } else if true_responses > 0 {
+            // Some true responses, adopt their value
+            let true_value = self.b_responses.values()
+                .flat_map(|pairs| pairs.iter())
+                .find(|(flag, _)| *flag)
+                .map(|(_, value)| value.clone())
+                .unwrap_or(self.current_value.clone());
+            
+            self.start_new_round(true_value);
         } else {
-            // Proceed to next round
-            self.start_new_round();
+            // No true responses, continue with largest value
+            let max_value = self.current_value.clone();
+            self.start_new_round(max_value);
         }
     }
-
-    // Start a new round of the protocol
-    fn start_new_round(&mut self) {
+    
+    // Helper functions
+    fn start_new_round(&mut self, new_value: HashSet<BlockHash>) {
         self.rank += 1;
-        self.register_responses.clear();
-        self.adopt_responses.clear();
-        self.commit_responses.clear();
-        self.state = ArchipelagoState::Register;
+        self.current_value = new_value;
         self.timeout = Instant::now() + Duration::from_secs(30);
-        self.broadcast_register();
-    }
-
-    // Broadcast Register message
-    fn broadcast_register(&self) {
-        // Create certificate based on previous round messages
-        let certificate = self.create_certificate();
         
-        // Broadcast to all participants
-        let value = self.current_value.clone().unwrap_or(self.proposed_value.clone());
-        let message = ArchipelagoMessage::Register(self.rank, value, certificate);
-        self.broadcast_message(message);
+        // Start new round with R-Step
+        self.run_r_step();
     }
-
-    // Broadcast Adopt message
-    fn broadcast_adopt(&self) {
-        let certificate = self.create_certificate();
-        if let Some(value) = &self.current_value {
-            let message = ArchipelagoMessage::Adopt(self.rank, value.clone(), certificate);
-            self.broadcast_message(message);
-        }
-    }
-
-    // Broadcast Commit message
-    fn broadcast_commit(&self) {
-        let certificate = self.create_certificate();
-        if let Some(value) = &self.current_value {
-            let message = ArchipelagoMessage::Commit(
-                self.rank, 
-                self.adopted, 
-                value.clone(), 
-                certificate
-            );
-            self.broadcast_message(message);
-        }
-    }
-
-    // Create certificate for message validation
-    fn create_certificate(&self) -> Certificate {
-        // Implementation to create a certificate
-        // In a real implementation, we would sign the current message
-        Vec::new()
-    }
-
-    // Broadcast message to all participants
-    fn broadcast_message(&self, message: ArchipelagoMessage) {
-        // Implementation to broadcast message to all participants
-        // This would typically use the network layer
-    }
-
-    // Calculate the quorum size (2f+1)
+    
     fn quorum_size(&self) -> usize {
-        // In a system with n nodes where f are Byzantine,
-        // quorum size is (n + f) / 2 + 1, which simplifies to (2n + 1) / 3
-        // For simplicity, we'll use f = (n-1)/3, so quorum is 2f+1
         let total_validators = self.wallets.voting_reps_count();
-        let f = (total_validators - 1) / 3;
-        (2 * f + 1) as usize
+        let f = (total_validators - 1) / 3; // Byzantine nodes (n = 3f + 1)
+        (2 * f + 1) as usize // 2f + 1 nodes required for quorum
     }
-
-    // Check if a timeout has occurred
+    
+    // Certificate creation and verification
+    fn create_certificate_from_r_responses(&self) -> PartialCertificate {
+        let mut certificate = PartialCertificate::default();
+        
+        // Select 2f+1 responses to include in certificate
+        for (sender, (max_rank, value)) in self.r_responses.iter().take(self.quorum_size()) {
+            let message = Message::RStepResponse(self.rank, *max_rank, value.clone());
+            certificate.responses.insert(*sender, (message, PartialCertificate::default()));
+        }
+        
+        certificate
+    }
+    
+    fn create_certificate_from_a_responses(&self) -> PartialCertificate {
+        let mut certificate = PartialCertificate::default();
+        
+        // Select 2f+1 responses to include in certificate
+        for (sender, values) in self.a_responses.iter().take(self.quorum_size()) {
+            let message = Message::AStepResponse(self.rank, values.clone());
+            certificate.responses.insert(*sender, (message, PartialCertificate::default()));
+        }
+        
+        certificate
+    }
+    
+    fn verify_r_certificate(&self, certificate: &PartialCertificate) -> bool {
+        // For simplicity, check that we have enough responses
+        certificate.responses.len() >= self.quorum_size()
+    }
+    
+    fn verify_a_certificate(&self, certificate: &PartialCertificate) -> bool {
+        // For simplicity, check that we have enough responses
+        certificate.responses.len() >= self.quorum_size()
+    }
+    
+    fn verify_b_certificate(&self, certificate: &PartialCertificate) -> bool {
+        // For simplicity, check that we have enough responses
+        certificate.responses.len() >= self.quorum_size()
+    }
+    
+    // Communication methods
+    fn broadcast_message(&self, message: Message, certificate: PartialCertificate) {
+        // Implementation to broadcast message
+        // In a real implementation, this would send the message to all nodes
+    }
+    
+    fn send_response(&self, recipient: PublicKey, message: Message, certificate: PartialCertificate) {
+        // Implementation to send response to specific node
+        // In a real implementation, this would send the message to the specified node
+    }
+    
+    // Check for timeout
     pub fn check_timeout(&mut self) -> bool {
         if Instant::now() > self.timeout {
-            // If timeout occurs, move to next round
-            self.stats.inc(StatType::OrderingElection, DetailType::Timeout);
-            self.start_new_round();
+            // Timeout, start new round with current value
+            self.start_new_round(self.current_value.clone());
             true
         } else {
             false
         }
     }
-
-    // Finalize the ordering of blocks
-    fn finalize_ordering(&self, ordered_blocks: HashSet<BlockHash>) {
-        //self.stats.inc(StatType::OrderingElection, DetailType::Finalized);
-        
-        // Create a special block or record that represents the consensus ordering
-        // This block could reference all ordered blocks in a specific sequence
-        
-        // Notify the system that consensus has been reached
-        // This might involve creating a special ordering block in the ledger
-        
-        // Mark each block in the ordering as part of this consensus round
-        for block_hash in ordered_blocks {
-            // Update the status of each block to indicate it's part of an ordered set
-            // This might involve updating metadata in the ledger or adding to a special index
-        }
+    
+    // Finalize the ordering
+    fn finalize_ordering(&self) {
+        // TODO: Implement the final ordering logic
+        // This would typically involve creating a special block or record in the ledger
+        // that establishes the consensus ordering of the blocks
     }
-
-    // Create a new ordering election for a set of blocks
+    
+    // Factory method
     pub fn create_ordering_election(
         blocks: HashSet<BlockHash>,
         stats: Arc<Stats>,
         wallets: Arc<Wallets>,
         ledger: Arc<Ledger>,
-        active_elections: Arc<ActiveElections>
+        active_elections: Arc<ActiveElections>,
+        era: Era,
     ) -> Arc<Mutex<Self>> {
-        let election = Self::new(blocks, stats, wallets, ledger, active_elections);
+        let election = Self::new(blocks, stats, wallets, ledger, active_elections, era);
         let election_arc = Arc::new(Mutex::new(election));
         
         // Start the election process
         election_arc.lock().unwrap().start();
         
         election_arc
+    }
+    
+    // Message handling dispatcher
+    pub fn handle_message(&mut self, sender: PublicKey, message: Message, certificate: PartialCertificate) -> bool {
+        match message {
+            Message::RStepQuery(rank, value) => 
+                self.handle_r_step_query(sender, rank, value, certificate),
+                
+            Message::RStepResponse(query_rank, max_rank, value) => 
+                self.handle_r_step_response(sender, query_rank, max_rank, value),
+                
+            Message::AStepQuery(rank, value) => 
+                self.handle_a_step_query(sender, rank, value, certificate),
+                
+            Message::AStepResponse(rank, values) => 
+                self.handle_a_step_response(sender, rank, values),
+                
+            // Handlers for B-Step messages would be implemented similarly
+            _ => false,
+        }
     }
 }
 
