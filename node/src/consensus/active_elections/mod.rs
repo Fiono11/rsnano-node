@@ -76,6 +76,7 @@ pub enum AecEvent {
     ActiveStarted(BlockHash),
     ActiveStopped(BlockHash),
     ElectionEnded(ElectionStatus, Vec<VoteWithWeightInfo>, SavedBlock, Amount),
+    VacancyUpdated,
 }
 
 pub struct ActiveElections {
@@ -104,7 +105,7 @@ pub struct ActiveElections {
     message_flooder: Mutex<MessageFlooder>,
     vacancy_updated_observers: RwLock<Vec<Box<dyn Fn() + Send + Sync>>>,
     ordering: bool,
-    event_sender: Option<SyncSender<AecEvent>>,
+    event_sender: RwLock<Option<SyncSender<AecEvent>>>,
 }
 
 impl ActiveElections {
@@ -165,12 +166,12 @@ impl ActiveElections {
             message_flooder: Mutex::new(message_flooder),
             vacancy_updated_observers: RwLock::new(Vec::new()),
             ordering: false,
-            event_sender: None,
+            event_sender: RwLock::new(None),
         }
     }
 
     pub fn set_event_sink(&mut self, sink: SyncSender<AecEvent>) {
-        self.event_sender = Some(sink);
+        *self.event_sender.write().unwrap() = Some(sink);
     }
 
     pub fn len(&self) -> usize {
@@ -186,10 +187,6 @@ impl ActiveElections {
             hinted: guard.hinted_count,
             optimistic: guard.optimistic_count,
         }
-    }
-
-    pub fn on_vacancy_updated(&self, f: Box<dyn Fn() + Send + Sync>) {
-        self.vacancy_updated_observers.write().unwrap().push(f);
     }
 
     pub fn recently_cemented_count(&self) -> usize {
@@ -208,7 +205,7 @@ impl ActiveElections {
         // Trigger callback for confirmed block
         let amount = self.ledger.any().block_amount_for(&block);
 
-        if let Some(sender) = &self.event_sender {
+        if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
             sender
                 .send(AecEvent::ElectionEnded(
                     status,
@@ -259,7 +256,7 @@ impl ActiveElections {
 
         let amount = any.block_amount_for(&block).unwrap_or_default();
 
-        if let Some(sender) = &self.event_sender {
+        if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
             sender
                 .send(AecEvent::ElectionEnded(status, votes, block, amount))
                 .unwrap();
@@ -357,9 +354,8 @@ impl ActiveElections {
 
     /// Notify election schedulers when AEC frees election slot
     fn vacancy_updated(&self) {
-        let guard = self.vacancy_updated_observers.read().unwrap();
-        for observer in &*guard {
-            observer();
+        if let Some(sender) = &self.event_sender.read().unwrap().as_ref() {
+            sender.send(AecEvent::VacancyUpdated).unwrap();
         }
     }
 
@@ -970,7 +966,6 @@ impl ActiveElections {
                 );
 
                 self.notify_active_started(hash);
-                self.vacancy_updated();
             }
 
             // Votes are also generated for ongoing elections
@@ -981,13 +976,13 @@ impl ActiveElections {
     }
 
     fn notify_active_started(&self, hash: BlockHash) {
-        if let Some(sender) = &self.event_sender {
+        if let Some(sender) = &self.event_sender.read().unwrap().as_ref() {
             sender.send(AecEvent::ActiveStarted(hash)).unwrap();
         }
     }
 
     fn notify_active_stopped(&self, hash: BlockHash) {
-        if let Some(sender) = &self.event_sender {
+        if let Some(sender) = &self.event_sender.read().unwrap().as_ref() {
             sender.send(AecEvent::ActiveStopped(hash)).unwrap();
         }
     }
@@ -1230,6 +1225,9 @@ impl ActiveElectionsExt for Arc<ActiveElections> {
             join_handle.join().unwrap();
         }
         self.clear();
+
+        // destroy send queue so that the receiver thread will be stopped too
+        drop(self.event_sender.write().unwrap().take())
     }
 }
 
