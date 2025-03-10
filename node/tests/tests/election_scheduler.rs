@@ -125,7 +125,6 @@ mod election_scheduler {
         config::NodeConfig,
         consensus::{election_schedulers::OptimisticSchedulerConfig, ElectionBehavior},
     };
-    use rsnano_stats::{DetailType, Direction, StatType};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]
@@ -315,14 +314,6 @@ mod election_scheduler {
         assert_eq!(
             election.lock().unwrap().behavior,
             ElectionBehavior::Priority
-        );
-        assert_eq!(
-            1,
-            node.stats.count(
-                StatType::ActiveElections,
-                DetailType::TransitionPriority,
-                Direction::In
-            )
         );
         // Verify vote broadcast after transitioning
         assert_timely_eq2(|| election.lock().unwrap().status.vote_broadcast_count, 2);

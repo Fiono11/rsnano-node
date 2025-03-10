@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_core::{
-    Amount, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, Root, SavedBlock,
+    Amount, BlockHash, MaybeSavedBlock, Networks, PublicKey, QualifiedRoot, Root, SavedBlock,
     VoteWithWeightInfo,
 };
 use rsnano_ledger::RepWeightCache;
@@ -13,6 +13,38 @@ use rsnano_stats::{DetailType, StatType};
 
 use super::{ElectionStatus, ElectionStatusType, TallyKey};
 use crate::utils::HardenedConstants;
+
+#[derive(Clone)]
+pub struct ElectionConfig {
+    /// Minimum time between broadcasts of the current winner of an election, as a backup to requesting confirmations
+    pub base_latency: Duration,
+    pub block_broadcast_interval: Duration,
+    pub vote_broadcast_interval: Duration,
+}
+
+impl Default for ElectionConfig {
+    fn default() -> Self {
+        Self {
+            base_latency: Duration::from_millis(1000),
+            block_broadcast_interval: Duration::from_secs(150),
+            vote_broadcast_interval: Duration::from_secs(15),
+        }
+    }
+}
+
+impl ElectionConfig {
+    pub fn default_for(network: Networks) -> Self {
+        if network == Networks::NanoDevNetwork {
+            Self {
+                base_latency: Duration::from_millis(25),
+                block_broadcast_interval: Duration::from_millis(500),
+                vote_broadcast_interval: Duration::from_millis(500),
+            }
+        } else {
+            Default::default()
+        }
+    }
+}
 
 pub struct Election {
     qualified_root: QualifiedRoot,
@@ -24,22 +56,21 @@ pub struct Election {
     pub last_tally: HashMap<BlockHash, Amount>,
 
     /// The last time a vote for this election was generated
-    pub last_vote: Option<Instant>,
-    pub last_broadcasted_block: BlockHash,
+    last_vote_generated: Option<Instant>,
+    last_broadcasted_block: BlockHash,
     pub behavior: ElectionBehavior,
     is_quorum: bool,
     last_req: Option<Instant>,
     pub confirmation_request_count: u32,
     last_block_broadcast: Instant,
     election_start: Instant,
-    /// Minimum time between broadcasts of the current winner of an election, as a backup to requesting confirmations
-    base_latency: Duration,
+    config: ElectionConfig,
 }
 
 impl Election {
     const PASSIVE_DURATION_FACTOR: u32 = 5;
 
-    pub fn new(block: SavedBlock, behavior: ElectionBehavior, base_latency: Duration) -> Self {
+    pub fn new(block: SavedBlock, behavior: ElectionBehavior, config: ElectionConfig) -> Self {
         Self {
             qualified_root: block.qualified_root(),
             status: ElectionStatus {
@@ -57,7 +88,7 @@ impl Election {
             state: ElectionState::Passive,
             last_tally: HashMap::new(),
             final_weight: Amount::zero(),
-            last_vote: None,
+            last_vote_generated: None,
             last_broadcasted_block: BlockHash::zero(),
             behavior,
             is_quorum: false,
@@ -65,7 +96,7 @@ impl Election {
             confirmation_request_count: 0,
             last_block_broadcast: Instant::now(),
             election_start: Instant::now(),
-            base_latency,
+            config,
         }
     }
 
@@ -80,7 +111,7 @@ impl Election {
     pub fn transition_time(&mut self) {
         match self.state {
             ElectionState::Passive => {
-                if self.base_latency * Self::PASSIVE_DURATION_FACTOR < self.duration() {
+                if self.config.base_latency * Self::PASSIVE_DURATION_FACTOR < self.duration() {
                     self.state_change(ElectionState::Passive, ElectionState::Active)
                         .unwrap();
                 }
@@ -108,13 +139,23 @@ impl Election {
         }
     }
 
+    pub fn should_broadcast_winner_block(&self) -> bool {
+        // Broadcast the block if enough time has passed since the last broadcast (or it's the first broadcast)
+        if self.time_since_last_block_broadcast() < self.config.block_broadcast_interval {
+            true
+        } else {
+            // Or the current election winner has changed
+            self.winner_hash().unwrap() != self.last_broadcasted_block
+        }
+    }
+
     /// Calculates time delay between broadcasting confirmation requests
-    pub fn confirm_req_interval(&self) -> Duration {
+    fn confirm_req_interval(&self) -> Duration {
         match self.behavior {
             ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted => {
-                self.base_latency * 5
+                self.config.base_latency * 5
             }
-            ElectionBehavior::Optimistic => self.base_latency * 2,
+            ElectionBehavior::Optimistic => self.config.base_latency * 2,
         }
     }
 
@@ -165,7 +206,7 @@ impl Election {
         self.behavior = ElectionBehavior::Priority;
 
         // allow new outgoing votes immediately
-        self.last_vote = None;
+        self.last_vote_generated = None;
         true
     }
 
@@ -189,12 +230,16 @@ impl Election {
         self.status.winner.as_ref().map(|w| w.hash())
     }
 
+    pub fn should_send_confirm_req(&self) -> bool {
+        self.confirm_req_interval() < self.last_confirm_request_elapsed()
+    }
+
     pub fn confirm_request_sent(&mut self) {
         self.last_req = Some(Instant::now());
         self.confirmation_request_count += 1;
     }
 
-    pub fn last_confirm_request_elapsed(&self) -> Duration {
+    fn last_confirm_request_elapsed(&self) -> Duration {
         match self.last_req {
             Some(i) => i.elapsed(),
             None => Duration::MAX,
@@ -258,14 +303,18 @@ impl Election {
     }
 
     pub fn set_last_vote(&mut self) {
-        self.last_vote = Some(Instant::now());
+        self.last_vote_generated = Some(Instant::now());
     }
 
     pub fn last_vote_elapsed(&self) -> Duration {
-        match &self.last_vote {
+        match &self.last_vote_generated {
             Some(i) => i.elapsed(),
             None => Duration::from_secs(60 * 60 * 24 * 365), // Duration::MAX caused problems with C++
         }
+    }
+
+    pub fn should_vote(&self) -> bool {
+        self.last_vote_elapsed() >= self.config.vote_broadcast_interval
     }
 
     pub fn duration(&self) -> Duration {

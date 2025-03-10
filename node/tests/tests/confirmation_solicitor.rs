@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
 use rsnano_core::{Account, Amount, PublicKey};
 use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_PUB_KEY};
@@ -14,8 +11,6 @@ use rsnano_node::{
 };
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::System;
-
-const BASE_LATENCY: Duration = Duration::from_millis(25);
 
 #[test]
 fn batches() {
@@ -54,11 +49,12 @@ fn batches() {
 
     {
         for _ in 0..ConfirmReq::HASHES_MAX {
-            let election = Election::new(send.clone(), ElectionBehavior::Priority, BASE_LATENCY);
+            let election =
+                Election::new(send.clone(), ElectionBehavior::Priority, Default::default());
             assert_eq!(solicitor.add(&election), true);
         }
         // Reached the maximum amount of requests for the channel
-        let election = Election::new(send.clone(), ElectionBehavior::Priority, BASE_LATENCY);
+        let election = Election::new(send.clone(), ElectionBehavior::Priority, Default::default());
         // Broadcasting should be immediate
         assert_eq!(
             0,
@@ -121,7 +117,7 @@ fn different_hashes() {
     let election = Mutex::new(Election::new(
         send.clone(),
         ElectionBehavior::Priority,
-        BASE_LATENCY,
+        Default::default(),
     ));
     let mut data = election.lock().unwrap();
     // Add a vote for something else, not the winner
@@ -180,7 +176,7 @@ fn bypass_max_requests_cap() {
     let send = lattice.genesis().send(Account::from(123), 100);
     let send = node2.process(send);
 
-    let mut election = Election::new(send.clone(), ElectionBehavior::Priority, BASE_LATENCY);
+    let mut election = Election::new(send.clone(), ElectionBehavior::Priority, Default::default());
     // Add a vote for something else, not the winner
     for rep in &representatives {
         election
