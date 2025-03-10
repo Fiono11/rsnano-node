@@ -25,6 +25,7 @@ impl<'a> RepresentativeBlockFinder<'a> {
                 Block::LegacyOpen(_) => (BlockHash::zero(), block.hash()),
                 Block::LegacyChange(_) => (BlockHash::zero(), block.hash()),
                 Block::State(_) => (BlockHash::zero(), block.hash()),
+                Block::Order(_) => todo!(),
             };
         }
 

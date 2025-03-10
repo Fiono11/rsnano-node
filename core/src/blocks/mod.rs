@@ -14,7 +14,11 @@ pub use change_block::{valid_change_block_predecessor, ChangeBlock, ChangeBlockA
 mod open_block;
 pub use open_block::{JsonOpenBlock, OpenBlock, OpenBlockArgs};
 
+mod order_block;
+use order_block::{JsonOrderBlock, OrderBlock};
+
 mod receive_block;
+
 pub use receive_block::{
     valid_receive_block_predecessor, JsonReceiveBlock, ReceiveBlock, ReceiveBlockArgs,
 };
@@ -50,6 +54,7 @@ pub enum BlockType {
     LegacyOpen = 4,
     LegacyChange = 5,
     State = 6,
+    Order = 7,
 }
 
 impl TryFrom<BlockType> for BlockSubType {
@@ -62,6 +67,7 @@ impl TryFrom<BlockType> for BlockSubType {
             BlockType::LegacyOpen => Ok(BlockSubType::Open),
             BlockType::LegacyChange => Ok(BlockSubType::Change),
             BlockType::State => Ok(BlockSubType::Send),
+            BlockType::Order => Ok(BlockSubType::Order),
             BlockType::Invalid | BlockType::NotABlock => {
                 Err(anyhow!("Invalid block type for conversion to subtype"))
             }
@@ -84,6 +90,7 @@ pub enum BlockSubType {
     Open,
     Change,
     Epoch,
+    Order,
 }
 
 impl BlockSubType {
@@ -94,6 +101,7 @@ impl BlockSubType {
             BlockSubType::Open => "open",
             BlockSubType::Change => "change",
             BlockSubType::Epoch => "epoch",
+            BlockSubType::Order => "order",
         }
     }
 }
@@ -133,6 +141,7 @@ pub fn serialized_block_size(block_type: BlockType) -> usize {
         BlockType::LegacyOpen => OpenBlock::serialized_size(),
         BlockType::LegacyChange => ChangeBlock::serialized_size(),
         BlockType::State => StateBlock::serialized_size(),
+        BlockType::Order => OrderBlock::serialized_size(),
     }
 }
 
@@ -143,6 +152,7 @@ pub enum Block {
     LegacyOpen(OpenBlock),
     LegacyChange(ChangeBlock),
     State(StateBlock),
+    Order(OrderBlock),
 }
 
 impl Block {
@@ -188,6 +198,7 @@ impl Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Order(b) => b,
         }
     }
 
@@ -198,6 +209,7 @@ impl Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Order(b) => b,
         }
     }
 
@@ -247,6 +259,7 @@ impl Block {
             BlockType::LegacyChange => Self::LegacyChange(ChangeBlock::deserialize(stream)?),
             BlockType::State => Self::State(StateBlock::deserialize(stream)?),
             BlockType::LegacySend => Self::LegacySend(SendBlock::deserialize(stream)?),
+            BlockType::Order => Self::Order(OrderBlock::deserialize(stream)?),
             BlockType::Invalid | BlockType::NotABlock => bail!("invalid block type"),
         };
         Ok(block)
@@ -288,6 +301,7 @@ impl Deref for Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Order(b) => b,
         }
     }
 }
@@ -300,6 +314,7 @@ impl DerefMut for Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Order(b) => b,
         }
     }
 }
@@ -322,6 +337,7 @@ pub enum JsonBlock {
     Receive(JsonReceiveBlock),
     Send(JsonSendBlock),
     State(JsonStateBlock),
+    Order(JsonOrderBlock),
 }
 
 impl<'de> serde::Deserialize<'de> for Block {
@@ -342,6 +358,7 @@ impl From<JsonBlock> for Block {
             JsonBlock::Receive(receive) => Block::LegacyReceive(receive.into()),
             JsonBlock::Send(send) => Block::LegacySend(send.into()),
             JsonBlock::State(state) => Block::State(state.into()),
+            JsonBlock::Order(order) => Block::Order(order.into()),
         }
     }
 }
@@ -551,6 +568,7 @@ impl SavedBlock {
                 };
                 DependentBlocks::new(self.previous(), linked_block)
             }
+            Block::Order(order) => todo!(),
         }
     }
 }
@@ -601,6 +619,7 @@ impl Deserialize for SavedBlock {
                 sideband.account = state.account();
                 sideband.balance = state.balance();
             }
+            Block::Order(order) => todo!(),
         }
         Ok(SavedBlock { block, sideband })
     }

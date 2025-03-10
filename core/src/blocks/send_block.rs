@@ -89,7 +89,7 @@ pub fn valid_send_block_predecessor(block_type: BlockType) -> bool {
         | BlockType::LegacyReceive
         | BlockType::LegacyOpen
         | BlockType::LegacyChange => true,
-        BlockType::NotABlock | BlockType::State | BlockType::Invalid => false,
+        BlockType::NotABlock | BlockType::State | BlockType::Invalid | BlockType::Order => false,
     }
 }
 

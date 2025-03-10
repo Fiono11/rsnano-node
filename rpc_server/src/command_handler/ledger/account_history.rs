@@ -256,6 +256,7 @@ impl<'a> AccountHistoryHelper<'a> {
                     }
                 }
             }
+            Block::Order(b) => todo!(),
         };
 
         if let Some(entry) = &mut entry {

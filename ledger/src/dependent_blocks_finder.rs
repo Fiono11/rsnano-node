@@ -38,6 +38,7 @@ where
                 };
                 DependentBlocks::new(block.previous(), linked_block)
             }
+            Block::Order(order) => todo!(),
         }
     }
 

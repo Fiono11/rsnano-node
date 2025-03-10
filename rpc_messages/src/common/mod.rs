@@ -93,7 +93,7 @@ impl From<BlockType> for BlockTypeDto {
             BlockType::LegacyOpen => BlockTypeDto::Open,
             BlockType::LegacyChange => BlockTypeDto::Change,
             BlockType::State => BlockTypeDto::State,
-            BlockType::Invalid | BlockType::NotABlock => BlockTypeDto::Unknown,
+            BlockType::Invalid | BlockType::NotABlock | BlockType::Order => BlockTypeDto::Unknown,
         }
     }
 }
@@ -130,6 +130,7 @@ impl From<BlockSubType> for BlockSubTypeDto {
             BlockSubType::Open => Self::Open,
             BlockSubType::Change => Self::Change,
             BlockSubType::Epoch => Self::Epoch,
+            BlockSubType::Order => todo!(),
         }
     }
 }
