@@ -1,11 +1,13 @@
 mod hinted_scheduler;
 mod manual_scheduler;
 mod optimistic_scheduler;
+mod ordering_scheduler;
 mod priority_scheduler;
 
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic_scheduler::*;
+pub use ordering_scheduler::*;
 pub use priority_scheduler::*;
 
 use std::sync::{Arc, Mutex};
@@ -29,6 +31,7 @@ pub struct ElectionSchedulers {
     optimistic: Arc<OptimisticScheduler>,
     hinted: Arc<HintedScheduler>,
     pub manual: Arc<ManualScheduler>,
+    ordering: Arc<OrderingScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
 }
@@ -68,10 +71,14 @@ impl ElectionSchedulers {
             confirming_set.clone(),
         ));
 
-        let priority = Arc::new(PriorityScheduler::new(
+        let priority: Arc<PriorityScheduler> = Arc::new(PriorityScheduler::new(
             config.priority_bucket.clone(),
             stats.clone(),
             active_elections.clone(),
+        ));
+
+        let ordering = Arc::new(OrderingScheduler::new(
+            stats.clone(),
         ));
 
         Self {
@@ -79,6 +86,7 @@ impl ElectionSchedulers {
             optimistic,
             hinted,
             manual,
+            ordering,
             notify_listener: OutputListenerMt::new(),
             config,
         }
@@ -131,6 +139,9 @@ impl ElectionSchedulers {
         if self.config.enable_priority_scheduler {
             self.priority.start();
         }
+        if self.config.enable_ordering_scheduler {
+            self.ordering.start();
+        }
     }
 
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
@@ -142,6 +153,7 @@ impl ElectionSchedulers {
         self.manual.stop();
         self.optimistic.stop();
         self.priority.stop();
+        self.ordering.stop();
     }
 
     pub fn container_info(&self) -> ContainerInfo {
