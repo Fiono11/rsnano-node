@@ -1,28 +1,33 @@
-use rsnano_stats::Stats;
-use std::{sync::{atomic::AtomicBool, Arc, Condvar, Mutex}, thread::JoinHandle};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::collections::HashSet;
 use rsnano_core::BlockHash;
+use rsnano_stats::{DetailType, StatType, Stats};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    sync::{atomic::AtomicBool, Arc, Condvar, Mutex},
+    thread::JoinHandle,
+};
+
+use crate::consensus::{ActiveElections, ElectionBehavior};
 
 pub struct OrderingScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     condition: Condvar,
     stats: Arc<Stats>,
     stopped: AtomicBool,
+    active: Arc<ActiveElections>,
     committed_count: AtomicUsize,
     committed_threshold: usize,
     committed_blocks: Mutex<HashSet<BlockHash>>,
 }
 
 impl OrderingScheduler {
-    pub fn new(
-        stats: Arc<Stats>, 
-    ) -> Self {
+    pub fn new(stats: Arc<Stats>, active: Arc<ActiveElections>) -> Self {
         Self {
             thread: Mutex::new(None),
             condition: Condvar::new(),
             stopped: AtomicBool::new(true),
             stats,
+            active,
             committed_count: AtomicUsize::new(0),
             committed_threshold: 1000,
             committed_blocks: Mutex::new(HashSet::new()),
@@ -45,7 +50,7 @@ impl OrderingScheduler {
     pub fn increment_committed_count(&self, block_hash: BlockHash) -> usize {
         let mut blocks = self.committed_blocks.lock().unwrap();
         blocks.insert(block_hash);
-        
+
         let count = self.committed_count.fetch_add(1, Ordering::SeqCst) + 1;
         if count >= self.committed_threshold {
             self.committed_count.store(0, Ordering::SeqCst);
@@ -55,7 +60,28 @@ impl OrderingScheduler {
     }
 
     fn run(&self) {
+        let blocks_to_order: HashSet<BlockHash> = {
+            let blocks = self.committed_blocks.lock().unwrap();
+            blocks.clone()
+        };
 
+        {
+            let mut blocks = self.committed_blocks.lock().unwrap();
+            blocks.clear();
+        }
+
+        /*let result = self
+            .active
+            .insert_ordering(blocks_to_order, ElectionBehavior::Ordering, None);
+
+        let inserted = result.map(|i| i.inserted).unwrap_or(false);
+        if inserted {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::Insert);
+        } else {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::InsertFailed);
+        }*/
     }
 }
 

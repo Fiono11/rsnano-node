@@ -79,6 +79,7 @@ impl ElectionSchedulers {
 
         let ordering = Arc::new(OrderingScheduler::new(
             stats.clone(),
+            active_elections.clone(),
         ));
 
         Self {

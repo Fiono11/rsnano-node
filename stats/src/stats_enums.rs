@@ -276,6 +276,7 @@ pub enum DetailType {
     Priority,
     Hinted,
     Optimistic,
+    Ordering,
 
     // received messages
     InvalidHeader,

@@ -2,7 +2,7 @@ mod root_container;
 
 use std::{
     cmp::min,
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     mem::size_of,
     ops::Deref,
     sync::{mpsc::SyncSender, Arc, Condvar, Mutex, MutexGuard, RwLock},
@@ -14,7 +14,8 @@ use tracing::{debug, trace};
 
 use rsnano_core::{
     utils::{ContainerInfo, MemoryStream},
-    Amount, Block, BlockHash, MaybeSavedBlock, QualifiedRoot, SavedBlock, Vote, VoteWithWeightInfo,
+    Amount, Block, BlockHash, MaybeSavedBlock, QualifiedRoot, Root, SavedBlock, Vote,
+    VoteWithWeightInfo,
 };
 use rsnano_ledger::{AnySet, BlockStatus, Ledger};
 use rsnano_messages::{Message, NetworkFilter, Publish};
@@ -118,6 +119,7 @@ impl ActiveElections {
                 priority_count: 0,
                 hinted_count: 0,
                 optimistic_count: 0,
+                ordering_count: 0,
                 config: election_config,
             }),
             condition: Condvar::new(),
@@ -258,6 +260,7 @@ impl ActiveElections {
             ElectionBehavior::Optimistic => {
                 self.config.optimistic_limit_percentage * self.config.size / 100
             }
+            ElectionBehavior::Ordering => 2,
         }
     }
 
@@ -278,6 +281,7 @@ impl ActiveElections {
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => {
                 self.limit(behavior) as i64 - guard.count_by_behavior(behavior) as i64
             }
+            ElectionBehavior::Ordering => 2 - guard.count_by_behavior(behavior) as i64,
         }
     }
 
@@ -697,6 +701,25 @@ impl ActiveElections {
         result
     }
 
+    pub fn insert_ordering(
+        &self,
+        blocks_to_order: HashSet<BlockHash>,
+        behavior: ElectionBehavior,
+        erased_callback: Option<ErasedCallback>,
+    ) -> Option<ElectionInsertInfo> {
+        let mut guard = self.mutex.lock().unwrap();
+
+        // Check if we have vacancy for ordering elections
+        if self.vacancy(ElectionBehavior::Ordering) <= 0 {
+            return None;
+        }
+
+        self.stats
+            .inc(StatType::ActiveElections, DetailType::Started);
+
+        guard.insert_ordering(blocks_to_order, erased_callback)
+    }
+
     pub fn handle_cementations(&self, cemented: &VecDeque<CementingContext>) {
         let mut results = Vec::new();
         {
@@ -823,6 +846,7 @@ pub struct ActiveElectionsState {
     priority_count: usize,
     hinted_count: usize,
     optimistic_count: usize,
+    ordering_count: usize,
     config: ElectionConfig,
 }
 
@@ -833,6 +857,7 @@ impl ActiveElectionsState {
             ElectionBehavior::Priority => self.priority_count,
             ElectionBehavior::Hinted => self.hinted_count,
             ElectionBehavior::Optimistic => self.optimistic_count,
+            ElectionBehavior::Ordering => self.ordering_count,
         }
     }
 
@@ -842,6 +867,7 @@ impl ActiveElectionsState {
             ElectionBehavior::Priority => &mut self.priority_count,
             ElectionBehavior::Hinted => &mut self.hinted_count,
             ElectionBehavior::Optimistic => &mut self.optimistic_count,
+            ElectionBehavior::Ordering => &mut self.ordering_count,
         }
     }
 
@@ -906,6 +932,35 @@ impl ActiveElectionsState {
                 inserted: true,
             })
         }
+    }
+
+    pub fn insert_ordering(
+        &mut self,
+        blocks_to_order: HashSet<BlockHash>,
+        erased_callback: Option<ErasedCallback>,
+    ) -> Option<ElectionInsertInfo> {
+        let qualified_root = QualifiedRoot::new_test_instance();
+        let dummy_block = SavedBlock::new_test_instance();
+        let election = Election::new(
+            dummy_block.clone(),
+            ElectionBehavior::Ordering,
+            self.config.clone(),
+        );
+
+        // Insert the election into the container
+        let election = Arc::new(Mutex::new(election));
+        let entry = root_container::Entry {
+            root: qualified_root,
+            election: election.clone(),
+            erased_callback,
+        };
+
+        self.roots.insert(entry);
+
+        Some(ElectionInsertInfo {
+            election,
+            inserted: true,
+        })
     }
 }
 

@@ -155,7 +155,9 @@ impl Election {
             ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted => {
                 self.config.base_latency * 5
             }
-            ElectionBehavior::Optimistic => self.config.base_latency * 2,
+            ElectionBehavior::Optimistic | ElectionBehavior::Ordering => {
+                self.config.base_latency * 2
+            }
         }
     }
 
@@ -275,7 +277,9 @@ impl Election {
 
     pub fn time_to_live(&self) -> Duration {
         match self.behavior {
-            ElectionBehavior::Manual | ElectionBehavior::Priority => Duration::from_secs(60 * 5),
+            ElectionBehavior::Manual | ElectionBehavior::Priority | ElectionBehavior::Ordering => {
+                Duration::from_secs(60 * 5)
+            }
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => Duration::from_secs(30),
         }
     }
@@ -443,6 +447,7 @@ pub enum ElectionBehavior {
      * - more frequent confirmation requests
      */
     Optimistic,
+    Ordering,
 }
 
 impl From<ElectionBehavior> for DetailType {
@@ -452,6 +457,7 @@ impl From<ElectionBehavior> for DetailType {
             ElectionBehavior::Priority => DetailType::Priority,
             ElectionBehavior::Hinted => DetailType::Hinted,
             ElectionBehavior::Optimistic => DetailType::Optimistic,
+            ElectionBehavior::Ordering => DetailType::Ordering,
         }
     }
 }
