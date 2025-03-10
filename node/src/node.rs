@@ -549,7 +549,7 @@ impl Node {
         let (aec_sender, aec_receiver) = std::sync::mpsc::sync_channel(128);
         let mut active_elections = ActiveElections::new(
             config.clone(),
-            ledger.clone(),
+            ledger.rep_weights.clone(),
             confirming_set.clone(),
             network_filter.clone(),
             vote_cache.clone(),
@@ -1659,7 +1659,7 @@ fn make_store(
 pub enum NodeEvent {
     AecActiveStarted(BlockHash),
     AecActiveStopped(BlockHash),
-    ElectionEnded(ElectionStatus, Vec<VoteWithWeightInfo>, SavedBlock, Amount),
+    ElectionEnded(ElectionStatus, Vec<VoteWithWeightInfo>, SavedBlock),
 }
 
 pub trait NodeEventHandler {
