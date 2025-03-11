@@ -33,10 +33,6 @@ pub type ElectionEndCallback =
 pub struct ActiveElectionsConfig {
     /// Maximum number of simultaneous active elections (AEC size)
     pub size: usize,
-    /// Limit of hinted elections as percentage of `active_elections_size`
-    pub hinted_limit_percentage: usize,
-    /// Limit of optimistic elections as percentage of `active_elections_size`
-    pub optimistic_limit_percentage: usize,
     /// Maximum confirmation history size
     pub confirmation_history_size: usize,
     /// Maximum cache size for recently_confirmed
@@ -49,8 +45,6 @@ impl Default for ActiveElectionsConfig {
     fn default() -> Self {
         Self {
             size: 5000,
-            hinted_limit_percentage: 20,
-            optimistic_limit_percentage: 10,
             confirmation_history_size: 2048,
             confirmation_cache: 65536,
             max_election_winners: 1024 * 16,
@@ -142,41 +136,21 @@ impl ActiveElections {
         }
     }
 
-    /// Maximum number of elections that should be present in this container
-    /// NOTE: This is only a soft limit, it is possible for this container to exceed this count
-    pub fn limit(&self, behavior: ElectionBehavior) -> usize {
-        match behavior {
-            ElectionBehavior::Manual => usize::MAX,
-            ElectionBehavior::Priority => self.config.size,
-            ElectionBehavior::Hinted => {
-                self.config.hinted_limit_percentage * self.config.size / 100
-            }
-            ElectionBehavior::Optimistic => {
-                self.config.optimistic_limit_percentage * self.config.size / 100
-            }
-            ElectionBehavior::Ordering => 2,
-        }
+    pub fn max_len(&self) -> usize {
+        self.config.size
     }
 
-    /// How many election slots are available for specified election type
-    pub fn vacancy(&self, behavior: ElectionBehavior) -> i64 {
-        let election_vacancy = self.election_vacancy(behavior);
+    /// How many election slots are available
+    /// This is a soft limit and can be negative!
+    pub fn vacancy(&self) -> i64 {
+        let current_size = self.mutex.lock().unwrap().roots.len() as i64;
+        let election_vacancy = self.config.size as i64 - current_size;
         let winners_vacancy = self.election_winners_vacancy();
         min(election_vacancy, winners_vacancy)
     }
 
-    fn election_vacancy(&self, behavior: ElectionBehavior) -> i64 {
-        let guard = self.mutex.lock().unwrap();
-        match behavior {
-            ElectionBehavior::Manual => i64::MAX,
-            ElectionBehavior::Priority => {
-                self.limit(ElectionBehavior::Priority) as i64 - guard.roots.len() as i64
-            }
-            ElectionBehavior::Hinted | ElectionBehavior::Optimistic => {
-                self.limit(behavior) as i64 - guard.count_by_behavior(behavior) as i64
-            }
-            ElectionBehavior::Ordering => 2 - guard.count_by_behavior(behavior) as i64,
-        }
+    pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
+        self.mutex.lock().unwrap().count_by_behavior(behavior)
     }
 
     fn election_winners_vacancy(&self) -> i64 {
@@ -193,13 +167,13 @@ impl ActiveElections {
         self.notify(AecEvent::VacancyUpdated);
     }
 
-    pub fn active_root(&self, root: &QualifiedRoot) -> bool {
+    pub fn is_root_active(&self, root: &QualifiedRoot) -> bool {
         let guard = self.mutex.lock().unwrap();
         guard.roots.get(root).is_some()
     }
 
-    pub fn active(&self, block: &Block) -> bool {
-        self.active_root(&block.qualified_root())
+    pub fn is_active(&self, block: &Block) -> bool {
+        self.is_root_active(&block.qualified_root())
     }
 
     fn get_cached_tally(&self, hash: &BlockHash) -> Amount {
@@ -221,100 +195,6 @@ impl ActiveElections {
         self.election_voter.try_vote(election);
     }
 
-    /// Erase all blocks from active, if not confirmed, clear digests from network filters
-    fn cleanup_election<'a>(
-        &self,
-        mut guard: MutexGuard<'a, ActiveElectionsState>,
-        election_mutex: &'a Arc<Mutex<Election>>,
-    ) {
-        // Keep track of election count by election type
-        *guard.count_by_behavior_mut(election_mutex.lock().unwrap().behavior) -= 1;
-
-        let election_winner: BlockHash;
-        let election_state;
-        let blocks;
-        {
-            let election_guard = election_mutex.lock().unwrap();
-            blocks = election_guard.last_blocks.clone();
-            election_winner = election_guard.winner_hash().unwrap();
-            election_state = election_guard.state;
-        }
-
-        self.vote_router.disconnect_election(election_mutex);
-
-        let election = election_mutex.lock().unwrap();
-        // Erase root info
-        let entry = guard
-            .roots
-            .erase(election.qualified_root())
-            .expect("election not found");
-
-        let state = election.state;
-        drop(election);
-
-        self.stats
-            .inc(StatType::ActiveElections, DetailType::Stopped);
-
-        self.stats.inc(
-            StatType::ActiveElections,
-            if state.is_confirmed() {
-                DetailType::Confirmed
-            } else {
-                DetailType::Unconfirmed
-            },
-        );
-        self.stats
-            .inc(StatType::ActiveElectionsStopped, state.into());
-        self.stats
-            .inc(state.into(), election_mutex.lock().unwrap().behavior.into());
-
-        debug!(
-            "Erased election for blocks: {} (behavior: {:?}, state: {:?})",
-            blocks
-                .keys()
-                .map(|k| k.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-            election_mutex.lock().unwrap().behavior,
-            election_state
-        );
-        drop(guard);
-
-        // Track election duration
-        let election_duration;
-        let qualified_root;
-        {
-            let el = election_mutex.lock().unwrap();
-            election_duration = el.duration();
-            qualified_root = el.qualified_root().clone();
-        }
-
-        self.stats.sample(
-            Sample::ActiveElectionDuration,
-            election_duration.as_millis() as i64,
-            (0, 1000 * 60 * 10),
-        ); // 0-10 minutes range
-
-        // Notify observers without holding the lock
-        if let Some(callback) = entry.erased_callback {
-            callback(&qualified_root);
-        }
-
-        self.notify(AecEvent::VacancyUpdated);
-
-        let is_confirmed = election_mutex.lock().unwrap().is_confirmed();
-        for (hash, block) in blocks {
-            // Notify observers about dropped elections & blocks lost confirmed elections
-            if !is_confirmed || hash != election_winner {
-                self.notify(AecEvent::ActiveStopped(hash));
-            }
-
-            if !is_confirmed {
-                self.notify(AecEvent::UnconfirmedBlockRemoved(block.into()));
-            }
-        }
-    }
-
     pub fn election(&self, root: &QualifiedRoot) -> Option<Arc<Mutex<Election>>> {
         self.mutex.lock().unwrap().election(root)
     }
@@ -330,24 +210,62 @@ impl ActiveElections {
     }
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
-        let guard = self.mutex.lock().unwrap();
-        if let Some(entry) = guard.roots.get(root) {
-            let election = entry.election.clone();
-            self.cleanup_election(guard, &election);
+        let mut guard = self.mutex.lock().unwrap();
+        if let Some(entry) = guard.roots.erase(root) {
+            self.cleanup_election(guard, entry);
             true
         } else {
             false
         }
     }
 
-    fn try_confirm(&self, election_mutex: &Arc<Mutex<Election>>, hash: &BlockHash) {
-        let mut election = election_mutex.lock().unwrap();
-        if let Some(winner_hash) = &election.winner_hash() {
-            if winner_hash == hash {
-                if !election.is_confirmed() {
-                    self.vote_applier
-                        .confirm_once(&mut election, election_mutex);
-                }
+    /// Erase all blocks from active, if not confirmed, clear digests from network filters
+    fn cleanup_election<'a>(&self, mut guard: MutexGuard<'a, ActiveElectionsState>, entry: Entry) {
+        let election = entry.election.lock().unwrap();
+
+        // Keep track of election count by election type
+        *guard.count_by_behavior_mut(election.behavior) -= 1;
+        self.vote_router.disconnect_election(&election);
+        let winner_hash = election.winner_hash().unwrap();
+
+        self.stats
+            .inc(StatType::ActiveElections, DetailType::Stopped);
+
+        self.stats.inc(
+            StatType::ActiveElections,
+            if election.is_confirmed() {
+                DetailType::Confirmed
+            } else {
+                DetailType::Unconfirmed
+            },
+        );
+        self.stats
+            .inc(StatType::ActiveElectionsStopped, election.state.into());
+        self.stats
+            .inc(election.state.into(), election.behavior.into());
+        drop(guard);
+
+        // Track election duration
+        self.stats.sample(
+            Sample::ActiveElectionDuration,
+            election.duration().as_millis() as i64,
+            (0, 1000 * 60 * 10),
+        ); // 0-10 minutes range
+
+        // Notify observers without holding the lock
+        if let Some(callback) = entry.erased_callback {
+            callback(election.qualified_root());
+        }
+        self.notify(AecEvent::VacancyUpdated);
+
+        for (hash, block) in &election.last_blocks {
+            // Notify observers about dropped elections & blocks lost confirmed elections
+            if !election.is_confirmed() || *hash != winner_hash {
+                self.notify(AecEvent::ActiveStopped(*hash));
+            }
+
+            if !election.is_confirmed() {
+                self.notify(AecEvent::UnconfirmedBlockRemoved(block.clone().into()));
             }
         }
     }
@@ -569,6 +487,28 @@ impl ActiveElections {
         trace!(?block, %confirmation_root, "active cemented");
 
         (status, votes)
+    }
+
+    fn try_confirm(&self, election_mutex: &Arc<Mutex<Election>>, hash: &BlockHash) {
+        let mut election = election_mutex.lock().unwrap();
+        if let Some(winner_hash) = &election.winner_hash() {
+            if winner_hash == hash {
+                if !election.is_confirmed() {
+                    election.update_status_to_confirmed();
+
+                    self.recently_confirmed
+                        .write()
+                        .unwrap()
+                        .put(election.qualified_root().clone(), *winner_hash);
+
+                    self.stats.inc(StatType::Election, DetailType::ConfirmOnce);
+                    trace!(
+                        qualified_root = ?election.qualified_root(),
+                        "election confirmed"
+                    );
+                }
+            }
+        }
     }
 
     fn notify_block_cemented(&self, status: ElectionStatus, votes: Vec<VoteWithWeightInfo>) {

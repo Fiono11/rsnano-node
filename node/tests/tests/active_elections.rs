@@ -4,8 +4,8 @@ use rsnano_core::{
     utils::MemoryStream, Account, Amount, PrivateKey, Vote, VoteCode, VoteSource, DEV_GENESIS_KEY,
 };
 use rsnano_ledger::{
-    test_helpers::UnsavedBlockLatticeBuilder, BlockStatus, ElectionBehavior, LedgerSet, Writer,
-    DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY,
+    test_helpers::UnsavedBlockLatticeBuilder, BlockStatus, LedgerSet, Writer, DEV_GENESIS_ACCOUNT,
+    DEV_GENESIS_PUB_KEY,
 };
 use rsnano_node::{
     bootstrap::BootstrapConfig,
@@ -236,8 +236,7 @@ fn non_final() {
     );
 
     let election = node.active.election(&send.qualified_root()).unwrap();
-    assert_timely_eq(
-        Duration::from_secs(5),
+    assert_timely_eq2(
         || {
             node.stats
                 .count(StatType::ElectionVote, DetailType::Cache, Direction::In)
@@ -245,8 +244,7 @@ fn non_final() {
         1,
     );
 
-    assert_timely_eq(
-        Duration::from_secs(5),
+    assert_timely_eq2(
         || {
             node.active
                 .vote_applier
@@ -537,7 +535,7 @@ fn republish_winner() {
         let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
         let fork = fork_lattice.genesis().send(&key, Amount::raw(1 + i));
         node1.process_active(fork.clone());
-        assert_timely(Duration::from_secs(5), || node1.active.active(&fork));
+        assert_timely(Duration::from_secs(5), || node1.active.is_active(&fork));
     }
 
     assert_timely(Duration::from_secs(3), || node1.active.len() > 0);
@@ -725,31 +723,6 @@ fn confirm_frontier() {
     assert!(election2.lock().unwrap().confirmation_request_count > 0);
 }
 
-#[test]
-fn vacancy() {
-    let mut system = System::new();
-    let mut config = System::default_config();
-    config.active_elections.size = 1;
-    let node = system.build_node().config(config).finish();
-    let notify_tracker = node.election_schedulers.track_notify();
-    let mut lattice = UnsavedBlockLatticeBuilder::new();
-
-    let send = lattice
-        .genesis()
-        .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-    node.process(send.clone());
-
-    assert_eq!(1, node.active.vacancy(ElectionBehavior::Priority),);
-    assert_eq!(0, node.active.len());
-    let election1 = start_election(&node, &send.hash());
-    assert_eq!(0, node.active.vacancy(ElectionBehavior::Priority));
-    assert_eq!(1, node.active.len());
-    node.active.force_confirm(&election1);
-    assert_timely2(|| notify_tracker.output().len() > 0);
-    assert_eq!(1, node.active.vacancy(ElectionBehavior::Priority));
-    assert_eq!(0, node.active.len());
-}
-
 /// Ensures that election winners set won't grow without bounds when cementing
 /// is slower that the rate of confirming new elections
 #[test]
@@ -763,7 +736,7 @@ fn bound_election_winners() {
     // Start elections for a couple of blocks, number of elections is larger than the election winner set limit
     let blocks = setup_independent_blocks(&node, 10, &DEV_GENESIS_KEY);
     assert_timely(Duration::from_secs(5), || {
-        blocks.iter().all(|block| node.active.active(block))
+        blocks.iter().all(|block| node.active.is_active(block))
     });
 
     {
@@ -772,22 +745,18 @@ fn bound_election_winners() {
 
         // Ensure that when the number of election winners reaches the limit, AEC vacancy reflects that
         // Confirming more elections should make the vacancy negative
-        assert!(node.active.vacancy(ElectionBehavior::Priority) > 0);
+        assert!(node.active.vacancy() > 0);
 
         for block in blocks {
             let election = node.vote_router.election(&block.hash()).unwrap();
             node.active.force_confirm(&election);
         }
 
-        assert_timely(Duration::from_secs(5), || {
-            node.active.vacancy(ElectionBehavior::Priority) < 0
-        });
+        assert_timely2(|| node.active.vacancy() < 0);
         // Release the guard to allow cementing, there should be some vacancy now
     }
 
-    assert_timely(Duration::from_secs(5), || {
-        node.active.vacancy(ElectionBehavior::Priority) > 0
-    });
+    assert_timely2(|| node.active.vacancy() > 0);
 }
 
 /// Blocks should only be broadcasted when they are active in the AEC
@@ -818,7 +787,7 @@ fn broadcast_block_on_activation() {
 
     // Activating the election should broadcast the block
     node1.election_schedulers.add_manual(send1.clone());
-    assert_timely2(|| node1.active.active_root(&send1.qualified_root()));
+    assert_timely2(|| node1.active.is_root_active(&send1.qualified_root()));
     assert_timely2(|| node2.block_exists(&send1.hash()));
 }
 
@@ -1068,7 +1037,7 @@ fn activate_account_chain() {
 
     // On cementing, the next election is started
     assert_timely(Duration::from_secs(3), || {
-        node.active.active_root(&send2.qualified_root())
+        node.active.is_root_active(&send2.qualified_root())
     });
     let election3 = node.active.election(&send2.qualified_root()).unwrap();
     assert!(election3
@@ -1083,10 +1052,10 @@ fn activate_account_chain() {
 
     // On cementing, the next election is started
     assert_timely(Duration::from_secs(3), || {
-        node.active.active_root(&open.qualified_root())
+        node.active.is_root_active(&open.qualified_root())
     }); // Destination account activated
     assert_timely(Duration::from_secs(3), || {
-        node.active.active_root(&send3.qualified_root())
+        node.active.is_root_active(&send3.qualified_root())
     }); // Block successor activated
     let election4 = node.active.election(&send3.qualified_root()).unwrap();
     assert!(election4
@@ -1107,13 +1076,13 @@ fn activate_account_chain() {
 
     // Until send3 is also confirmed, the receive block should not activate
     sleep(Duration::from_millis(200));
-    assert!(!node.active.active_root(&receive.qualified_root()));
+    assert!(!node.active.is_root_active(&receive.qualified_root()));
     node.active.force_confirm(&election4);
     assert_timely(Duration::from_secs(3), || {
         node.block_confirmed(&send3.hash())
     });
     assert_timely(Duration::from_secs(3), || {
-        node.active.active_root(&receive.qualified_root())
+        node.active.is_root_active(&receive.qualified_root())
     }); // Destination account activated
 }
 
@@ -1456,5 +1425,5 @@ fn activate_inactive() {
     );
 
     // Cementing of send should activate open
-    assert_timely(Duration::from_secs(5), || node.active.active(&open))
+    assert_timely(Duration::from_secs(5), || node.active.is_active(&open))
 }
