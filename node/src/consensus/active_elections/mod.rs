@@ -4,7 +4,6 @@ use std::{
     cmp::min,
     collections::{HashSet, VecDeque},
     mem::size_of,
-    ops::Deref,
     sync::{mpsc::SyncSender, Arc, Condvar, Mutex, MutexGuard, RwLock},
 };
 
@@ -108,6 +107,7 @@ impl ActiveElections {
         message_flooder: MessageFlooder,
         election_voter: ElectionVoter,
         election_config: ElectionConfig,
+        recently_cemented: Arc<Mutex<BoundedVecDeque<ElectionStatus>>>,
     ) -> Self {
         Self {
             mutex: Mutex::new(ActiveElectionsState {
@@ -124,9 +124,7 @@ impl ActiveElections {
             rep_weights,
             confirming_set,
             recently_confirmed,
-            recently_cemented: Arc::new(Mutex::new(BoundedVecDeque::new(
-                node_config.active_elections.confirmation_history_size,
-            ))),
+            recently_cemented,
             config: node_config.active_elections.clone(),
             network_filter,
             vote_cache,
@@ -159,17 +157,9 @@ impl ActiveElections {
         }
     }
 
-    pub fn recently_cemented_count(&self) -> usize {
-        self.recently_cemented.lock().unwrap().len()
-    }
-
-    pub fn recently_cemented_list(&self) -> BoundedVecDeque<ElectionStatus> {
-        self.recently_cemented.lock().unwrap().clone()
-    }
-
     //--------------------------------------------------------------------------------
 
-    fn notify_observers(&self, status: ElectionStatus, votes: Vec<VoteWithWeightInfo>) {
+    fn notify_election_ended(&self, status: ElectionStatus, votes: Vec<VoteWithWeightInfo>) {
         let block = status.winner.as_ref().unwrap();
         let MaybeSavedBlock::Saved(block) = block else {
             return;
@@ -262,53 +252,6 @@ impl ActiveElections {
 
     pub fn active(&self, block: &Block) -> bool {
         self.active_root(&block.qualified_root())
-    }
-
-    /// Result is true if:
-    /// 1) election is confirmed or expired
-    /// 2) given election contains 10 blocks & new block didn't receive enough votes to replace existing blocks
-    /// 3) given block is already in election & election contains less than 10 blocks (replacing block content with new)
-    fn publish(&self, fork: &Block, election: &mut Election) -> bool {
-        // Do not insert new blocks if already confirmed
-        if election.is_confirmed() {
-            return true;
-        }
-
-        if election.last_blocks.len() >= Election::MAX_BLOCKS
-            && !election.last_blocks.contains_key(&fork.hash())
-        {
-            let fork_tally = self.get_cached_tally(&fork.hash());
-
-            let removed = election.remove_tally_below(fork_tally);
-            if let Some(replaced) = removed {
-                self.vote_router.disconnect(&replaced.hash());
-                self.clear_publish_filter(&replaced);
-            } else {
-                self.clear_publish_filter(fork);
-                return true;
-            }
-        }
-
-        if election.last_blocks.get(&fork.hash()).is_some() {
-            election
-                .last_blocks
-                .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
-
-            if election.winner_hash().unwrap() == fork.hash() {
-                election.set_winner(MaybeSavedBlock::Unsaved(fork.clone()));
-                let message = Message::Publish(Publish::new_forward(fork.clone()));
-                let mut publisher = self.message_flooder.lock().unwrap();
-                publisher.flood(&message, TrafficType::BlockBroadcast, 1.0);
-            }
-
-            return true;
-        }
-
-        election
-            .last_blocks
-            .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
-
-        false
     }
 
     fn get_cached_tally(&self, hash: &BlockHash) -> Amount {
@@ -467,93 +410,6 @@ impl ActiveElections {
         self.vote_applier.confirm_once(&mut guard, election);
     }
 
-    /// Distinguishes replay votes, cannot be determined if the block is not in any election
-    fn block_cemented(
-        &self,
-        guard: &mut ActiveElectionsState,
-        block: &SavedBlock,
-        confirmation_root: &BlockHash,
-        source_election: &Option<Arc<Mutex<Election>>>,
-    ) -> (ElectionStatus, Vec<VoteWithWeightInfo>) {
-        // Dependent elections are implicitly confirmed when their block is cemented
-        let dependent_election = guard.election(&block.qualified_root());
-        if let Some(dependent_election) = &dependent_election {
-            self.stats
-                .inc(StatType::ActiveElections, DetailType::ConfirmDependent);
-
-            // TODO: This should either confirm or cancel the election
-            self.try_confirm(&dependent_election, &block.hash());
-        }
-
-        let mut status = ElectionStatus::default();
-        let mut votes = Vec::new();
-        status.winner = Some(MaybeSavedBlock::Saved(block.clone()));
-
-        // Check if the currently cemented block was part of an election that triggered the confirmation
-        let mut handled = false;
-        if let Some(source_election) = source_election {
-            let source_election_guard = source_election.lock().unwrap();
-            if *source_election_guard.qualified_root() == block.qualified_root() {
-                status = source_election_guard.status.clone();
-                debug_assert_eq!(status.winner.as_ref().unwrap().hash(), block.hash());
-                votes = source_election_guard.votes_with_weight(&self.rep_weights);
-                status.election_status_type = ElectionStatusType::ActiveConfirmedQuorum;
-                handled = true;
-            }
-        }
-
-        if handled {
-            // already handled
-        } else if dependent_election.is_some() {
-            status.election_status_type = ElectionStatusType::ActiveConfirmationHeight;
-        } else {
-            status.election_status_type = ElectionStatusType::InactiveConfirmationHeight;
-        }
-
-        self.recently_cemented
-            .lock()
-            .unwrap()
-            .push_back(status.clone());
-
-        self.stats
-            .inc(StatType::ActiveElections, DetailType::Cemented);
-        self.stats.inc(
-            StatType::ActiveElectionsCemented,
-            status.election_status_type.into(),
-        );
-
-        trace!(?block, %confirmation_root, "active cemented");
-
-        (status, votes)
-    }
-
-    pub fn publish_fork(&self, fork: &Block) -> bool {
-        let mut guard = self.mutex.lock().unwrap();
-        let mut result = false;
-        if let Some(entry) = guard.roots.get(&fork.qualified_root()) {
-            let election_mutex = entry.election.clone();
-            drop(guard);
-            {
-                let mut election = election_mutex.lock().unwrap();
-                result = self.publish(fork, &mut election);
-            }
-            if !result {
-                guard = self.mutex.lock().unwrap();
-                self.vote_router
-                    .connect(fork.hash(), Arc::downgrade(&election_mutex));
-                drop(guard);
-
-                self.vote_cache_processor.trigger(fork.hash());
-
-                self.stats
-                    .inc(StatType::Active, DetailType::ElectionBlockConflict);
-                debug!("Block was added to an existing election: {}", fork.hash());
-            }
-        }
-
-        result
-    }
-
     pub fn insert(
         &self,
         block: SavedBlock,
@@ -636,9 +492,80 @@ impl ActiveElections {
     pub fn handle_processed_blocks(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
         for (status, context) in batch {
             if *status == BlockStatus::Fork {
-                self.publish_fork(&context.block);
+                self.handle_fork(&context.block);
             }
         }
+    }
+
+    pub fn handle_fork(&self, fork: &Block) {
+        let mut guard = self.mutex.lock().unwrap();
+        if let Some(entry) = guard.roots.get(&fork.qualified_root()) {
+            let election_mutex = entry.election.clone();
+            drop(guard);
+            let added = {
+                let mut election = election_mutex.lock().unwrap();
+                self.try_add_fork(&mut election, fork)
+            };
+            if added {
+                guard = self.mutex.lock().unwrap();
+                self.vote_router
+                    .connect(fork.hash(), Arc::downgrade(&election_mutex));
+                drop(guard);
+
+                self.vote_cache_processor.trigger(fork.hash());
+
+                self.stats
+                    .inc(StatType::Active, DetailType::ElectionBlockConflict);
+                debug!("Block was added to an existing election: {}", fork.hash());
+            }
+        }
+    }
+
+    /// Returns wether the fork was added to the election.
+    /// Result is false if:
+    /// 1) election is confirmed or expired
+    /// 2) given election contains 10 blocks & new block didn't receive enough votes to replace existing blocks
+    /// 3) given block is already in election & election contains less than 10 blocks (replacing block content with new)
+    fn try_add_fork(&self, election: &mut Election, fork: &Block) -> bool {
+        // Do not insert new blocks if already confirmed
+        if election.is_confirmed() {
+            return false;
+        }
+
+        if election.last_blocks.len() >= Election::MAX_BLOCKS
+            && !election.last_blocks.contains_key(&fork.hash())
+        {
+            let fork_tally = self.get_cached_tally(&fork.hash());
+            let removed = election.remove_tally_below(fork_tally);
+            if let Some(removed) = removed {
+                self.vote_router.disconnect(&removed.hash());
+                self.clear_publish_filter(&removed);
+            } else {
+                self.clear_publish_filter(fork);
+                return false;
+            }
+        }
+
+        if election.last_blocks.get(&fork.hash()).is_some() {
+            election
+                .last_blocks
+                .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
+
+            if election.winner_hash().unwrap() == fork.hash() {
+                election.set_winner(MaybeSavedBlock::Unsaved(fork.clone()));
+                let message = Message::Publish(Publish::new_forward(fork.clone()));
+                let mut publisher = self.message_flooder.lock().unwrap();
+                publisher.flood(&message, TrafficType::BlockBroadcast, 1.0);
+            }
+
+            return false;
+        }
+
+        election
+            .last_blocks
+            .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
+
+        true
     }
 
     pub fn handle_cementations(&self, cemented: &VecDeque<CementingContext>) {
@@ -661,8 +588,68 @@ impl ActiveElections {
 
         // TODO: This could be offloaded to a separate notification worker, profiling is needed
         for (status, votes) in results {
-            self.notify_observers(status, votes);
+            self.notify_election_ended(status, votes);
         }
+    }
+
+    /// Distinguishes replay votes, cannot be determined if the block is not in any election
+    fn block_cemented(
+        &self,
+        guard: &mut ActiveElectionsState,
+        block: &SavedBlock,
+        confirmation_root: &BlockHash,
+        source_election: &Option<Arc<Mutex<Election>>>,
+    ) -> (ElectionStatus, Vec<VoteWithWeightInfo>) {
+        // Dependent elections are implicitly confirmed when their block is cemented
+        let dependent_election = guard.election(&block.qualified_root());
+        if let Some(dependent_election) = &dependent_election {
+            self.stats
+                .inc(StatType::ActiveElections, DetailType::ConfirmDependent);
+
+            // TODO: This should either confirm or cancel the election
+            self.try_confirm(&dependent_election, &block.hash());
+        }
+
+        let mut status = ElectionStatus::default();
+        let mut votes = Vec::new();
+        status.winner = Some(MaybeSavedBlock::Saved(block.clone()));
+
+        // Check if the currently cemented block was part of an election that triggered the confirmation
+        let mut handled = false;
+        if let Some(source_election) = source_election {
+            let source_election_guard = source_election.lock().unwrap();
+            if *source_election_guard.qualified_root() == block.qualified_root() {
+                status = source_election_guard.status.clone();
+                debug_assert_eq!(status.winner.as_ref().unwrap().hash(), block.hash());
+                votes = source_election_guard.votes_with_weight(&self.rep_weights);
+                status.election_status_type = ElectionStatusType::ActiveConfirmedQuorum;
+                handled = true;
+            }
+        }
+
+        if handled {
+            // already handled
+        } else if dependent_election.is_some() {
+            status.election_status_type = ElectionStatusType::ActiveConfirmationHeight;
+        } else {
+            status.election_status_type = ElectionStatusType::InactiveConfirmationHeight;
+        }
+
+        self.recently_cemented
+            .lock()
+            .unwrap()
+            .push_back(status.clone());
+
+        self.stats
+            .inc(StatType::ActiveElections, DetailType::Cemented);
+        self.stats.inc(
+            StatType::ActiveElectionsCemented,
+            status.election_status_type.into(),
+        );
+
+        trace!(?block, %confirmation_root, "active cemented");
+
+        (status, votes)
     }
 
     pub fn stop(&self) {
@@ -675,13 +662,6 @@ impl ActiveElections {
 
     pub fn container_info(&self) -> ContainerInfo {
         let guard = self.mutex.lock().unwrap();
-
-        let recently_cemented: ContainerInfo = [(
-            "cemented",
-            self.recently_cemented.lock().unwrap().len(),
-            size_of::<ElectionStatus>(),
-        )]
-        .into();
 
         ContainerInfo::builder()
             .leaf("roots", guard.roots.len(), RootContainer::ELEMENT_SIZE)
@@ -704,7 +684,6 @@ impl ActiveElections {
                 "recently_confirmed",
                 self.recently_confirmed.read().unwrap().container_info(),
             )
-            .node("recently_cemented", recently_cemented)
             .finish()
     }
 
@@ -718,41 +697,6 @@ impl ActiveElections {
 impl Drop for ActiveElections {
     fn drop(&mut self) {
         self.stop()
-    }
-}
-
-#[derive(PartialEq, Eq)]
-pub struct TallyKey(pub Amount);
-
-impl TallyKey {
-    pub fn amount(&self) -> Amount {
-        self.0.clone()
-    }
-}
-
-impl Deref for TallyKey {
-    type Target = Amount;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Ord for TallyKey {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.0.cmp(&self.0)
-    }
-}
-
-impl PartialOrd for TallyKey {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        other.0.partial_cmp(&self.0)
-    }
-}
-
-impl From<Amount> for TallyKey {
-    fn from(value: Amount) -> Self {
-        Self(value)
     }
 }
 
