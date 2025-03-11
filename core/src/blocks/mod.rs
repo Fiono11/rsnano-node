@@ -15,7 +15,7 @@ mod open_block;
 pub use open_block::{JsonOpenBlock, OpenBlock, OpenBlockArgs};
 
 mod order_block;
-use order_block::{JsonOrderBlock, OrderBlock};
+pub use order_block::{JsonOrderBlock, OrderBlock, OrderBlockArgs};
 
 mod receive_block;
 
@@ -568,7 +568,7 @@ impl SavedBlock {
                 };
                 DependentBlocks::new(self.previous(), linked_block)
             }
-            Block::Order(order) => todo!(),
+            Block::Order(order) => order.dependent_blocks(),
         }
     }
 }
@@ -619,7 +619,11 @@ impl Deserialize for SavedBlock {
                 sideband.account = state.account();
                 sideband.balance = state.balance();
             }
-            Block::Order(order) => todo!(),
+            // TODO
+            Block::Order(order) => {
+                sideband.account = order.account();
+                sideband.balance = order.balance();
+            }
         }
         Ok(SavedBlock { block, sideband })
     }

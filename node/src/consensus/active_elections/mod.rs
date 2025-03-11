@@ -470,25 +470,6 @@ impl ActiveElections {
         result
     }
 
-    pub fn insert_ordering(
-        &self,
-        blocks_to_order: HashSet<BlockHash>,
-        behavior: ElectionBehavior,
-        erased_callback: Option<ErasedCallback>,
-    ) -> Option<ElectionInsertInfo> {
-        let mut guard = self.mutex.lock().unwrap();
-
-        // Check if we have vacancy for ordering elections
-        if self.vacancy(ElectionBehavior::Ordering) <= 0 {
-            return None;
-        }
-
-        self.stats
-            .inc(StatType::ActiveElections, DetailType::Started);
-
-        guard.insert_ordering(blocks_to_order, erased_callback)
-    }
-
     pub fn handle_processed_blocks(&self, batch: &[(BlockStatus, Arc<BlockContext>)]) {
         for (status, context) in batch {
             if *status == BlockStatus::Fork {
@@ -793,35 +774,6 @@ impl ActiveElectionsState {
                 inserted: true,
             })
         }
-    }
-
-    pub fn insert_ordering(
-        &mut self,
-        blocks_to_order: HashSet<BlockHash>,
-        erased_callback: Option<ErasedCallback>,
-    ) -> Option<ElectionInsertInfo> {
-        let qualified_root = QualifiedRoot::new_test_instance();
-        let dummy_block = SavedBlock::new_test_instance();
-        let election = Election::new(
-            dummy_block.clone(),
-            ElectionBehavior::Ordering,
-            self.config.clone(),
-        );
-
-        // Insert the election into the container
-        let election = Arc::new(Mutex::new(election));
-        let entry = root_container::Entry {
-            root: qualified_root,
-            election: election.clone(),
-            erased_callback,
-        };
-
-        self.roots.insert(entry);
-
-        Some(ElectionInsertInfo {
-            election,
-            inserted: true,
-        })
     }
 }
 

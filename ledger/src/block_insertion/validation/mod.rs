@@ -31,20 +31,22 @@ pub(crate) struct BlockValidator<'a> {
 
 impl<'a> BlockValidator<'a> {
     pub(crate) fn validate(&self) -> Result<BlockInsertInstructions, BlockStatus> {
-        self.epoch_block_pre_checks()?;
-        self.ensure_block_does_not_exist_yet()?;
-        self.ensure_valid_predecessor()?;
-        self.ensure_valid_signature()?;
-        self.ensure_block_is_not_for_burn_account()?;
-        self.ensure_account_exists_for_none_open_block()?;
-        self.ensure_no_double_account_open()?;
-        self.ensure_previous_block_is_correct()?;
-        self.ensure_open_block_has_link()?;
-        self.ensure_no_reveive_balance_change_without_link()?;
-        self.ensure_pending_receive_is_correct()?;
-        self.ensure_sufficient_work()?;
-        self.ensure_no_negative_amount_send()?;
-        self.ensure_valid_epoch_block()?;
+        if !self.is_order() {
+            self.epoch_block_pre_checks()?;
+            self.ensure_block_does_not_exist_yet()?;
+            self.ensure_valid_predecessor()?;
+            self.ensure_valid_signature()?;
+            self.ensure_block_is_not_for_burn_account()?;
+            self.ensure_account_exists_for_none_open_block()?;
+            self.ensure_no_double_account_open()?;
+            self.ensure_previous_block_is_correct()?;
+            self.ensure_open_block_has_link()?;
+            self.ensure_no_reveive_balance_change_without_link()?;
+            self.ensure_pending_receive_is_correct()?;
+            self.ensure_sufficient_work()?;
+            self.ensure_no_negative_amount_send()?;
+            self.ensure_valid_epoch_block()?;
+        }
 
         Ok(self.create_instructions())
     }

@@ -80,6 +80,7 @@ impl ElectionSchedulers {
         let ordering = Arc::new(OrderingScheduler::new(
             stats.clone(),
             active_elections.clone(),
+            ledger.clone(),
         ));
 
         Self {
@@ -163,6 +164,7 @@ impl ElectionSchedulers {
             .node("manual", self.manual.container_info())
             .node("optimistic", self.optimistic.container_info())
             .node("priority", self.priority.container_info())
+            //.node("ordering", self.ordering.container_info())
             .finish()
     }
 }

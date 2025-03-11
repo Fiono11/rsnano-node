@@ -1,4 +1,5 @@
-use rsnano_core::BlockHash;
+use rsnano_core::{Block, BlockHash, OrderBlock, OrderBlockArgs};
+use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, StatType, Stats};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,19 +16,21 @@ pub struct OrderingScheduler {
     stats: Arc<Stats>,
     stopped: AtomicBool,
     active: Arc<ActiveElections>,
+    ledger: Arc<Ledger>,
     committed_count: AtomicUsize,
     committed_threshold: usize,
     committed_blocks: Mutex<HashSet<BlockHash>>,
 }
 
 impl OrderingScheduler {
-    pub fn new(stats: Arc<Stats>, active: Arc<ActiveElections>) -> Self {
+    pub fn new(stats: Arc<Stats>, active: Arc<ActiveElections>, ledger: Arc<Ledger>) -> Self {
         Self {
             thread: Mutex::new(None),
             condition: Condvar::new(),
             stopped: AtomicBool::new(true),
             stats,
             active,
+            ledger,
             committed_count: AtomicUsize::new(0),
             committed_threshold: 1000,
             committed_blocks: Mutex::new(HashSet::new()),
@@ -70,9 +73,15 @@ impl OrderingScheduler {
             blocks.clear();
         }
 
+        let mut args = OrderBlockArgs::new_test_instance();
+        args.previous = BlockHash::zero();
+
+        let order_block: Block = args.into();
+        //let saved_block = self.ledger.process_one(&order_block).unwrap();
+
         /*let result = self
             .active
-            .insert_ordering(blocks_to_order, ElectionBehavior::Ordering, None);
+            .insert(saved_block, ElectionBehavior::Ordering, None);
 
         let inserted = result.map(|i| i.inserted).unwrap_or(false);
         if inserted {

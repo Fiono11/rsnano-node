@@ -52,6 +52,13 @@ impl<'a> BlockValidator<'a> {
         }
     }
 
+    pub(crate) fn is_order(&self) -> bool {
+        match self.block {
+            Block::Order(_) => true,
+            _ => false
+        }
+    }
+
     pub(crate) fn source_epoch(&self) -> Epoch {
         self.pending_receive_info
             .as_ref()

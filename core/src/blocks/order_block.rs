@@ -1,4 +1,4 @@
-use super::{Block, BlockBase, BlockType};
+use super::{Block, BlockBase, BlockType, DependentBlocks};
 use crate::{
     private_key::TEST_KEY,
     utils::{BufferWriter, Deserialize, FixedSizeSerialize, Serialize, Stream},
@@ -24,10 +24,6 @@ impl OrderBlock {
 
     pub fn account(&self) -> Account {
         self.hashables.account
-    }
-
-    pub fn link(&self) -> Link {
-        self.hashables.link
     }
 
     pub fn balance(&self) -> Amount {
@@ -61,7 +57,6 @@ impl OrderBlock {
         let previous = BlockHash::deserialize(stream)?;
         let representative = PublicKey::deserialize(stream)?;
         let balance = Amount::deserialize(stream)?;
-        let link = Link::deserialize(stream)?;
         let signature = Signature::deserialize(stream)?;
         let mut work_bytes = [0u8; 8];
         stream.read_bytes(&mut work_bytes, 8)?;
@@ -71,7 +66,6 @@ impl OrderBlock {
             previous,
             representative,
             balance,
-            link,
         };
         let hash = hashables.hash();
         Ok(Self {
@@ -80,6 +74,10 @@ impl OrderBlock {
             hashables,
             hash,
         })
+    }
+
+    pub fn dependent_blocks(&self) -> DependentBlocks {
+        DependentBlocks::new(self.previous(), BlockHash::zero())
     }
 }
 
@@ -107,7 +105,7 @@ impl BlockBase for OrderBlock {
     }
 
     fn link_field(&self) -> Option<Link> {
-        Some(self.hashables.link)
+        None
     }
 
     fn signature(&self) -> &Signature {
@@ -135,7 +133,6 @@ impl BlockBase for OrderBlock {
         self.hashables.previous.serialize(writer);
         self.hashables.representative.serialize(writer);
         self.hashables.balance.serialize(writer);
-        self.hashables.link.serialize(writer);
         self.signature.serialize(writer);
         writer.write_bytes_safe(&self.work.0.to_be_bytes());
     }
@@ -174,8 +171,6 @@ impl BlockBase for OrderBlock {
             previous: self.hashables.previous,
             representative: self.hashables.representative.into(),
             balance: self.hashables.balance,
-            link: self.hashables.link,
-            link_as_account: Some(self.hashables.link.into()),
             signature: self.signature.clone(),
             work: self.work.into(),
         })
@@ -199,9 +194,6 @@ struct OrderHashables {
     // Current balance of this account
     // Allows lookup of account balance simply by looking at the head block
     balance: Amount,
-
-    // Link field contains source block_hash if receiving, destination account if sending
-    link: Link,
 }
 
 impl OrderHashables {
@@ -214,7 +206,6 @@ impl OrderHashables {
             .update(self.previous.as_bytes())
             .update(self.representative.as_bytes())
             .update(self.balance.to_be_bytes())
-            .update(self.link.as_bytes())
             .build()
     }
 }
@@ -225,7 +216,6 @@ pub struct OrderBlockArgs<'a> {
     pub previous: BlockHash,
     pub representative: PublicKey,
     pub balance: Amount,
-    pub link: Link,
     pub work: WorkNonce,
 }
 
@@ -236,9 +226,29 @@ impl<'a> OrderBlockArgs<'a> {
             previous: 1.into(),
             representative: 2.into(),
             balance: 3.into(),
-            link: 4.into(),
             work: 5.into(),
         }
+    }
+}
+
+impl<'a> From<OrderBlockArgs<'a>> for Block {
+    fn from(value: OrderBlockArgs<'a>) -> Self {
+        let hashables = OrderHashables {
+            account: value.key.account(),
+            previous: value.previous,
+            representative: value.representative,
+            balance: value.balance,
+        };
+
+        let hash = hashables.hash();
+        let signature = value.key.sign(hash.as_bytes());
+
+        Block::Order(OrderBlock {
+            hashables,
+            signature,
+            hash,
+            work: value.work,
+        })
     }
 }
 
@@ -249,7 +259,6 @@ impl From<JsonOrderBlock> for OrderBlock {
             previous: value.previous,
             representative: value.representative.into(),
             balance: value.balance,
-            link: value.link,
         };
 
         let hash = hashables.hash();
@@ -269,8 +278,6 @@ pub struct JsonOrderBlock {
     pub previous: BlockHash,
     pub representative: Account,
     pub balance: Amount,
-    pub link: Link,
-    pub link_as_account: Option<Account>,
     pub signature: Signature,
     pub work: WorkNonce,
 }
