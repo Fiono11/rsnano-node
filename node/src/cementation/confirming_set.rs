@@ -9,13 +9,12 @@ use std::{
 };
 
 use rsnano_core::{utils::ContainerInfo, BlockHash, SavedBlock};
-use rsnano_ledger::{BlockStatus, CementingObserver, Ledger};
+use rsnano_ledger::{BlockStatus, CementingEntry, CementingObserver, Election, Ledger};
 use rsnano_stats::{DetailType, StatType, Stats};
 
-use super::ordered_entries::{Entry, OrderedEntries};
+use super::ordered_entries::OrderedEntries;
 use crate::{
     block_processing::BlockContext,
-    consensus::Election,
     utils::{ThreadPool, ThreadPoolImpl},
 };
 
@@ -71,33 +70,6 @@ impl ConfirmingSet {
                 workers: ThreadPoolImpl::create(1, "Conf notif"),
             }),
         }
-    }
-
-    pub(crate) fn on_batch_cemented(&self, callback: BatchCementedCallback) {
-        self.thread
-            .observers
-            .lock()
-            .unwrap()
-            .batch_cemented
-            .push(callback);
-    }
-
-    pub fn on_cemented(&self, callback: BlockCallback) {
-        self.thread
-            .observers
-            .lock()
-            .unwrap()
-            .cemented
-            .push(callback);
-    }
-
-    pub fn on_already_cemented(&self, callback: AlreadyCementedCallback) {
-        self.thread
-            .observers
-            .lock()
-            .unwrap()
-            .already_cemented
-            .push(callback);
     }
 
     pub fn on_cementing_failed(&self, callback: impl FnMut(&BlockHash) + Send + 'static) {
@@ -222,7 +194,7 @@ impl ConfirmingSetThread {
     fn add(&self, hash: BlockHash, election: Option<Arc<Mutex<Election>>>) {
         let added = {
             let mut guard = self.mutex.lock().unwrap();
-            guard.set.push_back(Entry {
+            guard.set.push_back(CementingEntry {
                 hash,
                 election,
                 timestamp: Instant::now(),
@@ -291,50 +263,10 @@ impl ConfirmingSetThread {
         }
     }
 
-    fn notify(&self, cemented: &mut VecDeque<CementingContext>) {
-        let mut batch = VecDeque::new();
-        std::mem::swap(&mut batch, cemented);
-
-        let mut guard = self.mutex.lock().unwrap();
-
-        // It's possible that ledger cementing happens faster than the notifications can be processed by other components, cooldown here
-        while self.workers.num_queued_tasks() >= self.config.max_queued_notifications {
-            self.stats
-                .inc(StatType::ConfirmingSet, DetailType::Cooldown);
-            guard = self
-                .condition
-                .wait_timeout_while(guard, Duration::from_millis(100), |_| {
-                    !self.stopped.load(Ordering::SeqCst)
-                })
-                .unwrap()
-                .0;
-            if self.stopped.load(Ordering::Relaxed) {
-                return;
-            }
-        }
-
-        let observers = self.observers.clone();
-        let stats = self.stats.clone();
-        self.workers.post(Box::new(move || {
-            stats.inc(StatType::ConfirmingSet, DetailType::Notify);
-            observers.lock().unwrap().notify_batch(batch);
-        }));
-    }
-
-    fn run_batch(&self, mut batch: VecDeque<Entry>) {
+    fn run_batch(&self, batch: VecDeque<CementingEntry>) {
         let mut notifier = CementedNotifier::new(self);
-        let b = batch.drain(..).map(|i| (i.hash, i));
         self.ledger
-            .confirm_batch(b, &self.stopped, self.config.max_blocks, &mut notifier);
-
-        self.notify(&mut notifier.cemented);
-
-        {
-            let mut guard = self.observers.lock().unwrap();
-            for callback in &mut guard.already_cemented {
-                callback(&notifier.already_cemented)
-            }
-        }
+            .confirm_batch(batch, &self.stopped, self.config.max_blocks, &mut notifier);
 
         // Clear current set only after the transaction is committed
         self.mutex.lock().unwrap().current.clear();
@@ -354,7 +286,7 @@ struct ConfirmingSetImpl {
 }
 
 impl ConfirmingSetImpl {
-    fn next_batch(&mut self, max_count: usize) -> VecDeque<Entry> {
+    fn next_batch(&mut self, max_count: usize) -> VecDeque<CementingEntry> {
         let mut results = VecDeque::new();
         // TODO: use extract_if once it is stablized
         while let Some(entry) = self.set.pop_front() {
@@ -366,11 +298,11 @@ impl ConfirmingSetImpl {
         results
     }
 
-    fn cleanup(&mut self) -> Vec<Entry> {
+    fn cleanup(&mut self) -> Vec<CementingEntry> {
         let mut evicted = Vec::new();
 
         let cutoff = Instant::now() - self.config.deferred_age_cutoff;
-        let should_evict = |entry: &Entry| entry.timestamp < cutoff;
+        let should_evict = |entry: &CementingEntry| entry.timestamp < cutoff;
 
         // Iterate in sequenced (insertion) order
         loop {
@@ -391,33 +323,12 @@ impl ConfirmingSetImpl {
     }
 }
 
-type BlockCallback = Box<dyn FnMut(&SavedBlock) + Send>;
-
-/// block + confirmation root
-type BatchCementedCallback = Box<dyn FnMut(&VecDeque<CementingContext>) + Send>;
-type AlreadyCementedCallback = Box<dyn FnMut(&VecDeque<BlockHash>) + Send>;
-
 #[derive(Default)]
 struct Observers {
-    cemented: Vec<BlockCallback>,
-    batch_cemented: Vec<BatchCementedCallback>,
-    already_cemented: Vec<AlreadyCementedCallback>,
     cementing_failed: Vec<Box<dyn FnMut(&BlockHash) + Send>>,
 }
 
 impl Observers {
-    fn notify_batch(&mut self, cemented: VecDeque<CementingContext>) {
-        for context in &cemented {
-            for observer in &mut self.cemented {
-                observer(&context.block);
-            }
-        }
-
-        for observer in &mut self.batch_cemented {
-            observer(&cemented);
-        }
-    }
-
     fn notify_cementing_failed(&mut self, hash: &BlockHash) {
         for observer in &mut self.cementing_failed {
             observer(hash);
@@ -436,7 +347,6 @@ pub struct CementingContext {
 
 struct CementedNotifier<'a> {
     confirming_set: &'a ConfirmingSetThread,
-    cemented: VecDeque<CementingContext>,
     already_cemented: VecDeque<BlockHash>,
 }
 
@@ -444,44 +354,29 @@ impl<'a> CementedNotifier<'a> {
     fn new(confirming_set: &'a ConfirmingSetThread) -> Self {
         Self {
             confirming_set,
-            cemented: Default::default(),
             already_cemented: Default::default(),
         }
     }
 }
 
-impl<'a> CementingObserver<Entry> for CementedNotifier<'a> {
-    fn cemented(&mut self, block: SavedBlock, root: &BlockHash, context: &Entry) {
-        self.cemented.push_back(CementingContext {
-            block,
-            confirmation_root: *root,
-            election: context.election.clone(),
-        });
-    }
-
+impl<'a> CementingObserver for CementedNotifier<'a> {
     fn already_cemented(&mut self, hash: &BlockHash) {
         self.already_cemented.push_back(*hash);
     }
 
-    fn max_blocks_reached(&mut self) {
-        self.confirming_set.notify(&mut self.cemented);
-    }
-
-    fn cementing_failed(&mut self, _hash: &BlockHash, context: Entry) {
+    fn cementing_failed(&mut self, entry: &CementingEntry) {
         self.confirming_set
             .mutex
             .lock()
             .unwrap()
             .deferred
-            .push_back(context);
+            .push_back(entry.clone());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_core::{ConfirmationHeightInfo, SavedAccountChain};
-    use std::time::Duration;
 
     #[test]
     fn add_exists() {
@@ -491,45 +386,5 @@ mod tests {
         let hash = BlockHash::from(1);
         confirming_set.add(hash);
         assert!(confirming_set.contains(&hash));
-    }
-
-    #[test]
-    fn process_one() {
-        let mut chain = SavedAccountChain::genesis();
-        let block_hash = chain.add_state().hash();
-        let ledger = Arc::new(
-            Ledger::new_null_builder()
-                .blocks(chain.blocks())
-                .confirmation_height(
-                    &chain.account(),
-                    &ConfirmationHeightInfo {
-                        height: 1,
-                        frontier: chain.open(),
-                    },
-                )
-                .finish(),
-        );
-        let confirming_set =
-            ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
-        confirming_set.start();
-        let count = Arc::new(Mutex::new(0));
-        let condition = Arc::new(Condvar::new());
-        let count_clone = Arc::clone(&count);
-        let condition_clone = Arc::clone(&condition);
-        confirming_set.on_cemented(Box::new(move |_block| {
-            {
-                *count_clone.lock().unwrap() += 1;
-            }
-            condition_clone.notify_all();
-        }));
-
-        confirming_set.add(block_hash);
-
-        let guard = count.lock().unwrap();
-        let result = condition
-            .wait_timeout_while(guard, Duration::from_secs(5), |i| *i < 1)
-            .unwrap()
-            .1;
-        assert_eq!(result.timed_out(), false);
     }
 }

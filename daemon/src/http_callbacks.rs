@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
-use rsnano_ledger::{AnySet, Ledger};
-use rsnano_node::{
-    consensus::{ElectionStatus, ElectionStatusType},
-    NodeEvent, NodeEventHandler,
-};
 use serde::Serialize;
 use tracing::error;
 
 use rsnano_core::{Amount, BlockType, SavedBlock};
+use rsnano_ledger::{AnySet, ElectionStatus, ElectionStatusType, Ledger};
+use rsnano_node::{NodeEvent, NodeEventHandler};
 use rsnano_nullable_http_client::{HttpClient, Url};
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
 
@@ -86,7 +83,7 @@ impl HttpCallbacks {
 impl NodeEventHandler for HttpCallbacks {
     fn handle(&mut self, event: &NodeEvent) {
         match event {
-            NodeEvent::ElectionEnded(status, _votes, block) => {
+            NodeEvent::BlockCemented(block, status, _votes) => {
                 let amount = self
                     .ledger
                     .any()

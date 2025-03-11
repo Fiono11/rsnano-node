@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{Receiver, SyncSender},
+        mpsc::{sync_channel, Receiver, SyncSender},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -17,7 +17,9 @@ use rsnano_core::{
     Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, Root, SavedBlock, VoteCode,
     VoteSource, VoteWithWeightInfo, WorkNonce,
 };
-use rsnano_ledger::{AnySet, BlockStatus, Ledger, LedgerSet, RepWeightCache};
+use rsnano_ledger::{
+    AnySet, BlockStatus, ElectionConfig, ElectionStatus, Ledger, LedgerSet, RepWeightCache,
+};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
@@ -47,15 +49,17 @@ use crate::{
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
-        ActiveElections, ActiveElectionsDriver, ElectionConfig, ElectionStatus, ElectionVoter,
-        LocalVoteHistory, RecentlyConfirmedCache, RepTiers, RequestAggregator,
-        RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
-        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, VoteRouter,
+        ActiveElections, ActiveElectionsDriver, ElectionVoter, LocalVoteHistory,
+        RecentlyConfirmedCache, RepTiers, RequestAggregator, RequestAggregatorCleanup, VoteApplier,
+        VoteBroadcaster, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteProcessorQueueCleanup, VoteRebroadcastQueue,
+        VoteRebroadcaster, VoteRouter,
     },
+    ledger_event_processor::LedgerEventProcessor,
     monitor::Monitor,
     node_id_key_file::NodeIdKeyFile,
     pruning::{LedgerPruning, LedgerPruningExt},
+    recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{
         OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
     },
@@ -269,7 +273,7 @@ impl Node {
         ));
 
         info!("Loading ledger, this may take a while...");
-        let ledger = Ledger::new(
+        let mut ledger = Ledger::new(
             store,
             network_params.ledger.clone(),
             config.representative_vote_weight_minimum,
@@ -277,6 +281,10 @@ impl Node {
             stats.clone(),
         )
         .expect("Could not initialize ledger");
+
+        let (ledger_tx, ledger_rx) = sync_channel(1024);
+        ledger.set_event_sink(ledger_tx);
+
         let ledger = Arc::new(ledger);
         info!("Block count:    {}", ledger.block_count());
         info!("Cemented count: {}", ledger.cemented_count());
@@ -552,22 +560,19 @@ impl Node {
 
         let election_config = ElectionConfig::default_for(network_params.network.current_network);
 
-        let (aec_sender, aec_receiver) = std::sync::mpsc::sync_channel(128);
+        let (aec_sender, aec_receiver) = sync_channel(1024);
         let mut active_elections = ActiveElections::new(
             config.clone(),
             ledger.rep_weights.clone(),
             confirming_set.clone(),
-            network_filter.clone(),
             vote_cache.clone(),
             stats.clone(),
             recently_confirmed.clone(),
             vote_applier.clone(),
             vote_router.clone(),
-            vote_cache_processor.clone(),
             message_flooder.clone(),
             election_voter,
             election_config,
-            recently_cemented.clone(),
         );
         active_elections.set_event_sink(aec_sender);
         let active_elections = Arc::new(active_elections);
@@ -580,14 +585,6 @@ impl Node {
             online_reps: online_reps.clone(),
             network: network.clone(),
         };
-
-        let active_w = Arc::downgrade(&active_elections);
-        // Cementing blocks might implicitly confirm dependent elections
-        confirming_set.on_batch_cemented(Box::new(move |cemented| {
-            if let Some(active) = active_w.upgrade() {
-                active.handle_cementations(cemented);
-            }
-        }));
 
         let active_w = Arc::downgrade(&active_elections);
         // Notify elections about alternative (forked) blocks
@@ -630,21 +627,6 @@ impl Node {
                 }
             }
         }));
-
-        if !flags.disable_activate_successors {
-            let ledger_l = ledger.clone();
-            let schedulers_w = Arc::downgrade(&election_schedulers);
-            // Activate successors of cemented blocks
-            confirming_set.on_batch_cemented(Box::new(move |batch| {
-                let Some(schedulers) = schedulers_w.upgrade() else {
-                    return;
-                };
-                let any = ledger_l.any();
-                for context in batch {
-                    schedulers.activate_successors(&any, &context.block);
-                }
-            }));
-        }
 
         vote_applier.set_election_schedulers(&election_schedulers);
 
@@ -805,14 +787,6 @@ impl Node {
                 backlog.erase_hashes(blocks.iter().map(|b| b.hash()));
             }
         });
-
-        // Remove cemented blocks from the backlog
-        let backlog_w = Arc::downgrade(&bounded_backlog);
-        confirming_set.on_batch_cemented(Box::new(move |batch| {
-            if let Some(backlog) = backlog_w.upgrade() {
-                backlog.erase_hashes(batch.iter().map(|i| i.block.hash()));
-            }
-        }));
 
         let bootstrapper = Arc::new(Bootstrapper::new(
             block_processor.clone(),
@@ -1125,25 +1099,6 @@ impl Node {
             }
         }
 
-        let workers_w = Arc::downgrade(&wallet_workers);
-        let wallets_w = Arc::downgrade(&wallets);
-        confirming_set.on_cemented(Box::new(move |block| {
-            let Some(workers) = workers_w.upgrade() else {
-                return;
-            };
-            let Some(wallets) = wallets_w.upgrade() else {
-                return;
-            };
-
-            // TODO: Is it neccessary to call this for all blocks?
-            if block.is_send() {
-                let block = block.clone();
-                workers.post(Box::new(move || {
-                    wallets.receive_confirmed(block.hash(), block.destination().unwrap())
-                }));
-            }
-        }));
-
         let time_factory = SystemTimeFactory::default();
 
         let peer_cache_updater = PeerCacheUpdater::new(
@@ -1198,17 +1153,40 @@ impl Node {
             workers: workers.clone(),
         };
 
+        let recently_cemented_inserter = RecentlyCementedInserter {
+            recently_cemented: recently_cemented.clone(),
+        };
+
         let mut aec_event_processor = AecEventProcessor {
             receiver: aec_receiver,
             vote_cache_processor: vote_cache_processor.clone(),
             node_event_sender,
             election_schedulers: election_schedulers.clone(),
+            recently_cemented_inserter,
+            network_filter: network_filter.clone(),
         };
 
         std::thread::Builder::new()
             .name("AEC ev proc".to_owned())
             .spawn(move || {
                 aec_event_processor.run();
+            })
+            .unwrap();
+
+        let mut ledger_event_processor = LedgerEventProcessor {
+            receiver: ledger_rx,
+            local_block_broadcaster: local_block_broadcaster.clone(),
+            active_elections: active_elections.clone(),
+            election_schedulers: election_schedulers.clone(),
+            flags: flags.clone(),
+            wallets: wallets.clone(),
+            bounded_backlog: bounded_backlog.clone(),
+        };
+
+        std::thread::Builder::new()
+            .name("Ledger ev proc".to_owned())
+            .spawn(move || {
+                ledger_event_processor.run();
             })
             .unwrap();
 
@@ -1594,6 +1572,7 @@ impl Node {
         info!("Node stopping...");
 
         self.tcp_listener.stop();
+        self.ledger.stop();
         self.ledger_notification_thread.stop();
         self.online_weight_calculation.stop();
         self.vote_router.stop();
@@ -1675,7 +1654,7 @@ fn make_store(
 pub enum NodeEvent {
     AecActiveStarted(BlockHash),
     AecActiveStopped(BlockHash),
-    ElectionEnded(ElectionStatus, Vec<VoteWithWeightInfo>, SavedBlock),
+    BlockCemented(SavedBlock, ElectionStatus, Vec<VoteWithWeightInfo>),
 }
 
 pub trait NodeEventHandler {

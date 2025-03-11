@@ -2,9 +2,9 @@ use crate::{
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
-    AnySet, BlockRollbackPerformer, BorrowingAnySet, ConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
-    RepWeightCache, RepWeightsUpdater, Writer,
+    AnySet, BlockRollbackPerformer, BorrowingAnySet, CementingEntry, ConfirmedSet,
+    GenerateCacheFlags, LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet,
+    OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, Writer,
 };
 use rsnano_core::{
     utils::{ContainerInfo, UnixTimestamp},
@@ -26,7 +26,8 @@ use std::{
     net::SocketAddrV6,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc::SyncSender,
+        Arc, RwLock,
     },
     time::SystemTime,
 };
@@ -102,6 +103,10 @@ impl From<BlockStatus> for DetailType {
     }
 }
 
+pub enum LedgerEvent {
+    BatchCemented(Vec<(SavedBlock, CementingEntry)>),
+}
+
 pub struct Ledger {
     pub store: Arc<LmdbStore>,
     pub rep_weights_updater: RepWeightsUpdater,
@@ -109,6 +114,7 @@ pub struct Ledger {
     pub constants: LedgerConstants,
     pruning: AtomicBool,
     pub(crate) stats: Arc<Stats>,
+    event_sender: RwLock<Option<SyncSender<LedgerEvent>>>,
 }
 
 pub struct NullLedgerBuilder {
@@ -244,11 +250,16 @@ impl Ledger {
             constants,
             pruning: AtomicBool::new(false),
             stats,
+            event_sender: RwLock::new(None),
         };
 
         ledger.initialize(&GenerateCacheFlags::new())?;
 
         Ok(ledger)
+    }
+
+    pub fn set_event_sink(&mut self, sink: SyncSender<LedgerEvent>) {
+        *self.event_sender.write().unwrap() = Some(sink);
     }
 
     fn initialize(&mut self, generate_cache: &GenerateCacheFlags) -> anyhow::Result<()> {
@@ -699,20 +710,21 @@ impl Ledger {
         )
     }
 
-    pub fn confirm_batch<'a, O, T>(
+    pub fn confirm_batch<'a, O>(
         &self,
-        batch: impl IntoIterator<Item = (BlockHash, T)>,
+        batch: impl IntoIterator<Item = CementingEntry>,
         stopped: &AtomicBool,
         max_blocks: usize,
         observer: &mut O,
     ) where
-        O: CementingObserver<T>,
+        O: CementingObserver,
     {
+        let mut cemented = Vec::new();
         let mut blocks_cemented = 0;
         {
             let mut tx = self.store.tx_begin_write(Writer::ConfirmationHeight);
 
-            for (hash, context) in batch.into_iter() {
+            for entry in batch.into_iter() {
                 let mut success = false;
                 loop {
                     tx.refresh_if_needed();
@@ -728,7 +740,10 @@ impl Ledger {
                         blocks_cemented = 0;
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
-                        observer.max_blocks_reached();
+                        if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
+                            sender.send(LedgerEvent::BatchCemented(cemented)).unwrap();
+                        }
+                        cemented = Vec::new();
                         tx.renew();
                     }
 
@@ -736,13 +751,13 @@ impl Ledger {
                         .inc(StatType::ConfirmingSet, DetailType::Cementing);
 
                     // The block might be rolled back before it's fully cemented
-                    if !self.store.block.exists(&tx, &hash) {
+                    if !self.store.block.exists(&tx, &entry.hash) {
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
                         break;
                     }
 
-                    let added = self.confirm_max(&mut tx, hash, max_blocks);
+                    let added = self.confirm_max(&mut tx, entry.hash, max_blocks);
 
                     if !added.is_empty() {
                         // Confirming this block may implicitly confirm more
@@ -753,16 +768,16 @@ impl Ledger {
                         );
                         blocks_cemented += added.len();
                         for block in added {
-                            observer.cemented(block, &hash, &context)
+                            cemented.push((block, entry.clone()));
                         }
                     } else {
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
-                        observer.already_cemented(&hash);
+                        observer.already_cemented(&entry.hash);
                     }
 
                     success = {
-                        if let Some(block) = self.store.block.get(&tx, &hash) {
+                        if let Some(block) = self.store.block.get(&tx, &entry.hash) {
                             if let Some(conf_info) =
                                 self.store.confirmation_height.get(&tx, &block.account())
                             {
@@ -789,8 +804,14 @@ impl Ledger {
 
                     // Requeue failed blocks for processing later
                     // Add them to the deferred set while still holding the exclusive database write transaction to avoid block processor races
-                    observer.cementing_failed(&hash, context);
+                    observer.cementing_failed(&entry);
                 }
+            }
+        }
+
+        if !cemented.is_empty() {
+            if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
+                sender.send(LedgerEvent::BatchCemented(cemented)).unwrap();
             }
         }
     }
@@ -854,6 +875,10 @@ impl Ledger {
         self.store.memory_stats()
     }
 
+    pub fn stop(&self) {
+        drop(self.event_sender.write().unwrap().take())
+    }
+
     pub fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("rep_weights", self.rep_weights.container_info())
@@ -871,9 +896,7 @@ pub struct BatchProcessResult {
     pub rolled_back: Vec<(Vec<SavedBlock>, QualifiedRoot)>,
 }
 
-pub trait CementingObserver<T> {
-    fn cemented(&mut self, block: SavedBlock, root: &BlockHash, context: &T);
+pub trait CementingObserver {
     fn already_cemented(&mut self, hash: &BlockHash);
-    fn max_blocks_reached(&mut self);
-    fn cementing_failed(&mut self, hash: &BlockHash, context: T);
+    fn cementing_failed(&mut self, entry: &CementingEntry);
 }

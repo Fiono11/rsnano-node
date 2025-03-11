@@ -1,20 +1,15 @@
 use rsnano_core::BlockHash;
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
-    time::Instant,
-};
-
-use crate::consensus::Election;
+use rsnano_ledger::CementingEntry;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
 pub(super) struct OrderedEntries {
     sequenced: VecDeque<BlockHash>,
-    by_hash: HashMap<BlockHash, Entry>,
+    by_hash: HashMap<BlockHash, CementingEntry>,
 }
 
 impl OrderedEntries {
-    pub fn push_back(&mut self, entry: Entry) -> bool {
+    pub fn push_back(&mut self, entry: CementingEntry) -> bool {
         let hash = entry.hash;
         let mut inserted = true;
 
@@ -40,7 +35,7 @@ impl OrderedEntries {
         self.sequenced.len()
     }
 
-    pub(crate) fn front(&mut self) -> Option<&Entry> {
+    pub(crate) fn front(&mut self) -> Option<&CementingEntry> {
         if let Some(hash) = self.sequenced.front() {
             self.by_hash.get(hash)
         } else {
@@ -48,7 +43,7 @@ impl OrderedEntries {
         }
     }
 
-    pub(crate) fn pop_front(&mut self) -> Option<Entry> {
+    pub(crate) fn pop_front(&mut self) -> Option<CementingEntry> {
         if let Some(hash) = self.sequenced.pop_front() {
             self.by_hash.remove(&hash)
         } else {
@@ -56,7 +51,7 @@ impl OrderedEntries {
         }
     }
 
-    pub(crate) fn remove(&mut self, hash: &BlockHash) -> Option<Entry> {
+    pub(crate) fn remove(&mut self, hash: &BlockHash) -> Option<CementingEntry> {
         if let Some(entry) = self.by_hash.remove(hash) {
             self.sequenced.retain(|h| *h != entry.hash);
             Some(entry)
@@ -68,10 +63,4 @@ impl OrderedEntries {
     pub(crate) fn is_empty(&self) -> bool {
         self.sequenced.is_empty()
     }
-}
-
-pub(super) struct Entry {
-    pub hash: BlockHash,
-    pub election: Option<Arc<Mutex<Election>>>,
-    pub timestamp: Instant,
 }

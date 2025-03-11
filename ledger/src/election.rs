@@ -1,18 +1,17 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime},
 };
 
 use rsnano_core::{
-    Amount, BlockHash, MaybeSavedBlock, Networks, PublicKey, QualifiedRoot, Root, SavedBlock,
-    VoteWithWeightInfo,
+    Amount, BlockHash, DescTallyKey, HardenedConstants, MaybeSavedBlock, Networks, PublicKey,
+    QualifiedRoot, Root, SavedBlock, VoteWithWeightInfo,
 };
-use rsnano_ledger::RepWeightCache;
 use rsnano_stats::{DetailType, StatType};
 
-use super::{DescTallyKey, ElectionStatus, ElectionStatusType};
-use crate::utils::HardenedConstants;
+use crate::RepWeightCache;
 
 #[derive(Clone)]
 pub struct ElectionConfig {
@@ -513,4 +512,82 @@ impl From<ElectionBehavior> for DetailType {
             ElectionBehavior::Ordering => DetailType::Ordering,
         }
     }
+}
+
+/**
+ * Tag for the type of the election status
+ */
+#[derive(PartialEq, Eq, Debug, Clone, Copy, FromPrimitive)]
+pub enum ElectionStatusType {
+    Ongoing = 0,
+    ActiveConfirmedQuorum = 1,
+    ActiveConfirmationHeight = 2,
+    InactiveConfirmationHeight = 3,
+    Stopped = 5,
+}
+
+impl ElectionStatusType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ongoing => "ongoing",
+            Self::ActiveConfirmedQuorum => "active_quorum",
+            Self::ActiveConfirmationHeight => "active_confirmation_height",
+            Self::InactiveConfirmationHeight => "inactive",
+            Self::Stopped => "stopped",
+        }
+    }
+}
+
+impl From<ElectionStatusType> for DetailType {
+    fn from(value: ElectionStatusType) -> Self {
+        match value {
+            ElectionStatusType::Ongoing => DetailType::Ongoing,
+            ElectionStatusType::ActiveConfirmedQuorum => DetailType::ActiveConfirmedQuorum,
+            ElectionStatusType::ActiveConfirmationHeight => DetailType::ActiveConfirmationHeight,
+            ElectionStatusType::InactiveConfirmationHeight => {
+                DetailType::InactiveConfirmationHeight
+            }
+            ElectionStatusType::Stopped => DetailType::Stopped,
+        }
+    }
+}
+
+/// Information on the status of an election
+#[derive(Clone)]
+pub struct ElectionStatus {
+    pub winner: Option<MaybeSavedBlock>,
+    pub tally: Amount,
+    pub final_tally: Amount,
+    pub confirmation_request_count: u32,
+    pub block_count: u32,
+    pub voter_count: u32,
+    pub election_end: SystemTime,
+    pub election_duration: Duration,
+    pub election_status_type: ElectionStatusType,
+    pub vote_broadcast_count: u32,
+}
+
+impl Default for ElectionStatus {
+    fn default() -> Self {
+        Self {
+            winner: None,
+            tally: Amount::zero(),
+            final_tally: Amount::zero(),
+            block_count: 0,
+            voter_count: 0,
+            confirmation_request_count: 0,
+            election_end: SystemTime::now(),
+            election_duration: Duration::ZERO,
+            election_status_type: ElectionStatusType::InactiveConfirmationHeight,
+            vote_broadcast_count: 0,
+        }
+    }
+}
+
+/// A block that is currently cementing
+#[derive(Clone)]
+pub struct CementingEntry {
+    pub hash: BlockHash,
+    pub election: Option<Arc<Mutex<Election>>>,
+    pub timestamp: Instant,
 }

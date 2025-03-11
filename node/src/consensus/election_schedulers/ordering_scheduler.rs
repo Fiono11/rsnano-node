@@ -1,5 +1,5 @@
 use rsnano_core::{Block, BlockHash, OrderBlock, OrderBlockArgs};
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{ElectionBehavior, Ledger};
 use rsnano_stats::{DetailType, StatType, Stats};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -7,8 +7,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
-
-use crate::consensus::{ActiveElections, ElectionBehavior};
+use crate::consensus::ActiveElections;
 
 pub struct OrderingScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,

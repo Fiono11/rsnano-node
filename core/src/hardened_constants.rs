@@ -1,6 +1,8 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use rand::Rng;
-use rsnano_core::{Account, PublicKey};
+
+use crate::{Account, PublicKey};
 
 pub struct HardenedConstants {
     pub not_an_account: Account,
@@ -14,7 +16,7 @@ impl HardenedConstants {
     }
 }
 
-static INSTANCE: Lazy<HardenedConstants> = Lazy::new(|| {
+static INSTANCE: LazyLock<HardenedConstants> = LazyLock::new(|| {
     let mut rng = rand::rng();
     let not_an_account = Account::from_bytes(rng.random::<[u8; 32]>());
     HardenedConstants {

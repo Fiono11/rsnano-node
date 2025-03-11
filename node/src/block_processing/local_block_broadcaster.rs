@@ -9,8 +9,8 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_core::{utils::ContainerInfo, Block, BlockHash, Networks};
-use rsnano_ledger::{BlockStatus, ConfirmedSet, Ledger};
+use rsnano_core::{utils::ContainerInfo, Block, BlockHash, Networks, SavedBlock};
+use rsnano_ledger::{BlockStatus, CementingEntry, ConfirmedSet, Ledger};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{bandwidth_limiter::RateLimiter, TrafficType};
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
@@ -260,6 +260,16 @@ impl LocalBlockBroadcaster {
         let mut publisher = self.message_flooder.lock().unwrap();
         publisher.flood_prs_and_some_non_prs(&message, TrafficType::BlockBroadcastInitial, 1.0);
     }
+
+    pub fn batch_cemented(&self, confirmed: &Vec<(SavedBlock, CementingEntry)>) {
+        let mut guard = self.mutex.lock().unwrap();
+        for (block, _) in confirmed {
+            if guard.local_blocks.remove(&block.hash()) {
+                self.stats
+                    .inc(StatType::LocalBlockBroadcaster, DetailType::Cemented);
+            }
+        }
+    }
 }
 
 impl Drop for LocalBlockBroadcaster {
@@ -335,20 +345,6 @@ impl LocalBlockBroadcasterExt for Arc<LocalBlockBroadcaster> {
                     }
                 }
             });
-
-        let self_w = Arc::downgrade(self);
-        self.confirming_set.on_cemented(Box::new(move |block| {
-            let Some(self_l) = self_w.upgrade() else {
-                return;
-            };
-
-            let mut guard = self_l.mutex.lock().unwrap();
-            if guard.local_blocks.remove(&block.hash()) {
-                self_l
-                    .stats
-                    .inc(StatType::LocalBlockBroadcaster, DetailType::Cemented);
-            }
-        }));
     }
 
     fn start(&self) {

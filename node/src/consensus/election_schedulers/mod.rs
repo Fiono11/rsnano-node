@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use rsnano_core::{
     utils::ContainerInfo, Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
 };
-use rsnano_ledger::{AnySet, Ledger};
+use rsnano_ledger::{AnySet, CementingEntry, Ledger};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::Stats;
 
@@ -34,6 +34,7 @@ pub struct ElectionSchedulers {
     ordering: Arc<OrderingScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
+    ledger: Arc<Ledger>,
 }
 
 impl ElectionSchedulers {
@@ -91,6 +92,7 @@ impl ElectionSchedulers {
             ordering,
             notify_listener: OutputListenerMt::new(),
             config,
+            ledger,
         }
     }
 
@@ -128,6 +130,14 @@ impl ElectionSchedulers {
 
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block, None);
+    }
+
+    pub fn batch_cemented(&self, confirmed: &Vec<(SavedBlock, CementingEntry)>) {
+        // Activate successors of cemented blocks
+        let any = self.ledger.any();
+        for (block, _) in confirmed {
+            self.activate_successors(&any, block);
+        }
     }
 
     pub fn start(&self) {
