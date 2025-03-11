@@ -580,6 +580,7 @@ fn republish_winner() {
  */
 #[test]
 fn confirm_election_by_request() {
+    println!("??????????");
     let mut system = System::new();
     let node1 = system.make_node();
     let mut lattice = UnsavedBlockLatticeBuilder::new();

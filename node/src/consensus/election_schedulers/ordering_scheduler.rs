@@ -55,42 +55,56 @@ impl OrderingScheduler {
         blocks.insert(block_hash);
 
         let count = self.committed_count.fetch_add(1, Ordering::SeqCst) + 1;
-        if count >= self.committed_threshold {
-            self.committed_count.store(0, Ordering::SeqCst);
-            self.run();
+        if self.predicate() {
+            self.notify();
         }
         count
     }
 
+    fn predicate(&self) -> bool {
+        let count = self.committed_count.load(Ordering::SeqCst);
+        count >= self.committed_threshold
+    }
+
     fn run(&self) {
-        let blocks_to_order: HashSet<BlockHash> = {
-            let blocks = self.committed_blocks.lock().unwrap();
-            blocks.clone()
-        };
+        while !self.stopped.load(Ordering::SeqCst) {
+            let mut guard = self.condition.wait_while(
+                self.committed_blocks.lock().unwrap(),
+                |_| !self.predicate() && !self.stopped.load(Ordering::SeqCst),
+            ).unwrap();
 
-        {
-            let mut blocks = self.committed_blocks.lock().unwrap();
-            blocks.clear();
+            if self.stopped.load(Ordering::SeqCst) {
+                break;
+            }
+
+            if self.predicate() {
+                self.committed_count.store(0, Ordering::SeqCst);
+                
+                let blocks_to_order: HashSet<BlockHash> = guard.clone();
+                guard.clear();
+                
+                drop(guard);
+
+                let mut args = OrderBlockArgs::new_test_instance();
+                args.previous = BlockHash::zero();
+
+                let order_block: Block = args.into();
+                let saved_block = self.ledger.process_one(&order_block).unwrap();
+
+                let result = self
+                    .active
+                    .insert(saved_block, ElectionBehavior::Ordering, None);
+
+                let inserted = result.map(|i| i.inserted).unwrap_or(false);
+                if inserted {
+                    self.stats
+                        .inc(StatType::ElectionScheduler, DetailType::Insert);
+                } else {
+                    self.stats
+                        .inc(StatType::ElectionScheduler, DetailType::InsertFailed);
+                }
+            }
         }
-
-        let mut args = OrderBlockArgs::new_test_instance();
-        args.previous = BlockHash::zero();
-
-        let order_block: Block = args.into();
-        //let saved_block = self.ledger.process_one(&order_block).unwrap();
-
-        /*let result = self
-            .active
-            .insert(saved_block, ElectionBehavior::Ordering, None);
-
-        let inserted = result.map(|i| i.inserted).unwrap_or(false);
-        if inserted {
-            self.stats
-                .inc(StatType::ElectionScheduler, DetailType::Insert);
-        } else {
-            self.stats
-                .inc(StatType::ElectionScheduler, DetailType::InsertFailed);
-        }*/
     }
 }
 
