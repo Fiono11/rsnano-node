@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     sync::{Arc, Mutex, MutexGuard, RwLock, Weak},
     time::{Duration, SystemTime},
 };
@@ -90,43 +90,13 @@ impl VoteApplier {
         }
     }
 
-    pub fn tally_impl(&self, guard: &mut Election) -> BTreeMap<DescTallyKey, MaybeSavedBlock> {
-        let mut block_weights: HashMap<BlockHash, Amount> = HashMap::new();
-        let mut final_weights: HashMap<BlockHash, Amount> = HashMap::new();
-        for (account, info) in &guard.last_votes {
-            let rep_weight = self.ledger.weight(account);
-            *block_weights.entry(info.hash).or_default() += rep_weight;
-            if info.timestamp == u64::MAX {
-                *final_weights.entry(info.hash).or_default() += rep_weight;
-            }
-        }
-        guard.last_tally.clear();
-        for (&hash, &weight) in &block_weights {
-            guard.last_tally.insert(hash, weight);
-        }
-        let mut result = BTreeMap::new();
-        for (hash, weight) in &block_weights {
-            if let Some(block) = guard.last_blocks.get(hash) {
-                result.insert(DescTallyKey(*weight), block.clone());
-            }
-        }
-        // Calculate final votes sum for winner
-        if !final_weights.is_empty() && !result.is_empty() {
-            let winner_hash = result.first_key_value().unwrap().1.hash();
-            if let Some(final_weight) = final_weights.get(&winner_hash) {
-                guard.final_weight = *final_weight;
-            }
-        }
-        result
-    }
-
     pub fn remove_votes(&self, election: &mut Election, hash: &BlockHash) {
         if self.wallets.voting_enabled() {
             // Remove votes from election
             let root = *election.root();
             let list_generated_votes = self.history.votes(&root, hash, false);
             for vote in list_generated_votes {
-                election.last_votes.remove(&vote.voting_account);
+                election.remove_vote(&vote.voter);
             }
             // Clear votes cache
             self.history.erase(&root);
@@ -164,7 +134,7 @@ pub trait VoteApplierExt {
 impl VoteApplierExt for Arc<VoteApplier> {
     fn vote(
         &self,
-        election: &Arc<Mutex<Election>>,
+        election_mutex: &Arc<Mutex<Election>>,
         rep: &PublicKey,
         timestamp: u64,
         block_hash: &BlockHash,
@@ -177,9 +147,9 @@ impl VoteApplierExt for Arc<VoteApplier> {
             return VoteCode::Indeterminate;
         }
 
-        let mut guard = election.lock().unwrap();
+        let mut election = election_mutex.lock().unwrap();
 
-        if let Some(last_vote) = guard.last_votes.get(rep) {
+        if let Some(last_vote) = election.votes.get(rep) {
             if last_vote.timestamp > timestamp {
                 return VoteCode::Replay;
             }
@@ -200,8 +170,8 @@ impl VoteApplierExt for Arc<VoteApplier> {
                 return VoteCode::Ignored;
             }
         }
-        guard
-            .last_votes
+        election
+            .votes
             .insert(*rep, VoteInfo::new(timestamp, *block_hash));
 
         if vote_source != VoteSource::Cache {
@@ -222,24 +192,24 @@ impl VoteApplierExt for Arc<VoteApplier> {
             ?weight,
             "vote processed");
 
-        if !guard.is_confirmed() {
-            self.confirm_if_quorum(guard, election);
+        if !election.is_confirmed() {
+            self.confirm_if_quorum(election, election_mutex);
         }
         VoteCode::Vote
     }
 
     fn confirm_if_quorum(
         &self,
-        mut election_lock: MutexGuard<Election>,
-        election: &Arc<Mutex<Election>>,
+        mut election: MutexGuard<Election>,
+        election_mutex: &Arc<Mutex<Election>>,
     ) {
-        let tally = self.tally_impl(&mut election_lock);
+        let tally = election.calculate_tallies(&self.ledger.rep_weights);
         assert!(!tally.is_empty());
         let (amount, block) = tally.first_key_value().unwrap();
         let winner_hash = block.hash();
-        election_lock.status.tally = amount.amount();
-        election_lock.status.final_tally = election_lock.final_weight;
-        let status_winner_hash = election_lock.winner_hash().unwrap();
+        election.result.tally = amount.amount();
+        election.result.final_tally = election.final_weight;
+        let status_winner_hash = election.winner_hash().unwrap();
         let mut sum = Amount::zero();
         for k in tally.keys() {
             sum += k.amount();
@@ -247,19 +217,19 @@ impl VoteApplierExt for Arc<VoteApplier> {
         if sum >= self.online_reps.lock().unwrap().quorum_delta()
             && winner_hash != status_winner_hash
         {
-            election_lock.status.winner = Some(block.clone());
-            self.remove_votes(&mut election_lock, &status_winner_hash);
+            election.result.winner = Some(block.clone());
+            self.remove_votes(&mut election, &status_winner_hash);
             self.block_processor.force(block.clone().into());
         }
 
         if self.have_quorum(&tally) {
-            if election_lock.swap_quorum_on() && self.wallets.voting_enabled() {
-                election_lock.status.vote_broadcast_count += 1;
+            if election.swap_quorum_on() && self.wallets.voting_enabled() {
+                election.result.vote_broadcast_count += 1;
                 self.vote_generators
-                    .generate_final_vote(election_lock.root(), &status_winner_hash);
+                    .generate_final_vote(election.root(), &status_winner_hash);
             }
             let quorum_delta = self.online_reps.lock().unwrap().quorum_delta();
-            if election_lock.final_weight >= quorum_delta {
+            if election.final_weight >= quorum_delta {
                 // In some edge cases block might get rolled back while the election
                 // is confirming, reprocess it to ensure it's present in the ledger
                 self.block_processor.add(
@@ -267,7 +237,7 @@ impl VoteApplierExt for Arc<VoteApplier> {
                     BlockSource::Election,
                     ChannelId::LOOPBACK,
                 );
-                self.confirm_once(&mut election_lock, election);
+                self.confirm_once(&mut election, election_mutex);
             }
         }
     }

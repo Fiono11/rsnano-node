@@ -97,7 +97,7 @@ fn add_old() {
     election1
         .lock()
         .unwrap()
-        .last_votes
+        .votes
         .get_mut(&DEV_GENESIS_PUB_KEY)
         .unwrap()
         .time = SystemTime::now() - Duration::from_secs(20);
@@ -105,7 +105,7 @@ fn add_old() {
         .vote_blocking(&vote2, Some(channel), VoteSource::Live);
     let election1_guard = election1.lock().unwrap();
     assert_eq!(2, election1_guard.vote_count());
-    let votes = &election1_guard.last_votes;
+    let votes = &election1_guard.votes;
     assert!(votes.contains_key(&DEV_GENESIS_PUB_KEY));
     assert_eq!(send1.hash(), votes.get(&DEV_GENESIS_PUB_KEY).unwrap().hash);
     assert_eq!(send1.hash(), election1_guard.winner_hash().unwrap());
@@ -149,7 +149,7 @@ fn add_cooldown() {
         .vote_blocking(&vote2, Some(channel), VoteSource::Live);
     let election1_guard = election1.lock().unwrap();
     assert_eq!(2, election1_guard.vote_count());
-    let votes = &election1_guard.last_votes;
+    let votes = &election1_guard.votes;
     assert!(votes.contains_key(&DEV_GENESIS_PUB_KEY));
     assert_eq!(send1.hash(), votes.get(&DEV_GENESIS_PUB_KEY).unwrap().hash);
     assert_eq!(send1.hash(), election1_guard.winner_hash().unwrap());
@@ -300,7 +300,7 @@ fn vote_generator_multiple_representatives() {
         key3.public_key(),
         DEV_GENESIS_KEY.public_key(),
     ] {
-        let existing = votes.iter().find(|vote| vote.voting_account == *account);
+        let existing = votes.iter().find(|vote| vote.voter == *account);
         assert!(existing.is_some());
     }
 }

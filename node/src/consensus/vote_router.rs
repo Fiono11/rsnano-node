@@ -100,7 +100,7 @@ impl VoteRouter {
     /// Remove all routes to this election
     pub fn disconnect_election(&self, election: &Election) {
         let mut state = self.shared.1.lock().unwrap();
-        for hash in election.last_blocks.keys() {
+        for hash in election.candidate_blocks.keys() {
             state.elections.remove(hash);
         }
     }
@@ -162,7 +162,7 @@ impl VoteRouter {
         for (block_hash, election) in process {
             let vote_result = self.vote_applier.vote(
                 &election,
-                &vote.voting_account,
+                &vote.voter,
                 vote.timestamp(),
                 &block_hash,
                 source,
@@ -172,7 +172,7 @@ impl VoteRouter {
 
         // Cache the votes that didn't match any election
         if source != VoteSource::Cache {
-            let rep_weight = self.rep_weights.weight(&vote.voting_account);
+            let rep_weight = self.rep_weights.weight(&vote.voter);
             self.vote_cache
                 .lock()
                 .unwrap()

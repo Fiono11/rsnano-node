@@ -18,7 +18,7 @@ use rsnano_core::{
     VoteSource, VoteWithWeightInfo, WorkNonce,
 };
 use rsnano_ledger::{
-    AnySet, BlockStatus, ElectionConfig, ElectionStatus, Ledger, LedgerSet, RepWeightCache,
+    AnySet, BlockStatus, ElectionConfig, EndedElection, Ledger, LedgerSet, RepWeightCache,
 };
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
@@ -149,7 +149,7 @@ pub struct Node {
     tokio_runner: TokioRunner,
     active_elections_driver: TimerThread<ActiveElectionsDriver>,
     pub recently_confirmed: Arc<RwLock<RecentlyConfirmedCache>>,
-    pub recently_cemented: Arc<Mutex<BoundedVecDeque<ElectionStatus>>>,
+    pub recently_cemented: Arc<Mutex<BoundedVecDeque<EndedElection>>>,
 }
 
 pub(crate) struct NodeArgs {
@@ -552,6 +552,7 @@ impl Node {
             stats: stats.clone(),
             vote_applier: vote_applier.clone(),
             vote_generators: vote_generators.clone(),
+            rep_weights: ledger.rep_weights.clone(),
         };
 
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
@@ -1057,9 +1058,7 @@ impl Node {
             let active_in_rep_crawler = rep_crawler.process(vote, channel);
             if active_in_rep_crawler {
                 // Representative is defined as online if replying to live votes or rep_crawler queries
-                reps.lock()
-                    .unwrap()
-                    .vote_observed(vote.voting_account, clock.now());
+                reps.lock().unwrap().vote_observed(vote.voter, clock.now());
             }
         }));
 
@@ -1272,7 +1271,7 @@ impl Node {
         let recently_cemented: ContainerInfo = [(
             "cemented",
             self.recently_cemented.lock().unwrap().len(),
-            size_of::<ElectionStatus>(),
+            size_of::<EndedElection>(),
         )]
         .into();
 
@@ -1654,7 +1653,7 @@ fn make_store(
 pub enum NodeEvent {
     AecActiveStarted(BlockHash),
     AecActiveStopped(BlockHash),
-    BlockCemented(SavedBlock, ElectionStatus, Vec<VoteWithWeightInfo>),
+    BlockCemented(SavedBlock, EndedElection, Vec<VoteWithWeightInfo>),
 }
 
 pub trait NodeEventHandler {

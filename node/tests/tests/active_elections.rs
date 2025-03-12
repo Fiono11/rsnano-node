@@ -84,7 +84,10 @@ fn fork_replacement_tally() {
     // Check overflow of blocks
     assert_timely2(|| node1.active.election(&send_last.qualified_root()).is_some());
     let election = node1.active.election(&send_last.qualified_root()).unwrap();
-    assert_timely_eq2(|| election.lock().unwrap().last_blocks.len(), MAX_BLOCKS);
+    assert_timely_eq2(
+        || election.lock().unwrap().candidate_blocks.len(),
+        MAX_BLOCKS,
+    );
 
     // Generate forks with votes to prevent new block insertion to election
     for i in 0..REPS_COUNT {
@@ -103,12 +106,12 @@ fn fork_replacement_tally() {
     let count_rep_votes_in_election = || {
         // Check that only max weight blocks remains (and start winner)
         let guard = election.lock().unwrap();
-        if MAX_BLOCKS != guard.last_votes.len() {
+        if MAX_BLOCKS != guard.votes.len() {
             return -1;
         }
         let mut vote_count = 0;
         for i in 0..REPS_COUNT {
-            if guard.last_votes.contains_key(&keys[i].public_key()) {
+            if guard.votes.contains_key(&keys[i].public_key()) {
                 vote_count += 1;
             }
         }
@@ -117,7 +120,7 @@ fn fork_replacement_tally() {
 
     // Check overflow of blocks
     assert_timely_eq2(|| count_rep_votes_in_election(), 9);
-    assert_eq!(MAX_BLOCKS, election.lock().unwrap().last_blocks.len());
+    assert_eq!(MAX_BLOCKS, election.lock().unwrap().candidate_blocks.len());
 
     // Process correct block
     let node2 = system
@@ -136,8 +139,11 @@ fn fork_replacement_tally() {
     });
 
     // Correct block without votes is ignored
-    assert_timely_eq2(|| election.lock().unwrap().last_blocks.len(), MAX_BLOCKS);
-    let blocks1 = election.lock().unwrap().last_blocks.clone();
+    assert_timely_eq2(
+        || election.lock().unwrap().candidate_blocks.len(),
+        MAX_BLOCKS,
+    );
+    let blocks1 = election.lock().unwrap().candidate_blocks.clone();
     assert!(!blocks1.contains_key(&send_last.hash()));
 
     // Process vote for correct block & replace existing lowest tally block
@@ -171,14 +177,14 @@ fn fork_replacement_tally() {
     // the send_last block should replace one of the existing block of the election because it has higher vote weight
     let find_send_last_block = || {
         let guard = election.lock().unwrap();
-        guard.last_blocks.contains_key(&send_last.hash())
+        guard.candidate_blocks.contains_key(&send_last.hash())
     };
     assert_timely2(|| find_send_last_block());
-    assert_eq!(MAX_BLOCKS, election.lock().unwrap().last_blocks.len());
+    assert_eq!(MAX_BLOCKS, election.lock().unwrap().candidate_blocks.len());
 
     assert_timely_eq2(|| count_rep_votes_in_election(), 8);
 
-    let votes2 = election.lock().unwrap().last_votes.clone();
+    let votes2 = election.lock().unwrap().votes.clone();
     assert!(votes2.contains_key(&DEV_GENESIS_PUB_KEY));
 }
 
@@ -246,9 +252,10 @@ fn non_final() {
 
     assert_timely_eq2(
         || {
-            node.active
-                .vote_applier
-                .tally_impl(&mut election.lock().unwrap())
+            election
+                .lock()
+                .unwrap()
+                .calculate_tallies(&node.ledger.rep_weights)
                 .first_key_value()
                 .unwrap()
                 .0
@@ -293,7 +300,7 @@ fn inactive_votes_cache_fork() {
 
     assert_timely_eq(
         Duration::from_secs(5),
-        || election.lock().unwrap().last_blocks.len(),
+        || election.lock().unwrap().candidate_blocks.len(),
         2,
     );
 
@@ -346,7 +353,7 @@ fn inactive_votes_cache_existing_vote() {
     let last_vote1 = election
         .lock()
         .unwrap()
-        .last_votes
+        .votes
         .get(&key.public_key())
         .unwrap()
         .clone();
@@ -368,7 +375,7 @@ fn inactive_votes_cache_existing_vote() {
     let last_vote2 = election
         .lock()
         .unwrap()
-        .last_votes
+        .votes
         .get(&key.public_key())
         .unwrap()
         .clone();
@@ -627,7 +634,7 @@ fn confirm_election_by_request() {
     assert_eq!(election.lock().unwrap().is_confirmed(), false);
 
     // Expect that node2 has nobody to send a confirmation_request to (no reps)
-    assert_eq!(election.lock().unwrap().confirmation_request_count, 0);
+    assert_eq!(election.lock().unwrap().confirmation_request_count(), 0);
 
     // Get random peer list from node2 -- so basically just node2
     let peers = node2.network.read().unwrap().sorted_channels();
@@ -645,7 +652,7 @@ fn confirm_election_by_request() {
 
     // There needs to be at least one request to get the election confirmed,
     // Rep has this block already confirmed so should reply with final vote only
-    assert_timely2(|| election.lock().unwrap().confirmation_request_count >= 1);
+    assert_timely2(|| election.lock().unwrap().confirmation_request_count() >= 1);
 
     // Expect election was confirmed
     assert_timely2(|| election.lock().unwrap().is_confirmed());
@@ -720,7 +727,7 @@ fn confirm_frontier() {
     assert_timely2(|| node2.block_confirmed(&send.hash()));
     assert_timely_eq2(|| node2.ledger.cemented_count(), 2);
     assert_timely_eq2(|| node2.active.len(), 0);
-    assert!(election2.lock().unwrap().confirmation_request_count > 0);
+    assert!(election2.lock().unwrap().confirmation_request_count() > 0);
 }
 
 /// Ensures that election winners set won't grow without bounds when cementing
@@ -923,7 +930,7 @@ fn fork_filter_cleanup() {
     // All forks were merged into the same election
     assert_timely2(|| node1.active.election(&send1.qualified_root()).is_some());
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_timely_eq2(|| election.lock().unwrap().last_blocks.len(), 10);
+    assert_timely_eq2(|| election.lock().unwrap().candidate_blocks.len(), 10);
     assert_eq!(1, node1.active.len());
 
     // Instantiate a new node
@@ -1028,7 +1035,7 @@ fn activate_account_chain() {
     assert!(election1
         .lock()
         .unwrap()
-        .last_blocks
+        .candidate_blocks
         .contains_key(&send.hash()));
     node.active.force_confirm(&election1);
     assert_timely(Duration::from_secs(3), || {
@@ -1043,7 +1050,7 @@ fn activate_account_chain() {
     assert!(election3
         .lock()
         .unwrap()
-        .last_blocks
+        .candidate_blocks
         .contains_key(&send2.hash()));
     node.active.force_confirm(&election3);
     assert_timely(Duration::from_secs(3), || {
@@ -1061,13 +1068,13 @@ fn activate_account_chain() {
     assert!(election4
         .lock()
         .unwrap()
-        .last_blocks
+        .candidate_blocks
         .contains_key(&send3.hash()));
     let election5 = node.active.election(&open.qualified_root()).unwrap();
     assert!(election5
         .lock()
         .unwrap()
-        .last_blocks
+        .candidate_blocks
         .contains_key(&open.hash()));
     node.active.force_confirm(&election5);
     assert_timely(Duration::from_secs(3), || {

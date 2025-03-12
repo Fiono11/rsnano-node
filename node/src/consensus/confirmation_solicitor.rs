@@ -69,7 +69,7 @@ impl ConfirmationSolicitor {
             return Err(());
         }
 
-        let winner_block = election.status.winner.as_ref().unwrap();
+        let winner_block = election.result.winner.as_ref().unwrap();
         let hash = winner_block.hash();
         let winner = Message::Publish(Publish::new_forward(winner_block.clone().into()));
         let mut count = 0;
@@ -78,7 +78,7 @@ impl ConfirmationSolicitor {
             if count >= self.max_election_broadcasts {
                 break;
             }
-            let should_broadcast = if let Some(existing) = election.last_votes.get(&i.rep_key) {
+            let should_broadcast = if let Some(existing) = election.votes.get(&i.rep_key) {
                 existing.hash != hash
             } else {
                 count += 1;
@@ -101,7 +101,7 @@ impl ConfirmationSolicitor {
         debug_assert!(self.prepared);
         let mut added = false;
         let mut count = 0;
-        let winner = election.status.winner.as_ref().unwrap();
+        let winner = election.result.winner.as_ref().unwrap();
         let hash = winner.hash();
         let mut to_remove = Vec::new();
         for rep in &self.representative_requests {
@@ -109,7 +109,7 @@ impl ConfirmationSolicitor {
                 break;
             }
             let mut full_queue = false;
-            let existing = election.last_votes.get(&rep.rep_key);
+            let existing = election.votes.get(&rep.rep_key);
             let exists = existing.is_some();
             let is_final = if let Some(existing) = existing {
                 !election.is_quorum() || existing.timestamp == u64::MAX
