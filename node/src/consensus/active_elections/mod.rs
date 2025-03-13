@@ -237,9 +237,9 @@ impl ActiveElections {
             },
         );
         self.stats
-            .inc(StatType::ActiveElectionsStopped, election.state.into());
+            .inc(StatType::ActiveElectionsStopped, election.state().into());
         self.stats
-            .inc(election.state.into(), election.behavior().into());
+            .inc(election.state().into(), election.behavior().into());
         drop(guard);
 
         // Track election duration
@@ -255,7 +255,7 @@ impl ActiveElections {
         }
         self.notify(AecEvent::VacancyUpdated);
 
-        for (hash, block) in &election.candidate_blocks {
+        for (hash, block) in election.candidate_blocks() {
             // Notify observers about dropped elections & blocks lost confirmed elections
             if !election.is_confirmed() || *hash != winner_hash {
                 self.notify(AecEvent::ActiveStopped(*hash));
@@ -268,8 +268,10 @@ impl ActiveElections {
     }
 
     pub fn force_confirm(&self, election: &Arc<Mutex<Election>>) {
-        let mut guard = election.lock().unwrap();
-        self.vote_applier.confirm_once(&mut guard, election);
+        let confirmed = election.lock().unwrap().update_status_to_confirmed();
+        if confirmed {
+            self.vote_applier.election_confirmed(election.clone());
+        }
     }
 
     pub fn insert(
@@ -375,8 +377,8 @@ impl ActiveElections {
             return false;
         }
 
-        if election.candidate_blocks.len() >= Election::MAX_BLOCKS
-            && !election.candidate_blocks.contains_key(&fork.hash())
+        if election.candidate_blocks().len() >= Election::MAX_BLOCKS
+            && !election.candidate_blocks().contains_key(&fork.hash())
         {
             let fork_tally = self.get_cached_tally(&fork.hash());
             let removed = election.remove_tally_below(fork_tally);
@@ -389,10 +391,8 @@ impl ActiveElections {
             }
         }
 
-        if election.candidate_blocks.get(&fork.hash()).is_some() {
-            election
-                .candidate_blocks
-                .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
+        if election.candidate_blocks().get(&fork.hash()).is_some() {
+            election.add_block(MaybeSavedBlock::Unsaved(fork.clone()));
 
             if election.winner_hash() == fork.hash() {
                 election.set_winner(MaybeSavedBlock::Unsaved(fork.clone()));
@@ -405,9 +405,7 @@ impl ActiveElections {
             return false;
         }
 
-        election
-            .candidate_blocks
-            .insert(fork.hash(), MaybeSavedBlock::Unsaved(fork.clone()));
+        election.add_block(MaybeSavedBlock::Unsaved(fork.clone()));
 
         true
     }
@@ -458,7 +456,7 @@ impl ActiveElections {
         if let Some(source_election) = source_election {
             let election = source_election.lock().unwrap();
             if *election.qualified_root() == block.qualified_root() {
-                election_result = election.result.clone();
+                election_result = election.get_result();
                 debug_assert_eq!(election_result.winner.hash(), block.hash());
                 votes = election.votes_with_weight(&self.rep_weights);
                 election_result.result = ElectionResult::ActiveConfirmedQuorum;

@@ -440,7 +440,7 @@ fn confirm_quorum() {
 
     let election = node1.active.election(&send1.qualified_root()).unwrap();
     assert!(!election.lock().unwrap().is_confirmed());
-    assert_eq!(1, election.lock().unwrap().votes.len());
+    assert_eq!(1, election.lock().unwrap().votes().len());
     assert_eq!(Amount::zero(), node1.balance(&DEV_GENESIS_ACCOUNT));
 }
 
@@ -676,7 +676,7 @@ fn rep_self_vote() {
     assert_timely_eq2(|| election1.lock().unwrap().vote_count(), 3);
 
     // Election should receive votes from representatives hosted on the same node
-    let rep_votes = election1.lock().unwrap().votes.clone();
+    let rep_votes = election1.lock().unwrap().votes().clone();
     assert!(rep_votes.contains_key(&DEV_GENESIS_KEY.public_key()));
     assert!(rep_votes.contains_key(&rep_big.public_key()));
 }
@@ -784,7 +784,7 @@ fn fork_multi_flip() {
         election
             .lock()
             .unwrap()
-            .candidate_blocks
+            .candidate_blocks()
             .contains_key(&send1.hash())
     });
 
@@ -800,7 +800,7 @@ fn fork_multi_flip() {
         *election
             .lock()
             .unwrap()
-            .block_tallies
+            .block_tallies()
             .get(&send1.hash())
             .unwrap()
     );
@@ -825,7 +825,7 @@ fn fork_publish() {
     let election = node1.active.election(&send1.qualified_root()).unwrap();
     // Wait until the genesis rep activated & makes vote
     assert_timely_eq2(|| election.lock().unwrap().vote_count(), 2);
-    let votes1 = election.lock().unwrap().votes.clone();
+    let votes1 = election.lock().unwrap().votes().clone();
     let existing1 = votes1.get(&DEV_GENESIS_PUB_KEY).unwrap();
     assert_eq!(send1.hash(), existing1.hash);
     assert_eq!(election.lock().unwrap().winner_hash(), send1.hash());
@@ -853,17 +853,8 @@ fn fork_publish_inactive() {
     let send2 = fork_lattice.genesis().legacy_send(&key2, 100);
 
     node.process_active(send1.clone());
-    assert_timely_msg(
-        Duration::from_secs(5),
-        || node.block_exists(&send1.hash()),
-        "send1 not found",
-    );
-
-    assert_timely_msg(
-        Duration::from_secs(5),
-        || node.active.election(&send1.qualified_root()).is_some(),
-        "election not found",
-    );
+    assert_timely2(|| node.block_exists(&send1.hash()));
+    assert_timely2(|| node.active.election(&send1.qualified_root()).is_some());
 
     let election = node.active.election(&send1.qualified_root()).unwrap();
 
@@ -872,17 +863,13 @@ fn fork_publish_inactive() {
         BlockStatus::Fork
     );
 
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || election.lock().unwrap().candidate_blocks.len(),
-        2,
-    );
+    assert_timely_eq2(|| election.lock().unwrap().candidate_blocks().len(), 2);
 
     let find_block = |hash: BlockHash| {
         election
             .lock()
             .unwrap()
-            .candidate_blocks
+            .candidate_blocks()
             .contains_key(&hash)
     };
 
@@ -1777,11 +1764,7 @@ fn fork_open() {
 
     let election = node.active.election(&open2.qualified_root()).unwrap();
     // we expect to find 2 blocks in the election and we expect the first block to be the winner just because it was first
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || election.lock().unwrap().candidate_blocks.len(),
-        2,
-    );
+    assert_timely_eq2(|| election.lock().unwrap().candidate_blocks().len(), 2);
     assert_eq!(open1.hash(), election.lock().unwrap().winner_hash());
 
     // wait for a second and check that the election did not get confirmed
@@ -1984,7 +1967,7 @@ fn fork_election_invalid_block_signature() {
         "not active on node 1",
     );
     let election = node1.active.election(&send1.qualified_root()).unwrap();
-    assert_eq!(1, election.lock().unwrap().candidate_blocks.len());
+    assert_eq!(1, election.lock().unwrap().candidate_blocks().len());
 
     node1.inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send3)),
@@ -1996,14 +1979,14 @@ fn fork_election_invalid_block_signature() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || election.lock().unwrap().candidate_blocks.len() > 1,
+        || election.lock().unwrap().candidate_blocks().len() > 1,
         "block len was < 2",
     );
     assert_eq!(
         election
             .lock()
             .unwrap()
-            .candidate_blocks
+            .candidate_blocks()
             .get(&send2.hash())
             .unwrap()
             .signature(),
@@ -2083,11 +2066,7 @@ fn rollback_vote_self() {
     );
     let election = node.active.election(&send2.qualified_root()).unwrap();
     node.process_active(fork.clone());
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || election.lock().unwrap().candidate_blocks.len(),
-        2,
-    );
+    assert_timely_eq2(|| election.lock().unwrap().candidate_blocks().len(), 2);
     assert_eq!(election.lock().unwrap().winner_hash(), send2.hash());
 
     {
@@ -2410,7 +2389,7 @@ fn node_receive_quorum() {
 
     let election = node1.active.election(&send.qualified_root()).unwrap();
     assert!(!election.lock().unwrap().is_confirmed());
-    assert_eq!(1, election.lock().unwrap().votes.len());
+    assert_eq!(1, election.lock().unwrap().votes().len());
 
     let node2 = system.make_disconnected_node();
     let wallet_id2 = node2.wallets.wallet_ids()[0];
@@ -2587,9 +2566,9 @@ fn fork_open_flip() {
         "open1 not found on node2",
     );
     assert_timely2(|| node1.block_confirmed(&open1.hash()));
-    let election_status = election.lock().unwrap().result.clone();
-    assert_eq!(open1.hash(), election_status.winner.hash());
-    assert_eq!(Amount::MAX - Amount::raw(1), election_status.tally);
+    let el = election.lock().unwrap();
+    assert_eq!(open1.hash(), el.winner().hash());
+    assert_eq!(Amount::MAX - Amount::raw(1), el.tally());
 
     // check the correct blocks are in the ledgers
     assert!(node1.block_exists(&open1.hash()));
@@ -3065,7 +3044,7 @@ fn fork_keep() {
     });
     // The vote should be in agreement with what we already have.
     let guard = election1.lock().unwrap();
-    let (winner_hash, winner_tally) = guard.block_tallies.iter().next().unwrap();
+    let (winner_hash, winner_tally) = guard.block_tallies().iter().next().unwrap();
     assert_eq!(*winner_hash, send1.hash());
     assert_eq!(*winner_tally, Amount::MAX - Amount::raw(100));
     assert!(node1.block_exists(&send1.hash()));
