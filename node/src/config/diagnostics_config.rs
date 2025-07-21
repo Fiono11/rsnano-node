@@ -1,4 +1,4 @@
-use crate::utils::TxnTrackingConfig;
+use rsnano_utils::TxnTrackingConfig;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DiagnosticsConfig {

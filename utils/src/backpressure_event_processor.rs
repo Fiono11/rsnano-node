@@ -1,12 +1,12 @@
 use rsnano_core::utils::BackpressureReceiver;
 
-pub(crate) trait BackpressureEventProcessor<T> {
+pub trait BackpressureEventProcessor<T> {
     fn cool_down(&mut self);
     fn recovered(&mut self);
     fn process(&mut self, event: T);
 }
 
-pub(crate) fn spawn_backpressure_processor<T, I>(
+pub fn spawn_backpressure_processor<T, I>(
     thread_name: impl Into<String>,
     receiver: BackpressureReceiver<I>,
     processor: T,

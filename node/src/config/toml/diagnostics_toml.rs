@@ -1,5 +1,6 @@
-use crate::{config::DiagnosticsConfig, utils::TxnTrackingConfig};
+use crate::config::DiagnosticsConfig;
 use serde::{Deserialize, Serialize};
+use rsnano_utils::TxnTrackingConfig;
 
 #[derive(Deserialize, Serialize)]
 pub struct DiagnosticsToml {

@@ -35,9 +35,9 @@ use crate::{
     config::{NetworkParams, NodeConfig},
     representatives::OnlineReps,
     transport::MessageFlooder,
-    utils::{ThreadPool, ThreadPoolImpl},
     work::{WorkFactory, WorkRequest},
 };
+use rsnano_utils::{ThreadPool, ThreadPoolImpl};
 
 #[derive(FromPrimitive, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WalletsError {

@@ -104,7 +104,6 @@ impl<T: TimerStrategy> Timer<T> {
 #[cfg(test)]
 mod tests {
     use std::{sync::mpsc::channel, time::Duration};
-
     use super::*;
 
     #[test]

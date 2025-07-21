@@ -1,0 +1,21 @@
+[package]
+name = "rsnano_utils"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["output_tracking"]
+output_tracking = []
+
+[dependencies]
+rsnano_core = { path = "../core" }
+rsnano_output_tracker = { path = "../nullables/output_tracker" }
+chrono = "0"
+timer = "0"
+rsnano_nullable_clock = { path = "../nullables/clock" }
+rsnano_stats = { path = "../stats" }
+threadpool = "1"
+tracing = "0"
+backtrace = "0"
+rsnano_store_lmdb = { path = "../store_lmdb" }
+blake2 = "0.10.6"

@@ -81,10 +81,6 @@ use crate::{
         MessageSender, NetworkThreads, PeerCacheConnector, PeerCacheUpdater,
         RealtimeMessageHandler,
     },
-    utils::{
-        spawn_backpressure_processor, LongRunningTransactionLogger, ThreadPool, ThreadPoolImpl,
-        TimerThread,
-    },
     wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
     work::{WorkFactory, WorkRequest},
     NodeCallbacks, OnlineWeightSampler,
@@ -96,6 +92,10 @@ use rsnano_network_protocol::{
 };
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::EnvironmentOptions;
+use rsnano_utils::{
+    spawn_backpressure_processor, LongRunningTransactionLogger, ThreadPool, ThreadPoolImpl,
+    TimerThread,
+};
 
 #[allow(dead_code)]
 pub struct Node {
@@ -1748,9 +1748,9 @@ mod tests {
     use super::*;
     use crate::{
         consensus::{AecEvent, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats},
-        utils::{TimerStartEvent, TimerStartType},
         NodeBuilder,
     };
+    use rsnano_utils::{TimerStartEvent, TimerStartType};
     use rsnano_core::Networks;
     use rsnano_stats::StatsSource;
     use std::{

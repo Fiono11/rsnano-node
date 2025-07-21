@@ -12,9 +12,9 @@ use crate::{
         ActiveElectionsContainer, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         LocalVoteHistory,
     },
-    utils::BackpressureEventProcessor,
     NodeEvent,
 };
+use rsnano_utils::BackpressureEventProcessor;
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,

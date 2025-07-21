@@ -1,4 +1,4 @@
-use crate::utils::RateCalculator;
+use rsnano_utils::RateCalculator;
 use rsnano_core::utils::{CancellationToken, Runnable};
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;

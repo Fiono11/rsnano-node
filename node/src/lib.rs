@@ -26,7 +26,6 @@ pub mod representatives;
 pub mod telemetry;
 pub mod tokio_runner;
 pub mod transport;
-pub mod utils;
 pub mod wallets;
 pub mod work;
 pub mod working_path;

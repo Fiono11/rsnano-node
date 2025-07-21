@@ -4110,6 +4110,7 @@ dependencies = [
  "rsnano_nullable_clock",
  "rsnano_nullable_tracing_subscriber",
  "rsnano_store_lmdb",
+ "rsnano_utils",
  "serde_json",
  "strum 0.27.1",
  "tokio",
@@ -4282,6 +4283,7 @@ dependencies = [
  "rsnano_output_tracker",
  "rsnano_stats",
  "rsnano_store_lmdb",
+ "rsnano_utils",
  "rsnano_websocket_messages",
  "rsnano_work",
  "scoped_threadpool",
@@ -4486,6 +4488,23 @@ dependencies = [
  "serde_json",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "rsnano_utils"
+version = "0.1.0"
+dependencies = [
+ "backtrace",
+ "blake2 0.10.6",
+ "chrono",
+ "rsnano_core",
+ "rsnano_nullable_clock",
+ "rsnano_output_tracker",
+ "rsnano_stats",
+ "rsnano_store_lmdb",
+ "threadpool",
+ "timer",
+ "tracing",
 ]
 
 [[package]]

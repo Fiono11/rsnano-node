@@ -15,9 +15,9 @@ use crate::{
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, RepCrawler},
-    utils::BackpressureEventProcessor,
     NodeEvent,
 };
+use rsnano_utils::BackpressureEventProcessor;
 use rsnano_ledger::BlockSource;
 use rsnano_network::ChannelId;
 use rsnano_stats::{Sample, Stats};

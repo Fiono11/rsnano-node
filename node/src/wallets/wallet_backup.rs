@@ -1,5 +1,5 @@
 use super::Wallets;
-use crate::utils::ThreadPool;
+use rsnano_utils::ThreadPool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tracing::error;
 

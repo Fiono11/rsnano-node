@@ -8,7 +8,6 @@ use std::{
     thread::JoinHandle,
     time::Duration,
 };
-
 use rsnano_core::{utils::FairQueue, Block, BlockHash, Frontier};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
 use rsnano_messages::{
@@ -19,7 +18,6 @@ use rsnano_network::{
     token_bucket::TokenBucket, Channel, ChannelId, DeadChannelCleanupStep, TrafficType,
 };
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
-
 use crate::transport::MessageSender;
 use rsnano_nullable_clock::SteadyClock;
 

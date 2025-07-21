@@ -1,15 +1,12 @@
 use std::sync::{Arc, Mutex};
-
 use rsnano_core::Frontier;
 use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
-
 use super::frontier_worker::FrontierWorker;
 use crate::{
     bootstrap::state::{BootstrapState, RunningQuery, VerifyResult},
-    utils::{ThreadPool, ThreadPoolImpl},
 };
-
+use rsnano_utils::{ThreadPool, ThreadPoolImpl};
 /// Processes responses to AscPullReqs by the frontier scan
 pub(crate) struct FrontierAckProcessor {
     stats: Arc<Stats>,

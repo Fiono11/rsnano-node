@@ -1,7 +1,6 @@
 use rsnano_core::Networks;
-
 use super::{Wallets, WalletsExt};
-use crate::utils::ThreadPool;
+use rsnano_utils::ThreadPool;
 use std::{sync::Arc, time::Duration};
 
 pub(crate) struct ReceivableSearch {

@@ -15,6 +15,7 @@ rsnano_store_lmdb = { path = "../../store_lmdb" }
 rsnano_node = { path = "../../node" }
 rsnano_daemon = { path = "../../daemon" }
 rsnano_ledger = { path = "../../ledger" }
+rsnano_utils = { path = "../../utils" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 num-format = "0.4.4"
 num = "0"

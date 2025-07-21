@@ -18,8 +18,8 @@ use rsnano_stats::{DetailType, StatType, Stats};
 use super::ordered_entries::OrderedEntries;
 use crate::{
     consensus::{election::ConfirmedElection, ConfirmedElectionsCache},
-    utils::{ThreadPool, ThreadPoolImpl},
 };
+use rsnano_utils::{ThreadPool, ThreadPoolImpl};
 
 /// A block that is currently cementing
 #[derive(Clone)]
