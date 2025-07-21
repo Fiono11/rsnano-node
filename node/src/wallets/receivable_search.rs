@@ -1,5 +1,5 @@
-use rsnano_core::Networks;
 use super::{Wallets, WalletsExt};
+use rsnano_core::Networks;
 use rsnano_utils::ThreadPool;
 use std::{sync::Arc, time::Duration};
 

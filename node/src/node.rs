@@ -1750,9 +1750,9 @@ mod tests {
         consensus::{AecEvent, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats},
         NodeBuilder,
     };
-    use rsnano_utils::{TimerStartEvent, TimerStartType};
     use rsnano_core::Networks;
     use rsnano_stats::StatsSource;
+    use rsnano_utils::{TimerStartEvent, TimerStartType};
     use std::{
         any::type_name,
         ops::{Deref, DerefMut},

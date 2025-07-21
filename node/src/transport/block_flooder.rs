@@ -1,8 +1,8 @@
 use super::MessageFlooder;
-use rsnano_utils::ThreadPool;
 use rsnano_core::Block;
 use rsnano_messages::{Message, Publish};
 use rsnano_network::TrafficType;
+use rsnano_utils::ThreadPool;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},

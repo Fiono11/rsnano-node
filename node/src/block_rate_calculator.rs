@@ -1,7 +1,7 @@
-use rsnano_utils::RateCalculator;
 use rsnano_core::utils::{CancellationToken, Runnable};
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;
+use rsnano_utils::RateCalculator;
 use std::sync::{
     atomic::{AtomicI64, Ordering},
     Arc,

@@ -1,3 +1,15 @@
+use super::{LocalVoteHistory, VoteSpacing};
+use crate::{consensus::VoteBroadcaster, transport::MessageSender, wallets::Wallets};
+use rsnano_core::{
+    utils::{ContainerInfo, UnixMillisTimestamp},
+    BlockHash, Root, SavedBlock, Vote,
+};
+use rsnano_ledger::{AnySet, Ledger};
+use rsnano_messages::{ConfirmAck, Message};
+use rsnano_network::{Channel, ChannelId, TrafficType};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
+use rsnano_utils::ProcessingQueue;
 use std::{
     collections::VecDeque,
     mem::size_of,
@@ -8,20 +20,6 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use rsnano_core::{
-    utils::{ContainerInfo, UnixMillisTimestamp},
-    BlockHash, Root, SavedBlock, Vote,
-};
-use rsnano_ledger::{AnySet, Ledger};
-use rsnano_messages::{ConfirmAck, Message};
-use rsnano_network::{Channel, ChannelId, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
-use super::{LocalVoteHistory, VoteSpacing};
-use crate::{
-    consensus::VoteBroadcaster, transport::MessageSender, wallets::Wallets,
-};
-use rsnano_utils::ProcessingQueue;
 
 pub struct VoteGeneratorRequest {
     pub candidates: Vec<(Root, BlockHash)>,

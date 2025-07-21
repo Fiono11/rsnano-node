@@ -6,14 +6,11 @@ mod thread_pool;
 mod timer;
 mod timer_thread;
 
-pub use backpressure_event_processor::{
-    spawn_backpressure_processor, BackpressureEventProcessor,
-};
+pub use backpressure_event_processor::{BackpressureEventProcessor, spawn_backpressure_processor};
 
-pub use timer::{NullTimer, Timer, TimerStrategy, TimerWrapper};
 use blake2::{
-    digest::{Update, VariableOutput},
     Blake2bVar,
+    digest::{Update, VariableOutput},
 };
 pub use long_running_transaction_logger::{LongRunningTransactionLogger, TxnTrackingConfig};
 pub use processing_queue::*;
@@ -21,6 +18,7 @@ pub use rate_calculator::RateCalculator;
 use rsnano_core::HardenedConstants;
 use std::net::Ipv6Addr;
 pub use thread_pool::*;
+pub use timer::{NullTimer, Timer, TimerStrategy, TimerWrapper};
 pub use timer_thread::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

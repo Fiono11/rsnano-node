@@ -2,8 +2,8 @@ use std::{
     collections::VecDeque,
     ops::DerefMut,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
 };

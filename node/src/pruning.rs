@@ -9,14 +9,12 @@ use std::{
 
 use tracing::info;
 
+use crate::config::NodeConfig;
 use rsnano_core::{utils::UnixTimestamp, Account, BlockHash};
 use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, StatType, Stats};
 use rsnano_store_lmdb::Transaction;
 use rsnano_utils::{ThreadPool, ThreadPoolImpl};
-use crate::{
-    config::NodeConfig,
-};
 
 pub struct LedgerPruning {
     config: NodeConfig,

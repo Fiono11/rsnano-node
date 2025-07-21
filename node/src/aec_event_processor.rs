@@ -17,10 +17,10 @@ use crate::{
     representatives::{OnlineReps, RepCrawler},
     NodeEvent,
 };
-use rsnano_utils::BackpressureEventProcessor;
 use rsnano_ledger::BlockSource;
 use rsnano_network::ChannelId;
 use rsnano_stats::{Sample, Stats};
+use rsnano_utils::BackpressureEventProcessor;
 use tracing::debug;
 
 pub(crate) trait AecEventHandler {

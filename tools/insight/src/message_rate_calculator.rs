@@ -1,11 +1,11 @@
+use crate::message_collection::RecordedMessage;
+use rsnano_network::ChannelDirection;
+use rsnano_nullable_clock::Timestamp;
+use rsnano_utils::RateCalculator;
 use std::{
     sync::atomic::{AtomicI64, Ordering},
     time::Duration,
 };
-use rsnano_network::ChannelDirection;
-use rsnano_utils::RateCalculator;
-use rsnano_nullable_clock::Timestamp;
-use crate::message_collection::RecordedMessage;
 
 #[derive(Default)]
 pub(crate) struct MessageRates {

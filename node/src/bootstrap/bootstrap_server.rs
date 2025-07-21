@@ -1,3 +1,15 @@
+use crate::transport::MessageSender;
+use rsnano_core::{utils::FairQueue, Block, BlockHash, Frontier};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
+use rsnano_messages::{
+    AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
+    AscPullReqType, BlocksAckPayload, BlocksReqPayload, FrontiersReqPayload, HashType, Message,
+};
+use rsnano_network::{
+    token_bucket::TokenBucket, Channel, ChannelId, DeadChannelCleanupStep, TrafficType,
+};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
 use std::{
     cmp::min,
     collections::VecDeque,
@@ -8,18 +20,6 @@ use std::{
     thread::JoinHandle,
     time::Duration,
 };
-use rsnano_core::{utils::FairQueue, Block, BlockHash, Frontier};
-use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
-use rsnano_messages::{
-    AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
-    AscPullReqType, BlocksAckPayload, BlocksReqPayload, FrontiersReqPayload, HashType, Message,
-};
-use rsnano_network::{
-    token_bucket::TokenBucket, Channel, ChannelId, DeadChannelCleanupStep, TrafficType,
-};
-use rsnano_stats::{DetailType, Direction, StatType, Stats};
-use crate::transport::MessageSender;
-use rsnano_nullable_clock::SteadyClock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapServerConfig {

@@ -103,8 +103,8 @@ impl<T: TimerStrategy> Timer<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::mpsc::channel, time::Duration};
     use super::*;
+    use std::{sync::mpsc::channel, time::Duration};
 
     #[test]
     fn schedule_with_delay() {

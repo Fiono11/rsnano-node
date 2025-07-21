@@ -16,9 +16,7 @@ use rsnano_ledger::{CementingObserver, Ledger, ProcessedResult};
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::ordered_entries::OrderedEntries;
-use crate::{
-    consensus::{election::ConfirmedElection, ConfirmedElectionsCache},
-};
+use crate::consensus::{election::ConfirmedElection, ConfirmedElectionsCache};
 use rsnano_utils::{ThreadPool, ThreadPoolImpl};
 
 /// A block that is currently cementing

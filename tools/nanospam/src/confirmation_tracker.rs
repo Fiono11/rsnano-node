@@ -1,8 +1,8 @@
 use std::{
     sync::{
+        Mutex,
         atomic::{AtomicUsize, Ordering},
         mpsc::Receiver,
-        Mutex,
     },
     time::{Duration, Instant},
 };
