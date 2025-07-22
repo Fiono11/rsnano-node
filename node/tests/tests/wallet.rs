@@ -1,3 +1,4 @@
+use rsnano_config::{NodeConfig, NodeFlags, DEV_NETWORK_PARAMS};
 use rsnano_core::{
     deterministic_key, Account, Amount, Block, BlockHash, Epoch, EpochBlockArgs,
     KeyDerivationFunction, PrivateKey, PublicKey, RawKey, DEV_GENESIS_KEY,
@@ -11,7 +12,6 @@ use rsnano_node::{
     wallets::{WalletsError, WalletsExt},
     Node,
 };
-use rsnano_config::{NodeConfig, NodeFlags, DEV_NETWORK_PARAMS};
 use rsnano_store_lmdb::{LmdbEnv, LmdbEnvFactory, LmdbWalletStore};
 use std::{
     collections::HashSet,

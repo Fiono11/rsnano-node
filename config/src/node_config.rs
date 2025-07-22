@@ -1,21 +1,25 @@
-use std::{cmp::max, net::Ipv6Addr, time::Duration};
+use super::{
+    DEV_NETWORK_PARAMS, DiagnosticsConfig, NetworkParams, Networks,
+    websocket_config::WebsocketConfig,
+};
+use crate::{
+    ActiveElectionsConfig, BacklogScanConfig, BootstrapConfig, BootstrapServerConfig,
+    BoundedBacklogConfig, ConfirmingSetConfig, DEFAULT_MAX_FORKS_PER_ROOT, DEFAULT_MAX_LEN,
+    DEFAULT_MAX_QUEUE, DEFAULT_STALE_THRESHOLD, HintedSchedulerConfig, LocalBlockBroadcasterConfig,
+    MessageProcessorConfig, OptimisticSchedulerConfig, PriorityBucketConfig, ProcessQueueConfig,
+    RebroadcastHistoryConfig, RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig,
+};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use rsnano_core::{
-    utils::{get_env_or_default_string, Peer},
     Account, Amount, PublicKey,
+    utils::{Peer, get_env_or_default_string},
 };
 use rsnano_network::NetworkConfig;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
 use rsnano_work::OpenClConfig;
-use super::{
-    websocket_config::WebsocketConfig, DiagnosticsConfig, NetworkParams, Networks,
-    DEV_NETWORK_PARAMS,
-};
-use crate::{
-    ActiveElectionsConfig, BacklogScanConfig, BootstrapConfig, BootstrapServerConfig, BoundedBacklogConfig, ConfirmingSetConfig, HintedSchedulerConfig, LocalBlockBroadcasterConfig, MessageProcessorConfig, OptimisticSchedulerConfig, PriorityBucketConfig, ProcessQueueConfig, RebroadcastHistoryConfig, RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, DEFAULT_MAX_FORKS_PER_ROOT, DEFAULT_MAX_LEN, DEFAULT_MAX_QUEUE, DEFAULT_STALE_THRESHOLD
-};
+use std::{cmp::max, net::Ipv6Addr, time::Duration};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
@@ -407,9 +411,6 @@ mod tests {
             config.fork_cache_max_forks_per_root,
             DEFAULT_MAX_FORKS_PER_ROOT
         );
-        assert_eq!(
-            config.bootstrap_stale_threshold,
-            DEFAULT_STALE_THRESHOLD
-        );
+        assert_eq!(config.bootstrap_stale_threshold, DEFAULT_STALE_THRESHOLD);
     }
 }

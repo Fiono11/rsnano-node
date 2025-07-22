@@ -1,5 +1,5 @@
-use std::time::Duration;
 use rsnano_messages::BlocksAckPayload;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapConfig {

@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use rsnano_config::{NetworkParams, NodeConfig};
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     BlockHash, Networks, Root, SavedBlock,
@@ -9,7 +10,6 @@ use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{DetailType, StatType, Stats};
-use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{vote_generator::VoteGenerator, LocalVoteHistory};
 use crate::{

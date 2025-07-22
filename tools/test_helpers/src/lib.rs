@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rsnano_config::{BacklogScanConfig, NetworkParams, NodeConfig, NodeFlags};
 use rsnano_core::{
     utils::{NULL_ENDPOINT, TEST_ENDPOINT_1},
     Account, Amount, Block, BlockHash, Epoch, Networks, PrivateKey, PublicKey, SavedBlock,
@@ -14,12 +15,7 @@ use rsnano_ledger::{
     AnySet, LedgerSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
 };
 use rsnano_network::{Channel, ChannelDirection};
-use rsnano_node::{
-    unique_path,
-    wallets::WalletsExt,
-    Node, NodeBuilder, NodeEvent,
-};
-use rsnano_config::{BacklogScanConfig, NetworkParams, NodeConfig, NodeFlags};
+use rsnano_node::{unique_path, wallets::WalletsExt, Node, NodeBuilder, NodeEvent};
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
 use rsnano_store_lmdb::SyncStrategy;

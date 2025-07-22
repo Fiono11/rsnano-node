@@ -4,15 +4,10 @@ mod election_scheduler {
     use std::time::Duration;
 
     use super::*;
+    use rsnano_config::{NodeConfig, OptimisticSchedulerConfig};
     use rsnano_core::{utils::BlockPriority, Amount, PrivateKey, DEV_GENESIS_KEY};
     use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
-    use rsnano_node::{
-        consensus::{
-            election::ElectionBehavior,
-            AecInsertRequest,
-        },
-    };
-    use rsnano_config::{NodeConfig, OptimisticSchedulerConfig};
+    use rsnano_node::consensus::{election::ElectionBehavior, AecInsertRequest};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]

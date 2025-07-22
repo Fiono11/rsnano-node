@@ -1,5 +1,5 @@
-use std::{cmp::max, time::Duration};
 use rsnano_core::Networks;
+use std::{cmp::max, time::Duration};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BacklogScanConfig {
@@ -119,4 +119,3 @@ impl Default for LocalBlockBroadcasterConfig {
         }
     }
 }
-

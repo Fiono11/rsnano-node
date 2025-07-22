@@ -64,8 +64,8 @@ pub(crate) fn track_confirmations(
                 };
                 let bps = current_bps.load(Ordering::Relaxed);
                 info!(
-                        "Confirmed {confirmed} blocks ({total} total) | {bps} bps | {cps} cps | avg conf time: {avg_conf_time} ms | ws queue: {len}"
-                    );
+                    "Confirmed {confirmed} blocks ({total} total) | {bps} bps | {cps} cps | avg conf time: {avg_conf_time} ms | ws queue: {len}"
+                );
                 confirmed = 0;
                 start = Instant::now();
                 sum_conf_time = Duration::ZERO;

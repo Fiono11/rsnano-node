@@ -1,7 +1,7 @@
 use crate::cli::GlobalArgs;
 use clap::Parser;
-use rsnano_daemon::DaemonBuilder;
 use rsnano_config::NodeFlags;
+use rsnano_daemon::DaemonBuilder;
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 
 #[derive(Parser, PartialEq, Debug)]

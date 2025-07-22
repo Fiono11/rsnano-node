@@ -1,10 +1,10 @@
 use crate::cli::GlobalArgs;
 use clap::{ArgGroup, Parser};
-use rsnano_core::{utils::get_cpu_count, Networks};
 use rsnano_config::{
     get_node_toml_config_path, get_rpc_toml_config_path, DaemonConfig, DaemonToml,
     NetworkConstants, NetworkParams,
 };
+use rsnano_core::{utils::get_cpu_count, Networks};
 use rsnano_rpc_server::{RpcServerConfig, RpcServerToml};
 use std::fs::read_to_string;
 use toml::{from_str, to_string};

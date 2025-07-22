@@ -1,6 +1,6 @@
-use std::time::Duration;
 use crate::TcpConfig;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Deserialize, Serialize)]
 pub struct TcpToml {

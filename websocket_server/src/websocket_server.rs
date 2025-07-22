@@ -1,8 +1,8 @@
 use super::WebsocketListener;
+use rsnano_config::WebsocketConfig;
 use rsnano_core::{Account, BlockHash, Vote, VoteError};
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::TelemetryData;
-use rsnano_config::WebsocketConfig;
 use rsnano_node::{CompositeNodeEventHandler, Node, NodeEvent, NodeEventHandler};
 use rsnano_websocket_messages::{new_block_arrived_message, MessageEnvelope, Topic};
 use serde::{Deserialize, Serialize};

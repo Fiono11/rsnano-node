@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
+use rsnano_config::{BootstrapConfig, NodeConfig, NodeFlags};
 use rsnano_core::{
     utils::{MemoryStream, UnixMillisTimestamp},
     Account, Amount, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY,
@@ -12,7 +13,6 @@ use rsnano_node::{
     consensus::{FilteredVote, ReceivedVote},
     wallets::WalletsExt,
 };
-use rsnano_config::{BootstrapConfig, NodeConfig, NodeFlags};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{

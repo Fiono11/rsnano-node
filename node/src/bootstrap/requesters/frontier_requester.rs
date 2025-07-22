@@ -123,9 +123,7 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::{
-        progress, state::FrontierScan
-    };
+    use crate::bootstrap::{progress, state::FrontierScan};
     use rsnano_config::{BootstrapConfig, CandidateAccountsConfig};
     use rsnano_network::Network;
     use std::sync::{Mutex, RwLock};

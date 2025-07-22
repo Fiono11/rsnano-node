@@ -1,3 +1,7 @@
+mod block_processing_config;
+mod bootstrap_config;
+mod cementation_config;
+mod consensus_config;
 mod converters;
 mod daemon_config;
 mod diagnostics_config;
@@ -7,13 +11,13 @@ mod node_config;
 mod node_flags;
 mod node_rpc_config;
 mod toml;
-mod websocket_config;
-mod bootstrap_config;
-mod block_processing_config;
-mod consensus_config;
 mod transport_config;
-mod cementation_config;
+mod websocket_config;
 
+pub use block_processing_config::*;
+pub use bootstrap_config::*;
+pub use cementation_config::*;
+pub use consensus_config::*;
 pub use daemon_config::*;
 pub use diagnostics_config::*;
 pub use network_constants::*;
@@ -25,12 +29,8 @@ pub use rsnano_core::Networks;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 pub use toml::DaemonToml;
-pub use websocket_config::WebsocketConfig;
-pub use bootstrap_config::*;
-pub use block_processing_config::*;
-pub use consensus_config::*;
 pub use transport_config::*;
-pub use cementation_config::*;
+pub use websocket_config::WebsocketConfig;
 
 pub fn get_node_toml_config_path(data_path: impl Into<PathBuf>) -> PathBuf {
     let mut node_toml = data_path.into();

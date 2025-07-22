@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use rsnano_config::NodeFlags;
 use rsnano_core::{
     Amount, Epoch, PrivateKey, Signature, Vote, VoteError, VoteSource, WalletId, DEV_GENESIS_KEY,
 };
@@ -11,7 +12,6 @@ use rsnano_node::{
     consensus::{election::VoteType, ReceivedVote},
     wallets::WalletsExt,
 };
-use rsnano_config::NodeFlags;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
     assert_timely, assert_timely2, assert_timely_eq2, make_fake_channel, start_election,

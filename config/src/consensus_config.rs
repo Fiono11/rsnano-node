@@ -1,4 +1,7 @@
-use std::{cmp::{max, min}, time::Duration};
+use std::{
+    cmp::{max, min},
+    time::Duration,
+};
 
 pub const DEFAULT_STALE_THRESHOLD: Duration = Duration::from_secs(60);
 pub const DEFAULT_MAX_FORKS_PER_ROOT: usize = 10;

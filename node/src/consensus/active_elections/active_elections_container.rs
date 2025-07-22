@@ -23,8 +23,7 @@ use super::{
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     stats::AecStats,
-    ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
-    RootContainer,
+    ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry, RootContainer,
 };
 use rsnano_ledger::RepWeights;
 use strum::EnumCount;

@@ -1,6 +1,6 @@
+use crate::HintedSchedulerConfig;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use crate::HintedSchedulerConfig;
 
 #[derive(Deserialize, Serialize)]
 pub struct HintedSchedulerToml {

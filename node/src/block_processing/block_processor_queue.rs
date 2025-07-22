@@ -14,10 +14,7 @@ use rsnano_core::{
 use rsnano_ledger::{BlockError, BlockSource};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep};
 
-use super::{
-    process_queue::ProcessQueue,
-    BlockContext,
-};
+use super::{process_queue::ProcessQueue, BlockContext};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{StatsCollection, StatsSource};
 

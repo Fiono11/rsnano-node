@@ -14,6 +14,7 @@ use std::{
 use bounded_vec_deque::BoundedVecDeque;
 use tracing::{debug, error, info, warn};
 
+use rsnano_config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags, ProcessQueueConfig};
 use rsnano_core::{
     utils::{
         backpressure_channel, ContainerInfo, ContainerInfoFactory, ContainerInfoProvider, Peer,
@@ -35,7 +36,6 @@ use rsnano_stats::{Direction, Stats, StatsCollection, StatsCollector};
 use rsnano_store_lmdb::{
     EnvironmentFlags, LmdbEnv, LmdbEnvFactory, NullTransactionTracker, TransactionTracker,
 };
-use rsnano_config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags, ProcessQueueConfig};
 
 use crate::{
     aec_event_processor::AecEventProcessor,

@@ -13,6 +13,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
+use rsnano_config::{NetworkParams, NodeConfig};
 use rsnano_core::{
     utils::{get_env_or_default_string, ContainerInfo, ContainerInfoProvider},
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
@@ -27,7 +28,6 @@ use rsnano_store_lmdb::{
     Transaction,
 };
 use rsnano_work::WorkThresholds;
-use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{Wallet, WalletActionThread, WalletRepresentatives};
 use crate::{

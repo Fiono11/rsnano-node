@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use rsnano_config::{NetworkConstants, NodeConfig, WebsocketConfig};
 use rsnano_core::{
     utils::UnixMillisTimestamp, Amount, Block, JsonBlock, Networks, PrivateKey, SendBlockArgs,
     Vote, VoteError, DEV_GENESIS_KEY,
@@ -13,10 +14,7 @@ use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
 };
 use rsnano_messages::{Message, Publish};
-use rsnano_node::{
-    CompositeNodeEventHandler, Node,
-};
-use rsnano_config::{NetworkConstants, NodeConfig, WebsocketConfig};
+use rsnano_node::{CompositeNodeEventHandler, Node};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,

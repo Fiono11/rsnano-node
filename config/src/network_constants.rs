@@ -1,7 +1,7 @@
-use std::time::Duration;
-use rsnano_core::{utils::get_env_or_default, Networks, ProtocolInfo};
-use rsnano_work::WorkThresholds;
 use super::BootstrapConfig;
+use rsnano_core::{Networks, ProtocolInfo, utils::get_env_or_default};
+use rsnano_work::WorkThresholds;
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkConstants {

@@ -1,5 +1,6 @@
 use std::{ops::Deref, sync::Arc, thread::sleep, time::Duration};
 
+use rsnano_config::{NodeConfig, VoteProcessorConfig};
 use rsnano_core::{
     utils::UnixMillisTimestamp, Account, Amount, Block, Networks, PrivateKey, ProtocolInfo, Root,
     StateBlockArgs, Vote, DEV_GENESIS_KEY,
@@ -9,7 +10,6 @@ use rsnano_ledger::{
 };
 use rsnano_messages::{ConfirmAck, Keepalive, Message, MessageHeader, MessageSerializer};
 use rsnano_network::{ChannelMode, TrafficType};
-use rsnano_config::{NodeConfig, VoteProcessorConfig};
 use rsnano_node::wallets::WalletsExt;
 use rsnano_stats::{DetailType, Direction, StatType};
 

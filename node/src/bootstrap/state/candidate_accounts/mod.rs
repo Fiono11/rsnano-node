@@ -4,8 +4,7 @@ mod priority;
 mod priority_container;
 
 pub(crate) use candidate_accounts::{
-    CandidateAccounts, PriorityDownResult, PriorityResult,
-    PriorityUpResult,
+    CandidateAccounts, PriorityDownResult, PriorityResult, PriorityUpResult,
 };
 
 pub use blocking_container::BlockingEntry;

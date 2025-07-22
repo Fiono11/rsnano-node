@@ -10,6 +10,7 @@ use std::{
 use bounded_vec_deque::BoundedVecDeque;
 use tracing::{debug, info, warn};
 
+use rsnano_config::{NetworkParams, NodeConfig};
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     Account, BlockHash, Root, Vote,
@@ -19,7 +20,6 @@ use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
-use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{InsertResult, OnlineReps};
 use crate::{
