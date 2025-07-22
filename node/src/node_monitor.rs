@@ -8,11 +8,9 @@ use tracing::info;
 use rsnano_core::utils::{CancellationToken, Runnable};
 use rsnano_ledger::Ledger;
 use rsnano_network::Network;
+use rsnano_representatives::OnlineReps;
 
-use crate::{
-    block_rate_calculator::CurrentBlockRates, consensus::ActiveElectionsContainer,
-    representatives::OnlineReps,
-};
+use crate::{block_rate_calculator::CurrentBlockRates, consensus::ActiveElectionsContainer};
 use num_format::{Locale, ToFormattedString};
 
 /// Periodically prints info about BPS, CPS, elections, peers,...

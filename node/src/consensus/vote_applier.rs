@@ -9,7 +9,8 @@ use rsnano_core::{utils::BackpressureSender, Amount, BlockHash, VoteError};
 use rsnano_ledger::RepWeightCache;
 
 use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote};
-use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
+use crate::consensus::ApplyVoteArgs;
+use rsnano_representatives::OnlineReps;
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {

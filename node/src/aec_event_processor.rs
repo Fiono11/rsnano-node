@@ -14,11 +14,11 @@ use crate::{
         VoteCacheProcessor, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineReps, RepCrawler},
-    NodeEvent,
+    NodeEvent, RepCrawler,
 };
 use rsnano_ledger::BlockSource;
 use rsnano_network::ChannelId;
+use rsnano_representatives::OnlineReps;
 use rsnano_stats::{Sample, Stats};
 use rsnano_utils::BackpressureEventProcessor;
 use tracing::debug;

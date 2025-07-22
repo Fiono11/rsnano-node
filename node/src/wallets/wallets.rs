@@ -23,6 +23,7 @@ use rsnano_core::{
 use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{Message, Publish};
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, WriteFlags};
+use rsnano_representatives::OnlineReps;
 use rsnano_store_lmdb::{
     create_backup_file, KeyType, LmdbEnv, LmdbIterator, LmdbWalletStore, LmdbWriteTransaction,
     Transaction,
@@ -33,7 +34,6 @@ use super::{Wallet, WalletActionThread, WalletRepresentatives};
 use crate::{
     block_processing::BlockProcessorQueue,
     cementation::ConfirmingSet,
-    representatives::OnlineReps,
     transport::MessageFlooder,
     work::{WorkFactory, WorkRequest},
 };

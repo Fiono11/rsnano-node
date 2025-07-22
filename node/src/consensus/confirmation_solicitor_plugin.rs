@@ -9,7 +9,8 @@ use super::{
     winner_block_broadcaster::WinnerBlockBroadcaster,
     AecTickerPlugin, BlockVoteRequest, BlockVoter, ConfirmationSolicitor,
 };
-use crate::{representatives::OnlineReps, transport::MessageFlooder};
+use crate::transport::MessageFlooder;
+use rsnano_representatives::OnlineReps;
 
 pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) message_flooder: MessageFlooder,

@@ -6,16 +6,12 @@ use rsnano_core::{
     Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
 };
 use rsnano_nullable_clock::Timestamp;
+use rsnano_representatives::QuorumSpecs;
 use rsnano_stats::{StatsCollection, StatsSource};
 
-use crate::{
-    consensus::{
-        election::{
-            AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
-        },
-        filtered_vote::FilteredVote,
-    },
-    representatives::QuorumSpecs,
+use crate::consensus::{
+    election::{AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior},
+    filtered_vote::FilteredVote,
 };
 
 use super::{

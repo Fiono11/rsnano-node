@@ -1,6 +1,6 @@
 use crate::command_handler::RpcCommandHandler;
 use rsnano_core::{Account, PublicKey};
-use rsnano_node::representatives::OnlineRepInfo;
+use rsnano_representatives::OnlineRepInfo;
 use rsnano_rpc_messages::{
     DetailedRepresentativesOnline, RepWeightDto, RepresentativesOnlineArgs,
     RepresentativesOnlineResponse, SimpleRepresentativesOnline,
@@ -107,7 +107,7 @@ mod tests {
     mod simple_result {
         use super::*;
         use rsnano_core::Amount;
-        use rsnano_node::representatives::OnlineRepInfo;
+        use rsnano_representatives::OnlineRepInfo;
 
         #[test]
         fn empty() {
@@ -169,7 +169,7 @@ mod tests {
     mod detailed_result {
         use super::*;
         use rsnano_core::{Amount, PublicKey};
-        use rsnano_node::representatives::OnlineRepInfo;
+        use rsnano_representatives::OnlineRepInfo;
 
         #[test]
         fn empty() {

@@ -184,12 +184,9 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        consensus::{
-            active_elections::root_container::Entry, election::ElectionBehavior, FilteredVote,
-            ReceivedVote,
-        },
-        representatives::QuorumSpecs,
+    use crate::consensus::{
+        active_elections::root_container::Entry, election::ElectionBehavior, FilteredVote,
+        ReceivedVote,
     };
     use rsnano_core::{
         utils::{backpressure_channel, UnixMillisTimestamp},
@@ -197,6 +194,7 @@ mod tests {
     };
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
+    use rsnano_representatives::QuorumSpecs;
     use std::time::Duration;
 
     #[test]

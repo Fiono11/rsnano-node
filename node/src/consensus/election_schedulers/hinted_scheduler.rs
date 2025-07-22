@@ -13,13 +13,13 @@ use std::{
 use rsnano_config::HintedSchedulerConfig;
 use rsnano_core::{utils::ContainerInfo, Amount, BlockHash};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
+use rsnano_representatives::OnlineReps;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::VoteCache;
 use crate::{
     cementation::ConfirmingSet,
     consensus::{election::ElectionBehavior, ActiveElectionsContainer, AecInsertRequest},
-    representatives::OnlineReps,
 };
 use rsnano_nullable_clock::SteadyClock;
 

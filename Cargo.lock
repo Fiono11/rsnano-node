@@ -4109,6 +4109,7 @@ dependencies = [
  "rsnano_node",
  "rsnano_nullable_clock",
  "rsnano_nullable_tracing_subscriber",
+ "rsnano_representatives",
  "rsnano_store_lmdb",
  "rsnano_utils",
  "serde_json",
@@ -4302,6 +4303,7 @@ dependencies = [
  "rsnano_nullable_random",
  "rsnano_nullable_tcp",
  "rsnano_output_tracker",
+ "rsnano_representatives",
  "rsnano_stats",
  "rsnano_store_lmdb",
  "rsnano_utils",
@@ -4426,6 +4428,20 @@ name = "rsnano_output_tracker"
 version = "0.1.0"
 
 [[package]]
+name = "rsnano_representatives"
+version = "0.1.0"
+dependencies = [
+ "primitive-types",
+ "rsnano_core",
+ "rsnano_ledger",
+ "rsnano_network",
+ "rsnano_nullable_clock",
+ "rsnano_stats",
+ "rsnano_store_lmdb",
+ "tracing",
+]
+
+[[package]]
 name = "rsnano_rpc_client"
 version = "0.1.0"
 dependencies = [
@@ -4463,6 +4479,7 @@ dependencies = [
  "rsnano_network",
  "rsnano_node",
  "rsnano_nullable_clock",
+ "rsnano_representatives",
  "rsnano_rpc_client",
  "rsnano_rpc_messages",
  "rsnano_stats",

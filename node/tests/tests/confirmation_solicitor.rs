@@ -5,13 +5,11 @@ use rsnano_core::{utils::UnixMillisTimestamp, Account, Amount, Block, PublicKey}
 use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_PUB_KEY};
 use rsnano_messages::ConfirmReq;
 use rsnano_network::Channel;
-use rsnano_node::{
-    consensus::{
-        election::{Election, ElectionBehavior},
-        ConfirmationSolicitor,
-    },
-    representatives::PeeredRepInfo,
+use rsnano_node::consensus::{
+    election::{Election, ElectionBehavior},
+    ConfirmationSolicitor,
 };
+use rsnano_representatives::PeeredRepInfo;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::System;
 

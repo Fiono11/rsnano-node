@@ -18,10 +18,11 @@ use rsnano_core::{
 };
 use rsnano_ledger::{AnySet, Ledger, ProcessedResult};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_representatives::OnlineReps;
 use rsnano_stats::{Stats, StatsCollection, StatsSource};
 
 use super::{ActiveElectionsContainer, VoteCache};
-use crate::{cementation::ConfirmingSet, representatives::OnlineReps};
+use crate::cementation::ConfirmingSet;
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 use rsnano_nullable_clock::SteadyClock;
 

@@ -14,9 +14,8 @@ use rsnano_core::{
     PublicKey,
 };
 use rsnano_ledger::RepWeightCache;
+use rsnano_representatives::OnlineReps;
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
-
-use crate::representatives::OnlineReps;
 
 // Higher number means higher priority
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, EnumIter, Hash, Debug, EnumCount)]

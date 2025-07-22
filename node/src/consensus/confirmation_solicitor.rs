@@ -3,9 +3,10 @@ use std::{collections::HashMap, sync::Arc};
 use rsnano_core::{BlockHash, Root};
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
+use rsnano_representatives::PeeredRepInfo;
 
 use super::election::Election;
-use crate::{representatives::PeeredRepInfo, transport::MessageFlooder};
+use crate::transport::MessageFlooder;
 
 /// This struct accepts elections that need further votes before they can be confirmed and bundles them in to confirm_req packets
 pub struct ConfirmationSolicitor {

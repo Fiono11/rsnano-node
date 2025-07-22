@@ -32,6 +32,9 @@ use rsnano_network::{
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_output_tracker::OutputListenerMt;
+use rsnano_representatives::{
+    OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, OnlineWeightSampler,
+};
 use rsnano_stats::{Direction, Stats, StatsCollection, StatsCollector};
 use rsnano_store_lmdb::{
     EnvironmentFlags, LmdbEnv, LmdbEnvFactory, NullTransactionTracker, TransactionTracker,
@@ -67,9 +70,6 @@ use crate::{
     node_monitor::NodeMonitor,
     pruning::{LedgerPruning, LedgerPruningExt},
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{
-        OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
-    },
     telemetry::{
         rsnano_build_info, rsnano_version_string, TelementryConfig, TelementryExt, Telemetry,
         TelemetryFactory,
@@ -83,7 +83,7 @@ use crate::{
     },
     wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
     work::{WorkFactory, WorkRequest},
-    NodeCallbacks, OnlineWeightSampler,
+    NodeCallbacks, RepCrawler, RepCrawlerExt,
 };
 use num_format::{Locale, ToFormattedString};
 use rsnano_network_protocol::{

@@ -1,0 +1,14 @@
+[package]
+name = "rsnano_representatives"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rsnano_core = { path = "../core" }
+rsnano_ledger = { path = "../ledger" }
+rsnano_network = { path = "../network" }
+tracing = "0"
+rsnano_nullable_clock = { path = "../nullables/clock" }
+rsnano_store_lmdb = { path = "../store_lmdb" }
+rsnano_stats = { path = "../stats" }
+primitive-types = "0"

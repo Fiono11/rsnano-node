@@ -21,7 +21,7 @@ mod node_id_key_file;
 mod node_monitor;
 pub mod pruning;
 mod recently_cemented_inserter;
-pub mod representatives;
+mod rep_crawler;
 pub mod telemetry;
 pub mod tokio_runner;
 pub mod transport;
@@ -31,5 +31,5 @@ pub mod working_path;
 
 pub use node::*;
 pub use node_builder::*;
-pub use representatives::OnlineWeightSampler;
+pub use rep_crawler::*;
 pub use working_path::*;
