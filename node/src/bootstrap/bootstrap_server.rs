@@ -1,4 +1,5 @@
 use crate::transport::MessageSender;
+use rsnano_config::BootstrapServerConfig;
 use rsnano_core::{utils::FairQueue, Block, BlockHash, Frontier};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
 use rsnano_messages::{
@@ -20,25 +21,6 @@ use std::{
     thread::JoinHandle,
     time::Duration,
 };
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct BootstrapServerConfig {
-    pub max_queue: usize,
-    pub threads: usize,
-    pub batch_size: usize,
-    pub limiter: usize,
-}
-
-impl Default for BootstrapServerConfig {
-    fn default() -> Self {
-        Self {
-            max_queue: 16,
-            threads: 1,
-            batch_size: 64,
-            limiter: 500,
-        }
-    }
-}
 
 /**
  * Processes bootstrap requests (`asc_pull_req` messages) and replies with bootstrap responses (`asc_pull_ack`)

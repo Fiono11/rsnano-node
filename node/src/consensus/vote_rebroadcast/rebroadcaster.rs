@@ -1,11 +1,11 @@
 use std::{sync::Arc, thread::JoinHandle, time::Duration};
 
 use super::{
-    history::RebroadcastHistoryConfig,
     rebroadcast_processor::{RebroadcastProcessor, RebroadcastStats},
     VoteRebroadcastQueue,
 };
 use crate::transport::MessageFlooder;
+use rsnano_config::RebroadcastHistoryConfig;
 use rsnano_ledger::RepWeightCache;
 use rsnano_nullable_clock::SteadyClock;
 

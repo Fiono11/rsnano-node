@@ -6,12 +6,13 @@ use std::{
     time::Duration,
 };
 
+use rsnano_config::RebroadcastHistoryConfig;
 use rsnano_core::Vote;
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
 use rsnano_stats::{StatsCollection, StatsSource};
 
-use super::history::{RebroadcastError, RebroadcastHistory, RebroadcastHistoryConfig};
+use super::history::{RebroadcastError, RebroadcastHistory};
 use crate::{consensus::RepTier, transport::MessageFlooder};
 use rsnano_ledger::RepWeightCache;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};

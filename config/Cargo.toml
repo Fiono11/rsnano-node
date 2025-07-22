@@ -1,0 +1,19 @@
+[package]
+name = "rsnano_config"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+once_cell = "1"
+rand = { version = "0.9.1" }
+rsnano_core = { path = "../core" }
+rsnano_ledger = { path = "../ledger" }
+rsnano_messages = { path = "../messages" }
+rsnano_network = { path = "../network" }
+rsnano_nullable_http_client = { path = "../nullables/http_client" }
+rsnano_store_lmdb = { path = "../store_lmdb" }
+rsnano_utils = { path = "../utils" }
+rsnano_work = { path = "../work" }
+serde = { version = "1", features = ["derive"] }
+toml = "0"

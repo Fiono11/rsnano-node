@@ -1,48 +1,17 @@
 use std::{
-    cmp::max,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Condvar, Mutex, MutexGuard,
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
+use rsnano_config::BacklogScanConfig;
 use rsnano_core::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{StatsCollection, StatsSource};
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct BacklogScanConfig {
-    /// Control if ongoing backlog population is enabled. If not, backlog population can still be triggered by RPC
-    pub enabled: bool,
-
-    /// Number of accounts per second to process.
-    pub batch_size: usize,
-
-    /// Number of accounts to scan per second
-    pub rate_limit: usize,
-}
-
-impl Default for BacklogScanConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            batch_size: 1000,
-            rate_limit: 10_000,
-        }
-    }
-}
-
-impl BacklogScanConfig {
-    fn wait_time(&self) -> Duration {
-        let wait_time =
-            Duration::from_millis(1000 / max(self.rate_limit / self.batch_size, 1) as u64 / 2);
-        max(wait_time, Duration::from_millis(10))
-    }
-}
 
 /// Continuously scan the ledger for unconfirmed blocks and activate them
 pub struct BacklogScan {
@@ -341,6 +310,8 @@ impl StatsSource for BacklogScanStats {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]

@@ -4,13 +4,14 @@ use std::{
     thread::JoinHandle,
 };
 
+use rsnano_config::VoteProcessorConfig;
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     BlockHash, VoteSource,
 };
 use rsnano_stats::{DetailType, StatType, Stats};
 
-use super::{VoteCache, VoteProcessorConfig, VoteProcessorQueue};
+use super::{VoteCache, VoteProcessorQueue};
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,

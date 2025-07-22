@@ -5,13 +5,13 @@ use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_PUB_KE
 use rsnano_messages::ConfirmReq;
 use rsnano_network::Channel;
 use rsnano_node::{
-    config::NodeFlags,
     consensus::{
         election::{Election, ElectionBehavior},
         ConfirmationSolicitor,
     },
     representatives::PeeredRepInfo,
 };
+use rsnano_config::NodeFlags;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::System;
 

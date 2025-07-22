@@ -3,29 +3,8 @@ use super::{
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
 use crate::consensus::AecInsertRequest;
+use rsnano_config::PriorityBucketConfig;
 use rsnano_core::{utils::BlockPriority, BlockHash, QualifiedRoot, SavedBlock};
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PriorityBucketConfig {
-    /// Maximum number of blocks to sort by priority per bucket.
-    pub max_blocks: usize,
-
-    /// Number of guaranteed slots per bucket available for election activation.
-    pub reserved_elections: usize,
-
-    /// Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. (node.active_elections.size)
-    pub max_elections: usize,
-}
-
-impl Default for PriorityBucketConfig {
-    fn default() -> Self {
-        Self {
-            max_blocks: 1024 * 8,
-            reserved_elections: 100,
-            max_elections: 150,
-        }
-    }
-}
 
 /// A struct which holds an ordered set of blocks to be scheduled, ordered by their block arrival time
 /// TODO: This combines both block ordering and election management, which makes the class harder to test. The functionality should be split.

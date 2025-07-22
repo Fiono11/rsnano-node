@@ -3,9 +3,9 @@ use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder, AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY,
 };
 use rsnano_node::{
-    config::{NodeConfig, NodeFlags},
     wallets::WalletsExt,
 };
+use rsnano_config::{NodeConfig, NodeFlags};
 use std::time::Duration;
 use test_helpers::{assert_timely, assert_timely2, assert_timely_eq, System};
 

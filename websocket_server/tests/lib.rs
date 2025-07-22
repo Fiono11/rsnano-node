@@ -14,9 +14,9 @@ use rsnano_ledger::{
 };
 use rsnano_messages::{Message, Publish};
 use rsnano_node::{
-    config::{NetworkConstants, NodeConfig, WebsocketConfig},
     CompositeNodeEventHandler, Node,
 };
+use rsnano_config::{NetworkConstants, NodeConfig, WebsocketConfig};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,

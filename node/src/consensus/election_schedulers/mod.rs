@@ -18,11 +18,11 @@ use rsnano_core::{
 use rsnano_ledger::{AnySet, Ledger, ProcessedResult};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{Stats, StatsCollection, StatsSource};
+use rsnano_config::{NetworkConstants, NodeConfig};
 
 use super::{ActiveElectionsContainer, VoteCache};
 use crate::{
     cementation::ConfirmingSet,
-    config::{NetworkConstants, NodeConfig},
     representatives::OnlineReps,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};

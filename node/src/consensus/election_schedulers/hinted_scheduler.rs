@@ -7,9 +7,10 @@ use std::{
         Arc, Condvar, Mutex, RwLock,
     },
     thread::JoinHandle,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
+use rsnano_config::HintedSchedulerConfig;
 use rsnano_core::{utils::ContainerInfo, Amount, BlockHash};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_stats::{DetailType, StatType, Stats};
@@ -21,38 +22,6 @@ use crate::{
     representatives::OnlineReps,
 };
 use rsnano_nullable_clock::SteadyClock;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct HintedSchedulerConfig {
-    pub check_interval: Duration,
-    pub block_cooldown: Duration,
-    pub hinting_threshold_percent: u32,
-    pub vacancy_threshold_percent: u32,
-    /// Limit of hinted elections as percentage of `active_elections_size`
-    pub hinted_limit_percentage: usize,
-}
-
-impl HintedSchedulerConfig {
-    pub fn default_for_dev_network() -> Self {
-        Self {
-            check_interval: Duration::from_millis(100),
-            block_cooldown: Duration::from_millis(100),
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for HintedSchedulerConfig {
-    fn default() -> Self {
-        Self {
-            check_interval: Duration::from_millis(1000),
-            block_cooldown: Duration::from_millis(5000),
-            hinting_threshold_percent: 10,
-            vacancy_threshold_percent: 20,
-            hinted_limit_percentage: 20,
-        }
-    }
-}
 
 /// Monitors inactive vote cache and schedules elections with the highest observed vote tally.
 pub struct HintedScheduler {

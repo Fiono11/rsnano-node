@@ -1,6 +1,7 @@
 use super::running_query::QuerySource;
 use super::{CandidateAccounts, FrontierScan, PeerScoring, PriorityResult, RunningQueryContainer};
-use crate::bootstrap::{AscPullQuerySpec, BootstrapConfig};
+use crate::bootstrap::AscPullQuerySpec;
+use rsnano_config::BootstrapConfig;
 use rsnano_core::Account;
 use rsnano_core::{utils::ContainerInfo, BlockHash};
 use rsnano_messages::AscPullReqType;

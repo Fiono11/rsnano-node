@@ -8,10 +8,10 @@ use rsnano_ledger::{
     DEV_GENESIS_PUB_KEY,
 };
 use rsnano_node::{
-    config::NodeFlags,
     consensus::{election::VoteType, ReceivedVote},
     wallets::WalletsExt,
 };
+use rsnano_config::NodeFlags;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
     assert_timely, assert_timely2, assert_timely_eq2, make_fake_channel, start_election,

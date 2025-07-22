@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use rsnano_config::ProcessQueueConfig;
 use strum::{EnumCount, IntoEnumIterator};
 
 use rsnano_core::{
@@ -14,7 +15,7 @@ use rsnano_ledger::{BlockError, BlockSource};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep};
 
 use super::{
-    process_queue::{ProcessQueue, ProcessQueueConfig},
+    process_queue::ProcessQueue,
     BlockContext,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};

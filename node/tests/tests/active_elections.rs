@@ -9,11 +9,10 @@ use rsnano_ledger::{
     DEV_GENESIS_PUB_KEY,
 };
 use rsnano_node::{
-    bootstrap::BootstrapConfig,
-    config::{NodeConfig, NodeFlags},
     consensus::{FilteredVote, ReceivedVote},
     wallets::WalletsExt,
 };
+use rsnano_config::{BootstrapConfig, NodeConfig, NodeFlags};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{

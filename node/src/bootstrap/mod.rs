@@ -7,7 +7,7 @@ mod response_processor;
 
 pub mod state;
 use state::QueryType;
-pub use state::{BootstrapCounters, FrontierHeadInfo, FrontierScanConfig};
+pub use state::{BootstrapCounters, FrontierHeadInfo};
 use std::sync::Arc;
 
 pub use bootstrap_server::*;

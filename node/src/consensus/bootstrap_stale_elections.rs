@@ -1,5 +1,6 @@
 use super::{election::Election, AecTickerPlugin};
 use crate::bootstrap::Bootstrapper;
+use rsnano_config::DEFAULT_STALE_THRESHOLD;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_stats::{StatsCollection, StatsSource};
 use std::{
@@ -22,14 +23,12 @@ pub(crate) struct BootstrapStaleElections {
 }
 
 impl BootstrapStaleElections {
-    pub const DEFAULT_STALE_THRESHOLD: Duration = Duration::from_secs(60);
-
     pub(crate) fn new(bootstrapper: Arc<Bootstrapper>, clock: Arc<SteadyClock>) -> Self {
         Self {
             bootstrapper,
             clock,
             stats: Arc::new(StaleElectionsStats::default()),
-            stale_threshold: Self::DEFAULT_STALE_THRESHOLD,
+            stale_threshold: DEFAULT_STALE_THRESHOLD,
         }
     }
 
@@ -120,7 +119,7 @@ mod tests {
             block,
             ElectionBehavior::Manual,
             Duration::from_secs(1),
-            clock.now() - BootstrapStaleElections::DEFAULT_STALE_THRESHOLD,
+            clock.now() - DEFAULT_STALE_THRESHOLD,
         );
         let mut plugin = BootstrapStaleElections::new(bootstrapper.clone(), clock);
 

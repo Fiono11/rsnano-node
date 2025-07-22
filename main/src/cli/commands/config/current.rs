@@ -1,7 +1,7 @@
 use crate::cli::GlobalArgs;
 use clap::{ArgGroup, Parser};
 use rsnano_core::{utils::get_cpu_count, Networks};
-use rsnano_node::config::{
+use rsnano_config::{
     get_node_toml_config_path, get_rpc_toml_config_path, DaemonConfig, DaemonToml,
     NetworkConstants, NetworkParams,
 };

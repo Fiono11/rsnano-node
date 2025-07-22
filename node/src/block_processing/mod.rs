@@ -12,7 +12,7 @@ mod local_block_broadcaster;
 mod process_queue;
 mod unchecked_map;
 
-pub use backlog_scan::{BacklogScan, BacklogScanConfig};
+pub use backlog_scan::BacklogScan;
 pub(crate) use backlog_waiter::BacklogWaiter;
 pub use block_context::*;
 pub use block_processor::*;
@@ -21,5 +21,4 @@ pub use bounded_backlog::*;
 pub(crate) use bounded_backlog_plugin::*;
 pub(crate) use election_winner_reprocessor::*;
 pub(crate) use local_block_broadcaster::*;
-pub use process_queue::ProcessQueueConfig;
 pub use unchecked_map::*;

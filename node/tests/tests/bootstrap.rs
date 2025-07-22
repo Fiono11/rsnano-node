@@ -1,9 +1,9 @@
 use rsnano_core::{Account, PrivateKey};
 use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
-use rsnano_node::{bootstrap::BootstrapConfig, config::NodeConfig};
 use rsnano_nullable_tcp::get_available_port;
 use std::time::Duration;
 use test_helpers::{assert_always_eq, assert_timely, System};
+use rsnano_config::{BootstrapConfig, NodeConfig};
 
 /**
  * Tests the base case for returning

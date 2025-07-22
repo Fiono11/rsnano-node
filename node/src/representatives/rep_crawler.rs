@@ -19,10 +19,10 @@ use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
+use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{InsertResult, OnlineReps};
 use crate::{
-    config::{NetworkParams, NodeConfig},
     consensus::{ActiveElectionsContainer, ReceivedVote},
     transport::{
         keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},

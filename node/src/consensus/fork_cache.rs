@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use bounded_vec_deque::BoundedVecDeque;
+use rsnano_config::{DEFAULT_MAX_FORKS_PER_ROOT, DEFAULT_MAX_LEN};
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     Block, BlockHash, QualifiedRoot,
@@ -17,15 +18,12 @@ pub(crate) struct ForkCache {
 }
 
 impl ForkCache {
-    pub const DEFAULT_MAX_FORKS_PER_ROOT: usize = 10;
-    pub const DEFAULT_MAX_LEN: usize = 1024 * 16;
-
     pub(crate) fn new() -> Self {
-        Self::with_max_len(Self::DEFAULT_MAX_LEN)
+        Self::with_max_len(DEFAULT_MAX_LEN)
     }
 
     pub fn with_max_len(max_len: usize) -> Self {
-        Self::with(max_len, Self::DEFAULT_MAX_FORKS_PER_ROOT)
+        Self::with(max_len, DEFAULT_MAX_FORKS_PER_ROOT)
     }
 
     pub fn with(max_len: usize, max_forks_per_root: usize) -> Self {
@@ -137,8 +135,8 @@ mod tests {
     fn empty() {
         let cache = ForkCache::default();
         assert_eq!(cache.len(), 0);
-        assert_eq!(ForkCache::DEFAULT_MAX_LEN, 1024 * 16);
-        assert_eq!(cache.max_len(), ForkCache::DEFAULT_MAX_LEN);
+        assert_eq!(DEFAULT_MAX_LEN, 1024 * 16);
+        assert_eq!(cache.max_len(), DEFAULT_MAX_LEN);
         assert_forks(&cache, &QualifiedRoot::new_test_instance(), &[]);
         assert!(!cache.contains(&QualifiedRoot::new_test_instance()))
     }

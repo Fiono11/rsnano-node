@@ -8,10 +8,10 @@ use rsnano_messages::Message;
 use rsnano_network::ChannelId;
 use rsnano_network_protocol::MessageCallback;
 
+use rsnano_config::{
+    get_node_toml_config_path, DaemonConfig, DaemonToml, NetworkParams, NodeConfig, NodeFlags
+};
 use crate::{
-    config::{
-        get_node_toml_config_path, DaemonConfig, DaemonToml, NetworkParams, NodeConfig, NodeFlags,
-    },
     working_path_for, Node, NodeArgs, NodeEvent,
 };
 

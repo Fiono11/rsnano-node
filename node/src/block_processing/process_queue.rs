@@ -1,4 +1,5 @@
 use super::BlockContext;
+use rsnano_config::ProcessQueueConfig;
 use rsnano_core::{
     utils::{ContainerInfo, FairQueue, FairQueueInfo},
     Block,
@@ -10,38 +11,6 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProcessQueueConfig {
-    // Maximum number of blocks to queue from network peers
-    pub max_peer_queue: usize,
-
-    // Maximum number of blocks to queue from system components (local RPC, bootstrap)
-    pub max_system_queue: usize,
-
-    // Higher priority gets processed more frequently
-    pub priority_live: usize,
-    pub priority_bootstrap: usize,
-    pub priority_local: usize,
-    pub priority_system: usize,
-    pub batch_size: usize,
-}
-
-impl ProcessQueueConfig {}
-
-impl Default for ProcessQueueConfig {
-    fn default() -> Self {
-        Self {
-            max_peer_queue: 1024,
-            max_system_queue: 16 * 1024,
-            priority_live: 1,
-            priority_bootstrap: 8,
-            priority_local: 16,
-            priority_system: 32,
-            batch_size: 256,
-        }
-    }
-}
 
 pub(crate) struct ProcessQueue {
     queue: FairQueue<(BlockSource, ChannelId), Arc<BlockContext>>,

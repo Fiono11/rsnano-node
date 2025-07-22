@@ -1,5 +1,6 @@
-use super::{heads_container::HeadsContainer, FrontierScanConfig};
+use super::heads_container::HeadsContainer;
 use primitive_types::U512;
+use rsnano_config::FrontierScanConfig;
 use rsnano_core::{utils::ContainerInfo, Account, Frontier};
 use rsnano_nullable_clock::Timestamp;
 

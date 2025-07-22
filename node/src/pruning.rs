@@ -9,7 +9,7 @@ use std::{
 
 use tracing::info;
 
-use crate::config::NodeConfig;
+use rsnano_config::NodeConfig;
 use rsnano_core::{utils::UnixTimestamp, Account, BlockHash};
 use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, StatType, Stats};

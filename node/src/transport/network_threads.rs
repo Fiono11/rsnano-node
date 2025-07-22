@@ -10,7 +10,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::{keepalive::KeepaliveMessageFactory, MessageFlooder};
-use crate::config::{NetworkParams, NodeFlags};
+use rsnano_config::{NetworkParams, NodeFlags};
 use rsnano_network_protocol::{LatestKeepalives, SynCookies};
 
 pub(crate) struct NetworkThreads {

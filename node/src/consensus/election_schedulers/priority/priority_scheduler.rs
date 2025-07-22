@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use rsnano_config::PriorityBucketConfig;
 use rsnano_core::{
     utils::{BlockPriority, ContainerInfo},
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, QualifiedRoot, SavedBlock,
@@ -16,7 +17,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{DetailType, StatType, Stats, StatsCollection, StatsSource};
 
-use super::{bucket_stats::BucketStats, Bucket, Bucketing, PriorityBucketConfig};
+use super::{bucket_stats::BucketStats, Bucket, Bucketing};
 use crate::consensus::{
     election_schedulers::priority::{BlockEviction, BucketInsertError},
     ActiveElectionsContainer, AecInsertError,

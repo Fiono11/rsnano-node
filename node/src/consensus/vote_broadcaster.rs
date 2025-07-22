@@ -3,12 +3,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use rsnano_config::VoteProcessorConfig;
 use rsnano_core::{Vote, VoteSource};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
 use rsnano_stats::{DetailType, StatType, Stats};
 
-use super::{VoteProcessorConfig, VoteProcessorQueue};
+use super::VoteProcessorQueue;
 use crate::transport::MessageFlooder;
 
 /// Broadcast a vote to PRs and some non-PRs

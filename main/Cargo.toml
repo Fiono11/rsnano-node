@@ -9,6 +9,7 @@ name = "rsnano_node"
 path = "src/bin.rs"
 
 [dependencies]
+rsnano_config = { path = "../config" }
 rsnano_core = { path = "../core" }
 rsnano_messages = { path = "../messages" }
 rsnano_store_lmdb = { path = "../store_lmdb" }

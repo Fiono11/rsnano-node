@@ -20,23 +20,6 @@ pub use active_elections_container::*;
 pub use cooldown_controller::AecCooldownReason;
 use root_container::{Entry, RootContainer};
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ActiveElectionsConfig {
-    /// Maximum number of simultaneous active elections (AEC size)
-    pub max_elections: usize,
-    /// Maximum cache size for recently_confirmed
-    pub confirmation_cache: usize,
-}
-
-impl Default for ActiveElectionsConfig {
-    fn default() -> Self {
-        Self {
-            max_elections: 5000,
-            confirmation_cache: 65536,
-        }
-    }
-}
-
 pub enum AecEvent {
     ElectionStarted(BlockHash, QualifiedRoot),
     ElectionConfirmed(ConfirmedElection),

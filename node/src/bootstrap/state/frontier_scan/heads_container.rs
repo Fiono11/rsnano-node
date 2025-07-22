@@ -1,4 +1,5 @@
-use super::frontier_head::{FrontierHead, FrontierScanConfig};
+use super::frontier_head::FrontierHead;
+use rsnano_config::FrontierScanConfig;
 use rsnano_core::Account;
 use rsnano_nullable_clock::Timestamp;
 use std::collections::BTreeMap;

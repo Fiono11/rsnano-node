@@ -3,30 +3,10 @@ use super::{
     priority::Priority,
     priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry},
 };
+use rsnano_config::CandidateAccountsConfig;
 use rsnano_core::{utils::ContainerInfo, Account, BlockHash};
 use rsnano_nullable_clock::Timestamp;
-use std::{cmp::min, time::Duration};
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CandidateAccountsConfig {
-    pub consideration_count: usize,
-    pub priorities_max: usize,
-    pub blocking_max: usize,
-    pub blocking_decay: Duration,
-    pub cooldown: Duration,
-}
-
-impl Default for CandidateAccountsConfig {
-    fn default() -> Self {
-        Self {
-            consideration_count: 4,
-            priorities_max: 256 * 1024,
-            blocking_max: 256 * 1024,
-            blocking_decay: Duration::from_secs(60 * 15),
-            cooldown: Duration::from_secs(3),
-        }
-    }
-}
+use std::cmp::min;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PriorityUpResult {
@@ -419,6 +399,8 @@ pub struct PriorityResult {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]

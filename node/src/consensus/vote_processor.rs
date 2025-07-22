@@ -1,5 +1,4 @@
 use std::{
-    cmp::{max, min},
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -16,29 +15,6 @@ use rsnano_network::Channel;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::{AecEvent, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoteProcessorConfig {
-    pub max_pr_queue: usize,
-    pub max_non_pr_queue: usize,
-    pub pr_priority: usize,
-    pub threads: usize,
-    pub batch_size: usize,
-    pub max_triggered: usize,
-}
-
-impl VoteProcessorConfig {
-    pub fn new(parallelism: usize) -> Self {
-        Self {
-            max_pr_queue: 256,
-            max_non_pr_queue: 32,
-            pr_priority: 3,
-            threads: max(1, min(4, parallelism / 2)),
-            batch_size: 1024,
-            max_triggered: 16384,
-        }
-    }
-}
 
 pub type VoteProcessedCallback2 =
     Box<dyn Fn(&Arc<Vote>, Option<&Arc<Channel>>, VoteSource, VoteError) + Send + Sync>;

@@ -1,5 +1,4 @@
 use std::{
-    cmp::{max, min},
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -16,22 +15,7 @@ use rsnano_network::{Channel, ChannelId};
 use rsnano_network_protocol::InboundMessageQueue;
 
 use super::RealtimeMessageHandler;
-use crate::config::NodeConfig;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MessageProcessorConfig {
-    pub threads: usize,
-    pub max_queue: usize,
-}
-
-impl MessageProcessorConfig {
-    pub fn new(parallelism: usize) -> Self {
-        Self {
-            threads: min(2, max(parallelism / 4, 1)),
-            max_queue: 64,
-        }
-    }
-}
+use rsnano_config::NodeConfig;
 
 /// Process inbound messages from other nodes
 pub struct MessageProcessor {

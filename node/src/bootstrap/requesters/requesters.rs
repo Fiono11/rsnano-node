@@ -3,6 +3,7 @@ use std::{
     thread::JoinHandle,
 };
 
+use rsnano_config::BootstrapConfig;
 use rsnano_ledger::Ledger;
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_network::Network;
@@ -17,7 +18,7 @@ use super::{
 };
 use crate::{
     block_processing::BlockProcessorQueue,
-    bootstrap::{state::BootstrapState, AscPullQuerySpec, BootstrapConfig, BootstrapPromise},
+    bootstrap::{state::BootstrapState, AscPullQuerySpec, BootstrapPromise},
     transport::MessageSender,
 };
 

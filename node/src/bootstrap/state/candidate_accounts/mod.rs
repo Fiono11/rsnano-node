@@ -4,7 +4,7 @@ mod priority;
 mod priority_container;
 
 pub(crate) use candidate_accounts::{
-    CandidateAccounts, CandidateAccountsConfig, PriorityDownResult, PriorityResult,
+    CandidateAccounts, PriorityDownResult, PriorityResult,
     PriorityUpResult,
 };
 

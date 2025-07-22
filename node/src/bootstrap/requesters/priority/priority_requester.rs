@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 
+use rsnano_config::BootstrapConfig;
 use rsnano_ledger::{BlockSource, Ledger};
 use rsnano_network::Channel;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -17,7 +18,7 @@ use crate::{
     bootstrap::{
         requesters::channel_waiter::{ChannelWaiter, ChannelWaiterStats},
         state::BootstrapState,
-        AscPullQuerySpec, BootstrapConfig, BootstrapPromise, PollResult,
+        AscPullQuerySpec, BootstrapPromise, PollResult,
     },
 };
 
@@ -155,6 +156,7 @@ impl StatsSource for PriorityRequesterStats {
 mod tests {
     use std::sync::{Arc, Mutex, RwLock};
 
+    use rsnano_config::BootstrapConfig;
     use rsnano_core::Account;
     use rsnano_ledger::Ledger;
     use rsnano_network::{token_bucket::TokenBucket, Network};
@@ -169,7 +171,7 @@ mod tests {
                 channel_waiter::ChannelWaiter, priority::priority_requester::PriorityState,
             },
             state::BootstrapState,
-            BootstrapConfig, PollResult,
+            PollResult,
         },
     };
 

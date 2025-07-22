@@ -9,10 +9,10 @@ use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{vote_generator::VoteGenerator, LocalVoteHistory};
 use crate::{
-    config::{NetworkParams, NodeConfig},
     consensus::{election::VoteType, VoteBroadcaster},
     transport::MessageSender,
     wallets::Wallets,

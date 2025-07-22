@@ -7,34 +7,17 @@ use std::{
     fmt::Debug,
     mem::size_of,
     sync::Arc,
-    time::Duration,
 };
 
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
 
+use rsnano_config::VoteCacheConfig;
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     Amount, BlockHash, DescTallyKey, PublicKey, Vote, VoteError,
 };
 use rsnano_stats::{DetailType, StatType, Stats};
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoteCacheConfig {
-    pub max_size: usize,
-    pub max_voters: usize,
-    pub age_cutoff: Duration,
-}
-
-impl Default for VoteCacheConfig {
-    fn default() -> Self {
-        Self {
-            max_size: 1024 * 64,
-            max_voters: 64,
-            age_cutoff: Duration::from_secs(15 * 60),
-        }
-    }
-}
 
 ///	A container holding votes that do not match any active or recently finished elections.
 ///	It keeps track of votes in two internal structures: cache and queue
@@ -532,6 +515,8 @@ impl OrderedVoters {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use mock_instant::thread_local::MockClock;
     use rsnano_core::{utils::UnixMillisTimestamp, PrivateKey};

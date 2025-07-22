@@ -7,12 +7,12 @@ mod election_scheduler {
     use rsnano_core::{utils::BlockPriority, Amount, PrivateKey, DEV_GENESIS_KEY};
     use rsnano_ledger::{test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT};
     use rsnano_node::{
-        config::NodeConfig,
         consensus::{
-            election::ElectionBehavior, election_schedulers::OptimisticSchedulerConfig,
+            election::ElectionBehavior,
             AecInsertRequest,
         },
     };
+    use rsnano_config::{NodeConfig, OptimisticSchedulerConfig};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]
@@ -78,7 +78,7 @@ mod election_scheduler {
         let node = system
             .build_node()
             .config(NodeConfig {
-                active_elections: rsnano_node::consensus::ActiveElectionsConfig {
+                active_elections: rsnano_config::ActiveElectionsConfig {
                     max_elections: 1,
                     ..Default::default()
                 },

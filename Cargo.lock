@@ -4118,6 +4118,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsnano_config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "once_cell",
+ "rand 0.9.1",
+ "rsnano_core",
+ "rsnano_ledger",
+ "rsnano_messages",
+ "rsnano_network",
+ "rsnano_nullable_http_client",
+ "rsnano_store_lmdb",
+ "rsnano_utils",
+ "rsnano_work",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "rsnano_core"
 version = "0.1.0"
 dependencies = [
@@ -4149,6 +4168,7 @@ name = "rsnano_daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_ledger",
  "rsnano_node",
@@ -4269,6 +4289,7 @@ dependencies = [
  "ordered-float 5.0.0",
  "primitive-types",
  "rand 0.9.1",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_ledger",
  "rsnano_messages",
@@ -4316,6 +4337,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "rand 0.9.1",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_daemon",
  "rsnano_ledger",
@@ -4434,6 +4456,7 @@ dependencies = [
  "axum",
  "indexmap",
  "itertools",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_ledger",
  "rsnano_messages",
@@ -4545,6 +4568,7 @@ dependencies = [
  "futures-util",
  "num-derive",
  "num-traits 0.2.19",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_ledger",
  "rsnano_messages",
@@ -5145,6 +5169,7 @@ dependencies = [
  "anyhow",
  "axum",
  "mock_instant",
+ "rsnano_config",
  "rsnano_core",
  "rsnano_ledger",
  "rsnano_network",

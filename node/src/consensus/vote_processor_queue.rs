@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
+use rsnano_config::VoteProcessorConfig;
 use strum::IntoEnumIterator;
 
 use rsnano_core::{
@@ -13,7 +14,7 @@ use rsnano_core::{
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep};
 use rsnano_stats::{DetailType, StatType, Stats};
 
-use super::{RepTier, RepTiers, RepTiersConsumer, VoteProcessorConfig};
+use super::{RepTier, RepTiers, RepTiersConsumer};
 
 pub struct VoteProcessorQueue {
     data: Mutex<VoteProcessorQueueData>,

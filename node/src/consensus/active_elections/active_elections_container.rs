@@ -1,5 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
+use rsnano_config::ActiveElectionsConfig;
 use rsnano_core::{
     utils::{BackpressureSender, ContainerInfo, ContainerInfoProvider},
     Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
@@ -22,7 +23,7 @@ use super::{
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     stats::AecStats,
-    ActiveElectionsConfig, ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
+    ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
 };
 use rsnano_ledger::RepWeights;

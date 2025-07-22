@@ -12,12 +12,9 @@ use rsnano_ledger::{
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
-    block_processing::{BacklogScanConfig, BlockContext, BoundedBacklogConfig},
-    config::{NodeConfig, NodeFlags},
-    consensus::{election::VoteType, AecEvent, AggregatorRequest, FilteredVote, ReceivedVote},
-    wallets::WalletsExt,
-    work::WorkRequest,
+    block_processing::BlockContext, consensus::{election::VoteType, AecEvent, AggregatorRequest, FilteredVote, ReceivedVote}, wallets::WalletsExt, work::WorkRequest
 };
+use rsnano_config::{BacklogScanConfig, BoundedBacklogConfig, NodeConfig, NodeFlags};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{

@@ -11,6 +11,7 @@ use crate::{
     consensus::{RepTier, RepTiers, RepTiersConsumer},
     wallets::WalletRepresentatives,
 };
+use rsnano_config::DEFAULT_MAX_QUEUE;
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider, FairQueue},
     BlockHash, PublicKey, Signature, Vote, VoteError,
@@ -52,7 +53,7 @@ impl Default for VoteRebroadcastQueueBuilder {
         Self {
             stats: Default::default(),
             block_when_empty: true,
-            max_len: VoteRebroadcastQueue::DEFAULT_MAX_QUEUE,
+            max_len: DEFAULT_MAX_QUEUE,
         }
     }
 }
@@ -66,8 +67,6 @@ pub(crate) struct VoteRebroadcastQueue {
 }
 
 impl VoteRebroadcastQueue {
-    pub const DEFAULT_MAX_QUEUE: usize = 1024 * 16;
-
     pub fn build() -> VoteRebroadcastQueueBuilder {
         Default::default()
     }

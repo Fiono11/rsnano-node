@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use rsnano_config::BoundedBacklogConfig;
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
     Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
@@ -19,23 +20,6 @@ use super::{
 };
 use crate::consensus::election_schedulers::priority::Bucketing;
 use rsnano_nullable_clock::SteadyClock;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct BoundedBacklogConfig {
-    pub max_backlog: u64,
-    pub batch_size: usize,
-    pub scan_rate: usize,
-}
-
-impl Default for BoundedBacklogConfig {
-    fn default() -> Self {
-        Self {
-            max_backlog: 100_000,
-            batch_size: 32,
-            scan_rate: 64,
-        }
-    }
-}
 
 pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,

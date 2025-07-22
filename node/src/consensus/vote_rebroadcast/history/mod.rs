@@ -1,11 +1,12 @@
 mod rep_container;
 mod rep_entry;
 
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 use crate::consensus::bounded_hash_map::BoundedHashMap;
 use rep_container::RepresentativeContainer;
 use rep_entry::RepresentativeEntry;
+use rsnano_config::RebroadcastHistoryConfig;
 use rsnano_core::{Amount, BlockHash, PublicKey, Vote};
 use rsnano_nullable_clock::Timestamp;
 use strum_macros::{EnumCount, EnumIter};
@@ -120,34 +121,6 @@ impl RebroadcastHistory {
 impl Default for RebroadcastHistory {
     fn default() -> Self {
         Self::new(Default::default())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RebroadcastHistoryConfig {
-    /// Minimum amount of time between rebroadcasts for the same hash from the same representative
-    pub rebroadcast_min_gap: Duration,
-
-    /// Maximum number of representatives to track rebroadcasts for
-    pub max_representatives: usize,
-
-    /// Maximum number of recently broadcast hashes to keep per representative
-    pub max_blocks_per_rep: usize,
-}
-
-impl RebroadcastHistoryConfig {
-    pub const DEFAULT_MAX_REPS: usize = 100;
-    pub const DEFAULT_MAX_BLOCKS_PER_REP: usize = 1024 * 32;
-    pub const DEFAULT_REBROADCAST_MIN_GAP: Duration = Duration::from_secs(90);
-}
-
-impl Default for RebroadcastHistoryConfig {
-    fn default() -> Self {
-        Self {
-            rebroadcast_min_gap: Self::DEFAULT_REBROADCAST_MIN_GAP,
-            max_representatives: Self::DEFAULT_MAX_REPS,
-            max_blocks_per_rep: Self::DEFAULT_MAX_BLOCKS_PER_REP,
-        }
     }
 }
 

@@ -1,6 +1,7 @@
+use rsnano_config::FrontierScanConfig;
 use rsnano_core::{Account, Frontier};
 use rsnano_nullable_clock::Timestamp;
-use std::{collections::BTreeSet, time::Duration};
+use std::collections::BTreeSet;
 
 /// Represents a range of accounts to scan, once the full range is scanned (goes past `end`)
 /// the head wraps around (to the `start`)
@@ -118,25 +119,6 @@ impl FrontierHead {
             self.start
         } else {
             last
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct FrontierScanConfig {
-    pub parallelism: usize,
-    pub consideration_count: usize,
-    pub candidates: usize,
-    pub cooldown: Duration,
-}
-
-impl Default for FrontierScanConfig {
-    fn default() -> Self {
-        Self {
-            parallelism: 128,
-            consideration_count: 4,
-            candidates: 1000,
-            cooldown: Duration::from_secs(5),
         }
     }
 }

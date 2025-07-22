@@ -8,6 +8,7 @@ anyhow = "1"
 futures-util = { version = "0", features = ["sink"] }
 num-derive = "0"
 num-traits = "0"
+rsnano_config = { path = "../config" }
 rsnano_core = { path = "../core" }
 rsnano_messages = { path = "../messages" }
 rsnano_ledger = { path = "../ledger" }

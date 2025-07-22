@@ -27,12 +27,12 @@ use rsnano_store_lmdb::{
     Transaction,
 };
 use rsnano_work::WorkThresholds;
+use rsnano_config::{NetworkParams, NodeConfig};
 
 use super::{Wallet, WalletActionThread, WalletRepresentatives};
 use crate::{
     block_processing::BlockProcessorQueue,
     cementation::ConfirmingSet,
-    config::{NetworkParams, NodeConfig},
     representatives::OnlineReps,
     transport::MessageFlooder,
     work::{WorkFactory, WorkRequest},

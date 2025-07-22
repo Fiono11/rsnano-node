@@ -35,20 +35,20 @@ use rsnano_stats::{Direction, Stats, StatsCollection, StatsCollector};
 use rsnano_store_lmdb::{
     EnvironmentFlags, LmdbEnv, LmdbEnvFactory, NullTransactionTracker, TransactionTracker,
 };
+use rsnano_config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags, ProcessQueueConfig};
 
 use crate::{
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
         BoundedBacklog, BoundedBacklogPlugin, ElectionWinnerReprocessor, LocalBlockBroadcaster,
-        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedMap,
+        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, UncheckedMap,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
         BootstrapExt, BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup,
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
-    config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     confirming_set_event_processor::ConfirmingSetEventProcessor,
     consensus::{
         election::ConfirmedElection,

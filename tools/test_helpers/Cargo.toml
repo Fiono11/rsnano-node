@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+rsnano_config = { path = "../../config" }
 rsnano_nullable_tcp = { path = "../../nullables/tcp" }
 rsnano_nullable_tracing_subscriber = { path = "../../nullables/tracing_subscriber" }
 rsnano_core = { path = "../../core" }
