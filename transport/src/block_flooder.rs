@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-pub(crate) struct BlockFlooder {
+pub struct BlockFlooder {
     pub message_flooder: Arc<Mutex<MessageFlooder>>,
     pub workers: Arc<dyn ThreadPool>,
 }

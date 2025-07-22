@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use num_traits::FromPrimitive;
 use rsnano_core::{serialized_block_size, utils::BufferReader, Block, BlockType};
 use rsnano_network::AsyncBufferReader;

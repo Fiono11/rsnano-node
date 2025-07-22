@@ -9,6 +9,7 @@ use rsnano_network::token_bucket::TokenBucket;
 use rsnano_network::Network;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{Stats, StatsCollection, StatsSource};
+use rsnano_transport::MessageSender;
 
 use super::{
     bootstrap_promise_runner::BootstrapPromiseRunner, channel_waiter::ChannelWaiter,
@@ -19,7 +20,6 @@ use super::{
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::{state::BootstrapState, AscPullQuerySpec, BootstrapPromise},
-    transport::MessageSender,
 };
 
 /// Manages the threads that send out AscPullReqs

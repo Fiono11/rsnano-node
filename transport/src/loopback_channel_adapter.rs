@@ -6,7 +6,7 @@ use rsnano_messages::MessageDeserializer;
 use rsnano_network::Channel;
 use rsnano_network_protocol::InboundMessageQueue;
 
-pub(crate) async fn run_loopback_channel_adapter(
+pub async fn run_loopback_channel_adapter(
     loopback: Arc<Channel>,
     node_id: NodeId,
     network: Networks,

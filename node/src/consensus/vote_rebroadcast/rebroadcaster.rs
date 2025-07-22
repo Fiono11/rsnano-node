@@ -4,10 +4,10 @@ use super::{
     rebroadcast_processor::{RebroadcastProcessor, RebroadcastStats},
     VoteRebroadcastQueue,
 };
-use crate::transport::MessageFlooder;
 use rsnano_config::RebroadcastHistoryConfig;
 use rsnano_ledger::RepWeightCache;
 use rsnano_nullable_clock::SteadyClock;
+use rsnano_transport::MessageFlooder;
 
 /// Rebroadcasts votes that were created by other nodes
 pub(crate) struct VoteRebroadcaster {
@@ -95,12 +95,10 @@ impl Drop for VoteRebroadcaster {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        consensus::{RepTiers, RepTiersConsumer},
-        transport::FloodEvent,
-    };
+    use crate::consensus::{RepTiers, RepTiersConsumer};
     use rsnano_core::{utils::OneShotNotification, Vote};
     use rsnano_output_tracker::OutputTrackerMt;
+    use rsnano_transport::FloodEvent;
 
     #[test]
     fn rebroadcast() {

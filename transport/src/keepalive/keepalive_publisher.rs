@@ -1,5 +1,5 @@
 use super::KeepaliveMessageFactory;
-use crate::transport::MessageSender;
+use crate::MessageSender;
 use rsnano_core::utils::Peer;
 use rsnano_network::{
     utils::into_ipv6_socket_address, Channel, Network, PeerConnector, TrafficType,

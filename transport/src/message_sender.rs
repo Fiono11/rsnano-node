@@ -46,7 +46,7 @@ impl MessageSender {
         self.published_callback = Some(callback);
     }
 
-    pub(crate) fn new_null() -> Self {
+    pub fn new_null() -> Self {
         Self::new(Arc::new(Stats::default()), Default::default())
     }
 

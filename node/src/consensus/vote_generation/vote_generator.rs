@@ -1,5 +1,5 @@
 use super::{LocalVoteHistory, VoteSpacing};
-use crate::{consensus::VoteBroadcaster, transport::MessageSender, wallets::Wallets};
+use crate::{consensus::VoteBroadcaster, wallets::Wallets};
 use rsnano_core::{
     utils::{ContainerInfo, UnixMillisTimestamp},
     BlockHash, Root, SavedBlock, Vote,
@@ -9,6 +9,7 @@ use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
+use rsnano_transport::MessageSender;
 use rsnano_utils::ProcessingQueue;
 use std::{
     collections::VecDeque,

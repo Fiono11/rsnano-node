@@ -6,7 +6,7 @@ use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_representatives::PeeredRepInfo;
 
 use super::election::Election;
-use crate::transport::MessageFlooder;
+use rsnano_transport::MessageFlooder;
 
 /// This struct accepts elections that need further votes before they can be confirmed and bundles them in to confirm_req packets
 pub struct ConfirmationSolicitor {

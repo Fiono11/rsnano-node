@@ -1,13 +1,7 @@
 [package]
-name = "rsnano_node"
-version = "2.0.0-dev"
-authors = ["Gustav Schauwecker <service@simpago.com>"]
+name = "rsnano_transport"
+version = "0.1.0"
 edition = "2021"
-
-[features]
-output_tracking = []
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rsnano_config = { path = "../config" }
@@ -29,7 +23,6 @@ rsnano_nullable_http_client = { path = "../nullables/http_client" }
 rsnano_ledger = { path = "../ledger" }
 rsnano_websocket_messages = { path = "../websocket_messages" }
 rsnano_utils = { path = "../utils" }
-rsnano_transport = { path = "../transport" }
 anyhow = "1"
 bitvec = "1"
 blake2 = "0.10.6"
@@ -79,6 +72,3 @@ mock_instant = "0"
 tracing-test = "0"
 test_helpers = { path = "../tools/test_helpers" }
 ntest = "0.9.3"
-
-[build-dependencies]
-build-info-build = "0.0.40"

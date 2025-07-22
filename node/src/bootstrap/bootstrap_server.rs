@@ -1,4 +1,3 @@
-use crate::transport::MessageSender;
 use rsnano_config::BootstrapServerConfig;
 use rsnano_core::{utils::FairQueue, Block, BlockHash, Frontier};
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
@@ -11,6 +10,7 @@ use rsnano_network::{
 };
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
+use rsnano_transport::MessageSender;
 use std::{
     cmp::min,
     collections::VecDeque,

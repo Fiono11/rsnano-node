@@ -1,3 +1,4 @@
+use anyhow::bail;
 use async_trait::async_trait;
 use rsnano_network::AsyncBufferReader;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -21,14 +21,12 @@ use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_representatives::{InsertResult, OnlineReps};
 use rsnano_stats::{DetailType, Direction, Sample, StatType, Stats};
-
-use crate::{
-    consensus::{ActiveElectionsContainer, ReceivedVote},
-    transport::{
-        keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
-        MessageSender,
-    },
+use rsnano_transport::{
+    keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
+    MessageSender,
 };
+
+use crate::consensus::{ActiveElectionsContainer, ReceivedVote};
 
 /// Crawls the network for representatives. Queries are performed by requesting confirmation of a
 /// random block and observing the corresponding vote.

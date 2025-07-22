@@ -41,7 +41,7 @@ impl MessageFlooder {
         }
     }
 
-    pub(crate) fn new_null() -> Self {
+    pub fn new_null() -> Self {
         let mut network = Network::new_test_instance();
         // add a channel so that capacity checks succeed
         let (channel, _) = network
@@ -62,7 +62,7 @@ impl MessageFlooder {
         )
     }
 
-    pub(crate) fn flood_prs_and_some_non_prs(
+    pub fn flood_prs_and_some_non_prs(
         &mut self,
         message: &Message,
         traffic_type: TrafficType,

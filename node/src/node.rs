@@ -75,15 +75,9 @@ use crate::{
         TelemetryFactory,
     },
     tokio_runner::TokioRunner,
-    transport::{
-        keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
-        run_loopback_channel_adapter, BlockFlooder, MessageFlooder, MessageProcessor,
-        MessageSender, NetworkThreads, PeerCacheConnector, PeerCacheUpdater,
-        RealtimeMessageHandler,
-    },
     wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
     work::{WorkFactory, WorkRequest},
-    NodeCallbacks, RepCrawler, RepCrawlerExt,
+    MessageProcessor, NodeCallbacks, RealtimeMessageHandler, RepCrawler, RepCrawlerExt,
 };
 use num_format::{Locale, ToFormattedString};
 use rsnano_network_protocol::{
@@ -92,6 +86,11 @@ use rsnano_network_protocol::{
 };
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::EnvironmentOptions;
+use rsnano_transport::{
+    keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
+    run_loopback_channel_adapter, BlockFlooder, MessageFlooder, MessageSender, NetworkThreads,
+    PeerCacheConnector, PeerCacheUpdater,
+};
 use rsnano_utils::{
     spawn_backpressure_processor, LongRunningTransactionLogger, ThreadPool, ThreadPoolImpl,
     TimerThread,

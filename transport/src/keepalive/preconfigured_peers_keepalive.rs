@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 /// Connect to preconfigured peers or send keepalive messages
 /// if we are already connected
-pub(crate) struct PreconfiguredPeersKeepalive {
+pub struct PreconfiguredPeersKeepalive {
     peers: Vec<Peer>,
     keepalive: Arc<KeepalivePublisher>,
 }
 
 impl PreconfiguredPeersKeepalive {
-    pub(crate) fn new(peers: Vec<Peer>, keepalive: Arc<KeepalivePublisher>) -> Self {
+    pub fn new(peers: Vec<Peer>, keepalive: Arc<KeepalivePublisher>) -> Self {
         Self { peers, keepalive }
     }
 

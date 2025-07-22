@@ -13,9 +13,10 @@ use rsnano_network::TrafficType;
 use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::history::{RebroadcastError, RebroadcastHistory};
-use crate::{consensus::RepTier, transport::MessageFlooder};
+use crate::consensus::RepTier;
 use rsnano_ledger::RepWeightCache;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_transport::MessageFlooder;
 use strum::{EnumCount, IntoEnumIterator};
 
 /// Rebroadcasts a given vote if necessary
@@ -156,8 +157,8 @@ impl StatsSource for RebroadcastStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::FloodEvent;
     use rsnano_core::Vote;
+    use rsnano_transport::FloodEvent;
 
     #[test]
     fn rebroadcast_vote() {

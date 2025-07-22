@@ -18,11 +18,9 @@ use rsnano_ledger::{BlockSource, ConfirmedSet, Ledger, LedgerEvent, ProcessedRes
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{token_bucket::TokenBucket, TrafficType};
 use rsnano_stats::{DetailType, Direction, StatType, Stats};
+use rsnano_transport::MessageFlooder;
 
-use crate::{
-    cementation::ConfirmingSet, ledger_event_processor::LedgerEventProcessorPlugin,
-    transport::MessageFlooder,
-};
+use crate::{cementation::ConfirmingSet, ledger_event_processor::LedgerEventProcessorPlugin};
 use rsnano_nullable_clock::SteadyClock;
 
 ///  Broadcasts blocks to the network

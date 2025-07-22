@@ -7,13 +7,11 @@ use rsnano_network::TrafficType;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_transport::MessageSender;
 
-use crate::{
-    bootstrap::{
-        state::{BootstrapState, RunningQuery},
-        AscPullQuerySpec,
-    },
-    transport::MessageSender,
+use crate::bootstrap::{
+    state::{BootstrapState, RunningQuery},
+    AscPullQuerySpec,
 };
 
 /// Sends an AscPullReq message
@@ -104,9 +102,9 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::SendEvent;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
+    use rsnano_transport::SendEvent;
 
     #[test]
     fn send_message() {

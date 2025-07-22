@@ -34,9 +34,9 @@ use super::{Wallet, WalletActionThread, WalletRepresentatives};
 use crate::{
     block_processing::BlockProcessorQueue,
     cementation::ConfirmingSet,
-    transport::MessageFlooder,
     work::{WorkFactory, WorkRequest},
 };
+use rsnano_transport::MessageFlooder;
 use rsnano_utils::{ThreadPool, ThreadPoolImpl};
 
 #[derive(FromPrimitive, Debug, Serialize, Deserialize, PartialEq, Eq)]

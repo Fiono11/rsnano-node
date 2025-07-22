@@ -16,6 +16,7 @@ use rsnano_messages::AscPullAck;
 use rsnano_network::{token_bucket::TokenBucket, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource};
+use rsnano_transport::MessageSender;
 
 use super::{
     block_inspector::BlockInspector,
@@ -24,7 +25,7 @@ use super::{
     response_processor::{ProcessError, ResponseProcessor},
     state::BootstrapState,
 };
-use crate::{block_processing::BlockProcessorQueue, transport::MessageSender};
+use crate::block_processing::BlockProcessorQueue;
 
 pub struct Bootstrapper {
     stats: Arc<Stats>,

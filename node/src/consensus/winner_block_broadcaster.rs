@@ -7,8 +7,8 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::{bounded_hash_map::BoundedHashMap, election::VoteSummary};
-use crate::transport::MessageFlooder;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_transport::MessageFlooder;
 
 /// Broadcasts the winner block of an election
 pub(crate) struct WinnerBlockBroadcaster {

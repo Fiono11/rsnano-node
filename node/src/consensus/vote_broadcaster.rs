@@ -10,7 +10,7 @@ use rsnano_network::TrafficType;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::VoteProcessorQueue;
-use crate::transport::MessageFlooder;
+use rsnano_transport::MessageFlooder;
 
 /// Broadcast a vote to PRs and some non-PRs
 pub struct VoteBroadcaster {

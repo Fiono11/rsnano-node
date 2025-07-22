@@ -13,7 +13,7 @@ use super::{keepalive::KeepaliveMessageFactory, MessageFlooder};
 use rsnano_config::{NetworkParams, NodeFlags};
 use rsnano_network_protocol::{LatestKeepalives, SynCookies};
 
-pub(crate) struct NetworkThreads {
+pub struct NetworkThreads {
     cleanup_thread: Option<JoinHandle<()>>,
     keepalive_thread: Option<JoinHandle<()>>,
     reachout_thread: Option<JoinHandle<()>>,

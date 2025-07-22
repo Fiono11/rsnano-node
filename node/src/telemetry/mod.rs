@@ -12,7 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::transport::MessageSender;
 use rsnano_config::NetworkParams;
 use rsnano_core::{
     utils::{ContainerInfo, ContainerInfoProvider},
@@ -22,6 +21,7 @@ use rsnano_messages::{Message, TelemetryAck, TelemetryData};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_transport::MessageSender;
 
 /**
  * This class periodically broadcasts and requests telemetry from peers.
