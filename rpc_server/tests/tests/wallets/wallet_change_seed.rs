@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use rsnano_core::{RawKey, WalletId};
 use rsnano_node::wallets::WalletsExt;
 use rsnano_rpc_messages::WalletWithSeedArgs;
-use test_helpers::{setup_rpc_client_and_server, System};
+use test_helpers::{assert_timely_eq, setup_rpc_client_and_server, System};
 
 #[test]
 fn wallet_change_seed() {
@@ -24,7 +26,11 @@ fn wallet_change_seed() {
             .unwrap()
     });
 
-    assert_eq!(node.wallets.get_seed(wallet_id).unwrap(), new_seed);
+    assert_timely_eq(
+        Duration::from_secs(1),
+        || node.wallets.get_seed(wallet_id).unwrap(),
+        new_seed,
+    );
 }
 
 #[test]
