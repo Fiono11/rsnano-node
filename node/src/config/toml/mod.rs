@@ -18,6 +18,7 @@ mod node_rpc_toml;
 mod node_toml;
 mod opencl_toml;
 mod optimistic_scheduler_toml;
+mod ordering_scheduler_toml;
 mod priority_bucket_toml;
 mod rep_crawler_toml;
 mod request_aggregator_toml;
