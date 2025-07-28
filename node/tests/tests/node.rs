@@ -1637,9 +1637,10 @@ fn online_reps_rep_crawler() {
         .force_query(*DEV_GENESIS_HASH, channel.channel_id());
     let _ = node.vote_processor.vote_blocking(&vote);
 
-    assert_eq!(
+    assert_timely_eq(
+        Duration::from_secs(1),
+        || node.online_reps.lock().unwrap().online_weight(),
         Amount::MAX,
-        node.online_reps.lock().unwrap().online_weight()
     );
 }
 
