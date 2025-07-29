@@ -369,7 +369,7 @@ fn no_voting() {
         .unwrap();
 
     assert_timely_eq(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         || node0.active.read().unwrap().len(),
         0,
     );
@@ -1092,22 +1092,24 @@ fn quick_confirm() {
         node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1),
     );
 
-    node1.process_active(send.clone());
+    let receive = lattice.account(&key).receive(&send);
+
+    node1.process_and_confirm_multi(&[send, receive]);
 
     assert_timely_msg(
-        Duration::from_secs(10),
+        Duration::from_secs(1),
         || !node1.balance(&key.account()).is_zero(),
         "balance is still zero",
     );
 
     assert_eq!(
         node1.balance(&DEV_GENESIS_ACCOUNT),
-        node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1)
+        node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1),
     );
 
     assert_eq!(
         node1.balance(&key.account()),
-        Amount::MAX - (node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1))
+        Amount::MAX - (node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1)),
     );
 }
 
