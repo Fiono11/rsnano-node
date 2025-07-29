@@ -24,7 +24,8 @@ use crate::{
     cementation::ConfirmingSetConfig,
     consensus::{
         election_schedulers::{
-            priority::PriorityBucketConfig, HintedSchedulerConfig, OptimisticSchedulerConfig, OrderingSchedulerConfig,
+            priority::PriorityBucketConfig, HintedSchedulerConfig, OptimisticSchedulerConfig,
+            OrderingSchedulerConfig,
         },
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
         RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, VoteRebroadcastQueue,
