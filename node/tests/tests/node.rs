@@ -2610,12 +2610,12 @@ fn dependency_graph_frontier() {
     }
 
     start_election(&node1, &gen_send1.hash());
-    
-        // node1 can vote, but only on the first block
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
-        assert_timely(Duration::from_secs(10), || {
-            node2.is_active_root(&gen_send1.qualified_root())
-        });
+
+    // node1 can vote, but only on the first block
+    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    assert_timely(Duration::from_secs(10), || {
+        node2.is_active_root(&gen_send1.qualified_root())
+    });
 
     assert_timely_eq(
         Duration::from_secs(15),
