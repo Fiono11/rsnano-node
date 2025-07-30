@@ -97,6 +97,14 @@ fn last_contacted() {
             .count_by_mode(ChannelMode::Realtime),
         1
     );
+    
+    // Wait for the last_activity timestamp to be updated after the messages are written to the stream
+    assert_timely_msg(
+        Duration::from_secs(3),
+        || channel0.last_activity() > timestamp_before_keepalive,
+        "last_activity timestamp not updated",
+    );
+    
     let timestamp_after_keepalive = channel0.last_activity();
     assert!(timestamp_after_keepalive > timestamp_before_keepalive);
 }
