@@ -167,6 +167,11 @@ impl ElectionSchedulers {
         self.manual.push(block);
     }
 
+    /// Wait for all pending manual scheduler blocks to be processed
+    pub fn flush(&self) {
+        self.manual.flush();
+    }
+
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
         // Activate successors of confirmed blocks
         let any = self.ledger.any();

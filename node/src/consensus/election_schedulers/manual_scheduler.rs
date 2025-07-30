@@ -73,6 +73,14 @@ impl ManualScheduler {
         self.notify();
     }
 
+    /// Wait for all pending blocks to be processed
+    pub fn flush(&self) {
+        let mut guard = self.mutex.lock().unwrap();
+        while !guard.queue.is_empty() && !guard.stopped {
+            guard = self.condition.wait(guard).unwrap();
+        }
+    }
+
     fn run(&self) {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
