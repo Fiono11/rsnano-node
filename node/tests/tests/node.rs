@@ -2556,6 +2556,7 @@ fn dependency_graph_frontier() {
         .build_node()
         .config(System::default_config_without_backlog_scan())
         .finish();
+    node1.insert_into_wallet(&DEV_GENESIS_KEY);
     let node2 = system.make_node();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -2612,7 +2613,6 @@ fn dependency_graph_frontier() {
     start_election(&node1, &gen_send1.hash());
 
     // node1 can vote, but only on the first block
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely(Duration::from_secs(10), || {
         node2.is_active_root(&gen_send1.qualified_root())
     });
