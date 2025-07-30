@@ -2556,7 +2556,7 @@ fn dependency_graph_frontier() {
         .build_node()
         .config(System::default_config_without_backlog_scan())
         .finish();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+     node1.insert_into_wallet(&DEV_GENESIS_KEY);
     let node2 = system.make_node();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
