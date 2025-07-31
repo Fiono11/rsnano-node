@@ -1,5 +1,5 @@
 use super::{fork_cache_toml::ForkCacheToml, *};
-use crate::config::NodeConfig;
+use crate::config::{toml::ordering_scheduler_toml::OrderingSchedulerToml, NodeConfig};
 use bounded_backlog_toml::BoundedBacklogToml;
 use rsnano_core::{utils::Peer, Account, Amount};
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,7 @@ pub struct NodeToml {
     pub message_processor: Option<MessageProcessorToml>,
     pub monitor: Option<MonitorToml>,
     pub optimistic_scheduler: Option<OptimisticSchedulerToml>,
+    pub ordering_scheduler: Option<OrderingSchedulerToml>,
     pub hinted_scheduler: Option<HintedSchedulerToml>,
     pub priority_bucket: Option<PriorityBucketToml>,
     pub rep_crawler: Option<RepCrawlerToml>,
@@ -209,6 +210,12 @@ impl NodeConfig {
                 self.enable_optimistic_scheduler = enable;
             }
             self.optimistic_scheduler.merge_toml(cfg);
+        }
+        if let Some(cfg) = &toml.ordering_scheduler {
+            if let Some(enable) = cfg.enable {
+                self.enable_ordering_scheduler = enable;
+            }
+            self.ordering_scheduler.merge_toml(cfg);
         }
         if let Some(cfg) = &toml.hinted_scheduler {
             if let Some(enable) = cfg.enable {
@@ -490,6 +497,10 @@ impl From<&NodeConfig> for NodeToml {
                 enable: Some(config.enable_optimistic_scheduler),
                 gap_threshold: Some(config.optimistic_scheduler.gap_threshold),
                 max_size: Some(config.optimistic_scheduler.max_size),
+            }),
+            ordering_scheduler: Some(OrderingSchedulerToml {
+                enable: Some(config.enable_optimistic_scheduler),
+                committed_threshold: Some(config.ordering_scheduler.committed_threshold),
             }),
             hinted_scheduler: Some(HintedSchedulerToml {
                 enable: Some(config.enable_hinted_scheduler),

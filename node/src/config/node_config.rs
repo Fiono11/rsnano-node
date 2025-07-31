@@ -24,7 +24,7 @@ use crate::{
     cementation::ConfirmingSetConfig,
     consensus::{
         election_schedulers::{
-            priority::PriorityBucketConfig, HintedSchedulerConfig, OptimisticSchedulerConfig,
+            priority::PriorityBucketConfig, HintedSchedulerConfig, OptimisticSchedulerConfig, OrderingSchedulerConfig,
         },
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
         RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, VoteRebroadcastQueue,
@@ -40,12 +40,14 @@ pub struct NodeConfig {
     pub enable_vote_processor: bool,
     pub enable_priority_scheduler: bool,
     pub enable_optimistic_scheduler: bool,
+    pub enable_ordering_scheduler: bool,
     pub enable_hinted_scheduler: bool,
     pub enable_monitor: bool,
     pub enable_bounded_backlog: bool,
     pub enable_vote_rebroadcast: bool,
     pub enable_bootstrap_responder: bool,
     pub optimistic_scheduler: OptimisticSchedulerConfig,
+    pub ordering_scheduler: OrderingSchedulerConfig,
     pub hinted_scheduler: HintedSchedulerConfig,
     pub priority_bucket: PriorityBucketConfig,
     pub bootstrap_fraction_numerator: u32,
@@ -242,6 +244,7 @@ impl NodeConfig {
             enable_vote_processor: true,
             enable_priority_scheduler: true,
             enable_optimistic_scheduler: true,
+            enable_ordering_scheduler: false,
             enable_hinted_scheduler: true,
             enable_monitor: true,
             enable_bounded_backlog: true,
@@ -298,6 +301,7 @@ impl NodeConfig {
             diagnostics_config: DiagnosticsConfig::new(),
             lmdb_config: LmdbConfig::new(),
             optimistic_scheduler: OptimisticSchedulerConfig::new(),
+            ordering_scheduler: OrderingSchedulerConfig::new(),
             hinted_scheduler: if network_params.network.is_dev_network() {
                 HintedSchedulerConfig::default_for_dev_network()
             } else {

@@ -192,6 +192,10 @@ mod tests {
         gap_threshold = 999
         max_size = 999
 
+        [node.ordering_scheduler]
+        enable = true
+        committed_threshold = 2000
+
         [node.hinted_scheduler]
         enable = false
         hinting_threshold = 99
@@ -436,6 +440,10 @@ mod tests {
             deserialized.node.backlog_scan.rate_limit,
             default_cfg.node.backlog_scan.rate_limit
         );
+        assert_ne!(
+            deserialized.node.confirmation_history_size,
+            default_cfg.node.confirmation_history_size
+        );
 
         // Block Processor section
         assert_ne!(
@@ -463,24 +471,6 @@ mod tests {
         assert_ne!(
             deserialized.node.active_elections.max_elections,
             default_cfg.node.active_elections.max_elections
-        );
-        assert_ne!(
-            deserialized.node.hinted_scheduler.hinted_limit_percentage,
-            default_cfg.node.hinted_scheduler.hinted_limit_percentage
-        );
-        assert_ne!(
-            deserialized
-                .node
-                .optimistic_scheduler
-                .optimistic_limit_percentage,
-            default_cfg
-                .node
-                .optimistic_scheduler
-                .optimistic_limit_percentage
-        );
-        assert_ne!(
-            deserialized.node.confirmation_history_size,
-            default_cfg.node.confirmation_history_size
         );
         assert_ne!(
             deserialized.node.active_elections.confirmation_cache,
@@ -602,6 +592,26 @@ mod tests {
             deserialized.node.optimistic_scheduler.max_size,
             default_cfg.node.optimistic_scheduler.max_size
         );
+        assert_ne!(
+            deserialized
+                .node
+                .optimistic_scheduler
+                .optimistic_limit_percentage,
+            default_cfg
+                .node
+                .optimistic_scheduler
+                .optimistic_limit_percentage
+        );
+
+        // Ordering Scheduler section
+        assert_ne!(
+            deserialized.node.enable_ordering_scheduler,
+            default_cfg.node.enable_ordering_scheduler
+        );
+        assert_ne!(
+            deserialized.node.ordering_scheduler.committed_threshold,
+            default_cfg.node.ordering_scheduler.committed_threshold
+        );
 
         // Hinted Scheduler section
         assert_ne!(
@@ -623,6 +633,10 @@ mod tests {
         assert_ne!(
             deserialized.node.hinted_scheduler.vacancy_threshold_percent,
             default_cfg.node.hinted_scheduler.vacancy_threshold_percent
+        );
+        assert_ne!(
+            deserialized.node.hinted_scheduler.hinted_limit_percentage,
+            default_cfg.node.hinted_scheduler.hinted_limit_percentage
         );
 
         // Vote Cache section
