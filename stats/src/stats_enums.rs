@@ -74,6 +74,7 @@ pub enum StatType {
     ElectionScheduler,
     ElectionBucket,
     OptimisticScheduler,
+    OrderingScheduler,
     Handshake,
     RepCrawler,
     LocalBlockBroadcaster,

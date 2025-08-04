@@ -21,6 +21,10 @@ impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
                     .activate_accounts_with_fresh_blocks(&results);
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
+                // Notify the ordering scheduler about confirmed blocks
+                self.schedulers.ordering.on_blocks_confirmed(confirmed.len());
+                
+                // Activate successors for other schedulers
                 self.schedulers
                     .activate_successors(confirmed.iter().map(|(b, _)| b));
             }

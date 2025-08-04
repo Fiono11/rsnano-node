@@ -35,6 +35,7 @@ pub struct ElectionSchedulers {
     pub optimistic: Arc<OptimisticScheduler>,
     pub hinted: Arc<HintedScheduler>,
     pub manual: Arc<ManualScheduler>,
+    pub ordering: Arc<OrderingScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
     ledger: Arc<Ledger>,
@@ -75,7 +76,7 @@ impl ElectionSchedulers {
             config.optimistic_scheduler.clone(),
             stats.clone(),
             active_elections.clone(),
-            network_constants,
+            network_constants.clone(),
             ledger.clone(),
             confirming_set.clone(),
             clock.clone(),
@@ -85,6 +86,16 @@ impl ElectionSchedulers {
             config.priority_bucket.clone(),
             stats.clone(),
             active_elections.clone(),
+            clock.clone(),
+        ));
+
+        let ordering = Arc::new(OrderingScheduler::new(
+            config.ordering_scheduler.clone(),
+            stats.clone(),
+            active_elections.clone(),
+            network_constants.clone(),
+            ledger.clone(),
+            confirming_set.clone(),
             clock,
         ));
 
@@ -93,6 +104,7 @@ impl ElectionSchedulers {
             optimistic,
             hinted,
             manual,
+            ordering,
             notify_listener: OutputListenerMt::new(),
             config,
             ledger,
@@ -191,6 +203,9 @@ impl ElectionSchedulers {
         if self.config.enable_priority_scheduler {
             self.priority.start();
         }
+        if self.config.enable_ordering_scheduler {
+            self.ordering.start();
+        }
     }
 
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
@@ -202,6 +217,7 @@ impl ElectionSchedulers {
         self.manual.stop();
         self.optimistic.stop();
         self.priority.stop();
+        self.ordering.stop();
     }
 }
 
@@ -212,6 +228,7 @@ impl ContainerInfoProvider for ElectionSchedulers {
             .node("manual", self.manual.container_info())
             .node("optimistic", self.optimistic.container_info())
             .node("priority", self.priority.container_info())
+            .node("ordering", self.ordering.container_info())
             .finish()
     }
 }
