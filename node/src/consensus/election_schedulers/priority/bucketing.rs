@@ -27,6 +27,7 @@ pub fn bucket_index(behavior: ElectionBehavior, balance: Amount) -> usize {
         ElectionBehavior::Manual => prio_bucket_count(),
         ElectionBehavior::Hinted => prio_bucket_count() + 1,
         ElectionBehavior::Optimistic => prio_bucket_count() + 2,
+        ElectionBehavior::Ordering => 1,
     }
 }
 

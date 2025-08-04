@@ -1,9 +1,17 @@
-use crate::{cementation::ConfirmingSet, config::NetworkConstants, consensus::ActiveElectionsContainer};
+use crate::{
+    cementation::ConfirmingSet, config::NetworkConstants, consensus::ActiveElectionsContainer,
+};
 use rsnano_core::utils::ContainerInfo;
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
-use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Condvar, Mutex, RwLock}, thread::JoinHandle};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, RwLock,
+    },
+    thread::JoinHandle,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OrderingSchedulerConfig {
@@ -85,7 +93,7 @@ impl OrderingScheduler {
     pub fn on_blocks_confirmed(&self, confirmed_count: usize) {
         let mut count = self.committed_count.lock().unwrap();
         *count += confirmed_count as u32;
-        
+
         if *count >= self.config.committed_threshold {
             self.notify();
         }
@@ -105,6 +113,8 @@ impl OrderingScheduler {
             if self.predicate() {
                 *guard = 0;
                 drop(guard);
+
+                // Start ordering election
             } else {
                 drop(guard);
             }

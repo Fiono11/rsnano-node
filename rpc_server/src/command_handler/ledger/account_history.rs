@@ -250,6 +250,7 @@ impl<'a> AccountHistoryHelper<'a> {
                     }
                 }
             }
+            Block::Ordering(b) => unimplemented!(),
         };
 
         if let Some(entry) = &mut entry {

@@ -114,6 +114,14 @@ impl AecInsertRequest {
             priority,
         }
     }
+
+    pub fn new_ordering(block: SavedBlock, priority: BlockPriority) -> Self {
+        Self {
+            block,
+            behavior: ElectionBehavior::Ordering,
+            priority,
+        }
+    }
 }
 
 const AEC_STAT_KEY: &'static str = "active_elections";

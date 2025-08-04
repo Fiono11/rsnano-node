@@ -26,6 +26,9 @@ pub use send_block::{valid_send_block_predecessor, SendBlock, SendBlockArgs};
 mod state_block;
 pub use state_block::{EpochBlockArgs, JsonStateBlock, StateBlock, StateBlockArgs};
 
+mod ordering_block;
+pub use ordering_block::OrderingBlock;
+
 mod builders;
 pub use builders::*;
 
@@ -50,6 +53,7 @@ pub enum BlockType {
     LegacyOpen = 4,
     LegacyChange = 5,
     State = 6,
+    Ordering = 7,
 }
 
 impl TryFrom<BlockType> for BlockSubType {
@@ -62,6 +66,7 @@ impl TryFrom<BlockType> for BlockSubType {
             BlockType::LegacyOpen => Ok(BlockSubType::Open),
             BlockType::LegacyChange => Ok(BlockSubType::Change),
             BlockType::State => Ok(BlockSubType::Send),
+            BlockType::Ordering => Ok(BlockSubType::Ordering),
             BlockType::Invalid | BlockType::NotABlock => {
                 Err(anyhow!("Invalid block type for conversion to subtype"))
             }
@@ -84,6 +89,7 @@ pub enum BlockSubType {
     Open,
     Change,
     Epoch,
+    Ordering,
 }
 
 impl BlockSubType {
@@ -94,6 +100,7 @@ impl BlockSubType {
             BlockSubType::Open => "open",
             BlockSubType::Change => "change",
             BlockSubType::Epoch => "epoch",
+            BlockSubType::Ordering => "ordering",
         }
     }
 }
@@ -133,6 +140,7 @@ pub fn serialized_block_size(block_type: BlockType) -> usize {
         BlockType::LegacyOpen => OpenBlock::serialized_size(),
         BlockType::LegacyChange => ChangeBlock::serialized_size(),
         BlockType::State => StateBlock::serialized_size(),
+        BlockType::Ordering => OrderingBlock::serialized_size(),
     }
 }
 
@@ -143,6 +151,7 @@ pub enum Block {
     LegacyOpen(OpenBlock),
     LegacyChange(ChangeBlock),
     State(StateBlock),
+    Ordering(OrderingBlock)
 }
 
 impl Block {
@@ -188,6 +197,7 @@ impl Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Ordering(b) => b,
         }
     }
 
@@ -198,6 +208,7 @@ impl Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Ordering(b) => b,
         }
     }
 
@@ -247,6 +258,7 @@ impl Block {
             BlockType::LegacyChange => Self::LegacyChange(ChangeBlock::deserialize(stream)?),
             BlockType::State => Self::State(StateBlock::deserialize(stream)?),
             BlockType::LegacySend => Self::LegacySend(SendBlock::deserialize(stream)?),
+            BlockType::Ordering => Self::Ordering(OrderingBlock::deserialize(stream)?),
             BlockType::Invalid | BlockType::NotABlock => bail!("invalid block type"),
         };
         Ok(block)
@@ -288,6 +300,7 @@ impl Deref for Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Ordering(b) => b,
         }
     }
 }
@@ -300,6 +313,7 @@ impl DerefMut for Block {
             Block::LegacyOpen(b) => b,
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
+            Block::Ordering(b) => b,
         }
     }
 }
@@ -542,6 +556,7 @@ impl SavedBlock {
                 };
                 DependentBlocks::new(self.previous(), linked_block)
             }
+            Block::Ordering(b) => unimplemented!(),
         }
     }
 }
@@ -592,6 +607,7 @@ impl Deserialize for SavedBlock {
                 sideband.account = state.account();
                 sideband.balance = state.balance();
             }
+            Block::Ordering(_) => unimplemented!(),
         }
         Ok(SavedBlock { block, sideband })
     }
