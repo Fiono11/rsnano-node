@@ -18,13 +18,13 @@ fn wallet_republish() {
     let mut system = System::new();
     let node = system.make_node();
 
+    let send = send_block(node.clone());
+
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet = WalletId::zero();
 
     node.wallets.create(wallet);
-
-    let send: Block = send_block(node.clone());
 
     node.wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
