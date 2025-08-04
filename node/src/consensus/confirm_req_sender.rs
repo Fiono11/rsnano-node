@@ -54,9 +54,10 @@ impl ConfirmReqSender {
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_interval(election: &Election) -> Duration {
         match election.behavior() {
-            ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted | ElectionBehavior::Ordering => {
-                election.base_latency() * 5
-            }
+            ElectionBehavior::Priority
+            | ElectionBehavior::Manual
+            | ElectionBehavior::Hinted
+            | ElectionBehavior::Ordering => election.base_latency() * 5,
             ElectionBehavior::Optimistic => election.base_latency() * 2,
         }
     }

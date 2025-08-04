@@ -151,7 +151,7 @@ pub enum Block {
     LegacyOpen(OpenBlock),
     LegacyChange(ChangeBlock),
     State(StateBlock),
-    Ordering(OrderingBlock)
+    Ordering(OrderingBlock),
 }
 
 impl Block {

@@ -1,10 +1,14 @@
-use crate::{utils::{BufferWriter, FixedSizeSerialize, Stream, Serialize}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce};
+use crate::{
+    utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream},
+    Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature,
+    WorkNonce,
+};
 use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub struct OrderingBlock {
     pub epoch: u64,
-    pub committed_blocks: Vec<BlockHash>, 
+    pub committed_blocks: Vec<BlockHash>,
     pub signature: Signature,
 }
 
@@ -40,13 +44,13 @@ impl BlockBase for OrderingBlock {
         // Create a hash based on epoch and committed blocks
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         self.epoch.hash(&mut hasher);
         for block_hash in &self.committed_blocks {
             block_hash.hash(&mut hasher);
         }
-        
+
         BlockHash::from(hasher.finish())
     }
 
@@ -77,10 +81,10 @@ impl BlockBase for OrderingBlock {
     fn serialize_without_block_type(&self, writer: &mut dyn BufferWriter) {
         // Serialize epoch
         writer.write_u64_be_safe(self.epoch);
-        
+
         // Serialize committed blocks count
         writer.write_u32_be_safe(self.committed_blocks.len() as u32);
-        
+
         // Serialize each committed block hash
         for block_hash in &self.committed_blocks {
             block_hash.serialize(writer);

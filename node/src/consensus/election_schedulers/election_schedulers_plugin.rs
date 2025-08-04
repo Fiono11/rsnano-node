@@ -22,16 +22,14 @@ impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
                 // Extract block hashes for ordering scheduler
-                let block_hashes: Vec<rsnano_core::BlockHash> = confirmed
-                    .iter()
-                    .map(|(block, _)| block.hash())
-                    .collect();
+                let block_hashes: Vec<rsnano_core::BlockHash> =
+                    confirmed.iter().map(|(block, _)| block.hash()).collect();
 
                 // Notify the ordering scheduler about confirmed blocks
                 self.schedulers
                     .ordering
                     .on_blocks_confirmed(confirmed.len());
-                
+
                 // Notify with block hashes
                 self.schedulers
                     .ordering
@@ -63,5 +61,17 @@ mod tests {
 
         let output = activation_tracker.output();
         assert_eq!(output, [block]);
+    }
+
+    #[test]
+    fn committed_count_increases_when_blocks_confirmed() {
+        let schedulers = Arc::new(ElectionSchedulers::new_null());
+        let mut processor = ElectionSchedulersPlugin::new(schedulers.clone());
+
+        let block = SavedBlock::new_test_instance();
+        let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
+        processor.process(&LedgerEvent::BlocksConfirmed(confirmed_blocks));
+
+        assert_eq!(schedulers.ordering.committed_count(), 1);
     }
 }

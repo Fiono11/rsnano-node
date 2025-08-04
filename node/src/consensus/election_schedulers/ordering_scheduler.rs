@@ -1,11 +1,14 @@
 use crate::{
-    cementation::ConfirmingSet, config::NetworkConstants, consensus::{ActiveElectionsContainer, AecInsertRequest},
+    cementation::ConfirmingSet,
+    config::NetworkConstants,
+    consensus::{ActiveElectionsContainer, AecInsertRequest},
 };
-use rsnano_core::{utils::ContainerInfo, Block, OrderingBlock, SavedBlock};
+use rsnano_core::{utils::ContainerInfo, Block, BlockHash, OrderingBlock, SavedBlock};
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
 use std::{
+    collections::VecDeque,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, RwLock,
@@ -35,11 +38,8 @@ impl Default for OrderingSchedulerConfig {
 pub struct OrderingScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     config: OrderingSchedulerConfig,
-    stopped: AtomicBool,
     condition: Condvar,
-    committed_count: Mutex<u32>,
-    current_epoch: Mutex<u64>,
-    committed_blocks: Mutex<Vec<rsnano_core::BlockHash>>,
+    mutex: Mutex<OrderingSchedulerImpl>,
     stats: Arc<Stats>,
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     network_constants: NetworkConstants,
@@ -64,11 +64,13 @@ impl OrderingScheduler {
         Self {
             thread: Mutex::new(None),
             config,
-            stopped: AtomicBool::new(true),
             condition: Condvar::new(),
-            committed_count: Mutex::new(0),
-            current_epoch: Mutex::new(1), // Start with epoch 1
-            committed_blocks: Mutex::new(Vec::new()),
+            mutex: Mutex::new(OrderingSchedulerImpl {
+                committed_blocks: Vec::new(),
+                committed_count: 0,
+                current_epoch: 1,
+                stopped: false,
+            }),
             stats,
             active_elections,
             network_constants,
@@ -80,7 +82,10 @@ impl OrderingScheduler {
     }
 
     pub fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
+        {
+            let mut guard = self.mutex.lock().unwrap();
+            guard.stopped = true;
+        }
         self.notify();
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
@@ -95,100 +100,89 @@ impl OrderingScheduler {
 
     /// Called when blocks are confirmed to track committed count
     pub fn on_blocks_confirmed(&self, confirmed_count: usize) {
-        let mut count = self.committed_count.lock().unwrap();
-        *count += confirmed_count as u32;
+        let mut guard = self.mutex.lock().unwrap();
+        guard.committed_count += confirmed_count as u32;
 
-        if *count >= self.config.committed_threshold {
+        if guard.committed_count >= self.config.committed_threshold {
             self.notify();
         }
     }
 
     /// Called when blocks are confirmed to track the actual committed blocks
     pub fn on_blocks_confirmed_with_hashes(&self, confirmed_blocks: &[rsnano_core::BlockHash]) {
-        let mut blocks = self.committed_blocks.lock().unwrap();
-        blocks.extend_from_slice(confirmed_blocks);
-    }
-
-    fn predicate(&self) -> bool {
-        let count = self.committed_count.lock().unwrap();
-        *count >= self.config.committed_threshold
+        let mut guard = self.mutex.lock().unwrap();
+        // Store the block hashes for later processing
+        for hash in confirmed_blocks {
+            guard.committed_blocks.push(*hash);
+        }
     }
 
     fn run(&self) {
-        let mut guard = self.committed_count.lock().unwrap();
-        while !self.stopped.load(Ordering::SeqCst) {
-            self.stats
-                .inc(StatType::OrderingScheduler, DetailType::Loop);
+        let mut guard = self.mutex.lock().unwrap();
+        while !guard.stopped {
+            guard = self
+                .condition
+                .wait_while(guard, |g| {
+                    !g.stopped && !g.predicate(self.config.committed_threshold)
+                })
+                .unwrap();
 
-            if self.predicate() {
-                *guard = 0;
-                drop(guard);
-
-                // Get current epoch and committed blocks
-                let epoch = {
-                    let mut epoch_guard = self.current_epoch.lock().unwrap();
-                    let current_epoch = *epoch_guard;
-                    *epoch_guard += 1; // Increment for next time
-                    current_epoch
-                };
-
-                let committed_blocks = {
-                    let mut blocks_guard = self.committed_blocks.lock().unwrap();
-                    let blocks = blocks_guard.clone();
-                    blocks_guard.clear(); // Clear for next batch
-                    blocks
-                };
-
-                // Create ordering block
-                let ordering_block = OrderingBlock::new(epoch, committed_blocks);
-                let block = Block::Ordering(ordering_block);
-                let saved_block = SavedBlock::new_test_instance_with(block);
-
-                let hash = saved_block.hash();
-                let priority = self.ledger.any().block_priority(&saved_block);
+            if !guard.stopped {
                 self.stats
-                    .inc(StatType::ElectionScheduler, DetailType::InsertOrdering);
+                    .inc(StatType::ElectionScheduler, DetailType::Loop);
 
-                let now = self.clock.now();
+                if guard.predicate(self.config.committed_threshold) {
+                    // Get current epoch and committed blocks
+                    let epoch = guard.current_epoch;
+                    let committed_blocks = guard.committed_blocks.clone();
 
-                let mut aec = self.active_elections.write().unwrap();
-                if aec
-                    .insert(AecInsertRequest::new_ordering(saved_block, priority), now)
-                    .is_ok()
-                {
-                    aec.transition_active(&hash);
+                    // Clear the committed blocks for next batch
+                    guard.committed_blocks.clear();
+
+                    // Create ordering block
+                    let ordering_block = OrderingBlock::new(epoch, committed_blocks);
+                    let block = Block::Ordering(ordering_block);
+                    let saved_block = SavedBlock::new_test_instance_with(block);
+
+                    let hash = saved_block.hash();
+                    let priority = self.ledger.any().block_priority(&saved_block);
+                    self.stats
+                        .inc(StatType::ElectionScheduler, DetailType::InsertOrdering);
+
+                    let now = self.clock.now();
+                    let mut aec = self.active_elections.write().unwrap();
+
+                    if aec
+                        .insert(AecInsertRequest::new_ordering(saved_block, priority), now)
+                        .is_ok()
+                    {
+                        aec.transition_active(&hash);
+                    }
+
+                    // Reset the committed count and increment epoch
+                    guard.committed_count = 0;
+                    guard.current_epoch += 1;
                 }
-            } else {
-                drop(guard);
+
+                guard = self.mutex.lock().unwrap();
             }
-            self.notify();
-            guard = self.committed_count.lock().unwrap();
         }
     }
 
     pub fn container_info(&self) -> ContainerInfo {
-        let committed_count = self.committed_count.lock().unwrap();
-        let epoch = self.current_epoch.lock().unwrap();
-        let blocks = self.committed_blocks.lock().unwrap();
-        
-        [
-            (
-                "committed_count",
-                *committed_count as usize,
-                std::mem::size_of::<u32>(),
-            ),
-            (
-                "current_epoch",
-                *epoch as usize,
-                std::mem::size_of::<u64>(),
-            ),
-            (
-                "committed_blocks",
-                blocks.len(),
-                blocks.len() * std::mem::size_of::<rsnano_core::BlockHash>(),
-            ),
-        ]
+        let guard = self.mutex.lock().unwrap();
+        [(
+            "committed_blocks",
+            guard.committed_blocks.len(),
+            std::mem::size_of::<SavedBlock>(),
+        )]
         .into()
+    }
+
+    /// Get the current committed count for testing purposes
+    pub fn committed_count(&self) -> u32 {
+        let guard = self.mutex.lock().unwrap();
+        guard.committed_count
     }
 }
 
@@ -206,7 +200,6 @@ pub trait OrderingSchedulerExt {
 impl OrderingSchedulerExt for Arc<OrderingScheduler> {
     fn start(&self) {
         debug_assert!(self.thread.lock().unwrap().is_none());
-        self.stopped.store(false, Ordering::SeqCst);
         let self_l = Arc::clone(self);
         *self.thread.lock().unwrap() = Some(
             std::thread::Builder::new()
@@ -216,5 +209,18 @@ impl OrderingSchedulerExt for Arc<OrderingScheduler> {
                 }))
                 .unwrap(),
         );
+    }
+}
+
+struct OrderingSchedulerImpl {
+    committed_blocks: Vec<BlockHash>,
+    committed_count: u32,
+    current_epoch: u64,
+    stopped: bool,
+}
+
+impl OrderingSchedulerImpl {
+    fn predicate(&self, threshold: u32) -> bool {
+        self.committed_count >= threshold
     }
 }
