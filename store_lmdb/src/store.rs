@@ -7,7 +7,6 @@ use std::{
     },
 };
 
-use lmdb::{DatabaseFlags, WriteFlags};
 use lmdb_sys::MDB_SUCCESS;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -16,9 +15,9 @@ use rsnano_core::utils::UnixTimestamp;
 
 use crate::{
     successor_store::LmdbSuccessorStore, LmdbAccountStore, LmdbBlockStore,
-    LmdbConfirmationHeightStore, LmdbDatabase, LmdbEnv, LmdbFinalVoteStore, LmdbOnlineWeightStore,
-    LmdbPeerStore, LmdbPendingStore, LmdbPrunedStore, LmdbReadTransaction, LmdbRepWeightStore,
-    LmdbVersionStore, LmdbWriteTransaction, Writer,
+    LmdbConfirmationHeightStore, LmdbEnv, LmdbFinalVoteStore, LmdbOnlineWeightStore, LmdbPeerStore,
+    LmdbPendingStore, LmdbPrunedStore, LmdbReadTransaction, LmdbRepWeightStore, LmdbVersionStore,
+    LmdbWriteTransaction, Writer,
 };
 
 pub struct LedgerCache {
@@ -86,21 +85,6 @@ impl LmdbStore {
         })
     }
 
-    pub fn rebuild_db(&self, txn: &mut LmdbWriteTransaction) -> anyhow::Result<()> {
-        let tables = [
-            self.account.database(),
-            self.block.database(),
-            self.pruned.database(),
-            self.confirmation_height.database(),
-            self.pending.database(),
-        ];
-        for table in tables {
-            rebuild_table(&self.env, txn, table)?;
-        }
-
-        Ok(())
-    }
-
     pub fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
         let stats = self.env.environment.stat()?;
         Ok(MemoryStats {
@@ -120,45 +104,6 @@ impl LmdbStore {
     pub fn tx_begin_write(&self, writer: Writer) -> LmdbWriteTransaction {
         self.env.tx_begin_write_for(writer)
     }
-}
-
-fn rebuild_table(
-    env: &LmdbEnv,
-    rw_txn: &mut LmdbWriteTransaction,
-    db: LmdbDatabase,
-) -> anyhow::Result<()> {
-    let temp = unsafe {
-        rw_txn
-            .rw_txn_mut()
-            .create_db(Some("temp_table"), DatabaseFlags::empty())
-    }?;
-    copy_table(env, rw_txn, db, temp)?;
-    crate::Transaction::refresh(rw_txn);
-    rw_txn.clear_db(db)?;
-    copy_table(env, rw_txn, temp, db)?;
-    unsafe { rw_txn.rw_txn_mut().drop_db(temp) }?;
-    crate::Transaction::refresh(rw_txn);
-    Ok(())
-}
-
-fn copy_table(
-    env: &LmdbEnv,
-    rw_txn: &mut LmdbWriteTransaction,
-    source: LmdbDatabase,
-    target: LmdbDatabase,
-) -> anyhow::Result<()> {
-    let ro_txn = env.tx_begin_read();
-    {
-        let mut cursor = ro_txn.txn().open_ro_cursor(source)?;
-        for x in cursor.iter_start() {
-            let (k, v) = x?;
-            rw_txn.put(target, k, v, WriteFlags::APPEND)?;
-        }
-    }
-    if ro_txn.txn().count(source) != rw_txn.rw_txn_mut().count(target) {
-        bail!("table count mismatch");
-    }
-    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
