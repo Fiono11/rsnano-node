@@ -175,6 +175,7 @@ impl ElectionSchedulers {
         self.priority.notify();
         self.hinted.notify();
         self.optimistic.notify();
+        self.ordering.notify();
     }
 
     pub fn add_manual(&self, block: SavedBlock) {

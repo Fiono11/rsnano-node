@@ -1314,3 +1314,27 @@ fn activate_inactive() {
     // Cementing of send should activate open
     assert_timely2(|| node.is_active_root(&open.qualified_root()))
 }
+
+#[test]
+fn ordering_election_committed_block_increment() {
+    let mut system = System::new();
+
+    // Create config with ordering scheduler enabled
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_ordering_scheduler = true;
+    config.ordering_scheduler.committed_threshold = 5; // Set low threshold for testing
+
+    let node = system.build_node().config(config).finish();
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
+    node.process(send1.clone());
+    
+    // Start an election for the block first
+    start_election(&node, &send1.hash());
+    
+    // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
+    node.force_confirm(&send1.hash());
+
+    assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
+}
