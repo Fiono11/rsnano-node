@@ -1,4 +1,4 @@
-use crate::{utils::{BufferWriter, FixedSizeSerialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce};
+use crate::{utils::{BufferWriter, FixedSizeSerialize, Stream, Serialize}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce};
 use anyhow::Result;
 
 #[derive(Clone, Debug)]
@@ -9,12 +9,20 @@ pub struct OrderingBlock {
 }
 
 impl OrderingBlock {
+    pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>) -> Self {
+        Self {
+            epoch,
+            committed_blocks,
+            signature: Signature::default(),
+        }
+    }
+
     pub fn serialized_size() -> usize {
         std::mem::size_of::<u64>() // Epoch
             + 1000 * BlockHash::serialized_size() // fix hardcoded value
     }
 
-    pub fn deserialize(stream: &mut dyn Stream) -> Result<Self> {
+    pub fn deserialize(_stream: &mut dyn Stream) -> Result<Self> {
         unimplemented!()
     }
 }
@@ -29,7 +37,17 @@ impl BlockBase for OrderingBlock {
     }
 
     fn hash(&self) -> BlockHash {
-        unimplemented!()
+        // Create a hash based on epoch and committed blocks
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        self.epoch.hash(&mut hasher);
+        for block_hash in &self.committed_blocks {
+            block_hash.hash(&mut hasher);
+        }
+        
+        BlockHash::from(hasher.finish())
     }
 
     fn link_field(&self) -> Option<Link> {
@@ -44,8 +62,8 @@ impl BlockBase for OrderingBlock {
         self.signature = signature;
     }
 
-    fn set_work(&mut self, work: WorkNonce) {
-        unimplemented!()
+    fn set_work(&mut self, _work: WorkNonce) {
+        // Ordering blocks don't need work
     }
 
     fn work(&self) -> WorkNonce {
@@ -57,11 +75,21 @@ impl BlockBase for OrderingBlock {
     }
 
     fn serialize_without_block_type(&self, writer: &mut dyn BufferWriter) {
-        unimplemented!()
+        // Serialize epoch
+        writer.write_u64_be_safe(self.epoch);
+        
+        // Serialize committed blocks count
+        writer.write_u32_be_safe(self.committed_blocks.len() as u32);
+        
+        // Serialize each committed block hash
+        for block_hash in &self.committed_blocks {
+            block_hash.serialize(writer);
+        }
     }
 
     fn root(&self) -> Root {
-        unimplemented!()
+        // For ordering blocks, the root could be derived from the epoch
+        Root::from(self.epoch)
     }
 
     fn balance_field(&self) -> Option<Amount> {
@@ -91,7 +119,7 @@ impl BlockBase for OrderingBlock {
 
 impl PartialEq for OrderingBlock {
     fn eq(&self, other: &Self) -> bool {
-        unimplemented!()
+        self.epoch == other.epoch && self.committed_blocks == other.committed_blocks
     }
 }
 

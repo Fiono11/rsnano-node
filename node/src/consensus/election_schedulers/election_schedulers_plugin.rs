@@ -21,10 +21,21 @@ impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
                     .activate_accounts_with_fresh_blocks(&results);
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
+                // Extract block hashes for ordering scheduler
+                let block_hashes: Vec<rsnano_core::BlockHash> = confirmed
+                    .iter()
+                    .map(|(block, _)| block.hash())
+                    .collect();
+
                 // Notify the ordering scheduler about confirmed blocks
                 self.schedulers
                     .ordering
                     .on_blocks_confirmed(confirmed.len());
+                
+                // Notify with block hashes
+                self.schedulers
+                    .ordering
+                    .on_blocks_confirmed_with_hashes(&block_hashes);
 
                 // Activate successors for other schedulers
                 self.schedulers

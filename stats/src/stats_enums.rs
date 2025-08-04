@@ -404,6 +404,7 @@ pub enum DetailType {
     InsertPriority,
     InsertPrioritySuccess,
     EraseOldest,
+    InsertOrdering,
 
     // handshake
     InvalidNodeId,
