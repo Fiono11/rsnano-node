@@ -1,15 +1,17 @@
-use crate::{
-    LmdbDatabase, LmdbEnv, LmdbWriteTransaction, RoCursor, Transaction, REP_WEIGHT_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
-use lmdb_sys::{MDB_cursor_op, MDB_FIRST, MDB_NEXT};
+use std::sync::Arc;
+
 use rsnano_core::{
     utils::{BufferReader, Deserialize},
     Amount, PublicKey,
 };
-use rsnano_nullable_lmdb::ConfiguredDatabase;
+use rsnano_nullable_lmdb::{
+    sys::{MDB_cursor_op, MDB_FIRST, MDB_NEXT},
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, RoCursor, Transaction,
+    WriteFlags, WriteTransaction,
+};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use std::sync::Arc;
+
+use crate::REP_WEIGHT_TEST_DATABASE;
 
 pub struct LmdbRepWeightStore {
     database: LmdbDatabase,
@@ -18,10 +20,8 @@ pub struct LmdbRepWeightStore {
 }
 
 impl LmdbRepWeightStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("rep_weights"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("rep_weights"), DatabaseFlags::empty())?;
 
         Ok(Self {
             database,
@@ -44,14 +44,14 @@ impl LmdbRepWeightStore {
                 let mut stream = BufferReader::new(bytes);
                 Amount::deserialize(&mut stream).ok()
             }
-            Err(lmdb::Error::NotFound) => None,
+            Err(rsnano_nullable_lmdb::Error::NotFound) => None,
             Err(e) => {
                 panic!("Could not load rep_weight: {:?}", e);
             }
         }
     }
 
-    pub fn put(&self, txn: &mut LmdbWriteTransaction, representative: PublicKey, weight: Amount) {
+    pub fn put(&self, txn: &mut WriteTransaction, representative: PublicKey, weight: Amount) {
         self.put_listener.emit((representative, weight));
 
         txn.put(
@@ -63,7 +63,7 @@ impl LmdbRepWeightStore {
         .unwrap();
     }
 
-    pub fn del(&self, txn: &mut LmdbWriteTransaction, representative: &PublicKey) {
+    pub fn del(&self, txn: &mut WriteTransaction, representative: &PublicKey) {
         self.delete_listener.emit(*representative);
 
         txn.delete(self.database, representative.as_bytes(), None)
@@ -93,7 +93,7 @@ impl<'txn> Iterator for RepWeightIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.cursor.get(None, None, self.operation) {
-            Err(lmdb::Error::NotFound) => None,
+            Err(rsnano_nullable_lmdb::Error::NotFound) => None,
             Ok((Some(k), v)) => {
                 self.operation = MDB_NEXT;
                 Some((
@@ -139,16 +139,14 @@ impl ConfiguredRepWeightDatabaseBuilder {
 
 #[cfg(test)]
 mod tests {
-    use lmdb::WriteFlags;
-
     use super::*;
-    use crate::{DeleteEvent, LmdbEnv, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent, WriteFlags};
 
     #[test]
     fn count() {
         let fixture =
             Fixture::with_stored_data(vec![(1.into(), 100.into()), (2.into(), 200.into())]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         assert_eq!(fixture.store.count(&txn), 2);
     }
@@ -156,7 +154,7 @@ mod tests {
     #[test]
     fn put() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let put_tracker = txn.track_puts();
         let account = PublicKey::from(1);
         let weight = Amount::from(42);
@@ -179,7 +177,7 @@ mod tests {
         let account = PublicKey::from(1);
         let weight = Amount::from(42);
         let fixture = Fixture::with_stored_data(vec![(account, weight)]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let result = fixture.store.get(&txn, &account);
 
@@ -189,7 +187,7 @@ mod tests {
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = txn.track_deletions();
         let account = PublicKey::from(1);
 
@@ -207,7 +205,7 @@ mod tests {
     #[test]
     fn iter_empty() {
         let fixture = Fixture::new();
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let mut iter = fixture.store.iter(&txn);
         assert_eq!(iter.next(), None);
     }
@@ -220,7 +218,7 @@ mod tests {
         let weight2 = Amount::from(200);
         let fixture = Fixture::with_stored_data(vec![(account1, weight1), (account2, weight2)]);
 
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let mut iter = fixture.store.iter(&txn);
         assert_eq!(iter.next(), Some((account1, weight1)));
         assert_eq!(iter.next(), Some((account2, weight2)));
@@ -228,7 +226,7 @@ mod tests {
     }
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbRepWeightStore,
     }
 
@@ -238,7 +236,7 @@ mod tests {
         }
 
         pub fn with_stored_data(entries: Vec<(PublicKey, Amount)>) -> Self {
-            let env = LmdbEnv::new_null_with()
+            let env = LmdbEnvironment::null_builder()
                 .configured_database(ConfiguredRepWeightDatabaseBuilder::create(entries))
                 .build();
             let env = Arc::new(env);

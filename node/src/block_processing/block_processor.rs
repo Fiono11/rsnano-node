@@ -3,53 +3,59 @@ use std::{
     thread::JoinHandle,
 };
 
+use rsnano_core::utils::BackpressureSender;
 use rsnano_ledger::Ledger;
 use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::{
     backlog_waiter::BacklogWaiter, block_batch_processor::BlockBatchProcessorStats,
-    BlockProcessorQueue, UncheckedMap,
+    BlockProcessorQueue, LedgerEvent, UncheckedMap,
 };
 use crate::block_processing::block_batch_processor::BlockBatchProcessor;
 
 pub struct BlockProcessor {
-    thread: Mutex<Option<JoinHandle<()>>>,
+    threads: Mutex<Vec<JoinHandle<()>>>,
     queue: Arc<BlockProcessorQueue>,
     ledger: Arc<Ledger>,
     unchecked: Arc<UncheckedMap>,
     process_stats: Arc<BlockBatchProcessorStats>,
     backlog_waiter: Arc<BacklogWaiter>,
+    event_publisher: Mutex<Option<BackpressureSender<LedgerEvent>>>,
 }
 
 impl BlockProcessor {
     pub(crate) fn new(
         queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
-        unchecked_map: Arc<UncheckedMap>,
+        unchecked: Arc<UncheckedMap>,
         backlog_waiter: Arc<BacklogWaiter>,
+        event_publisher: BackpressureSender<LedgerEvent>,
     ) -> Self {
         Self {
             queue,
             ledger,
-            unchecked: unchecked_map,
+            unchecked,
             process_stats: Arc::new(BlockBatchProcessorStats::default()),
-            thread: Mutex::new(None),
+            threads: Mutex::new(Vec::new()),
             backlog_waiter,
+            event_publisher: Mutex::new(Some(event_publisher)),
         }
     }
 
-    pub fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-        let mut processor_loop = self.create_loop();
+    pub fn start(&self, thread_count: usize) {
+        debug_assert!(self.threads.lock().unwrap().is_empty());
+        for _ in 0..thread_count {
+            let mut processor_loop = self.create_loop();
 
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Blck processing".to_string())
-                .spawn(move || {
-                    processor_loop.run();
-                })
-                .unwrap(),
-        );
+            self.threads.lock().unwrap().push(
+                std::thread::Builder::new()
+                    .name("Blck processing".to_string())
+                    .spawn(move || {
+                        processor_loop.run();
+                    })
+                    .unwrap(),
+            );
+        }
     }
 
     fn create_loop(&self) -> BlockProcessorLoop {
@@ -65,13 +71,21 @@ impl BlockProcessor {
             ledger: self.ledger.clone(),
             unchecked: self.unchecked.clone(),
             stats: self.process_stats.clone(),
+            event_publisher: self
+                .event_publisher
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone(),
         }
     }
 
     pub fn stop(&self) {
+        drop(self.event_publisher.lock().unwrap().take());
         self.queue.stop();
-        let join_handle = self.thread.lock().unwrap().take();
-        if let Some(join_handle) = join_handle {
+        let mut threads = self.threads.lock().unwrap();
+        for join_handle in threads.drain(..) {
             join_handle.join().unwrap();
         }
     }

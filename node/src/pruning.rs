@@ -12,7 +12,6 @@ use tracing::info;
 use rsnano_core::{utils::UnixTimestamp, Account, BlockHash};
 use rsnano_ledger::Ledger;
 use rsnano_stats::{DetailType, StatType, Stats};
-use rsnano_store_lmdb::Transaction;
 
 use crate::{
     config::NodeConfig,
@@ -101,19 +100,19 @@ impl LedgerPruning {
     ) -> bool {
         let mut read_operations = 0;
         let mut finish_transaction = false;
-        let mut tx = self.ledger.store.tx_begin_read();
+        let mut txn = self.ledger.store.begin_read();
         let mut it = self
             .ledger
             .store
             .confirmation_height
-            .iter_range(&tx, *last_account..);
+            .iter_range(&txn, *last_account..);
 
         while let Some((account, info)) = it.next() {
             read_operations += 1;
             let mut hash = info.frontier;
             let mut depth = 0;
             while !hash.is_zero() && depth < max_depth {
-                if let Some(block) = self.ledger.store.block.get(&tx, &hash) {
+                if let Some(block) = self.ledger.store.block.get(&txn, &hash) {
                     if block.timestamp() > cutoff_time.into() || depth == 0 {
                         hash = block.previous();
                     } else {
@@ -126,12 +125,12 @@ impl LedgerPruning {
                 depth += 1;
                 if depth % batch_read_size == 0 {
                     drop(it);
-                    tx.refresh();
+                    txn = txn.refresh();
                     it = self
                         .ledger
                         .store
                         .confirmation_height
-                        .iter_range(&tx, account..);
+                        .iter_range(&txn, account..);
                 }
             }
             if !hash.is_zero() {

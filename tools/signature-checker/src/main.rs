@@ -10,7 +10,8 @@ use std::{
 
 use rsnano_core::{Epochs, PublicKey, SavedBlock, Signature};
 use rsnano_ledger::LedgerConstants;
-use rsnano_store_lmdb::{LmdbBlockStore, LmdbEnvFactory};
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
+use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbBlockStore};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -24,10 +25,20 @@ fn main() {
 }
 
 fn check_ledger_file(ledger_file: impl Into<PathBuf>) {
-    let env = LmdbEnvFactory::default().create_env(ledger_file).unwrap();
+    let env_options = EnvironmentOptions {
+        max_dbs: 128,
+        map_size: 256 * 1024 * 1024 * 1024,
+        flags: EnvironmentFlags::NO_SUB_DIR
+            | EnvironmentFlags::NO_TLS
+            | EnvironmentFlags::NO_MEM_INIT,
+        path: ledger_file.into(),
+    };
+    let env = LmdbEnvironmentFactory::default()
+        .create(env_options)
+        .unwrap();
     let block_store = LmdbBlockStore::new(&env).unwrap();
 
-    let tx = env.tx_begin_read();
+    let tx = env.begin_read();
     let total_blocks = block_store.count(&tx);
     let mut checked: u64 = 0;
     let problematic = Mutex::new(Vec::new());

@@ -1,8 +1,11 @@
-use crate::cli::GlobalArgs;
 use clap::{ArgGroup, Parser};
+
 use rsnano_core::{Account, ConfirmationHeightInfo, Networks};
 use rsnano_ledger::LedgerConstants;
-use rsnano_store_lmdb::{LmdbConfirmationHeightStore, LmdbEnvFactory};
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
+use rsnano_store_lmdb::{default_ledger_lmdb_options, LmdbConfirmationHeightStore};
+
+use crate::cli::GlobalArgs;
 
 #[derive(Parser, PartialEq, Debug)]
 #[command(group = ArgGroup::new("input1")
@@ -32,18 +35,21 @@ impl ConfirmationHeightArgs {
         let genesis_account = genesis_block.account();
         let genesis_hash = genesis_block.hash();
 
-        let env_factory = LmdbEnvFactory::default();
-        let env = env_factory.create_env(&path)?;
+        let env_factory = LmdbEnvironmentFactory::default();
+        let options = default_ledger_lmdb_options(path);
+        let env = env_factory.create(options)?;
         let confirmation_height_store = LmdbConfirmationHeightStore::new(&env)?;
 
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
 
         if let Some(account_hex) = &self.account {
             let account = Account::decode_account(account_hex)?;
             let mut conf_height_reset_num = 0;
+
             let mut info = confirmation_height_store
                 .get(&txn, &account)
                 .expect("Could not find account");
+
             if account == genesis_account {
                 conf_height_reset_num += 1;
                 info.height = conf_height_reset_num;
@@ -65,6 +71,7 @@ impl ConfirmationHeightArgs {
             );
             println!("Confirmation heights of all accounts (except genesis which is set to 1) are set to 0");
         }
+        txn.commit();
 
         Ok(())
     }

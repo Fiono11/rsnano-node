@@ -1,6 +1,8 @@
-use crate::{LmdbDatabase, LmdbEnv, LmdbWriteTransaction, Transaction, STORE_VERSION_CURRENT};
-use core::panic;
-use lmdb::{DatabaseFlags, WriteFlags};
+use rsnano_nullable_lmdb::{
+    DatabaseFlags, Error, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+};
+
+use crate::{LmdbDatabase, STORE_VERSION_CURRENT};
 
 pub struct LmdbVersionStore {
     /// U256 (arbitrary key) -> blob
@@ -13,25 +15,23 @@ pub struct UpgradeInfo {
 }
 
 impl LmdbVersionStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let db_handle = env
-            .environment
-            .create_db(Some("meta"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let db_handle = env.create_db(Some("meta"), DatabaseFlags::empty())?;
 
         Ok(Self { db_handle })
     }
 
-    pub fn try_read_version(env: &LmdbEnv) -> Option<i32> {
-        match env.environment.open_db(Some("meta")) {
+    pub fn try_read_version(env: &LmdbEnvironment) -> Option<i32> {
+        match env.open_db(Some("meta")) {
             Ok(db) => {
-                let txn = env.tx_begin_read();
+                let txn = env.begin_read();
                 load_version(&txn, db)
             }
             Err(_) => None,
         }
     }
 
-    pub fn check_upgrade(env: &LmdbEnv) -> anyhow::Result<UpgradeInfo> {
+    pub fn check_upgrade(env: &LmdbEnvironment) -> anyhow::Result<UpgradeInfo> {
         let info = match LmdbVersionStore::try_read_version(&env) {
             Some(version) => UpgradeInfo {
                 is_fresh_db: false,
@@ -49,7 +49,7 @@ impl LmdbVersionStore {
         self.db_handle
     }
 
-    pub fn put(&self, txn: &mut LmdbWriteTransaction, version: i32) {
+    pub fn put(&self, txn: &mut WriteTransaction, version: i32) {
         let db = self.db_handle();
 
         let key_bytes = version_key();
@@ -69,7 +69,7 @@ fn load_version(txn: &dyn Transaction, db: LmdbDatabase) -> Option<i32> {
     let key_bytes = version_key();
     match txn.get(db, &key_bytes) {
         Ok(value) => Some(i32::from_be_bytes(value[28..].try_into().unwrap())),
-        Err(lmdb::Error::NotFound) => None,
+        Err(Error::NotFound) => None,
         Err(_) => panic!("Error while loading db version"),
     }
 }

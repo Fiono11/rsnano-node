@@ -1,16 +1,15 @@
 use std::sync::{mpsc::SyncSender, Arc, RwLock};
 
 use rsnano_core::Networks;
-use rsnano_ledger::LedgerEvent;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use crate::{
-    block_processing::{BlockProcessorQueue, BoundedBacklog},
+    block_processing::{BlockProcessorQueue, BoundedBacklog, LedgerEvent},
     bootstrap::Bootstrapper,
     cementation::ConfirmingSet,
     consensus::{
-        ActiveElectionsContainer, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory,
+        ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
+        ForkCacheUpdater, LocalVoteHistory,
     },
     utils::BackpressureEventProcessor,
     NodeEvent,
@@ -89,7 +88,7 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
                     let mut aec = self.active_elections.write().unwrap();
                     for result in rolled_back.iter() {
                         for block in &result.rolled_back {
-                            // Stop all rolled back active transactions except initial
+                            // Stop all rolled back elections except initial
                             if block.qualified_root() != result.target_root {
                                 aec.erase(&block.qualified_root());
                             }
@@ -101,6 +100,25 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
 
                 self.bootstrapper
                     .unblock_batch(rolled_back.affected_accounts());
+            }
+            LedgerEvent::ConfirmationFailed(block_hash) => {
+                // Do some cleanup due to this block never being processed
+                self.active_elections
+                    .write()
+                    .unwrap()
+                    .remove_recently_confirmed(&block_hash);
+            }
+            LedgerEvent::ConfirmingSetNearFull => {
+                self.active_elections
+                    .write()
+                    .unwrap()
+                    .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
+            }
+            LedgerEvent::ConfirmingSetRecovered => {
+                self.active_elections
+                    .write()
+                    .unwrap()
+                    .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
             }
         }
     }

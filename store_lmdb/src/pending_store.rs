@@ -1,15 +1,16 @@
-use crate::{
-    iterator::LmdbRangeIterator, LmdbDatabase, LmdbEnv, LmdbIterator, LmdbWriteTransaction,
-    Transaction, PENDING_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
+use std::{ops::RangeBounds, sync::Arc};
+
 use rsnano_core::{
     utils::{BufferReader, Deserialize},
     Account, BlockHash, PendingInfo, PendingKey,
 };
-use rsnano_nullable_lmdb::ConfiguredDatabase;
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction,
+    WriteFlags, WriteTransaction,
+};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use std::{ops::RangeBounds, sync::Arc};
+
+use crate::{iterator::LmdbRangeIterator, LmdbIterator, PENDING_TEST_DATABASE};
 
 pub struct LmdbPendingStore {
     database: LmdbDatabase,
@@ -18,10 +19,8 @@ pub struct LmdbPendingStore {
 }
 
 impl LmdbPendingStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("pending"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("pending"), DatabaseFlags::empty())?;
 
         Ok(Self {
             database,
@@ -42,7 +41,7 @@ impl LmdbPendingStore {
         self.delete_listener.track()
     }
 
-    pub fn put(&self, txn: &mut LmdbWriteTransaction, key: &PendingKey, pending: &PendingInfo) {
+    pub fn put(&self, txn: &mut WriteTransaction, key: &PendingKey, pending: &PendingInfo) {
         self.put_listener.emit((key.clone(), pending.clone()));
         let key_bytes = key.to_bytes();
         let pending_bytes = pending.to_bytes();
@@ -55,7 +54,7 @@ impl LmdbPendingStore {
         .unwrap();
     }
 
-    pub fn del(&self, txn: &mut LmdbWriteTransaction, key: &PendingKey) {
+    pub fn del(&self, txn: &mut WriteTransaction, key: &PendingKey) {
         self.delete_listener.emit(key.clone());
         let key_bytes = key.to_bytes();
         txn.delete(self.database, &key_bytes, None).unwrap();
@@ -68,7 +67,7 @@ impl LmdbPendingStore {
                 let mut stream = BufferReader::new(bytes);
                 PendingInfo::deserialize(&mut stream).ok()
             }
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Err(e) => {
                 panic!("Could not load pending info: {:?}", e);
             }
@@ -147,10 +146,10 @@ impl ConfiguredPendingDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeleteEvent, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbPendingStore,
     }
 
@@ -160,7 +159,7 @@ mod tests {
         }
 
         pub fn with_stored_data(entries: Vec<(PendingKey, PendingInfo)>) -> Self {
-            let env = LmdbEnv::new_null_with()
+            let env = LmdbEnvironment::null_builder()
                 .configured_database(ConfiguredPendingDatabaseBuilder::create(entries))
                 .build();
 
@@ -175,7 +174,7 @@ mod tests {
     #[test]
     fn not_found() {
         let fixture = Fixture::new();
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let result = fixture.store.get(&txn, &PendingKey::new_test_instance());
         assert!(result.is_none());
         assert_eq!(
@@ -189,7 +188,7 @@ mod tests {
         let key = PendingKey::new_test_instance();
         let info = PendingInfo::new_test_instance();
         let fixture = Fixture::with_stored_data(vec![(key.clone(), info.clone())]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let result = fixture.store.get(&txn, &key);
 
@@ -200,7 +199,7 @@ mod tests {
     #[test]
     fn add_pending() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let put_tracker = txn.track_puts();
         let pending_key = PendingKey::new_test_instance();
         let pending = PendingInfo::new_test_instance();
@@ -221,7 +220,7 @@ mod tests {
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = txn.track_deletions();
         let pending_key = PendingKey::new_test_instance();
 
@@ -239,7 +238,7 @@ mod tests {
     #[test]
     fn iter_empty() {
         let fixture = Fixture::new();
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
         assert!(fixture.store.iter(&tx).next().is_none());
     }
 
@@ -248,7 +247,7 @@ mod tests {
         let key = PendingKey::new_test_instance();
         let info = PendingInfo::new_test_instance();
         let fixture = Fixture::with_stored_data(vec![(key.clone(), info.clone())]);
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
 
         let mut it = fixture.store.iter(&tx);
         let (k, v) = it.next().unwrap();
@@ -260,7 +259,7 @@ mod tests {
     #[test]
     fn tracks_puts() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let key = PendingKey::new_test_instance();
         let info = PendingInfo::new_test_instance();
         let put_tracker = fixture.store.track_puts();
@@ -273,7 +272,7 @@ mod tests {
     #[test]
     fn tracks_deletions() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let key = PendingKey::new_test_instance();
         let delete_tracker = fixture.store.track_deletions();
 

@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
 
 use rsnano_core::{BlockHash, Root};
-use rsnano_store_lmdb::{LmdbStore, LmdbWriteTransaction, Transaction, Writer};
+use rsnano_store_lmdb::LmdbStore;
 
 use crate::{AnySet, BorrowingAnySet, LedgerConstants, OwningAnySet};
+use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
 
 /// Verifies whether a vote (or a final vote) can be generated for a given block
 pub(crate) struct VoteVerifier<'a> {
@@ -20,17 +21,22 @@ impl<'a> VoteVerifier<'a> {
         let mut verified = VecDeque::new();
 
         if is_final {
-            let mut tx = self.store.tx_begin_write(Writer::VotingFinal);
+            let mut txn = self.store.begin_write();
             for (root, hash) in &candidates {
-                tx.refresh_if_needed();
-                if self.should_vote_final(&mut tx, root, hash) {
+                if txn.is_refresh_needed() {
+                    txn = self.store.env.refresh(txn);
+                }
+                if self.should_vote_final(&mut txn, root, hash) {
                     verified.push_back((*root, *hash));
                 }
             }
+            txn.commit();
         } else {
             let mut any = OwningAnySet::new(self.store, self.constants);
             for (root, hash) in &candidates {
-                any.refresh_if_needed();
+                if any.is_refresh_needed() {
+                    any = any.refresh();
+                }
                 if self.should_vote_non_final(&any, root, hash) {
                     verified.push_back((*root, *hash));
                 }
@@ -48,12 +54,7 @@ impl<'a> VoteVerifier<'a> {
         any.dependents_confirmed(&block)
     }
 
-    fn should_vote_final(
-        &self,
-        tx: &mut LmdbWriteTransaction,
-        root: &Root,
-        hash: &BlockHash,
-    ) -> bool {
+    fn should_vote_final(&self, tx: &mut WriteTransaction, root: &Root, hash: &BlockHash) -> bool {
         let any = BorrowingAnySet {
             constants: &self.constants,
             store: self.store,

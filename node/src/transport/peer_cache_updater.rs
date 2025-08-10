@@ -4,14 +4,14 @@ use std::{
     time::Duration,
 };
 
-use rsnano_core::utils::{CancellationToken, Runnable};
+use rsnano_core::utils::{CancellationToken, Tickable};
 use tracing::debug;
 
-use rsnano_ledger::{Ledger, Writer};
+use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, Network};
 use rsnano_nullable_clock::SystemTimeFactory;
+use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_stats::{DetailType, StatType, Stats};
-use rsnano_store_lmdb::LmdbWriteTransaction;
 
 /// Writes a snapshot of the current peers to the database,
 /// so that we can reconnect to them when the node is restarted
@@ -40,14 +40,14 @@ impl PeerCacheUpdater {
         }
     }
 
-    fn save_peers(&self, tx: &mut LmdbWriteTransaction) {
+    fn save_peers(&self, tx: &mut WriteTransaction) {
         let live_peers = self.network.read().unwrap().sorted_channels();
         for peer in &live_peers {
             self.save_peer(tx, peer);
         }
     }
 
-    fn save_peer(&self, tx: &mut LmdbWriteTransaction, channel: &Channel) {
+    fn save_peer(&self, tx: &mut WriteTransaction, channel: &Channel) {
         let Some(endpoint) = channel.peering_addr() else {
             return;
         };
@@ -66,13 +66,13 @@ impl PeerCacheUpdater {
         }
     }
 
-    fn delete_old_peers(&self, tx: &mut LmdbWriteTransaction) {
+    fn delete_old_peers(&self, tx: &mut WriteTransaction) {
         for peer in self.get_old_peers(tx) {
             self.ledger.store.peer.del(tx, peer)
         }
     }
 
-    fn get_old_peers(&self, tx: &LmdbWriteTransaction) -> Vec<SocketAddrV6> {
+    fn get_old_peers(&self, tx: &WriteTransaction) -> Vec<SocketAddrV6> {
         let now = self.time_factory.now();
         let cutoff = now - self.erase_cutoff;
         self.ledger
@@ -90,12 +90,13 @@ impl PeerCacheUpdater {
     }
 }
 
-impl Runnable for PeerCacheUpdater {
-    fn run(&mut self, _cancel_token: &CancellationToken) {
+impl Tickable for PeerCacheUpdater {
+    fn tick(&mut self, _cancel_token: &CancellationToken) {
         self.stats.inc(StatType::PeerHistory, DetailType::Loop);
-        let mut tx = self.ledger.store.tx_begin_write(Writer::Generic);
-        self.save_peers(&mut tx);
-        self.delete_old_peers(&mut tx);
+        let mut txn = self.ledger.store.begin_write();
+        self.save_peers(&mut txn);
+        self.delete_old_peers(&mut txn);
+        txn.commit();
     }
 }
 
@@ -310,7 +311,7 @@ mod tests {
             erase_cutoff,
         );
 
-        peer_history.run(&CancellationToken::new());
+        peer_history.tick(&CancellationToken::new());
 
         (put_tracker.output(), delete_tracker.output(), stats)
     }

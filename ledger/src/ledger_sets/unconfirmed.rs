@@ -1,5 +1,6 @@
 use rsnano_core::{Account, AccountInfo, Amount, BlockHash};
-use rsnano_store_lmdb::{LmdbReadTransaction, LmdbStore};
+use rsnano_nullable_lmdb::ReadTransaction;
+use rsnano_store_lmdb::LmdbStore;
 
 use super::LedgerSet;
 
@@ -7,11 +8,11 @@ use super::LedgerSet;
 /// It owns the DB transaction
 pub(crate) struct OwningUnconfirmedSet<'a> {
     store: &'a LmdbStore,
-    tx: LmdbReadTransaction,
+    tx: ReadTransaction,
 }
 
 impl<'a> OwningUnconfirmedSet<'a> {
-    pub fn new(store: &'a LmdbStore, tx: LmdbReadTransaction) -> Self {
+    pub fn new(store: &'a LmdbStore, tx: ReadTransaction) -> Self {
         Self { store, tx }
     }
 
@@ -45,7 +46,7 @@ impl<'a> LedgerSet for OwningUnconfirmedSet<'a> {
 /// It borrows the DB transaction
 pub(crate) struct BorrowingUnconfirmedSet<'a> {
     store: &'a LmdbStore,
-    tx: &'a LmdbReadTransaction,
+    tx: &'a ReadTransaction,
 }
 
 impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {

@@ -1,9 +1,11 @@
-use rsnano_core::utils::system_time_as_seconds;
-use rsnano_core::{Amount, Networks};
-use rsnano_ledger::{Ledger, Writer};
-use rsnano_store_lmdb::LmdbWriteTransaction;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use rsnano_core::{utils::system_time_as_seconds, Amount, Networks};
+use rsnano_ledger::Ledger;
+use rsnano_nullable_lmdb::WriteTransaction;
 
 pub struct TrendResult {
     pub trended: Amount,
@@ -49,7 +51,7 @@ impl OnlineWeightSampler {
     }
 
     fn load_samples(&self) -> Vec<Amount> {
-        let txn = self.ledger.store.tx_begin_read();
+        let txn = self.ledger.store.begin_read();
         self.ledger
             .store
             .online_weight
@@ -71,18 +73,20 @@ impl OnlineWeightSampler {
     /// Called periodically to sample online weight
     pub fn add_sample(&self, current_online_weight: Amount) {
         let now = SystemTime::now();
-        let mut txn = self.ledger.store.tx_begin_write(Writer::OnlineReps);
+        let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(&mut txn, now);
         self.insert_new_sample(&mut txn, current_online_weight, now);
+        txn.commit();
     }
 
     pub fn sanitize(&self) {
         let now = SystemTime::now();
-        let mut txn = self.ledger.store.tx_begin_write(Writer::OnlineReps);
+        let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(&mut txn, now);
+        txn.commit();
     }
 
-    fn sanitize_samples(&self, tx: &mut LmdbWriteTransaction, now: SystemTime) {
+    fn sanitize_samples(&self, tx: &mut WriteTransaction, now: SystemTime) {
         let to_delete = self.samples_to_delete(tx, now);
 
         for timestamp in to_delete {
@@ -90,7 +94,7 @@ impl OnlineWeightSampler {
         }
     }
 
-    fn samples_to_delete(&self, tx: &LmdbWriteTransaction, now: SystemTime) -> Vec<u64> {
+    fn samples_to_delete(&self, tx: &WriteTransaction, now: SystemTime) -> Vec<u64> {
         let mut to_delete = Vec::new();
         to_delete.extend(self.old_samples(tx, now));
         to_delete.extend(self.future_samples(tx, now));
@@ -99,7 +103,7 @@ impl OnlineWeightSampler {
 
     fn old_samples<'tx>(
         &self,
-        tx: &'tx LmdbWriteTransaction,
+        tx: &'tx WriteTransaction,
         now: SystemTime,
     ) -> impl Iterator<Item = u64> + use<'tx> {
         let timestamp_cutoff = system_time_as_seconds(now - self.cutoff);
@@ -114,7 +118,7 @@ impl OnlineWeightSampler {
 
     fn future_samples<'tx>(
         &self,
-        tx: &'tx LmdbWriteTransaction,
+        tx: &'tx WriteTransaction,
         now: SystemTime,
     ) -> impl Iterator<Item = u64> + use<'tx> {
         let timestamp_now = system_time_as_seconds(now);
@@ -129,7 +133,7 @@ impl OnlineWeightSampler {
 
     fn insert_new_sample(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         current_online_weight: Amount,
         now: SystemTime,
     ) {

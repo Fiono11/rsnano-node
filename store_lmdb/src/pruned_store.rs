@@ -1,21 +1,20 @@
-use crate::{
-    LmdbDatabase, LmdbEnv, LmdbIterator, LmdbRangeIterator, LmdbWriteTransaction, Transaction,
-    PRUNED_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
-use rsnano_core::{BlockHash, NoValue};
-use rsnano_nullable_lmdb::ConfiguredDatabase;
 use std::ops::RangeBounds;
+
+use rsnano_core::{BlockHash, NoValue};
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags,
+    WriteTransaction,
+};
+
+use crate::{LmdbIterator, LmdbRangeIterator, PRUNED_TEST_DATABASE};
 
 pub struct LmdbPrunedStore {
     database: LmdbDatabase,
 }
 
 impl LmdbPrunedStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("pruned"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("pruned"), DatabaseFlags::empty())?;
         Ok(Self { database })
     }
 
@@ -23,12 +22,12 @@ impl LmdbPrunedStore {
         self.database
     }
 
-    pub fn put(&self, tx: &mut LmdbWriteTransaction, hash: &BlockHash) {
+    pub fn put(&self, tx: &mut WriteTransaction, hash: &BlockHash) {
         tx.put(self.database, hash.as_bytes(), &[0; 0], WriteFlags::empty())
             .unwrap();
     }
 
-    pub fn del(&self, tx: &mut LmdbWriteTransaction, hash: &BlockHash) {
+    pub fn del(&self, tx: &mut WriteTransaction, hash: &BlockHash) {
         tx.delete(self.database, hash.as_bytes(), None).unwrap();
     }
 
@@ -66,7 +65,7 @@ impl LmdbPrunedStore {
         tx.count(self.database)
     }
 
-    pub fn clear(&self, tx: &mut LmdbWriteTransaction) {
+    pub fn clear(&self, tx: &mut WriteTransaction) {
         tx.clear_db(self.database).unwrap();
     }
 }
@@ -103,11 +102,11 @@ impl ConfiguredPrunedDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeleteEvent, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::sync::Arc;
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbPrunedStore,
     }
 
@@ -117,7 +116,7 @@ mod tests {
         }
 
         pub fn with_stored_data(entries: Vec<BlockHash>) -> Self {
-            let env = LmdbEnv::new_null_with()
+            let env = LmdbEnvironment::null_builder()
                 .configured_database(ConfiguredPrunedDatabaseBuilder::create(entries))
                 .build();
             let env = Arc::new(env);
@@ -131,7 +130,7 @@ mod tests {
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
         let store = &fixture.store;
 
         assert_eq!(store.count(&tx), 0);
@@ -143,11 +142,11 @@ mod tests {
     #[test]
     fn add_pruned_info() {
         let fixture = Fixture::new();
-        let mut tx = fixture.env.tx_begin_write();
-        let put_tracker = tx.track_puts();
+        let mut txn = fixture.env.begin_write();
+        let put_tracker = txn.track_puts();
         let hash = BlockHash::from(1);
 
-        fixture.store.put(&mut tx, &hash);
+        fixture.store.put(&mut txn, &hash);
 
         assert_eq!(
             put_tracker.output(),
@@ -163,7 +162,7 @@ mod tests {
     #[test]
     fn count() {
         let fixture = Fixture::with_stored_data(vec![BlockHash::from(1), BlockHash::from(2)]);
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
 
         assert_eq!(fixture.store.count(&tx), 2);
         assert_eq!(fixture.store.exists(&tx, &BlockHash::from(1)), true);
@@ -173,7 +172,7 @@ mod tests {
     #[test]
     fn iterate() {
         let fixture = Fixture::with_stored_data(vec![BlockHash::from(1), BlockHash::from(2)]);
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
 
         assert_eq!(fixture.store.iter(&tx).next(), Some(BlockHash::from(1)));
         assert_eq!(
@@ -185,11 +184,11 @@ mod tests {
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut tx = fixture.env.tx_begin_write();
-        let delete_tracker = tx.track_deletions();
+        let mut txn = fixture.env.begin_write();
+        let delete_tracker = txn.track_deletions();
         let hash = BlockHash::from(1);
 
-        fixture.store.del(&mut tx, &hash);
+        fixture.store.del(&mut txn, &hash);
 
         assert_eq!(
             delete_tracker.output(),
@@ -203,7 +202,7 @@ mod tests {
     #[test]
     fn pruned_random() {
         let fixture = Fixture::with_stored_data(vec![BlockHash::from(42)]);
-        let tx = fixture.env.tx_begin_read();
+        let tx = fixture.env.begin_read();
         let random_hash = fixture.store.random(&tx);
         assert_eq!(random_hash, Some(BlockHash::from(42)));
     }

@@ -1,6 +1,14 @@
-use crate::{Fan, LmdbDatabase, LmdbEnv, LmdbRangeIterator, LmdbWriteTransaction, Transaction};
+use std::{
+    fs::{set_permissions, File, Permissions},
+    io::Write,
+    ops::RangeBounds,
+    os::unix::prelude::PermissionsExt,
+    path::Path,
+    sync::{Mutex, MutexGuard},
+};
+
 use anyhow::bail;
-use lmdb::{DatabaseFlags, WriteFlags};
+
 use rsnano_core::{
     deterministic_key,
     utils::{
@@ -8,13 +16,11 @@ use rsnano_core::{
     },
     Account, KeyDerivationFunction, PublicKey, RawKey, WorkNonce,
 };
-use std::{
-    fs::{set_permissions, File, Permissions},
-    os::unix::prelude::PermissionsExt,
-    path::Path,
-    sync::{Mutex, MutexGuard},
+use rsnano_nullable_lmdb::{
+    DatabaseFlags, Error, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
-use std::{io::Write, ops::RangeBounds};
+
+use crate::{Fan, LmdbDatabase, LmdbRangeIterator};
 
 pub struct Fans {
     pub password: Fan,
@@ -75,16 +81,17 @@ pub enum KeyType {
 
 pub struct LmdbWalletStore {
     db_handle: Mutex<Option<LmdbDatabase>>,
-    pub fans: Mutex<Fans>,
+    fans: Mutex<Fans>,
     kdf: KeyDerivationFunction,
 }
 
 impl LmdbWalletStore {
     pub const VERSION_CURRENT: u32 = 4;
+
     pub fn new(
         fanout: usize,
         kdf: KeyDerivationFunction,
-        env: &LmdbEnv,
+        env: &LmdbEnvironment,
         representative: &PublicKey,
         wallet: &Path,
     ) -> anyhow::Result<Self> {
@@ -95,12 +102,12 @@ impl LmdbWalletStore {
         };
         store.initialize(env, wallet)?;
         let handle = store.db_handle();
-        let txn = &mut env.tx_begin_write();
-        if let Err(lmdb::Error::NotFound) = txn.get(handle, Self::version_special().as_bytes()) {
-            store.version_put(txn, Self::VERSION_CURRENT);
+        let mut txn = env.begin_write();
+        if let Err(Error::NotFound) = txn.get(handle, Self::version_special().as_bytes()) {
+            store.version_put(&mut txn, Self::VERSION_CURRENT);
             let salt = RawKey::random();
             store.entry_put_raw(
-                txn,
+                &mut txn,
                 &Self::salt_special(),
                 &WalletValue::new(salt, 0.into()),
             );
@@ -113,7 +120,7 @@ impl LmdbWalletStore {
             // Wallet key is encrypted by the user's password
             let encrypted = wallet_key.encrypt(&zero, &salt.initialization_vector_low());
             store.entry_put_raw(
-                txn,
+                &mut txn,
                 &Self::wallet_key_special(),
                 &WalletValue::new(encrypted, 0.into()),
             );
@@ -122,36 +129,37 @@ impl LmdbWalletStore {
             drop(guard);
             let check = zero.encrypt(&wallet_key, &salt.initialization_vector_low());
             store.entry_put_raw(
-                txn,
+                &mut txn,
                 &Self::check_special(),
                 &WalletValue::new(check, 0.into()),
             );
             let rep = RawKey::from_bytes(*representative.as_bytes());
             store.entry_put_raw(
-                txn,
+                &mut txn,
                 &Self::representative_special(),
                 &WalletValue::new(rep, 0.into()),
             );
             let seed = RawKey::random();
-            store.set_seed(txn, &seed);
+            store.set_seed(&mut txn, &seed);
             store.entry_put_raw(
-                txn,
+                &mut txn,
                 &Self::deterministic_index_special(),
                 &WalletValue::new(RawKey::zero(), 0.into()),
             );
         }
         {
-            let key = store.entry_get_raw(txn, &Self::wallet_key_special()).key;
+            let key = store.entry_get_raw(&txn, &Self::wallet_key_special()).key;
             let mut guard = store.fans.lock().unwrap();
             guard.wallet_key_mem.value_set(key);
         }
+        txn.commit();
         Ok(store)
     }
 
     pub fn new_from_json(
         fanout: usize,
         kdf: KeyDerivationFunction,
-        env: &LmdbEnv,
+        env: &LmdbEnvironment,
         wallet: &Path,
         json: &str,
     ) -> anyhow::Result<Self> {
@@ -162,10 +170,10 @@ impl LmdbWalletStore {
         };
         store.initialize(env, wallet)?;
         let handle = store.db_handle();
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
         match txn.get(handle, Self::version_special().as_bytes()) {
             Ok(_) => panic!("wallet store already initialized"),
-            Err(lmdb::Error::NotFound) => {}
+            Err(Error::NotFound) => {}
             Err(e) => panic!("unexpected wallet store error: {:?}", e),
         }
 
@@ -193,6 +201,7 @@ impl LmdbWalletStore {
         guard.password.value_set(RawKey::zero());
         let key = store.entry_get_raw(&txn, &Self::wallet_key_special()).key;
         guard.wallet_key_mem.value_set(key);
+        txn.commit();
         drop(guard);
         Ok(store)
     }
@@ -245,20 +254,18 @@ impl LmdbWalletStore {
         PublicKey::from(7)
     }
 
-    pub fn initialize(&self, env: &LmdbEnv, path: &Path) -> anyhow::Result<()> {
+    pub fn initialize(&self, env: &LmdbEnvironment, path: &Path) -> anyhow::Result<()> {
         let path_str = path
             .as_os_str()
             .to_str()
             .ok_or_else(|| anyhow!("invalid path"))?;
 
-        let db = env
-            .environment
-            .create_db(Some(path_str), DatabaseFlags::empty())?;
+        let db = env.create_db(Some(path_str), DatabaseFlags::empty())?;
         *self.db_handle.lock().unwrap() = Some(db);
         Ok(())
     }
 
-    pub fn db_handle(&self) -> LmdbDatabase {
+    fn db_handle(&self) -> LmdbDatabase {
         self.db_handle.lock().unwrap().unwrap().clone()
     }
 
@@ -274,7 +281,7 @@ impl LmdbWalletStore {
 
     pub fn entry_put_raw(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         pub_key: &PublicKey,
         entry: &WalletValue,
     ) {
@@ -314,7 +321,7 @@ impl LmdbWalletStore {
         value.key.decrypt(&password, &iv)
     }
 
-    pub fn set_seed(&self, txn: &mut LmdbWriteTransaction, prv: &RawKey) {
+    pub fn set_seed(&self, txn: &mut WriteTransaction, prv: &RawKey) {
         let password_l = self.wallet_key(txn);
         let iv = self.salt(txn).initialization_vector_high();
         let ciphertext = prv.encrypt(&password_l, &iv);
@@ -337,7 +344,7 @@ impl LmdbWalletStore {
         value.key.number().low_u32()
     }
 
-    pub fn deterministic_index_set(&self, txn: &mut LmdbWriteTransaction, index: u32) {
+    pub fn deterministic_index_set(&self, txn: &mut WriteTransaction, index: u32) {
         let index = RawKey::from(index as u64);
         let value = WalletValue::new(index, 0.into());
         self.entry_put_raw(txn, &Self::deterministic_index_special(), &value);
@@ -369,7 +376,7 @@ impl LmdbWalletStore {
         self.kdf.hash_password(password, salt.as_bytes())
     }
 
-    pub fn rekey(&self, txn: &mut LmdbWriteTransaction, password: &str) -> anyhow::Result<()> {
+    pub fn rekey(&self, txn: &mut WriteTransaction, password: &str) -> anyhow::Result<()> {
         let mut guard = self.fans.lock().unwrap();
         if self.valid_password_locked(&guard, txn) {
             let password_new = self.derive_key(txn, password);
@@ -420,7 +427,7 @@ impl LmdbWalletStore {
         None
     }
 
-    pub fn erase(&self, txn: &mut LmdbWriteTransaction, pub_key: &PublicKey) {
+    pub fn erase(&self, txn: &mut WriteTransaction, pub_key: &PublicKey) {
         txn.delete(self.db_handle(), pub_key.as_bytes(), None)
             .unwrap();
     }
@@ -441,7 +448,7 @@ impl LmdbWalletStore {
         }
     }
 
-    pub fn deterministic_clear(&self, txn: &mut LmdbWriteTransaction) {
+    pub fn deterministic_clear(&self, txn: &mut WriteTransaction) {
         {
             let mut it = self.iter_range(txn, PublicKey::zero()..);
             while let Some((account, value)) = it.next() {
@@ -467,7 +474,7 @@ impl LmdbWalletStore {
         self.valid_public_key(key) && self.find(txn, key).is_some()
     }
 
-    pub fn deterministic_insert(&self, txn: &mut LmdbWriteTransaction) -> PublicKey {
+    pub fn deterministic_insert(&self, txn: &mut WriteTransaction) -> PublicKey {
         let mut index = self.deterministic_index_get(txn);
         let mut prv = self.deterministic_key(txn, index);
         let mut result = PublicKey::try_from(&prv).unwrap();
@@ -486,7 +493,7 @@ impl LmdbWalletStore {
         result
     }
 
-    pub fn deterministic_insert_at(&self, txn: &mut LmdbWriteTransaction, index: u32) -> PublicKey {
+    pub fn deterministic_insert_at(&self, txn: &mut WriteTransaction, index: u32) -> PublicKey {
         let prv = self.deterministic_key(txn, index);
         let result = PublicKey::try_from(&prv).unwrap();
         let mut marker = 1u64;
@@ -529,7 +536,7 @@ impl LmdbWalletStore {
         PublicKey::from_bytes(*value.key.as_bytes())
     }
 
-    pub fn representative_set(&self, txn: &mut LmdbWriteTransaction, representative: &PublicKey) {
+    pub fn representative_set(&self, txn: &mut WriteTransaction, representative: &PublicKey) {
         let rep = RawKey::from_bytes(*representative.as_bytes());
         self.entry_put_raw(
             txn,
@@ -538,7 +545,7 @@ impl LmdbWalletStore {
         );
     }
 
-    pub fn insert_adhoc(&self, txn: &mut LmdbWriteTransaction, prv: &RawKey) -> PublicKey {
+    pub fn insert_adhoc(&self, txn: &mut WriteTransaction, prv: &RawKey) -> PublicKey {
         debug_assert!(self.valid_password(txn));
         let pub_key = PublicKey::try_from(prv).unwrap();
         let password = self.wallet_key(txn);
@@ -549,7 +556,7 @@ impl LmdbWalletStore {
 
     pub fn insert_watch(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         pub_key: &PublicKey,
     ) -> anyhow::Result<()> {
         if !self.valid_public_key(pub_key) {
@@ -615,7 +622,7 @@ impl LmdbWalletStore {
 
     pub fn move_keys(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         other: &LmdbWalletStore,
         keys: &[PublicKey],
     ) -> anyhow::Result<()> {
@@ -632,7 +639,7 @@ impl LmdbWalletStore {
 
     pub fn import(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         other: &LmdbWalletStore,
     ) -> anyhow::Result<()> {
         debug_assert!(self.valid_password(txn));
@@ -684,7 +691,7 @@ impl LmdbWalletStore {
         }
     }
 
-    pub fn version_put(&self, txn: &mut LmdbWriteTransaction, version: u32) {
+    pub fn version_put(&self, txn: &mut WriteTransaction, version: u32) {
         let entry = RawKey::from(version as u64);
         self.entry_put_raw(
             txn,
@@ -693,16 +700,16 @@ impl LmdbWalletStore {
         );
     }
 
-    pub fn work_put(&self, txn: &mut LmdbWriteTransaction, pub_key: &PublicKey, work: WorkNonce) {
+    pub fn work_put(&self, txn: &mut WriteTransaction, pub_key: &PublicKey, work: WorkNonce) {
         let mut entry = self.entry_get_raw(txn, pub_key);
         debug_assert!(!entry.key.is_zero());
         entry.work = work;
         self.entry_put_raw(txn, pub_key, &entry);
     }
 
-    pub fn destroy(&self, txn: &mut LmdbWriteTransaction) {
+    pub fn destroy(&self, txn: &mut WriteTransaction) {
         unsafe {
-            txn.rw_txn_mut().drop_db(self.db_handle()).unwrap();
+            txn.drop_db(self.db_handle()).unwrap();
         }
         *self.db_handle.lock().unwrap() = None;
     }

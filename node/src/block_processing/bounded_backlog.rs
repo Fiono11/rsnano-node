@@ -5,20 +5,23 @@ use std::{
     time::Duration,
 };
 
+use tracing::warn;
+
 use rsnano_core::{
-    utils::{ContainerInfo, ContainerInfoProvider},
+    utils::{backpressure_channel, BackpressureSender, ContainerInfo, ContainerInfoProvider},
     Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock,
 };
-use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet, ProcessedResult};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
 use rsnano_network::token_bucket::TokenBucket;
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
 
 use super::{
     backlog_index::{BacklogEntry, BacklogIndex},
     backlog_scan::UnconfirmedInfo,
+    LedgerEvent, ProcessedResult,
 };
 use crate::consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index};
-use rsnano_nullable_clock::SteadyClock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
@@ -49,6 +52,7 @@ impl BoundedBacklog {
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         clock: Arc<SteadyClock>,
+        publish_event: BackpressureSender<LedgerEvent>,
     ) -> Self {
         let backlog_impl = Arc::new(BoundedBacklogImpl {
             condition: Condvar::new(),
@@ -66,6 +70,7 @@ impl BoundedBacklog {
             ledger,
             clock,
             can_roll_back: RwLock::new(Box::new(|_| true)),
+            publish_event: Mutex::new(Some(publish_event)),
         });
 
         Self {
@@ -80,8 +85,9 @@ impl BoundedBacklog {
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
         let clock = Arc::new(SteadyClock::new_null());
+        let (sender, _) = backpressure_channel(0);
 
-        Self::new(config, ledger, stats, clock)
+        Self::new(config, ledger, stats, clock, sender)
     }
 
     pub fn start(&self) {
@@ -115,6 +121,7 @@ impl BoundedBacklog {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
+        drop(self.backlog_impl.publish_event.lock().unwrap().take());
     }
 
     // Give other components a chance to veto a rollback
@@ -252,6 +259,7 @@ struct BoundedBacklogImpl {
     ledger: Arc<Ledger>,
     can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
     clock: Arc<SteadyClock>,
+    publish_event: Mutex<Option<BackpressureSender<LedgerEvent>>>,
 }
 
 impl BoundedBacklogImpl {
@@ -321,12 +329,12 @@ impl BoundedBacklogImpl {
         max_rollbacks: usize,
         can_roll_back: impl Fn(&BlockHash) -> bool,
     ) -> Vec<BlockHash> {
-        let mut results = self
+        let results = self
             .ledger
             .roll_back_batch(targets, max_rollbacks, can_roll_back);
 
         let mut processed_hashes = Vec::new();
-        for result in results.drain(..) {
+        for result in results.iter() {
             if !result.rolled_back.is_empty() {
                 for h in &result.rolled_back {
                     processed_hashes.push(h.hash());
@@ -334,6 +342,17 @@ impl BoundedBacklogImpl {
             } else {
                 processed_hashes.push(result.target_hash);
             }
+        }
+
+        if let Err(e) = self
+            .publish_event
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .send(LedgerEvent::BlocksRolledBack(results))
+        {
+            warn!("Failed to publish rolled back event: {e:?}")
         }
 
         processed_hashes

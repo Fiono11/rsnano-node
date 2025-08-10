@@ -87,7 +87,7 @@ fn pruning_large_chain() {
         send_receive_pairs as usize * 2
     );
 
-    let txn = ledger.store.tx_begin_read();
+    let txn = ledger.store.begin_read();
     assert!(ledger.store.pruned.exists(&txn, &last_hash));
     assert!(ledger.store.block.exists(&txn, &DEV_GENESIS_HASH));
     assert_eq!(ledger.store.block.exists(&txn, &last_hash), false);
@@ -260,7 +260,7 @@ fn pruning_legacy_blocks() {
     assert_eq!(ledger.prune_one(&change1.hash(), 2), 3);
     assert_eq!(ledger.prune_one(&open1.hash(), 1), 1);
 
-    let txn = ledger.store.tx_begin_read();
+    let txn = ledger.store.begin_read();
     assert!(ledger.store.block.exists(&txn, &DEV_GENESIS_HASH));
     assert_eq!(ledger.store.block.exists(&txn, &send1.hash()), false);
     assert_eq!(ledger.store.pruned.exists(&txn, &send1.hash()), true);

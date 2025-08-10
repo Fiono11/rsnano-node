@@ -12,6 +12,7 @@ use std::{
 };
 
 use bounded_vec_deque::BoundedVecDeque;
+use num_format::{Locale, ToFormattedString};
 use tracing::{debug, error, info, warn};
 
 use rsnano_core::{
@@ -21,27 +22,30 @@ use rsnano_core::{
     Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce,
 };
-use rsnano_ledger::{
-    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessedResult,
-};
+use rsnano_ledger::{AnySet, BlockError, Ledger, LedgerBuilder, LedgerSet};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
     TcpListenerExt, TcpNetworkAdapter, TrafficType,
 };
+use rsnano_network_protocol::{
+    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
+    LatestKeepalivesCleanup, NanoDataReceiverFactory, SynCookies,
+};
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
+use rsnano_nullable_fs::NullableFilesystem;
+use rsnano_nullable_lmdb::{
+    EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
+};
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_stats::{Direction, Stats, StatsCollection, StatsCollector};
-use rsnano_store_lmdb::{
-    EnvironmentFlags, LmdbEnv, LmdbEnvFactory, NullTransactionTracker, TransactionTracker,
-};
 
 use crate::{
     aec_event_processor::AecEventProcessor,
     block_processing::{
-        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
+        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
         BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
-        LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedMap,
+        LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedMap,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -49,7 +53,6 @@ use crate::{
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
-    confirming_set_event_processor::ConfirmingSetEventProcessor,
     consensus::{
         election::ConfirmedElection,
         election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
@@ -81,21 +84,11 @@ use crate::{
         MessageSender, NetworkThreads, PeerCacheConnector, PeerCacheUpdater,
         RealtimeMessageHandler,
     },
-    utils::{
-        spawn_backpressure_processor, LongRunningTransactionLogger, ThreadPool, ThreadPoolImpl,
-        TimerThread,
-    },
+    utils::{spawn_backpressure_processor, ThreadPool, ThreadPoolImpl, TimerThread},
     wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
     work::{WorkFactory, WorkRequest},
     NodeCallbacks, OnlineWeightSampler,
 };
-use num_format::{Locale, ToFormattedString};
-use rsnano_network_protocol::{
-    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
-    LatestKeepalivesCleanup, NanoDataReceiverFactory, SynCookies,
-};
-use rsnano_nullable_fs::NullableFilesystem;
-use rsnano_nullable_lmdb::EnvironmentOptions;
 
 #[allow(dead_code)]
 pub struct Node {
@@ -313,19 +306,10 @@ impl Node {
         ledger_path.push("data.ldb");
 
         let lmdb_env_factory = if is_nulled {
-            LmdbEnvFactory::new_null()
+            LmdbEnvironmentFactory::new_null()
         } else {
-            LmdbEnvFactory::default()
+            LmdbEnvironmentFactory::default()
         };
-
-        let txn_tracker: Arc<dyn TransactionTracker> =
-            if config.diagnostics_config.txn_tracking.enable {
-                Arc::new(LongRunningTransactionLogger::new(
-                    config.diagnostics_config.txn_tracking.clone(),
-                ))
-            } else {
-                Arc::new(NullTransactionTracker::new())
-            };
 
         info!("Loading ledger, this may take a while...");
         let ledger = LedgerBuilder::new(&ledger_path)
@@ -335,10 +319,9 @@ impl Node {
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
             .stats(stats.clone())
-            .txn_tracker(txn_tracker)
             .finish();
 
-        let mut ledger = match ledger {
+        let ledger = match ledger {
             Ok(i) => i,
             Err(e) => {
                 panic!("Could not open ledger: {:?}. Details: {:?}", ledger_path, e)
@@ -354,7 +337,6 @@ impl Node {
         let (ledger_tx, ledger_rx) = backpressure_channel(1024);
         let ledger_tx_clone = ledger_tx.clone();
         event_queues_info.add_leaf("ledger", move || ledger_tx_clone.len());
-        ledger.set_observer(ledger_tx);
 
         let ledger = Arc::new(ledger);
         info!(
@@ -497,10 +479,7 @@ impl Node {
             ledger.clone(),
             stats.clone(),
         ));
-        let (tx_confirming, rx_confirming) = backpressure_channel(1024);
-        let tx_conf_clone = tx_confirming.clone();
-        event_queues_info.add_leaf("confirming_set", move || tx_conf_clone.len());
-        confirming_set.set_event_sink(tx_confirming);
+        confirming_set.set_event_publisher(ledger_tx.clone());
 
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
             config.vote_cache.clone(),
@@ -519,7 +498,7 @@ impl Node {
         wallets_path.push("wallets.ldb");
 
         let wallets_env = if is_nulled {
-            Arc::new(LmdbEnv::new_null())
+            Arc::new(LmdbEnvironment::new_null())
         } else {
             let options = EnvironmentOptions {
                 path: wallets_path,
@@ -531,7 +510,7 @@ impl Node {
             };
             Arc::new(
                 lmdb_env_factory
-                    .create_with_options(options)
+                    .create(options)
                     .expect("Could not create LMDB env for wallets"),
             )
         };
@@ -664,14 +643,12 @@ impl Node {
         let latest_keepalives = Arc::new(Mutex::new(LatestKeepalives::default()));
         let handshake_stats = Arc::new(HandshakeStats::default());
 
-        let inbound_clone = inbound_message_queue.clone();
-        let inbound = Arc::new(move |msg, channel| {
-            inbound_clone.put(msg, channel);
-        });
+        let inbound_queue_clone = inbound_message_queue.clone();
+        let try_enqueue = Arc::new(move |msg, channel| inbound_queue_clone.put(msg, channel));
 
         let data_receiver_factory = Box::new(NanoDataReceiverFactory::new(
             &network,
-            inbound,
+            try_enqueue,
             network_filter.clone(),
             stats.clone(),
             handshake_stats.clone(),
@@ -778,6 +755,7 @@ impl Node {
             ledger.clone(),
             stats.clone(),
             steady_clock.clone(),
+            ledger_tx.clone(),
         ));
 
         if config.enable_bounded_backlog {
@@ -900,11 +878,13 @@ impl Node {
             config.bounded_backlog.max_backlog,
         ));
 
+        let ledger_tx_clone = ledger_tx.clone();
         let block_processor = Arc::new(BlockProcessor::new(
             block_processor_queue.clone(),
             ledger.clone(),
             unchecked.clone(),
             backlog_waiter.clone(),
+            ledger_tx_clone,
         ));
 
         let mut dead_channel_cleanup = DeadChannelCleanup::new(
@@ -1237,12 +1217,6 @@ impl Node {
 
         spawn_backpressure_processor("Ledger ev proc", ledger_rx, ledger_event_processor);
 
-        let confirming_set_ev_proc = ConfirmingSetEventProcessor {
-            active_elections: active_elections.clone(),
-        };
-
-        spawn_backpressure_processor("Confset ev proc", rx_confirming, confirming_set_ev_proc);
-
         vote_processor.add_observer(aec_sender);
 
         let mut stats_collector = StatsCollector::new();
@@ -1393,7 +1367,7 @@ impl Node {
         let hash = block.hash();
         match self.try_process(block) {
             Ok(saved_block) => saved_block,
-            Err(BlockError::Old) => self.block(&hash).unwrap(),
+            Err(BlockError::Old) | Err(BlockError::Conflict) => self.block(&hash).unwrap(),
             Err(e) => {
                 panic!("Could not process block: {:?}", e);
             }
@@ -1403,7 +1377,7 @@ impl Node {
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
             match self.ledger.process_one(block) {
-                Ok(_) | Err(BlockError::Old) => {}
+                Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
                 }
@@ -1608,7 +1582,8 @@ impl Node {
             self.vote_processor.start();
         }
         self.vote_cache_processor.start();
-        self.block_processor.start();
+        self.block_processor
+            .start(self.config.block_processor_threads);
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
@@ -1660,7 +1635,6 @@ impl Node {
 
         self.tcp_listener.stop();
         self.aec_voter.stop();
-        self.ledger.stop();
         self.wallet_reps_checker.stop();
         self.online_weight_calculation.stop();
         self.peer_connector.stop();

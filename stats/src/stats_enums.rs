@@ -148,6 +148,7 @@ pub enum DetailType {
     HttpCallback,
     UnreachableHost,
     InvalidNetwork,
+    Conflict,
 
     // confirmation_observer specific
     ActiveQuorum,

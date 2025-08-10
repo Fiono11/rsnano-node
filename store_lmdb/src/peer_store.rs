@@ -1,11 +1,3 @@
-use crate::{
-    iterator::LmdbIterator, LmdbDatabase, LmdbEnv, LmdbWriteTransaction, Transaction,
-    PEERS_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
-use rsnano_core::utils::{BufferWriter, Serialize};
-use rsnano_nullable_lmdb::ConfiguredDatabase;
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use std::{
     array::TryFromSliceError,
     net::SocketAddrV6,
@@ -14,6 +6,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use rsnano_core::utils::{BufferWriter, Serialize};
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags,
+    WriteTransaction,
+};
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+
+use crate::{iterator::LmdbIterator, PEERS_TEST_DATABASE};
+
 pub struct LmdbPeerStore {
     database: LmdbDatabase,
     put_listener: OutputListenerMt<(SocketAddrV6, SystemTime)>,
@@ -21,10 +22,8 @@ pub struct LmdbPeerStore {
 }
 
 impl LmdbPeerStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("peers"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("peers"), DatabaseFlags::empty())?;
 
         Ok(Self {
             database,
@@ -41,7 +40,7 @@ impl LmdbPeerStore {
         self.put_listener.track()
     }
 
-    pub fn put(&self, txn: &mut LmdbWriteTransaction, endpoint: SocketAddrV6, time: SystemTime) {
+    pub fn put(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6, time: SystemTime) {
         self.put_listener.emit((endpoint.clone(), time));
         txn.put(
             self.database,
@@ -56,7 +55,7 @@ impl LmdbPeerStore {
         self.delete_listener.track()
     }
 
-    pub fn del(&self, txn: &mut LmdbWriteTransaction, endpoint: SocketAddrV6) {
+    pub fn del(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6) {
         self.delete_listener.emit(endpoint);
         txn.delete(self.database, &EndpointBytes::from(endpoint), None)
             .unwrap();
@@ -70,7 +69,7 @@ impl LmdbPeerStore {
         txn.count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut LmdbWriteTransaction) {
+    pub fn clear(&self, txn: &mut WriteTransaction) {
         txn.clear_db(self.database).unwrap();
     }
 
@@ -208,7 +207,7 @@ impl ConfiguredPeersDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeleteEvent, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::{
         net::Ipv6Addr,
         time::{Duration, UNIX_EPOCH},
@@ -217,7 +216,7 @@ mod tests {
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let store = &fixture.store;
         assert_eq!(store.count(&txn), 0);
         assert_eq!(store.exists(&txn, TEST_PEER_A), false);
@@ -227,7 +226,7 @@ mod tests {
     #[test]
     fn add_one_endpoint() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let put_tracker = txn.track_puts();
 
         let key = TEST_PEER_A;
@@ -249,7 +248,7 @@ mod tests {
     fn exists() {
         let fixture = Fixture::with_stored_data(vec![TEST_PEER_A.clone(), TEST_PEER_B.clone()]);
 
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         assert_eq!(fixture.store.exists(&txn, TEST_PEER_A), true);
         assert_eq!(fixture.store.exists(&txn, TEST_PEER_B), true);
@@ -259,14 +258,14 @@ mod tests {
     #[test]
     fn count() {
         let fixture = Fixture::with_stored_data(vec![TEST_PEER_A, TEST_PEER_B]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         assert_eq!(fixture.store.count(&txn), 2);
     }
 
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = txn.track_deletions();
 
         fixture.store.del(&mut txn, TEST_PEER_A);
@@ -283,11 +282,11 @@ mod tests {
     #[test]
     fn track_puts() {
         let fixture = Fixture::new();
-        let mut tx = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let time = UNIX_EPOCH + Duration::from_secs(1261440000);
         let put_tracker = fixture.store.track_puts();
 
-        fixture.store.put(&mut tx, TEST_PEER_A, time);
+        fixture.store.put(&mut txn, TEST_PEER_A, time);
 
         let output = put_tracker.output();
         assert_eq!(output, vec![(TEST_PEER_A, time)]);
@@ -296,10 +295,10 @@ mod tests {
     #[test]
     fn track_deletes() {
         let fixture = Fixture::new();
-        let mut tx = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = fixture.store.track_deletions();
 
-        fixture.store.del(&mut tx, TEST_PEER_A);
+        fixture.store.del(&mut txn, TEST_PEER_A);
 
         let output = delete_tracker.output();
         assert_eq!(output, vec![TEST_PEER_A]);
@@ -315,17 +314,18 @@ mod tests {
         SocketAddrV6::new(Ipv6Addr::new(4, 4, 4, 4, 4, 4, 4, 4), 4000, 0, 0);
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbPeerStore,
     }
 
     impl Fixture {
         fn new() -> Self {
-            Self::with_env(LmdbEnv::new_null())
+            Self::with_env(LmdbEnvironment::new_null())
         }
 
         fn with_stored_data(entries: Vec<SocketAddrV6>) -> Self {
-            let mut env = LmdbEnv::new_null_with().database("peers", LmdbDatabase::new_null(42));
+            let mut env =
+                LmdbEnvironment::null_builder().database("peers", LmdbDatabase::new_null(42));
 
             for entry in entries {
                 env = env.entry(&EndpointBytes::from(entry), &[]);
@@ -334,7 +334,7 @@ mod tests {
             Self::with_env(env.build().build())
         }
 
-        fn with_env(env: LmdbEnv) -> Self {
+        fn with_env(env: LmdbEnvironment) -> Self {
             let env = Arc::new(env);
             Self {
                 store: LmdbPeerStore::new(&env).unwrap(),

@@ -1,5 +1,4 @@
 use std::{
-    ffi::CString,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -7,17 +6,16 @@ use std::{
     },
 };
 
-use lmdb_sys::MDB_SUCCESS;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::info;
 
 use rsnano_core::utils::UnixTimestamp;
+use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
 
 use crate::{
     successor_store::LmdbSuccessorStore, LmdbAccountStore, LmdbBlockStore,
-    LmdbConfirmationHeightStore, LmdbEnv, LmdbFinalVoteStore, LmdbOnlineWeightStore, LmdbPeerStore,
-    LmdbPendingStore, LmdbPrunedStore, LmdbReadTransaction, LmdbRepWeightStore, LmdbVersionStore,
-    LmdbWriteTransaction, Writer,
+    LmdbConfirmationHeightStore, LmdbFinalVoteStore, LmdbOnlineWeightStore, LmdbPeerStore,
+    LmdbPendingStore, LmdbPrunedStore, LmdbRepWeightStore, LmdbVersionStore,
 };
 
 pub struct LedgerCache {
@@ -46,7 +44,7 @@ impl LedgerCache {
 }
 
 pub struct LmdbStore {
-    pub env: LmdbEnv,
+    pub env: LmdbEnvironment,
     pub cache: Arc<LedgerCache>,
     pub block: LmdbBlockStore,
     pub account: LmdbAccountStore,
@@ -64,10 +62,10 @@ pub struct LmdbStore {
 
 impl LmdbStore {
     pub fn new_null() -> Self {
-        Self::new(LmdbEnv::new_null()).unwrap()
+        Self::new(LmdbEnvironment::new_null()).unwrap()
     }
 
-    pub fn new(env: LmdbEnv) -> anyhow::Result<Self> {
+    pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
         Ok(Self {
             cache: Arc::new(LedgerCache::new()),
             block: LmdbBlockStore::new(&env)?,
@@ -79,14 +77,14 @@ impl LmdbStore {
             peer: LmdbPeerStore::new(&env)?,
             confirmation_height: LmdbConfirmationHeightStore::new(&env)?,
             final_vote: LmdbFinalVoteStore::new(&env)?,
-            successors: LmdbSuccessorStore::new(&env.environment)?,
+            successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
             env,
         })
     }
 
     pub fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
-        let stats = self.env.environment.stat()?;
+        let stats = self.env.stat()?;
         Ok(MemoryStats {
             branch_pages: stats.branch_pages(),
             depth: stats.depth(),
@@ -97,12 +95,12 @@ impl LmdbStore {
         })
     }
 
-    pub fn tx_begin_read(&self) -> LmdbReadTransaction {
-        self.env.tx_begin_read()
+    pub fn begin_read(&self) -> ReadTransaction {
+        self.env.begin_read()
     }
 
-    pub fn tx_begin_write(&self, writer: Writer) -> LmdbWriteTransaction {
-        self.env.tx_begin_write_for(writer)
+    pub fn begin_write(&self) -> WriteTransaction {
+        self.env.begin_write()
     }
 }
 
@@ -117,7 +115,7 @@ pub struct MemoryStats {
 }
 
 /// Takes a filepath, appends '_backup_<timestamp>' to the end (but before any extension) and saves that file in the same directory
-pub fn create_backup_file(env: &LmdbEnv) -> anyhow::Result<()> {
+pub fn create_backup_file(env: &LmdbEnvironment) -> anyhow::Result<()> {
     let source_path = env.file_path();
     let backup_path = backup_file_path(source_path)?;
 
@@ -126,21 +124,9 @@ pub fn create_backup_file(env: &LmdbEnv) -> anyhow::Result<()> {
         source_path
     );
 
-    let backup_path_cstr = CString::new(
-        backup_path
-            .as_os_str()
-            .to_str()
-            .ok_or_else(|| anyhow!("invalid backup path"))?,
-    )?;
-    let status =
-        unsafe { lmdb_sys::mdb_env_copy(env.environment.env(), backup_path_cstr.as_ptr()) };
-    if status != MDB_SUCCESS {
-        error!("{:?} backup failed", source_path);
-        Err(anyhow!("backup failed"))
-    } else {
-        info!("Backup created: {:?}", backup_path);
-        Ok(())
-    }
+    env.copy_db(&backup_path)?;
+    info!("Backup created: {:?}", backup_path);
+    Ok(())
 }
 
 fn backup_file_path(source_path: &Path) -> anyhow::Result<PathBuf> {
@@ -174,11 +160,17 @@ fn backup_file_path(source_path: &Path) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::LmdbEnvFactory;
+    use rsnano_nullable_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbEnvironmentFactory};
 
     #[test]
     fn create_store() -> anyhow::Result<()> {
-        let env = LmdbEnvFactory::new_null().create_env("/nulled/store.ldb")?;
+        let options = EnvironmentOptions {
+            max_dbs: 100,
+            map_size: 1024,
+            flags: EnvironmentFlags::empty(),
+            path: "/nulled/store.ldb".into(),
+        };
+        let env = LmdbEnvironmentFactory::new_null().create(options)?;
         let _ = LmdbStore::new(env)?;
         Ok(())
     }

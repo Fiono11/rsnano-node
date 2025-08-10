@@ -1,12 +1,14 @@
-use crate::{
-    LmdbDatabase, LmdbEnv, LmdbIterator, LmdbRangeIterator, LmdbWriteTransaction, Transaction,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
+use std::ops::RangeBounds;
+
 use rsnano_core::{
     utils::{BufferReader, Deserialize},
     BlockHash, QualifiedRoot,
 };
-use std::ops::RangeBounds;
+use rsnano_nullable_lmdb::{
+    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+};
+
+use crate::{LmdbIterator, LmdbRangeIterator};
 
 /// Maps root to block hash for generated final votes.
 /// nano::qualified_root -> nano::block_hash
@@ -15,10 +17,8 @@ pub struct LmdbFinalVoteStore {
 }
 
 impl LmdbFinalVoteStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("final_votes"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("final_votes"), DatabaseFlags::empty())?;
 
         Ok(Self { database })
     }
@@ -28,15 +28,10 @@ impl LmdbFinalVoteStore {
     }
 
     /// Returns *true* if root + hash was inserted or the same root/hash pair was already in the database
-    pub fn put(
-        &self,
-        txn: &mut LmdbWriteTransaction,
-        root: &QualifiedRoot,
-        hash: &BlockHash,
-    ) -> bool {
+    pub fn put(&self, txn: &mut WriteTransaction, root: &QualifiedRoot, hash: &BlockHash) -> bool {
         let root_bytes = root.to_bytes();
         match txn.get(self.database, &root_bytes) {
-            Err(lmdb::Error::NotFound) => {
+            Err(Error::NotFound) => {
                 txn.put(
                     self.database,
                     &root_bytes,
@@ -79,7 +74,7 @@ impl LmdbFinalVoteStore {
     pub fn get(&self, tx: &dyn Transaction, root: &QualifiedRoot) -> Option<BlockHash> {
         let result = tx.get(self.database, &root.to_bytes());
         match result {
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Ok(bytes) => {
                 let mut stream = BufferReader::new(bytes);
                 BlockHash::deserialize(&mut stream).ok()
@@ -88,7 +83,7 @@ impl LmdbFinalVoteStore {
         }
     }
 
-    pub fn del(&self, tx: &mut LmdbWriteTransaction, root: &QualifiedRoot) {
+    pub fn del(&self, tx: &mut WriteTransaction, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
         tx.delete(self.database, &root_bytes, None).unwrap();
     }
@@ -97,7 +92,7 @@ impl LmdbFinalVoteStore {
         txn.count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut LmdbWriteTransaction) {
+    pub fn clear(&self, txn: &mut WriteTransaction) {
         txn.clear_db(self.database).unwrap();
     }
 }
@@ -105,13 +100,13 @@ impl LmdbFinalVoteStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DeleteEvent;
+    use rsnano_nullable_lmdb::DeleteEvent;
     use std::sync::Arc;
 
     const TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(100);
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbFinalVoteStore,
     }
 
@@ -121,14 +116,14 @@ mod tests {
         }
 
         fn with_stored_entries(entries: Vec<(QualifiedRoot, BlockHash)>) -> Self {
-            let mut env = LmdbEnv::new_null_with().database("final_votes", TEST_DATABASE);
+            let mut env = LmdbEnvironment::null_builder().database("final_votes", TEST_DATABASE);
             for (key, value) in entries {
                 env = env.entry(&key.to_bytes(), value.as_bytes());
             }
             Self::with_env(env.build().build())
         }
 
-        fn with_env(env: LmdbEnv) -> Self {
+        fn with_env(env: LmdbEnvironment) -> Self {
             let env = Arc::new(env);
             Self {
                 store: LmdbFinalVoteStore::new(&env).unwrap(),
@@ -142,7 +137,7 @@ mod tests {
         let root = QualifiedRoot::new_test_instance();
         let hash = BlockHash::from(333);
         let fixture = Fixture::with_stored_entries(vec![(root.clone(), hash)]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let result = fixture.store.get(&txn, &root);
 
@@ -153,7 +148,7 @@ mod tests {
     fn delete() {
         let root = QualifiedRoot::new_test_instance();
         let fixture = Fixture::with_stored_entries(vec![(root.clone(), BlockHash::from(333))]);
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = txn.track_deletions();
 
         fixture.store.del(&mut txn, &root);
@@ -170,7 +165,7 @@ mod tests {
     #[test]
     fn clear() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let clear_tracker = txn.track_clears();
 
         fixture.store.clear(&mut txn);

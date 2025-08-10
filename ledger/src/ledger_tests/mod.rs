@@ -6,7 +6,7 @@ use rsnano_core::{
     TestBlockBuilder, DEV_GENESIS_KEY,
 };
 use rsnano_stats::Stats;
-use rsnano_store_lmdb::{LmdbAccountStore, LmdbEnv, LmdbPrunedStore};
+use rsnano_store_lmdb::{LmdbAccountStore, LmdbPrunedStore};
 
 use crate::{
     ledger_constants::{DEV_GENESIS_BLOCK, DEV_GENESIS_PUB_KEY},
@@ -14,6 +14,7 @@ use crate::{
     AnySet, ConfirmedSet, Ledger, LedgerConstants, LedgerInserter, RepWeightCache,
     DEV_GENESIS_HASH,
 };
+use rsnano_nullable_lmdb::LmdbEnvironment;
 
 mod empty_ledger;
 mod pruning;
@@ -351,18 +352,19 @@ fn block_confirmed() {
 
 #[test]
 fn ledger_cache() {
-    let env = LmdbEnv::new_null_with().build();
+    let env = LmdbEnvironment::null_builder().build();
     {
         let pruned = LmdbPrunedStore::new(&env).unwrap();
         let accounts = LmdbAccountStore::new(&env).unwrap();
-        let mut tx = env.tx_begin_write();
+        let mut txn = env.begin_write();
 
-        pruned.put(&mut tx, &1.into());
-        pruned.put(&mut tx, &2.into());
+        pruned.put(&mut txn, &1.into());
+        pruned.put(&mut txn, &2.into());
 
-        accounts.put(&mut tx, &1.into(), &AccountInfo::new_test_instance());
-        accounts.put(&mut tx, &2.into(), &AccountInfo::new_test_instance());
-        accounts.put(&mut tx, &3.into(), &AccountInfo::new_test_instance());
+        accounts.put(&mut txn, &1.into(), &AccountInfo::new_test_instance());
+        accounts.put(&mut txn, &2.into(), &AccountInfo::new_test_instance());
+        accounts.put(&mut txn, &3.into(), &AccountInfo::new_test_instance());
+        txn.commit();
     }
 
     let ledger = Ledger::new(
@@ -414,7 +416,7 @@ fn configured_peers_response() {
     let endpoint = TEST_ENDPOINT_1;
     let now = new_test_timestamp();
     let ledger = Ledger::new_null_builder().peers([(endpoint, now)]).finish();
-    let tx = ledger.store.tx_begin_read();
+    let tx = ledger.store.begin_read();
     assert_eq!(ledger.store.peer.iter(&tx).next().unwrap(), (endpoint, now));
 }
 

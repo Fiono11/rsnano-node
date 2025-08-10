@@ -1,13 +1,14 @@
-use crate::ConfiguredDatabaseBuilder;
-
-use super::{ConfiguredDatabase, LmdbDatabase, RoTransaction, RwTransaction};
-use lmdb::{DatabaseFlags, EnvironmentFlags, Stat};
-use lmdb_sys::{MDB_env, MDB_CP_COMPACT, MDB_SUCCESS};
 use std::{
     ffi::CString,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+
+use lmdb::{DatabaseFlags, EnvironmentFlags, Stat};
+use lmdb_sys::{MDB_env, MDB_CP_COMPACT, MDB_SUCCESS};
+
+use super::{ConfiguredDatabase, LmdbDatabase};
+use crate::{ConfiguredDatabaseBuilder, ReadTransaction, Result, WriteTransaction};
 
 #[derive(Clone)]
 pub struct EnvironmentOptions {
@@ -17,88 +18,134 @@ pub struct EnvironmentOptions {
     pub path: PathBuf,
 }
 
-pub struct LmdbEnvironment(EnvironmentStrategy);
+pub struct NullLmdbEnvBuilder {
+    env_builder: EnvironmentStubBuilder,
+}
+
+impl NullLmdbEnvBuilder {
+    pub fn database(self, name: impl Into<String>, dbi: LmdbDatabase) -> NullDatabaseBuilder {
+        NullDatabaseBuilder {
+            db_builder: ConfiguredDatabaseBuilder::new(name, dbi, self.env_builder),
+        }
+    }
+
+    pub fn configured_database(mut self, db: ConfiguredDatabase) -> Self {
+        self.env_builder = self.env_builder.configured_database(db);
+        self
+    }
+
+    pub fn build(self) -> LmdbEnvironment {
+        self.env_builder.build()
+    }
+}
+
+pub struct NullDatabaseBuilder {
+    db_builder: ConfiguredDatabaseBuilder,
+}
+
+impl NullDatabaseBuilder {
+    pub fn entry(mut self, key: &[u8], value: &[u8]) -> Self {
+        self.db_builder = self.db_builder.entry(key, value);
+        self
+    }
+
+    pub fn error(mut self, key: &[u8], error: lmdb::Error) -> Self {
+        self.db_builder = self.db_builder.error(key, error);
+        self
+    }
+
+    pub fn build(self) -> NullLmdbEnvBuilder {
+        NullLmdbEnvBuilder {
+            env_builder: self.db_builder.finish(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct LmdbEnvironmentFactory {
+    is_nulled: bool,
+}
+
+impl LmdbEnvironmentFactory {
+    pub fn new_null() -> Self {
+        Self { is_nulled: true }
+    }
+
+    pub fn create(&self, options: EnvironmentOptions) -> Result<LmdbEnvironment> {
+        if self.is_nulled {
+            Ok(LmdbEnvironment::new_null_with_options(options))
+        } else {
+            LmdbEnvironment::create(options)
+        }
+    }
+}
+
+pub struct LmdbEnvironment {
+    env_strategy: EnvironmentStrategy,
+    path: PathBuf,
+}
 
 impl LmdbEnvironment {
-    pub fn new(options: EnvironmentOptions) -> lmdb::Result<Self> {
-        Ok(Self(EnvironmentStrategy::Real(EnvironmentWrapper::build(
-            options,
-        )?)))
-    }
-
-    pub fn new_with(env: lmdb::Environment) -> Self {
-        Self(EnvironmentStrategy::Real(EnvironmentWrapper::new(env)))
-    }
-
     pub fn new_null() -> Self {
-        Self::new_null_with(Vec::new())
+        Self::new_null_with_data(Vec::new())
     }
 
-    pub fn new_null_with(databases: Vec<ConfiguredDatabase>) -> Self {
-        Self(EnvironmentStrategy::Nulled(EnvironmentStub {
-            databases: Arc::new(Mutex::new(databases)),
-        }))
-    }
-
-    pub fn null_builder() -> EnvironmentStubBuilder {
-        EnvironmentStubBuilder::default()
-    }
-
-    pub fn begin_ro_txn(&self) -> lmdb::Result<RoTransaction> {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.begin_ro_txn(),
-            EnvironmentStrategy::Nulled(s) => s.begin_ro_txn(),
+    pub fn new_null_with_options(options: EnvironmentOptions) -> Self {
+        Self {
+            env_strategy: EnvironmentStrategy::Nulled(EnvironmentStub::new()),
+            path: options.path.to_path_buf(),
         }
     }
 
-    pub fn begin_rw_txn(&self) -> lmdb::Result<RwTransaction> {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.begin_rw_txn(),
-            EnvironmentStrategy::Nulled(s) => s.begin_rw_txn(),
+    pub fn new_null_with_data(databases: Vec<ConfiguredDatabase>) -> Self {
+        Self {
+            env_strategy: EnvironmentStrategy::Nulled(EnvironmentStub::new_with(databases)),
+            path: "/nulled/ledger.ldb".into(),
         }
     }
 
-    pub fn create_db(
-        &self,
-        name: Option<&str>,
-        flags: DatabaseFlags,
-    ) -> lmdb::Result<LmdbDatabase> {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.create_db(name, flags),
-            EnvironmentStrategy::Nulled(s) => s.create_db(name, flags),
+    pub fn null_builder() -> NullLmdbEnvBuilder {
+        NullLmdbEnvBuilder {
+            env_builder: EnvironmentStubBuilder::default(),
         }
     }
 
-    pub fn env(&self) -> *mut MDB_env {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.env(),
-            EnvironmentStrategy::Nulled(_) => unimplemented!(),
+    pub fn create(options: EnvironmentOptions) -> Result<Self> {
+        let filepath = options.path.clone();
+        let env_wrapper = EnvironmentWrapper::build(options)?;
+        Ok(Self {
+            env_strategy: EnvironmentStrategy::Real(env_wrapper),
+            path: filepath,
+        })
+    }
+
+    pub fn begin_read(&self) -> ReadTransaction {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.begin_read(),
+            EnvironmentStrategy::Nulled(s) => s.begin_read(),
         }
     }
 
-    pub fn open_db(&self, name: Option<&str>) -> lmdb::Result<LmdbDatabase> {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.open_db(name),
-            EnvironmentStrategy::Nulled(s) => s.open_db(name),
+    pub fn begin_write(&self) -> WriteTransaction {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.begin_write(),
+            EnvironmentStrategy::Nulled(s) => s.begin_write(),
         }
     }
 
-    pub fn sync(&self, force: bool) -> lmdb::Result<()> {
-        if let EnvironmentStrategy::Real(s) = &self.0 {
-            s.sync(force)?;
+    pub fn file_path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn sync(&self) -> Result<()> {
+        if let EnvironmentStrategy::Real(s) = &self.env_strategy {
+            s.sync(true)?;
         }
         Ok(())
     }
 
-    pub fn stat(&self) -> lmdb::Result<Stat> {
-        match &self.0 {
-            EnvironmentStrategy::Real(s) => s.stat(),
-            EnvironmentStrategy::Nulled(s) => s.stat(),
-        }
-    }
-
-    pub fn copy_db(&self, destination: &Path) -> lmdb::Result<()> {
-        if let EnvironmentStrategy::Real(_) = &self.0 {
+    pub fn copy_db(&self, destination: &Path) -> Result<()> {
+        if let EnvironmentStrategy::Real(_) = &self.env_strategy {
             let c_path = CString::new(destination.as_os_str().to_str().unwrap()).unwrap();
             let status =
                 unsafe { lmdb_sys::mdb_env_copy2(self.env(), c_path.as_ptr(), MDB_CP_COMPACT) };
@@ -111,6 +158,39 @@ impl LmdbEnvironment {
             Ok(())
         }
     }
+
+    pub fn create_db(&self, name: Option<&str>, flags: DatabaseFlags) -> Result<LmdbDatabase> {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.create_db(name, flags),
+            EnvironmentStrategy::Nulled(s) => s.create_db(name, flags),
+        }
+    }
+
+    pub fn open_db(&self, name: Option<&str>) -> Result<LmdbDatabase> {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.open_db(name),
+            EnvironmentStrategy::Nulled(s) => s.open_db(name),
+        }
+    }
+
+    pub fn stat(&self) -> Result<Stat> {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.stat(),
+            EnvironmentStrategy::Nulled(s) => s.stat(),
+        }
+    }
+
+    pub fn refresh(&self, txn: WriteTransaction) -> WriteTransaction {
+        txn.commit();
+        self.begin_write()
+    }
+
+    fn env(&self) -> *mut MDB_env {
+        match &self.env_strategy {
+            EnvironmentStrategy::Real(s) => s.env(),
+            EnvironmentStrategy::Nulled(_) => unimplemented!(),
+        }
+    }
 }
 
 enum EnvironmentStrategy {
@@ -121,10 +201,6 @@ enum EnvironmentStrategy {
 struct EnvironmentWrapper(lmdb::Environment);
 
 impl EnvironmentWrapper {
-    fn new(env: lmdb::Environment) -> Self {
-        Self(env)
-    }
-
     fn build(options: EnvironmentOptions) -> lmdb::Result<Self> {
         let env = lmdb::Environment::new()
             .set_max_dbs(options.max_dbs)
@@ -134,24 +210,34 @@ impl EnvironmentWrapper {
         Ok(Self(env))
     }
 
-    fn begin_ro_txn(&self) -> lmdb::Result<RoTransaction> {
-        self.0.begin_ro_txn().map(|txn| {
-            // todo: don't use static life time
-            let txn = unsafe {
-                std::mem::transmute::<lmdb::RoTransaction<'_>, lmdb::RoTransaction<'static>>(txn)
-            };
-            RoTransaction::new(txn)
-        })
+    fn begin_read(&self) -> ReadTransaction {
+        self.0
+            .begin_ro_txn()
+            .map(|txn| {
+                // todo: don't use static life time
+                let txn = unsafe {
+                    std::mem::transmute::<lmdb::RoTransaction<'_>, lmdb::RoTransaction<'static>>(
+                        txn,
+                    )
+                };
+                ReadTransaction::new(txn)
+            })
+            .expect("Could not create LMDB read-only transaction")
     }
 
-    fn begin_rw_txn(&self) -> lmdb::Result<RwTransaction> {
-        self.0.begin_rw_txn().map(|txn| {
-            // todo: don't use static life time
-            let txn = unsafe {
-                std::mem::transmute::<lmdb::RwTransaction<'_>, lmdb::RwTransaction<'static>>(txn)
-            };
-            RwTransaction::new(txn)
-        })
+    fn begin_write(&self) -> WriteTransaction {
+        self.0
+            .begin_rw_txn()
+            .map(|txn| {
+                // todo: don't use static life time
+                let txn = unsafe {
+                    std::mem::transmute::<lmdb::RwTransaction<'_>, lmdb::RwTransaction<'static>>(
+                        txn,
+                    )
+                };
+                WriteTransaction::new(txn)
+            })
+            .expect("Could not create LMDB read-write transaction")
     }
 
     fn create_db(&self, name: Option<&str>, flags: DatabaseFlags) -> lmdb::Result<LmdbDatabase> {
@@ -180,16 +266,22 @@ struct EnvironmentStub {
 }
 
 impl EnvironmentStub {
-    fn begin_ro_txn(&self) -> lmdb::Result<RoTransaction> {
-        //todo  don't clone!
-        Ok(RoTransaction::new_null(
-            self.databases.lock().unwrap().clone(),
-        ))
+    fn new() -> Self {
+        Self::new_with(Vec::new())
     }
 
-    fn begin_rw_txn(&self) -> lmdb::Result<RwTransaction> {
-        //todo  don't clone!
-        Ok(RwTransaction::new_null(self.databases.clone()))
+    fn new_with(databases: Vec<ConfiguredDatabase>) -> Self {
+        Self {
+            databases: Arc::new(Mutex::new(databases)),
+        }
+    }
+
+    fn begin_read(&self) -> ReadTransaction {
+        ReadTransaction::new_null(self.databases.lock().unwrap().clone())
+    }
+
+    fn begin_write(&self) -> WriteTransaction {
+        WriteTransaction::new_null(self.databases.clone())
     }
 
     fn create_db(&self, name: Option<&str>, _flags: DatabaseFlags) -> lmdb::Result<LmdbDatabase> {
@@ -249,33 +341,15 @@ impl EnvironmentStubBuilder {
         self
     }
 
-    pub fn finish(self) -> LmdbEnvironment {
-        LmdbEnvironment::new_null_with(self.databases)
-    }
-}
-
-#[derive(Default)]
-pub struct LmdbEnvironmentFactory {
-    is_nulled: bool,
-}
-
-impl LmdbEnvironmentFactory {
-    pub fn new_null() -> Self {
-        Self { is_nulled: true }
-    }
-
-    pub fn create_env(&self, options: EnvironmentOptions) -> lmdb::Result<LmdbEnvironment> {
-        if self.is_nulled {
-            Ok(LmdbEnvironment::new_null())
-        } else {
-            LmdbEnvironment::new(options)
-        }
+    pub fn build(self) -> LmdbEnvironment {
+        LmdbEnvironment::new_null_with_data(self.databases)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{PutEvent, Transaction};
     use lmdb::WriteFlags;
     use std::{
         env::temp_dir,
@@ -307,13 +381,40 @@ mod tests {
         let env = create_lmdb_env(path);
         let dbi = env.create_db(Some("mydb"), DatabaseFlags::empty()).unwrap();
         {
-            let mut tx = env.begin_rw_txn().unwrap();
-            tx.put(dbi, &[1, 2], &[3, 4], WriteFlags::empty()).unwrap();
-            tx.commit().unwrap();
+            let mut txn = env.begin_write();
+            txn.put(dbi, &[1, 2], &[3, 4], WriteFlags::empty()).unwrap();
+            txn.commit();
         }
-        let tx = env.begin_ro_txn().unwrap();
-        let result = tx.get(dbi, &[1, 2]).unwrap();
+        let txn = env.begin_read();
+        let result = txn.get(dbi, &[1, 2]).unwrap();
         assert_eq!(result, [3, 4]);
+    }
+
+    #[test]
+    fn can_track_puts() {
+        let env = LmdbEnvironment::new_null();
+
+        let database = env
+            .create_db(Some("testdb"), DatabaseFlags::empty())
+            .unwrap();
+
+        let mut txn = env.begin_write();
+        let tracker = txn.track_puts();
+        let key = &[1, 2, 3];
+        let value = &[4, 5, 6];
+        let flags = WriteFlags::APPEND;
+        txn.put(database, key, value, flags).unwrap();
+
+        let puts = tracker.output();
+        assert_eq!(
+            puts,
+            vec![PutEvent {
+                database,
+                key: key.to_vec(),
+                value: value.to_vec(),
+                flags
+            }]
+        )
     }
 
     mod nullability {
@@ -325,11 +426,11 @@ mod tests {
             let env = LmdbEnvironment::null_builder()
                 .database("foo", database)
                 .entry(&[1, 2], &[3, 4])
-                .finish()
-                .finish();
+                .build()
+                .build();
 
-            let tx = env.begin_ro_txn().unwrap();
-            let result = tx.get(database, &[1, 2]).unwrap();
+            let txn = env.begin_read();
+            let result = txn.get(database, &[1, 2]).unwrap();
             assert_eq!(result, [3, 4]);
         }
 
@@ -353,12 +454,12 @@ mod tests {
             let env = LmdbEnvironment::new_null();
             let dbi = env.create_db(Some("mydb"), DatabaseFlags::empty()).unwrap();
             {
-                let mut tx = env.begin_rw_txn().unwrap();
-                tx.put(dbi, &[1, 2], &[3, 4], WriteFlags::empty()).unwrap();
-                tx.commit().unwrap();
+                let mut txn = env.begin_write();
+                txn.put(dbi, &[1, 2], &[3, 4], WriteFlags::empty()).unwrap();
+                txn.commit();
             }
-            let tx = env.begin_ro_txn().unwrap();
-            let result = tx.get(dbi, &[1, 2]).unwrap();
+            let txn = env.begin_read();
+            let result = txn.get(dbi, &[1, 2]).unwrap();
             assert_eq!(result, [3, 4]);
         }
     }
@@ -369,12 +470,11 @@ mod tests {
             map_size: 1024 * 1024,
             flags: EnvironmentFlags::NO_SUB_DIR
                 | EnvironmentFlags::NO_TLS
-                | EnvironmentFlags::NO_READAHEAD
                 | EnvironmentFlags::NO_SYNC
                 | EnvironmentFlags::WRITE_MAP,
             path: path.to_path_buf(),
         };
-        LmdbEnvironment::new(opts).unwrap()
+        LmdbEnvironment::create(opts).unwrap()
     }
 
     static FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);

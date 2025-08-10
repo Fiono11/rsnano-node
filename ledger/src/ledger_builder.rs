@@ -1,22 +1,24 @@
-use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
-use rsnano_core::{utils::get_cpu_count, Amount};
-use rsnano_stats::Stats;
-use rsnano_store_lmdb::{
-    create_and_update_lmdb_env, get_env_flags, EnvironmentOptions, LedgerCache, LmdbConfig,
-    LmdbEnvFactory, TransactionTracker,
-};
 use std::{
     cmp::{max, min},
     path::PathBuf,
     sync::Arc,
 };
+
 use tracing::info;
+
+use rsnano_core::{utils::get_cpu_count, Amount};
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
+use rsnano_stats::Stats;
+use rsnano_store_lmdb::{
+    create_and_update_lmdb_env, get_lmdb_flags, EnvironmentOptions, LedgerCache, LmdbConfig,
+};
+
+use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
     config: Option<LmdbConfig>,
-    txn_tracker: Option<Arc<dyn TransactionTracker>>,
-    env_factory: Option<&'a LmdbEnvFactory>,
+    env_factory: Option<&'a LmdbEnvironmentFactory>,
     bootstrap_weights: Option<BootstrapWeights>,
     stats: Option<Arc<Stats>>,
     min_rep_weight: Amount,
@@ -29,7 +31,6 @@ impl<'a> LedgerBuilder<'a> {
         Self {
             path: path.into(),
             config: None,
-            txn_tracker: None,
             env_factory: None,
             bootstrap_weights: None,
             stats: None,
@@ -39,7 +40,7 @@ impl<'a> LedgerBuilder<'a> {
         }
     }
 
-    pub fn env_factory(mut self, env_factory: &'a LmdbEnvFactory) -> Self {
+    pub fn env_factory(mut self, env_factory: &'a LmdbEnvironmentFactory) -> Self {
         self.env_factory = Some(env_factory);
         self
     }
@@ -51,11 +52,6 @@ impl<'a> LedgerBuilder<'a> {
 
     pub fn bootstrap_weights(mut self, weights: BootstrapWeights) -> Self {
         self.bootstrap_weights = Some(weights);
-        self
-    }
-
-    pub fn txn_tracker(mut self, tracker: Arc<dyn TransactionTracker>) -> Self {
-        self.txn_tracker = Some(tracker);
         self
     }
 
@@ -89,13 +85,13 @@ impl<'a> LedgerBuilder<'a> {
         ));
 
         let config = self.config.unwrap_or_default();
-        let default_env_factory = LmdbEnvFactory::default();
+        let default_env_factory = LmdbEnvironmentFactory::default();
         let env_factory = self.env_factory.unwrap_or(&default_env_factory);
 
         let env_options = EnvironmentOptions {
             max_dbs: config.max_databases,
             map_size: config.map_size,
-            flags: get_env_flags(&config),
+            flags: get_lmdb_flags(&config),
             path: self.path,
         };
 
@@ -109,11 +105,7 @@ impl<'a> LedgerBuilder<'a> {
             self.thread_count = max(10, min(40, 11 * get_cpu_count()));
         }
 
-        let mut env = create_and_update_lmdb_env(&env_factory, env_options)?;
-
-        if let Some(txn_tracker) = self.txn_tracker {
-            env.set_transaction_tracker(txn_tracker);
-        }
+        let env = create_and_update_lmdb_env(&env_factory, env_options)?;
 
         info!("Loading ledger, this may take a while...");
         Ledger::new(

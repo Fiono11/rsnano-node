@@ -1,24 +1,25 @@
-use crate::{
-    parallel_traversal, LmdbDatabase, LmdbEnv, LmdbIterator, LmdbRangeIterator,
-    LmdbWriteTransaction, Transaction, CONFIRMATION_HEIGHT_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
+use std::ops::RangeBounds;
+
 use rsnano_core::{
     utils::{BufferReader, Deserialize},
     Account, ConfirmationHeightInfo,
 };
-use rsnano_nullable_lmdb::ConfiguredDatabase;
-use std::ops::RangeBounds;
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction,
+    WriteFlags, WriteTransaction,
+};
+
+use crate::{
+    parallel_traversal, LmdbIterator, LmdbRangeIterator, CONFIRMATION_HEIGHT_TEST_DATABASE,
+};
 
 pub struct LmdbConfirmationHeightStore {
     database: LmdbDatabase,
 }
 
 impl LmdbConfirmationHeightStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("confirmation_height"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("confirmation_height"), DatabaseFlags::empty())?;
 
         Ok(Self { database })
     }
@@ -29,7 +30,7 @@ impl LmdbConfirmationHeightStore {
 
     pub fn put(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        txn: &mut WriteTransaction,
         account: &Account,
         info: &ConfirmationHeightInfo,
     ) {
@@ -44,7 +45,7 @@ impl LmdbConfirmationHeightStore {
 
     pub fn get(&self, txn: &dyn Transaction, account: &Account) -> Option<ConfirmationHeightInfo> {
         match txn.get(self.database, account.as_bytes()) {
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Ok(bytes) => {
                 let mut stream = BufferReader::new(bytes);
                 ConfirmationHeightInfo::deserialize(&mut stream).ok()
@@ -59,7 +60,7 @@ impl LmdbConfirmationHeightStore {
         txn.exists(self.database, account.as_bytes())
     }
 
-    pub fn del(&self, txn: &mut LmdbWriteTransaction, account: &Account) {
+    pub fn del(&self, txn: &mut WriteTransaction, account: &Account) {
         txn.delete(self.database, account.as_bytes(), None).unwrap();
     }
 
@@ -67,7 +68,7 @@ impl LmdbConfirmationHeightStore {
         txn.count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut LmdbWriteTransaction) {
+    pub fn clear(&self, txn: &mut WriteTransaction) {
         txn.clear_db(self.database).unwrap()
     }
 
@@ -96,21 +97,22 @@ impl LmdbConfirmationHeightStore {
 
     pub fn for_each_par(
         &self,
-        env: &LmdbEnv,
+        env: &LmdbEnvironment,
         thread_count: usize,
         action: impl Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync,
     ) {
         parallel_traversal(thread_count, &|start, end, is_last| {
-            let tx = env.tx_begin_read();
+            let txn = env.begin_read();
             let start_account = Account::from(start);
             let end_account = Account::from(end);
             if is_last {
-                let mut iter = self.iter_range(&tx, start_account..);
+                let mut iter = self.iter_range(&txn, start_account..);
                 action(&mut iter);
             } else {
-                let mut iter = self.iter_range(&tx, start_account..end_account);
+                let mut iter = self.iter_range(&txn, start_account..end_account);
                 action(&mut iter);
             }
+            txn.commit();
         })
     }
 }
@@ -150,21 +152,21 @@ impl ConfiguredConfirmationHeightDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PutEvent;
     use rsnano_core::BlockHash;
+    use rsnano_nullable_lmdb::PutEvent;
     use std::sync::Arc;
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbConfirmationHeightStore,
     }
 
     impl Fixture {
         fn new() -> Self {
-            Self::with_env(LmdbEnv::new_null())
+            Self::with_env(LmdbEnvironment::new_null())
         }
 
-        fn with_env(env: LmdbEnv) -> Self {
+        fn with_env(env: LmdbEnvironment) -> Self {
             let env = Arc::new(env);
             Self {
                 store: LmdbConfirmationHeightStore::new(&env).unwrap(),
@@ -177,17 +179,17 @@ mod tests {
     fn empty_store() {
         let fixture = Fixture::new();
         let store = &fixture.store;
-        let tx = fixture.env.tx_begin_read();
-        assert!(store.get(&tx, &Account::from(0)).is_none());
-        assert_eq!(store.exists(&tx, &Account::from(0)), false);
-        assert!(store.iter(&tx).next().is_none());
-        assert!(store.iter_range(&tx, Account::from(0)..).next().is_none());
+        let txn = fixture.env.begin_read();
+        assert!(store.get(&txn, &Account::from(0)).is_none());
+        assert_eq!(store.exists(&txn, &Account::from(0)), false);
+        assert!(store.iter(&txn).next().is_none());
+        assert!(store.iter_range(&txn, Account::from(0)..).next().is_none());
     }
 
     #[test]
     fn add_account() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let put_tracker = txn.track_puts();
 
         let account = Account::from(1);
@@ -210,14 +212,14 @@ mod tests {
         let account = Account::from(1);
         let info = ConfirmationHeightInfo::new(1, BlockHash::from(2));
 
-        let env = LmdbEnv::new_null_with()
+        let env = LmdbEnvironment::null_builder()
             .database("confirmation_height", LmdbDatabase::new_null(100))
             .entry(account.as_bytes(), &info.to_bytes())
             .build()
             .build();
 
         let fixture = Fixture::with_env(env);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let result = fixture.store.get(&txn, &account);
 
         assert_eq!(result, Some(info))
@@ -228,15 +230,15 @@ mod tests {
         let account = Account::from(1);
         let info = ConfirmationHeightInfo::new(1, BlockHash::from(2));
 
-        let env = LmdbEnv::new_null_with()
+        let env = LmdbEnvironment::null_builder()
             .database("confirmation_height", LmdbDatabase::new_null(100))
             .entry(account.as_bytes(), &info.to_bytes())
             .build()
             .build();
 
         let fixture = Fixture::with_env(env);
-        let tx = fixture.env.tx_begin_read();
-        let mut it = fixture.store.iter(&tx);
+        let txn = fixture.env.begin_read();
+        let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), Some((account, info)));
         assert!(it.next().is_none());
         Ok(())
@@ -245,7 +247,7 @@ mod tests {
     #[test]
     fn clear() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let clear_tracker = txn.track_clears();
 
         fixture.store.clear(&mut txn);

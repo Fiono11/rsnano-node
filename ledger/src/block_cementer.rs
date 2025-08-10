@@ -1,8 +1,11 @@
-use crate::LedgerConstants;
-use rsnano_core::{BlockHash, ConfirmationHeightInfo, SavedBlock};
-use rsnano_stats::{DetailType, Direction, StatType, Stats};
-use rsnano_store_lmdb::{LmdbStore, LmdbWriteTransaction, Transaction};
 use std::{collections::VecDeque, sync::atomic::Ordering};
+
+use rsnano_core::{BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
+use rsnano_stats::{DetailType, Direction, StatType, Stats};
+use rsnano_store_lmdb::LmdbStore;
+
+use crate::LedgerConstants;
 
 /// Cements Blocks in the ledger
 pub(crate) struct BlockCementer<'a> {
@@ -26,21 +29,21 @@ impl<'a> BlockCementer<'a> {
 
     pub(crate) fn confirm(
         &self,
-        txn: &mut LmdbWriteTransaction,
+        mut txn: WriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
-    ) -> Vec<SavedBlock> {
+    ) -> (WriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
         while let Some(&hash) = stack.back() {
-            let block = self.store.block.get(txn, &hash).unwrap();
+            let block = self.store.block.get(&txn, &hash).unwrap();
 
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
             for dependent in dependents.iter() {
-                if !dependent.is_zero() && !self.is_confirmed(txn, dependent) {
+                if !dependent.is_zero() && !self.is_confirmed(&txn, dependent) {
                     self.stats.inc(
                         StatType::ConfirmationHeight,
                         DetailType::DependentUnconfirmed,
@@ -58,7 +61,7 @@ impl<'a> BlockCementer<'a> {
 
             if stack.back() == Some(&hash) {
                 stack.pop_back();
-                if !self.is_confirmed(txn, &hash) {
+                if !self.is_confirmed(&txn, &hash) {
                     // We must only confirm blocks that have their dependencies confirmed
 
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
@@ -66,7 +69,7 @@ impl<'a> BlockCementer<'a> {
                     // Update store
                     self.store
                         .confirmation_height
-                        .put(txn, &block.account(), &conf_height);
+                        .put(&mut txn, &block.account(), &conf_height);
                     self.store
                         .cache
                         .confirmed_count
@@ -87,9 +90,10 @@ impl<'a> BlockCementer<'a> {
 
             // Refresh the transaction to avoid long-running transactions
             // Ensure that the block wasn't rolled back during the refresh
-            let refreshed = txn.refresh_if_needed();
-            if refreshed {
-                if !self.store.block.exists(txn, &target_hash) {
+
+            if txn.is_refresh_needed() {
+                txn = self.store.env.refresh(txn);
+                if !self.store.block.exists(&txn, &target_hash) {
                     break; // Block was rolled back during cementing
                 }
             }
@@ -99,10 +103,10 @@ impl<'a> BlockCementer<'a> {
                 break;
             }
         }
-        result
+        (txn, result)
     }
 
-    fn is_confirmed(&self, tx: &LmdbWriteTransaction, hash: &BlockHash) -> bool {
+    fn is_confirmed(&self, tx: &WriteTransaction, hash: &BlockHash) -> bool {
         if self.store.pruned.exists(tx, hash) {
             return true;
         }

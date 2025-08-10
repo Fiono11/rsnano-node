@@ -1,5 +1,3 @@
-use lmdb::{DatabaseFlags, WriteFlags};
-use lmdb_sys::{MDB_FIRST, MDB_NEXT};
 use num_traits::FromPrimitive;
 use tracing::{debug, error, info};
 
@@ -7,29 +5,33 @@ use rsnano_core::{
     utils::{UnixMillisTimestamp, UnixTimestamp},
     BlockType,
 };
+use rsnano_nullable_lmdb::{
+    sys::{MDB_FIRST, MDB_NEXT},
+    DatabaseFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory, Transaction,
+    WriteFlags,
+};
 
 use crate::{
     block_store::{BLOCK_DATA_DB_NAME, BLOCK_INDEX_DB_NAME},
     vacuum::vacuum,
-    LmdbEnv, LmdbEnvFactory, LmdbVersionStore, Transaction, FIRST_INCOMPATIBLE_STORE_VERSION,
-    STORE_VERSION_CURRENT, STORE_VERSION_MINIMUM,
+    LmdbVersionStore, FIRST_INCOMPATIBLE_STORE_VERSION, STORE_VERSION_CURRENT,
+    STORE_VERSION_MINIMUM,
 };
-use rsnano_nullable_lmdb::EnvironmentOptions;
 
 pub fn create_and_update_lmdb_env(
-    env_factory: &LmdbEnvFactory,
+    env_factory: &LmdbEnvironmentFactory,
     options: EnvironmentOptions,
-) -> anyhow::Result<LmdbEnv> {
-    let mut env = env_factory.create_with_options(options.clone())?;
+) -> anyhow::Result<LmdbEnvironment> {
+    let mut env = env_factory.create(options.clone())?;
     let needs_vacuuming = upgrade_if_needed(&mut env)?;
     if needs_vacuuming {
         vacuum(env)?;
-        env = env_factory.create_with_options(options)?;
+        env = env_factory.create(options)?;
     }
     Ok(env)
 }
 
-fn upgrade_if_needed(env: &mut LmdbEnv) -> Result<bool, anyhow::Error> {
+fn upgrade_if_needed(env: &mut LmdbEnvironment) -> Result<bool, anyhow::Error> {
     let upgrade_info = LmdbVersionStore::check_upgrade(&env)?;
     if upgrade_info.is_fully_upgraded {
         debug!("No database upgrade needed");
@@ -43,20 +45,22 @@ fn upgrade_if_needed(env: &mut LmdbEnv) -> Result<bool, anyhow::Error> {
     Ok(needs_vacuuming)
 }
 
-fn do_upgrades(env: &mut LmdbEnv) -> anyhow::Result<bool> {
+fn do_upgrades(env: &mut LmdbEnvironment) -> anyhow::Result<bool> {
     let version_store = LmdbVersionStore::new(env)?;
 
     let mut version = {
-        let mut tx = env.tx_begin_write();
-        match version_store.get(&tx) {
+        let mut txn = env.begin_write();
+        let version = match version_store.get(&txn) {
             Some(v) => v,
             None => {
                 let new_version = STORE_VERSION_CURRENT;
                 info!("Setting db version to {}", new_version);
-                version_store.put(&mut tx, new_version);
+                version_store.put(&mut txn, new_version);
                 new_version
             }
-        }
+        };
+        txn.commit();
+        version
     };
 
     if version == STORE_VERSION_CURRENT {
@@ -99,8 +103,9 @@ fn do_upgrades(env: &mut LmdbEnv) -> anyhow::Result<bool> {
 
         version = next_version(version);
 
-        let mut tx = env.tx_begin_write();
-        version_store.put(&mut tx, version);
+        let mut txn = env.begin_write();
+        version_store.put(&mut txn, version);
+        txn.commit();
     }
 
     if needs_vacuuming {
@@ -118,19 +123,14 @@ fn next_version(version: i32) -> i32 {
     }
 }
 
-fn create_successor_table(env: &LmdbEnv) -> Result<(), anyhow::Error> {
+fn create_successor_table(env: &LmdbEnvironment) -> Result<(), anyhow::Error> {
     info!("Creating block successor table...");
 
-    let block_db = env
-        .environment
-        .create_db(Some("blocks"), DatabaseFlags::empty())?;
+    let block_db = env.create_db(Some("blocks"), DatabaseFlags::empty())?;
+    let successor_db = env.create_db(Some("successors"), DatabaseFlags::empty())?;
 
-    let successor_db = env
-        .environment
-        .create_db(Some("successors"), DatabaseFlags::empty())?;
-
-    let tx_read = env.tx_begin_read();
-    let mut tx_write = env.tx_begin_write();
+    let tx_read = env.begin_read();
+    let mut tx_write = env.begin_write();
     let mut processed = 0;
     let mut cursor = tx_read.open_ro_cursor(block_db)?;
 
@@ -144,29 +144,25 @@ fn create_successor_table(env: &LmdbEnv) -> Result<(), anyhow::Error> {
         }
     }
 
+    drop(cursor);
+    tx_read.commit();
+    tx_write.commit();
+
     Ok(())
 }
 
 fn remove_successor_from_sideband_and_upgrade_timestamp_and_split_table(
-    env: &LmdbEnv,
+    env: &LmdbEnvironment,
 ) -> Result<(), anyhow::Error> {
     info!("Removing successor from sideband and upgrading timestamp to milliseconds and splitting block table...");
 
-    let block_db = env
-        .environment
-        .create_db(Some("blocks"), DatabaseFlags::empty())?;
-
-    let index_db = env
-        .environment
-        .create_db(Some(BLOCK_INDEX_DB_NAME), DatabaseFlags::empty())?;
-
-    let block_data_db = env
-        .environment
-        .create_db(Some(BLOCK_DATA_DB_NAME), DatabaseFlags::empty())?;
+    let block_db = env.create_db(Some("blocks"), DatabaseFlags::empty())?;
+    let index_db = env.create_db(Some(BLOCK_INDEX_DB_NAME), DatabaseFlags::empty())?;
+    let block_data_db = env.create_db(Some(BLOCK_DATA_DB_NAME), DatabaseFlags::empty())?;
 
     let mut processed = 0;
-    let tx_read = env.tx_begin_read();
-    let mut tx_write = env.tx_begin_write();
+    let tx_read = env.begin_read();
+    let mut tx_write = env.begin_write();
     let cursor = tx_read.open_ro_cursor(block_db)?;
     let mut op = MDB_FIRST;
     let mut hash_bytes = [0; 32];
@@ -197,15 +193,18 @@ fn remove_successor_from_sideband_and_upgrade_timestamp_and_split_table(
                 }
             }
             Ok((None, _)) => bail!("Block data without key found!"),
-            Err(lmdb::Error::NotFound) => break,
+            Err(rsnano_nullable_lmdb::Error::NotFound) => break,
             Err(e) => bail!("Could not iter blocks table: {e:?}"),
         }
     }
+    drop(cursor);
+    tx_read.commit();
 
     info!("Dropping old block table...");
     unsafe {
         tx_write.drop_db(block_db)?;
     }
+    tx_write.commit();
 
     Ok(())
 }
@@ -328,7 +327,7 @@ mod tests {
 
     #[test]
     fn version_too_high_for_upgrade() -> anyhow::Result<()> {
-        let env = LmdbEnv::new_null();
+        let env = LmdbEnvironment::new_null();
         set_store_version(&env, i32::MAX)?;
         assert_upgrade_fails(env, "version too high");
         Ok(())
@@ -336,7 +335,7 @@ mod tests {
 
     #[test]
     fn version_too_low_for_upgrade() -> anyhow::Result<()> {
-        let env = LmdbEnv::new_null();
+        let env = LmdbEnvironment::new_null();
         set_store_version(&env, STORE_VERSION_MINIMUM - 1)?;
         assert_upgrade_fails(env, "version too low");
         Ok(())
@@ -344,14 +343,14 @@ mod tests {
 
     #[test]
     fn writes_db_version_for_new_store() {
-        let mut env = LmdbEnv::new_null();
+        let mut env = LmdbEnvironment::new_null();
         upgrade_if_needed(&mut env).unwrap();
-        let txn = env.tx_begin_read();
+        let txn = env.begin_read();
         let version_store = LmdbVersionStore::new(&env).unwrap();
         assert_eq!(version_store.get(&txn), Some(STORE_VERSION_CURRENT));
     }
 
-    fn assert_upgrade_fails(mut env: LmdbEnv, error_msg: &str) {
+    fn assert_upgrade_fails(mut env: LmdbEnvironment, error_msg: &str) {
         let result = upgrade_if_needed(&mut env);
         match result {
             Ok(_) => panic!("store should not be created!"),
@@ -361,10 +360,11 @@ mod tests {
         }
     }
 
-    fn set_store_version(env: &LmdbEnv, current_version: i32) -> Result<(), anyhow::Error> {
+    fn set_store_version(env: &LmdbEnvironment, current_version: i32) -> Result<(), anyhow::Error> {
         let version_store = LmdbVersionStore::new(env)?;
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
         version_store.put(&mut txn, current_version);
+        txn.commit();
         Ok(())
     }
 }

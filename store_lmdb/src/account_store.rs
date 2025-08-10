@@ -1,16 +1,19 @@
-use crate::{
-    iterator::{LmdbIterator, LmdbRangeIterator},
-    parallel_traversal, LmdbDatabase, LmdbEnv, LmdbWriteTransaction, Transaction,
-    ACCOUNT_TEST_DATABASE,
-};
-use lmdb::{DatabaseFlags, WriteFlags};
+use std::{ops::RangeBounds, sync::Arc};
+
 use rsnano_core::{
     utils::{BufferReader, Deserialize},
     Account, AccountInfo,
 };
-use rsnano_nullable_lmdb::ConfiguredDatabase;
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction,
+    WriteFlags, WriteTransaction,
+};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use std::{ops::RangeBounds, sync::Arc};
+
+use crate::{
+    iterator::{LmdbIterator, LmdbRangeIterator},
+    parallel_traversal, ACCOUNT_TEST_DATABASE,
+};
 
 pub struct LmdbAccountStore {
     /// U256 (arbitrary key) -> blob
@@ -19,10 +22,8 @@ pub struct LmdbAccountStore {
 }
 
 impl LmdbAccountStore {
-    pub fn new(env: &LmdbEnv) -> anyhow::Result<Self> {
-        let database = env
-            .environment
-            .create_db(Some("accounts"), DatabaseFlags::empty())?;
+    pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
+        let database = env.create_db(Some("accounts"), DatabaseFlags::empty())?;
 
         Ok(Self {
             database,
@@ -38,12 +39,7 @@ impl LmdbAccountStore {
         self.database
     }
 
-    pub fn put(
-        &self,
-        transaction: &mut LmdbWriteTransaction,
-        account: &Account,
-        info: &AccountInfo,
-    ) {
+    pub fn put(&self, transaction: &mut WriteTransaction, account: &Account, info: &AccountInfo) {
         if self.put_listener.is_tracked() {
             self.put_listener.emit((*account, info.clone()));
         }
@@ -60,7 +56,7 @@ impl LmdbAccountStore {
     pub fn get(&self, transaction: &dyn Transaction, account: &Account) -> Option<AccountInfo> {
         let result = transaction.get(self.database, account.as_bytes());
         match result {
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Ok(bytes) => {
                 let mut stream = BufferReader::new(bytes);
                 AccountInfo::deserialize(&mut stream).ok()
@@ -69,7 +65,7 @@ impl LmdbAccountStore {
         }
     }
 
-    pub fn del(&self, transaction: &mut LmdbWriteTransaction, account: &Account) {
+    pub fn del(&self, transaction: &mut WriteTransaction, account: &Account) {
         transaction
             .delete(self.database, account.as_bytes(), None)
             .unwrap();
@@ -102,21 +98,22 @@ impl LmdbAccountStore {
 
     pub fn for_each_par(
         &self,
-        env: &LmdbEnv,
+        env: &LmdbEnvironment,
         thread_count: usize,
         action: impl Fn(&mut dyn Iterator<Item = (Account, AccountInfo)>) + Send + Sync,
     ) {
         parallel_traversal(thread_count, &|start, end, is_last| {
-            let tx = env.tx_begin_read();
+            let txn = env.begin_read();
             let start_account = Account::from(start);
             let end_account = Account::from(end);
             if is_last {
-                let mut iter = self.iter_range(&tx, start_account..);
+                let mut iter = self.iter_range(&txn, start_account..);
                 action(&mut iter);
             } else {
-                let mut iter = self.iter_range(&tx, start_account..end_account);
+                let mut iter = self.iter_range(&txn, start_account..end_account);
                 action(&mut iter);
             }
+            txn.commit();
         })
     }
 
@@ -157,12 +154,12 @@ impl ConfiguredAccountDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeleteEvent, PutEvent};
     use rsnano_core::{Amount, BlockHash};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::sync::Mutex;
 
     struct Fixture {
-        env: Arc<LmdbEnv>,
+        env: Arc<LmdbEnvironment>,
         store: LmdbAccountStore,
     }
 
@@ -172,13 +169,13 @@ mod tests {
         }
 
         fn with_stored_accounts(accounts: Vec<(Account, AccountInfo)>) -> Self {
-            let env = LmdbEnv::new_null_with()
+            let env = LmdbEnvironment::null_builder()
                 .configured_database(ConfiguredAccountDatabaseBuilder::create(accounts))
                 .build();
             Self::with_env(env)
         }
 
-        fn with_env(env: LmdbEnv) -> Self {
+        fn with_env(env: LmdbEnvironment) -> Self {
             let env = Arc::new(env);
             let store = LmdbAccountStore::new(&env).unwrap();
 
@@ -189,7 +186,7 @@ mod tests {
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let account = Account::from(1);
         let result = fixture.store.get(&txn, &account);
         assert_eq!(result, None);
@@ -199,7 +196,7 @@ mod tests {
     #[test]
     fn add_one_account() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let put_tracker = txn.track_puts();
 
         let account = Account::from(1);
@@ -212,7 +209,7 @@ mod tests {
                 database: ACCOUNT_TEST_DATABASE.into(),
                 key: account.as_bytes().to_vec(),
                 value: info.to_bytes().to_vec(),
-                flags: lmdb::WriteFlags::empty()
+                flags: WriteFlags::empty()
             }]
         );
     }
@@ -222,7 +219,7 @@ mod tests {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
         let fixture = Fixture::with_stored_accounts(vec![(account.clone(), info.clone())]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let result = fixture.store.get(&txn, &account);
 
@@ -235,7 +232,7 @@ mod tests {
             (Account::from(1), AccountInfo::new_test_instance()),
             (Account::from(2), AccountInfo::new_test_instance()),
         ]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let count = fixture.store.count(&txn);
 
@@ -245,7 +242,7 @@ mod tests {
     #[test]
     fn delete_account() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let delete_tracker = txn.track_deletions();
 
         let account = Account::from(1);
@@ -263,7 +260,7 @@ mod tests {
     #[test]
     fn begin_empty_store_nullable() {
         let fixture = Fixture::new();
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
         let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), None);
     }
@@ -285,7 +282,7 @@ mod tests {
             (account1.clone(), info1.clone()),
             (account2.clone(), info2.clone()),
         ]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), Some((account1, info1)));
@@ -310,7 +307,7 @@ mod tests {
             (account1.clone(), info1.clone()),
             (account3.clone(), info3.clone()),
         ]);
-        let txn = fixture.env.tx_begin_read();
+        let txn = fixture.env.begin_read();
 
         let mut it = fixture.store.iter_range(&txn, Account::from(2)..);
 
@@ -349,7 +346,7 @@ mod tests {
     fn track_inserted_account_info() {
         let fixture = Fixture::new();
         let put_tracker = fixture.store.track_puts();
-        let mut txn = fixture.env.tx_begin_write();
+        let mut txn = fixture.env.begin_write();
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
 

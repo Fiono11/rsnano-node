@@ -1,9 +1,10 @@
-use crate::{LmdbWriteTransaction, Transaction};
-use lmdb::{DatabaseFlags, WriteFlags};
-use rsnano_core::BlockHash;
-use rsnano_nullable_lmdb::{LmdbDatabase, LmdbEnvironment};
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use std::sync::Arc;
+
+use rsnano_core::BlockHash;
+use rsnano_nullable_lmdb::{
+    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+};
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
 /// Stores the hash of the successor block for a given block hash
 pub struct LmdbSuccessorStore {
@@ -24,7 +25,7 @@ impl LmdbSuccessorStore {
         self.put_listener.track()
     }
 
-    pub fn put(&self, tx: &mut LmdbWriteTransaction, block: &BlockHash, successor: &BlockHash) {
+    pub fn put(&self, tx: &mut WriteTransaction, block: &BlockHash, successor: &BlockHash) {
         if self.put_listener.is_tracked() {
             self.put_listener.emit((*block, *successor));
         }
@@ -38,14 +39,14 @@ impl LmdbSuccessorStore {
         .unwrap();
     }
 
-    pub fn del(&self, tx: &mut LmdbWriteTransaction, block: &BlockHash) {
+    pub fn del(&self, tx: &mut WriteTransaction, block: &BlockHash) {
         tx.delete(self.database, block.as_bytes(), None).unwrap();
     }
 
     pub fn get(&self, tx: &dyn Transaction, block: &BlockHash) -> Option<BlockHash> {
         match tx.get(self.database, block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Err(e) => panic!("Could not load successor hash: {:?}", e),
         }
     }
@@ -60,7 +61,7 @@ const TABLE_NAME: &str = "successors";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeleteEvent, LmdbEnv, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
 
     #[test]
     fn initialize() {
@@ -75,14 +76,14 @@ mod tests {
             (3.into(), 4.into()),
             (5.into(), 6.into()),
         ]);
-        let tx = env.tx_begin_read();
+        let tx = env.begin_read();
         assert_eq!(store.count(&tx), 3);
     }
 
     #[test]
     fn put() {
         let (store, env) = create_test_store(&[]);
-        let mut tx = env.tx_begin_write();
+        let mut tx = env.begin_write();
         let put_tracker = tx.track_puts();
         let block = BlockHash::from(1);
         let successor = BlockHash::from(2);
@@ -104,7 +105,7 @@ mod tests {
     fn track_puts() {
         let (store, env) = create_test_store(&[]);
         let put_tracker = store.track_puts();
-        let mut tx = env.tx_begin_write();
+        let mut tx = env.begin_write();
         let block = BlockHash::from(1);
         let successor = BlockHash::from(2);
 
@@ -121,7 +122,7 @@ mod tests {
             (5.into(), 6.into()),
         ]);
 
-        let tx = env.tx_begin_read();
+        let tx = env.begin_read();
         let successor = store.get(&tx, &3.into());
         assert_eq!(successor, Some(4.into()))
     }
@@ -130,7 +131,7 @@ mod tests {
     fn no_successor_found() {
         let (store, env) = create_test_store(&[]);
 
-        let tx = env.tx_begin_read();
+        let tx = env.begin_read();
         let successor = store.get(&tx, &3.into());
         assert_eq!(successor, None);
     }
@@ -139,21 +140,20 @@ mod tests {
     #[should_panic = "Could not load successor hash: PageNotFound"]
     fn get_unexpected_error() {
         let block_hash = BlockHash::from(1);
-        let lmdb_env = LmdbEnvironment::null_builder()
+        let env = LmdbEnvironment::null_builder()
             .database(TABLE_NAME, TEST_DATABASE)
-            .error(block_hash.as_bytes(), lmdb::Error::PageNotFound)
-            .finish()
-            .finish();
-        let env = LmdbEnv::new(lmdb_env, "/nulled-env");
-        let store = LmdbSuccessorStore::new(&env.environment).unwrap();
-        let tx = env.tx_begin_read();
+            .error(block_hash.as_bytes(), Error::PageNotFound)
+            .build()
+            .build();
+        let store = LmdbSuccessorStore::new(&env).unwrap();
+        let tx = env.begin_read();
         store.get(&tx, &block_hash);
     }
 
     #[test]
     fn delete() {
         let (store, env) = create_test_store(&[]);
-        let mut tx = env.tx_begin_write();
+        let mut tx = env.begin_write();
         let delete_tracker = tx.track_deletions();
 
         let block_hash = BlockHash::from(123);
@@ -170,16 +170,17 @@ mod tests {
 
     const TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(42);
 
-    fn create_test_store(entries: &[(BlockHash, BlockHash)]) -> (LmdbSuccessorStore, LmdbEnv) {
+    fn create_test_store(
+        entries: &[(BlockHash, BlockHash)],
+    ) -> (LmdbSuccessorStore, LmdbEnvironment) {
         let mut env_builder = LmdbEnvironment::null_builder().database(TABLE_NAME, TEST_DATABASE);
 
         for (block_hash, successor) in entries {
             env_builder = env_builder.entry(block_hash.as_bytes(), successor.as_bytes());
         }
 
-        let lmdb_env = env_builder.finish().finish();
-        let env = LmdbEnv::new(lmdb_env, "/nulled-env");
-        let store = LmdbSuccessorStore::new(&env.environment).unwrap();
-        (store, env)
+        let lmdb_env = env_builder.build().build();
+        let store = LmdbSuccessorStore::new(&lmdb_env).unwrap();
+        (store, lmdb_env)
     }
 }

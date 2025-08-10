@@ -1,10 +1,13 @@
-use lmdb_sys::{MDB_cursor_op, MDB_FIRST, MDB_LAST, MDB_NEXT, MDB_PREV, MDB_SET_RANGE};
-use rsnano_core::utils::{BufferReader, Deserialize, MutStreamAdapter, Serialize};
-use rsnano_nullable_lmdb::{RoCursor, EMPTY_DATABASE};
 use std::{
     cmp::Ordering,
     marker::PhantomData,
     ops::{Bound, RangeBounds},
+};
+
+use rsnano_core::utils::{BufferReader, Deserialize, MutStreamAdapter, Serialize};
+use rsnano_nullable_lmdb::{
+    sys::{MDB_cursor_op, MDB_FIRST, MDB_LAST, MDB_NEXT, MDB_PREV, MDB_SET_RANGE},
+    Error, Result, RoCursor, EMPTY_DATABASE,
 };
 
 pub struct LmdbRangeIterator<'txn, K, V, R> {
@@ -41,9 +44,9 @@ where
         }
     }
 
-    fn get_next_result(&mut self) -> lmdb::Result<(Option<&'txn [u8]>, &'txn [u8])> {
+    fn get_next_result(&mut self) -> Result<(Option<&'txn [u8]>, &'txn [u8])> {
         if self.empty {
-            Err(lmdb::Error::NotFound)
+            Err(Error::NotFound)
         } else if !self.initialized {
             self.initialized = true;
             self.get_first_result()
@@ -52,7 +55,7 @@ where
         }
     }
 
-    fn get_first_result(&self) -> lmdb::Result<(Option<&'txn [u8]>, &'txn [u8])> {
+    fn get_first_result(&self) -> Result<(Option<&'txn [u8]>, &'txn [u8])> {
         match self.range.start_bound() {
             Bound::Included(start) => {
                 let mut key_bytes = [0u8; 64];
@@ -102,7 +105,7 @@ where
                     None
                 }
             }
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Err(e) => panic!("Could not read from cursor: {:?}", e),
         }
     }
@@ -149,7 +152,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = match self.cursor.get(None, None, self.operation) {
-            Err(lmdb::Error::NotFound) => None,
+            Err(Error::NotFound) => None,
             Ok((Some(k), v)) => Some((self.convert)(k, v)),
             Ok(_) => panic!("No key returned"),
             Err(e) => panic!("Read error {:?}", e),

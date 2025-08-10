@@ -1,7 +1,10 @@
-use crate::cli::GlobalArgs;
 use clap::{ArgGroup, Parser};
+
 use rsnano_core::QualifiedRoot;
-use rsnano_store_lmdb::{LmdbEnvFactory, LmdbFinalVoteStore};
+use rsnano_store_lmdb::{default_ledger_lmdb_options, LmdbFinalVoteStore};
+
+use crate::cli::GlobalArgs;
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 
 #[derive(Parser, PartialEq, Debug)]
 #[command(group = ArgGroup::new("input1")
@@ -19,9 +22,10 @@ pub(crate) struct FinalVoteArgs {
 impl FinalVoteArgs {
     pub(crate) fn final_vote(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
         let path = global_args.data_path.join("data.ldb");
-        let env = LmdbEnvFactory::default().create_env(&path)?;
+        let options = default_ledger_lmdb_options(path);
+        let env = LmdbEnvironmentFactory::default().create(options)?;
         let final_vote_store = LmdbFinalVoteStore::new(&env)?;
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
 
         if let Some(root) = &self.root {
             let root_decoded = QualifiedRoot::decode_hex(root)?;
@@ -31,6 +35,7 @@ impl FinalVoteArgs {
             final_vote_store.clear(&mut txn);
             println!("All final votes were cleared from the database");
         }
+        txn.commit();
 
         Ok(())
     }

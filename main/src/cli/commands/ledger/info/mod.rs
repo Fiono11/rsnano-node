@@ -1,6 +1,9 @@
-use crate::cli::GlobalArgs;
 use clap::{CommandFactory, Parser, Subcommand};
-use rsnano_store_lmdb::{LmdbEnvFactory, LmdbPeerStore};
+
+use rsnano_store_lmdb::{default_ledger_lmdb_options, LmdbPeerStore};
+
+use crate::cli::GlobalArgs;
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 
 #[derive(Subcommand, PartialEq, Debug)]
 pub(crate) enum InfoSubcommands {
@@ -26,14 +29,16 @@ impl InfoCommand {
 
     fn peers(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
         let path = global_args.data_path.join("data.ldb");
-        let env = LmdbEnvFactory::default().create_env(&path)?;
+        let options = default_ledger_lmdb_options(path);
+        let env = LmdbEnvironmentFactory::default().create(options)?;
         let peer_store = LmdbPeerStore::new(&env)?;
-        let txn = env.tx_begin_read();
+        let txn = env.begin_read();
 
         for peer in peer_store.iter(&txn) {
             println!("{:?}", peer.0);
         }
 
+        txn.commit();
         Ok(())
     }
 }

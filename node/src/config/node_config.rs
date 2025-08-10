@@ -12,10 +12,7 @@ use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
 use rsnano_work::OpenClConfig;
 
-use super::{
-    websocket_config::WebsocketConfig, DiagnosticsConfig, NetworkParams, Networks,
-    DEV_NETWORK_PARAMS,
-};
+use super::{websocket_config::WebsocketConfig, NetworkParams, Networks, DEV_NETWORK_PARAMS};
 use crate::{
     block_processing::{
         BacklogScanConfig, BoundedBacklogConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
@@ -93,11 +90,11 @@ pub struct NodeConfig {
     pub callback_port: u16,
     pub callback_target: String,
     pub websocket_config: WebsocketConfig,
-    pub diagnostics_config: DiagnosticsConfig,
     pub lmdb_config: LmdbConfig,
     pub vote_cache: VoteCacheConfig,
     pub rep_crawler_query_timeout: Duration,
     pub block_processor: ProcessQueueConfig,
+    pub block_processor_threads: usize,
     pub active_elections: ActiveElectionsConfig,
     pub vote_processor: VoteProcessorConfig,
     pub tcp: TcpConfig,
@@ -299,7 +296,6 @@ impl NodeConfig {
             callback_port: 0,
             callback_target: String::new(),
             websocket_config: WebsocketConfig::new(&network_params.network),
-            diagnostics_config: DiagnosticsConfig::new(),
             lmdb_config: LmdbConfig::new(),
             optimistic_scheduler: OptimisticSchedulerConfig::new(),
             ordering_scheduler: OrderingSchedulerConfig::new(),
@@ -317,6 +313,7 @@ impl NodeConfig {
                 Duration::from_secs(60)
             },
             block_processor: block_processor_cfg,
+            block_processor_threads: max(2, parallelism / 2),
             vote_processor: VoteProcessorConfig::new(parallelism),
             tcp: if network_params.network.is_dev_network() {
                 TcpConfig::for_dev_network()

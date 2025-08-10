@@ -1,12 +1,15 @@
 mod confirmation_height;
 mod final_vote;
 
-use crate::cli::GlobalArgs;
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
+
+use rsnano_store_lmdb::{default_ledger_lmdb_options, LmdbOnlineWeightStore, LmdbPeerStore};
+
+use crate::cli::GlobalArgs;
 use confirmation_height::ConfirmationHeightArgs;
 use final_vote::FinalVoteArgs;
-use rsnano_store_lmdb::{LmdbEnvFactory, LmdbOnlineWeightStore, LmdbPeerStore};
+use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 
 #[derive(Parser, PartialEq, Debug)]
 pub(crate) struct ClearCommand {
@@ -43,11 +46,13 @@ impl ClearCommand {
 
     fn online_weight(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
         let path = global_args.data_path.join("data.ldb");
-        let env = LmdbEnvFactory::default().create_env(&path)?;
+        let options = default_ledger_lmdb_options(path);
+        let env = LmdbEnvironmentFactory::default().create(options)?;
         let online_weight_store = LmdbOnlineWeightStore::new(&env)?;
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
 
         online_weight_store.clear(&mut txn);
+        txn.commit();
 
         println!("Online weight records were cleared from the database");
         Ok(())
@@ -55,11 +60,13 @@ impl ClearCommand {
 
     fn peers(&self, global_args: GlobalArgs) -> Result<()> {
         let path = global_args.data_path.join("data.ldb");
-        let env = LmdbEnvFactory::default().create_env(&path)?;
+        let options = default_ledger_lmdb_options(path);
+        let env = LmdbEnvironmentFactory::default().create(options)?;
         let peer_store = LmdbPeerStore::new(&env)?;
-        let mut txn = env.tx_begin_write();
+        let mut txn = env.begin_write();
 
         peer_store.clear(&mut txn);
+        txn.commit();
 
         println!("Peers were cleared from the database");
         Ok(())

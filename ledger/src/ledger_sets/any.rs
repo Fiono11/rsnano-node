@@ -5,9 +5,8 @@ use rsnano_core::{
     DependentBlocks, DetailedBlock, PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root,
     SavedBlock,
 };
-use rsnano_store_lmdb::{
-    LmdbPendingStore, LmdbRangeIterator, LmdbReadTransaction, LmdbStore, Transaction,
-};
+use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
+use rsnano_store_lmdb::{LmdbPendingStore, LmdbRangeIterator, LmdbStore};
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{DependentBlocksFinder, LedgerConstants, RepresentativeBlockFinder};
@@ -82,16 +81,16 @@ pub trait AnySet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningAnySet<'a> {
     store: &'a LmdbStore,
-    tx: LmdbReadTransaction,
+    txn: ReadTransaction,
     constants: &'a LedgerConstants,
 }
 
 impl<'a> OwningAnySet<'a> {
     pub(crate) fn new(store: &'a LmdbStore, constants: &'a LedgerConstants) -> Self {
-        let tx = store.tx_begin_read();
+        let tx = store.begin_read();
         Self {
             store,
-            tx,
+            txn: tx,
             constants,
         }
     }
@@ -99,7 +98,7 @@ impl<'a> OwningAnySet<'a> {
     fn borrowing_set(&'a self) -> BorrowingAnySet<'a> {
         BorrowingAnySet {
             store: self.store,
-            tx: &self.tx,
+            tx: &self.txn,
             constants: self.constants,
         }
     }
@@ -108,25 +107,25 @@ impl<'a> OwningAnySet<'a> {
         &self,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
-        self.store.account.iter_range(&self.tx, range)
+        self.store.account.iter_range(&self.txn, range)
     }
 
     pub fn iter_accounts(&self) -> impl Iterator<Item = (Account, AccountInfo)> + '_ {
-        self.store.account.iter(&self.tx)
+        self.store.account.iter(&self.txn)
     }
 
     pub fn iter_account_range(
         &self,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
-        self.store.account.iter_range(&self.tx, range)
+        self.store.account.iter_range(&self.txn, range)
     }
 
     pub fn iter_pending_range(
         &self,
         range: impl RangeBounds<PendingKey> + 'static,
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + '_ {
-        self.store.pending.iter_range(&self.tx, range)
+        self.store.pending.iter_range(&self.txn, range)
     }
 
     pub fn random_blocks(&self, count: usize) -> Vec<SavedBlock> {
@@ -134,13 +133,13 @@ impl<'a> OwningAnySet<'a> {
         let starting_hash = BlockHash::random();
 
         // It is more efficient to choose a random starting point and pick a few sequential blocks from there
-        let mut it = self.store.block.iter_range(&self.tx, starting_hash..);
+        let mut it = self.store.block.iter_range(&self.txn, starting_hash..);
         while result.len() < count {
             match it.next() {
                 Some(block) => result.push(block),
                 None => {
                     // Wrap around when reaching the end
-                    it = self.store.block.iter_range(&self.tx, BlockHash::zero()..);
+                    it = self.store.block.iter_range(&self.txn, BlockHash::zero()..);
                 }
             }
         }
@@ -160,12 +159,20 @@ impl<'a> OwningAnySet<'a> {
     pub fn weight_exact(&self, representative: PublicKey) -> Amount {
         self.store
             .rep_weight
-            .get(&self.tx, &representative)
+            .get(&self.txn, &representative)
             .unwrap_or_default()
     }
 
-    pub fn refresh_if_needed(&mut self) {
-        self.tx.refresh_if_needed();
+    pub fn is_refresh_needed(&self) -> bool {
+        self.txn.is_refresh_needed()
+    }
+
+    pub fn refresh(self) -> Self {
+        Self {
+            store: self.store,
+            txn: self.txn.refresh(),
+            constants: self.constants,
+        }
     }
 }
 
@@ -200,7 +207,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
     }
 
     fn confirmed(&self) -> BorrowingConfirmedSet {
-        BorrowingConfirmedSet::new(self.store, &self.tx)
+        BorrowingConfirmedSet::new(self.store, &self.txn)
     }
 
     fn dependent_blocks(&self, block: &SavedBlock) -> DependentBlocks {
@@ -280,14 +287,14 @@ impl<'a> AnySet for OwningAnySet<'a> {
     fn receivable_upper_bound(&self, account: Account) -> AnyReceivableIterator {
         match account.inc() {
             None => AnyReceivableIterator::new(
-                &self.tx,
+                &self.txn,
                 &self.store.pending,
                 Default::default(),
                 None,
                 None,
             ),
             Some(account) => AnyReceivableIterator::new(
-                &self.tx,
+                &self.txn,
                 &self.store.pending,
                 account,
                 None,
@@ -298,7 +305,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
 
     fn receivable_lower_bound(&self, account: Account) -> AnyReceivableIterator {
         AnyReceivableIterator::new(
-            &self.tx,
+            &self.txn,
             &self.store.pending,
             account,
             None,
@@ -312,7 +319,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
         hash: BlockHash,
     ) -> AnyReceivableIterator {
         AnyReceivableIterator::new(
-            &self.tx,
+            &self.txn,
             &self.store.pending,
             account,
             Some(account),

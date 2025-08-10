@@ -1,8 +1,9 @@
-use crate::EMPTY_DATABASE;
+use std::{cell::Cell, collections::btree_map};
+
+use lmdb_sys::{MDB_FIRST, MDB_LAST, MDB_NEXT, MDB_PREV, MDB_SET_RANGE};
 
 use super::ConfiguredDatabase;
-use lmdb_sys::{MDB_FIRST, MDB_LAST, MDB_NEXT, MDB_PREV, MDB_SET_RANGE};
-use std::{cell::Cell, collections::btree_map};
+use crate::EMPTY_DATABASE;
 
 pub struct RoCursor<'txn>(RoCursorStrategy<'txn>);
 
@@ -132,9 +133,9 @@ impl<'a> Iterator for Iter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{LmdbDatabase, LmdbEnvironment};
-    use lmdb::{DatabaseFlags, EnvironmentFlags, Transaction, WriteFlags};
-    use std::path::Path;
+    use crate::{LmdbDatabase, LmdbEnvironment, LmdbEnvironmentFactory, Transaction};
+    use lmdb::{DatabaseFlags, EnvironmentFlags, WriteFlags};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn iter() {
@@ -142,10 +143,9 @@ mod tests {
         let _guard2 = FileDropGuard::new("/tmp/rsnano-cursor-test.ldb-lock".as_ref());
         let env = create_real_lmdb_env("/tmp/rsnano-cursor-test.ldb");
         create_test_database(&env);
-        let env = LmdbEnvironment::new_with(env);
         let database = env.open_db(Some("foo")).unwrap();
-        let tx = env.begin_ro_txn().unwrap();
-        let mut cursor = tx.open_ro_cursor(database).unwrap();
+        let txn = env.begin_read();
+        let mut cursor = txn.open_ro_cursor(database).unwrap();
 
         let result: Vec<_> = cursor.iter_start().map(|i| i.unwrap()).collect();
 
@@ -158,17 +158,15 @@ mod tests {
             ]
         );
     }
-
     #[test]
     fn iter_backwards() {
         let _guard1 = FileDropGuard::new("/tmp/rsnano-rev-cursor-test.ldb".as_ref());
         let _guard2 = FileDropGuard::new("/tmp/rsnano-rev-cursor-test.ldb-lock".as_ref());
         let env = create_real_lmdb_env("/tmp/rsnano-rev-cursor-test.ldb");
         create_test_database(&env);
-        let env = LmdbEnvironment::new_with(env);
         let database = env.open_db(Some("foo")).unwrap();
-        let tx = env.begin_ro_txn().unwrap();
-        let cursor = tx.open_ro_cursor(database).unwrap();
+        let txn = env.begin_read();
+        let cursor = txn.open_ro_cursor(database).unwrap();
 
         assert_eq!(
             cursor.get(None, None, MDB_LAST).unwrap(),
@@ -190,7 +188,7 @@ mod tests {
         #[test]
         fn iter_from_start() {
             let env = nulled_env_with_foo_database();
-            let txn = env.begin_ro_txn().unwrap();
+            let txn = env.begin_read();
             let mut cursor = txn.open_ro_cursor(TEST_DATABASE).unwrap();
 
             let result: Vec<([u8; 3], [u8; 3])> = cursor
@@ -212,7 +210,7 @@ mod tests {
         #[test]
         fn nulled_cursor_can_be_iterated_forwards() {
             let env = nulled_env_with_foo_database();
-            let txn = env.begin_ro_txn().unwrap();
+            let txn = env.begin_read();
 
             let cursor = txn.open_ro_cursor(LmdbDatabase::new_null(42)).unwrap();
 
@@ -235,7 +233,7 @@ mod tests {
         #[test]
         fn nulled_cursor_can_be_iterated_backwards() {
             let env = nulled_env_with_foo_database();
-            let txn = env.begin_ro_txn().unwrap();
+            let txn = env.begin_read();
             let cursor = txn.open_ro_cursor(TEST_DATABASE).unwrap();
 
             let (k, v) = cursor.get(None, None, MDB_LAST).unwrap();
@@ -257,7 +255,7 @@ mod tests {
         #[test]
         fn nulled_cursor_can_start_at_specified_key() {
             let env = nulled_env_with_foo_database();
-            let txn = env.begin_ro_txn().unwrap();
+            let txn = env.begin_read();
 
             let cursor = txn.open_ro_cursor(TEST_DATABASE).unwrap();
             let (k, v) = cursor
@@ -279,37 +277,24 @@ mod tests {
                 .entry(&[1, 1, 1], &[6, 6, 6])
                 .entry(&[2, 2, 2], &[7, 7, 7])
                 .entry(&[3, 3, 3], &[8, 8, 8])
-                .finish()
-                .finish()
+                .build()
+                .build()
         }
     }
 
-    fn create_test_database(env: &lmdb::Environment) {
+    fn create_test_database(env: &LmdbEnvironment) {
         env.create_db(Some("foo"), DatabaseFlags::empty()).unwrap();
         let database = env.open_db(Some("foo")).unwrap();
         {
-            let mut tx = env.begin_rw_txn().unwrap();
-            tx.put(database, b"hello", b"world", WriteFlags::empty())
+            let mut txn = env.begin_write();
+            txn.put(database, b"hello", b"world", WriteFlags::empty())
                 .unwrap();
-            tx.put(database, b"hello2", b"world2", WriteFlags::empty())
+            txn.put(database, b"hello2", b"world2", WriteFlags::empty())
                 .unwrap();
-            tx.put(database, b"hello3", b"world3", WriteFlags::empty())
+            txn.put(database, b"hello3", b"world3", WriteFlags::empty())
                 .unwrap();
-            tx.commit().unwrap();
+            txn.commit();
         }
-    }
-
-    fn create_real_lmdb_env(path: impl AsRef<Path>) -> lmdb::Environment {
-        lmdb::Environment::new()
-            .set_max_dbs(1)
-            .set_map_size(1024 * 1024)
-            .set_flags(
-                EnvironmentFlags::NO_SUB_DIR
-                    | EnvironmentFlags::NO_TLS
-                    | EnvironmentFlags::NO_READAHEAD,
-            )
-            .open(path.as_ref())
-            .expect("Could not create LMDB environment")
     }
 
     struct FileDropGuard<'a> {
@@ -328,5 +313,16 @@ mod tests {
                 let _ = std::fs::remove_file(self.path);
             }
         }
+    }
+
+    fn create_real_lmdb_env(path: impl Into<PathBuf>) -> LmdbEnvironment {
+        LmdbEnvironmentFactory::default()
+            .create(crate::EnvironmentOptions {
+                max_dbs: 1,
+                map_size: 1024 * 1024,
+                flags: EnvironmentFlags::NO_SUB_DIR | EnvironmentFlags::NO_TLS,
+                path: path.into(),
+            })
+            .unwrap()
     }
 }

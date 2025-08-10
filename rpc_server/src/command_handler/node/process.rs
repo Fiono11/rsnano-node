@@ -1,12 +1,12 @@
 use anyhow::{anyhow, bail};
 
 use rsnano_core::{Block, BlockBase, BlockType};
-use rsnano_ledger::{BlockError, BlockSource, LedgerSet};
+use rsnano_ledger::{BlockError, LedgerSet};
 use rsnano_network::ChannelId;
+use rsnano_node::block_processing::{BlockContext, BlockSource};
 use rsnano_rpc_messages::{BlockSubTypeDto, HashRpcMessage, ProcessArgs, StartedResponse};
 
 use crate::command_handler::RpcCommandHandler;
-use rsnano_node::block_processing::BlockContext;
 
 impl RpcCommandHandler {
     pub(crate) fn process(&self, args: ProcessArgs) -> anyhow::Result<serde_json::Value> {
@@ -105,6 +105,7 @@ impl RpcCommandHandler {
                     Err(anyhow!("This block cannot follow the previous block"))
                 }
                 Err(BlockError::InsufficientWork) => Err(anyhow!("Block work is insufficient")),
+                Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
             self.node.block_processor_queue.push(BlockContext::new(

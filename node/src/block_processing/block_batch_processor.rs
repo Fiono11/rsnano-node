@@ -7,19 +7,24 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tracing::debug;
+use strum::{EnumCount, IntoEnumIterator};
+use tracing::{debug, warn};
 
-use rsnano_core::{BlockType, Epoch, UncheckedInfo};
-use rsnano_ledger::{BlockError, BlockSource, Ledger};
+use rsnano_core::{
+    utils::{backpressure_channel, BackpressureSender},
+    BlockType, Epoch, UncheckedInfo,
+};
+use rsnano_ledger::{BlockError, Ledger};
 use rsnano_stats::{StatsCollection, StatsSource};
 
-use super::{BlockContext, UncheckedMap};
-use strum::{EnumCount, IntoEnumIterator};
+use super::{BlockContext, BlockSource, LedgerEvent, UncheckedMap};
+use crate::block_processing::ProcessedResult;
 
 pub(crate) struct BlockBatchProcessor {
     pub ledger: Arc<Ledger>,
     pub unchecked: Arc<UncheckedMap>,
     pub stats: Arc<BlockBatchProcessorStats>,
+    pub event_publisher: BackpressureSender<LedgerEvent>,
 }
 
 impl BlockBatchProcessor {
@@ -29,24 +34,37 @@ impl BlockBatchProcessor {
             ledger: Arc::new(Ledger::new_null()),
             unchecked: Arc::new(UncheckedMap::default()),
             stats: Arc::new(BlockBatchProcessorStats::default()),
+            event_publisher: backpressure_channel(0).0,
         }
     }
 
     pub(crate) fn process_blocks(&self, mut batch: VecDeque<Arc<BlockContext>>) {
         let timer = Instant::now();
 
-        let fork_blocks = batch.iter().filter_map(|i| {
-            if i.source == BlockSource::Forced {
-                Some(&i.block)
-            } else {
-                None
-            }
-        });
-        self.ledger.roll_back_competitors(fork_blocks);
+        self.roll_back_competitor_blocks(&batch);
 
-        let mut result = self
-            .ledger
-            .process_batch(batch.iter().map(|c| (&c.block, c.source)));
+        let mut result = self.ledger.process_batch(batch.iter().map(|c| &c.block));
+
+        let processed_result: Vec<_> = result
+            .processed
+            .iter()
+            .zip(&batch)
+            .map(|((result, block), ctx)| ProcessedResult {
+                block: ctx.block.clone(),
+                source: ctx.source,
+                status: *result,
+                saved_block: block.clone(),
+            })
+            .collect();
+
+        if !processed_result.is_empty() {
+            if let Err(e) = self
+                .event_publisher
+                .send(LedgerEvent::BlocksProcessed(processed_result))
+            {
+                warn!("Failed to publish blocks processed event: {e:?}");
+            }
+        }
 
         if result.processed.len() > 0 && timer.elapsed() > Duration::from_millis(100) {
             debug!(
@@ -127,6 +145,9 @@ impl BlockBatchProcessor {
                 Err(BlockError::Old) => {
                     debug!("Block is old: {}", hash)
                 }
+                Err(BlockError::Conflict) => {
+                    debug!("Block conflict: {}", hash)
+                }
                 // These are unexpected and indicate erroneous/malicious behavior, log debug info to highlight the issue
                 Err(BlockError::BadSignature) => {
                     debug!("Block signature is invalid: {}", hash)
@@ -165,6 +186,24 @@ impl BlockBatchProcessor {
             }
             context.set_result(*res);
         }
+    }
+
+    fn roll_back_competitor_blocks(&self, batch: &VecDeque<Arc<BlockContext>>) {
+        let fork_blocks = batch.iter().filter_map(|i| {
+            if i.source == BlockSource::Forced {
+                Some(&i.block)
+            } else {
+                None
+            }
+        });
+        self.ledger.roll_back_competitors(fork_blocks, |results| {
+            if let Err(e) = self
+                .event_publisher
+                .send(LedgerEvent::BlocksRolledBack(results))
+            {
+                warn!("Failed to publish rolled back event: {e:?}");
+            }
+        });
     }
 }
 

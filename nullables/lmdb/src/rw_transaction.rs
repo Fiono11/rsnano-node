@@ -1,16 +1,165 @@
-use super::{ConfiguredDatabase, LmdbDatabase, RoCursor};
-use crate::RwCursor;
-use lmdb::DatabaseFlags;
-use std::sync::{Arc, Mutex};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-pub struct RwTransaction {
+use lmdb::DatabaseFlags;
+use rsnano_output_tracker::{OutputListener, OutputTracker};
+
+use super::{ConfiguredDatabase, LmdbDatabase, RoCursor};
+use crate::{RwCursor, Transaction};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PutEvent {
+    pub database: LmdbDatabase,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub flags: lmdb::WriteFlags,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeleteEvent {
+    pub database: LmdbDatabase,
+    pub key: Vec<u8>,
+}
+
+pub struct WriteTransaction {
+    txn: RwTransaction,
+    put_listener: OutputListener<PutEvent>,
+    delete_listener: OutputListener<DeleteEvent>,
+    clear_listener: OutputListener<LmdbDatabase>,
+    start: Instant,
+}
+
+impl WriteTransaction {
+    pub fn new(txn: lmdb::RwTransaction<'static>) -> Self {
+        Self::with_txn(RwTransaction::new(txn))
+    }
+
+    pub fn new_null(databases: Arc<Mutex<Vec<ConfiguredDatabase>>>) -> Self {
+        Self::with_txn(RwTransaction::new_null(databases))
+    }
+
+    fn with_txn(txn: RwTransaction) -> Self {
+        Self {
+            txn,
+            put_listener: OutputListener::new(),
+            delete_listener: OutputListener::new(),
+            clear_listener: OutputListener::new(),
+            start: Instant::now(),
+        }
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    pub fn commit(self) {
+        self.txn.commit().unwrap();
+    }
+
+    pub fn track_puts(&self) -> Rc<OutputTracker<PutEvent>> {
+        self.put_listener.track()
+    }
+
+    pub fn track_deletions(&self) -> Rc<OutputTracker<DeleteEvent>> {
+        self.delete_listener.track()
+    }
+
+    pub fn track_clears(&self) -> Rc<OutputTracker<LmdbDatabase>> {
+        self.clear_listener.track()
+    }
+
+    pub unsafe fn create_db(
+        &mut self,
+        name: Option<&str>,
+        flags: lmdb::DatabaseFlags,
+    ) -> lmdb::Result<LmdbDatabase> {
+        self.txn.create_db(name, flags)
+    }
+
+    pub fn put(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: lmdb::WriteFlags,
+    ) -> lmdb::Result<()> {
+        if self.put_listener.is_tracked() {
+            self.put_listener.emit(PutEvent {
+                database,
+                key: key.to_vec(),
+                value: value.to_vec(),
+                flags,
+            });
+        }
+        self.txn.put(database, key, value, flags)
+    }
+
+    pub fn delete(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        flags: Option<&[u8]>,
+    ) -> lmdb::Result<()> {
+        if self.delete_listener.is_tracked() {
+            self.delete_listener.emit(DeleteEvent {
+                database,
+                key: key.to_vec(),
+            });
+        }
+        self.txn.del(database, key, flags)
+    }
+
+    pub fn clear_db(&mut self, database: LmdbDatabase) -> lmdb::Result<()> {
+        self.clear_listener.emit(database);
+        self.txn.clear_db(database)
+    }
+
+    pub fn open_rw_cursor(&mut self, database: LmdbDatabase) -> lmdb::Result<RwCursor> {
+        self.txn.open_rw_cursor(database)
+    }
+
+    /// ## Safety
+    ///
+    /// This method is unsafe in the same ways as `Environment::close_db`, and
+    /// should be used accordingly.
+    pub unsafe fn drop_db(&mut self, database: LmdbDatabase) -> lmdb::Result<()> {
+        self.txn.drop_db(database)
+    }
+}
+
+impl Transaction for WriteTransaction {
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+        self.txn.get(database, key)
+    }
+
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor> {
+        self.txn.open_ro_cursor(database)
+    }
+
+    fn count(&self, database: LmdbDatabase) -> u64 {
+        self.txn.count(database)
+    }
+
+    fn is_refresh_needed(&self) -> bool {
+        self.is_refresh_needed_with(Duration::from_millis(500))
+    }
+
+    fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
+        self.start.elapsed() > max_duration
+    }
+}
+
+struct RwTransaction {
     strategy: RwTransactionStrategy,
 }
 
 impl RwTransaction {
-    pub fn new(tx: lmdb::RwTransaction<'static>) -> Self {
+    pub fn new(txn: lmdb::RwTransaction<'static>) -> Self {
         Self {
-            strategy: RwTransactionStrategy::Real(RwTransactionWrapper(tx)),
+            strategy: RwTransactionStrategy::Real(RwTransactionWrapper(txn)),
         }
     }
 
