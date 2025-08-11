@@ -1051,6 +1051,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1324,6 +1334,15 @@ checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
  "zeroize",
+]
+
+[[package]]
+name = "deranged"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
+dependencies = [
+ "powerfmt",
 ]
 
 [[package]]
@@ -1725,6 +1744,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
+dependencies = [
+ "humantime",
+ "is-terminal",
+ "log",
+ "regex",
+ "termcolor",
 ]
 
 [[package]]
@@ -2233,6 +2265,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "humantime"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b112acc8b3adf4b107a8ec20977da0273a8c386765a3ec0229bd500a1443f9f"
+
+[[package]]
 name = "hyper"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2485,6 +2523,17 @@ checksum = "dbc5ebe9c3a1a7a5127f920a418f7585e9e758e911d0466ed004f393b0e380b2"
 dependencies = [
  "memchr",
  "serde",
+]
+
+[[package]]
+name = "is-terminal"
+version = "0.4.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
+dependencies = [
+ "hermit-abi",
+ "libc",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2806,7 +2855,7 @@ dependencies = [
  "ntest",
  "num-format",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_messages",
  "rsnano_network",
  "rsnano_network_protocol",
@@ -2960,6 +3009,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-conv"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
+
+[[package]]
 name = "num-derive"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3060,6 +3115,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -3676,6 +3740,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "powerfmt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3899,7 +3969,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_rpc_client",
  "rsnano_rpc_messages",
  "tokio",
@@ -4027,7 +4097,7 @@ dependencies = [
  "num-derive",
  "num-format",
  "num-traits 0.2.19",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_daemon",
  "rsnano_ledger",
  "rsnano_messages",
@@ -4040,6 +4110,18 @@ dependencies = [
  "strum 0.27.2",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "rsnano_archipelago"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "env_logger",
+ "log",
+ "rand 0.8.5",
+ "rsnano_core 0.1.0 (git+https://github.com/rsnano-node/rsnano-node?branch=develop)",
+ "simple_logger",
 ]
 
 [[package]]
@@ -4059,8 +4141,36 @@ dependencies = [
  "num-traits 0.2.19",
  "primitive-types",
  "rand 0.9.2",
- "rsnano_nullable_random",
- "rsnano_output_tracker",
+ "rsnano_nullable_random 0.1.0",
+ "rsnano_output_tracker 0.1.0",
+ "rust-argon2",
+ "serde",
+ "serde_json",
+ "static_assertions",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
+]
+
+[[package]]
+name = "rsnano_core"
+version = "0.1.0"
+source = "git+https://github.com/rsnano-node/rsnano-node?branch=develop#d320e3f38904e8d091f79fac9025fd250dd9a11b"
+dependencies = [
+ "aes",
+ "anyhow",
+ "blake2 0.10.6",
+ "chrono",
+ "ctr",
+ "ed25519-dalek",
+ "hex",
+ "num",
+ "num-derive",
+ "num-format",
+ "num-traits 0.2.19",
+ "primitive-types",
+ "rand 0.9.2",
+ "rsnano_nullable_random 0.1.0 (git+https://github.com/rsnano-node/rsnano-node?branch=develop)",
+ "rsnano_output_tracker 0.1.0 (git+https://github.com/rsnano-node/rsnano-node?branch=develop)",
  "rust-argon2",
  "serde",
  "serde_json",
@@ -4074,7 +4184,7 @@ name = "rsnano_daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_node",
  "rsnano_nullable_http_client",
@@ -4097,7 +4207,7 @@ dependencies = [
  "num-traits 0.2.19",
  "once_cell",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_nullable_lmdb",
  "rsnano_stats",
  "rsnano_store_lmdb",
@@ -4118,7 +4228,7 @@ dependencies = [
  "num-derive",
  "num-traits 0.2.19",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_stats",
  "rsnano_work",
  "serde",
@@ -4140,10 +4250,10 @@ dependencies = [
  "num-derive",
  "num-traits 0.2.19",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_nullable_clock",
  "rsnano_nullable_tcp",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "rsnano_stats",
  "serde",
  "serde_json",
@@ -4160,7 +4270,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_messages",
  "rsnano_network",
  "rsnano_stats",
@@ -4194,7 +4304,7 @@ dependencies = [
  "ordered-float 5.0.0",
  "primitive-types",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_messages",
  "rsnano_network",
@@ -4203,9 +4313,9 @@ dependencies = [
  "rsnano_nullable_fs",
  "rsnano_nullable_http_client",
  "rsnano_nullable_lmdb",
- "rsnano_nullable_random",
+ "rsnano_nullable_random 0.1.0",
  "rsnano_nullable_tcp",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "rsnano_stats",
  "rsnano_store_lmdb",
  "rsnano_websocket_messages",
@@ -4241,7 +4351,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_daemon",
  "rsnano_ledger",
  "rsnano_messages",
@@ -4264,7 +4374,7 @@ version = "0.1.0"
 name = "rsnano_nullable_console"
 version = "0.1.0"
 dependencies = [
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
 ]
 
 [[package]]
@@ -4275,7 +4385,7 @@ version = "0.1.0"
 name = "rsnano_nullable_fs"
 version = "0.1.0"
 dependencies = [
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
 ]
 
 [[package]]
@@ -4286,7 +4396,7 @@ dependencies = [
  "axum",
  "reqwest",
  "rsnano_nullable_tcp",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "serde",
  "serde_json",
  "tokio",
@@ -4299,7 +4409,7 @@ version = "0.1.0"
 dependencies = [
  "lmdb-rkv",
  "lmdb-rkv-sys",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
 ]
 
 [[package]]
@@ -4310,10 +4420,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsnano_nullable_random"
+version = "0.1.0"
+source = "git+https://github.com/rsnano-node/rsnano-node?branch=develop#d320e3f38904e8d091f79fac9025fd250dd9a11b"
+dependencies = [
+ "rand 0.9.2",
+]
+
+[[package]]
 name = "rsnano_nullable_tcp"
 version = "0.1.0"
 dependencies = [
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "tokio",
 ]
 
@@ -4322,7 +4440,7 @@ name = "rsnano_nullable_tracing_subscriber"
 version = "0.1.0"
 dependencies = [
  "rsnano_nullable_env",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "tracing-subscriber",
 ]
 
@@ -4331,12 +4449,17 @@ name = "rsnano_output_tracker"
 version = "0.1.0"
 
 [[package]]
+name = "rsnano_output_tracker"
+version = "0.1.0"
+source = "git+https://github.com/rsnano-node/rsnano-node?branch=develop#d320e3f38904e8d091f79fac9025fd250dd9a11b"
+
+[[package]]
 name = "rsnano_rpc_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "reqwest",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_rpc_messages",
  "serde",
  "serde_json",
@@ -4347,7 +4470,7 @@ name = "rsnano_rpc_messages"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_messages",
  "serde",
  "serde_json",
@@ -4361,7 +4484,7 @@ dependencies = [
  "axum",
  "indexmap",
  "itertools",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_messages",
  "rsnano_network",
@@ -4389,7 +4512,7 @@ dependencies = [
  "num",
  "num-derive",
  "num-traits 0.2.19",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "serde",
  "serde_json",
  "serde_variant",
@@ -4405,9 +4528,9 @@ dependencies = [
  "num-traits 0.2.19",
  "primitive-types",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_nullable_lmdb",
- "rsnano_output_tracker",
+ "rsnano_output_tracker 0.1.0",
  "rsnano_store_lmdb",
  "serde",
  "serde_json",
@@ -4420,7 +4543,7 @@ name = "rsnano_websocket_client"
 version = "0.1.0"
 dependencies = [
  "futures-util",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_websocket_messages",
  "serde",
  "serde_json",
@@ -4437,7 +4560,7 @@ version = "0.1.0"
 dependencies = [
  "num-derive",
  "num-traits 0.2.19",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_work",
  "serde",
  "serde_json",
@@ -4453,7 +4576,7 @@ dependencies = [
  "futures-util",
  "num-derive",
  "num-traits 0.2.19",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_messages",
  "rsnano_node",
@@ -4474,7 +4597,7 @@ version = "0.1.0"
 dependencies = [
  "ocl",
  "rand 0.9.2",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "serde_json",
  "tracing",
 ]
@@ -4818,7 +4941,7 @@ name = "signature-checker"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek-blake2b",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_nullable_lmdb",
  "rsnano_store_lmdb",
@@ -4829,6 +4952,18 @@ name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
+
+[[package]]
+name = "simple_logger"
+version = "4.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e7e46c8c90251d47d08b28b8a419ffb4aede0f87c2eea95e17d1d5bacbf3ef1"
+dependencies = [
+ "colored",
+ "log",
+ "time",
+ "windows-sys 0.48.0",
+]
 
 [[package]]
 name = "siphasher"
@@ -5081,7 +5216,7 @@ dependencies = [
  "anyhow",
  "axum",
  "mock_instant",
- "rsnano_core",
+ "rsnano_core 0.1.0",
  "rsnano_ledger",
  "rsnano_network",
  "rsnano_node",
@@ -5163,6 +5298,39 @@ dependencies = [
  "flate2",
  "jpeg-decoder",
  "weezl",
+]
+
+[[package]]
+name = "time"
+version = "0.3.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
+dependencies = [
+ "deranged",
+ "itoa",
+ "libc",
+ "num-conv",
+ "num_threads",
+ "powerfmt",
+ "serde",
+ "time-core",
+ "time-macros",
+]
+
+[[package]]
+name = "time-core"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
+
+[[package]]
+name = "time-macros"
+version = "0.2.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
+dependencies = [
+ "num-conv",
+ "time-core",
 ]
 
 [[package]]
@@ -6195,6 +6363,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
 dependencies = [
  "windows-targets 0.42.2",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.48.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9"
+dependencies = [
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
