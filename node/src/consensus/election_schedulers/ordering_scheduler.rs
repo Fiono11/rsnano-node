@@ -122,9 +122,7 @@ impl OrderingScheduler {
         while !guard.stopped {
             guard = self
                 .condition
-                .wait_while(guard, |g| {
-                    !g.stopped && !g.predicate(self.config.committed_threshold)
-                })
+                .wait_while(guard, |g| !g.stopped && !g.predicate(self.config.committed_threshold))
                 .unwrap();
 
             if !guard.stopped {
@@ -162,8 +160,12 @@ impl OrderingScheduler {
                     // Reset the committed count and increment epoch
                     guard.committed_count = 0;
                     guard.current_epoch += 1;
-                }
 
+                    drop(guard);
+                } else {
+                    drop(guard);
+                }
+                self.notify();
                 guard = self.mutex.lock().unwrap();
             }
         }

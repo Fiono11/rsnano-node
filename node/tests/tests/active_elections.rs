@@ -1339,3 +1339,37 @@ fn ordering_election_committed_block_increment() {
 
     assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
 }
+
+#[test]
+fn ordering_election_started_when_threshold_reached() {
+    let mut system = System::new();
+
+    // Create config with ordering scheduler enabled
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_ordering_scheduler = true;
+    config.ordering_scheduler.committed_threshold = 1; // Set low threshold for testing
+
+    let node = system.build_node().config(config).finish();
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
+    node.process(send1.clone());
+    
+    // Start an election for the block first
+    start_election(&node, &send1.hash());
+    
+    // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
+    node.force_confirm(&send1.hash());
+
+    // Verify that an ordering election was actually started
+    // The ordering scheduler should create an OrderingBlock and insert it into the active elections
+    assert_timely2(|| {
+        // Check if there's an active election for an ordering block
+        node.active.read().unwrap().iter_round_robin().any(|election| {
+            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
+        })
+    });
+
+    // After the ordering block is created, the committed count should be reset to 0
+    assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 0);
+}

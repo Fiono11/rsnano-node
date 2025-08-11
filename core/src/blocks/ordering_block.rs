@@ -75,7 +75,7 @@ impl BlockBase for OrderingBlock {
     }
 
     fn previous(&self) -> BlockHash {
-        unimplemented!()
+        BlockHash::zero()
     }
 
     fn serialize_without_block_type(&self, writer: &mut dyn BufferWriter) {

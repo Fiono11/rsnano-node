@@ -437,8 +437,8 @@ impl SavedBlock {
         BlockSideband {
             height: 2,
             timestamp: 222222.into(),
-            account: block.account_field().unwrap(),
-            balance: block.balance_field().unwrap(),
+            account: block.account_field().unwrap_or_default(),
+            balance: block.balance_field().unwrap_or_default(),
             details: BlockDetails::new(Epoch::Epoch2, true, false, false),
             source_epoch: Epoch::Epoch0,
         }
