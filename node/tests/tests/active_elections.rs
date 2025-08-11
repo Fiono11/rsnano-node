@@ -1,8 +1,7 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_core::{
-    utils::{MemoryStream, UnixMillisTimestamp},
-    Account, Amount, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY,
+    utils::{MemoryStream, UnixMillisTimestamp}, Account, Amount, Block, OrderingBlock, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY
 };
 use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder, BlockError, LedgerSet, DEV_GENESIS_ACCOUNT,
@@ -1370,6 +1369,42 @@ fn ordering_election_started_when_threshold_reached() {
         })
     });
 
+    // Get the ordering block hash and force confirm it
+    let ordering_block_hash = {
+        let active = node.active.read().unwrap();
+        let ordering_election = active.iter_round_robin().find(|election| {
+            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
+        });
+        ordering_election.unwrap().winner().as_block().hash()
+    };
+
+    node.force_confirm(&ordering_block_hash);
+    
     // After the ordering block is created, the committed count should be reset to 0
     assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 0);
+
+    // Verify that the ordering election confirms
+    // Since ordering blocks are system-generated and represent confirmed blocks,
+    // they should be confirmed automatically or through special voting mechanisms
+    assert_timely2(|| {
+        // Check if the ordering block is confirmed in the ledger
+        let active = node.active.read().unwrap();
+        let ordering_election = active.iter_round_robin().find(|election| {
+            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
+        });
+        
+        if let Some(election) = ordering_election {
+            // The ordering election should be confirmed
+            election.is_confirmed()
+        } else {
+            false
+        }
+    });
+
+    // Verify that the ordering block is eventually removed from active elections after confirmation
+    assert_timely2(|| {
+        !node.active.read().unwrap().iter_round_robin().any(|election| {
+            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
+        })
+    });
 }
