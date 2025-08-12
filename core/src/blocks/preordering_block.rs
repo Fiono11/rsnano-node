@@ -1,5 +1,5 @@
 use crate::{
-    block_hash::Blake2Hash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
+    account, block_hash::Blake2Hash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
 };
 use anyhow::Result;
 
@@ -10,14 +10,16 @@ pub struct PreOrderingBlock {
     pub epoch: u64,
     pub committed_frontiers: Vec<BlockHash>,
     pub signature: Signature,
+    pub account: Account,
 }
 
 impl PreOrderingBlock {
-    pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>) -> Self {
+    pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>, account: Account) -> Self {
         Self {
             epoch,
             committed_frontiers: committed_blocks,
             signature: Signature::default(),
+            account,
         }
     }
 
@@ -37,7 +39,7 @@ impl BlockBase for PreOrderingBlock {
     }
 
     fn account_field(&self) -> Option<Account> {
-        None
+        Some(self.account)
     }
 
     fn hash(&self) -> BlockHash {

@@ -1,5 +1,5 @@
 use crate::{
-    blocks::preordering_block::PreOrderingBlockHash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
+    account, blocks::preordering_block::PreOrderingBlockHash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
 };
 use anyhow::Result;
 
@@ -8,14 +8,16 @@ pub struct OrderingBlock {
     pub epoch: u64,
     pub pre_ordering_blocks: Vec<PreOrderingBlockHash>,
     pub signature: Signature,
+    pub account: Account,
 }
 
 impl OrderingBlock {
-    pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>) -> Self {
+    pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>, account: Account) -> Self {
         Self {
             epoch,
             pre_ordering_blocks: committed_blocks,
             signature: Signature::default(),
+            account,
         }
     }
 

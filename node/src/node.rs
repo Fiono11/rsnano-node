@@ -625,6 +625,8 @@ impl Node {
             confirming_set.clone(),
             online_reps.clone(),
             steady_clock.clone(),
+            message_flooder.clone(),
+            rep_weights.clone(),
         ));
         ledger_event_processor_plugins.push(Box::new(ElectionSchedulersPlugin::new(
             election_schedulers.clone(),
