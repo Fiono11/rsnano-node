@@ -115,6 +115,14 @@ impl AecInsertRequest {
         }
     }
 
+    pub fn new_pre_ordering(block: SavedBlock, priority: BlockPriority) -> Self {
+        Self {
+            block,
+            behavior: ElectionBehavior::Ordering,
+            priority,
+        }
+    }
+
     pub fn new_ordering(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,

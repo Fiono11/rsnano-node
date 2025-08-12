@@ -162,6 +162,7 @@ pub enum DetailType {
     Change,
     StateBlock,
     EpochBlock,
+    PreOrderingBlock,
     OrderingBlock,
     Fork,
     Old,
@@ -256,6 +257,7 @@ pub enum DetailType {
     Priority,
     Hinted,
     Optimistic,
+    PreOrdering,
     Ordering,
 
     // received messages

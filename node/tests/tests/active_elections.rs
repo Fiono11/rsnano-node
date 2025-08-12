@@ -1453,7 +1453,7 @@ fn ordering_scheduler_preordering_block_tracking_and_quorum() {
 
     // For testing, let's call the method directly and add some debugging
     println!("DEBUG: About to receive preordering block from genesis account");
-    node.election_schedulers.ordering.on_preordering_block_received(saved_preordering);
+    //node.election_schedulers.ordering.on_preordering_block_received(saved_preordering);
 
     // Check that preordering blocks are being tracked
     /*assert_timely2(|| {

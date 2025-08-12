@@ -7,9 +7,7 @@ use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, Save
 use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
-use rsnano_messages::{Message, Publish};
-use rsnano_network::TrafficType;
-use crate::transport::MessageFlooder;
+
 use std::{
     sync::{
         Arc, Condvar, Mutex, RwLock,
@@ -53,7 +51,6 @@ pub struct OrderingScheduler {
     preordering_blocks: Mutex<HashMap<BlockHash, (SavedBlock, Amount)>>, // hash -> (block, author_weight)
     total_preordering_weight: Mutex<Amount>,
     quorum_delta: Mutex<Amount>,
-    message_flooder: Mutex<MessageFlooder>,
     rep_weights: Arc<RepWeightCache>,
 }
 
@@ -66,7 +63,6 @@ impl OrderingScheduler {
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
-        message_flooder: MessageFlooder,
         rep_weights: Arc<RepWeightCache>,
     ) -> Self {
         let max_elections = active_elections.read().unwrap().max_len() / 10; // 10% of max elections
@@ -92,7 +88,6 @@ impl OrderingScheduler {
             preordering_blocks: Mutex::new(HashMap::new()),
             total_preordering_weight: Mutex::new(Amount::zero()),
             quorum_delta: Mutex::new(quorum_delta),
-            message_flooder: Mutex::new(message_flooder),
             rep_weights,
         }
     }
@@ -226,13 +221,7 @@ impl OrderingScheduler {
         }
     }
 
-    fn broadcast_preordering_block(&self, saved_block: SavedBlock) {
-        let block = (*saved_block).clone();
-        let message = Message::Publish(Publish::new_forward(block));
-        
-        // Use existing message flooding mechanism
-        self.message_flooder.lock().unwrap().flood(&message, TrafficType::BlockBroadcast, 1.0);
-    }
+
 
     fn run(&self) {
         let mut guard = self.mutex.lock().unwrap();
@@ -259,8 +248,8 @@ impl OrderingScheduler {
                     let block = Block::PreOrdering(pre_ordering_block);
                     let saved_block = SavedBlock::new_test_instance_with(block);
 
-                    // Broadcast the preordering block instead of inserting into AEC
-                    self.broadcast_preordering_block(saved_block);
+                    // Insert the preordering block into AEC instead of broadcasting
+                    self.insert_preordering_block_into_aec(saved_block);
 
                     // Reset the committed count and increment epoch
                     guard.committed_count = 0;
@@ -273,6 +262,27 @@ impl OrderingScheduler {
                 self.notify();
                 guard = self.mutex.lock().unwrap();
             }
+        }
+    }
+
+    fn insert_preordering_block_into_aec(&self, saved_block: SavedBlock) {
+        let hash = saved_block.hash();
+        let priority = self.ledger.any().block_priority(&saved_block);
+        
+        println!("DEBUG: Inserting preordering block into AEC, hash: {}, priority: {:?}", hash, priority);
+        
+        let now = self.clock.now();
+        let mut aec = self.active_elections.write().unwrap();
+        
+        // Insert as preordering election
+        let insert_result = aec.insert(AecInsertRequest::new_pre_ordering(saved_block, priority), now);
+        println!("DEBUG: AEC insert result for preordering block: {:?}", insert_result);
+        
+        if insert_result.is_ok() {
+            aec.transition_active(&hash);
+            println!("DEBUG: Preordering block successfully inserted and activated in AEC");
+        } else {
+            println!("DEBUG: Failed to insert preordering block into AEC: {:?}", insert_result);
         }
     }
 

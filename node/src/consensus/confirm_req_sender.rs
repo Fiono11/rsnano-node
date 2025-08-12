@@ -57,6 +57,7 @@ impl ConfirmReqSender {
             ElectionBehavior::Priority
             | ElectionBehavior::Manual
             | ElectionBehavior::Hinted
+            | ElectionBehavior::PreOrdering
             | ElectionBehavior::Ordering => election.base_latency() * 5,
             ElectionBehavior::Optimistic => election.base_latency() * 2,
         }

@@ -54,7 +54,6 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
-        message_flooder: crate::transport::MessageFlooder,
         rep_weights: Arc<rsnano_ledger::RepWeightCache>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -100,7 +99,6 @@ impl ElectionSchedulers {
             ledger.clone(),
             confirming_set.clone(),
             clock,
-            message_flooder,
             rep_weights,
         ));
 
@@ -130,7 +128,6 @@ impl ElectionSchedulers {
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
-        let message_flooder = crate::transport::MessageFlooder::new_null();
         let rep_weights = Arc::new(rsnano_ledger::RepWeightCache::new());
 
         Self::new(
@@ -143,7 +140,6 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
-            message_flooder,
             rep_weights,
         )
     }

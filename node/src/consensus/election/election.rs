@@ -524,13 +524,14 @@ pub enum ElectionBehavior {
      * - more frequent confirmation requests
      */
     Optimistic,
+    PreOrdering,
     Ordering,
 }
 
 impl ElectionBehavior {
     fn time_to_live(&self) -> Duration {
         match self {
-            ElectionBehavior::Manual | ElectionBehavior::Priority | ElectionBehavior::Ordering => {
+            ElectionBehavior::Manual | ElectionBehavior::Priority | ElectionBehavior::Ordering | ElectionBehavior::PreOrdering => {
                 Duration::from_secs(60 * 5)
             }
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => Duration::from_secs(30),
@@ -543,6 +544,7 @@ impl ElectionBehavior {
             ElectionBehavior::Priority => "priority",
             ElectionBehavior::Hinted => "hinted",
             ElectionBehavior::Optimistic => "optimistic",
+            ElectionBehavior::PreOrdering => "pre_ordering",
             ElectionBehavior::Ordering => "ordering",
         }
     }
@@ -555,6 +557,7 @@ impl From<ElectionBehavior> for DetailType {
             ElectionBehavior::Priority => DetailType::Priority,
             ElectionBehavior::Hinted => DetailType::Hinted,
             ElectionBehavior::Optimistic => DetailType::Optimistic,
+            ElectionBehavior::PreOrdering => DetailType::PreOrdering,
             ElectionBehavior::Ordering => DetailType::Ordering,
         }
     }

@@ -57,6 +57,7 @@ pub enum BlockType {
     LegacyChange = 5,
     State = 6,
     Ordering = 7,
+    PreOrdering = 8,
 }
 
 impl TryFrom<BlockType> for BlockSubType {
@@ -69,6 +70,7 @@ impl TryFrom<BlockType> for BlockSubType {
             BlockType::LegacyOpen => Ok(BlockSubType::Open),
             BlockType::LegacyChange => Ok(BlockSubType::Change),
             BlockType::State => Ok(BlockSubType::Send),
+            BlockType::PreOrdering => Ok(BlockSubType::PreOrdering),
             BlockType::Ordering => Ok(BlockSubType::Ordering),
             BlockType::Invalid | BlockType::NotABlock => {
                 Err(anyhow!("Invalid block type for conversion to subtype"))
@@ -92,6 +94,7 @@ pub enum BlockSubType {
     Open,
     Change,
     Epoch,
+    PreOrdering,
     Ordering,
 }
 
@@ -103,6 +106,7 @@ impl BlockSubType {
             BlockSubType::Open => "open",
             BlockSubType::Change => "change",
             BlockSubType::Epoch => "epoch",
+            BlockSubType::PreOrdering => "pre_ordering",
             BlockSubType::Ordering => "ordering",
         }
     }
@@ -143,6 +147,7 @@ pub fn serialized_block_size(block_type: BlockType) -> usize {
         BlockType::LegacyOpen => OpenBlock::serialized_size(),
         BlockType::LegacyChange => ChangeBlock::serialized_size(),
         BlockType::State => StateBlock::serialized_size(),
+        BlockType::PreOrdering => PreOrderingBlock::serialized_size(),
         BlockType::Ordering => PreOrderingBlock::serialized_size(),
     }
 }
@@ -264,7 +269,8 @@ impl Block {
             BlockType::LegacyChange => Self::LegacyChange(ChangeBlock::deserialize(stream)?),
             BlockType::State => Self::State(StateBlock::deserialize(stream)?),
             BlockType::LegacySend => Self::LegacySend(SendBlock::deserialize(stream)?),
-            BlockType::Ordering => Self::PreOrdering(PreOrderingBlock::deserialize(stream)?),
+            BlockType::PreOrdering => Self::PreOrdering(PreOrderingBlock::deserialize(stream)?),
+            BlockType::Ordering => Self::Ordering(OrderingBlock::deserialize(stream)?),
             BlockType::Invalid | BlockType::NotABlock => bail!("invalid block type"),
         };
         Ok(block)

@@ -30,6 +30,7 @@ impl From<BlockSubType> for DetailType {
             BlockSubType::Open => DetailType::Open,
             BlockSubType::Change => DetailType::Change,
             BlockSubType::Epoch => DetailType::EpochBlock,
+            BlockSubType::PreOrdering => DetailType::PreOrderingBlock,
             BlockSubType::Ordering => DetailType::OrderingBlock,
         }
     }

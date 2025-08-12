@@ -22,7 +22,7 @@ impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
                 for result in results {
                     if result.status.is_ok() {
                         if let Some(saved_block) = &result.saved_block {
-                            if saved_block.as_block().block_type() == rsnano_core::BlockType::Ordering {
+                            if saved_block.as_block().block_type() == rsnano_core::BlockType::PreOrdering {
                                 // This is a preordering block, notify the ordering scheduler
                                 self.schedulers.ordering.on_preordering_block_received(saved_block.clone());
                             }
