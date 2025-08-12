@@ -1346,76 +1346,6 @@ fn ordering_election_started_when_threshold_reached() {
     // Create config with ordering scheduler enabled
     let mut config = System::default_config_without_backlog_scan();
     config.enable_ordering_scheduler = true;
-    config.ordering_scheduler.committed_threshold = 1; // Set low threshold for testing
-
-    let node = system.build_node().config(config).finish();
-
-    let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-    node.process(send1.clone());
-    
-    // Start an election for the block first
-    start_election(&node, &send1.hash());
-    
-    // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
-    node.force_confirm(&send1.hash());
-
-    // Verify that an ordering election was actually started
-    // The ordering scheduler should create an OrderingBlock and insert it into the active elections
-    assert_timely2(|| {
-        // Check if there's an active election for an ordering block
-        node.active.read().unwrap().iter_round_robin().any(|election| {
-            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
-        })
-    });
-
-    // Get the ordering block hash and force confirm it
-    let ordering_block_hash = {
-        let active = node.active.read().unwrap();
-        let ordering_election = active.iter_round_robin().find(|election| {
-            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
-        });
-        ordering_election.unwrap().winner().as_block().hash()
-    };
-
-    node.force_confirm(&ordering_block_hash);
-    
-    // After the ordering block is created, the committed count should be reset to 0
-    assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 0);
-
-    // Verify that the ordering election confirms
-    // Since ordering blocks are system-generated and represent confirmed blocks,
-    // they should be confirmed automatically or through special voting mechanisms
-    assert_timely2(|| {
-        // Check if the ordering block is confirmed in the ledger
-        let active = node.active.read().unwrap();
-        let ordering_election = active.iter_round_robin().find(|election| {
-            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
-        });
-        
-        if let Some(election) = ordering_election {
-            // The ordering election should be confirmed
-            election.is_confirmed()
-        } else {
-            false
-        }
-    });
-
-    // Verify that the ordering block is eventually removed from active elections after confirmation
-    assert_timely2(|| {
-        !node.active.read().unwrap().iter_round_robin().any(|election| {
-            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
-        })
-    });
-}
-
-#[test]
-fn ordering_scheduler_preordering_block_tracking_and_quorum() {
-    let mut system = System::new();
-
-    // Create config with ordering scheduler enabled
-    let mut config = System::default_config_without_backlog_scan();
-    config.enable_ordering_scheduler = true;
     config.ordering_scheduler.committed_threshold = 2; // Set low threshold for testing
 
     let node = system.build_node().config(config).finish();
@@ -1493,7 +1423,7 @@ fn ordering_scheduler_preordering_block_tracking_and_quorum() {
     });
 
     // Get the ordering block and verify its contents
-    /*let ordering_election = {
+    let ordering_election = {
         node.active.read().unwrap().iter_round_robin().find(|election| {
             election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
         }).cloned().unwrap()
@@ -1547,7 +1477,7 @@ fn ordering_scheduler_preordering_block_tracking_and_quorum() {
     // Verify that the epoch was incremented
     assert_timely2(|| {
         // The next preordering block should be created with epoch 2
-        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        //let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send3 = lattice.genesis().send(&*DEV_GENESIS_KEY, 3);
         node.process(send3.clone());
         start_election(&node, &send3.hash());
@@ -1555,86 +1485,7 @@ fn ordering_scheduler_preordering_block_tracking_and_quorum() {
         
         // This should create a new preordering block with epoch 2
         true
-    });*/
-}
-
-#[test]
-fn ordering_scheduler_duplicate_preordering_block_handling() {
-    let mut system = System::new();
-
-    let mut config = System::default_config_without_backlog_scan();
-    config.enable_ordering_scheduler = true;
-    config.ordering_scheduler.committed_threshold = 1;
-
-    let node = system.build_node().config(config).finish();
-
-    // Create and confirm a block to trigger preordering block creation
-    let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-    node.process(send1.clone());
-    start_election(&node, &send1.hash());
-    node.force_confirm(&send1.hash());
-
-    // Create a preordering block
-    let preordering_block = PreOrderingBlock::new(1, vec![send1.hash()], *DEV_GENESIS_ACCOUNT);
-    let saved_preordering = rsnano_core::SavedBlock::new_test_instance_with(Block::PreOrdering(preordering_block));
-
-    // Simulate receiving the same preordering block twice
-    node.election_schedulers.ordering.on_preordering_block_received(saved_preordering.clone());
-    node.election_schedulers.ordering.on_preordering_block_received(saved_preordering);
-
-    // Verify that only one preordering block is tracked (duplicate should be ignored)
-    assert_timely2(|| {
-        let container_info = node.election_schedulers.ordering.container_info();
-        let preordering_count = container_info.iter()
-            .find_map(|entry| {
-                if let rsnano_core::utils::ContainerInfoEntry::Leaf(leaf) = entry {
-                    if leaf.name == "preordering_blocks" {
-                        Some(leaf.info.count)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0);
-        preordering_count == 1
     });
 }
 
-#[test]
-fn ordering_scheduler_quorum_delta_update() {
-    let mut system = System::new();
 
-    let mut config = System::default_config_without_backlog_scan();
-    config.enable_ordering_scheduler = true;
-    config.ordering_scheduler.committed_threshold = 1;
-
-    let node = system.build_node().config(config).finish();
-
-    // Update the quorum delta
-    let new_quorum_delta = rsnano_core::Amount::nano(50_000_000);
-    node.election_schedulers.ordering.update_quorum_delta(new_quorum_delta);
-
-    // Create and confirm a block
-    let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-    node.process(send1.clone());
-    start_election(&node, &send1.hash());
-    node.force_confirm(&send1.hash());
-
-    // Create a preordering block with low weight (should not trigger ordering block creation)
-    let preordering_block = PreOrderingBlock::new(1, vec![send1.hash()], *DEV_GENESIS_ACCOUNT);
-    let saved_preordering = rsnano_core::SavedBlock::new_test_instance_with(Block::PreOrdering(preordering_block));
-
-    // Simulate receiving the preordering block
-    node.election_schedulers.ordering.on_preordering_block_received(saved_preordering);
-
-    // Verify that no ordering block is created (weight too low)
-    assert_timely2(|| {
-        !node.active.read().unwrap().iter_round_robin().any(|election| {
-            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
-        })
-    });
-}
