@@ -38,7 +38,8 @@ where
                 };
                 DependentBlocks::new(block.previous(), linked_block)
             }
-            Block::Ordering(b) => unimplemented!(),
+            Block::PreOrdering(b) => unimplemented!(),
+            Block::Ordering(_) => unimplemented!(),
         }
     }
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_core::{
-    utils::{MemoryStream, UnixMillisTimestamp}, Account, Amount, Block, OrderingBlock, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY
+    utils::{MemoryStream, UnixMillisTimestamp}, Account, Amount, Block, PreOrderingBlock, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY
 };
 use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder, BlockError, LedgerSet, DEV_GENESIS_ACCOUNT,

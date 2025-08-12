@@ -250,6 +250,7 @@ impl<'a> AccountHistoryHelper<'a> {
                     }
                 }
             }
+            Block::PreOrdering(b) => unimplemented!(),
             Block::Ordering(b) => unimplemented!(),
         };
 

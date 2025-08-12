@@ -3,14 +3,12 @@ use crate::{
     config::NetworkConstants,
     consensus::{ActiveElectionsContainer, AecInsertRequest},
 };
-use rsnano_core::{utils::ContainerInfo, Block, BlockHash, OrderingBlock, SavedBlock};
+use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, SavedBlock};
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
 use std::{
-    collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, RwLock,
     },
     thread::JoinHandle,
@@ -138,8 +136,8 @@ impl OrderingScheduler {
                     guard.committed_blocks.clear();
 
                     // Create ordering block
-                    let ordering_block = OrderingBlock::new(epoch, committed_blocks);
-                    let block = Block::Ordering(ordering_block);
+                    let ordering_block = PreOrderingBlock::new(epoch, committed_blocks);
+                    let block = Block::PreOrdering(ordering_block);
                     let saved_block = SavedBlock::new_test_instance_with(block);
 
                     let hash = saved_block.hash();

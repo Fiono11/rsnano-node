@@ -1,20 +1,22 @@
 use crate::{
-    blocks::preordering_block::PreOrderingBlockHash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
+    block_hash::Blake2Hash, utils::{BufferWriter, FixedSizeSerialize, Serialize, Stream}, Account, Amount, BlockBase, BlockHash, BlockType, JsonBlock, Link, PublicKey, Root, Signature, WorkNonce
 };
 use anyhow::Result;
 
+pub type PreOrderingBlockHash = Blake2Hash;
+
 #[derive(Clone, Debug)]
-pub struct OrderingBlock {
+pub struct PreOrderingBlock {
     pub epoch: u64,
-    pub pre_ordering_blocks: Vec<PreOrderingBlockHash>,
+    pub committed_frontiers: Vec<BlockHash>,
     pub signature: Signature,
 }
 
-impl OrderingBlock {
+impl PreOrderingBlock {
     pub fn new(epoch: u64, committed_blocks: Vec<BlockHash>) -> Self {
         Self {
             epoch,
-            pre_ordering_blocks: committed_blocks,
+            committed_frontiers: committed_blocks,
             signature: Signature::default(),
         }
     }
@@ -29,7 +31,7 @@ impl OrderingBlock {
     }
 }
 
-impl BlockBase for OrderingBlock {
+impl BlockBase for PreOrderingBlock {
     fn block_type(&self) -> BlockType {
         BlockType::Ordering
     }
@@ -45,7 +47,7 @@ impl BlockBase for OrderingBlock {
 
         let mut hasher = DefaultHasher::new();
         self.epoch.hash(&mut hasher);
-        for block_hash in &self.pre_ordering_blocks {
+        for block_hash in &self.committed_frontiers {
             block_hash.hash(&mut hasher);
         }
 
@@ -81,10 +83,10 @@ impl BlockBase for OrderingBlock {
         writer.write_u64_be_safe(self.epoch);
 
         // Serialize committed blocks count
-        writer.write_u32_be_safe(self.pre_ordering_blocks.len() as u32);
+        writer.write_u32_be_safe(self.committed_frontiers.len() as u32);
 
         // Serialize each committed block hash
-        for block_hash in &self.pre_ordering_blocks {
+        for block_hash in &self.committed_frontiers {
             block_hash.serialize(writer);
         }
     }
@@ -119,10 +121,10 @@ impl BlockBase for OrderingBlock {
     }
 }
 
-impl PartialEq for OrderingBlock {
+impl PartialEq for PreOrderingBlock {
     fn eq(&self, other: &Self) -> bool {
-        self.epoch == other.epoch && self.pre_ordering_blocks == other.pre_ordering_blocks
+        self.epoch == other.epoch && self.committed_frontiers == other.committed_frontiers
     }
 }
 
-impl Eq for OrderingBlock {}
+impl Eq for PreOrderingBlock {}
