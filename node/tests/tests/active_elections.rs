@@ -1320,31 +1320,99 @@ fn ordering_election_committed_block_increment() {
     // Create config with ordering scheduler enabled
     let mut config = System::default_config_without_backlog_scan();
     config.enable_ordering_scheduler = true;
-    config.ordering_scheduler.committed_threshold = 1; // Set low threshold for testing
+    config.ordering_scheduler.committed_threshold = 4; // Set low threshold for testing
 
     let node = system.build_node().config(config.clone()).finish();
+
+    println!("WEIGHT 1: {:?}", node.ledger.rep_weights.weight(&*DEV_GENESIS_PUB_KEY));
     
     config.network.listening_port = get_available_port();
     let node2 = system.build_node().config(config).finish();
 
-    let wallet_id = node.wallets.wallet_ids()[0];
+    // Create two different private keys for the two nodes
+    let key1 = PrivateKey::new();
+    let key2 = PrivateKey::new();
+    
+    // Calculate half of Amount::MAX for each node
+    let half_amount = Amount::MAX / 2;
+    
+    // Add the keys to their respective node wallets
+    let wallet_id1 = node.wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallets.wallet_ids()[0];
+    
     node
         .wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .insert_adhoc2(&wallet_id1, &key1.raw_key(), true)
+        .unwrap();
+    node2
+        .wallets
+        .insert_adhoc2(&wallet_id2, &key2.raw_key(), true)
         .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
+    
+    // Send half of Amount::MAX to each node's account
+    let send1 = lattice.genesis().send(&key1.public_key(), half_amount);
+    let send2 = lattice.genesis().send(&key2.public_key(), half_amount);
+    
+    // Process the blocks on both nodes
     node.process(send1.clone());
+    node.process(send2.clone());
     node2.process(send1.clone());
+    node2.process(send2.clone());
     
-    // Start an election for the block first
+    // Start elections for the blocks
     start_election(&node, &send1.hash());
+    start_election(&node, &send2.hash());
     start_election(&node2, &send1.hash());
+    start_election(&node2, &send2.hash());
     
-    // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
+    // Force confirm the elections, which will trigger AecEvent::ElectionConfirmed
     node.force_confirm(&send1.hash());
+    node.force_confirm(&send2.hash());
     node2.force_confirm(&send1.hash());
+    node2.force_confirm(&send2.hash());
+
+    let open1 = lattice.account(&key1).receive(&send1);
+    
+    node.process(open1.clone());
+    start_election(&node, &open1.hash());
+    node.force_confirm(&open1.hash());
+
+    node2.process(open1.clone());
+    start_election(&node2, &open1.hash());
+    node2.force_confirm(&open1.hash());
+
+    let open2 = lattice.account(&key2).receive(&send2);
+    
+    node.process(open2.clone());
+    start_election(&node, &open2.hash());
+    node.force_confirm(&open2.hash());
+
+    node2.process(open2.clone());
+    start_election(&node2, &open2.hash());
+    node2.force_confirm(&open2.hash());
+
+    println!("WEIGHT 2: {:?}", node.ledger.rep_weights.weight(&key1.public_key()));
+    println!("WEIGHT 2: {:?}", node.ledger.rep_weights.weight(&key2.public_key()));
+    println!("WEIGHT 2: {:?}", node2.ledger.rep_weights.weight(&key1.public_key()));
+    println!("WEIGHT 2: {:?}", node2.ledger.rep_weights.weight(&key2.public_key()));
+
+    /*assert_timely2(|| {
+        node.ledger.rep_weights.weight(&key1.public_key()) == half_amount
+    });
+
+    assert_timely2(|| {
+        node.ledger.rep_weights.weight(&key2.public_key()) == half_amount
+    });
+
+    assert_timely2(|| {
+        node2.ledger.rep_weights.weight(&key1.public_key()) == half_amount
+    });
+
+    assert_timely2(|| {
+        node2.ledger.rep_weights.weight(&key2.public_key()) == half_amount
+    });*/
 
     //assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
 
@@ -1365,7 +1433,7 @@ fn ordering_election_committed_block_increment() {
         false
     });
 
-    /*assert_timely2(|| {
+    assert_timely2(|| {
         let active = node2.active.read().unwrap();
         println!("DEBUG: Checking active elections, count: {}", active.len());
         
@@ -1380,7 +1448,7 @@ fn ordering_election_committed_block_increment() {
             }
         }
         false
-    });*/
+    });
 }
 
 #[test]

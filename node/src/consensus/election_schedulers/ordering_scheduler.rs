@@ -124,8 +124,12 @@ impl OrderingScheduler {
     pub fn on_blocks_confirmed(&self, confirmed_count: usize) {
         let mut guard = self.mutex.lock().unwrap();
         guard.committed_count += confirmed_count as u32;
+        
+        println!("DEBUG: Ordering scheduler on_blocks_confirmed: count={}, threshold={}, total={}", 
+                 confirmed_count, self.config.committed_threshold, guard.committed_count);
 
         if guard.committed_count >= self.config.committed_threshold {
+            println!("DEBUG: Ordering scheduler threshold reached, notifying thread");
             self.notify();
         }
     }
@@ -182,6 +186,7 @@ impl OrderingScheduler {
             let public_key = PublicKey::from(private_key);
             accounts.push(public_key.into());
         });
+        println!("DEBUG: Ordering scheduler found {} representative accounts: {:?}", accounts.len(), accounts);
         accounts
     }
 
@@ -266,9 +271,13 @@ impl OrderingScheduler {
                     .inc(StatType::ElectionScheduler, DetailType::Loop);
 
                 if guard.predicate(self.config.committed_threshold) {
+                    println!("DEBUG: Ordering scheduler predicate true, creating preordering blocks");
+                    
                     // Get current epoch and committed blocks
                     let epoch = guard.current_epoch;
                     let committed_blocks = guard.committed_blocks.clone();
+
+                    println!("DEBUG: Ordering scheduler epoch: {}, committed blocks: {:?}", epoch, committed_blocks);
 
                     // Clear the committed blocks for next batch
                     guard.committed_blocks.clear();
@@ -284,6 +293,8 @@ impl OrderingScheduler {
                         let block = Block::PreOrdering(pre_ordering_block);
                         let saved_block = SavedBlock::new_test_instance_with(block);
 
+                        println!("DEBUG: Created preordering block for account: {}", account);
+
                         // Broadcast the preordering block instead of inserting into AEC
                         self.broadcast_preordering_block(saved_block);
                     }
@@ -291,6 +302,8 @@ impl OrderingScheduler {
                     // Reset the committed count and increment epoch
                     guard.committed_count = 0;
                     guard.current_epoch += 1;
+
+                    println!("DEBUG: Ordering scheduler reset committed count and incremented epoch to {}", guard.current_epoch);
 
                     drop(guard);
                 } else {
