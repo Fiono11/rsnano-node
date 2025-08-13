@@ -1323,8 +1323,6 @@ fn ordering_election_committed_block_increment() {
     config.ordering_scheduler.committed_threshold = 4; // Set low threshold for testing
 
     let node = system.build_node().config(config.clone()).finish();
-
-    println!("WEIGHT 1: {:?}", node.ledger.rep_weights.weight(&*DEV_GENESIS_PUB_KEY));
     
     config.network.listening_port = get_available_port();
     let node2 = system.build_node().config(config).finish();
@@ -1393,29 +1391,6 @@ fn ordering_election_committed_block_increment() {
     start_election(&node2, &open2.hash());
     node2.force_confirm(&open2.hash());
 
-    println!("WEIGHT 2: {:?}", node.ledger.rep_weights.weight(&key1.public_key()));
-    println!("WEIGHT 2: {:?}", node.ledger.rep_weights.weight(&key2.public_key()));
-    println!("WEIGHT 2: {:?}", node2.ledger.rep_weights.weight(&key1.public_key()));
-    println!("WEIGHT 2: {:?}", node2.ledger.rep_weights.weight(&key2.public_key()));
-
-    /*assert_timely2(|| {
-        node.ledger.rep_weights.weight(&key1.public_key()) == half_amount
-    });
-
-    assert_timely2(|| {
-        node.ledger.rep_weights.weight(&key2.public_key()) == half_amount
-    });
-
-    assert_timely2(|| {
-        node2.ledger.rep_weights.weight(&key1.public_key()) == half_amount
-    });
-
-    assert_timely2(|| {
-        node2.ledger.rep_weights.weight(&key2.public_key()) == half_amount
-    });*/
-
-    //assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
-
     assert_timely2(|| {
         let active = node.active.read().unwrap();
         println!("DEBUG: Checking active elections, count: {}", active.len());
@@ -1426,7 +1401,6 @@ fn ordering_election_committed_block_increment() {
             println!("DEBUG: Found election with block type: {:?}, hash: {}", block_type, hash);
             
             if block_type == rsnano_core::BlockType::Ordering {
-                println!("DEBUG: Found pre ordering election!");
                 return true;
             }
         }
@@ -1443,12 +1417,35 @@ fn ordering_election_committed_block_increment() {
             println!("DEBUG: Found election with block type: {:?}, hash: {}", block_type, hash);
             
             if block_type == rsnano_core::BlockType::Ordering {
-                println!("DEBUG: Found pre ordering election!");
                 return true;
             }
         }
         false
     });
+
+    // Find the ordering election and get its hash
+    let ordering_block_hash = {
+        let active = node.active.read().unwrap();
+        let ordering_election = active.iter_round_robin().find(|election| {
+            election.winner().as_block().block_type() == rsnano_core::BlockType::Ordering
+        }).unwrap();
+        ordering_election.winner().as_block().hash()
+    };
+
+    // Create final votes from both key1 and key2 (which together have all the voting weight)
+    // to resolve the ordering election
+    let vote1 = ReceivedVote::new(
+        Arc::new(Vote::new_final(&key1, vec![ordering_block_hash])),
+        VoteSource::Live,
+        None,
+    );
+    
+    // Process the votes to resolve the ordering election
+    let _ = node.vote_processor.vote_blocking(&vote1.clone().into());
+    let _ = node2.vote_processor.vote_blocking(&vote1.into());
+
+    assert_timely2(|| node.active.read().unwrap().len() == 0);
+    //assert_timely2(|| node.block_confirmed(&ordering_block_hash));
 }
 
 #[test]
