@@ -118,7 +118,7 @@ impl AecInsertRequest {
     pub fn new_pre_ordering(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,
-            behavior: ElectionBehavior::Ordering,
+            behavior: ElectionBehavior::PreOrdering,
             priority,
         }
     }

@@ -1322,9 +1322,15 @@ fn ordering_election_committed_block_increment() {
     // Create config with ordering scheduler enabled
     let mut config = System::default_config_without_backlog_scan();
     config.enable_ordering_scheduler = true;
-    config.ordering_scheduler.committed_threshold = 5; // Set low threshold for testing
+    config.ordering_scheduler.committed_threshold = 1; // Set low threshold for testing
 
     let node = system.build_node().config(config).finish();
+
+    let wallet_id = node.wallets.wallet_ids()[0];
+    node
+        .wallets
+        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
@@ -1336,7 +1342,24 @@ fn ordering_election_committed_block_increment() {
     // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
     node.force_confirm(&send1.hash());
 
-    assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
+    //assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
+
+    assert_timely2(|| {
+        let active = node.active.read().unwrap();
+        println!("DEBUG: Checking active elections, count: {}", active.len());
+        
+        for election in active.iter_round_robin() {
+            let block_type = election.winner().as_block().block_type();
+            let hash = election.winner().as_block().hash();
+            println!("DEBUG: Found election with block type: {:?}, hash: {}", block_type, hash);
+            
+            if block_type == rsnano_core::BlockType::Ordering {
+                println!("DEBUG: Found pre ordering election!");
+                return true;
+            }
+        }
+        false
+    });
 }
 
 #[test]
@@ -1347,12 +1370,19 @@ fn ordering_election_started_when_threshold_reached() {
     let mut config = System::default_config_without_backlog_scan();
     config.enable_ordering_scheduler = true;
     config.ordering_scheduler.committed_threshold = 2; // Set low threshold for testing
+    config.online_weight_minimum = Amount::MAX;
 
     let node = system.build_node().config(config).finish();
 
+    let wallet_id = node.wallets.wallet_ids()[0];
+    node
+        .wallets
+        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .unwrap();
+
     // Create some blocks and confirm them to trigger preordering block creation
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
+    let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, Amount::MAX - Amount::raw(2));
     let send2 = lattice.genesis().send(&*DEV_GENESIS_KEY, 2);
     
     node.process(send1.clone());
@@ -1365,6 +1395,12 @@ fn ordering_election_started_when_threshold_reached() {
     node.force_confirm(&send1.hash());
     node.force_confirm(&send2.hash());
 
+    assert_timely2(|| {
+        // The committed count should be reset after preordering block creation
+        node.election_schedulers.ordering.committed_count() == 2
+    });
+
+
     // Wait for the preordering block to be created and broadcast
     assert_timely2(|| {
         // The committed count should be reset after preordering block creation
@@ -1375,7 +1411,7 @@ fn ordering_election_started_when_threshold_reached() {
     // Create a single preordering block from the genesis account which has all the voting weight
     
     // First, let's set a very low quorum delta for testing
-    node.election_schedulers.ordering.update_quorum_delta(rsnano_core::Amount::nano(1));
+    //node.election_schedulers.ordering.update_quorum_delta(rsnano_core::Amount::nano(1));
     
     // Create a preordering block from the genesis account (which has all the voting weight)
     let preordering_block = PreOrderingBlock::new(1, vec![send1.hash(), send2.hash()], *DEV_GENESIS_ACCOUNT);

@@ -2,8 +2,10 @@ use crate::{
     cementation::ConfirmingSet,
     config::NetworkConstants,
     consensus::{ActiveElectionsContainer, AecInsertRequest},
+    wallets::Wallets,
+    representatives::OnlineReps,
 };
-use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, SavedBlock, OrderingBlock, Amount, PublicKey};
+use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, SavedBlock, OrderingBlock, Amount, PublicKey, Account};
 use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
@@ -50,8 +52,9 @@ pub struct OrderingScheduler {
     // New fields for preordering block tracking
     preordering_blocks: Mutex<HashMap<BlockHash, (SavedBlock, Amount)>>, // hash -> (block, author_weight)
     total_preordering_weight: Mutex<Amount>,
-    quorum_delta: Mutex<Amount>,
     rep_weights: Arc<RepWeightCache>,
+    wallets: Arc<Wallets>,
+    online_reps: Arc<Mutex<OnlineReps>>,
 }
 
 impl OrderingScheduler {
@@ -64,9 +67,10 @@ impl OrderingScheduler {
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
+        wallets: Arc<Wallets>,
+        online_reps: Arc<Mutex<OnlineReps>>,
     ) -> Self {
         let max_elections = active_elections.read().unwrap().max_len() / 10; // 10% of max elections
-        let quorum_delta = Amount::nano(67_000_000); // Default quorum delta, will be updated
 
         Self {
             thread: Mutex::new(None),
@@ -87,8 +91,9 @@ impl OrderingScheduler {
             max_elections,
             preordering_blocks: Mutex::new(HashMap::new()),
             total_preordering_weight: Mutex::new(Amount::zero()),
-            quorum_delta: Mutex::new(quorum_delta),
             rep_weights,
+            wallets,
+            online_reps,
         }
     }
 
@@ -150,7 +155,9 @@ impl OrderingScheduler {
         *self.total_preordering_weight.lock().unwrap() += author_weight;
         
         let total_weight = *self.total_preordering_weight.lock().unwrap();
-        let quorum_delta = *self.quorum_delta.lock().unwrap();
+        
+        let quorum_delta = self.online_reps.lock().unwrap().quorum_delta();
+        
         println!("DEBUG: Total preordering weight: {:?}, quorum delta: {:?}", total_weight, quorum_delta);
         
         // Check if we have enough accumulated weight to form an ordering block
@@ -162,9 +169,19 @@ impl OrderingScheduler {
         }
     }
 
+    /// Get all representative accounts from wallets that can be used for creating blocks
+    fn get_representative_accounts(&self) -> Vec<Account> {
+        let mut accounts = Vec::new();
+        self.wallets.foreach_representative(|private_key| {
+            let public_key = PublicKey::from(private_key);
+            accounts.push(public_key.into());
+        });
+        accounts
+    }
+
     fn should_create_ordering_block(&self) -> bool {
         let total_weight = *self.total_preordering_weight.lock().unwrap();
-        let quorum_delta = *self.quorum_delta.lock().unwrap();
+        let quorum_delta = self.online_reps.lock().unwrap().quorum_delta();
         total_weight >= quorum_delta
     }
 
@@ -182,15 +199,22 @@ impl OrderingScheduler {
         let current_epoch = self.mutex.lock().unwrap().current_epoch;
         println!("DEBUG: Current epoch: {}", current_epoch);
         
-        // Create ordering block from the preordering block hashes
-        let ordering_block = OrderingBlock::new(current_epoch, preordering_hashes, self.ledger.constants.genesis_account);
+        // Get all representative accounts from wallets
+        let representative_accounts = self.get_representative_accounts();
+        println!("DEBUG: Creating ordering blocks for {} representative accounts", representative_accounts.len());
         
-        // Create saved block
-        let saved_block = SavedBlock::new_test_instance_with(Block::Ordering(ordering_block));
-        println!("DEBUG: Created ordering block with hash: {}", saved_block.hash());
-        
-        // Insert into active elections
-        self.insert_ordering_block_into_aec(saved_block);
+        // Create ordering blocks for each representative account
+        for account in representative_accounts {
+            // Create ordering block from the preordering block hashes
+            let ordering_block = OrderingBlock::new(current_epoch, preordering_hashes.clone(), account);
+            
+            // Create saved block
+            let saved_block = SavedBlock::new_test_instance_with(Block::Ordering(ordering_block));
+            println!("DEBUG: Created ordering block with hash: {} for account: {}", saved_block.hash(), account);
+            
+            // Insert into active elections
+            self.insert_ordering_block_into_aec(saved_block);
+        }
         
         // Clear the preordering blocks for the next epoch
         self.preordering_blocks.lock().unwrap().clear();
@@ -243,13 +267,20 @@ impl OrderingScheduler {
                     // Clear the committed blocks for next batch
                     guard.committed_blocks.clear();
 
-                    // Create pre_ordering block
-                    let pre_ordering_block = PreOrderingBlock::new(epoch, committed_blocks, self.ledger.constants.genesis_account);
-                    let block = Block::PreOrdering(pre_ordering_block);
-                    let saved_block = SavedBlock::new_test_instance_with(block);
+                    // Get all representative accounts from wallets
+                    let representative_accounts = self.get_representative_accounts();
+                    println!("DEBUG: Creating preordering blocks for {} representative accounts", representative_accounts.len());
 
-                    // Insert the preordering block into AEC instead of broadcasting
-                    self.insert_preordering_block_into_aec(saved_block);
+                    // Create preordering blocks for each representative account
+                    for account in representative_accounts {
+                        // Create pre_ordering block
+                        let pre_ordering_block = PreOrderingBlock::new(epoch, committed_blocks.clone(), account);
+                        let block = Block::PreOrdering(pre_ordering_block);
+                        let saved_block = SavedBlock::new_test_instance_with(block);
+
+                        // Insert the preordering block into AEC instead of broadcasting
+                        self.insert_preordering_block_into_aec(saved_block);
+                    }
 
                     // Reset the committed count and increment epoch
                     guard.committed_count = 0;
@@ -310,9 +341,14 @@ impl OrderingScheduler {
         guard.committed_count
     }
 
-    /// Update quorum delta from online reps
-    pub fn update_quorum_delta(&self, quorum_delta: Amount) {
-        *self.quorum_delta.lock().unwrap() = quorum_delta;
+    /// Get the current quorum delta for monitoring purposes
+    pub fn current_quorum_delta(&self) -> Amount {
+        self.online_reps.lock().unwrap().quorum_delta()
+    }
+
+    /// Get the current total preordering weight for monitoring purposes
+    pub fn current_total_preordering_weight(&self) -> Amount {
+        *self.total_preordering_weight.lock().unwrap()
     }
 }
 

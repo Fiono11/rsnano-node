@@ -28,6 +28,7 @@ use crate::{
     cementation::ConfirmingSet,
     config::{NetworkConstants, NodeConfig},
     representatives::OnlineReps,
+    wallets::Wallets,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
@@ -55,6 +56,7 @@ impl ElectionSchedulers {
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<rsnano_ledger::RepWeightCache>,
+        wallets: Arc<Wallets>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -100,6 +102,8 @@ impl ElectionSchedulers {
             confirming_set.clone(),
             clock,
             rep_weights,
+            wallets.clone(),
+            online_reps.clone(),
         ));
 
         Self {
@@ -129,6 +133,7 @@ impl ElectionSchedulers {
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
         let rep_weights = Arc::new(rsnano_ledger::RepWeightCache::new());
+        let wallets = Arc::new(Wallets::new_null());
 
         Self::new(
             config,
@@ -141,6 +146,7 @@ impl ElectionSchedulers {
             online_reps,
             clock,
             rep_weights,
+            wallets,
         )
     }
 

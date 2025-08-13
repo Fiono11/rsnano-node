@@ -626,6 +626,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
+            wallets.clone(),
         ));
         ledger_event_processor_plugins.push(Box::new(ElectionSchedulersPlugin::new(
             election_schedulers.clone(),
