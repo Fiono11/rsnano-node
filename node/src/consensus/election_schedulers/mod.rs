@@ -29,6 +29,7 @@ use crate::{
     config::{NetworkConstants, NodeConfig},
     representatives::OnlineReps,
     wallets::Wallets,
+    transport::MessageFlooder,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
@@ -57,6 +58,7 @@ impl ElectionSchedulers {
         clock: Arc<SteadyClock>,
         rep_weights: Arc<rsnano_ledger::RepWeightCache>,
         wallets: Arc<Wallets>,
+        message_flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -104,6 +106,7 @@ impl ElectionSchedulers {
             rep_weights,
             wallets.clone(),
             online_reps.clone(),
+            message_flooder,
         ));
 
         Self {
@@ -134,6 +137,7 @@ impl ElectionSchedulers {
         let clock = Arc::new(SteadyClock::new_null());
         let rep_weights = Arc::new(rsnano_ledger::RepWeightCache::new());
         let wallets = Arc::new(Wallets::new_null());
+        let message_flooder = Arc::new(Mutex::new(MessageFlooder::new_null()));
 
         Self::new(
             config,
@@ -147,6 +151,7 @@ impl ElectionSchedulers {
             clock,
             rep_weights,
             wallets,
+            message_flooder,
         )
     }
 

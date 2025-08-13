@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_core::{
-    utils::{MemoryStream, UnixMillisTimestamp}, Account, Amount, Block, PreOrderingBlock, PrivateKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY
+    utils::{MemoryStream, UnixMillisTimestamp}, Account, Amount, Block, PreOrderingBlock, PrivateKey, RawKey, Vote, VoteError, VoteSource, DEV_GENESIS_KEY
 };
 use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder, BlockError, LedgerSet, DEV_GENESIS_ACCOUNT,
@@ -16,9 +16,7 @@ use rsnano_node::{
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    assert_always_eq, assert_never, assert_timely2, assert_timely_eq, assert_timely_eq2,
-    process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections, System,
+    assert_always_eq, assert_never, assert_timely2, assert_timely_eq, assert_timely_eq2, establish_tcp, process_open_block, process_send_block, setup_independent_blocks, start_election, start_elections, System
 };
 
 /// What this test is doing:
@@ -1324,7 +1322,10 @@ fn ordering_election_committed_block_increment() {
     config.enable_ordering_scheduler = true;
     config.ordering_scheduler.committed_threshold = 1; // Set low threshold for testing
 
-    let node = system.build_node().config(config).finish();
+    let node = system.build_node().config(config.clone()).finish();
+    
+    config.network.listening_port = get_available_port();
+    let node2 = system.build_node().config(config).finish();
 
     let wallet_id = node.wallets.wallet_ids()[0];
     node
@@ -1335,12 +1336,15 @@ fn ordering_election_committed_block_increment() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
     node.process(send1.clone());
+    node2.process(send1.clone());
     
     // Start an election for the block first
     start_election(&node, &send1.hash());
+    start_election(&node2, &send1.hash());
     
     // Force confirm the election, which will trigger AecEvent::ElectionConfirmed
     node.force_confirm(&send1.hash());
+    node2.force_confirm(&send1.hash());
 
     //assert_timely_eq2(|| node.election_schedulers.ordering.committed_count(), 1);
 
@@ -1360,6 +1364,23 @@ fn ordering_election_committed_block_increment() {
         }
         false
     });
+
+    /*assert_timely2(|| {
+        let active = node2.active.read().unwrap();
+        println!("DEBUG: Checking active elections, count: {}", active.len());
+        
+        for election in active.iter_round_robin() {
+            let block_type = election.winner().as_block().block_type();
+            let hash = election.winner().as_block().hash();
+            println!("DEBUG: Found election with block type: {:?}, hash: {}", block_type, hash);
+            
+            if block_type == rsnano_core::BlockType::Ordering {
+                println!("DEBUG: Found pre ordering election!");
+                return true;
+            }
+        }
+        false
+    });*/
 }
 
 #[test]

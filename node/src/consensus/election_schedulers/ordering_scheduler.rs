@@ -4,11 +4,14 @@ use crate::{
     consensus::{ActiveElectionsContainer, AecInsertRequest},
     wallets::Wallets,
     representatives::OnlineReps,
+    transport::MessageFlooder,
 };
 use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, SavedBlock, OrderingBlock, Amount, PublicKey, Account};
 use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_messages::{Message, Publish};
+use rsnano_network::TrafficType;
 
 use std::{
     sync::{
@@ -55,6 +58,7 @@ pub struct OrderingScheduler {
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
     online_reps: Arc<Mutex<OnlineReps>>,
+    message_flooder: Arc<Mutex<MessageFlooder>>,
 }
 
 impl OrderingScheduler {
@@ -69,6 +73,7 @@ impl OrderingScheduler {
         rep_weights: Arc<RepWeightCache>,
         wallets: Arc<Wallets>,
         online_reps: Arc<Mutex<OnlineReps>>,
+        message_flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
         let max_elections = active_elections.read().unwrap().max_len() / 10; // 10% of max elections
 
@@ -94,6 +99,7 @@ impl OrderingScheduler {
             rep_weights,
             wallets,
             online_reps,
+            message_flooder,
         }
     }
 
@@ -247,7 +253,7 @@ impl OrderingScheduler {
 
 
 
-    fn run(&self) {
+    fn run(self: &Arc<Self>) {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
             guard = self
@@ -278,8 +284,8 @@ impl OrderingScheduler {
                         let block = Block::PreOrdering(pre_ordering_block);
                         let saved_block = SavedBlock::new_test_instance_with(block);
 
-                        // Insert the preordering block into AEC instead of broadcasting
-                        self.insert_preordering_block_into_aec(saved_block);
+                        // Broadcast the preordering block instead of inserting into AEC
+                        self.broadcast_preordering_block(saved_block);
                     }
 
                     // Reset the committed count and increment epoch
@@ -296,25 +302,36 @@ impl OrderingScheduler {
         }
     }
 
-    fn insert_preordering_block_into_aec(&self, saved_block: SavedBlock) {
+    fn broadcast_preordering_block(self: &Arc<Self>, saved_block: SavedBlock) {
         let hash = saved_block.hash();
-        let priority = self.ledger.any().block_priority(&saved_block);
+        println!("DEBUG: Broadcasting preordering block, hash: {}", hash);
         
-        println!("DEBUG: Inserting preordering block into AEC, hash: {}, priority: {:?}", hash, priority);
+        // Manually call on_preordering_block_received for our own created preordering block
+        // Run it in a new thread to avoid blocking the caller
+        let self_clone = Arc::clone(self);
+        let saved_block_for_thread = saved_block.clone();
+        std::thread::spawn(move || {
+            self_clone.on_preordering_block_received(saved_block_for_thread);
+        });
         
-        let now = self.clock.now();
-        let mut aec = self.active_elections.write().unwrap();
+        // Create the publish message
+        let publish_msg = Message::Publish(Publish::new_forward((*saved_block).clone()));
         
-        // Insert as preordering election
-        let insert_result = aec.insert(AecInsertRequest::new_pre_ordering(saved_block, priority), now);
-        println!("DEBUG: AEC insert result for preordering block: {:?}", insert_result);
+        // Broadcast to principal representatives and flood to network
+        let mut flooder = self.message_flooder.lock().unwrap();
         
-        if insert_result.is_ok() {
-            aec.transition_active(&hash);
-            println!("DEBUG: Preordering block successfully inserted and activated in AEC");
-        } else {
-            println!("DEBUG: Failed to insert preordering block into AEC: {:?}", insert_result);
+        // Get peered principal representatives for directed broadcasting
+        let peered_prs = flooder.online_reps.lock().unwrap().peered_principal_reps();
+        
+        // Directed broadcasting to principal representatives
+        for pr in &peered_prs {
+            flooder.try_send(&pr.channel, &publish_msg, TrafficType::BlockBroadcast);
         }
+        
+        // Random flood for block propagation
+        flooder.flood(&publish_msg, TrafficType::BlockBroadcast, 0.5);
+        
+        println!("DEBUG: Preordering block broadcasted successfully");
     }
 
     pub fn container_info(&self) -> ContainerInfo {
