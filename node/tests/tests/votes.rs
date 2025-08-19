@@ -159,81 +159,107 @@ fn vote_generator_multiple_representatives() {
         .unwrap();
 
     let amount = Amount::nano(100_000);
-    node.wallets.send_sync(
-        wallet_id,
-        *DEV_GENESIS_ACCOUNT,
-        key1.account(),
-        amount,
-        0.into(),
-        true,
-        None,
-    );
-    node.wallets.send_sync(
-        wallet_id,
-        *DEV_GENESIS_ACCOUNT,
-        key2.account(),
-        amount,
-        0.into(),
-        true,
-        None,
-    );
-    node.wallets.send_sync(
-        wallet_id,
-        *DEV_GENESIS_ACCOUNT,
-        key3.account(),
-        amount,
-        0.into(),
-        true,
-        None,
-    );
+
+    node.wallets
+        .send(
+            wallet_id,
+            *DEV_GENESIS_ACCOUNT,
+            key1.account(),
+            amount,
+            0.into(),
+            true,
+            None,
+        )
+        .wait()
+        .unwrap();
+
+    node.wallets
+        .send(
+            wallet_id,
+            *DEV_GENESIS_ACCOUNT,
+            key2.account(),
+            amount,
+            0.into(),
+            true,
+            None,
+        )
+        .wait()
+        .unwrap();
+
+    node.wallets
+        .send(
+            wallet_id,
+            *DEV_GENESIS_ACCOUNT,
+            key3.account(),
+            amount,
+            0.into(),
+            true,
+            None,
+        )
+        .wait()
+        .unwrap();
 
     // Assert balances
-    assert_timely(Duration::from_secs(3), || {
+    assert_timely2(|| {
         node.balance(&key1.account()) == amount
             && node.balance(&key2.account()) == amount
             && node.balance(&key3.account()) == amount
     });
 
     // Change representatives
-    node.wallets.change_action2(
-        &wallet_id,
-        key1.account(),
-        key1.public_key(),
-        0.into(),
-        true,
-    );
-    node.wallets.change_action2(
-        &wallet_id,
-        key2.account(),
-        key2.public_key(),
-        0.into(),
-        true,
-    );
-    node.wallets.change_action2(
-        &wallet_id,
-        key3.account(),
-        key3.public_key(),
-        0.into(),
-        true,
-    );
+    node.wallets
+        .change(
+            &wallet_id,
+            key1.account(),
+            key1.public_key(),
+            0.into(),
+            true,
+        )
+        .wait()
+        .unwrap();
+
+    node.wallets
+        .change(
+            &wallet_id,
+            key2.account(),
+            key2.public_key(),
+            0.into(),
+            true,
+        )
+        .wait()
+        .unwrap();
+
+    node.wallets
+        .change(
+            &wallet_id,
+            key3.account(),
+            key3.public_key(),
+            0.into(),
+            true,
+        )
+        .wait()
+        .unwrap();
 
     assert_eq!(node.ledger.weight(&key1.public_key()), amount);
     assert_eq!(node.ledger.weight(&key2.public_key()), amount);
     assert_eq!(node.ledger.weight(&key3.public_key()), amount);
 
-    node.wallets.compute_reps();
-    assert_eq!(node.wallets.voting_reps_count(), 4);
+    node.wallet_reps.lock().unwrap().compute_reps();
+    assert_eq!(node.wallet_reps.lock().unwrap().voting_reps(), 4);
 
-    let hash = node.wallets.send_sync(
-        wallet_id,
-        *DEV_GENESIS_ACCOUNT,
-        *DEV_GENESIS_ACCOUNT,
-        Amount::raw(1),
-        0.into(),
-        true,
-        None,
-    );
-    let send = node.block(&hash).unwrap();
+    let send = node
+        .wallets
+        .send(
+            wallet_id,
+            *DEV_GENESIS_ACCOUNT,
+            *DEV_GENESIS_ACCOUNT,
+            Amount::raw(1),
+            0.into(),
+            true,
+            None,
+        )
+        .wait()
+        .unwrap();
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(5), || {

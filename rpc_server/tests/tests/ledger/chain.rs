@@ -23,8 +23,8 @@ fn chain() {
     let key = PrivateKey::new();
     let block = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(1),
@@ -32,6 +32,7 @@ fn chain() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
@@ -70,8 +71,8 @@ fn chain_limit() {
     let key = PrivateKey::new();
     let block = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(1),
@@ -79,6 +80,7 @@ fn chain_limit() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
@@ -116,8 +118,8 @@ fn chain_offset() {
     let key = PrivateKey::new();
     let block = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(1),
@@ -125,6 +127,7 @@ fn chain_offset() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     assert_timely2(|| node.is_active_root(&block.qualified_root()));

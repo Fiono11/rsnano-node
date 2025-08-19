@@ -3,6 +3,7 @@ use rsnano_core::Networks;
 use super::{Wallets, WalletsExt};
 use crate::utils::ThreadPool;
 use std::{sync::Arc, time::Duration};
+use tracing::warn;
 
 pub(crate) struct ReceivableSearch {
     wallets: Arc<Wallets>,
@@ -43,7 +44,9 @@ fn search_receivables(wallets: Arc<Wallets>, workers: Arc<dyn ThreadPool>, inter
     // Reload wallets from disk
     wallets.reload();
     // Search pending
-    wallets.search_receivable_all();
+    if let Err(e) = wallets.search_receivable_all().wait() {
+        warn!("Failed receivables search: {e:?}");
+    }
 
     let wallets_w = Arc::downgrade(&wallets);
     let workers_w = Arc::downgrade(&workers);

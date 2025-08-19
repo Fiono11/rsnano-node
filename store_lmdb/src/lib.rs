@@ -41,7 +41,7 @@ pub use pruned_store::{ConfiguredPrunedDatabaseBuilder, LmdbPrunedStore};
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;
-pub use store::{create_backup_file, LedgerCache, LmdbStore, MemoryStats};
+pub use store::{LedgerCache, LmdbStore, MemoryStats};
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;
 pub use version_store::LmdbVersionStore;

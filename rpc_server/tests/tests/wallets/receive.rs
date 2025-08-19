@@ -24,8 +24,8 @@ fn receive() {
 
     let send1 = node
         .wallets
-        .send_action2(
-            &wallet,
+        .send(
+            wallet,
             *DEV_GENESIS_ACCOUNT,
             key1.public_key().into(),
             node.config.receive_minimum,
@@ -33,6 +33,7 @@ fn receive() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     assert_timely2(|| node.ledger.any().account_balance(&*DEV_GENESIS_ACCOUNT) != Amount::MAX);
@@ -47,8 +48,8 @@ fn receive() {
 
     let send2 = node
         .wallets
-        .send_action2(
-            &wallet,
+        .send(
+            wallet,
             *DEV_GENESIS_ACCOUNT,
             key1.public_key().into(),
             node.config.receive_minimum - Amount::raw(1),
@@ -56,6 +57,7 @@ fn receive() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     let args = ReceiveArgs::builder(wallet, key1.public_key().into(), send2.hash()).build();

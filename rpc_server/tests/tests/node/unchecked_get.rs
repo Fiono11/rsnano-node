@@ -1,6 +1,5 @@
 use rsnano_core::{Amount, Block, BlockHash, JsonBlock, PrivateKey, StateBlockArgs};
-use test_helpers::{assert_timely_msg, setup_rpc_client_and_server, System};
-use tokio::time::Duration;
+use test_helpers::{assert_timely2, setup_rpc_client_and_server, System};
 
 #[test]
 fn unchecked_get() {
@@ -22,11 +21,7 @@ fn unchecked_get() {
 
     node.process_active(open.clone());
 
-    assert_timely_msg(
-        Duration::from_secs(10),
-        || node.unchecked.len() == 1,
-        "Expected 1 unchecked block after 10 seconds",
-    );
+    assert_timely2(|| node.unchecked.lock().unwrap().len() == 1);
 
     let unchecked_dto = node
         .runtime

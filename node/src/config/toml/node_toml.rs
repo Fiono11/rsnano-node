@@ -10,7 +10,6 @@ use tcp_toml::TcpToml;
 pub struct NodeToml {
     pub allow_local_peers: Option<bool>,
     pub background_threads: Option<u32>,
-    pub backup_before_upgrade: Option<bool>,
     pub bandwidth_limit: Option<usize>,
     pub bandwidth_limit_burst_ratio: Option<f64>,
     pub bootstrap_bandwidth_burst_ratio: Option<f64>,
@@ -79,9 +78,6 @@ impl NodeConfig {
         }
         if let Some(background_threads) = toml.background_threads {
             self.background_threads = background_threads;
-        }
-        if let Some(backup_before_upgrade) = toml.backup_before_upgrade {
-            self.backup_before_upgrade = backup_before_upgrade;
         }
         if let Some(limit) = toml.bandwidth_limit {
             self.network.limiter.generic_limit = limit;
@@ -439,7 +435,6 @@ impl From<&NodeConfig> for NodeToml {
         Self {
             allow_local_peers: Some(config.allow_local_peers),
             background_threads: Some(config.background_threads),
-            backup_before_upgrade: Some(config.backup_before_upgrade),
             bandwidth_limit: Some(config.network.limiter.generic_limit),
             bandwidth_limit_burst_ratio: Some(config.network.limiter.generic_burst_ratio),
             bootstrap_bandwidth_limit: Some(config.network.limiter.bootstrap_limit),

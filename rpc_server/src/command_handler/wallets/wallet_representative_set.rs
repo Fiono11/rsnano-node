@@ -8,11 +8,10 @@ impl RpcCommandHandler {
         args: WalletRepresentativeSetArgs,
     ) -> anyhow::Result<SetResponse> {
         let update_existing = args.update_existing_accounts.unwrap_or_default().inner();
-        self.node.wallets.set_representative(
-            args.wallet,
-            args.representative.into(),
-            update_existing,
-        )?;
+        self.node
+            .wallets
+            .set_representative(args.wallet, args.representative.into(), update_existing)
+            .wait()?;
         Ok(SetResponse::new(true))
     }
 }

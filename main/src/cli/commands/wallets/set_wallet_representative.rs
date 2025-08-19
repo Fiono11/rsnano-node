@@ -28,6 +28,7 @@ impl SetWalletRepresentativeArgs {
 
         node.wallets
             .set_representative(wallet_id, representative, false)
+            .wait()
             .map_err(|e| anyhow!("Failed to set wallet representative: {:?}", e))?;
 
         Ok(())

@@ -76,7 +76,6 @@ mod tests {
 
     static CUSTOM_TOML_STR: &str = r#"[node]
         allow_local_peers = false
-        backup_before_upgrade = true
         bandwidth_limit = 999
         bandwidth_limit_burst_ratio = 999.9
         bootstrap_bandwidth_limit = 999
@@ -301,10 +300,6 @@ mod tests {
         assert_ne!(
             deserialized.node.allow_local_peers,
             default_cfg.node.allow_local_peers
-        );
-        assert_ne!(
-            deserialized.node.backup_before_upgrade,
-            default_cfg.node.backup_before_upgrade
         );
         assert_ne!(
             deserialized.node.network.limiter.generic_limit,

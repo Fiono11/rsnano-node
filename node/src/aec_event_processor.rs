@@ -164,6 +164,7 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
 }
 
 impl AecEventProcessor {
+    #[allow(dead_code)]
     pub fn add(&mut self, handler: impl AecEventHandler + Send + 'static) {
         self.plugins.push(Box::new(handler));
     }

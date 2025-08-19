@@ -2,29 +2,28 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicU64, Ordering::Relaxed},
-        Arc,
+        Arc, Mutex,
     },
-    time::{Duration, Instant},
 };
 
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{debug, warn};
 
-use rsnano_core::{
-    utils::{backpressure_channel, BackpressureSender},
-    BlockType, Epoch, UncheckedInfo,
-};
+use rsnano_core::utils::{backpressure_channel, BackpressureSender};
 use rsnano_ledger::{BlockError, Ledger};
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_stats::{StatsCollection, StatsSource};
 
-use super::{BlockContext, BlockSource, LedgerEvent, UncheckedMap};
+use super::{BlockContext, BlockSource, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap};
 use crate::block_processing::ProcessedResult;
 
 pub(crate) struct BlockBatchProcessor {
     pub ledger: Arc<Ledger>,
-    pub unchecked: Arc<UncheckedMap>,
+    pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub stats: Arc<BlockBatchProcessorStats>,
     pub event_publisher: BackpressureSender<LedgerEvent>,
+    pub unchecked_reenqueuer: UncheckedBlockReenqueuer,
+    pub clock: Arc<SteadyClock>,
 }
 
 impl BlockBatchProcessor {
@@ -32,14 +31,16 @@ impl BlockBatchProcessor {
     pub fn new_null() -> Self {
         Self {
             ledger: Arc::new(Ledger::new_null()),
-            unchecked: Arc::new(UncheckedMap::default()),
+            unchecked: Arc::new(Mutex::new(UncheckedMap::default())),
             stats: Arc::new(BlockBatchProcessorStats::default()),
             event_publisher: backpressure_channel(0).0,
+            unchecked_reenqueuer: UncheckedBlockReenqueuer::new_null(),
+            clock: Arc::new(SteadyClock::new_null()),
         }
     }
 
-    pub(crate) fn process_blocks(&self, mut batch: VecDeque<Arc<BlockContext>>) {
-        let timer = Instant::now();
+    pub(crate) fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>) {
+        let now = self.clock.now();
 
         self.roll_back_competitor_blocks(&batch);
 
@@ -66,14 +67,6 @@ impl BlockBatchProcessor {
             }
         }
 
-        if result.processed.len() > 0 && timer.elapsed() > Duration::from_millis(100) {
-            debug!(
-                "Processed {} blocks in {} ms",
-                result.processed.len(),
-                timer.elapsed().as_millis(),
-            );
-        }
-
         assert_eq!(result.processed.len(), batch.len());
         let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = result
             .processed
@@ -88,7 +81,10 @@ impl BlockBatchProcessor {
             })
             .collect();
 
-        for (status, block_ctx) in &result {
+        // Iterate in reverse order so that when consecutive blocks where processed with
+        // gap_previous, that the successful insert of the first block is processed last
+        // and the unchecked_map trigger succeeds.
+        for (status, block_ctx) in result.iter().rev() {
             match status {
                 Ok(()) => {
                     self.stats.progress.fetch_add(1, Relaxed);
@@ -100,48 +96,27 @@ impl BlockBatchProcessor {
 
             self.stats.sources[block_ctx.source as usize].fetch_add(1, Relaxed);
 
-            let hash = &block_ctx.block.hash();
+            let hash = block_ctx.block.hash();
             let block = &block_ctx.block;
-            let saved_block = block_ctx.saved_block.lock().unwrap().clone();
 
             match status {
                 Ok(()) => {
-                    self.unchecked.trigger(&hash.into());
-
-                    /*
-                     * For send blocks check epoch open unchecked (gap pending).
-                     * For state blocks check only send subtype and only if block epoch is not last epoch.
-                     * If epoch is last, then pending entry shouldn't trigger same epoch open block for destination account.
-                     * */
-                    let block = saved_block.unwrap();
-                    if block.block_type() == BlockType::LegacySend
-                        || block.block_type() == BlockType::State
-                            && block.is_send()
-                            && block.epoch() < Epoch::MAX
-                    {
-                        self.unchecked.trigger(&block.destination_or_link().into());
-                    }
+                    self.unchecked_reenqueuer
+                        .enqueue_blocks_with_dependency(hash);
                 }
                 Err(BlockError::GapPrevious) => {
                     self.unchecked
-                        .put(block.previous().into(), UncheckedInfo::new(block.clone()));
+                        .lock()
+                        .unwrap()
+                        .put(block.previous(), block.clone(), now);
                 }
                 Err(BlockError::GapSource) => {
-                    self.unchecked.put(
-                        block
-                            .source_field()
-                            .unwrap_or(block.link_field().unwrap_or_default().into())
-                            .into(),
-                        UncheckedInfo::new(block.clone()),
-                    );
+                    self.unchecked
+                        .lock()
+                        .unwrap()
+                        .put(block.source_or_link(), block.clone(), now);
                 }
-                Err(BlockError::GapEpochOpenPending) => {
-                    // Specific unchecked key starting with epoch open block account public key
-                    self.unchecked.put(
-                        block.account_field().unwrap().into(),
-                        UncheckedInfo::new(block.clone()),
-                    );
-                }
+                Err(BlockError::GapEpochOpenPending) => {}
                 Err(BlockError::Old) => {
                     debug!("Block is old: {}", hash)
                 }

@@ -13,6 +13,7 @@ fn wallet_representative() {
     node.wallets.create(wallet);
     node.wallets
         .set_representative(wallet, PublicKey::zero(), false)
+        .wait()
         .unwrap();
 
     let result = node

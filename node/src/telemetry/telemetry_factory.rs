@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::SystemTime,
 };
 
@@ -18,7 +18,7 @@ pub struct TelemetryFactory {
     pub ledger: Arc<Ledger>,
     pub network: Arc<RwLock<Network>>,
     pub node_id_key: PrivateKey,
-    pub unchecked: Arc<UncheckedMap>,
+    pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub startup_time: Timestamp,
     pub clock: Arc<SteadyClock>,
 }
@@ -36,6 +36,7 @@ impl TelemetryFactory {
         }
 
         let version = rsnano_version();
+        let unchecked_count = self.unchecked.lock().unwrap().len() as u64;
 
         let mut telemetry_data = TelemetryData {
             node_id: self.node_id_key.public_key().into(),
@@ -44,7 +45,7 @@ impl TelemetryFactory {
             bandwidth_cap,
             protocol_version,
             uptime: self.startup_time.elapsed(self.clock.now()).as_secs(),
-            unchecked_count: self.unchecked.len() as u64,
+            unchecked_count,
             genesis_block: self.ledger.genesis().hash(),
             peer_count,
             account_count: self.ledger.account_count(),

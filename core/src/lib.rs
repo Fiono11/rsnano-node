@@ -72,9 +72,6 @@ pub use difficulty::{Difficulty, DifficultyV1, StubDifficulty, WorkVersion};
 mod blocks;
 pub use blocks::*;
 
-mod unchecked_info;
-pub use unchecked_info::{UncheckedInfo, UncheckedKey};
-
 mod kdf;
 pub use kdf::KeyDerivationFunction;
 use std::{

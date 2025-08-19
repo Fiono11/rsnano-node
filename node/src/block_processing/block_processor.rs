@@ -9,36 +9,43 @@ use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::{
     backlog_waiter::BacklogWaiter, block_batch_processor::BlockBatchProcessorStats,
-    BlockProcessorQueue, LedgerEvent, UncheckedMap,
+    BlockProcessorQueue, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap,
 };
 use crate::block_processing::block_batch_processor::BlockBatchProcessor;
+use rsnano_nullable_clock::SteadyClock;
 
 pub struct BlockProcessor {
     threads: Mutex<Vec<JoinHandle<()>>>,
-    queue: Arc<BlockProcessorQueue>,
+    process_queue: Arc<BlockProcessorQueue>,
     ledger: Arc<Ledger>,
-    unchecked: Arc<UncheckedMap>,
+    unchecked: Arc<Mutex<UncheckedMap>>,
     process_stats: Arc<BlockBatchProcessorStats>,
     backlog_waiter: Arc<BacklogWaiter>,
     event_publisher: Mutex<Option<BackpressureSender<LedgerEvent>>>,
+    unchecked_reenqueuer: UncheckedBlockReenqueuer,
+    clock: Arc<SteadyClock>,
 }
 
 impl BlockProcessor {
     pub(crate) fn new(
-        queue: Arc<BlockProcessorQueue>,
+        process_queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
-        unchecked: Arc<UncheckedMap>,
+        unchecked: Arc<Mutex<UncheckedMap>>,
+        unchecked_reenqueuer: UncheckedBlockReenqueuer,
         backlog_waiter: Arc<BacklogWaiter>,
         event_publisher: BackpressureSender<LedgerEvent>,
+        clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
-            queue,
+            process_queue,
             ledger,
             unchecked,
+            unchecked_reenqueuer,
             process_stats: Arc::new(BlockBatchProcessorStats::default()),
             threads: Mutex::new(Vec::new()),
             backlog_waiter,
             event_publisher: Mutex::new(Some(event_publisher)),
+            clock,
         }
     }
 
@@ -60,7 +67,7 @@ impl BlockProcessor {
 
     fn create_loop(&self) -> BlockProcessorLoop {
         BlockProcessorLoop {
-            queue: self.queue.clone(),
+            queue: self.process_queue.clone(),
             process: self.create_block_batch_processor(),
             backlog_waiter: self.backlog_waiter.clone(),
         }
@@ -78,12 +85,14 @@ impl BlockProcessor {
                 .as_ref()
                 .unwrap()
                 .clone(),
+            unchecked_reenqueuer: self.unchecked_reenqueuer.clone(),
+            clock: self.clock.clone(),
         }
     }
 
     pub fn stop(&self) {
         drop(self.event_publisher.lock().unwrap().take());
-        self.queue.stop();
+        self.process_queue.stop();
         let mut threads = self.threads.lock().unwrap();
         for join_handle in threads.drain(..) {
             join_handle.join().unwrap();

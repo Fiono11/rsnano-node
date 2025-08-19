@@ -18,19 +18,20 @@ fn account_history() {
 
     let change = node
         .wallets
-        .change_action2(
+        .change(
             &wallet_id,
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_PUB_KEY,
             node.work_generate_dev(*DEV_GENESIS_HASH),
             false,
         )
+        .wait()
         .unwrap();
 
     let send = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_ACCOUNT,
             node.config.receive_minimum,
@@ -38,12 +39,13 @@ fn account_history() {
             false,
             None,
         )
+        .wait()
         .unwrap();
 
     let receive = node
         .wallets
-        .receive_action2(
-            &wallet_id,
+        .receive(
+            wallet_id,
             send.hash(),
             *DEV_GENESIS_PUB_KEY,
             node.config.receive_minimum,
@@ -51,13 +53,13 @@ fn account_history() {
             node.work_generate_dev(send.hash()),
             false,
         )
-        .unwrap()
+        .wait()
         .unwrap();
 
     let usend = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_ACCOUNT,
             Amount::nano(1_000),
@@ -65,12 +67,13 @@ fn account_history() {
             false,
             None,
         )
+        .wait()
         .unwrap();
 
     let ureceive = node
         .wallets
-        .receive_action2(
-            &wallet_id,
+        .receive(
+            wallet_id,
             usend.hash(),
             *DEV_GENESIS_PUB_KEY,
             Amount::nano(1_000),
@@ -78,18 +81,19 @@ fn account_history() {
             node.work_generate_dev(usend.hash()),
             false,
         )
-        .unwrap()
+        .wait()
         .unwrap();
 
     let uchange = node
         .wallets
-        .change_action2(
+        .change(
             &wallet_id,
             *DEV_GENESIS_ACCOUNT,
             PublicKey::zero(),
             node.work_generate_dev(ureceive.hash()),
             false,
         )
+        .wait()
         .unwrap();
 
     // Set up RPC client and server
@@ -165,8 +169,8 @@ fn account_history() {
         .into();
     let send2 = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             account2,
             node.config.receive_minimum,
@@ -174,11 +178,12 @@ fn account_history() {
             false,
             None,
         )
+        .wait()
         .unwrap();
 
     node.wallets
-        .receive_action2(
-            &wallet_id,
+        .receive(
+            wallet_id,
             send2.hash(),
             account2.into(),
             node.config.receive_minimum,
@@ -186,7 +191,7 @@ fn account_history() {
             node.work_generate_dev(send2.hash()),
             false,
         )
-        .unwrap()
+        .wait()
         .unwrap();
 
     let args = AccountHistoryArgs::build_for_account(*DEV_GENESIS_ACCOUNT, 100)

@@ -9,7 +9,6 @@ pub struct NodeFlags {
     pub disable_rep_crawler: bool,
     pub disable_request_loop: bool, // For testing only
     pub disable_providing_telemetry_metrics: bool,
-    pub disable_block_processor_unchecked_deletion: bool,
     pub disable_block_processor_republishing: bool,
     pub allow_bootstrap_peers_duplicates: bool,
     pub disable_search_pending: bool, // For testing only
@@ -33,7 +32,6 @@ impl NodeFlags {
             disable_rep_crawler: false,
             disable_request_loop: false,
             disable_providing_telemetry_metrics: false,
-            disable_block_processor_unchecked_deletion: false,
             disable_block_processor_republishing: false,
             allow_bootstrap_peers_duplicates: false,
             disable_search_pending: false,

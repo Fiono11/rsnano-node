@@ -6,8 +6,7 @@ use rsnano_node::{
     config::{NodeConfig, NodeFlags},
     wallets::WalletsExt,
 };
-use std::time::Duration;
-use test_helpers::{assert_timely, assert_timely2, assert_timely_eq, System};
+use test_helpers::{assert_timely_eq2, System};
 
 #[test]
 fn open_create() {
@@ -43,19 +42,7 @@ fn vote_minimum() {
     node.process(open2.clone());
 
     let wallet_id = node.wallets.wallet_ids()[0];
-    assert_eq!(
-        node.wallets
-            .mutex
-            .lock()
-            .unwrap()
-            .get(&wallet_id)
-            .unwrap()
-            .representatives
-            .lock()
-            .unwrap()
-            .len(),
-        0
-    );
+    assert_eq!(node.wallet_reps.lock().unwrap().voting_reps(), 0);
 
     node.wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
@@ -66,20 +53,8 @@ fn vote_minimum() {
     node.wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), false)
         .unwrap();
-    node.wallets.compute_reps();
-    assert_eq!(
-        node.wallets
-            .mutex
-            .lock()
-            .unwrap()
-            .get(&wallet_id)
-            .unwrap()
-            .representatives
-            .lock()
-            .unwrap()
-            .len(),
-        2
-    );
+    node.wallet_reps.lock().unwrap().compute_reps();
+    assert_eq!(node.wallet_reps.lock().unwrap().voting_reps(), 2);
 }
 
 #[test]
@@ -133,26 +108,18 @@ fn search_receivable() {
             .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
         node.process(send.clone());
 
-        // Pending search should start an election
-        assert_eq!(node.active.read().unwrap().len(), 0);
         if search_all {
-            node.wallets.search_receivable_all();
+            node.wallets.search_receivable_all().wait().unwrap();
         } else {
-            node.wallets.search_receivable_wallet(wallet_id).unwrap();
+            node.wallets.search_receivable(&wallet_id).wait().unwrap();
         }
-        assert_timely2(|| node.is_active_root(&send.qualified_root()));
-
         // Erase the key so the confirmation does not trigger an automatic receive
         node.wallets
             .remove_key(&wallet_id, &DEV_GENESIS_PUB_KEY)
             .unwrap();
 
-        // Now confirm the election
-        node.force_confirm(&send.hash());
-
-        assert_timely(Duration::from_secs(5), || {
-            node.block_confirmed(&send.hash()) && node.active.read().unwrap().len() == 0
-        });
+        // Now confirm the send block
+        node.confirm(send.hash());
 
         // Re-insert the key
         node.wallets
@@ -162,15 +129,11 @@ fn search_receivable() {
         // Pending search should create the receive block
         assert_eq!(node.ledger.block_count(), 2);
         if search_all {
-            node.wallets.search_receivable_all();
+            node.wallets.search_receivable_all().wait().unwrap();
         } else {
-            node.wallets.search_receivable_wallet(wallet_id).unwrap();
+            node.wallets.search_receivable(&wallet_id).wait().unwrap();
         }
-        assert_timely_eq(
-            Duration::from_secs(3),
-            || node.balance(&DEV_GENESIS_ACCOUNT),
-            Amount::MAX,
-        );
+        assert_timely_eq2(|| node.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
         let receive_hash = node
             .ledger
             .any()

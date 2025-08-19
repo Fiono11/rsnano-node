@@ -1,6 +1,6 @@
 use std::{
     net::SocketAddrV6,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use tracing::trace;
@@ -16,7 +16,7 @@ use crate::{
     bootstrap::{BootstrapServer, Bootstrapper},
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
     telemetry::Telemetry,
-    wallets::Wallets,
+    wallets::WalletRepresentatives,
 };
 
 /// Handle realtime messages (as opposed to bootstrap messages)
@@ -25,7 +25,7 @@ pub struct RealtimeMessageHandler {
     network_filter: Arc<NetworkFilter>,
     network: Arc<RwLock<Network>>,
     block_processor_queue: Arc<BlockProcessorQueue>,
-    wallets: Arc<Wallets>,
+    wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     request_aggregator: Arc<RequestAggregator>,
     vote_processor_queue: Arc<VoteProcessorQueue>,
     telemetry: Arc<Telemetry>,
@@ -40,7 +40,7 @@ impl RealtimeMessageHandler {
         network: Arc<RwLock<Network>>,
         network_filter: Arc<NetworkFilter>,
         block_processor_queue: Arc<BlockProcessorQueue>,
-        wallets: Arc<Wallets>,
+        wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         request_aggregator: Arc<RequestAggregator>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         telemetry: Arc<Telemetry>,
@@ -53,7 +53,7 @@ impl RealtimeMessageHandler {
             network,
             network_filter,
             block_processor_queue,
-            wallets,
+            wallet_reps,
             request_aggregator,
             vote_processor_queue,
             telemetry,
@@ -123,7 +123,7 @@ impl RealtimeMessageHandler {
             Message::ConfirmReq(req) => {
                 // Don't load nodes with disabled voting
                 // TODO: This check should be cached somewhere
-                if self.wallets.voting_enabled() {
+                if self.wallet_reps.lock().unwrap().voting_enabled() {
                     let aggregator_req = AggregatorRequest {
                         channel: channel.clone(),
                         roots_hashes: req.roots_hashes,

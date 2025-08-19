@@ -1,32 +1,30 @@
-use crate::command_handler::RpcCommandHandler;
 use anyhow::anyhow;
-use rsnano_core::{UncheckedInfo, UncheckedKey};
+
 use rsnano_rpc_messages::{HashRpcMessage, UncheckedGetResponse};
-use std::cell::RefCell;
+
+use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn unchecked_get(
         &self,
         args: HashRpcMessage,
     ) -> anyhow::Result<UncheckedGetResponse> {
-        let mut result = None;
-        let done = RefCell::new(false);
-
-        self.node.unchecked.for_each(
-            |key: &UncheckedKey, info: &UncheckedInfo| {
-                if key.hash == args.hash {
-                    let modified_timestamp = info.modified;
-                    let contents = info.block.json_representation();
-                    result = Some(UncheckedGetResponse {
-                        modified_timestamp: modified_timestamp.into(),
-                        contents,
-                    });
-                    *done.borrow_mut() = true;
+        self.node
+            .unchecked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(_, block)| {
+                if block.hash() == args.hash {
+                    Some(UncheckedGetResponse {
+                        modified_timestamp: 0.into(), // not supported in RsNano
+                        contents: block.json_representation(),
+                    })
+                } else {
+                    None
                 }
-            },
-            || !*done.borrow(),
-        );
-
-        result.ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))
+            })
+            .next()
+            .ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))
     }
 }

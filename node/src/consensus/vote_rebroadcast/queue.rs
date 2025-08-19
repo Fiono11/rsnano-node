@@ -178,7 +178,7 @@ impl WalletRepsConsumer for VoteRebroadcastQueue {
     fn update_wallet_reps(&self, reps: &WalletRepresentatives) {
         let mut queue = self.queue.lock().unwrap();
         queue.is_close_to_pr(reps.have_half_rep());
-        queue.set_local_reps(reps.accounts.iter().map(|a| a.into()).collect());
+        queue.set_local_reps(reps.rep_accounts().map(|a| a.into()).collect());
     }
 }
 

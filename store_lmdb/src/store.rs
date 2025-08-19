@@ -1,15 +1,10 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
 };
 
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
-use rsnano_core::utils::UnixTimestamp;
 use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
 
 use crate::{
@@ -112,49 +107,6 @@ pub struct MemoryStats {
     pub leaf_pages: usize,
     pub overflow_pages: usize,
     pub page_size: u32,
-}
-
-/// Takes a filepath, appends '_backup_<timestamp>' to the end (but before any extension) and saves that file in the same directory
-pub fn create_backup_file(env: &LmdbEnvironment) -> anyhow::Result<()> {
-    let source_path = env.file_path();
-    let backup_path = backup_file_path(source_path)?;
-
-    info!(
-        "Performing {:?} backup before database upgrade...",
-        source_path
-    );
-
-    env.copy_db(&backup_path)?;
-    info!("Backup created: {:?}", backup_path);
-    Ok(())
-}
-
-fn backup_file_path(source_path: &Path) -> anyhow::Result<PathBuf> {
-    let extension = source_path
-        .extension()
-        .ok_or_else(|| anyhow!("no extension"))?
-        .to_str()
-        .ok_or_else(|| anyhow!("invalid extension"))?;
-
-    let mut backup_path = source_path
-        .parent()
-        .ok_or_else(|| anyhow!("no parent path"))?
-        .to_owned();
-
-    let file_stem = source_path
-        .file_stem()
-        .ok_or_else(|| anyhow!("no file stem"))?
-        .to_str()
-        .ok_or_else(|| anyhow!("invalid file stem"))?;
-
-    let backup_filename = format!(
-        "{}_backup_{}.{}",
-        file_stem,
-        UnixTimestamp::now(),
-        extension
-    );
-    backup_path.push(&backup_filename);
-    Ok(backup_path)
 }
 
 #[cfg(test)]

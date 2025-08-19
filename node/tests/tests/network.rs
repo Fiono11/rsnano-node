@@ -302,11 +302,12 @@ fn receive_weight_change() {
     node2
         .wallets
         .set_representative(node2.wallets.wallet_ids()[0], key2.public_key(), false)
+        .wait()
         .unwrap();
     node1
         .wallets
-        .send_action2(
-            &node1.wallets.wallet_ids()[0],
+        .send(
+            node1.wallets.wallet_ids()[0],
             *DEV_GENESIS_ACCOUNT,
             key2.public_key().as_account(),
             node1.config.receive_minimum,
@@ -314,6 +315,7 @@ fn receive_weight_change() {
             true,
             None,
         )
+        .wait()
         .unwrap();
     assert_timely(Duration::from_secs(10), || {
         node1.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum

@@ -39,24 +39,29 @@ impl RpcCommandHandler {
         let generate_work = work.is_zero(); // Disable work generation if "work" option is provided
         let send_id = args.id;
 
-        let block_hash = self.node.wallets.send_sync(
-            wallet_id,
-            source,
-            destination,
-            amount,
-            work,
-            generate_work,
-            send_id,
-        );
+        let block = self
+            .node
+            .wallets
+            .send(
+                wallet_id,
+                source,
+                destination,
+                amount,
+                work,
+                generate_work,
+                send_id,
+            )
+            .wait();
 
-        if block_hash.is_zero() {
-            if balance >= amount {
-                bail!("Error generating block")
-            } else {
-                bail!("Insufficient balance")
+        match block {
+            Ok(block) => Ok(BlockDto::new(block.hash())),
+            Err(_) => {
+                if balance >= amount {
+                    bail!("Error generating block")
+                } else {
+                    bail!("Insufficient balance")
+                }
             }
         }
-
-        Ok(BlockDto::new(block_hash))
     }
 }

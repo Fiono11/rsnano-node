@@ -40,6 +40,7 @@ use crate::{
     },
     wallets_factory::create_wallets,
 };
+use rand::{Rng, rng};
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const DEFAULT_RATE: &str = "1+50@3s";
@@ -106,6 +107,10 @@ pub(crate) struct Args {
     /// Maximum number of individual accounts to use to produce blocks
     #[arg(long, default_value_t = 500000)]
     pub accounts: usize,
+
+    /// Randomly drop publish messages
+    #[arg(long, default_value_t = 0)]
+    pub drop_percentage: usize,
 }
 
 #[derive(Default)]
@@ -277,6 +282,7 @@ impl NanoSpamApp {
                     args.unconfirmed,
                     &block_factory,
                     &high_prio_tracker,
+                    args.drop_percentage,
                 ));
             });
         });
@@ -348,6 +354,7 @@ async fn publish_blocks(
     unconfirmed: bool,
     block_factory: &Mutex<BlockFactory>,
     prio_tracker: &Mutex<HighPrioTracker>,
+    drop_percentage: usize,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut writer_index = 0;
@@ -361,6 +368,11 @@ async fn publish_blocks(
 
         tokio_scoped::scope(|s| {
             for stream in &mut tcp_streams {
+                if drop_percentage > 0 {
+                    if rng().random_range(0..=100) <= drop_percentage {
+                        continue;
+                    }
+                }
                 s.spawn(async {
                     stream[writer_index].write(buffer).await.unwrap();
                 });

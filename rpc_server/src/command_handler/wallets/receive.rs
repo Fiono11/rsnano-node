@@ -50,7 +50,7 @@ impl RpcCommandHandler {
         let block = self
             .node
             .wallets
-            .receive_sync(
+            .receive(
                 args.wallet,
                 args.block,
                 representative,
@@ -59,6 +59,7 @@ impl RpcCommandHandler {
                 work,
                 generate_work,
             )
+            .wait()
             .map_err(|e| match e {
                 WalletsError::WalletNotFound => anyhow!("wallet not found"),
                 _ => anyhow!("Error generating block"),

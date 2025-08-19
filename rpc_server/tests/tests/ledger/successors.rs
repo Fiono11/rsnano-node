@@ -23,8 +23,8 @@ fn successors() {
     let key = PrivateKey::new();
     let block = node
         .wallets
-        .send_action2(
-            &wallet_id,
+        .send(
+            wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key.account(),
             Amount::raw(1),
@@ -32,6 +32,7 @@ fn successors() {
             true,
             None,
         )
+        .wait()
         .unwrap();
 
     assert_timely2(|| node.is_active_root(&block.qualified_root()));

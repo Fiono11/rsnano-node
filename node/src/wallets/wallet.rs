@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 
@@ -12,7 +8,6 @@ use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 use rsnano_store_lmdb::LmdbWalletStore;
 
 pub struct Wallet {
-    pub representatives: Mutex<HashSet<PublicKey>>,
     pub store: Arc<LmdbWalletStore>,
 }
 
@@ -28,7 +23,6 @@ impl Wallet {
             .context("could not create wallet store")?;
 
         Ok(Self {
-            representatives: Mutex::new(HashSet::new()),
             store: Arc::new(store),
         })
     }
@@ -44,7 +38,6 @@ impl Wallet {
             .context("could not create wallet store")?;
 
         Ok(Self {
-            representatives: Mutex::new(HashSet::new()),
             store: Arc::new(store),
         })
     }

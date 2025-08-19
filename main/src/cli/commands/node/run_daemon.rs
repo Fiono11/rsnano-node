@@ -21,9 +21,6 @@ pub(crate) struct RunDaemonArgs {
     /// Do not provide any telemetry data to nodes requesting it. Responses are still made to requests, but they will have an empty payload.
     #[arg(long)]
     disable_providing_telemetry_metrics: bool,
-    /// Disable deletion of unchecked blocks after processing.
-    #[arg(long)]
-    disable_block_processor_unchecked_deletion: bool,
     /// Disables block republishing by disabling the local_block_broadcaster component
     #[arg(long)]
     disable_block_processor_republishing: bool,
@@ -62,8 +59,6 @@ impl RunDaemonArgs {
         flags.disable_rep_crawler = self.disable_rep_crawler;
         flags.disable_request_loop = self.disable_request_loop;
         flags.disable_providing_telemetry_metrics = self.disable_providing_telemetry_metrics;
-        flags.disable_block_processor_unchecked_deletion =
-            self.disable_block_processor_unchecked_deletion;
         flags.disable_block_processor_republishing = self.disable_block_processor_republishing;
         flags.allow_bootstrap_peers_duplicates = self.allow_bootstrap_peers_duplicates;
         flags.enable_pruning = self.enable_pruning;

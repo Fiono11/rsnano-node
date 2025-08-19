@@ -1,24 +1,23 @@
-use crate::command_handler::RpcCommandHandler;
-use rsnano_core::{UncheckedInfo, UncheckedKey};
-use rsnano_rpc_messages::{CountArgs, UncheckedResponse};
 use std::collections::HashMap;
+
+use rsnano_rpc_messages::{unwrap_u64_or_max, CountArgs, UncheckedResponse};
+
+use crate::command_handler::RpcCommandHandler;
+use rsnano_core::{BlockHash, JsonBlock};
 
 impl RpcCommandHandler {
     pub(crate) fn unchecked(&self, args: CountArgs) -> UncheckedResponse {
-        let count = args.count.map(u64::from).unwrap_or(u64::MAX);
-        let mut blocks = HashMap::new();
+        let count = unwrap_u64_or_max(args.count) as usize;
 
-        let mut iterations = 0;
-        self.node.unchecked.for_each(
-            |_key: &UncheckedKey, info: &UncheckedInfo| {
-                let json_block = info.block.json_representation();
-                blocks.insert(info.block.hash(), json_block);
-            },
-            || {
-                iterations += 1;
-                iterations <= count
-            },
-        );
+        let blocks: HashMap<BlockHash, JsonBlock> = self
+            .node
+            .unchecked
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, block)| (block.hash(), block.json_representation()))
+            .take(count)
+            .collect();
 
         UncheckedResponse::new(blocks)
     }

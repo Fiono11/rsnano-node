@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use rsnano_core::{
     Account, Amount, Block, BlockHash, Epoch, PrivateKey, QualifiedRoot, Signature, StateBlockArgs,
@@ -10,9 +10,7 @@ use rsnano_ledger::{
 use rsnano_network::ChannelId;
 
 use rsnano_node::block_processing::{BlockContext, BlockSource};
-use test_helpers::{
-    assert_timely, assert_timely2, assert_timely_eq, assert_timely_eq2, start_elections, System,
-};
+use test_helpers::{assert_timely2, assert_timely_eq2, start_elections, System};
 
 mod votes {
     use super::*;
@@ -99,26 +97,17 @@ fn epoch_open_pending() {
 
     let status = node1.try_process(epoch_open.clone()).unwrap_err();
     assert_eq!(status, BlockError::GapEpochOpenPending);
+
+    // New block to process epoch open
+    node1.process(send1);
+
     node1.block_processor_queue.push(BlockContext::new(
         epoch_open.clone().into(),
         BlockSource::Live,
         ChannelId::LOOPBACK,
     ));
-    // Waits for the block to get saved in the database
-    assert_timely_eq(Duration::from_secs(10), || node1.unchecked.len(), 1);
-    // Open block should be inserted into unchecked
-    let blocks = node1.unchecked.get(&key1.account().into());
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].block.hash(), epoch_open.hash());
-    // New block to process epoch open
-    node1.block_processor_queue.push(BlockContext::new(
-        send1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    assert_timely(Duration::from_secs(10), || {
-        node1.block_exists(&epoch_open.hash())
-    });
+
+    assert_timely2(|| node1.block_exists(&epoch_open.hash()));
 }
 
 #[test]
@@ -207,7 +196,7 @@ fn unchecked_epoch() {
     ));
 
     // Waits for the epoch1 block to pass through block_processor and unchecked.put queues
-    assert_timely_eq(Duration::from_secs(10), || node1.unchecked.len(), 1);
+    assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     node1.block_processor_queue.push(BlockContext::new(
         send1.into(),
         BlockSource::Live,
@@ -221,7 +210,7 @@ fn unchecked_epoch() {
     assert_timely2(|| node1.ledger.any().block_exists(&epoch1.hash()));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq(Duration::from_secs(10), || node1.unchecked.len(), 0);
+    assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 0);
     let info = node1
         .ledger
         .any()
@@ -278,7 +267,7 @@ fn unchecked_epoch_invalid() {
     ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq(Duration::from_secs(10), || node1.unchecked.len(), 2);
+    assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 2);
     node1.block_processor_queue.push(BlockContext::new(
         send1.into(),
         BlockSource::Live,
@@ -291,13 +280,11 @@ fn unchecked_epoch_invalid() {
     ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely(Duration::from_secs(10), || {
-        node1.ledger.any().block_exists(&epoch2.hash())
-    });
+    assert_timely2(|| node1.ledger.any().block_exists(&epoch2.hash()));
 
     let any = node1.ledger.any();
     assert_eq!(any.block_exists(&epoch1.hash()), false);
-    assert_eq!(node1.unchecked.len(), 0);
+    assert_eq!(node1.unchecked.lock().unwrap().len(), 0);
     let info = any.get_account(&destination.account()).unwrap();
     assert_eq!(info.epoch, Epoch::Epoch0);
     let epoch2_store = node1.block(&epoch2.hash()).unwrap();
@@ -332,7 +319,7 @@ fn unchecked_open() {
     ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq2(|| node1.unchecked.len(), 1);
+    assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     // When open1 existists in unchecked, we know open2 has been processed.
     node1.block_processor_queue.push(BlockContext::new(
         send1.into(),
@@ -341,7 +328,7 @@ fn unchecked_open() {
     ));
     // Waits for the send1 block to pass through block_processor and unchecked.put queues
     assert_timely2(|| node1.block_exists(&open1.hash()));
-    assert_eq!(node1.unchecked.len(), 0);
+    assert_eq!(node1.unchecked.lock().unwrap().len(), 0);
 }
 
 #[test]
@@ -366,14 +353,20 @@ fn unchecked_receive() {
         ChannelId::LOOPBACK,
     ));
     let check_block_is_listed =
-        |hash: &BlockHash| !node1.unchecked.get(&((*hash).into())).is_empty();
+        |hash: &BlockHash| node1.unchecked.lock().unwrap().contains_dependency(*hash);
     // Previous block for receive1 is unknown, signature cannot be validated
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely(Duration::from_secs(15), || {
-        check_block_is_listed(&receive1.previous())
-    });
-    assert_eq!(node1.unchecked.get(&receive1.previous().into()).len(), 1);
+    assert_timely2(|| check_block_is_listed(&receive1.previous()));
+    assert_eq!(
+        node1
+            .unchecked
+            .lock()
+            .unwrap()
+            .blocks_dependend_on(receive1.previous())
+            .count(),
+        1
+    );
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
     node1.block_processor_queue.push(BlockContext::new(
@@ -381,12 +374,15 @@ fn unchecked_receive() {
         BlockSource::Live,
         ChannelId::LOOPBACK,
     ));
-    assert_timely(Duration::from_secs(15), || {
-        check_block_is_listed(&receive1.source_or_link())
-    });
+    assert_timely2(|| check_block_is_listed(&receive1.source_or_link()));
     // Previous block for receive1 is known, signature was validated
     assert_eq!(
-        node1.unchecked.get(&receive1.source_or_link().into()).len(),
+        node1
+            .unchecked
+            .lock()
+            .unwrap()
+            .blocks_dependend_on(receive1.source_or_link())
+            .count(),
         1
     );
     node1.block_processor_queue.push(BlockContext::new(
@@ -394,8 +390,6 @@ fn unchecked_receive() {
         BlockSource::Live,
         ChannelId::LOOPBACK,
     ));
-    assert_timely(Duration::from_secs(10), || {
-        node1.block_exists(&receive1.hash())
-    });
-    assert_eq!(node1.unchecked.len(), 0);
+    assert_timely2(|| node1.block_exists(&receive1.hash()));
+    assert_eq!(node1.unchecked.lock().unwrap().len(), 0);
 }

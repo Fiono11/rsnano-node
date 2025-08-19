@@ -45,7 +45,8 @@ use crate::{
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
         BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
-        LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedMap,
+        LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer,
+        UncheckedMap,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -85,7 +86,10 @@ use crate::{
         RealtimeMessageHandler,
     },
     utils::{spawn_backpressure_processor, ThreadPool, ThreadPoolImpl, TimerThread},
-    wallets::{ReceivableSearch, WalletBackup, Wallets, WalletsExt},
+    wallets::{
+        LocalRepsComputation, ReceivableSearch, WalletBackup, WalletRepresentatives, Wallets,
+        WalletsConfig, WalletsExt,
+    },
     work::{WorkFactory, WorkRequest},
     NodeCallbacks, OnlineWeightSampler,
 };
@@ -104,7 +108,7 @@ pub struct Node {
     wallet_workers: Arc<dyn ThreadPool>,
     pub flags: NodeFlags,
     pub work_factory: Arc<WorkFactory>,
-    pub unchecked: Arc<UncheckedMap>,
+    pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub ledger: Arc<Ledger>,
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
@@ -161,6 +165,9 @@ pub struct Node {
     block_rate_calculator: TimerThread<BlockRateCalculator>,
     pub block_rates: Arc<CurrentBlockRates>,
     aec_voter: TimerThread<AecVoter>,
+    unchecked_reenqueuer: TimerThread<UncheckedBlockReenqueuer>,
+    local_reps_computation: TimerThread<LocalRepsComputation>,
+    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
 }
 
 pub(crate) struct NodeArgs {
@@ -397,11 +404,9 @@ impl Node {
         network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
         let network_filter = Arc::new(network_filter);
 
-        let unchecked = Arc::new(UncheckedMap::new(
+        let unchecked = Arc::new(Mutex::new(UncheckedMap::new(
             config.max_unchecked_blocks as usize,
-            stats.clone(),
-            flags.disable_block_processor_unchecked_deletion,
-        ));
+        )));
 
         let online_reps = Arc::new(Mutex::new(
             OnlineReps::builder()
@@ -494,6 +499,13 @@ impl Node {
         let block_processor_config = ProcessQueueConfig::from(global_config);
         let block_processor_queue = Arc::new(BlockProcessorQueue::new(block_processor_config));
 
+        let unchecked_reenqueuer = UncheckedBlockReenqueuer::new(
+            unchecked.clone(),
+            ledger.clone(),
+            block_processor_queue.clone(),
+            steady_clock.clone(),
+        );
+
         let mut wallets_path = application_path.clone();
         wallets_path.push("wallets.ldb");
 
@@ -515,27 +527,28 @@ impl Node {
             )
         };
 
+        let wallets_config = WalletsConfig::from(global_config);
+
         let mut wallets = Wallets::new(
+            wallets_config.clone(),
             wallets_env,
             ledger.clone(),
-            &config,
+            block_processor_queue.clone(),
             network_params.work.clone(),
             work_factory.clone(),
-            network_params.clone(),
-            workers.clone(),
-            block_processor_queue.clone(),
-            online_reps.clone(),
-            confirming_set.clone(),
-            message_flooder.clone(),
-            current_network,
         );
         if !is_nulled {
             wallets.initialize().expect("Could not create wallet");
         }
         let wallets = Arc::new(wallets);
-        if !is_nulled {
-            wallets.initialize2();
-        }
+        let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new(
+            wallets_config.voting_enabled,
+            wallets_config.vote_minimum,
+            ledger.rep_weights.clone(),
+            wallets.clone(),
+            online_reps.clone(),
+        )));
+        wallet_reps.lock().unwrap().compute_reps();
 
         let vote_broadcaster = Arc::new(VoteBroadcaster::new(
             vote_processor_queue.clone(),
@@ -545,7 +558,7 @@ impl Node {
 
         let vote_generators = Arc::new(VoteGenerators::new(
             ledger.clone(),
-            wallets.clone(),
+            wallet_reps.clone(),
             vote_history.clone(),
             stats.clone(),
             &config,
@@ -886,8 +899,10 @@ impl Node {
             block_processor_queue.clone(),
             ledger.clone(),
             unchecked.clone(),
+            unchecked_reenqueuer.clone(),
             backlog_waiter.clone(),
             ledger_tx_clone,
+            steady_clock.clone(),
         ));
 
         let mut dead_channel_cleanup = DeadChannelCleanup::new(
@@ -918,7 +933,7 @@ impl Node {
             network.clone(),
             network_filter.clone(),
             block_processor_queue.clone(),
-            wallets.clone(),
+            wallet_reps.clone(),
             request_aggregator.clone(),
             vote_processor_queue.clone(),
             telemetry.clone(),
@@ -970,18 +985,6 @@ impl Node {
                 }));
         }
 
-        // Requeue blocks that could not be immediately processed
-        let queue_w = Arc::downgrade(&block_processor_queue);
-        unchecked.set_satisfied_observer(Box::new(move |info| {
-            if let Some(queue) = queue_w.upgrade() {
-                queue.push(BlockContext::new(
-                    info.block.clone().into(),
-                    BlockSource::Unchecked,
-                    ChannelId::LOOPBACK,
-                ));
-            }
-        }));
-
         let vote_rebroadcast_queue = Arc::new(
             VoteRebroadcastQueue::build()
                 .max_len(config.vote_rebroadcaster_max_queue)
@@ -1028,14 +1031,14 @@ impl Node {
         );
 
         let has_local_reps = {
-            let wallet_reps = wallets.wallet_reps.lock().unwrap();
-            let has_local_reps = wallet_reps.voting_reps() > 0;
+            let reps = wallet_reps.lock().unwrap();
+            let has_local_reps = reps.voting_reps() > 0;
             if has_local_reps {
                 info!(
                     "Found {} local representatives in wallets",
-                    wallet_reps.voting_reps()
+                    reps.voting_reps()
                 );
-                for rep in &wallet_reps.accounts {
+                for rep in reps.rep_accounts() {
                     info!("Local representative: {}", rep.encode_account());
                 }
             }
@@ -1045,11 +1048,9 @@ impl Node {
 
         if has_local_reps {
             if config.enable_voting {
-                info!(
-                "Voting is enabled, more system resources will be used, local representatives: {}",
-                wallets.voting_reps_count()
-            );
-                if wallets.voting_reps_count() > 1 {
+                let voting_reps = wallet_reps.lock().unwrap().voting_reps();
+                info!("Voting is enabled, more system resources will be used, local representatives: {voting_reps}");
+                if voting_reps > 1 {
                     warn!("Voting with more than one representative can limit performance");
                 }
             } else {
@@ -1113,7 +1114,7 @@ impl Node {
             ),
         );
 
-        let mut wallet_reps_checker = WalletRepsChecker::new(wallets.wallet_reps.clone());
+        let mut wallet_reps_checker = WalletRepsChecker::new(wallet_reps.clone());
         wallet_reps_checker.add_consumer(vote_rebroadcast_queue.clone());
 
         let rep_tiers = Arc::new(CurrentRepTiers::new());
@@ -1132,7 +1133,9 @@ impl Node {
         let receivable_search =
             ReceivableSearch::new(wallets.clone(), workers.clone(), current_network);
 
-        let message_flooder_arc = Arc::new(Mutex::new(message_flooder.clone()));
+        let local_reps_computation = LocalRepsComputation::new(wallet_reps.clone());
+
+        let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
         let block_flooder = BlockFlooder {
             message_flooder: message_flooder_arc.clone(),
@@ -1240,6 +1243,8 @@ impl Node {
         stats_collector.add_source(conf_time_stats);
         stats_collector.add_source(winner_block_broadcaster.clone());
         stats_collector.add_source(bootstrapper.clone());
+        stats_collector.add_source(unchecked.clone());
+        stats_collector.add_source(unchecked_reenqueuer.stats().clone());
 
         let mut container_info = ContainerInfoFactory::new();
         container_info.add("work", work_factory.clone());
@@ -1280,6 +1285,7 @@ impl Node {
             workers,
             wallet_workers,
             work_factory,
+            unchecked_reenqueuer: TimerThread::new("Unchecked", unchecked_reenqueuer),
             unchecked,
             telemetry,
             network,
@@ -1339,6 +1345,8 @@ impl Node {
             block_rate_calculator: TimerThread::new("Blk rate", block_rate_calculator),
             block_rates,
             aec_voter: TimerThread::new("AEC voter", aec_voter),
+            local_reps_computation: TimerThread::new("Reps comp", local_reps_computation),
+            wallet_reps,
         }
     }
 
@@ -1542,6 +1550,11 @@ impl Node {
             .run_once_then_start(OnlineReps::default_interval_for(
                 self.network_params.network.current_network,
             ));
+        self.local_reps_computation.start(if is_dev_network {
+            Duration::from_millis(10)
+        } else {
+            Duration::from_secs(10)
+        });
         self.wallet_reps_checker.start(if is_dev_network {
             Duration::from_millis(500)
         } else {
@@ -1574,7 +1587,7 @@ impl Node {
             self.receivable_search.start();
         }
 
-        self.unchecked.start();
+        self.unchecked_reenqueuer.start(Duration::from_millis(1000));
         self.wallets.start();
         self.rep_tiers_calculator.start(if is_dev_network {
             Duration::from_millis(500)
@@ -1638,6 +1651,7 @@ impl Node {
 
         self.tcp_listener.stop();
         self.aec_voter.stop();
+        self.local_reps_computation.stop();
         self.wallet_reps_checker.stop();
         self.online_weight_calculation.stop();
         self.peer_connector.stop();
@@ -1651,7 +1665,7 @@ impl Node {
         self.bootstrapper.stop();
         self.bounded_backlog.stop();
         self.rep_crawler.stop();
-        self.unchecked.stop();
+        self.unchecked_reenqueuer.stop();
         self.block_processor.stop();
         self.request_aggregator.stop();
         self.vote_cache_processor.stop();
@@ -1780,6 +1794,23 @@ mod tests {
             vec![TimerStartEvent {
                 thread_name: "Blk rate".to_string(),
                 interval: Duration::from_millis(500),
+                start_type: TimerStartType::Start
+            }]
+        );
+    }
+
+    #[test]
+    fn start_unchecked_reenqueuer() {
+        let mut node = TestNode::new();
+        let start_tracker = node.unchecked_reenqueuer.track_start();
+
+        node.start();
+
+        assert_eq!(
+            start_tracker.output(),
+            vec![TimerStartEvent {
+                thread_name: "Unchecked".to_string(),
+                interval: Duration::from_millis(1000),
                 start_type: TimerStartType::Start
             }]
         );
