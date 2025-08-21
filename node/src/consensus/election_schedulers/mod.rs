@@ -100,7 +100,6 @@ impl ElectionSchedulers {
             confirming_set.clone(),
             clock,
             rep_weights,
-            wallets.clone(),
             wallet_representatives.clone(),
             online_reps.clone(),
             message_flooder,

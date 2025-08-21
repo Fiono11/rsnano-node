@@ -51,7 +51,6 @@ pub struct OrderingScheduler {
     preordering_blocks: Mutex<HashMap<BlockHash, (SavedBlock, Amount)>>, // hash -> (block, author_weight)
     total_preordering_weight: Mutex<Amount>,
     rep_weights: Arc<RepWeightCache>,
-    wallets: Arc<Wallets>,
     wallet_representatives: Arc<Mutex<WalletRepresentatives>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     message_flooder: Arc<Mutex<MessageFlooder>>,
@@ -67,7 +66,6 @@ impl OrderingScheduler {
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
-        wallets: Arc<Wallets>,
         wallet_representatives: Arc<Mutex<WalletRepresentatives>>,
         online_reps: Arc<Mutex<OnlineReps>>,
         message_flooder: Arc<Mutex<MessageFlooder>>,
@@ -94,7 +92,6 @@ impl OrderingScheduler {
             preordering_blocks: Mutex::new(HashMap::new()),
             total_preordering_weight: Mutex::new(Amount::zero()),
             rep_weights,
-            wallets,
             wallet_representatives,
             online_reps,
             message_flooder,
@@ -300,7 +297,7 @@ impl OrderingScheduler {
 
                     // Reset the committed count and increment epoch
                     guard.committed_count = 0;
-                    guard.current_epoch += 1;
+                    //guard.current_epoch += 1;
 
                     println!("DEBUG: Ordering scheduler reset committed count and incremented epoch to {}", guard.current_epoch);
 
@@ -340,8 +337,8 @@ impl OrderingScheduler {
             flooder.try_send(&pr.channel, &publish_msg, TrafficType::BlockBroadcast);
         }
         
-        // Random flood for block propagation
-        flooder.flood(&publish_msg, TrafficType::BlockBroadcast, 0.5);
+        // Random flood for block propagation - increase the probability to ensure blocks are shared
+        flooder.flood(&publish_msg, TrafficType::BlockBroadcast, 1.0);
         
         println!("DEBUG: Preordering block broadcasted successfully");
     }
