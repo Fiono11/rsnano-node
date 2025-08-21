@@ -24,12 +24,7 @@ use rsnano_stats::{Stats, StatsCollection, StatsSource};
 
 use super::{ActiveElectionsContainer, VoteCache};
 use crate::{
-    block_processing::ProcessedResult,
-    cementation::ConfirmingSet,
-    config::{NetworkConstants, NodeConfig},
-    representatives::OnlineReps,
-    wallets::Wallets,
-    transport::MessageFlooder,
+    block_processing::ProcessedResult, cementation::ConfirmingSet, config::{NetworkConstants, NodeConfig}, representatives::OnlineReps, transport::MessageFlooder, wallets::{WalletRepresentatives, Wallets}
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
@@ -58,6 +53,7 @@ impl ElectionSchedulers {
         clock: Arc<SteadyClock>,
         rep_weights: Arc<rsnano_ledger::RepWeightCache>,
         wallets: Arc<Wallets>,
+        wallet_representatives: Arc<Mutex<WalletRepresentatives>>,
         message_flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -105,6 +101,7 @@ impl ElectionSchedulers {
             clock,
             rep_weights,
             wallets.clone(),
+            wallet_representatives.clone(),
             online_reps.clone(),
             message_flooder,
         ));
@@ -137,6 +134,7 @@ impl ElectionSchedulers {
         let clock = Arc::new(SteadyClock::new_null());
         let rep_weights = Arc::new(rsnano_ledger::RepWeightCache::new());
         let wallets = Arc::new(Wallets::new_null());
+        let wallet_representatives = Arc::new(Mutex::new(WalletRepresentatives::new_null()));
         let message_flooder = Arc::new(Mutex::new(MessageFlooder::new_null()));
 
         Self::new(
@@ -151,6 +149,7 @@ impl ElectionSchedulers {
             clock,
             rep_weights,
             wallets,
+            wallet_representatives,
             message_flooder,
         )
     }

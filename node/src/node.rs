@@ -640,6 +640,7 @@ impl Node {
             steady_clock.clone(),
             rep_weights.clone(),
             wallets.clone(),
+            wallet_reps.clone(),
             Arc::new(Mutex::new(message_flooder.clone())),
         ));
         ledger_event_processor_plugins.push(Box::new(ElectionSchedulersPlugin::new(
@@ -1138,7 +1139,7 @@ impl Node {
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
         let block_flooder = BlockFlooder {
-            message_flooder: message_flooder_arc.clone(),
+            message_flooder: message_flooder.clone(),
             workers: workers.clone(),
         };
 
@@ -1326,7 +1327,7 @@ impl Node {
             inbound_message_queue,
             monitor,
             message_sender: message_publisher_l,
-            message_flooder: message_flooder_arc,
+            message_flooder,
             network_filter,
             keepalive_publisher,
             stopped: AtomicBool::new(false),

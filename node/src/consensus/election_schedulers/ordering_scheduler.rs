@@ -1,10 +1,5 @@
 use crate::{
-    cementation::ConfirmingSet,
-    config::NetworkConstants,
-    consensus::{ActiveElectionsContainer, AecInsertRequest},
-    wallets::Wallets,
-    representatives::OnlineReps,
-    transport::MessageFlooder,
+    cementation::ConfirmingSet, config::NetworkConstants, consensus::{ActiveElectionsContainer, AecInsertRequest}, representatives::OnlineReps, transport::MessageFlooder, wallets::{WalletRepresentatives, Wallets}
 };
 use rsnano_core::{utils::ContainerInfo, Block, BlockHash, PreOrderingBlock, SavedBlock, OrderingBlock, Amount, PublicKey, Account};
 use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
@@ -57,6 +52,7 @@ pub struct OrderingScheduler {
     total_preordering_weight: Mutex<Amount>,
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
+    wallet_representatives: Arc<Mutex<WalletRepresentatives>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     message_flooder: Arc<Mutex<MessageFlooder>>,
 }
@@ -72,6 +68,7 @@ impl OrderingScheduler {
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
         wallets: Arc<Wallets>,
+        wallet_representatives: Arc<Mutex<WalletRepresentatives>>,
         online_reps: Arc<Mutex<OnlineReps>>,
         message_flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
@@ -98,6 +95,7 @@ impl OrderingScheduler {
             total_preordering_weight: Mutex::new(Amount::zero()),
             rep_weights,
             wallets,
+            wallet_representatives,
             online_reps,
             message_flooder,
         }
@@ -181,11 +179,12 @@ impl OrderingScheduler {
 
     /// Get all representative accounts from wallets that can be used for creating blocks
     fn get_representative_accounts(&self) -> Vec<Account> {
-        let mut accounts = Vec::new();
-        self.wallets.foreach_representative(|private_key| {
-            let public_key = PublicKey::from(private_key);
-            accounts.push(public_key.into());
-        });
+        let mut private_keys = Vec::new();
+        self.wallet_representatives.lock().unwrap().rep_priv_keys(&mut private_keys);
+        let accounts: Vec<Account> = private_keys
+            .iter()
+            .map(|private_key| PublicKey::from(private_key).into())
+            .collect();
         println!("DEBUG: Ordering scheduler found {} representative accounts: {:?}", accounts.len(), accounts);
         accounts
     }
