@@ -1,9 +1,10 @@
+use std::{io::Read, time::Duration};
+
 use super::{
     Account, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, Signature, UnixMillisTimestamp,
     VoteTimestamp,
 };
 use crate::{DeserializationError, SignatureError};
-use std::{io::Read, time::Duration};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, EnumCount, EnumIter)]
 pub enum VoteSource {
