@@ -59,7 +59,7 @@ impl<'a> BlockInserter<'a> {
         self.update_account();
         self.delete_old_pending_info();
         self.insert_new_pending_info();
-        self.update_representative_cache();
+        self.update_rep_weights();
         self.ledger
             .store
             .cache
@@ -107,10 +107,10 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    fn update_representative_cache(&mut self) {
+    fn update_rep_weights(&mut self) {
         if !self.instructions.old_account_info.head.is_zero() {
-            // Move existing representation & add in amount delta
-            self.ledger.rep_weights_updater.representation_add_dual(
+            // Move existing weight and add in amount delta
+            self.ledger.rep_weights_updater.add_dual(
                 self.txn,
                 self.instructions.old_account_info.representative,
                 Amount::ZERO.wrapping_sub(self.instructions.old_account_info.balance),
@@ -119,7 +119,7 @@ impl<'a> BlockInserter<'a> {
             );
         } else {
             // Add in amount delta only
-            self.ledger.rep_weights_updater.representation_add(
+            self.ledger.rep_weights_updater.add(
                 self.txn,
                 self.instructions.set_account_info.representative,
                 self.instructions.set_account_info.balance,

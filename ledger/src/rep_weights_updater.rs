@@ -34,21 +34,45 @@ impl RepWeightsUpdater {
         }
     }
 
-    fn get(&self, weights: &HashMap<PublicKey, Amount>, account: &PublicKey) -> Amount {
-        weights.get(account).cloned().unwrap_or_default()
+    /// Only use this method when loading rep weights from the database table!
+    pub fn put(&self, representative: PublicKey, weight: Amount) {
+        let mut guard = self.weight_cache.write().unwrap();
+        self.put_cache(&mut guard, representative, weight);
     }
 
-    pub fn representation_add(
-        &self,
-        tx: &mut WriteTransaction,
-        representative: PublicKey,
-        amount: Amount,
-    ) {
-        let previous_weight = self.store.get(tx, &representative).unwrap_or_default();
+    pub fn add(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
+        let previous_weight = self.store.get(txn, &representative).unwrap_or_default();
         let new_weight = previous_weight.wrapping_add(amount);
-        self.put_store(tx, representative, previous_weight, new_weight);
+        self.put_store(txn, representative, previous_weight, new_weight);
         let mut guard = self.weight_cache.write().unwrap();
         self.put_cache(&mut guard, representative, new_weight);
+    }
+
+    pub fn sub(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
+        self.add(txn, representative, Amount::ZERO.wrapping_sub(amount))
+    }
+
+    pub fn add_dual(
+        &self,
+        txn: &mut WriteTransaction,
+        rep_1: PublicKey,
+        amount_1: Amount,
+        rep_2: PublicKey,
+        amount_2: Amount,
+    ) {
+        if rep_1 != rep_2 {
+            let previous_weight_1 = self.store.get(txn, &rep_1).unwrap_or_default();
+            let previous_weight_2 = self.store.get(txn, &rep_2).unwrap_or_default();
+            let new_weight_1 = previous_weight_1.wrapping_add(amount_1);
+            let new_weight_2 = previous_weight_2.wrapping_add(amount_2);
+            self.put_store(txn, rep_1, previous_weight_1, new_weight_1);
+            self.put_store(txn, rep_2, previous_weight_2, new_weight_2);
+            let mut guard = self.weight_cache.write().unwrap();
+            self.put_cache(&mut guard, rep_1, new_weight_1);
+            self.put_cache(&mut guard, rep_2, new_weight_2);
+        } else {
+            self.add(txn, rep_1, amount_1.wrapping_add(amount_2));
+        }
     }
 
     fn put_cache(
@@ -66,47 +90,22 @@ impl RepWeightsUpdater {
 
     fn put_store(
         &self,
-        tx: &mut WriteTransaction,
+        txn: &mut WriteTransaction,
         representative: PublicKey,
         previous_weight: Amount,
         new_weight: Amount,
     ) {
         if new_weight.is_zero() {
             if !previous_weight.is_zero() {
-                self.store.del(tx, &representative);
+                self.store.del(txn, &representative);
             }
         } else {
-            self.store.put(tx, representative, new_weight);
+            self.store.put(txn, representative, new_weight);
         }
     }
 
-    /// Only use this method when loading rep weights from the database table!
-    pub fn representation_put(&self, representative: PublicKey, weight: Amount) {
-        let mut guard = self.weight_cache.write().unwrap();
-        self.put_cache(&mut guard, representative, weight);
-    }
-
-    pub fn representation_add_dual(
-        &self,
-        tx: &mut WriteTransaction,
-        rep_1: PublicKey,
-        amount_1: Amount,
-        rep_2: PublicKey,
-        amount_2: Amount,
-    ) {
-        if rep_1 != rep_2 {
-            let previous_weight_1 = self.store.get(tx, &rep_1).unwrap_or_default();
-            let previous_weight_2 = self.store.get(tx, &rep_2).unwrap_or_default();
-            let new_weight_1 = previous_weight_1.wrapping_add(amount_1);
-            let new_weight_2 = previous_weight_2.wrapping_add(amount_2);
-            self.put_store(tx, rep_1, previous_weight_1, new_weight_1);
-            self.put_store(tx, rep_2, previous_weight_2, new_weight_2);
-            let mut guard = self.weight_cache.write().unwrap();
-            self.put_cache(&mut guard, rep_1, new_weight_1);
-            self.put_cache(&mut guard, rep_2, new_weight_2);
-        } else {
-            self.representation_add(tx, rep_1, amount_1.wrapping_add(amount_2));
-        }
+    fn get(&self, weights: &HashMap<PublicKey, Amount>, account: &PublicKey) -> Amount {
+        weights.get(account).cloned().unwrap_or_default()
     }
 }
 
@@ -125,10 +124,10 @@ mod tests {
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         assert_eq!(rep_weights.weight(&account), Amount::ZERO);
 
-        rep_weights_updater.representation_put(account, Amount::from(1));
+        rep_weights_updater.put(account, Amount::from(1));
         assert_eq!(rep_weights.weight(&account), Amount::from(1));
 
-        rep_weights_updater.representation_put(account, Amount::from(2));
+        rep_weights_updater.put(account, Amount::from(2));
         assert_eq!(rep_weights.weight(&account), Amount::from(2));
     }
 
@@ -149,15 +148,11 @@ mod tests {
         let delete_tracker = store.track_deletions();
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
-        rep_weights_updater.representation_put(representative, weight);
+        rep_weights_updater.put(representative, weight);
         let mut txn = env.begin_write();
 
         // set weight to 0
-        rep_weights_updater.representation_add(
-            &mut txn,
-            representative,
-            Amount::ZERO.wrapping_sub(weight),
-        );
+        rep_weights_updater.add(&mut txn, representative, Amount::ZERO.wrapping_sub(weight));
         txn.commit();
 
         assert_eq!(rep_weights.len(), 0);
@@ -182,12 +177,12 @@ mod tests {
         let delete_tracker = store.track_deletions();
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
-        rep_weights_updater.representation_put(rep1, weight);
-        rep_weights_updater.representation_put(rep2, weight);
+        rep_weights_updater.put(rep1, weight);
+        rep_weights_updater.put(rep2, weight);
         let mut txn = env.begin_write();
 
         // set weight to 0
-        rep_weights_updater.representation_add_dual(
+        rep_weights_updater.add_dual(
             &mut txn,
             rep1,
             Amount::ZERO.wrapping_sub(weight),
@@ -212,7 +207,7 @@ mod tests {
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
 
-        rep_weights_updater.representation_add(&mut txn, representative, rep_weight);
+        rep_weights_updater.add(&mut txn, representative, rep_weight);
         txn.commit();
 
         assert_eq!(rep_weights.len(), 0);
@@ -238,7 +233,7 @@ mod tests {
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
 
-        rep_weights_updater.representation_add(
+        rep_weights_updater.add(
             &mut txn,
             representative,
             Amount::ZERO.wrapping_sub(Amount::from(2)),

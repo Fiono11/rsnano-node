@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::SystemTime,
 };
@@ -31,12 +31,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
-    RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
+    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
+    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
+    RepWeightCache, RepWeightsUpdater, RollbackError,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
@@ -504,7 +504,7 @@ impl Ledger {
                         block.account().encode_account()
                     );
 
-                    let (rollback_list, error) = self.roll_back_with_tx(&mut txn, &block.hash());
+                    let (rollback_list, error) = self.roll_back_with_txn(&mut txn, &block.hash());
                     if error.is_none() {
                         self.stats
                             .inc(StatType::BoundedBacklog, DetailType::Rollback);
@@ -543,12 +543,12 @@ impl Ledger {
         results
     }
 
-    fn roll_back_with_tx(
+    fn roll_back_with_txn(
         &self,
-        tx: &mut WriteTransaction,
+        txn: &mut WriteTransaction,
         block: &BlockHash,
     ) -> (Vec<SavedBlock>, Option<RollbackError>) {
-        let mut performer = BlockRollbackPerformer::new(self, tx);
+        let mut performer = BlockRollbackPerformer::new(self, txn);
         match performer.roll_back(block) {
             Ok(()) => (performer.rolled_back, None),
             Err(e) => (performer.rolled_back, Some(e)),
@@ -661,7 +661,7 @@ impl Ledger {
             if successor != hash {
                 // Replace our block with the winner and roll back any dependent blocks
                 debug!("Rolling back: {} and replacing with: {}", successor, hash);
-                let (list, error) = self.roll_back_with_tx(tx, &successor);
+                let (list, error) = self.roll_back_with_txn(tx, &successor);
                 rollback_list = list;
                 match error {
                     None => {
@@ -680,15 +680,15 @@ impl Ledger {
 
     fn block_successor_by_qualified_root(
         &self,
-        tx: &dyn Transaction,
+        txn: &dyn Transaction,
         root: &QualifiedRoot,
     ) -> Option<BlockHash> {
         if !root.previous.is_zero() {
-            self.store.successors.get(tx, &root.previous)
+            self.store.successors.get(txn, &root.previous)
         } else {
             self.store
                 .account
-                .get(tx, &root.root.into())
+                .get(txn, &root.root.into())
                 .map(|i| i.open_block)
         }
     }
@@ -878,8 +878,8 @@ impl Ledger {
     }
 
     pub fn version(&self) -> u32 {
-        let tx = self.store.begin_read();
-        self.store.version.get(&tx).unwrap_or_default() as u32
+        let txn = self.store.begin_read();
+        self.store.version.get(&txn).unwrap_or_default() as u32
     }
 
     pub fn store_vendor(&self) -> String {
@@ -893,9 +893,9 @@ impl Ledger {
 
     #[cfg(feature = "ledger_snapshots")]
     pub fn mark_fork(&self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) {
-        let mut tx = self.store.begin_write();
-        self.store.forks.put(&mut tx, root, snapshot_number);
-        tx.commit();
+        let mut txn = self.store.begin_write();
+        self.store.forks.put(&mut txn, root, snapshot_number);
+        txn.commit();
     }
 
     #[cfg(feature = "ledger_snapshots")]
@@ -925,16 +925,16 @@ impl Ledger {
 
     #[cfg(feature = "ledger_snapshots")]
     fn find_forks_to_roll_back(&self, snapshot_number: u32) -> Vec<(BlockHash, QualifiedRoot)> {
-        let tx = self.store.begin_read();
+        let txn = self.store.begin_read();
         let any = BorrowingAnySet {
             constants: &self.constants,
             store: &self.store,
-            tx: &tx,
+            tx: &txn,
         };
 
         self.store
             .forks
-            .iter(&tx)
+            .iter(&txn)
             .filter_map(|(root, snap_no)| {
                 if snap_no < snapshot_number {
                     use crate::AnySet;
