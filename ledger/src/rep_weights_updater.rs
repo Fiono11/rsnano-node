@@ -52,6 +52,29 @@ impl RepWeightsUpdater {
         self.add(txn, representative, Amount::ZERO.wrapping_sub(amount))
     }
 
+    pub fn sub_and_add(
+        &self,
+        txn: &mut WriteTransaction,
+        sub_rep: PublicKey,
+        sub_amount: Amount,
+        add_rep: PublicKey,
+        add_amount: Amount,
+    ) {
+        if sub_rep != add_rep {
+            let previous_weight_1 = self.store.get(txn, &sub_rep).unwrap_or_default();
+            let previous_weight_2 = self.store.get(txn, &add_rep).unwrap_or_default();
+            let new_weight_1 = previous_weight_1.wrapping_sub(sub_amount);
+            let new_weight_2 = previous_weight_2.wrapping_add(add_amount);
+            self.put_store(txn, sub_rep, previous_weight_1, new_weight_1);
+            self.put_store(txn, add_rep, previous_weight_2, new_weight_2);
+            let mut guard = self.weight_cache.write().unwrap();
+            self.put_cache(&mut guard, sub_rep, new_weight_1);
+            self.put_cache(&mut guard, add_rep, new_weight_2);
+        } else {
+            self.add(txn, sub_rep, add_amount.wrapping_sub(sub_amount));
+        }
+    }
+
     pub fn add_dual(
         &self,
         txn: &mut WriteTransaction,
@@ -117,18 +140,15 @@ mod tests {
 
     #[test]
     fn representation_changes() {
-        let env = Arc::new(LmdbEnvironment::new_null());
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let fixture = create_fixture(0, vec![]);
         let account = PublicKey::from(1);
-        let rep_weights = RepWeightCache::new();
-        let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
-        assert_eq!(rep_weights.weight(&account), Amount::ZERO);
+        assert_eq!(fixture.weights.weight(&account), Amount::ZERO);
 
-        rep_weights_updater.put(account, Amount::from(1));
-        assert_eq!(rep_weights.weight(&account), Amount::from(1));
+        fixture.updater.put(account, Amount::from(1));
+        assert_eq!(fixture.weights.weight(&account), Amount::from(1));
 
-        rep_weights_updater.put(account, Amount::from(2));
-        assert_eq!(rep_weights.weight(&account), Amount::from(2));
+        fixture.updater.put(account, Amount::from(2));
+        assert_eq!(fixture.weights.weight(&account), Amount::from(2));
     }
 
     #[test]
@@ -136,26 +156,16 @@ mod tests {
         let representative = PublicKey::from(1);
         let weight = Amount::from(100);
 
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![(
-                    representative,
-                    weight,
-                )]))
-                .build(),
-        );
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let delete_tracker = store.track_deletions();
-        let rep_weights = RepWeightCache::new();
-        let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
-        rep_weights_updater.put(representative, weight);
-        let mut txn = env.begin_write();
+        let fixture = create_fixture(0, vec![(representative, weight)]);
+        let delete_tracker = fixture.store.track_deletions();
+        fixture.updater.put(representative, weight);
+        let mut txn = fixture.env.begin_write();
 
         // set weight to 0
-        rep_weights_updater.add(&mut txn, representative, Amount::ZERO.wrapping_sub(weight));
+        fixture.updater.sub(&mut txn, representative, weight);
         txn.commit();
 
-        assert_eq!(rep_weights.len(), 0);
+        assert_eq!(fixture.weights.len(), 0);
         assert_eq!(delete_tracker.output(), vec![representative]);
     }
 
@@ -165,24 +175,14 @@ mod tests {
         let rep2 = PublicKey::from(2);
         let weight = Amount::from(100);
 
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![
-                    (rep1, weight),
-                    (rep2, weight),
-                ]))
-                .build(),
-        );
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let delete_tracker = store.track_deletions();
-        let rep_weights = RepWeightCache::new();
-        let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
-        rep_weights_updater.put(rep1, weight);
-        rep_weights_updater.put(rep2, weight);
-        let mut txn = env.begin_write();
+        let fixture = create_fixture(0, vec![(rep1, weight), (rep2, weight)]);
+        let delete_tracker = fixture.store.track_deletions();
+        fixture.updater.put(rep1, weight);
+        fixture.updater.put(rep2, weight);
+        let mut txn = fixture.env.begin_write();
 
         // set weight to 0
-        rep_weights_updater.add_dual(
+        fixture.updater.add_dual(
             &mut txn,
             rep1,
             Amount::ZERO.wrapping_sub(weight),
@@ -191,26 +191,22 @@ mod tests {
         );
         txn.commit();
 
-        assert_eq!(rep_weights.len(), 0);
+        assert_eq!(fixture.weights.len(), 0);
         assert_eq!(delete_tracker.output(), vec![rep1, rep2]);
     }
 
     #[test]
     fn add_below_min_weight() {
-        let env = Arc::new(LmdbEnvironment::new_null());
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let put_tracker = store.track_puts();
-        let mut txn = env.begin_write();
+        let fixture = create_fixture(10, vec![]);
+        let put_tracker = fixture.store.track_puts();
+        let mut txn = fixture.env.begin_write();
         let representative = PublicKey::from(1);
-        let min_weight = Amount::from(10);
         let rep_weight = Amount::from(9);
-        let rep_weights = RepWeightCache::new();
-        let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
 
-        rep_weights_updater.add(&mut txn, representative, rep_weight);
+        fixture.updater.add(&mut txn, representative, rep_weight);
         txn.commit();
 
-        assert_eq!(rep_weights.len(), 0);
+        assert_eq!(fixture.weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, rep_weight)]);
     }
 
@@ -218,29 +214,95 @@ mod tests {
     fn fall_below_min_weight() {
         let representative = PublicKey::from(1);
         let weight = Amount::from(11);
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![(
-                    representative,
-                    weight,
-                )]))
-                .build(),
-        );
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let put_tracker = store.track_puts();
-        let mut txn = env.begin_write();
-        let min_weight = Amount::from(10);
-        let rep_weights = RepWeightCache::new();
-        let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
 
-        rep_weights_updater.add(
-            &mut txn,
-            representative,
-            Amount::ZERO.wrapping_sub(Amount::from(2)),
-        );
+        let fixture = create_fixture(10, vec![(representative, weight)]);
+        let put_tracker = fixture.store.track_puts();
+        let mut txn = fixture.env.begin_write();
+
+        fixture
+            .updater
+            .sub(&mut txn, representative, Amount::from(2));
+
         txn.commit();
 
-        assert_eq!(rep_weights.len(), 0);
+        assert_eq!(fixture.weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, 9.into())]);
+    }
+
+    #[test]
+    fn sub_and_add_same_rep() {
+        let representative = PublicKey::from(1);
+
+        let fixture = create_fixture(0, vec![(representative, Amount::raw(10))]);
+
+        let mut txn = fixture.env.begin_write();
+        fixture.updater.sub_and_add(
+            &mut txn,
+            representative,
+            Amount::raw(1),
+            representative,
+            Amount::raw(3),
+        );
+
+        assert_eq!(fixture.weights.weight(&representative), Amount::raw(12));
+    }
+
+    #[test]
+    fn sub_and_add_same_rep_underflow() {
+        let representative = PublicKey::from(1);
+
+        let fixture = create_fixture(0, vec![(representative, Amount::raw(10))]);
+
+        let mut txn = fixture.env.begin_write();
+        fixture.updater.sub_and_add(
+            &mut txn,
+            representative,
+            Amount::raw(15),
+            representative,
+            Amount::raw(10),
+        );
+
+        assert_eq!(fixture.weights.weight(&representative), Amount::raw(5));
+    }
+
+    #[test]
+    fn sub_and_add_two_reps() {
+        let rep1 = PublicKey::from(1);
+        let rep2 = PublicKey::from(2);
+
+        let fixture = create_fixture(0, vec![(rep1, Amount::raw(10)), (rep2, Amount::raw(50))]);
+
+        let mut txn = fixture.env.begin_write();
+        fixture
+            .updater
+            .sub_and_add(&mut txn, rep1, Amount::raw(8), rep2, Amount::raw(100));
+
+        assert_eq!(fixture.weights.weight(&rep1), Amount::raw(2));
+        assert_eq!(fixture.weights.weight(&rep2), Amount::raw(150));
+    }
+
+    fn create_fixture(min_weight_raw: u128, weights: Vec<(PublicKey, Amount)>) -> Fixture {
+        let env = LmdbEnvironment::null_builder()
+            .configured_database(ConfiguredRepWeightDatabaseBuilder::create(weights))
+            .build();
+
+        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let min_weight = Amount::raw(min_weight_raw);
+        let rep_weights = RepWeightCache::new();
+        let updater = RepWeightsUpdater::new(store.clone(), min_weight, &rep_weights);
+
+        Fixture {
+            updater,
+            env,
+            weights: rep_weights,
+            store,
+        }
+    }
+
+    struct Fixture {
+        updater: RepWeightsUpdater,
+        env: LmdbEnvironment,
+        weights: RepWeightCache,
+        store: Arc<LmdbRepWeightStore>,
     }
 }

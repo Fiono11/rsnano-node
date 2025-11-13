@@ -92,10 +92,10 @@ impl<'a> RollbackInstructionsExecutor<'a> {
     }
 
     fn roll_back_receive_in_representative_cache(&mut self) {
-        self.ledger.rep_weights_updater.add(
+        self.ledger.rep_weights_updater.sub(
             self.txn,
             self.instructions.old_account_info.representative,
-            Amount::ZERO.wrapping_sub(self.instructions.old_account_info.balance),
+            self.instructions.old_account_info.balance,
         );
     }
 }
