@@ -53,7 +53,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
 
 [node.websocket]
     enable = true
-    address = "::1"
+    address = "::"
     port = WS_PORT
 
 [rpc]
@@ -61,7 +61,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
 "#;
 
 pub(crate) const RPC_CONFIG: &str = r#"
-address = "::1"
+address = "::"
 enable_control = true
 port = RPC_PORT
 "#;
