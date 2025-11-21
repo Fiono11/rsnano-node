@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::SystemTime,
 };
@@ -31,12 +31,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
-    RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
+    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
+    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
+    RepWeightCache, RepWeightsUpdater, RollbackError,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
@@ -122,6 +122,7 @@ pub struct Ledger {
     pub constants: LedgerConstants,
     pub(crate) stats: Arc<Stats>,
     rollback_listener: OutputListenerMt<BlockHash>,
+    store_version: u32,
 }
 
 pub struct NullLedgerBuilder {
@@ -284,6 +285,7 @@ impl Ledger {
             constants,
             stats,
             rollback_listener: Default::default(),
+            store_version: 0,
         };
 
         ledger.initialize(thread_count, &GenerateCacheFlags::new())?;
@@ -296,16 +298,14 @@ impl Ledger {
         thread_count: usize,
         generate_cache: &GenerateCacheFlags,
     ) -> anyhow::Result<()> {
-        if self
-            .store
-            .account
-            .iter(&self.store.begin_read())
-            .next()
-            .is_none()
         {
-            let mut txn = self.store.begin_write();
-            self.add_genesis_block(&mut txn);
-            txn.commit();
+            let txn = self.store.begin_read();
+            self.store_version = self.store.version.get(&txn).unwrap_or_default() as u32;
+            if self.store.account.iter(&txn).next().is_none() {
+                let mut txn = self.store.begin_write();
+                self.add_genesis_block(&mut txn);
+                txn.commit();
+            }
         }
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
@@ -878,8 +878,7 @@ impl Ledger {
     }
 
     pub fn version(&self) -> u32 {
-        let txn = self.store.begin_read();
-        self.store.version.get(&txn).unwrap_or_default() as u32
+        self.store_version
     }
 
     pub fn store_vendor(&self) -> String {
