@@ -6,7 +6,6 @@ edition = "2024"
 
 [features]
 ledger_snapshots = ["rsnano_node/ledger_snapshots", "rsnano_rpc_server/ledger_snapshots"]
-tokio_guard = ["rsnano_store_lmdb/tokio_guard"]
 
 [[bin]]
 name = "rsnano_node"

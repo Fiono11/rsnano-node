@@ -8,7 +8,6 @@ edition = "2024"
 [features]
 output_tracking = []
 ledger_snapshots = []
-tokio_guard = ["rsnano_nullable_lmdb/tokio_guard"]
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = ".", features = ["output_tracking"] }

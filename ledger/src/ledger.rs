@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::SystemTime,
 };
@@ -31,12 +31,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    block_cementer::BlockCementer,
-    block_insertion::{BlockInserter, BlockValidatorFactory},
-    vote_verifier::VoteVerifier,
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
     LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
     RepWeightCache, RepWeightsUpdater, RollbackError,
+    block_cementer::BlockCementer,
+    block_insertion::{BlockInserter, BlockValidatorFactory},
+    vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
