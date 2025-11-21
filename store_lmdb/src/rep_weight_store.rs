@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use rsnano_nullable_lmdb::{
-    sys::{MDB_cursor_op, MDB_FIRST, MDB_NEXT},
     ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, RoCursor, Transaction,
     WriteFlags, WriteTransaction,
+    sys::{MDB_FIRST, MDB_NEXT, MDB_cursor_op},
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, PublicKey};

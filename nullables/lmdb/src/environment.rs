@@ -130,6 +130,10 @@ impl LmdbEnvironment {
     }
 
     pub fn begin_read(&self) -> ReadTransaction {
+        #[cfg(feature = "tokio_guard")]
+        {
+            ensure_not_in_tokio_thread();
+        }
         match &self.env_strategy {
             EnvironmentStrategy::Real(s) => s.begin_read(),
             EnvironmentStrategy::Nulled(s) => s.begin_read(),
@@ -137,6 +141,10 @@ impl LmdbEnvironment {
     }
 
     pub fn begin_write(&self) -> WriteTransaction {
+        #[cfg(feature = "tokio_guard")]
+        {
+            ensure_not_in_tokio_thread();
+        }
         match &self.env_strategy {
             EnvironmentStrategy::Real(s) => s.begin_write(),
             EnvironmentStrategy::Nulled(s) => s.begin_write(),
@@ -353,6 +361,15 @@ impl EnvironmentStubBuilder {
 
     pub fn build(self) -> LmdbEnvironment {
         LmdbEnvironment::new_null_with_data(self.databases)
+    }
+}
+
+#[cfg(feature = "tokio_guard")]
+fn ensure_not_in_tokio_thread() {
+    if let Some(name) = std::thread::current().name() {
+        if name.contains("tokio") {
+            panic!("LMDB transactions must not be started from a Tokio thread!");
+        }
     }
 }
 

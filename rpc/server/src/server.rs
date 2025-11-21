@@ -1,11 +1,17 @@
 use crate::command_handler::RpcCommandHandler;
 use anyhow::{Context, Result};
-use axum::{Json, Router, extract::State, http::Request, middleware::map_request, routing::post};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{Request, StatusCode},
+    middleware::map_request,
+    routing::post,
+};
 use rsnano_node::Node;
 use rsnano_rpc_messages::RpcCommand;
 use std::{future::Future, sync::Arc};
 use tokio::{net::TcpListener, task::spawn_blocking};
-use tracing::info;
+use tracing::{info, warn};
 
 pub async fn run_rpc_server<F>(
     node: Arc<Node>,
@@ -35,11 +41,21 @@ where
 async fn handle_rpc(
     State(command_handler): State<RpcCommandHandler>,
     Json(command): Json<RpcCommand>,
-) -> Json<serde_json::Value> {
-    let response = spawn_blocking(move || command_handler.handle(command))
-        .await
-        .unwrap();
-    Json(response)
+) -> (StatusCode, Json<serde_json::Value>) {
+    let result = spawn_blocking(move || command_handler.handle(command)).await;
+
+    match result {
+        Ok(response) => (StatusCode::OK, Json(response)),
+        Err(e) => {
+            warn!("RPC command handler failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::Value::String(
+                    "An internal error occured. See the node logs for more details.".to_owned(),
+                )),
+            )
+        }
+    }
 }
 
 /// JSON is the default and the only accepted content type!

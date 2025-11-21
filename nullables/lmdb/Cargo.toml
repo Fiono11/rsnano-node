@@ -3,6 +3,9 @@ name = "rsnano_nullable_lmdb"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+tokio_guard = []
+
 [dependencies]
 lmdb-rkv = "0"
 lmdb-rkv-sys = "0"
