@@ -34,8 +34,6 @@ pub struct OnlineReps {
     peered_reps: PeeredContainer,
     trended_weight: Amount,
     online_weight: Amount,
-    /// Time between collecting online representative samples
-    weight_interval: Duration,
     online_weight_minimum: Amount,
     representative_weight_minimum: Amount,
     trim_counter: u64,
@@ -53,7 +51,6 @@ impl OnlineReps {
 
     pub(crate) fn new(
         rep_weights: Arc<RepWeightCache>,
-        weight_interval: Duration,
         online_weight_minimum: Amount,
         representative_weight_minimum: Amount,
     ) -> Self {
@@ -63,7 +60,6 @@ impl OnlineReps {
             peered_reps: PeeredContainer::new(),
             trended_weight: Amount::ZERO,
             online_weight: Amount::ZERO,
-            weight_interval,
             online_weight_minimum,
             representative_weight_minimum,
             trim_counter: 0,
@@ -76,12 +72,7 @@ impl OnlineReps {
         let rep_weights = Arc::new(RepWeightCache::new());
         rep_weights.set(rep, Amount::nano(80_000_000));
 
-        let mut online_reps = Self::new(
-            rep_weights,
-            Duration::from_secs(1),
-            Amount::nano(60_000_000),
-            Amount::nano(1000),
-        );
+        let mut online_reps = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
         let channel = Arc::new(Channel::new_test_instance());
         online_reps.vote_observed_directly(rep, channel, Timestamp::new_test_instance());
         online_reps

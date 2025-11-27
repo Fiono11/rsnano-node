@@ -15,6 +15,7 @@ pub(crate) struct DelayedBlocks {
 }
 
 impl DelayedBlocks {
+    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Default::default()
     }
@@ -72,6 +73,7 @@ impl DelayedBlocks {
         }
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.blocks.len()
     }

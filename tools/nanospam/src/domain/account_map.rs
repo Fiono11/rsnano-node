@@ -129,7 +129,7 @@ impl AccountMap {
         self.unconfirmed.insert(
             send_hash,
             UnconfirmedEntry {
-                source: source,
+                source,
                 destination: Some(destination),
                 fork,
             },

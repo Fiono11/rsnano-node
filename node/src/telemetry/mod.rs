@@ -25,6 +25,8 @@ use crate::{
     transport::MessageSender,
 };
 
+pub type TelemetryProcessedCallback = Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>;
+
 /**
  * This class periodically broadcasts and requests telemetry from peers.
  * Those intervals are configurable via `telemetry_request_interval` & `telemetry_broadcast_interval` network constants
@@ -44,8 +46,7 @@ pub struct Telemetry {
     network: Arc<RwLock<Network>>,
     message_sender: Mutex<MessageSender>,
     pub startup_time: Instant,
-    telemetry_processed_callbacks:
-        Mutex<Vec<Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>>>,
+    telemetry_processed_callbacks: Mutex<Vec<TelemetryProcessedCallback>>,
     clock: Arc<SteadyClock>,
     genesis_hash: BlockHash,
 }
@@ -106,10 +107,7 @@ impl Telemetry {
         }
     }
 
-    pub fn on_telemetry_processed(
-        &self,
-        f: Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>,
-    ) {
+    pub fn on_telemetry_processed(&self, f: TelemetryProcessedCallback) {
         self.telemetry_processed_callbacks.lock().unwrap().push(f);
     }
 

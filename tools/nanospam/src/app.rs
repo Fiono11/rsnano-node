@@ -377,7 +377,10 @@ async fn log_status(
     clock: &SteadyClock,
     cancel_token: CancellationToken,
 ) {
-    while let Err(_) = timeout(Duration::from_secs(1), cancel_token.cancelled()).await {
+    while timeout(Duration::from_secs(1), cancel_token.cancelled())
+        .await
+        .is_err()
+    {
         let now = clock.now();
 
         let stats = {

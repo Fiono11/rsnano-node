@@ -11,6 +11,7 @@ pub(crate) struct BlockFactory {
     strategy: SpamStrategy,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum BlockResult {
     Block(Forks),
     Waiting,

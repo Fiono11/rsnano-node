@@ -5,7 +5,6 @@ use std::{sync::Arc, time::Duration};
 
 pub struct OnlineRepsBuilder {
     rep_weights: Option<Arc<RepWeightCache>>,
-    weight_interval: Duration,
     online_weight_minimum: Amount,
     representative_weight_minimum: Amount,
     trended: Option<Amount>,
@@ -15,7 +14,6 @@ impl OnlineRepsBuilder {
     pub(super) fn new() -> Self {
         Self {
             rep_weights: None,
-            weight_interval: OnlineReps::default_interval_for(Networks::NanoLiveNetwork),
             online_weight_minimum: OnlineReps::DEFAULT_ONLINE_WEIGHT_MINIMUM,
             representative_weight_minimum: Amount::ZERO,
             trended: None,
@@ -23,11 +21,6 @@ impl OnlineRepsBuilder {
     }
     pub fn rep_weights(mut self, weights: Arc<RepWeightCache>) -> Self {
         self.rep_weights = Some(weights);
-        self
-    }
-
-    pub fn weight_interval(mut self, period: Duration) -> Self {
-        self.weight_interval = period;
         self
     }
 
@@ -53,7 +46,6 @@ impl OnlineRepsBuilder {
 
         let mut online_reps = OnlineReps::new(
             rep_weights,
-            self.weight_interval,
             self.online_weight_minimum,
             self.representative_weight_minimum,
         );
