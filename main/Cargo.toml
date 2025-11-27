@@ -29,10 +29,10 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1.0.100"
 rand = { version = "0.9" }
 tokio = { version = "1", features = ["signal"] }
-toml = "0.9.5"
+toml = "0.9.8"
 serde_json = "1.0.145"
-serde = "1.0.226"
-serde_derive = "1.0.226"
+serde = "1.0.228"
+serde_derive = "1.0.228"
 
 [dev-dependencies]
-assert_cmd = "2.0.17"
+assert_cmd = "2.1.1"
