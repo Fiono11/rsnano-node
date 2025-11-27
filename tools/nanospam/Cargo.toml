@@ -17,7 +17,7 @@ rsnano_websocket_messages = { path = "../../websocket/messages" }
 rsnano_websocket_client = { path = "../../websocket/client" }
 rsnano_rpc_client = { path = "../../rpc/client" }
 rsnano_rpc_messages = { path = "../../rpc/messages" }
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 tokio = { version = "1.47.1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util"] }
 tokio-scoped = "0.2.0"
 tracing = "0.1.41"
