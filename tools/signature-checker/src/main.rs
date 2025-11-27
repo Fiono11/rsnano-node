@@ -66,7 +66,7 @@ fn check_ledger_file(ledger_file: impl Into<PathBuf>) {
 
         println!("Checking signatures...");
         for block in block_store.iter(&tx) {
-            if checked % 100_000 == 0 {
+            if checked.is_multiple_of(100_000) {
                 print!(
                     "\r{}% done - {} found",
                     (checked * 100) / total_blocks,

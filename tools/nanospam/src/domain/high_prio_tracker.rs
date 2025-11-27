@@ -26,10 +26,6 @@ impl HighPrioTracker {
     }
 
     pub(crate) fn confirmed(&mut self, hash: &BlockHash, now: Timestamp) -> Option<Duration> {
-        if let Some(published) = self.published.remove(hash) {
-            Some(published.elapsed(now))
-        } else {
-            None
-        }
+        self.published.remove(hash).map(|t| t.elapsed(now))
     }
 }

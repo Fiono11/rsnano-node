@@ -19,6 +19,7 @@ mod delegators;
 mod delegators_count;
 mod frontier_count;
 mod frontiers;
+#[allow(clippy::module_inception)]
 mod ledger;
 mod representatives;
 mod unopened;
