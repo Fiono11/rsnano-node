@@ -874,10 +874,10 @@ impl Node {
 
         // TODO: remove the duplication of the on_rolling_back event
         bounded_backlog.can_roll_back(move |hash| {
-            if let Some(i) = vote_cache_w.upgrade() {
-                if i.lock().unwrap().contains(hash) {
-                    return false;
-                }
+            if let Some(i) = vote_cache_w.upgrade()
+                && i.lock().unwrap().contains(hash)
+            {
+                return false;
             }
 
             if let Some(i) = active_w.upgrade() {
@@ -887,22 +887,22 @@ impl Node {
                 }
             }
 
-            if let Some(i) = scheduler_w.upgrade() {
-                if i.contains(hash) {
-                    return false;
-                }
+            if let Some(i) = scheduler_w.upgrade()
+                && i.contains(hash)
+            {
+                return false;
             }
 
-            if let Some(i) = confirming_set_w.upgrade() {
-                if i.contains(hash) {
-                    return false;
-                }
+            if let Some(i) = confirming_set_w.upgrade()
+                && i.contains(hash)
+            {
+                return false;
             }
 
-            if let Some(i) = local_block_broadcaster_w.upgrade() {
-                if i.contains(hash) {
-                    return false;
-                }
+            if let Some(i) = local_block_broadcaster_w.upgrade()
+                && i.contains(hash)
+            {
+                return false;
             }
             true
         });

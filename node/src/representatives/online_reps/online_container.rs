@@ -24,7 +24,7 @@ impl OnlineContainer {
 
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn insert(&mut self, rep: PublicKey, now: Timestamp) -> bool {
-        let new_insert = if let Some(time) = self.by_account.get_mut(&rep) {
+        if let Some(time) = self.by_account.get_mut(&rep) {
             let old_time = *time;
             *time = now;
 
@@ -36,14 +36,12 @@ impl OnlineContainer {
             }
             self.by_time.entry(now).or_default().push(rep);
 
-            false
+            false // not inserted, just updated
         } else {
             self.by_account.insert(rep, now);
             self.by_time.entry(now).or_default().push(rep);
-            true
-        };
-
-        new_insert
+            true // inserted
+        }
     }
 
     pub fn trim(&mut self, upper_bound: Timestamp) -> Vec<(PublicKey, Timestamp)> {

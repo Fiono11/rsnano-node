@@ -136,7 +136,7 @@ impl VoteRebroadcastQueue {
             .wait_while(queue, |q| q.len() == 0 && !self.stopped())
             .unwrap();
 
-        return queue.dequeue();
+        queue.dequeue()
     }
 
     pub fn stopped(&self) -> bool {

@@ -127,8 +127,6 @@ impl RepCrawler {
             // TODO: This linear search could be slow, especially with large votes.
             let target_hash = query.hash;
             let found = vote.hashes.contains(&target_hash);
-            let done;
-
             if found {
                 debug!(
                     "Processing response for block: {} from: {}",
@@ -148,12 +146,10 @@ impl RepCrawler {
                 query.replies += 1;
                 self.condition.notify_all();
                 processed = true;
-                done = true
+                true // done
             } else {
-                done = false
+                false // not done
             }
-
-            done
         });
 
         processed
@@ -614,11 +610,11 @@ impl OrderedQueries {
     fn remove(&mut self, entry_id: usize) {
         if let Some(entry) = self.entries.remove(&entry_id) {
             self.sequenced.retain(|id| *id != entry_id);
-            if let Some(mut by_channel) = self.by_channel.remove(&entry.channel_id) {
-                if by_channel.len() > 1 {
-                    by_channel.retain(|i| *i != entry_id);
-                    self.by_channel.insert(entry.channel_id, by_channel);
-                }
+            if let Some(mut by_channel) = self.by_channel.remove(&entry.channel_id)
+                && by_channel.len() > 1
+            {
+                by_channel.retain(|i| *i != entry_id);
+                self.by_channel.insert(entry.channel_id, by_channel);
             }
             if let Some(mut by_hash) = self.by_hash.remove(&entry.hash)
                 && by_hash.len() > 1

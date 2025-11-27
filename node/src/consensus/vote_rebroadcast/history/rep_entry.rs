@@ -47,7 +47,7 @@ impl RepresentativeEntry {
     }
 
     fn ensure_not_broadcasted_yet(&self, vote_hash: &BlockHash) -> Result<(), RebroadcastError> {
-        if self.vote_hashes.contains_key(&vote_hash) {
+        if self.vote_hashes.contains_key(vote_hash) {
             Err(RebroadcastError::AlreadyRebroadcasted)
         } else {
             Ok(())
@@ -103,7 +103,7 @@ pub(crate) struct RebroadcastEntry {
 
 impl RebroadcastEntry {
     fn should_rebroadcast(&self, new_vote: &Vote, min_gap: Duration, now: Timestamp) -> bool {
-        if self.switched_to_final_vote(&new_vote) {
+        if self.switched_to_final_vote(new_vote) {
             return true;
         }
 

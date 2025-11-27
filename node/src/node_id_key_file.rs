@@ -46,7 +46,7 @@ impl NodeIdKeyFile {
 
         let content = self
             .fs
-            .read_to_string(&file_path)
+            .read_to_string(file_path)
             .context(format!("Could not read node id file {:?}", file_path))?;
 
         let first_line = content.lines().next().unwrap_or("");

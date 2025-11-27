@@ -36,7 +36,7 @@ impl VoteProcessorConfig {
             max_pr_queue: 256,
             max_non_pr_queue: 32,
             pr_priority: 3,
-            threads: max(1, min(4, parallelism / 2)),
+            threads: (parallelism / 2).clamp(1, 4),
             batch_size: 1024,
             max_triggered: 16384,
         }
