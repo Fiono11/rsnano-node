@@ -825,12 +825,9 @@ fn search_receivable_multiple() {
     let wallet_id = node.wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
-    node.wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
-        .unwrap();
-    node.wallets
-        .insert_adhoc2(&wallet_id, &key3.raw_key(), true)
-        .unwrap();
+    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.insert_into_wallet(&key3);
+
     node.wallets
         .send(
             wallet_id,
@@ -845,6 +842,7 @@ fn search_receivable_multiple() {
         .unwrap();
 
     assert_timely2(|| !node.balance(&key3.account()).is_zero());
+
     node.wallets
         .send(
             wallet_id,
@@ -857,6 +855,7 @@ fn search_receivable_multiple() {
         )
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
+
     node.wallets
         .send(
             wallet_id,
@@ -869,9 +868,11 @@ fn search_receivable_multiple() {
         )
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
+
     node.wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
+
     node.wallets
         .search_receivable(&wallet_id)
         .wait_timeout(Duration::from_secs(5))
