@@ -1,22 +1,21 @@
 use core::panic;
 use std::{
-    sync::{mpsc::sync_channel, Arc},
+    sync::{Arc, mpsc::sync_channel},
     thread::spawn,
     time::Duration,
 };
 
 use rsnano_ledger::{
-    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_messages::{Message, Publish};
 use rsnano_node::{
-    config::{NetworkConstants, NodeConfig, WebsocketConfig},
     CompositeNodeEventHandler, Node,
+    config::{NetworkConstants, NodeConfig, WebsocketConfig},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Amount, Block, JsonBlock, Networks, PrivateKey, SendBlockArgs, UnixMillisTimestamp, Vote,
-    VoteError, DEV_GENESIS_KEY,
+    Amount, DEV_GENESIS_KEY, JsonBlock, Networks, PrivateKey, UnixMillisTimestamp, Vote, VoteError,
 };
 use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,
@@ -24,10 +23,10 @@ use rsnano_websocket_client::{
 };
 use rsnano_websocket_messages::{BlockConfirmed, Topic};
 use rsnano_websocket_server::{
-    create_websocket_server, vote_received, TelemetryReceived, VoteReceived, WebsocketListener,
-    WebsocketListenerExt,
+    TelemetryReceived, VoteReceived, WebsocketListener, WebsocketListenerExt,
+    create_websocket_server, vote_received,
 };
-use test_helpers::{assert_timely2, make_fake_channel, System};
+use test_helpers::{System, assert_timely2, make_fake_channel};
 use tokio::{task::spawn_blocking, time::timeout};
 
 pub type WsMessage = rsnano_websocket_client::Message;
@@ -240,9 +239,7 @@ fn confirmation_options() {
         node1.insert_into_wallet(&DEV_GENESIS_KEY);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
-        let mut balance = Amount::MAX;
         let send_amount = node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
-        balance = balance - send_amount;
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send.clone());
         assert_timely2(|| node1.block_confirmed(&send.hash()));

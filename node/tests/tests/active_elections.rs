@@ -1181,6 +1181,7 @@ fn vote_replays() {
     let res = node.vote_processor.vote_blocking(&vote1_send2);
     assert!(matches!(res, Err(VoteError::Replay) | Err(VoteError::Late)));
     assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
+
     assert_eq!(
         node.vote_processor.vote_blocking(&vote1_send2),
         Err(VoteError::Late)
@@ -1189,6 +1190,8 @@ fn vote_replays() {
         node.vote_processor.vote_blocking(&vote2_send2),
         Err(VoteError::Late)
     );
+
+    assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
 
     // Removing blocks as recently confirmed makes every vote indeterminate
     node.active.write().unwrap().clear_recently_confirmed();
