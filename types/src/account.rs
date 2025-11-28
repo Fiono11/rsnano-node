@@ -1,11 +1,13 @@
-use super::PublicKey;
-use crate::u256_struct;
 use blake2::{
     Blake2bVar,
     digest::{Update, VariableOutput},
 };
+use const_format::concatcp;
 use primitive_types::U512;
 use serde::de::{Unexpected, Visitor};
+
+use super::PublicKey;
+use crate::{currency_constants::ACCOUNT_PREFIX, u256_struct};
 
 u256_struct!(Account);
 
@@ -16,15 +18,19 @@ impl Account {
         number <<= 40;
         number |= check;
 
-        let mut result = String::with_capacity(65);
+        let mut result = String::with_capacity(ACCOUNT_PREFIX.len() + 61);
+        result.push_str(concatcp!(ACCOUNT_PREFIX, "_"));
 
-        for _i in 0..60 {
+        let mut encoded_chars = ['~'; 60];
+
+        for c in encoded_chars.iter_mut().rev() {
             let r = number.byte(0) & 0x1f_u8;
             number >>= 5;
-            result.push(account_encode(r));
+            *c = account_encode(r);
         }
-        result.push_str("_onan"); // nano_
-        result.chars().rev().collect()
+
+        result.extend(encoded_chars);
+        result
     }
 
     fn account_checksum(&self) -> [u8; 5] {
@@ -69,8 +75,11 @@ impl<'de> Visitor<'de> for AccountVisitor {
     type Value = Account;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter
-            .write_str("an account in the form \"nano_...\" or a node ID in the form \"node_...\"")
+        formatter.write_str(concatcp!(
+            "an account in the form \"",
+            ACCOUNT_PREFIX,
+            "_...\" or a node ID in the form \"node_...\""
+        ))
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -80,7 +89,7 @@ impl<'de> Visitor<'de> for AccountVisitor {
         Account::parse(v).ok_or_else(|| {
             serde::de::Error::invalid_value(
                 Unexpected::Str(v),
-                &"an account in the form \"nano_...\"",
+                &concatcp!("an account in the form \"", ACCOUNT_PREFIX, "_...\""),
             )
         })
     }
@@ -134,7 +143,8 @@ impl<'a> EncodedAccountStr<'a> {
     }
 
     fn has_nano_prefix(&self) -> bool {
-        self.0.starts_with("nano_") || self.0.starts_with("nano-")
+        self.0.starts_with(concatcp!(ACCOUNT_PREFIX, "_"))
+            || self.0.starts_with(concatcp!(ACCOUNT_PREFIX, "-"))
     }
 
     fn has_node_id_prefix(&self) -> bool {
@@ -271,6 +281,25 @@ mod tests {
         );
         let copy = Account::parse(&encoded).expect("parse should succeed");
         assert_eq!(account, copy);
+    }
+
+    #[test]
+    fn decode() {
+        let expected =
+            Account::decode_hex("E7F5F39D52AC32ADF978BBCF6EA50C7A5FBBDDCADE965C542808ADAE9DEF6B20")
+                .unwrap();
+
+        assert_eq!(
+            Account::parse(&"nano_3szoyggo7d3koqwqjgyhftkirykzqhgwoqnpdjc4i47fotgyyts1j8ab3mti")
+                .unwrap(),
+            expected
+        );
+
+        assert_eq!(
+            Account::parse(&"nano-3szoyggo7d3koqwqjgyhftkirykzqhgwoqnpdjc4i47fotgyyts1j8ab3mti")
+                .unwrap(),
+            expected
+        );
     }
 
     #[test]
