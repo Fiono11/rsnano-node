@@ -1,4 +1,4 @@
-use crate::DeserializationError;
+use crate::{currency_constants::RAW_PER_COIN, DeserializationError};
 use serde::de::{Unexpected, Visitor};
 use std::{fmt::Debug, io::Read, iter::Sum, num::ParseIntError, ops::Deref};
 
@@ -19,21 +19,21 @@ impl Amount {
     /// 10^24 raw or 0.000001 nano
     pub const fn micronano(value: u128) -> Self {
         Self {
-            raw: value * 10u128.pow(24),
+            raw: value * (RAW_PER_COIN / 10u128.pow(6)),
         }
     }
 
     /// 10^27 raw or 0.001 nano
     pub const fn millinano(value: u128) -> Self {
         Self {
-            raw: value * 10u128.pow(27),
+            raw: value * (RAW_PER_COIN / 10u128.pow(3)),
         }
     }
 
     /// 10^30 raw
     pub const fn nano(value: u128) -> Self {
         Self {
-            raw: value * 10u128.pow(30),
+            raw: value * RAW_PER_COIN,
         }
     }
 
@@ -303,6 +303,13 @@ mod tests {
             Amount::nano(1).to_string_dec(),
             "1000000000000000000000000000000"
         );
+    }
+
+    #[test]
+    fn units() {
+        assert_eq!(Amount::nano(1).raw, 10u128.pow(30));
+        assert_eq!(Amount::millinano(1).raw, 10u128.pow(27));
+        assert_eq!(Amount::micronano(1).raw, 10u128.pow(24));
     }
 
     #[test]
