@@ -1,7 +1,7 @@
 use rsnano_ledger::DEV_GENESIS_PUB_KEY;
 use rsnano_types::{
-    Account, Amount, Networks, PublicKey, PRECONFIGURED_REPRESENTATIVES_BETA,
-    PRECONFIGURED_REPRESENTATIVES_LIVE,
+    Account, Amount, Networks, PRECONFIGURED_REPRESENTATIVES_BETA,
+    PRECONFIGURED_REPRESENTATIVES_LIVE, PublicKey,
 };
 use std::time::Duration;
 

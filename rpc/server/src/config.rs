@@ -1,4 +1,4 @@
-use rsnano_node::config::{get_rpc_toml_config_path, read_toml_file, NetworkConstants};
+use rsnano_node::config::{NetworkConstants, get_rpc_toml_config_path, read_toml_file};
 use rsnano_types::Networks;
 use std::{
     net::{AddrParseError, IpAddr, Ipv6Addr, SocketAddr},

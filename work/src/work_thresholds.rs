@@ -1,7 +1,7 @@
 use rsnano_types::{
     Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
-    StubDifficulty, WorkNonce, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2,
-    WORK_THRESHOLD_EPOCH2_RECEIVE,
+    StubDifficulty, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2, WORK_THRESHOLD_EPOCH2_RECEIVE,
+    WorkNonce,
 };
 use std::{
     cmp::{max, min},
