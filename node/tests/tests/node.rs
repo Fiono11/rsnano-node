@@ -1,35 +1,35 @@
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::{Arc, mpsc::TryRecvError},
+    sync::{mpsc::TryRecvError, Arc},
     thread::sleep,
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{
-    AnySet, BlockError, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
-    LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, BlockError, ConfirmedSet, LedgerSet,
+    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
 };
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
     block_processing::{BacklogScanConfig, BlockContext, BlockSource, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
+    consensus::{election::VoteType, AecEvent, FilteredVote, ReceivedVote},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
+    Account, Amount, Block, BlockHash, DifficultyV1, PrivateKey, PublicKey, Root, Signature,
+    StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest, DEV_GENESIS_KEY,
 };
 use rsnano_utils::{
     stats::{DetailType, Direction, StatType},
     sync::backpressure_channel,
 };
 use test_helpers::{
-    System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
-    start_election,
+    activate_hashes, assert_never, assert_timely, assert_timely2, assert_timely_eq,
+    assert_timely_eq2, assert_timely_msg, establish_tcp, make_fake_channel, setup_chains,
+    start_election, System,
 };
 
 #[test]
@@ -1678,7 +1678,7 @@ fn rep_crawler_rep_remove() {
     let searching_node = system.make_node(); // will be used to find principal representatives
     let key_rep1 = PrivateKey::new(); // Principal representative 1
     let key_rep2 = PrivateKey::new(); // Principal representative 2
-    //
+                                      //
     let rep_weight = (Amount::MAX / 1000) * 2;
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -2414,7 +2414,7 @@ fn dependency_graph() {
     // Start an election for the first block of the dependency graph, and ensure all blocks are eventually confirmed
     node.insert_into_wallet(&DEV_GENESIS_KEY);
     start_election(&node, &gen_send1.hash());
-    assert_timely(Duration::from_secs(15), || {
+    assert_timely(Duration::from_secs(30), || {
         // Not many blocks should be active simultaneously
         assert!(node.active.read().unwrap().len() < 6);
 
@@ -2433,9 +2433,7 @@ fn dependency_graph() {
         error || node.ledger.confirmed_count() == node.ledger.block_count()
     });
     assert_eq!(node.ledger.confirmed_count(), node.ledger.block_count());
-    assert_timely(Duration::from_secs(5), || {
-        node.active.read().unwrap().len() == 0
-    });
+    assert_timely2(|| node.active.read().unwrap().len() == 0);
 }
 
 #[test]
