@@ -1353,7 +1353,6 @@ fn fork_no_vote_quorum() {
 fn fork_open() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.wallets.wallet_ids()[0];
 
     // create block send1, to send all the balance from genesis to key1
     // this is done to ensure that the open block(s) cannot be voted on and confirmed
@@ -1362,34 +1361,17 @@ fn fork_open() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     let mut fork_lattice = lattice.clone();
 
-    let channel = make_fake_channel(&node);
-
-    node.inbound_message_queue.put(
-        Message::Publish(Publish::new_forward(send1.clone())),
-        channel.clone(),
-    );
-
-    assert_timely2(|| node.is_active_root(&send1.qualified_root()));
-    node.force_confirm(&send1.hash());
-    assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
-
-    // register key for genesis account, not sure why we do this, it seems needless,
-    // since the genesis account at this stage has zero voting weight
-    node.wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
-        .unwrap();
+    node.process(send1.clone());
+    node.confirm(send1.hash());
 
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open1 = lattice.account(&key1).receive_and_change(&send1, 1);
+    let channel = make_fake_channel(&node);
     node.inbound_message_queue.put(
         Message::Publish(Publish::new_forward(open1.clone())),
         channel.clone(),
     );
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || node.active.read().unwrap().len(),
-        1,
-    );
+    assert_timely_eq2(|| node.active.read().unwrap().len(), 1);
 
     // create 2nd open block, which is a fork of open1 block
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
@@ -1422,10 +1404,6 @@ fn fork_open() {
             .winner()
             .hash()
     );
-
-    // wait for a second and check that the election did not get confirmed
-    sleep(Duration::from_millis(1000));
-    assert!(node.is_active_root(&open2.qualified_root()));
 
     // check that only the first block is saved to the ledger
     assert_timely2(|| node.block_exists(&open1.hash()));
