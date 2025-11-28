@@ -6,11 +6,11 @@ use rsnano_network::NetworkConfig;
 use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
-use rsnano_types::{Account, Amount, Peer, PublicKey};
+use rsnano_types::{Account, Amount, Peer, PublicKey, PEERING_BETA, PEERING_LIVE, PEERING_TEST};
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
 
-use super::{DEV_NETWORK_PARAMS, NetworkParams, Networks, websocket_config::WebsocketConfig};
+use super::{websocket_config::WebsocketConfig, NetworkParams, Networks, DEV_NETWORK_PARAMS};
 use crate::{
     block_processing::{
         BacklogScanConfig, BoundedBacklogConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
@@ -18,11 +18,11 @@ use crate::{
     bootstrap::{BootstrapConfig, BootstrapServerConfig},
     cementation::ConfirmingSetConfig,
     consensus::{
+        election_schedulers::{
+            priority::PriorityBucketConfig, HintedSchedulerConfig, OptimisticSchedulerConfig,
+        },
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
         RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, VoteRebroadcastQueue,
-        election_schedulers::{
-            HintedSchedulerConfig, OptimisticSchedulerConfig, priority::PriorityBucketConfig,
-        },
     },
     transport::MessageProcessorConfig,
 };
@@ -112,13 +112,13 @@ pub struct NodeConfig {
 }
 
 static DEFAULT_LIVE_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", "peering.nano.org"));
+    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_LIVE));
 
 static DEFAULT_BETA_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", "peering-beta.nano.org"));
+    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_BETA));
 
 static DEFAULT_TEST_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", "peering-test.nano.org"));
+    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_TEST));
 
 impl NodeConfig {
     pub fn default_for(network: Networks, parallelism: usize) -> Self {

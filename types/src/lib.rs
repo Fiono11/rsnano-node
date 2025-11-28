@@ -47,12 +47,17 @@ pub use account::Account;
 pub use account_info::AccountInfo;
 pub use amount::{Amount, DescTallyKey};
 use blake2::{
-    Blake2bVar,
     digest::{Update, VariableOutput},
+    Blake2bVar,
 };
 pub use block_hash::{Blake2Hash, Blake2HashBuilder, BlockHash};
 pub use blocks::*;
 pub use confirmation_height_info::ConfirmationHeightInfo;
+pub use currency_constants::{
+    DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET, PEERING_BETA, PEERING_LIVE,
+    PEERING_TEST, WORKING_PATH_PREFIX, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2,
+    WORK_THRESHOLD_EPOCH2_RECEIVE,
+};
 pub use difficulty::{Difficulty, DifficultyV1, StubDifficulty};
 pub use epoch::*;
 pub use kdf::KeyDerivationFunction;
@@ -68,7 +73,7 @@ pub use raw_key::RawKey;
 use serde::de::{Unexpected, Visitor};
 pub use signature::Signature;
 use thiserror::Error;
-pub use timestamp::{UnixMillisTimestamp, UnixTimestamp, milliseconds_since_epoch};
+pub use timestamp::{milliseconds_since_epoch, UnixMillisTimestamp, UnixTimestamp};
 pub use vote::{TestVoteBuilder, Vote, VoteError, VoteSource};
 pub use vote_timestamp::VoteTimestamp;
 

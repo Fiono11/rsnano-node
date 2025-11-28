@@ -1,6 +1,7 @@
 use rsnano_types::{
     Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
-    StubDifficulty, WorkNonce,
+    StubDifficulty, WorkNonce, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2,
+    WORK_THRESHOLD_EPOCH2_RECEIVE,
 };
 use std::{
     cmp::{max, min},
@@ -62,9 +63,9 @@ impl std::fmt::Debug for WorkThresholds {
 
 static PUBLISH_FULL: LazyLock<WorkThresholds> = LazyLock::new(|| {
     WorkThresholds::new(
-        0xffffffc000000000,
-        0xfffffff800000000, // 8x higher than epoch_1
-        0xfffffe0000000000, // 8x lower than epoch_1
+        WORK_THRESHOLD_EPOCH1,
+        WORK_THRESHOLD_EPOCH2,
+        WORK_THRESHOLD_EPOCH2_RECEIVE,
     )
 });
 

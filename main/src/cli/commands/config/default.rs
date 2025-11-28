@@ -36,8 +36,7 @@ impl DefaultArgs {
             (toml::to_string(&daemon_toml)?, "node")
         } else {
             let rpc_server_toml: RpcServerToml =
-                (&RpcServerConfig::new(&NetworkConstants::for_network(network), parallelism))
-                    .into();
+                (&RpcServerConfig::new(&NetworkConstants::for_network(network))).into();
             (toml::to_string(&rpc_server_toml)?, "rpc")
         };
 

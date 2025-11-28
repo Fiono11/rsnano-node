@@ -56,8 +56,7 @@ impl CurrentArgs {
 
                 let current_rpc_toml: RpcServerToml = from_str(&rpc_toml_str)?;
 
-                let mut default_rpc_config =
-                    RpcServerConfig::new(&NetworkConstants::for_beta(), parallelism);
+                let mut default_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta());
 
                 default_rpc_config.merge_toml(&current_rpc_toml);
 

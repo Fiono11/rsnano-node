@@ -1,4 +1,4 @@
-use crate::{Account, PrivateKey, PublicKey};
+use crate::{Account, PrivateKey, PublicKey, currency_constants::ACCOUNT_PREFIX};
 use serde::de::{Unexpected, Visitor};
 use std::{fmt::Display, io::Read, str::FromStr};
 
@@ -64,7 +64,7 @@ impl From<u128> for NodeId {
 impl Display for NodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = Account::from_bytes(self.0).encode_account();
-        result.replace_range(0..4, "node");
+        result.replace_range(0..ACCOUNT_PREFIX.len(), "node");
         write!(f, "{}", result)
     }
 }
@@ -81,7 +81,7 @@ impl FromStr for NodeId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut node_id = s.to_string();
         if node_id.starts_with("node_") {
-            node_id.replace_range(0..5, "nano_");
+            node_id.replace_range(0..4, ACCOUNT_PREFIX);
             let account = Account::parse(node_id).ok_or(())?;
             Ok(Self::from_bytes(*account.as_bytes()))
         } else {

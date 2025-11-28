@@ -35,7 +35,7 @@ impl GenerateConfigArgs {
             (toml::to_string(&daemon_toml)?, "node")
         } else {
             let rpc_server_toml: RpcServerToml =
-                (&RpcServerConfig::default_for(Networks::NanoBetaNetwork, get_cpu_count())).into();
+                (&RpcServerConfig::default_for(Networks::NanoBetaNetwork)).into();
             (toml::to_string(&rpc_server_toml)?, "rpc")
         };
 

@@ -1,4 +1,4 @@
-use super::{RpcServerConfig, RpcServerLoggingConfig, RpcServerProcessConfig};
+use super::{RpcServerConfig, RpcServerLoggingConfig};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -9,7 +9,6 @@ pub struct RpcServerToml {
     pub max_request_size: Option<u64>,
     pub port: Option<u16>,
     pub logging: Option<RpcServerLoggingToml>,
-    pub process: Option<RpcServerProcessToml>,
 }
 
 impl From<&RpcServerConfig> for RpcServerToml {
@@ -21,7 +20,6 @@ impl From<&RpcServerConfig> for RpcServerToml {
             max_json_depth: Some(config.max_json_depth),
             max_request_size: Some(config.max_request_size),
             logging: Some((&config.rpc_logging).into()),
-            process: Some((&config.rpc_process).into()),
         }
     }
 }
@@ -45,9 +43,6 @@ impl RpcServerConfig {
         }
         if let Some(logging) = &toml.logging {
             self.rpc_logging = logging.into();
-        }
-        if let Some(process) = &toml.process {
-            self.rpc_process.merge_toml(process);
         }
     }
 }
@@ -82,42 +77,6 @@ impl From<&RpcServerLoggingToml> for RpcServerLoggingConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-pub struct RpcServerProcessToml {
-    pub io_threads: Option<u32>,
-    pub ipc_address: Option<String>,
-    pub ipc_port: Option<u16>,
-    pub num_ipc_connections: Option<u32>,
-}
-
-impl From<&RpcServerProcessConfig> for RpcServerProcessToml {
-    fn from(config: &RpcServerProcessConfig) -> Self {
-        Self {
-            io_threads: Some(config.io_threads),
-            ipc_address: Some(config.ipc_address.clone()),
-            ipc_port: Some(config.ipc_port),
-            num_ipc_connections: Some(config.num_ipc_connections),
-        }
-    }
-}
-
-impl RpcServerProcessConfig {
-    pub(crate) fn merge_toml(&mut self, toml: &RpcServerProcessToml) {
-        if let Some(io_threads) = toml.io_threads {
-            self.io_threads = io_threads;
-        }
-        if let Some(ipc_address) = &toml.ipc_address {
-            self.ipc_address = ipc_address.clone();
-        }
-        if let Some(ipc_port) = toml.ipc_port {
-            self.ipc_port = ipc_port;
-        }
-        if let Some(num_ipc_connections) = toml.num_ipc_connections {
-            self.num_ipc_connections = num_ipc_connections;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{RpcServerConfig, RpcServerToml};
@@ -134,12 +93,7 @@ mod tests {
 
         [logging]
         log_rpc = true
-
-        [process]
-    	io_threads = 8
-    	ipc_address = "::1"
-    	ipc_port = 56000
-    	num_ipc_connections = 4"#;
+    "#;
 
     static MODIFIED_TOML_STR: &str = r#"
         address = "0:0:0:0:0:ffff:7f01:101"
@@ -150,18 +104,13 @@ mod tests {
 
         [logging]
         log_rpc = false
-
-    	[process]
-    	io_threads = 999
-    	ipc_address = "0:0:0:0:0:ffff:7f01:101"
-    	ipc_port = 999
-    	num_ipc_connections = 999"#;
+    "#;
 
     #[test]
     fn deserialize_defaults() {
         let deserialized_toml: RpcServerToml = toml::from_str(&DEFAULT_TOML_STR).unwrap();
 
-        let default_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta(), 8);
+        let default_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta());
         let mut deserialized_rpc_config = default_rpc_config.clone();
         deserialized_rpc_config.merge_toml(&deserialized_toml);
 
@@ -173,10 +122,10 @@ mod tests {
         let rpc_toml: RpcServerToml =
             from_str(MODIFIED_TOML_STR).expect("Failed to deserialize TOML");
 
-        let mut deserialized_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta(), 8);
+        let mut deserialized_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta());
         deserialized_rpc_config.merge_toml(&rpc_toml);
 
-        let default_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta(), 8);
+        let default_rpc_config = RpcServerConfig::new(&NetworkConstants::for_beta());
 
         assert_ne!(deserialized_rpc_config.address, default_rpc_config.address);
         assert_ne!(
@@ -197,23 +146,6 @@ mod tests {
             deserialized_rpc_config.rpc_logging.log_rpc,
             default_rpc_config.rpc_logging.log_rpc
         );
-
-        assert_ne!(
-            deserialized_rpc_config.rpc_process.io_threads,
-            default_rpc_config.rpc_process.io_threads
-        );
-        assert_ne!(
-            deserialized_rpc_config.rpc_process.ipc_address,
-            default_rpc_config.rpc_process.ipc_address
-        );
-        assert_ne!(
-            deserialized_rpc_config.rpc_process.ipc_port,
-            default_rpc_config.rpc_process.ipc_port
-        );
-        assert_ne!(
-            deserialized_rpc_config.rpc_process.num_ipc_connections,
-            default_rpc_config.rpc_process.num_ipc_connections
-        );
     }
 
     #[test]
@@ -222,18 +154,17 @@ mod tests {
 
         let rpc_toml: RpcServerToml = from_str(&toml_str).expect("Failed to deserialize TOML");
 
-        let mut deserialized_rpc_config =
-            RpcServerConfig::default_for(Networks::NanoBetaNetwork, 8);
+        let mut deserialized_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
         deserialized_rpc_config.merge_toml(&rpc_toml);
 
-        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork, 8);
+        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
 
         assert_eq!(&deserialized_rpc_config, &default_rpc_config);
     }
 
     #[test]
     fn serialize_defaults() {
-        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork, 8);
+        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
 
         let default_rpc_toml: RpcServerToml = (&default_rpc_config).into();
 

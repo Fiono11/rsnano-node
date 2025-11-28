@@ -60,8 +60,7 @@ impl DaemonBuilder {
         let parallelism = get_cpu_count();
         let daemon_config =
             DaemonConfig::load_from_data_path(self.network, parallelism, &data_path)?;
-        let rpc_config =
-            RpcServerConfig::load_from_data_path(self.network, parallelism, &data_path)?;
+        let rpc_config = RpcServerConfig::load_from_data_path(self.network, &data_path)?;
 
         info!("Starting up RsNano node...");
 

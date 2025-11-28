@@ -1,4 +1,5 @@
-use rsnano_types::Networks;
+use const_format::concatcp;
+use rsnano_types::{Networks, WORKING_PATH_PREFIX};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -13,10 +14,10 @@ pub fn working_path_for(network: Networks) -> Option<PathBuf> {
     dirs::home_dir().and_then(|mut path| {
         let subdir = match network {
             Networks::Invalid => return None,
-            Networks::NanoDevNetwork => "NanoDev",
-            Networks::NanoBetaNetwork => "NanoBeta",
-            Networks::NanoLiveNetwork => "Nano",
-            Networks::NanoTestNetwork => "NanoTest",
+            Networks::NanoDevNetwork => concatcp!(WORKING_PATH_PREFIX, "Dev"),
+            Networks::NanoBetaNetwork => concatcp!(WORKING_PATH_PREFIX, "Beta"),
+            Networks::NanoLiveNetwork => WORKING_PATH_PREFIX,
+            Networks::NanoTestNetwork => concatcp!(WORKING_PATH_PREFIX, "Test"),
         };
         path.push(subdir);
         Some(path)

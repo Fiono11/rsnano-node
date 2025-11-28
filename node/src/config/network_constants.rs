@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use rsnano_types::{Networks, ProtocolInfo};
+use rsnano_types::{
+    Networks, ProtocolInfo, DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET,
+};
 use rsnano_work::WorkThresholds;
 
 use crate::bootstrap::BootstrapConfig;
@@ -10,7 +12,6 @@ pub struct NetworkConstants {
     pub work: WorkThresholds,
     pub default_node_port: u16,
     pub default_rpc_port: u16,
-    pub default_ipc_port: u16,
     pub default_websocket_port: u16,
     pub aec_loop_interval: Duration,
     pub cleanup_period: Duration,
@@ -87,10 +88,9 @@ impl NetworkConstants {
             protocol_version: protocol_info.version_using,
             protocol_version_min: protocol_info.version_min,
             bootstrap_protocol_version_min: BootstrapConfig::default().min_protocol_version,
-            default_node_port: 7075,
-            default_rpc_port: 7076,
-            default_ipc_port: 7077,
-            default_websocket_port: 7078,
+            default_node_port: DEFAULT_PORT_NODE,
+            default_rpc_port: DEFAULT_PORT_RPC,
+            default_websocket_port: DEFAULT_PORT_WEBSOCKET,
             aec_loop_interval: Duration::from_millis(300),
             cleanup_period,
             keepalive_period: Duration::from_secs(15),
@@ -118,7 +118,6 @@ impl NetworkConstants {
             current_network: Networks::NanoBetaNetwork,
             default_node_port: 54000,
             default_rpc_port: 55000,
-            default_ipc_port: 56000,
             default_websocket_port: 57000,
             max_peers_per_ip: 256,
             max_peers_per_subnetwork: 256,
@@ -131,7 +130,6 @@ impl NetworkConstants {
             current_network: Networks::NanoBetaNetwork,
             default_node_port: 54000,
             default_rpc_port: 55000,
-            default_ipc_port: 56000,
             default_websocket_port: 57000,
             max_peers_per_ip: 256,
             max_peers_per_subnetwork: 256,
@@ -144,7 +142,6 @@ impl NetworkConstants {
             current_network: Networks::NanoTestNetwork,
             default_node_port: test_node_port(),
             default_rpc_port: test_rpc_port(),
-            default_ipc_port: test_ipc_port(),
             default_websocket_port: test_websocket_port(),
             ..Self::live(work)
         }
@@ -156,7 +153,6 @@ impl NetworkConstants {
             current_network: Networks::NanoDevNetwork,
             default_node_port: 44000,
             default_rpc_port: 45000,
-            default_ipc_port: 46000,
             default_websocket_port: 47000,
             aec_loop_interval: Duration::from_millis(20),
             cleanup_period,
@@ -236,10 +232,6 @@ pub fn test_node_port() -> u16 {
 
 fn test_rpc_port() -> u16 {
     get_env_or_default("NANO_TEST_RPC_PORT", 17076)
-}
-
-fn test_ipc_port() -> u16 {
-    get_env_or_default("NANO_TEST_IPC_PORT", 17077)
 }
 
 fn test_websocket_port() -> u16 {
