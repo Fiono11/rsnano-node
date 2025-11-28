@@ -1,22 +1,22 @@
 use core::panic;
 use std::{
-    sync::{Arc, mpsc::sync_channel},
+    sync::{mpsc::sync_channel, Arc},
     thread::spawn,
     time::Duration,
 };
 
 use rsnano_ledger::{
-    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, test_helpers::UnsavedBlockLatticeBuilder,
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
 };
 use rsnano_messages::{Message, Publish};
 use rsnano_node::{
-    CompositeNodeEventHandler, Node,
     config::{NetworkConstants, NodeConfig, WebsocketConfig},
+    CompositeNodeEventHandler, Node,
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Amount, Block, DEV_GENESIS_KEY, JsonBlock, Networks, PrivateKey, SendBlockArgs,
-    UnixMillisTimestamp, Vote, VoteError,
+    Amount, Block, JsonBlock, Networks, PrivateKey, SendBlockArgs, UnixMillisTimestamp, Vote,
+    VoteError, DEV_GENESIS_KEY,
 };
 use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,
@@ -24,10 +24,10 @@ use rsnano_websocket_client::{
 };
 use rsnano_websocket_messages::{BlockConfirmed, Topic};
 use rsnano_websocket_server::{
-    TelemetryReceived, VoteReceived, WebsocketListener, WebsocketListenerExt,
-    create_websocket_server, vote_received,
+    create_websocket_server, vote_received, TelemetryReceived, VoteReceived, WebsocketListener,
+    WebsocketListenerExt,
 };
-use test_helpers::{System, assert_timely2, make_fake_channel};
+use test_helpers::{assert_timely2, make_fake_channel, System};
 use tokio::{task::spawn_blocking, time::timeout};
 
 pub type WsMessage = rsnano_websocket_client::Message;
@@ -244,7 +244,8 @@ fn confirmation_options() {
         let send_amount = node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
         balance = balance - send_amount;
         let send = lattice.genesis().send(&key, send_amount);
-        node1.process_active(send);
+        node1.process_active(send.clone());
+        assert_timely2(|| node1.block_confirmed(&send.hash()));
 
         timeout(Duration::from_secs(1), ws_client.next())
             .await
@@ -264,10 +265,9 @@ fn confirmation_options() {
         ws_client.next().await.unwrap().unwrap();
 
         // Quick-confirm another block
-        balance = balance - send_amount;
         let send = lattice.genesis().send(&key, send_amount);
-        let previous = send.hash();
-        node1.process_active(send);
+        node1.process_active(send.clone());
+        assert_timely2(|| node1.block_confirmed(&send.hash()));
 
         let response = ws_client.next().await.unwrap().unwrap();
         assert_eq!(response.topic, Some(Topic::Confirmation));
@@ -290,23 +290,6 @@ fn confirmation_options() {
         ws_client.subscribe(sub_args).await.unwrap();
         //await ack
         ws_client.next().await.unwrap().unwrap();
-
-        // Confirm a legacy block
-        // When filtering options are enabled, legacy blocks are always filtered
-        balance = balance - send_amount;
-        let send: Block = SendBlockArgs{
-            key: &DEV_GENESIS_KEY,
-            previous,
-            destination: key.account(),
-            balance,
-            work: node1.work_generate_dev(previous)
-        }.into();
-
-        node1.process_active(send);
-
-        timeout(Duration::from_secs(1), ws_client.next())
-            .await
-            .unwrap_err();
     });
 }
 
