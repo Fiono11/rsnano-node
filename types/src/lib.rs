@@ -39,6 +39,10 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
+use crate::currency_constants::{
+    NETWORK_IDENTIFIER_BETA, NETWORK_IDENTIFIER_DEV, NETWORK_IDENTIFIER_LIVE,
+    NETWORK_IDENTIFIER_TEST,
+};
 pub use account::Account;
 pub use account_info::AccountInfo;
 pub use amount::{Amount, DescTallyKey};
@@ -252,13 +256,13 @@ pub fn deterministic_key(seed: &RawKey, index: u32) -> RawKey {
 pub enum Networks {
     Invalid = 0x0,
     // Low work parameters, publicly known genesis key, dev IP ports
-    NanoDevNetwork = 0x5241, // 'R', 'A'
+    NanoDevNetwork = NETWORK_IDENTIFIER_DEV,
     // Normal work parameters, secret beta genesis key, beta IP ports
-    NanoBetaNetwork = 0x5242, // 'R', 'B'
+    NanoBetaNetwork = NETWORK_IDENTIFIER_BETA,
     // Normal work parameters, secret live key, live IP ports
-    NanoLiveNetwork = 0x5243, // 'R', 'C'
+    NanoLiveNetwork = NETWORK_IDENTIFIER_LIVE,
     // Normal work parameters, secret test genesis key, test IP ports
-    NanoTestNetwork = 0x5258, // 'R', 'X'
+    NanoTestNetwork = NETWORK_IDENTIFIER_TEST,
 }
 
 impl Networks {

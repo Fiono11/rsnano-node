@@ -1,4 +1,4 @@
-use crate::{currency_constants::RAW_PER_COIN, DeserializationError};
+use crate::{DeserializationError, currency_constants::RAW_PER_COIN};
 use serde::de::{Unexpected, Visitor};
 use std::{fmt::Debug, io::Read, iter::Sum, num::ParseIntError, ops::Deref};
 
