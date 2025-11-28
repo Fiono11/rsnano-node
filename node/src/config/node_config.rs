@@ -1,12 +1,12 @@
 use std::{cmp::max, net::Ipv6Addr, time::Duration};
 
-use once_cell::sync::Lazy;
-
 use rsnano_network::NetworkConfig;
-use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
-use rsnano_types::{Account, Amount, Peer, PublicKey, PEERING_BETA, PEERING_LIVE, PEERING_TEST};
+use rsnano_types::{
+    Account, Amount, Peer, PublicKey, PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE,
+    PRECONFIGURED_PEERS_TEST,
+};
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
 
@@ -111,15 +111,6 @@ pub struct NodeConfig {
     pub cps_limit: u32,
 }
 
-static DEFAULT_LIVE_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_LIVE));
-
-static DEFAULT_BETA_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_BETA));
-
-static DEFAULT_TEST_PEER_NETWORK: Lazy<String> =
-    Lazy::new(|| get_env_or_default_string("NANO_DEFAULT_PEER", PEERING_TEST));
-
 impl NodeConfig {
     pub fn default_for(network: Networks, parallelism: usize) -> Self {
         let net_params = NetworkParams::new(network);
@@ -156,8 +147,11 @@ impl NodeConfig {
                 preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
             Networks::NanoBetaNetwork => {
-                preconfigured_peers
-                    .push(Peer::new(DEFAULT_BETA_PEER_NETWORK.clone(), default_port));
+                preconfigured_peers.extend(
+                    PRECONFIGURED_PEERS_BETA
+                        .iter()
+                        .map(|p| Peer::new(*p, default_port)),
+                );
                 preconfigured_representatives.push(
                     Account::parse(
                         "nano_1defau1t9off1ine9rep99999999999999999999999999999999wgmuzxxy",
@@ -167,14 +161,20 @@ impl NodeConfig {
                 );
             }
             Networks::NanoLiveNetwork => {
-                preconfigured_peers
-                    .push(Peer::new(DEFAULT_LIVE_PEER_NETWORK.clone(), default_port));
+                preconfigured_peers.extend(
+                    PRECONFIGURED_PEERS_LIVE
+                        .iter()
+                        .map(|p| Peer::new(*p, default_port)),
+                );
 
                 preconfigured_representatives = default_preconfigured_representatives_for_live();
             }
             Networks::NanoTestNetwork => {
-                preconfigured_peers
-                    .push(Peer::new(DEFAULT_TEST_PEER_NETWORK.clone(), default_port));
+                preconfigured_peers.extend(
+                    PRECONFIGURED_PEERS_TEST
+                        .iter()
+                        .map(|p| Peer::new(*p, default_port)),
+                );
                 preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
             Networks::Invalid => panic!("invalid network"),
