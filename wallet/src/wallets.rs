@@ -835,10 +835,16 @@ impl Wallets {
         };
 
         let root = block.root();
-        self.waiting_for_work.lock().unwrap().insert(
+        let old = self.waiting_for_work.lock().unwrap().insert(
             root,
             WorkItem::BlockWork(block, block_promise, generate_work, wallet),
         );
+        if let Some(old) = old {
+            warn!("Work item for same root replaced!");
+            if let WorkItem::BlockWork(_, promise, _, _) = old {
+                promise.set_result(Err(WalletsError::Generic));
+            }
+        }
 
         let result = work_queue.send(request);
         if result.is_err() {

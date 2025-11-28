@@ -31,6 +31,7 @@ impl TickerPool {
             Arc::new(SteadyClock::default()),
         )
     }
+
     pub fn new(
         workers: Arc<ThreadPool>,
         thread_factory: Arc<ThreadFactory>,
