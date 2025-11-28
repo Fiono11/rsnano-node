@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Condvar, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use rsnano_types::SavedBlock;
@@ -108,9 +108,18 @@ impl MultiBlockPromise {
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> Result<Vec<SavedBlock>, WalletsError> {
-        self.children
-            .iter()
-            .map(|c| c.wait_timeout(timeout))
-            .collect()
+        let start = Instant::now();
+        let mut results = Vec::with_capacity(self.children.len());
+
+        for child in &self.children {
+            let elapsed = start.elapsed();
+            if elapsed >= timeout {
+                return Err(WalletsError::Generic);
+            }
+            let remaining = timeout - elapsed;
+            results.push(child.wait_timeout(remaining)?);
+        }
+
+        Ok(results)
     }
 }
