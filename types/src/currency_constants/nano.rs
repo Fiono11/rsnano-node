@@ -1,20 +1,20 @@
 // This file contains the constants that are specific to Nano.
-// If you would like to create a fork then change these:
+// If you would like to create a fork then copy this file:
 
 pub const CURRENCY_NAME: &str = "Nano";
 
 /// Prefix for accounts in encoded form like:
 /// nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmXXXiq689wyjfpiij4txtd1
-pub(crate) const ACCOUNT_PREFIX: &str = "nano";
+pub const ACCOUNT_PREFIX: &str = "nano";
 
 /// How many raw are in a single coin?
-pub(crate) const RAW_PER_COIN: u128 = 10u128.pow(30);
+pub const RAW_PER_COIN: u128 = 10u128.pow(30);
 
 /// Network identifier bytes
-pub(crate) const NETWORK_IDENTIFIER_DEV: u16 = 0x5241; // 'R', 'A'
-pub(crate) const NETWORK_IDENTIFIER_BETA: u16 = 0x5242; // 'R', 'B'
-pub(crate) const NETWORK_IDENTIFIER_LIVE: u16 = 0x5243; // 'R', 'C'
-pub(crate) const NETWORK_IDENTIFIER_TEST: u16 = 0x5258; // 'R', 'X'
+pub const NETWORK_IDENTIFIER_DEV: u16 = 0x5241; // 'R', 'A'
+pub const NETWORK_IDENTIFIER_BETA: u16 = 0x5242; // 'R', 'B'
+pub const NETWORK_IDENTIFIER_LIVE: u16 = 0x5243; // 'R', 'C'
+pub const NETWORK_IDENTIFIER_TEST: u16 = 0x5258; // 'R', 'X'
 
 pub const DEFAULT_PORT_NODE: u16 = 7075;
 pub const DEFAULT_PORT_RPC: u16 = 7076;
@@ -86,3 +86,6 @@ pub const DEV_GENESIS_JSON: &str = r###"{
 	"work": "7b42a00ee91d5810",
 	"signature": "ECDA914373A2F0CA1296475BAEE40500A7F0A7AD72A5A80C81D7FAB7F6C802B2CC7DB50F5DD0FB25B2EF11761FA7344A158DD5A700B21BD47DE5BD0F63153A02"
     }"###;
+
+pub const LIVE_EPOCH_V2_SIGNER: &str =
+    "nano_3qb6o6i1tkzr6jwr5s7eehfxwg9x6eemitdinbpi7u8bjjwsgqfj4wzser3x";

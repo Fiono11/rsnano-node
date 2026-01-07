@@ -9,9 +9,23 @@ pub(crate) fn get_bootstrap_weights(network: Networks) -> BootstrapWeights {
 
 fn get_bootstrap_weights_text(network: Networks) -> &'static str {
     if network == Networks::NanoLiveNetwork {
-        include_str!("../../rep_weights_live.txt")
+        #[cfg(not(feature = "banano"))]
+        {
+            include_str!("../../rep_weights/Nano/live.txt")
+        }
+        #[cfg(feature = "banano")]
+        {
+            include_str!("../../rep_weights/Banano/live.txt")
+        }
     } else {
-        include_str!("../../rep_weights_beta.txt")
+        #[cfg(not(feature = "banano"))]
+        {
+            include_str!("../../rep_weights/Nano/beta.txt")
+        }
+        #[cfg(feature = "banano")]
+        {
+            include_str!("../../rep_weights/Banano/beta.txt")
+        }
     }
 }
 

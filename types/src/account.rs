@@ -152,17 +152,21 @@ impl<'a> EncodedAccountStr<'a> {
     }
 
     fn is_length_valid(&self) -> bool {
-        if self.has_xrb_prefix() && self.0.chars().count() != 64 {
+        if self.has_xrb_prefix() && self.0.chars().count() != 61 + "xrb".len() {
             return false;
         }
-        if self.has_nano_prefix() && self.0.chars().count() != 65 {
+        if self.has_nano_prefix() && self.0.chars().count() != 61 + ACCOUNT_PREFIX.len() {
             return false;
         }
         true
     }
 
     fn prefix_len(&self) -> usize {
-        if self.has_xrb_prefix() { 4 } else { 5 }
+        if self.has_xrb_prefix() {
+            "xrb_".len()
+        } else {
+            ACCOUNT_PREFIX.len() + 1
+        }
     }
 
     fn first_digit(&self) -> Option<char> {

@@ -5,8 +5,8 @@ use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, DEV_GENESIS_KEY, Epoch, Epochs,
     Networks, PublicKey, SavedBlock, UnixMillisTimestamp,
     currency_constants::{
-        BETA_GENESIS_JSON, BETA_PUBLIC_KEY_HEX, DEV_GENESIS_JSON, LIVE_GENESIS_JSON,
-        TEST_GENESIS_JSON, TEST_PUBLIC_KEY_HEX,
+        BETA_GENESIS_JSON, BETA_PUBLIC_KEY_HEX, DEV_GENESIS_JSON, LIVE_EPOCH_V2_SIGNER,
+        LIVE_GENESIS_JSON, TEST_GENESIS_JSON, TEST_PUBLIC_KEY_HEX,
     },
     epoch_v1_link, epoch_v2_link,
 };
@@ -99,9 +99,7 @@ impl LedgerConstants {
         let epoch_1_signer = PublicKey::from(genesis_account);
         let epoch_link_v1 = epoch_v1_link();
 
-        let nano_live_epoch_v2_signer =
-            Account::parse("nano_3qb6o6i1tkzr6jwr5s7eehfxwg9x6eemitdinbpi7u8bjjwsgqfj4wzser3x")
-                .unwrap();
+        let nano_live_epoch_v2_signer = Account::parse(LIVE_EPOCH_V2_SIGNER).unwrap();
         let epoch_2_signer = match network {
             Networks::NanoDevNetwork => DEV_GENESIS_KEY.public_key(),
             Networks::NanoBetaNetwork => nano_beta_account.into(),

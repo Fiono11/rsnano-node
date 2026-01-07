@@ -6,6 +6,7 @@ edition = "2024"
 
 [features]
 output_tracking = []
+banano = ["rsnano_types/banano"]
 ledger_snapshots = [
 	"rsnano_messages/ledger_snapshots", 
 	"rsnano_network/ledger_snapshots", 

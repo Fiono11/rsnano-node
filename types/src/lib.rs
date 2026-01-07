@@ -13,7 +13,9 @@ mod amount;
 mod block_hash;
 mod blocks;
 mod confirmation_height_info;
+
 pub mod currency_constants;
+
 mod difficulty;
 mod epoch;
 mod kdf;
