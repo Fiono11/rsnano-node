@@ -32,7 +32,7 @@ use rsnano_nullable_lmdb::{
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, Networks, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
-    SavedBlock, Vote, VoteError, WorkNonce, WorkRequest,
+    SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
     CancellationToken,
@@ -220,6 +220,7 @@ impl Node {
         let application_path = args.data_path;
 
         info!("Node started");
+        info!("Currency: {}", CURRENCY_NAME);
         info!("Version: {}", rsnano_version_string());
         info!("{}", rsnano_build_info());
         info!("Network: {}", network_label);
