@@ -2,7 +2,6 @@ use std::{
     cmp::max,
     collections::HashMap,
     sync::{Arc, mpsc::TryRecvError},
-    thread::sleep,
     time::{Duration, Instant},
 };
 

@@ -1,13 +1,14 @@
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
 use rsnano_node::consensus::{FilteredVote, ReceivedVote, RepTier};
 use rsnano_types::{
     Amount, DEV_GENESIS_KEY, PrivateKey, Signature, Vote, VoteError, VoteSource, VoteTimestamp,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
 use test_helpers::{
     System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain, start_election,
 };

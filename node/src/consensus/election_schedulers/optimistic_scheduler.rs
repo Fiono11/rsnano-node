@@ -216,12 +216,16 @@ impl OptimisticScheduler {
             return;
         };
         if let Some(block) = any.get_block(&head) {
-            let mut forked = false;
-
-            #[cfg(feature = "ledger_snapshots")]
-            {
-                forked = any.is_forked(&block.qualified_root());
-            }
+            let forked = {
+                #[cfg(not(feature = "ledger_snapshots"))]
+                {
+                    false
+                }
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    any.is_forked(&block.qualified_root())
+                }
+            };
 
             // Ensure block is not already confirmed
             let is_confirmed = self.confirming_set.contains(&block.hash())

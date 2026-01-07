@@ -1,12 +1,15 @@
-use rsnano_types::{
-    Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
-    StubDifficulty, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2, WORK_THRESHOLD_EPOCH2_RECEIVE,
-    WorkNonce,
-};
 use std::{
     cmp::{max, min},
     sync::LazyLock,
     u64,
+};
+
+use rsnano_types::{
+    Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
+    StubDifficulty, WorkNonce,
+    currency_constants::{
+        WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2, WORK_THRESHOLD_EPOCH2_RECEIVE,
+    },
 };
 
 pub static WORK_THRESHOLDS_STUB: LazyLock<WorkThresholds> = LazyLock::new(WorkThresholds::new_stub);

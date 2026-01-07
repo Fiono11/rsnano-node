@@ -4,8 +4,10 @@ use rsnano_network::NetworkConfig;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
 use rsnano_types::{
-    Account, Amount, PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE, PRECONFIGURED_PEERS_TEST,
-    Peer, PublicKey,
+    Account, Amount, Peer, PublicKey,
+    currency_constants::{
+        PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE, PRECONFIGURED_PEERS_TEST,
+    },
 };
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;

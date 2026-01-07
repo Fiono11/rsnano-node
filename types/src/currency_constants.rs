@@ -41,3 +41,6 @@ pub const PRECONFIGURED_REPRESENTATIVES_BETA: [&'static str; 1] =
 pub const PRECONFIGURED_PEERS_LIVE: [&'static str; 1] = ["peering.nano.org"];
 pub const PRECONFIGURED_PEERS_BETA: [&'static str; 1] = ["peering-beta.nano.org"];
 pub const PRECONFIGURED_PEERS_TEST: [&'static str; 1] = ["peering-test.nano.org"];
+
+pub const BETA_PUBLIC_KEY_HEX: &str =
+    "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC";

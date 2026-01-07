@@ -281,6 +281,7 @@ impl OnlineReps {
         self.rep_weights.read().clone()
     }
 
+    #[allow(unused)]
     pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
         let rep_weights = self.get_rep_weights();
         let quorum_weight = self.quorum_delta();

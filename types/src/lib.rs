@@ -13,7 +13,7 @@ mod amount;
 mod block_hash;
 mod blocks;
 mod confirmation_height_info;
-mod currency_constants;
+pub mod currency_constants;
 mod difficulty;
 mod epoch;
 mod kdf;
@@ -53,12 +53,6 @@ use blake2::{
 pub use block_hash::{Blake2Hash, Blake2HashBuilder, BlockHash};
 pub use blocks::*;
 pub use confirmation_height_info::ConfirmationHeightInfo;
-pub use currency_constants::{
-    DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET, PRECONFIGURED_PEERS_BETA,
-    PRECONFIGURED_PEERS_LIVE, PRECONFIGURED_PEERS_TEST, PRECONFIGURED_REPRESENTATIVES_BETA,
-    PRECONFIGURED_REPRESENTATIVES_LIVE, WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2,
-    WORK_THRESHOLD_EPOCH2_RECEIVE, WORKING_PATH_PREFIX,
-};
 pub use difficulty::{Difficulty, DifficultyV1, StubDifficulty};
 pub use epoch::*;
 pub use kdf::KeyDerivationFunction;

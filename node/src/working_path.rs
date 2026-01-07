@@ -1,5 +1,5 @@
 use const_format::concatcp;
-use rsnano_types::{Networks, WORKING_PATH_PREFIX};
+use rsnano_types::{Networks, currency_constants::WORKING_PATH_PREFIX};
 use std::path::PathBuf;
 use uuid::Uuid;
 

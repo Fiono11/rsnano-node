@@ -1,9 +1,10 @@
+use std::time::Duration;
+
 use rsnano_ledger::DEV_GENESIS_PUB_KEY;
 use rsnano_types::{
-    Account, Amount, Networks, PRECONFIGURED_REPRESENTATIVES_BETA,
-    PRECONFIGURED_REPRESENTATIVES_LIVE, PublicKey,
+    Account, Amount, Networks, PublicKey,
+    currency_constants::{PRECONFIGURED_REPRESENTATIVES_BETA, PRECONFIGURED_REPRESENTATIVES_LIVE},
 };
-use std::time::Duration;
 
 #[derive(Clone)]
 pub struct WalletsConfig {

@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use rsnano_types::{
-    DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET, Networks, ProtocolInfo,
+    Networks, ProtocolInfo,
+    currency_constants::{DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET},
 };
 use rsnano_work::WorkThresholds;
 

@@ -3,12 +3,10 @@ use std::sync::LazyLock;
 use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, DEV_GENESIS_KEY, Epoch, Epochs,
-    Networks, PublicKey, SavedBlock, UnixMillisTimestamp, epoch_v1_link, epoch_v2_link,
+    Networks, PublicKey, SavedBlock, UnixMillisTimestamp, currency_constants::BETA_PUBLIC_KEY_HEX,
+    epoch_v1_link, epoch_v2_link,
 };
 use rsnano_work::{WORK_THRESHOLDS_STUB, WorkThresholds};
-
-static BETA_PUBLIC_KEY_DATA: &str =
-    "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC";
 
 static TEST_PUBLIC_KEY_DATA: LazyLock<String> = LazyLock::new(|| {
     get_env_or_default_string(
@@ -131,7 +129,7 @@ impl LedgerConstants {
         };
         let genesis_account = genesis_block.account_field().unwrap();
 
-        let nano_beta_account = Account::decode_hex(BETA_PUBLIC_KEY_DATA).unwrap();
+        let nano_beta_account = Account::decode_hex(BETA_PUBLIC_KEY_HEX).unwrap();
         let nano_test_account = Account::decode_hex(TEST_PUBLIC_KEY_DATA.as_str()).unwrap();
 
         let mut epochs = Epochs::new();

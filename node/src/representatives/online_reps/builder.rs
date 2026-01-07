@@ -1,7 +1,9 @@
-use super::OnlineReps;
+use std::sync::Arc;
+
 use rsnano_ledger::RepWeightCache;
-use rsnano_types::{Amount, Networks};
-use std::{sync::Arc, time::Duration};
+use rsnano_types::Amount;
+
+use super::OnlineReps;
 
 pub struct OnlineRepsBuilder {
     rep_weights: Option<Arc<RepWeightCache>>,
