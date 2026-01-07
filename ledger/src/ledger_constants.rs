@@ -3,58 +3,20 @@ use std::sync::LazyLock;
 use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, DEV_GENESIS_KEY, Epoch, Epochs,
-    Networks, PublicKey, SavedBlock, UnixMillisTimestamp, currency_constants::BETA_PUBLIC_KEY_HEX,
+    Networks, PublicKey, SavedBlock, UnixMillisTimestamp,
+    currency_constants::{
+        BETA_GENESIS_JSON, BETA_PUBLIC_KEY_HEX, DEV_GENESIS_JSON, LIVE_GENESIS_JSON,
+        TEST_GENESIS_JSON, TEST_PUBLIC_KEY_HEX,
+    },
     epoch_v1_link, epoch_v2_link,
 };
 use rsnano_work::{WORK_THRESHOLDS_STUB, WorkThresholds};
 
-static TEST_PUBLIC_KEY_DATA: LazyLock<String> = LazyLock::new(|| {
-    get_env_or_default_string(
-        "NANO_TEST_GENESIS_PUB",
-        "45C6FF9D1706D61F0821327752671BDA9F9ED2DA40326B01935AB566FB9E08ED",
-    ) // nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j
-});
+static TEST_PUBLIC_KEY_DATA: LazyLock<String> =
+    LazyLock::new(|| get_env_or_default_string("NANO_TEST_GENESIS_PUB", TEST_PUBLIC_KEY_HEX));
 
-static DEV_GENESIS_DATA: &str = r###"{
-	"type": "open",
-	"source": "B0311EA55708D6A53C75CDBF88300259C6D018522FE3D4D0A242E431F9E8B6D0",
-	"representative": "xrb_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo",
-	"account": "xrb_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo",
-	"work": "7b42a00ee91d5810",
-	"signature": "ECDA914373A2F0CA1296475BAEE40500A7F0A7AD72A5A80C81D7FAB7F6C802B2CC7DB50F5DD0FB25B2EF11761FA7344A158DD5A700B21BD47DE5BD0F63153A02"
-    }"###;
-
-static BETA_GENESIS_DATA: &str = r###"{
-	"type": "open",
-	"source": "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC",
-	"representative": "nano_1betag7az9wk6rbis38s1d35hdsycz1bi95xg4g4j148p6afjk7embcurda4",
-	"account": "nano_1betag7az9wk6rbis38s1d35hdsycz1bi95xg4g4j148p6afjk7embcurda4",
-	"work": "e87a3ce39b43b84c",
-	"signature": "BC588273AC689726D129D3137653FB319B6EE6DB178F97421D11D075B46FD52B6748223C8FF4179399D35CB1A8DF36F759325BD2D3D4504904321FAFB71D7602"
-    }"###;
-
-static LIVE_GENESIS_DATA: &str = r###"{
-	"type": "open",
-	"source": "E89208DD038FBB269987689621D52292AE9C35941A7484756ECCED92A65093BA",
-	"representative": "xrb_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3",
-	"account": "xrb_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3",
-	"work": "62f05417dd3fb691",
-	"signature": "9F0C933C8ADE004D808EA1985FA746A7E95BA2A38F867640F53EC8F180BDFE9E2C1268DEAD7C2664F356E37ABA362BC58E46DBA03E523A7B5A19E4B6EB12BB02"
-    }"###;
-
-static TEST_GENESIS_DATA: LazyLock<String> = LazyLock::new(|| {
-    get_env_or_default_string(
-        "NANO_TEST_GENESIS_BLOCK",
-        r###"{
-        "type": "open",
-        "source": "45C6FF9D1706D61F0821327752671BDA9F9ED2DA40326B01935AB566FB9E08ED",
-        "representative": "nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j",
-        "account": "nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j",
-        "work": "bc1ef279c1a34eb1",
-        "signature": "15049467CAEE3EC768639E8E35792399B6078DA763DA4EBA8ECAD33B0EDC4AF2E7403893A5A602EB89B978DABEF1D6606BB00F3C0EE11449232B143B6E07170E"
-        }"###,
-    )
-});
+static TEST_GENESIS_DATA: LazyLock<String> =
+    LazyLock::new(|| get_env_or_default_string("NANO_TEST_GENESIS_BLOCK", TEST_GENESIS_JSON));
 
 pub static LEDGER_CONSTANTS_STUB: LazyLock<LedgerConstants> =
     LazyLock::new(|| LedgerConstants::new(WorkThresholds::none(), Networks::NanoDevNetwork));
@@ -115,9 +77,9 @@ pub fn genesis_sideband(genesis_account: Account) -> BlockSideband {
 
 impl LedgerConstants {
     pub fn new(work: WorkThresholds, network: Networks) -> Self {
-        let dev_genesis_block = parse_block_from_genesis_data(DEV_GENESIS_DATA).unwrap();
-        let beta_genesis_block = parse_block_from_genesis_data(BETA_GENESIS_DATA).unwrap();
-        let live_genesis_block = parse_block_from_genesis_data(LIVE_GENESIS_DATA).unwrap();
+        let dev_genesis_block = parse_block_from_genesis_data(DEV_GENESIS_JSON).unwrap();
+        let beta_genesis_block = parse_block_from_genesis_data(BETA_GENESIS_JSON).unwrap();
+        let live_genesis_block = parse_block_from_genesis_data(LIVE_GENESIS_JSON).unwrap();
         let test_genesis_block = parse_block_from_genesis_data(TEST_GENESIS_DATA.as_str()).unwrap();
 
         let genesis_block = match network {

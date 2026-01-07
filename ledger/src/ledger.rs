@@ -222,7 +222,7 @@ impl NullLedgerBuilder {
 
     pub fn finish(self) -> Ledger {
         let (block_index, block_data) = self.blocks.build();
-        let mut env_builder = LmdbEnvironment::null_builder()
+        let env_builder = LmdbEnvironment::null_builder()
             .configured_database(block_index)
             .configured_database(block_data)
             .configured_database(self.accounts.build())
@@ -230,10 +230,16 @@ impl NullLedgerBuilder {
             .configured_database(self.confirmation_height.build())
             .configured_database(self.peers.build());
 
-        #[cfg(feature = "ledger_snapshots")]
-        {
-            env_builder = env_builder.configured_database(self.forks.build())
-        }
+        let env_builder = {
+            #[cfg(not(feature = "ledger_snapshots"))]
+            {
+                env_builder
+            }
+            #[cfg(feature = "ledger_snapshots")]
+            {
+                env_builder.configured_database(self.forks.build())
+            }
+        };
         let env = env_builder.build();
 
         Ledger::new(

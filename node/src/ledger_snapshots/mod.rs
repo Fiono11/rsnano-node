@@ -620,12 +620,8 @@ mod tests {
             let flooder = MessageFlooder::new_null();
             let flood_tracker = flooder.track_floods();
 
-            let mut online_reps = OnlineReps::new(
-                Arc::new(rep_weights.into()),
-                Duration::ZERO,
-                Amount::ZERO,
-                Amount::ZERO,
-            );
+            let mut online_reps =
+                OnlineReps::new(Arc::new(rep_weights.into()), Amount::ZERO, Amount::ZERO);
             online_reps.set_trended(quorum_weight / ONLINE_WEIGHT_QUORUM as u128 * 100);
             let online_reps = Arc::new(Mutex::new(online_reps));
 
