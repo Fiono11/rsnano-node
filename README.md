@@ -8,7 +8,7 @@
 
 ### What is RsNano?
 
-RsNano is a full Nano node written in Rust.
+RsNano is a full Nano/Banano node written in Rust.
 
 ### What is Nano?
 
@@ -42,16 +42,15 @@ Currently you can only build RsNano on Linux and on Mac.
 To just build and run the rsnano_node:
 
     git clone https://github.com/simpago/rsnano-node.git
+    cd rsnano-node
     git switch releases/v2
-    cd rsnano-node/main
-    cargo build --release
-    cargo run --release -- --network=live node run
+    cargo run --release --bin rsnano_node -- --network=live node run
 
 To install and run the rsnano_node executable:
 
     git clone https://github.com/simpago/rsnano-node.git
-    git switch releases/v2
     cd rsnano-node
+    git switch releases/v2
     cargo install --path main
     rsnano_node --network=live node run
 
@@ -60,10 +59,16 @@ To install and run the rsnano_node executable:
 You can even run an RsNano node with a GUI that looks like this:
 ![RsNano Insight App](https://raw.githubusercontent.com/rsnano-node/rsnano-node/refs/heads/develop/doc/insight_app.png)
 
-Run these commands:
+Run this command:
 
-    cd rsnano-node/tools/insight
-    cargo run --release
+    cargo run --release --bin rsnano-insight
+
+### Running a Banano node
+
+RsNano can be compiled to be a Banano node too! Use the feature "banano" like this:
+
+    cargo run --release --features banano --bin rsnano_node -- node run
+
 
 ### Contact us
 
