@@ -107,5 +107,6 @@ fn sub_type_to_detail(block_type: BlockSubType) -> DetailType {
         BlockSubType::Open => DetailType::Open,
         BlockSubType::Change => DetailType::Change,
         BlockSubType::Epoch => DetailType::EpochBlock,
+        BlockSubType::Dummy => DetailType::DummyBlock,
     }
 }

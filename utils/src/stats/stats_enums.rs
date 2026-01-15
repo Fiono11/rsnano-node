@@ -128,6 +128,7 @@ pub enum DetailType {
     Change,
     StateBlock,
     EpochBlock,
+    DummyBlock,
     Fork,
     Old,
     GapPrevious,

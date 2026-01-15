@@ -54,6 +54,7 @@ impl RpcCommandHandler {
                             bail!("Invalid epoch link");
                         }
                     }
+                    BlockSubTypeDto::Dummy => todo!(),
                     BlockSubTypeDto::Unknown => bail!("Invalid block subtype"),
                 }
             }

@@ -12,6 +12,10 @@ impl<'a> BlockValidator<'a> {
     }
 
     pub(crate) fn ensure_valid_signature(&self) -> Result<(), BlockError> {
+        // DummyBlock does not require signature verification
+        if matches!(self.block, rsnano_types::Block::Dummy(_)) {
+            return Ok(());
+        }
         let result = if self.is_epoch_block() {
             self.epochs.validate_epoch_signature(self.block)
         } else {
@@ -57,6 +61,10 @@ impl<'a> BlockValidator<'a> {
     }
 
     pub(crate) fn ensure_sufficient_work(&self) -> Result<(), BlockError> {
+        // DummyBlock does not require work validation
+        if matches!(self.block, rsnano_types::Block::Dummy(_)) {
+            return Ok(());
+        }
         if !self.work.is_valid_pow(self.block, &self.block_details()) {
             Err(BlockError::InsufficientWork)
         } else {

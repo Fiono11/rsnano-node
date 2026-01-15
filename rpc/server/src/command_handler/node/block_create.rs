@@ -6,9 +6,9 @@ use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_node::Node;
 use rsnano_rpc_messages::{BlockCreateArgs, BlockCreateResponse, BlockTypeDto};
 use rsnano_types::{
-    Account, Amount, Block, BlockDetails, BlockHash, ChangeBlockArgs, Epoch, OpenBlockArgs,
-    PendingKey, PrivateKey, PublicKey, ReceiveBlockArgs, Root, SavedBlock, SendBlockArgs,
-    StateBlockArgs, WorkNonce, WorkRequest,
+    Account, Amount, Block, BlockDetails, BlockHash, ChangeBlockArgs, DummyBlockArgs, Epoch,
+    OpenBlockArgs, PendingKey, PrivateKey, PublicKey, ReceiveBlockArgs, Root, SavedBlock,
+    SendBlockArgs, StateBlockArgs, WorkNonce, WorkRequest,
 };
 
 use crate::command_handler::RpcCommandHandler;
@@ -187,6 +187,15 @@ impl RpcCommandHandler {
                     bail!(
                         "Destination account, previous hash, current balance and amount required"
                     );
+                }
+            }
+            BlockTypeDto::Dummy => {
+                if !previous.is_zero() {
+                    let block: Block = DummyBlockArgs { previous }.into();
+                    root = previous.into();
+                    block
+                } else {
+                    bail!("Previous hash is required for dummy block");
                 }
             }
             BlockTypeDto::Unknown => {

@@ -65,6 +65,7 @@ pub enum BlockTypeDto {
     Open,
     Change,
     State,
+    Dummy,
     Unknown,
 }
 
@@ -76,6 +77,7 @@ impl From<BlockTypeId> for BlockTypeDto {
             BlockTypeId::LegacyOpen => BlockTypeDto::Open,
             BlockTypeId::LegacyChange => BlockTypeDto::Change,
             BlockTypeId::State => BlockTypeDto::State,
+            BlockTypeId::Dummy => BlockTypeDto::Dummy,
             BlockTypeId::Invalid | BlockTypeId::NotABlock => BlockTypeDto::Unknown,
         }
     }
@@ -89,6 +91,7 @@ impl From<BlockTypeDto> for BlockTypeId {
             BlockTypeDto::Open => BlockTypeId::LegacyOpen,
             BlockTypeDto::Change => BlockTypeId::LegacyChange,
             BlockTypeDto::State => BlockTypeId::State,
+            BlockTypeDto::Dummy => BlockTypeId::Dummy,
             BlockTypeDto::Unknown => BlockTypeId::Invalid,
         }
     }
@@ -102,6 +105,7 @@ pub enum BlockSubTypeDto {
     Open,
     Change,
     Epoch,
+    Dummy,
     Unknown,
 }
 
@@ -113,6 +117,7 @@ impl From<BlockSubType> for BlockSubTypeDto {
             BlockSubType::Open => Self::Open,
             BlockSubType::Change => Self::Change,
             BlockSubType::Epoch => Self::Epoch,
+            BlockSubType::Dummy => Self::Dummy,
         }
     }
 }
