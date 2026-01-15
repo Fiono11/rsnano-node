@@ -8,8 +8,8 @@ use strum_macros::{EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, SavedBlock,
-    UnixMillisTimestamp, Vote, VoteError,
+    Account, Amount, Block, BlockHash, DummyBlockArgs, MaybeSavedBlock, PublicKey, QualifiedRoot,
+    SavedBlock, UnixMillisTimestamp, Vote, VoteError,
 };
 use rsnano_utils::stats::DetailType;
 
@@ -381,16 +381,41 @@ impl Election {
             .calculate(self.votes.values().filter(|v| v.is_final_vote()));
     }
 
-    fn check_new_winner(&self, quorum_delta: Amount) -> Option<BlockHash> {
+    fn check_new_winner(&mut self, quorum_delta: Amount) -> Option<BlockHash> {
         if self.tallies.sum() < quorum_delta {
             // The winner can only be changed after a super majority of votes has been observed!
             return None;
         }
 
-        let old_winner = self.winner.hash();
-        let new_winner = self.tallies.winner().map(|(h, _)| *h).unwrap_or(old_winner);
-        if new_winner != old_winner {
-            Some(new_winner)
+        // Check if the fork with the highest tally has reached the quorum threshold
+        let highest_tally = self
+            .tallies
+            .winner()
+            .map(|(_, tally)| *tally)
+            .unwrap_or_default();
+
+        // If at least 2/3 + 1 of voting weight has voted but no fork has reached that threshold,
+        // create a dummy block and change winner to it
+        if highest_tally < quorum_delta {
+            // Create a dummy block with the same previous as the current winner
+            let current_winner_previous = self.winner.previous();
+            let dummy_block: Block = DummyBlockArgs {
+                previous: current_winner_previous,
+            }
+            .into();
+
+            let dummy_hash = dummy_block.hash();
+
+            // Add the dummy block to candidate blocks if it doesn't already exist
+            if !self.candidate_blocks.contains_key(&dummy_hash) {
+                self.candidate_blocks
+                    .insert(dummy_hash, MaybeSavedBlock::Unsaved(dummy_block.clone()));
+                // Initialize tally for the dummy block (starting with 0)
+                self.tallies.insert(dummy_hash, Amount::ZERO);
+            }
+
+            // Return the dummy block hash to change winner to it
+            return Some(dummy_hash);
         } else {
             None
         }
