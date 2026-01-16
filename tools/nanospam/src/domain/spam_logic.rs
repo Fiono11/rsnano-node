@@ -83,6 +83,8 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
+        let block_hash = next.block.hash();
+        tracing::info!("SpamLogic::next_block - inserting block {block_hash} into delayed tracker");
         self.delayed.insert(next.block.clone()); // TODO: handle forks!
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
@@ -114,19 +116,44 @@ impl SpamLogic {
         block_hash: &BlockHash,
         timestamp: Timestamp,
     ) -> Option<Duration> {
+        tracing::debug!(
+            "SpamLogic::confirmed called for block: {block_hash}, track_confirmations: {}",
+            self.spec.track_confirmations
+        );
         if self.spec.track_confirmations {
             let conf_time = self.delayed.confirmed(block_hash, timestamp);
 
-            if let Some(conf_time) = conf_time {
-                if self.cps_measure_start.is_none() {
-                    self.cps_measure_start = Some(timestamp);
+            match conf_time {
+                Some(conf_time) => {
+                    tracing::info!(
+                        "Block {block_hash} confirmed! Confirmation time: {} ms",
+                        conf_time.as_millis()
+                    );
+                    if self.cps_measure_start.is_none() {
+                        self.cps_measure_start = Some(timestamp);
+                    }
+                    self.confirmed_recent += 1;
+                    self.confirmed_total += 1;
+                    self.sum_conf_time_recent += conf_time;
+                    self.sum_conf_time_total += conf_time;
+                    self.block_factory.confirm(block_hash);
                 }
-                self.confirmed_recent += 1;
-                self.confirmed_total += 1;
-                self.sum_conf_time_recent += conf_time;
-                self.sum_conf_time_total += conf_time;
+                None => {
+                    tracing::warn!(
+                        "Block {block_hash} confirmation received but conf_time is None (first_publish may not be set)"
+                    );
+                    // Still mark as confirmed in factory even if we can't track the time
+                    self.block_factory.confirm(block_hash);
+                    // Update counters even without time tracking
+                    if self.cps_measure_start.is_none() {
+                        self.cps_measure_start = Some(timestamp);
+                    }
+                    self.confirmed_recent += 1;
+                    self.confirmed_total += 1;
+                }
             }
-            self.block_factory.confirm(block_hash);
+        } else {
+            tracing::debug!("track_confirmations is false, skipping confirmation tracking");
         }
 
         self.high_prio_tracker.confirmed(block_hash, timestamp)

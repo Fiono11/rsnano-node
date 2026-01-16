@@ -8,8 +8,8 @@ use strum_macros::{EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DummyBlockArgs, MaybeSavedBlock, PublicKey, QualifiedRoot,
-    SavedBlock, UnixMillisTimestamp, Vote, VoteError,
+    Account, Amount, Block, BlockHash, BlockType, DummyBlockArgs, MaybeSavedBlock, PublicKey,
+    QualifiedRoot, SavedBlock, UnixMillisTimestamp, Vote, VoteError,
 };
 use rsnano_utils::stats::DetailType;
 
@@ -438,7 +438,7 @@ impl Election {
     }
 
     fn try_confirm(&mut self, quorum_delta: Amount) {
-        if self.winner_final_tally >= quorum_delta {
+        if self.winner_final_tally >= quorum_delta || self.winner.block_type() == BlockType::Dummy {
             self.state = ElectionState::Confirmed;
         }
     }

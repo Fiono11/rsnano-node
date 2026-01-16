@@ -23,7 +23,9 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_types::{BlockHash, Networks, PrivateKey, ProtocolInfo, RawKey, WalletId};
+use rsnano_types::{
+    Block, BlockHash, DummyBlockArgs, Networks, PrivateKey, ProtocolInfo, RawKey, WalletId,
+};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
@@ -250,13 +252,34 @@ async fn publish_blocks(
     while let Some(forks) = rx_blocks.recv().await {
         let block = forks.block.clone();
         let hash = block.hash();
+        tracing::info!("Publishing block: {hash}");
         let publish = Message::Publish(Publish::new_from_originator(block));
         let buffer = serializer.serialize(&publish);
         let mut fork_buffer = None;
 
         if let Some(fork) = forks.fork {
-            let publish_fork = Message::Publish(Publish::new_from_originator(fork));
+            let publish_fork = Message::Publish(Publish::new_from_originator(fork.clone()));
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
+
+            // Create dummy block with the same previous as the fork (same way as the node does)
+            let dummy_block: Block = DummyBlockArgs {
+                previous: fork.previous(),
+            }
+            .into();
+            let dummy_hash = dummy_block.hash();
+            tracing::info!(
+                "Fork published, creating dummy block: {dummy_hash} with previous: {}",
+                fork.previous()
+            );
+
+            // Track the dummy block hash in the delayed blocks tracker
+            let now_for_dummy = clock.now();
+            {
+                let mut l = logic.lock().unwrap();
+                l.delayed.insert(dummy_block);
+                l.delayed.published(&dummy_hash, now_for_dummy);
+                tracing::info!("Dummy block {dummy_hash} inserted and marked as published");
+            }
         }
 
         let mut counter = 0;
@@ -294,6 +317,7 @@ async fn publish_blocks(
         let was_high_prio = {
             let mut l = logic.lock().unwrap();
             // TODO support delayed forks
+            tracing::debug!("Marking block {hash} as published at {:?}", now);
             let prio = l.published(&hash, now);
             if l.is_finished() {
                 break;
@@ -355,21 +379,70 @@ fn track_confirmations(
     rx_ws_msg: std::sync::mpsc::Receiver<(MessageEnvelope, Timestamp)>,
     logic: &Mutex<SpamLogic>,
 ) {
+    tracing::info!("track_confirmations thread started");
     while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
+        tracing::debug!(
+            "Received message in track_confirmations, topic: {:?}",
+            msg.topic
+        );
         if msg.topic == Some(Topic::Confirmation) {
-            let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
-            let block_hash = BlockHash::decode_hex(data.hash).unwrap();
+            tracing::info!("Processing confirmation message");
+            match msg.message {
+                Some(message_value) => {
+                    match serde_json::from_value::<BlockConfirmed>(message_value) {
+                        Ok(data) => {
+                            let hash_str = data.hash.clone();
+                            tracing::info!(
+                                "Confirmation message received with hash string: {hash_str}"
+                            );
+                            match BlockHash::decode_hex(&hash_str) {
+                                Some(block_hash) => {
+                                    tracing::info!(
+                                        "Confirmation received for block: {block_hash} (decoded from {hash_str})"
+                                    );
+                                    let high_prio_conf_time = {
+                                        let mut l = logic.lock().unwrap();
+                                        let tracked_count = l.delayed.len();
+                                        tracing::debug!(
+                                            "Before confirmation: tracking {} blocks in delayed tracker",
+                                            tracked_count
+                                        );
+                                        l.confirmed(&block_hash, timestamp)
+                                    };
 
-            let high_prio_conf_time = logic.lock().unwrap().confirmed(&block_hash, timestamp);
-
-            if let Some(time) = high_prio_conf_time {
-                tracing::info!(
-                    "High prio block confirmed: {block_hash}. Conf time: {} ms",
-                    time.as_millis()
-                );
+                                    if let Some(time) = high_prio_conf_time {
+                                        tracing::info!(
+                                            "High prio block confirmed: {block_hash}. Conf time: {} ms",
+                                            time.as_millis()
+                                        );
+                                    } else {
+                                        tracing::debug!(
+                                            "Block {block_hash} confirmed but not high prio"
+                                        );
+                                    }
+                                }
+                                None => {
+                                    tracing::error!(
+                                        "Failed to decode block hash from confirmation: {}",
+                                        hash_str
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to deserialize BlockConfirmed: {e}");
+                        }
+                    }
+                }
+                None => {
+                    tracing::warn!("Confirmation message has no message payload");
+                }
             }
+        } else {
+            tracing::debug!("Received non-confirmation message, topic: {:?}", msg.topic);
         }
     }
+    tracing::warn!("track_confirmations thread ended (channel closed)");
 }
 
 async fn log_status(

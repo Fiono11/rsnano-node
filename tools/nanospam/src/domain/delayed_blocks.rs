@@ -40,6 +40,7 @@ impl DelayedBlocks {
 
     pub fn insert(&mut self, block: Block) {
         let hash = block.hash();
+        tracing::debug!("DelayedBlocks::insert - adding block {hash} to tracker");
         if let Some(info) = self.blocks.insert(hash, PublishInfo::new(block))
             && let Some(old_sent) = info.last_publish
         {
@@ -51,6 +52,10 @@ impl DelayedBlocks {
         if let Some(info) = self.blocks.get_mut(hash) {
             if info.first_publish.is_none() {
                 info.first_publish = Some(timestamp);
+                tracing::debug!(
+                    "DelayedBlocks::published - block {hash} first published at {:?}",
+                    timestamp
+                );
             }
             let old_sent = info.last_publish;
             info.last_publish = Some(timestamp);
@@ -59,16 +64,37 @@ impl DelayedBlocks {
                 self.remove_from_time_index(hash, old_sent);
             }
             self.by_time.entry(timestamp).or_default().push(*hash);
+        } else {
+            tracing::warn!(
+                "DelayedBlocks::published - block {hash} not found in tracker when marking as published"
+            );
         }
     }
 
     pub fn confirmed(&mut self, hash: &BlockHash, timestamp: Timestamp) -> Option<Duration> {
         if let Some(info) = self.blocks.remove(hash) {
+            tracing::debug!("DelayedBlocks::confirmed - found block {hash} in tracker");
             if let Some(sent) = info.last_publish {
                 self.remove_from_time_index(hash, sent);
             }
-            info.first_publish.map(|i| i.elapsed(timestamp))
+            // Use first_publish if available, otherwise fall back to last_publish
+            let publish_time = info.first_publish.or(info.last_publish);
+            let conf_time = publish_time.map(|i| i.elapsed(timestamp));
+            tracing::info!(
+                "DelayedBlocks::confirmed - block {hash} had first_publish: {:?}, last_publish: {:?}, conf_time: {:?} ({} ms)",
+                info.first_publish,
+                info.last_publish,
+                conf_time,
+                conf_time.map(|d| d.as_millis()).unwrap_or(0)
+            );
+            conf_time
         } else {
+            let tracked_hashes: Vec<String> = self.blocks.keys().map(|h| h.to_string()).collect();
+            tracing::warn!(
+                "DelayedBlocks::confirmed - block {hash} not found in delayed blocks (tracking {} blocks: {:?})",
+                self.blocks.len(),
+                tracked_hashes
+            );
             None
         }
     }

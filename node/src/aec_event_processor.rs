@@ -83,6 +83,17 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                 }
             }
             AecEvent::ElectionConfirmed(election) => {
+                // If the winner is an unsaved dummy block, save it to the ledger first
+                // (same flow as WinnerChanged for fork blocks)
+                if let rsnano_types::MaybeSavedBlock::Unsaved(block) = &election.winner {
+                    if matches!(block, rsnano_types::Block::Dummy(_)) {
+                        self.block_processor_queue.push(BlockContext::new(
+                            block.clone(),
+                            BlockSource::Forced,
+                            ChannelId::LOOPBACK,
+                        ));
+                    }
+                }
                 self.confirming_set.add(election.clone());
                 // Ensure election winner is broadcasted
                 self.winner_block_broadcaster
