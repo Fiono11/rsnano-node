@@ -17,7 +17,7 @@ use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
-    ConfiguredPendingDatabaseBuilder, LmdbStore, MemoryStats,
+    ConfiguredPendingDatabaseBuilder, ConfiguredRepWeightDatabaseBuilder, LmdbStore, MemoryStats,
 };
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
@@ -131,6 +131,7 @@ pub struct NullLedgerBuilder {
     accounts: ConfiguredAccountDatabaseBuilder,
     pending: ConfiguredPendingDatabaseBuilder,
     peers: ConfiguredPeersDatabaseBuilder,
+    rep_weights: ConfiguredRepWeightDatabaseBuilder,
     #[cfg(feature = "ledger_snapshots")]
     forks: ConfiguredForksDatabaseBuilder,
     confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder,
@@ -144,6 +145,7 @@ impl NullLedgerBuilder {
             accounts: ConfiguredAccountDatabaseBuilder::new(),
             pending: ConfiguredPendingDatabaseBuilder::new(),
             peers: ConfiguredPeersDatabaseBuilder::new(),
+            rep_weights: ConfiguredRepWeightDatabaseBuilder::new(),
             #[cfg(feature = "ledger_snapshots")]
             forks: ConfiguredForksDatabaseBuilder::new(),
             confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder::new(),
@@ -166,6 +168,13 @@ impl NullLedgerBuilder {
     pub fn peers(mut self, peers: impl IntoIterator<Item = (SocketAddrV6, SystemTime)>) -> Self {
         for (peer, time) in peers.into_iter() {
             self.peers = self.peers.peer(peer, time)
+        }
+        self
+    }
+
+    pub fn rep_weights(mut self, weights: impl IntoIterator<Item = (PublicKey, Amount)>) -> Self {
+        for (rep, weight) in weights.into_iter() {
+            self.rep_weights = self.rep_weights.entry(rep, weight);
         }
         self
     }
@@ -228,7 +237,8 @@ impl NullLedgerBuilder {
             .configured_database(self.accounts.build())
             .configured_database(self.pending.build())
             .configured_database(self.confirmation_height.build())
-            .configured_database(self.peers.build());
+            .configured_database(self.peers.build())
+            .configured_database(self.rep_weights.build());
 
         let env_builder = {
             #[cfg(not(feature = "ledger_snapshots"))]

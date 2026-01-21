@@ -33,7 +33,7 @@ impl RepWeightsUpdater {
     }
 
     /// Only use this method when loading rep weights from the database table!
-    pub fn put(&self, representative: PublicKey, weight: Amount) {
+    pub fn put_cache(&self, representative: PublicKey, weight: Amount) {
         self.weight_cache
             .write()
             .unwrap()
@@ -41,20 +41,16 @@ impl RepWeightsUpdater {
     }
 
     pub fn add(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
-        let previous_weight = self.store.get(txn, &representative).unwrap_or_default();
-        let new_weight = previous_weight.wrapping_add(amount);
-
-        self.put_store(txn, representative, previous_weight, new_weight);
-        self.weight_cache
-            .write()
-            .unwrap()
-            .put(representative, new_weight);
+        let (old_weight, new_weight) = self.prepare_add(txn, &representative, amount);
+        self.put(txn, representative, old_weight, new_weight);
     }
 
     pub fn sub(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
-        self.add(txn, representative, Amount::ZERO.wrapping_sub(amount))
+        let (old_weight, new_weight) = self.prepare_sub(txn, &representative, amount);
+        self.put(txn, representative, old_weight, new_weight)
     }
 
+    /// Subtract sub_amount from sub_rep and add add_amount to add_rep
     pub fn sub_and_add(
         &self,
         txn: &mut WriteTransaction,
@@ -64,41 +60,69 @@ impl RepWeightsUpdater {
         add_amount: Amount,
     ) {
         if sub_rep != add_rep {
-            let previous_weight_1 = self.store.get(txn, &sub_rep).unwrap_or_default();
-            let previous_weight_2 = self.store.get(txn, &add_rep).unwrap_or_default();
-            let new_weight_1 = previous_weight_1.wrapping_sub(sub_amount);
-            let new_weight_2 = previous_weight_2.wrapping_add(add_amount);
-            self.put_store(txn, sub_rep, previous_weight_1, new_weight_1);
-            self.put_store(txn, add_rep, previous_weight_2, new_weight_2);
+            let (old_sub_weight, new_sub_weight) = self.prepare_sub(txn, &sub_rep, sub_amount);
+            let (old_add_weight, new_add_weight) = self.prepare_add(txn, &add_rep, add_amount);
+            self.put_store(txn, sub_rep, old_sub_weight, new_sub_weight);
+            self.put_store(txn, add_rep, old_add_weight, new_add_weight);
             let mut cache = self.weight_cache.write().unwrap();
-            cache.put(sub_rep, new_weight_1);
-            cache.put(add_rep, new_weight_2);
+            cache.put(sub_rep, new_sub_weight);
+            cache.put(add_rep, new_add_weight);
         } else {
-            self.add(txn, sub_rep, add_amount.wrapping_sub(sub_amount));
+            if add_amount >= sub_amount {
+                self.add(txn, add_rep, add_amount - sub_amount);
+            } else {
+                self.sub(txn, add_rep, sub_amount - add_amount);
+            }
         }
     }
 
-    pub fn add_dual(
+    fn prepare_add(
         &self,
         txn: &mut WriteTransaction,
-        rep_1: PublicKey,
-        amount_1: Amount,
-        rep_2: PublicKey,
-        amount_2: Amount,
+        representative: &PublicKey,
+        amount: Amount,
+    ) -> (Amount, Amount) {
+        let old_weight = self.store.get(txn, representative).unwrap_or_default();
+        let Some(new_weight) = old_weight.checked_add(amount) else {
+            panic!(
+                "Increasing rep weight caused an overflow (rep={}, amount={}, old weight={})",
+                representative.as_account().encode_hex(),
+                amount.number(),
+                old_weight.number()
+            );
+        };
+
+        (old_weight, new_weight)
+    }
+
+    fn prepare_sub(
+        &self,
+        txn: &mut WriteTransaction,
+        representative: &PublicKey,
+        amount: Amount,
+    ) -> (Amount, Amount) {
+        let old_weight = self.store.get(txn, representative).unwrap_or_default();
+        let Some(new_weight) = old_weight.checked_sub(amount) else {
+            panic!(
+                "Decreasing rep weight caused an underflow (rep={}, amount={}, old weight={})",
+                representative.as_account().encode_hex(),
+                amount.number(),
+                old_weight.number()
+            );
+        };
+
+        (old_weight, new_weight)
+    }
+
+    fn put(
+        &self,
+        txn: &mut WriteTransaction,
+        rep: PublicKey,
+        old_weight: Amount,
+        new_weight: Amount,
     ) {
-        if rep_1 != rep_2 {
-            let previous_weight_1 = self.store.get(txn, &rep_1).unwrap_or_default();
-            let previous_weight_2 = self.store.get(txn, &rep_2).unwrap_or_default();
-            let new_weight_1 = previous_weight_1.wrapping_add(amount_1);
-            let new_weight_2 = previous_weight_2.wrapping_add(amount_2);
-            self.put_store(txn, rep_1, previous_weight_1, new_weight_1);
-            self.put_store(txn, rep_2, previous_weight_2, new_weight_2);
-            let mut cache = self.weight_cache.write().unwrap();
-            cache.put(rep_1, new_weight_1);
-            cache.put(rep_2, new_weight_2);
-        } else {
-            self.add(txn, rep_1, amount_1.wrapping_add(amount_2));
-        }
+        self.put_store(txn, rep, old_weight, new_weight);
+        self.weight_cache.write().unwrap().put(rep, new_weight);
     }
 
     fn put_store(
@@ -134,10 +158,10 @@ mod tests {
         let account = PublicKey::from(1);
         assert_eq!(fixture.weights.weight(&account), Amount::ZERO);
 
-        fixture.updater.put(account, Amount::from(1));
+        fixture.updater.put_cache(account, Amount::from(1));
         assert_eq!(fixture.weights.weight(&account), Amount::from(1));
 
-        fixture.updater.put(account, Amount::from(2));
+        fixture.updater.put_cache(account, Amount::from(2));
         assert_eq!(fixture.weights.weight(&account), Amount::from(2));
     }
 
@@ -148,7 +172,7 @@ mod tests {
 
         let fixture = create_fixture(0, vec![(representative, weight)]);
         let delete_tracker = fixture.store.track_deletions();
-        fixture.updater.put(representative, weight);
+        fixture.updater.put_cache(representative, weight);
         let mut txn = fixture.env.begin_write();
 
         // set weight to 0
@@ -157,32 +181,6 @@ mod tests {
 
         assert_eq!(fixture.weights.len(), 0);
         assert_eq!(delete_tracker.output(), vec![representative]);
-    }
-
-    #[test]
-    fn delete_rep_weight_of_zero_dual() {
-        let rep1 = PublicKey::from(1);
-        let rep2 = PublicKey::from(2);
-        let weight = Amount::from(100);
-
-        let fixture = create_fixture(0, vec![(rep1, weight), (rep2, weight)]);
-        let delete_tracker = fixture.store.track_deletions();
-        fixture.updater.put(rep1, weight);
-        fixture.updater.put(rep2, weight);
-        let mut txn = fixture.env.begin_write();
-
-        // set weight to 0
-        fixture.updater.add_dual(
-            &mut txn,
-            rep1,
-            Amount::ZERO.wrapping_sub(weight),
-            rep2,
-            Amount::ZERO.wrapping_sub(weight),
-        );
-        txn.commit();
-
-        assert_eq!(fixture.weights.len(), 0);
-        assert_eq!(delete_tracker.output(), vec![rep1, rep2]);
     }
 
     #[test]
@@ -198,6 +196,20 @@ mod tests {
 
         assert_eq!(fixture.weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, rep_weight)]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Increasing rep weight caused an overflow (rep=0000000000000000000000000000000000000000000000000000000000000001, amount=2, old weight=340282366920938463463374607431768211454)"
+    )]
+    fn add_overflow() {
+        let rep = PublicKey::from(1);
+        let weight = Amount::MAX - Amount::raw(1);
+        let fixture = create_fixture(10, vec![(rep, weight)]);
+        let updater = &fixture.updater;
+        let mut txn = fixture.env.begin_write();
+
+        updater.add(&mut txn, rep, Amount::raw(2));
     }
 
     #[test]
@@ -217,6 +229,20 @@ mod tests {
 
         assert_eq!(fixture.weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, 9.into())]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Decreasing rep weight caused an underflow (rep=0000000000000000000000000000000000000000000000000000000000000001, amount=2, old weight=1)"
+    )]
+    fn sub_underflow() {
+        let rep = PublicKey::from(1);
+        let weight = Amount::raw(1);
+        let fixture = create_fixture(10, vec![(rep, weight)]);
+        let updater = &fixture.updater;
+        let mut txn = fixture.env.begin_write();
+
+        updater.sub(&mut txn, rep, Amount::raw(2));
     }
 
     #[test]

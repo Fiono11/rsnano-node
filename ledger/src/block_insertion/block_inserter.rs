@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_types::{
-    Account, AccountInfo, Amount, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
+    Account, AccountInfo, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
 };
 
 use crate::Ledger;
@@ -110,10 +110,10 @@ impl<'a> BlockInserter<'a> {
     fn update_rep_weights(&mut self) {
         if !self.instructions.old_account_info.head.is_zero() {
             // Move existing weight and add in amount delta
-            self.ledger.rep_weights_updater.add_dual(
+            self.ledger.rep_weights_updater.sub_and_add(
                 self.txn,
                 self.instructions.old_account_info.representative,
-                Amount::ZERO.wrapping_sub(self.instructions.old_account_info.balance),
+                self.instructions.old_account_info.balance,
                 self.instructions.set_account_info.representative,
                 self.instructions.set_account_info.balance,
             );
@@ -187,14 +187,12 @@ mod tests {
         let new_representative = PublicKey::from(2222);
         let open = TestBlockBuilder::legacy_open()
             .representative(old_representative)
-            .build();
-        let sideband = BlockSideband::new_test_instance();
-        let open = SavedBlock::new(open, sideband.clone());
+            .build_saved();
 
         let state = TestBlockBuilder::state()
             .previous(open.hash())
             .representative(new_representative)
-            .balance(sideband.balance)
+            .balance(open.balance())
             .build();
         let (mut state, instructions) = state_block_instructions_for(&open, state);
 
@@ -212,6 +210,7 @@ mod tests {
                     epoch: Epoch::Epoch0,
                 },
             )
+            .rep_weights([(open.representative_field().unwrap(), open.balance())])
             .finish();
 
         insert(&ledger, &mut state, &instructions);
@@ -234,11 +233,12 @@ mod tests {
 
     #[test]
     fn insert_successor() {
-        let open = TestBlockBuilder::legacy_open().build();
-        let sideband = BlockSideband::new_test_instance();
-        let open = SavedBlock::new(open, sideband.clone());
+        let open = TestBlockBuilder::legacy_open().build_saved();
 
-        let state = TestBlockBuilder::state().previous(open.hash()).build();
+        let state = TestBlockBuilder::state()
+            .previous(open.hash())
+            .balance(open.balance())
+            .build();
         let (mut state, instructions) = state_block_instructions_for(&open, state);
 
         let ledger = Ledger::new_null_builder()
@@ -247,7 +247,7 @@ mod tests {
                 &open.account(),
                 &AccountInfo {
                     head: open.hash(),
-                    representative: open.account().into(),
+                    representative: open.representative_field().unwrap(),
                     open_block: open.hash(),
                     balance: open.balance(),
                     modified: UnixTimestamp::new(1),
@@ -255,6 +255,7 @@ mod tests {
                     epoch: Epoch::Epoch0,
                 },
             )
+            .rep_weights([(open.representative_field().unwrap(), open.balance())])
             .finish();
 
         let result = insert(&ledger, &mut state, &instructions);
@@ -349,11 +350,12 @@ mod tests {
         let old_account_info = AccountInfo {
             head: previous.hash(),
             balance: previous.balance(),
+            representative: previous.representative_field().unwrap(),
             ..AccountInfo::new_test_instance()
         };
         let new_account_info = AccountInfo {
             head: block.hash(),
-            open_block: block.hash(),
+            open_block: previous.hash(),
             balance: block.balance_field().unwrap(),
             representative: block.representative_field().unwrap(),
             ..AccountInfo::new_test_instance()
