@@ -245,8 +245,7 @@ impl NullLedgerBuilder {
         Ledger::new(
             env,
             LedgerConstants::unit_test(),
-            self.min_rep_weight,
-            Arc::new(RepWeightCache::new()),
+            Arc::new(RepWeightCache::new(self.min_rep_weight)),
             Arc::new(Stats::default()),
             1,
         )
@@ -259,8 +258,7 @@ impl Ledger {
         Self::new(
             LmdbEnvironment::new_null(),
             LedgerConstants::unit_test(),
-            Amount::ZERO,
-            Arc::new(RepWeightCache::new()),
+            Arc::new(RepWeightCache::default()),
             Arc::new(Stats::default()),
             1,
         )
@@ -274,7 +272,6 @@ impl Ledger {
     pub(crate) fn new(
         env: LmdbEnvironment,
         constants: LedgerConstants,
-        min_rep_weight: Amount,
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
@@ -282,8 +279,7 @@ impl Ledger {
         let mut store = LmdbStore::new(env)?;
         store.cache = rep_weights.ledger_cache.clone();
 
-        let rep_weights_updater =
-            RepWeightsUpdater::new(store.rep_weight.clone(), min_rep_weight, &rep_weights);
+        let rep_weights_updater = RepWeightsUpdater::new(store.rep_weight.clone(), &rep_weights);
 
         let mut ledger = Self {
             rep_weights,

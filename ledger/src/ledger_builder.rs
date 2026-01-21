@@ -81,6 +81,7 @@ impl<'a> LedgerBuilder<'a> {
         let rep_weights = Arc::new(RepWeightCache::with_bootstrap_weights(
             bootstrap_weights,
             ledger_cache.clone(),
+            self.min_rep_weight,
         ));
 
         let config = self.config.unwrap_or_default();
@@ -109,7 +110,6 @@ impl<'a> LedgerBuilder<'a> {
         Ledger::new(
             env,
             ledger_constants,
-            self.min_rep_weight,
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,

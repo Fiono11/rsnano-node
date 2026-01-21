@@ -69,7 +69,7 @@ impl OnlineReps {
     pub fn new_test_instance() -> Self {
         let rep = PublicKey::from(1);
 
-        let rep_weights = Arc::new(RepWeightCache::new());
+        let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.set(rep, Amount::nano(80_000_000));
 
         let mut online_reps = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
@@ -429,7 +429,7 @@ mod tests {
         let clock = SteadyClock::new_null();
         let account = PublicKey::from(1);
         let weight = Amount::nano(100_000);
-        let weights = Arc::new(RepWeightCache::new());
+        let weights = Arc::new(RepWeightCache::default());
         weights.set(account, weight);
         let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
 
@@ -444,7 +444,7 @@ mod tests {
         let clock = SteadyClock::new_null();
         let account = PublicKey::from(1);
         let weight = Amount::nano(100_000);
-        let weights = Arc::new(RepWeightCache::new());
+        let weights = Arc::new(RepWeightCache::default());
         weights.set(account, weight);
         let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
 
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn is_pr() {
         let clock = SteadyClock::new_null();
-        let weights = Arc::new(RepWeightCache::new());
+        let weights = Arc::new(RepWeightCache::default());
         let mut online_reps = OnlineReps::builder().rep_weights(weights.clone()).finish();
         let rep_account = PublicKey::from(42);
         let channel = Arc::new(Channel::new_test_instance());
@@ -510,7 +510,7 @@ mod tests {
 
     #[test]
     fn quorum_delta() {
-        let weights = Arc::new(RepWeightCache::new());
+        let weights = Arc::new(RepWeightCache::default());
         let mut online_reps = OnlineReps::builder().rep_weights(weights.clone()).finish();
 
         assert_eq!(online_reps.quorum_delta(), Amount::nano(40_200_000));
@@ -527,7 +527,7 @@ mod tests {
         let rep_a = PublicKey::from(1);
         let rep_b = PublicKey::from(2);
         let rep_c = PublicKey::from(3);
-        let weights = Arc::new(RepWeightCache::new());
+        let weights = Arc::new(RepWeightCache::default());
         weights.set(rep_a, Amount::nano(100_000));
         weights.set(rep_b, Amount::nano(200_000));
         weights.set(rep_c, Amount::nano(400_000));

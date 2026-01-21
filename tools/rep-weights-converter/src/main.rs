@@ -16,7 +16,7 @@ fn main() {
 }
 
 fn deserialize_bootstrap_weights(mut buffer: &[u8]) -> BootstrapWeights {
-    let mut weights = RepWeights::new();
+    let mut weights = RepWeights::default();
     let mut count_bytes = [0u8; 16];
     buffer.read_exact(&mut count_bytes).unwrap();
     let max_blocks = u128::from_be_bytes(count_bytes) as u64;
@@ -28,7 +28,7 @@ fn deserialize_bootstrap_weights(mut buffer: &[u8]) -> BootstrapWeights {
         let Ok(weight) = Amount::deserialize(&mut buffer) else {
             break;
         };
-        weights.insert(account.into(), weight);
+        weights.set(account.into(), weight);
     }
 
     BootstrapWeights {

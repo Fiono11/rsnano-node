@@ -130,7 +130,7 @@ mod tests {
         let rep_key = PrivateKey::from(1);
         let another_rep = PrivateKey::from(2);
 
-        let rep_weights = Arc::new(RepWeightCache::new());
+        let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.set(rep_key.public_key(), Amount::nano(50_000_000));
         rep_weights.set(another_rep.public_key(), Amount::nano(65_000_000));
 

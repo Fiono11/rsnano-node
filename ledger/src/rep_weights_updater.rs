@@ -13,39 +13,38 @@ use crate::{RepWeightCache, RepWeights};
 pub struct RepWeightsUpdater {
     weight_cache: Arc<RwLock<RepWeights>>,
     store: Arc<LmdbRepWeightStore>,
-    min_weight: Amount,
 }
 
 impl RepWeightsUpdater {
-    pub fn new(store: Arc<LmdbRepWeightStore>, min_weight: Amount, cache: &RepWeightCache) -> Self {
+    pub fn new(store: Arc<LmdbRepWeightStore>, cache: &RepWeightCache) -> Self {
         RepWeightsUpdater {
             weight_cache: cache.inner(),
             store,
-            min_weight,
         }
     }
 
     /// Only use this method when loading rep weights from the database table
     pub fn copy_from(&self, other: &HashMap<PublicKey, Amount>) {
-        let mut guard_this = self.weight_cache.write().unwrap();
+        let mut cache = self.weight_cache.write().unwrap();
         for (account, amount) in other {
-            let prev_amount = self.get(&guard_this, account);
-            self.put_cache(&mut guard_this, *account, prev_amount.wrapping_add(*amount));
+            let prev_amount = self.get(&cache, account);
+            self.put_cache(&mut cache, *account, prev_amount.wrapping_add(*amount));
         }
     }
 
     /// Only use this method when loading rep weights from the database table!
     pub fn put(&self, representative: PublicKey, weight: Amount) {
-        let mut guard = self.weight_cache.write().unwrap();
-        self.put_cache(&mut guard, representative, weight);
+        let mut cache = self.weight_cache.write().unwrap();
+        self.put_cache(&mut cache, representative, weight);
     }
 
     pub fn add(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
         let previous_weight = self.store.get(txn, &representative).unwrap_or_default();
         let new_weight = previous_weight.wrapping_add(amount);
+
         self.put_store(txn, representative, previous_weight, new_weight);
-        let mut guard = self.weight_cache.write().unwrap();
-        self.put_cache(&mut guard, representative, new_weight);
+        let mut cache = self.weight_cache.write().unwrap();
+        self.put_cache(&mut cache, representative, new_weight);
     }
 
     pub fn sub(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
@@ -67,9 +66,9 @@ impl RepWeightsUpdater {
             let new_weight_2 = previous_weight_2.wrapping_add(add_amount);
             self.put_store(txn, sub_rep, previous_weight_1, new_weight_1);
             self.put_store(txn, add_rep, previous_weight_2, new_weight_2);
-            let mut guard = self.weight_cache.write().unwrap();
-            self.put_cache(&mut guard, sub_rep, new_weight_1);
-            self.put_cache(&mut guard, add_rep, new_weight_2);
+            let mut cache = self.weight_cache.write().unwrap();
+            self.put_cache(&mut cache, sub_rep, new_weight_1);
+            self.put_cache(&mut cache, add_rep, new_weight_2);
         } else {
             self.add(txn, sub_rep, add_amount.wrapping_sub(sub_amount));
         }
@@ -90,25 +89,16 @@ impl RepWeightsUpdater {
             let new_weight_2 = previous_weight_2.wrapping_add(amount_2);
             self.put_store(txn, rep_1, previous_weight_1, new_weight_1);
             self.put_store(txn, rep_2, previous_weight_2, new_weight_2);
-            let mut guard = self.weight_cache.write().unwrap();
-            self.put_cache(&mut guard, rep_1, new_weight_1);
-            self.put_cache(&mut guard, rep_2, new_weight_2);
+            let mut cache = self.weight_cache.write().unwrap();
+            self.put_cache(&mut cache, rep_1, new_weight_1);
+            self.put_cache(&mut cache, rep_2, new_weight_2);
         } else {
             self.add(txn, rep_1, amount_1.wrapping_add(amount_2));
         }
     }
 
-    fn put_cache(
-        &self,
-        weights: &mut HashMap<PublicKey, Amount>,
-        representative: PublicKey,
-        new_weight: Amount,
-    ) {
-        if new_weight < self.min_weight || new_weight.is_zero() {
-            weights.remove(&representative);
-        } else {
-            weights.insert(representative, new_weight);
-        }
+    fn put_cache(&self, weights: &mut RepWeights, representative: PublicKey, new_weight: Amount) {
+        weights.set(representative, new_weight);
     }
 
     fn put_store(
@@ -288,8 +278,8 @@ mod tests {
 
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let min_weight = Amount::raw(min_weight_raw);
-        let rep_weights = RepWeightCache::new();
-        let updater = RepWeightsUpdater::new(store.clone(), min_weight, &rep_weights);
+        let rep_weights = RepWeightCache::new(min_weight);
+        let updater = RepWeightsUpdater::new(store.clone(), &rep_weights);
 
         Fixture {
             updater,

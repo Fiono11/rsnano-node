@@ -23,7 +23,7 @@ impl AecForkInserter {
     #[allow(dead_code)]
     pub fn new_test_instance() -> Self {
         Self {
-            rep_weights: Arc::new(RepWeightCache::new()),
+            rep_weights: Arc::new(RepWeightCache::default()),
             fork_cache: Arc::new(RwLock::new(ForkCache::new())),
             active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             vote_cache: Arc::new(Mutex::new(VoteCache::new(
