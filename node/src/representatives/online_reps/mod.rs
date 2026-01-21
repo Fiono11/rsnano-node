@@ -70,7 +70,7 @@ impl OnlineReps {
         let rep = PublicKey::from(1);
 
         let rep_weights = Arc::new(RepWeightCache::default());
-        rep_weights.set(rep, Amount::nano(80_000_000));
+        rep_weights.put(rep, Amount::nano(80_000_000));
 
         let mut online_reps = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
         let channel = Arc::new(Channel::new_test_instance());
@@ -430,7 +430,7 @@ mod tests {
         let account = PublicKey::from(1);
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
-        weights.set(account, weight);
+        weights.put(account, weight);
         let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
 
         online_reps.vote_observed(account, clock.now());
@@ -445,7 +445,7 @@ mod tests {
         let account = PublicKey::from(1);
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
-        weights.set(account, weight);
+        weights.put(account, weight);
         let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
 
         let channel = Arc::new(Channel::new_test_instance());
@@ -494,7 +494,7 @@ mod tests {
         let rep_account = PublicKey::from(42);
         let channel = Arc::new(Channel::new_test_instance());
         let channel_id = channel.channel_id();
-        weights.set(rep_account, Amount::nano(50_000));
+        weights.put(rep_account, Amount::nano(50_000));
 
         // unknown channel
         assert_eq!(online_reps.is_principal_rep(channel_id), false);
@@ -504,7 +504,7 @@ mod tests {
         assert_eq!(online_reps.is_principal_rep(channel_id), false);
 
         // above PR limit
-        weights.set(rep_account, Amount::nano(100_000));
+        weights.put(rep_account, Amount::nano(100_000));
         assert_eq!(online_reps.is_principal_rep(channel_id), true);
     }
 
@@ -516,7 +516,7 @@ mod tests {
         assert_eq!(online_reps.quorum_delta(), Amount::nano(40_200_000));
 
         let rep_account = PublicKey::from(42);
-        weights.set(rep_account, Amount::nano(100_000_000));
+        weights.put(rep_account, Amount::nano(100_000_000));
         online_reps.vote_observed(rep_account, Timestamp::new_test_instance());
 
         assert_eq!(online_reps.quorum_delta(), Amount::nano(67_000_000));
@@ -528,9 +528,9 @@ mod tests {
         let rep_b = PublicKey::from(2);
         let rep_c = PublicKey::from(3);
         let weights = Arc::new(RepWeightCache::default());
-        weights.set(rep_a, Amount::nano(100_000));
-        weights.set(rep_b, Amount::nano(200_000));
-        weights.set(rep_c, Amount::nano(400_000));
+        weights.put(rep_a, Amount::nano(100_000));
+        weights.put(rep_b, Amount::nano(200_000));
+        weights.put(rep_c, Amount::nano(400_000));
         let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
 
         let start = SteadyClock::new_null().now();

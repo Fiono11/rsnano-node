@@ -300,7 +300,7 @@ mod tests {
         let block = SavedBlock::new_test_instance_with(block.into());
 
         let mut fixture = FixtureForElection::with_block(block.clone());
-        fixture.rep_weights.set(key.public_key(), Amount::MAX);
+        fixture.rep_weights.put(key.public_key(), Amount::MAX);
         fixture.election.try_add_fork(&fork, Amount::ZERO);
 
         let vote = ReceivedVote::new(
@@ -325,7 +325,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture
             .rep_weights
-            .set(fixture.rep1_key.public_key(), Amount::MAX);
+            .put(fixture.rep1_key.public_key(), Amount::MAX);
 
         fixture.apply_final_vote_from(VoteSource::Live).unwrap();
 
@@ -505,7 +505,7 @@ mod tests {
             let rep1_key = PrivateKey::from(1);
 
             let mut rep_weights = RepWeights::default();
-            rep_weights.set(rep1_key.public_key(), Amount::nano(100_000));
+            rep_weights.put(rep1_key.public_key(), Amount::nano(100_000));
 
             Self {
                 now,

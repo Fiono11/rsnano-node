@@ -239,7 +239,7 @@ mod tests {
         let rep_key = PrivateKey::from(1);
         let weight = Amount::nano(100_000);
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key.public_key(), weight);
+        rep_weights.put(rep_key.public_key(), weight);
         params.set_rep_weights(rep_weights, Amount::MAX);
 
         let proposal_hash = ProposalHash::from(1);
@@ -260,8 +260,8 @@ mod tests {
         let weight = Amount::nano(100_000);
 
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key1.public_key(), weight);
-        rep_weights.set(rep_key2.public_key(), weight);
+        rep_weights.put(rep_key1.public_key(), weight);
+        rep_weights.put(rep_key2.public_key(), weight);
         params.set_rep_weights(rep_weights, weight * 2);
 
         let proposal_hash = ProposalHash::from(1);
@@ -279,7 +279,7 @@ mod tests {
     fn current_snapshot_number_is_increased_when_proposal_gets_confirmed() {
         let rep_key = PrivateKey::from(1);
         let mut weights = RepWeights::default();
-        weights.set(rep_key.public_key(), Amount::MAX);
+        weights.put(rep_key.public_key(), Amount::MAX);
 
         let mut state = State::default();
         let snapshot_number = state.current_snapshot_number;

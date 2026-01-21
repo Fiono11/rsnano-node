@@ -543,7 +543,7 @@ mod tests {
         let received_vote = test_final_vote(&rep_key, block_hash);
 
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key.public_key(), Amount::MAX);
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
 
         let result = container.apply_vote(ApplyVoteArgs {
             vote: &received_vote.into(),

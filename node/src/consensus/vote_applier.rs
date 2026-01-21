@@ -131,8 +131,8 @@ mod tests {
         let another_rep = PrivateKey::from(2);
 
         let rep_weights = Arc::new(RepWeightCache::default());
-        rep_weights.set(rep_key.public_key(), Amount::nano(50_000_000));
-        rep_weights.set(another_rep.public_key(), Amount::nano(65_000_000));
+        rep_weights.put(rep_key.public_key(), Amount::nano(50_000_000));
+        rep_weights.put(another_rep.public_key(), Amount::nano(65_000_000));
 
         let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
         let online_reps = Arc::new(Mutex::new(

@@ -43,7 +43,7 @@ fn deserialize_bootstrap_weights(buffer: &str) -> BootstrapWeights {
         let mut it = line.split(':');
         let account = Account::parse(it.next().unwrap()).unwrap();
         let weight = Amount::decode_dec(it.next().unwrap()).unwrap();
-        weights.set(account.into(), weight);
+        weights.put(account.into(), weight);
     }
 
     BootstrapWeights {

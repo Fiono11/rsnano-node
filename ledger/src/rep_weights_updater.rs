@@ -28,14 +28,16 @@ impl RepWeightsUpdater {
         let mut cache = self.weight_cache.write().unwrap();
         for (account, amount) in other {
             let prev_amount = self.get(&cache, account);
-            self.put_cache(&mut cache, *account, prev_amount.wrapping_add(*amount));
+            cache.put(*account, prev_amount.wrapping_add(*amount))
         }
     }
 
     /// Only use this method when loading rep weights from the database table!
     pub fn put(&self, representative: PublicKey, weight: Amount) {
-        let mut cache = self.weight_cache.write().unwrap();
-        self.put_cache(&mut cache, representative, weight);
+        self.weight_cache
+            .write()
+            .unwrap()
+            .put(representative, weight);
     }
 
     pub fn add(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
@@ -43,8 +45,10 @@ impl RepWeightsUpdater {
         let new_weight = previous_weight.wrapping_add(amount);
 
         self.put_store(txn, representative, previous_weight, new_weight);
-        let mut cache = self.weight_cache.write().unwrap();
-        self.put_cache(&mut cache, representative, new_weight);
+        self.weight_cache
+            .write()
+            .unwrap()
+            .put(representative, new_weight);
     }
 
     pub fn sub(&self, txn: &mut WriteTransaction, representative: PublicKey, amount: Amount) {
@@ -67,8 +71,8 @@ impl RepWeightsUpdater {
             self.put_store(txn, sub_rep, previous_weight_1, new_weight_1);
             self.put_store(txn, add_rep, previous_weight_2, new_weight_2);
             let mut cache = self.weight_cache.write().unwrap();
-            self.put_cache(&mut cache, sub_rep, new_weight_1);
-            self.put_cache(&mut cache, add_rep, new_weight_2);
+            cache.put(sub_rep, new_weight_1);
+            cache.put(add_rep, new_weight_2);
         } else {
             self.add(txn, sub_rep, add_amount.wrapping_sub(sub_amount));
         }
@@ -90,15 +94,11 @@ impl RepWeightsUpdater {
             self.put_store(txn, rep_1, previous_weight_1, new_weight_1);
             self.put_store(txn, rep_2, previous_weight_2, new_weight_2);
             let mut cache = self.weight_cache.write().unwrap();
-            self.put_cache(&mut cache, rep_1, new_weight_1);
-            self.put_cache(&mut cache, rep_2, new_weight_2);
+            cache.put(rep_1, new_weight_1);
+            cache.put(rep_2, new_weight_2);
         } else {
             self.add(txn, rep_1, amount_1.wrapping_add(amount_2));
         }
-    }
-
-    fn put_cache(&self, weights: &mut RepWeights, representative: PublicKey, new_weight: Amount) {
-        weights.set(representative, new_weight);
     }
 
     fn put_store(

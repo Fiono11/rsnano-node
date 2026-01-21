@@ -599,10 +599,10 @@ mod tests {
             let rep_weight = online_weight / 4_u128;
 
             let rep_keys = RepKeys::default();
-            rep_weights.set(rep_keys.local_rep.public_key(), rep_weight);
-            rep_weights.set(rep_keys.rep2.public_key(), rep_weight);
-            rep_weights.set(rep_keys.rep3.public_key(), rep_weight);
-            rep_weights.set(rep_keys.rep4.public_key(), rep_weight);
+            rep_weights.put(rep_keys.local_rep.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep2.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep3.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep4.public_key(), rep_weight);
 
             let ledger = Ledger::new_null_builder()
                 .frontiers(self.frontiers)

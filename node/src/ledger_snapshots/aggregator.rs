@@ -114,7 +114,7 @@ mod tests {
         let rep_key = PrivateKey::from(1);
         let weight = Amount::nano(10_000);
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key.public_key(), weight);
+        rep_weights.put(rep_key.public_key(), weight);
         consensus_params.set_rep_weights(rep_weights, Amount::MAX);
 
         let mut aggregator = Aggregator::default();
@@ -129,8 +129,8 @@ mod tests {
         let rep_key2 = PrivateKey::from(2);
 
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key1.public_key(), Amount::nano(100_000));
-        rep_weights.set(rep_key2.public_key(), Amount::nano(200_000));
+        rep_weights.put(rep_key1.public_key(), Amount::nano(100_000));
+        rep_weights.put(rep_key2.public_key(), Amount::nano(200_000));
 
         let mut aggregator = Aggregator::default();
         let mut consensus_params = ConsensusParams::default();
@@ -149,7 +149,7 @@ mod tests {
         let rep_key = PrivateKey::from(1);
 
         let mut rep_weights = RepWeights::default();
-        rep_weights.set(rep_key.public_key(), Amount::nano(100_000));
+        rep_weights.put(rep_key.public_key(), Amount::nano(100_000));
 
         let mut aggregator = Aggregator::default();
         let mut consensus_params = ConsensusParams::default();

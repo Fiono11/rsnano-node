@@ -32,7 +32,7 @@ impl RepWeights {
         self.get(rep).cloned().unwrap_or_default()
     }
 
-    pub fn set(&mut self, rep: PublicKey, new_weight: Amount) {
+    pub fn put(&mut self, rep: PublicKey, new_weight: Amount) {
         if new_weight < self.min_weight || new_weight.is_zero() {
             self.entries.remove(&rep);
         } else {
@@ -146,8 +146,8 @@ impl RepWeightCache {
         self.weights.read().unwrap().len()
     }
 
-    pub fn set(&self, account: PublicKey, weight: Amount) {
-        self.weights.write().unwrap().set(account, weight);
+    pub fn put(&self, account: PublicKey, weight: Amount) {
+        self.weights.write().unwrap().put(account, weight);
     }
 
     pub(super) fn inner(&self) -> Arc<RwLock<RepWeights>> {
