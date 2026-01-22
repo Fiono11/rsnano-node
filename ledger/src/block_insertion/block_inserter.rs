@@ -109,7 +109,7 @@ impl<'a> BlockInserter<'a> {
 
     fn update_rep_weights(&mut self) {
         if !self.instructions.old_account_info.head.is_zero() {
-            // Move existing weight and add in amount delta
+            // Move existing rep weight and add in amount delta
             self.ledger.rep_weights_updater.sub_and_add(
                 self.txn,
                 self.instructions.old_account_info.representative,

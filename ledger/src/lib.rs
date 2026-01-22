@@ -8,7 +8,6 @@ mod block_cementer;
 mod block_insertion;
 mod block_rollback;
 mod dependent_blocks_finder;
-mod generate_cache_flags;
 mod ledger;
 mod ledger_builder;
 mod ledger_constants;
@@ -26,7 +25,6 @@ mod ledger_tests;
 pub(crate) use block_rollback::BlockRollbackPerformer;
 pub use block_rollback::RollbackError;
 pub use dependent_blocks_finder::*;
-pub use generate_cache_flags::GenerateCacheFlags;
 pub use ledger::*;
 pub use ledger_builder::*;
 pub use ledger_constants::{
