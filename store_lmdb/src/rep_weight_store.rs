@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use rsnano_nullable_lmdb::{
     ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, RoCursor, Transaction,
@@ -6,7 +9,7 @@ use rsnano_nullable_lmdb::{
     sys::{MDB_FIRST, MDB_NEXT, MDB_cursor_op},
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Amount, PublicKey};
+use rsnano_types::{Amount, Epoch, PublicKey};
 
 use crate::REP_WEIGHT_TEST_DATABASE;
 
@@ -18,7 +21,11 @@ pub struct LmdbRepWeightStore {
 
 impl LmdbRepWeightStore {
     pub fn new(env: &LmdbEnvironment) -> anyhow::Result<Self> {
-        let database = env.create_db(Some("rep_weights"), DatabaseFlags::empty())?;
+        Self::with_database_name(env, "rep_weights")
+    }
+
+    pub fn with_database_name(env: &LmdbEnvironment, db_name: &str) -> anyhow::Result<Self> {
+        let database = env.create_db(Some(db_name), DatabaseFlags::empty())?;
 
         Ok(Self {
             database,
@@ -98,6 +105,103 @@ impl<'txn> Iterator for RepWeightIterator<'txn> {
             Ok(_) => unreachable!(),
             Err(_) => unreachable!(),
         }
+    }
+}
+
+/// Manages multiple rep weight stores, one per epoch.
+/// Each epoch has its own LMDB database (e.g., "rep_weights_epoch_0", "rep_weights_epoch_1").
+pub struct EpochRepWeightStore {
+    env: Arc<LmdbEnvironment>,
+    stores: Arc<Mutex<HashMap<Epoch, Arc<LmdbRepWeightStore>>>>,
+}
+
+impl EpochRepWeightStore {
+    pub fn new(env: Arc<LmdbEnvironment>) -> Self {
+        Self {
+            env,
+            stores: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn get_or_create_store(&self, epoch: Epoch) -> anyhow::Result<Arc<LmdbRepWeightStore>> {
+        let mut stores = self.stores.lock().unwrap();
+
+        if let Some(store) = stores.get(&epoch) {
+            return Ok(Arc::clone(store));
+        }
+
+        // Create new store for this epoch
+        let db_name = format!("rep_weights_epoch_{}", epoch as u8);
+        let store = Arc::new(LmdbRepWeightStore::with_database_name(&self.env, &db_name)?);
+
+        stores.insert(epoch, Arc::clone(&store));
+        Ok(store)
+    }
+
+    pub fn get(
+        &self,
+        txn: &dyn Transaction,
+        epoch: Epoch,
+        pub_key: &PublicKey,
+    ) -> anyhow::Result<Option<Amount>> {
+        let store = self.get_or_create_store(epoch)?;
+        Ok(store.get(txn, pub_key))
+    }
+
+    pub fn put(
+        &self,
+        txn: &mut WriteTransaction,
+        epoch: Epoch,
+        representative: PublicKey,
+        weight: Amount,
+    ) -> anyhow::Result<()> {
+        let store = self.get_or_create_store(epoch)?;
+        store.put(txn, representative, weight);
+        Ok(())
+    }
+
+    pub fn del(
+        &self,
+        txn: &mut WriteTransaction,
+        epoch: Epoch,
+        representative: &PublicKey,
+    ) -> anyhow::Result<()> {
+        let store = self.get_or_create_store(epoch)?;
+        store.del(txn, representative);
+        Ok(())
+    }
+
+    pub fn count(&self, txn: &dyn Transaction, epoch: Epoch) -> anyhow::Result<u64> {
+        let store = self.get_or_create_store(epoch)?;
+        Ok(store.count(txn))
+    }
+
+    pub fn iter<'a>(
+        &self,
+        txn: &'a dyn Transaction,
+        epoch: Epoch,
+    ) -> anyhow::Result<RepWeightIterator<'a>> {
+        let store = self.get_or_create_store(epoch)?;
+        Ok(store.iter(txn))
+    }
+
+    pub fn track_deletions(&self, epoch: Epoch) -> anyhow::Result<Arc<OutputTrackerMt<PublicKey>>> {
+        let store = self.get_or_create_store(epoch)?;
+        Ok(store.track_deletions())
+    }
+
+    pub fn track_puts(
+        &self,
+        epoch: Epoch,
+    ) -> anyhow::Result<Arc<OutputTrackerMt<(PublicKey, Amount)>>> {
+        let store = self.get_or_create_store(epoch)?;
+        Ok(store.track_puts())
+    }
+
+    /// Get all epochs that have been initialized
+    pub fn initialized_epochs(&self) -> Vec<Epoch> {
+        let stores = self.stores.lock().unwrap();
+        stores.keys().copied().collect()
     }
 }
 
