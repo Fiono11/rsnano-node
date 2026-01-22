@@ -45,7 +45,9 @@ use rsnano_utils::{
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
 #[cfg(feature = "ledger_snapshots")]
-use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
+use crate::ledger_snapshots::{
+    LedgerSnapshots, SnapshotTriggerPlugin, fork_detector::ForkDetector,
+};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
@@ -1243,6 +1245,11 @@ impl Node {
                 ledger.clone(),
                 ledger_snapshots.clone(),
                 active_elections.clone(),
+            )));
+            // Trigger snapshots every 10 confirmed blocks
+            ledger_event_processor_plugins.push(Box::new(SnapshotTriggerPlugin::new(
+                ledger_snapshots.clone(),
+                10,
             )));
         }
 

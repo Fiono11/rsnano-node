@@ -63,6 +63,14 @@ impl ConfirmationReceiver {
                     tracing::debug!("Received websocket message, topic: {:?}", msg.topic);
                     if msg.topic == Some(Topic::Confirmation) {
                         tracing::info!("Received confirmation message from websocket");
+                    } else {
+                        // Log all non-confirmation messages at info level to catch ledger snapshot events
+                        // Note: Ledger snapshots are network protocol messages, not websocket messages,
+                        // so they won't appear here, but we log other topics for visibility
+                        tracing::info!(
+                            "Received websocket message with topic: {:?}",
+                            msg.topic
+                        );
                     }
                     if let Err(e) = tx_ws_msg.send((msg, clock.now())) {
                         tracing::error!("Failed to send websocket message to channel: {e}");

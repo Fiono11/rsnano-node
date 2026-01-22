@@ -380,6 +380,12 @@ fn track_confirmations(
     logic: &Mutex<SpamLogic>,
 ) {
     tracing::info!("track_confirmations thread started");
+    let mut confirmed_block_count = 0u64;
+    const SNAPSHOT_TRIGGER_THRESHOLD: u64 = 10;
+    tracing::info!(
+        "Ledger snapshot tracking enabled: snapshots should trigger every {} confirmed blocks",
+        SNAPSHOT_TRIGGER_THRESHOLD
+    );
     while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
         tracing::debug!(
             "Received message in track_confirmations, topic: {:?}",
@@ -420,6 +426,25 @@ fn track_confirmations(
                                             "Block {block_hash} confirmed but not high prio"
                                         );
                                     }
+
+                                    // Track ledger snapshot triggers (every 10 confirmed blocks)
+                                    confirmed_block_count += 1;
+                                    tracing::info!(
+                                        confirmed_count = confirmed_block_count,
+                                        threshold = SNAPSHOT_TRIGGER_THRESHOLD,
+                                        "Block confirmed: {} total confirmed blocks since last snapshot trigger",
+                                        confirmed_block_count
+                                    );
+                                    if confirmed_block_count >= SNAPSHOT_TRIGGER_THRESHOLD {
+                                        tracing::warn!(
+                                            confirmed_count = confirmed_block_count,
+                                            threshold = SNAPSHOT_TRIGGER_THRESHOLD,
+                                            "=== LEDGER SNAPSHOT TRIGGER THRESHOLD REACHED === {} blocks confirmed, snapshot should be triggered on node",
+                                            confirmed_block_count
+                                        );
+                                        confirmed_block_count = 0;
+                                        tracing::info!("Snapshot trigger counter reset to 0");
+                                    }
                                 }
                                 None => {
                                     tracing::error!(
@@ -439,7 +464,14 @@ fn track_confirmations(
                 }
             }
         } else {
-            tracing::debug!("Received non-confirmation message, topic: {:?}", msg.topic);
+            // Log all non-confirmation messages at info level
+            // Note: Ledger snapshots are network protocol messages (Preproposal, Proposal, ProposalVote),
+            // not websocket messages, so they won't appear here. Check node logs for snapshot events.
+            tracing::info!(
+                "Received non-confirmation websocket message, topic: {:?}, message: {:?}",
+                msg.topic,
+                msg.message
+            );
         }
     }
     tracing::warn!("track_confirmations thread ended (channel closed)");

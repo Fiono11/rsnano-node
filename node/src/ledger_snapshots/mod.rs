@@ -1,6 +1,9 @@
 mod aggregator;
 pub(crate) mod fork_detector;
+mod snapshot_trigger_plugin;
 mod state;
+
+pub(crate) use snapshot_trigger_plugin::SnapshotTriggerPlugin;
 
 use crate::{
     ledger_snapshots::{aggregator::Aggregator, state::State},
@@ -59,13 +62,21 @@ impl LedgerSnapshots {
     }
 
     pub fn start_ledger_snapshot(&self) {
+        let snapshot_number = self.get_current_snapshot_number();
         warn!(
-            snapshot_number = self.get_current_snapshot_number(),
-            "Preproposal generation triggered"
+            snapshot_number = snapshot_number,
+            "=== LEDGER SNAPSHOT TRIGGERED === Preproposal generation started"
         );
         // TODO add test for no private key
         let private_key = (self.get_private_key)().unwrap();
         let preproposal = self.create_preproposal(&private_key);
+        warn!(
+            snapshot_number = snapshot_number,
+            preproposal_hash = ?preproposal.hash(),
+            frontiers_count = preproposal.frontiers.len(),
+            "Created preproposal with {} frontiers",
+            preproposal.frontiers.len()
+        );
         let message = Message::SnapshotPreproposal(preproposal);
         self.publish_message(&message);
     }
@@ -76,7 +87,13 @@ impl LedgerSnapshots {
     }
 
     fn collect_frontiers(&self) -> Vec<(Account, BlockHash)> {
-        self.ledger.confirmed().frontiers().collect()
+        let frontiers: Vec<_> = self.ledger.confirmed().frontiers().collect();
+        tracing::info!(
+            frontiers_count = frontiers.len(),
+            "Collected {} frontiers for snapshot",
+            frontiers.len()
+        );
+        frontiers
     }
 
     pub fn handle_preproposal(&self, preproposal: Preproposal) {
@@ -186,16 +203,32 @@ impl LedgerSnapshots {
         );
 
         if let Some(winner) = state.find_winner_proposal(&consensus_params) {
-            tracing::warn!(snapshot_number = state.current_snapshot_number, proposal_hash=?winner, "Found a winner!");
-            state.advance_epoch();
-            tracing::warn!(
-                snapshot_number = state.current_snapshot_number,
-                "Advanced epoch"
-            );
             let snapshot_number = state.current_snapshot_number;
+            tracing::warn!(
+                snapshot_number = snapshot_number,
+                proposal_hash = ?winner,
+                "=== SNAPSHOT CONSENSUS REACHED === Found winning proposal!"
+            );
+            state.advance_epoch();
+            let new_snapshot_number = state.current_snapshot_number;
+            tracing::warn!(
+                old_snapshot_number = snapshot_number,
+                new_snapshot_number = new_snapshot_number,
+                "Advanced epoch: {} -> {}",
+                snapshot_number,
+                new_snapshot_number
+            );
             drop(state);
-            tracing::warn!("Calling roll_back_forks_older_than");
+            tracing::warn!(
+                rollback_threshold = snapshot_number - 1,
+                "Calling roll_back_forks_older_than({})",
+                snapshot_number - 1
+            );
             self.ledger.roll_back_forks_older_than(snapshot_number - 1);
+            tracing::warn!(
+                snapshot_number = new_snapshot_number,
+                "=== SNAPSHOT COMPLETED === Rollback finished"
+            );
         }
     }
 
@@ -204,15 +237,25 @@ impl LedgerSnapshots {
     }
 
     fn publish_message(&self, message: &Message) {
+        let message_type = message.message_type();
+        tracing::info!(
+            message_type = ?message_type,
+            "Publishing snapshot message: {:?}",
+            message_type
+        );
         let flood_count = self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
             message,
             TrafficType::LedgerSnapshots,
             0.0,
         );
         tracing::warn!(
-            "Flooded {:?} to {} nodes",
-            message.message_type(),
-            flood_count.principal_reps
+            message_type = ?message_type,
+            principal_reps = flood_count.principal_reps,
+            non_principal_reps = flood_count.non_principal_reps,
+            "Flooded {:?} to {} principal reps and {} non-principal reps",
+            message_type,
+            flood_count.principal_reps,
+            flood_count.non_principal_reps
         );
     }
 }
