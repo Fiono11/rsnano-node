@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::SystemTime,
 };
@@ -32,12 +32,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerSet,
-    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
-    RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
+    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerSet,
+    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
+    RollbackError,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
@@ -310,6 +310,8 @@ impl Ledger {
         {
             let txn = self.store.begin_read();
             self.store_version = self.store.version.get(&txn).unwrap_or_default() as u32;
+
+            // Add genesis block to new ledger
             if self.store.account.iter(&txn).next().is_none() {
                 let mut txn = self.store.begin_write();
                 self.add_genesis_block(&mut txn);
@@ -317,21 +319,28 @@ impl Ledger {
             }
         }
 
+        // Load rep weights
+        {
+            let txn = self.store.begin_read();
+            let rep_weights = self.rep_weights.inner();
+            let mut write_guard = rep_weights.write().unwrap();
+            for (rep, weight) in self.store.rep_weight.iter(&txn) {
+                write_guard.put(rep, weight);
+            }
+        }
+
+        // Count blocks and accounts
         self.store
             .account
             .for_each_par(&self.store.env, thread_count, |iter| {
                 let mut block_count = 0;
                 let mut account_count = 0;
-                let mut rep_weights: HashMap<PublicKey, Amount> = HashMap::new();
 
                 for (_, info) in iter {
                     block_count += info.block_count;
                     account_count += 1;
-                    if !info.balance.is_zero() {
-                        let total = rep_weights.entry(info.representative).or_default();
-                        *total += info.balance;
-                    }
                 }
+
                 self.store
                     .cache
                     .block_count
@@ -341,10 +350,9 @@ impl Ledger {
                     .cache
                     .account_count
                     .fetch_add(account_count, Ordering::SeqCst);
-
-                self.rep_weights_updater.copy_from(&rep_weights);
             });
 
+        // Count confirmed blocks
         self.store
             .confirmation_height
             .for_each_par(&self.store.env, thread_count, |iter| {
