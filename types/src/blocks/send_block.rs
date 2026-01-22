@@ -97,7 +97,7 @@ pub fn valid_send_block_predecessor(block_type: BlockType) -> bool {
         | BlockType::LegacyReceive
         | BlockType::LegacyOpen
         | BlockType::LegacyChange => true,
-        BlockType::State | BlockType::Dummy => false,
+        BlockType::State | BlockType::Dummy | BlockType::Epoch => false,
     }
 }
 

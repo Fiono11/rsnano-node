@@ -39,6 +39,7 @@ where
                 DependentBlocks::new(block.previous(), linked_block)
             }
             Block::Dummy(b) => b.dependent_blocks(),
+            Block::Epoch(b) => b.dependent_blocks(),
         }
     }
 

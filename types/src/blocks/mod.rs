@@ -26,6 +26,10 @@ pub use send_block::{SendBlock, SendBlockArgs, valid_send_block_predecessor};
 mod state_block;
 pub use state_block::{EpochBlockArgs, JsonStateBlock, StateBlock, StateBlockArgs};
 
+mod epoch_block;
+pub use epoch_block::EpochBlock;
+use epoch_block::JsonEpochBlock;
+
 mod dummy_block;
 use dummy_block::JsonDummyBlock;
 pub use dummy_block::{DummyBlock, DummyBlockArgs};
@@ -55,6 +59,7 @@ pub enum BlockTypeId {
     LegacyChange = 5,
     State = 6,
     Dummy = 7,
+    Epoch = 8,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -65,6 +70,7 @@ pub enum BlockType {
     LegacyChange,
     State,
     Dummy,
+    Epoch,
 }
 
 impl From<BlockType> for BlockTypeId {
@@ -76,6 +82,7 @@ impl From<BlockType> for BlockTypeId {
             BlockType::LegacyChange => BlockTypeId::LegacyChange,
             BlockType::State => BlockTypeId::State,
             BlockType::Dummy => BlockTypeId::Dummy,
+            BlockType::Epoch => BlockTypeId::Epoch,
         }
     }
 }
@@ -91,6 +98,7 @@ impl TryFrom<BlockTypeId> for BlockType {
             BlockTypeId::LegacyChange => Ok(BlockType::LegacyChange),
             BlockTypeId::State => Ok(BlockType::State),
             BlockTypeId::Dummy => Ok(BlockType::Dummy),
+            BlockTypeId::Epoch => Ok(BlockType::Epoch),
             BlockTypeId::Invalid | BlockTypeId::NotABlock => Err(()),
         }
     }
@@ -105,6 +113,7 @@ impl From<BlockType> for BlockSubType {
             BlockType::LegacyChange => BlockSubType::Change,
             BlockType::State => BlockSubType::Send,
             BlockType::Dummy => BlockSubType::Dummy,
+            BlockType::Epoch => BlockSubType::Epoch,
         }
     }
 }
@@ -166,6 +175,7 @@ pub fn serialized_block_size(block_type: BlockType) -> usize {
         BlockType::LegacyChange => ChangeBlock::SERIALIZED_SIZE,
         BlockType::State => StateBlock::SERIALIZED_SIZE,
         BlockType::Dummy => DummyBlock::SERIALIZED_SIZE,
+        BlockType::Epoch => EpochBlock::serialized_size(0), // Minimum size with 0 representatives
     }
 }
 
@@ -177,6 +187,7 @@ pub enum Block {
     LegacyChange(ChangeBlock),
     State(StateBlock),
     Dummy(DummyBlock),
+    Epoch(EpochBlock),
 }
 
 impl Block {
@@ -223,6 +234,7 @@ impl Block {
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
             Block::Dummy(b) => b,
+            Block::Epoch(b) => b,
         }
     }
 
@@ -234,6 +246,7 @@ impl Block {
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
             Block::Dummy(b) => b,
+            Block::Epoch(b) => b,
         }
     }
 
@@ -246,7 +259,7 @@ impl Block {
     }
 
     pub fn is_legacy(&self) -> bool {
-        !matches!(self, Block::State(_) | Block::Dummy(_))
+        !matches!(self, Block::State(_) | Block::Dummy(_) | Block::Epoch(_))
     }
 
     pub fn is_change(&self) -> bool {
@@ -287,6 +300,7 @@ impl Block {
             Block::LegacyChange(b) => b.serialize_without_block_type(writer),
             Block::State(b) => b.serialize_without_block_type(writer),
             Block::Dummy(b) => b.serialize_without_block_type(writer),
+            Block::Epoch(b) => b.serialize_without_block_type(writer),
         }
     }
 
@@ -304,6 +318,7 @@ impl Block {
             BlockType::State => Self::State(StateBlock::deserialize(reader)?),
             BlockType::LegacySend => Self::LegacySend(SendBlock::deserialize(reader)?),
             BlockType::Dummy => Self::Dummy(DummyBlock::deserialize(reader)?),
+            BlockType::Epoch => Self::Epoch(EpochBlock::deserialize(reader)?),
         };
         Ok(block)
     }
@@ -352,6 +367,7 @@ impl Deref for Block {
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
             Block::Dummy(b) => b,
+            Block::Epoch(b) => b,
         }
     }
 }
@@ -365,6 +381,7 @@ impl DerefMut for Block {
             Block::LegacyChange(b) => b,
             Block::State(b) => b,
             Block::Dummy(b) => b,
+            Block::Epoch(b) => b,
         }
     }
 }
@@ -388,6 +405,7 @@ pub enum JsonBlock {
     Send(JsonSendBlock),
     State(JsonStateBlock),
     Dummy(JsonDummyBlock),
+    Epoch(JsonEpochBlock),
 }
 
 impl<'de> serde::Deserialize<'de> for Block {
@@ -409,6 +427,7 @@ impl From<JsonBlock> for Block {
             JsonBlock::Send(send) => Block::LegacySend(send.into()),
             JsonBlock::State(state) => Block::State(state.into()),
             JsonBlock::Dummy(dummy) => Block::Dummy(dummy.into()),
+            JsonBlock::Epoch(epoch) => Block::Epoch(epoch.into()),
         }
     }
 }
@@ -610,6 +629,9 @@ impl SavedBlock {
             Block::Dummy(_) => {
                 sideband.details = BlockDetails::new(Epoch::Epoch0, false, false, false)
             }
+            Block::Epoch(_) => {
+                sideband.details = BlockDetails::new(Epoch::Epoch0, false, false, true)
+            }
         }
         Ok(SavedBlock { block, sideband })
     }
@@ -618,6 +640,7 @@ impl SavedBlock {
         match &self.block {
             Block::LegacySend(b) => b.balance(),
             Block::State(b) => b.balance(),
+            Block::Epoch(_) => self.sideband.balance,
             _ => self.sideband.balance,
         }
     }
@@ -647,6 +670,7 @@ impl SavedBlock {
                 DependentBlocks::new(self.previous(), linked_block)
             }
             Block::Dummy(b) => b.dependent_blocks(),
+            Block::Epoch(b) => b.dependent_blocks(),
         }
     }
 }

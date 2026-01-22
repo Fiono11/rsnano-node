@@ -280,6 +280,7 @@ fn v24_sideband_len(block_type: BlockType) -> usize {
         BlockType::LegacyChange => 64 + 32,
         BlockType::State => 18 + 32,
         BlockType::Dummy => todo!(),
+        BlockType::Epoch => todo!(),
     }
 }
 

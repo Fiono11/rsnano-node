@@ -27,6 +27,7 @@ impl<'a> RepresentativeBlockFinder<'a> {
                 Block::LegacyChange(_) => (BlockHash::ZERO, block.hash()),
                 Block::State(_) => (BlockHash::ZERO, block.hash()),
                 Block::Dummy(_) => (BlockHash::ZERO, block.hash()),
+                Block::Epoch(_) => (BlockHash::ZERO, block.hash()),
             };
         }
 

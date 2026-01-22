@@ -78,6 +78,7 @@ impl From<BlockTypeId> for BlockTypeDto {
             BlockTypeId::LegacyChange => BlockTypeDto::Change,
             BlockTypeId::State => BlockTypeDto::State,
             BlockTypeId::Dummy => BlockTypeDto::Dummy,
+            BlockTypeId::Epoch => BlockTypeDto::Unknown,
             BlockTypeId::Invalid | BlockTypeId::NotABlock => BlockTypeDto::Unknown,
         }
     }

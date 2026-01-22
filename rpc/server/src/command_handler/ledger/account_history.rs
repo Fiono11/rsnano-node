@@ -253,6 +253,7 @@ impl<'a> AccountHistoryHelper<'a> {
                 }
             }
             Block::Dummy(_) => todo!(),
+            Block::Epoch(_) => todo!(),
         };
 
         if let Some(entry) = &mut entry {
