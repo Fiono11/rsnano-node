@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_nullable_lmdb::LmdbEnvironment;
-use rsnano_store_lmdb::LmdbAccountStore;
+use rsnano_store_lmdb::{LmdbAccountStore, LmdbRepWeightStore};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, DEV_GENESIS_KEY, PrivateKey, PublicKey, Root,
     SavedBlock, TestBlockBuilder, UnixMillisTimestamp,
@@ -320,27 +320,29 @@ fn block_confirmed() {
 
 #[test]
 fn ledger_cache() {
-    let env = LmdbEnvironment::null_builder().build();
-    {
-        let accounts = LmdbAccountStore::new(&env).unwrap();
-        let mut txn = env.begin_write();
+    let representative = PublicKey::from(42);
 
-        accounts.put(&mut txn, &1.into(), &AccountInfo::new_test_instance());
-        accounts.put(&mut txn, &2.into(), &AccountInfo::new_test_instance());
-        accounts.put(&mut txn, &3.into(), &AccountInfo::new_test_instance());
-        txn.commit();
-    }
+    let ledger = Ledger::new_null_builder()
+        .account_info(
+            &1.into(),
+            &AccountInfo {
+                representative,
+                balance: 1.into(),
+                ..AccountInfo::new_test_instance()
+            },
+        )
+        .account_info(
+            &2.into(),
+            &AccountInfo {
+                representative,
+                balance: Amount::MAX - Amount::raw(1),
+                ..AccountInfo::new_test_instance()
+            },
+        )
+        .rep_weights([(representative, Amount::MAX)])
+        .finish();
 
-    let ledger = Ledger::new(
-        env,
-        LedgerConstants::live(),
-        RepWeightCache::default().into(),
-        Arc::new(Stats::default()),
-        1,
-    )
-    .unwrap();
-
-    assert_eq!(ledger.account_count(), 3);
+    assert_eq!(ledger.account_count(), 2);
 }
 
 #[test]

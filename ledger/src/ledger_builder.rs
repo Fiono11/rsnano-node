@@ -113,6 +113,7 @@ impl<'a> LedgerBuilder<'a> {
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,
+            true,
         )
     }
 }

@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        Arc,
     },
     time::SystemTime,
 };
@@ -32,12 +32,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    block_cementer::BlockCementer,
-    block_insertion::{BlockInserter, BlockValidatorFactory},
-    vote_verifier::VoteVerifier,
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerSet,
     OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
     RollbackError,
+    block_cementer::BlockCementer,
+    block_insertion::{BlockInserter, BlockValidatorFactory},
+    vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
@@ -258,6 +258,7 @@ impl NullLedgerBuilder {
             Arc::new(RepWeightCache::new(self.min_rep_weight)),
             Arc::new(Stats::default()),
             1,
+            false,
         )
         .unwrap()
     }
@@ -271,6 +272,7 @@ impl Ledger {
             Arc::new(RepWeightCache::default()),
             Arc::new(Stats::default()),
             1,
+            false,
         )
         .unwrap()
     }
@@ -285,6 +287,7 @@ impl Ledger {
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
+        integrity_check: bool,
     ) -> anyhow::Result<Self> {
         let mut store = LmdbStore::new(env)?;
         store.cache = rep_weights.ledger_cache.clone();
@@ -301,12 +304,12 @@ impl Ledger {
             store_version: 0,
         };
 
-        ledger.initialize(thread_count)?;
+        ledger.initialize(thread_count, integrity_check)?;
 
         Ok(ledger)
     }
 
-    fn initialize(&mut self, thread_count: usize) -> anyhow::Result<()> {
+    fn initialize(&mut self, thread_count: usize, integrity_check: bool) -> anyhow::Result<()> {
         {
             let txn = self.store.begin_read();
             self.store_version = self.store.version.get(&txn).unwrap_or_default() as u32;
@@ -320,25 +323,34 @@ impl Ledger {
         }
 
         // Load rep weights
+        let mut total_committed_rep_weight = Amount::ZERO;
         {
             let txn = self.store.begin_read();
             let rep_weights = self.rep_weights.inner();
             let mut write_guard = rep_weights.write().unwrap();
             for (rep, weight) in self.store.rep_weight.iter(&txn) {
                 write_guard.put(rep, weight);
+                total_committed_rep_weight = total_committed_rep_weight
+                    .checked_add(weight)
+                    .expect("total rep weight should never overlow");
             }
         }
 
         // Count blocks and accounts
+        let total_account_balances = Mutex::new(Amount::ZERO);
         self.store
             .account
             .for_each_par(&self.store.env, thread_count, |iter| {
                 let mut block_count = 0;
                 let mut account_count = 0;
+                let mut total = 0u128;
 
                 for (_, info) in iter {
                     block_count += info.block_count;
                     account_count += 1;
+                    total = total
+                        .checked_add(info.balance.number())
+                        .expect("total account balances should never overflow");
                 }
 
                 self.store
@@ -350,6 +362,11 @@ impl Ledger {
                     .cache
                     .account_count
                     .fetch_add(account_count, Ordering::SeqCst);
+
+                let mut guard = total_account_balances.lock().unwrap();
+                *guard = guard
+                    .checked_add(total.into())
+                    .expect("total account balances should never overflow");
             });
 
         // Count confirmed blocks
@@ -365,6 +382,30 @@ impl Ledger {
                     .confirmed_count
                     .fetch_add(confirmed_count, Ordering::SeqCst);
             });
+
+        // Count pending balances
+        if integrity_check {
+            let mut total_pending = Amount::ZERO;
+            let txn = self.store.begin_read();
+            for (_, info) in self.store.pending.iter(&txn) {
+                total_pending = total_pending
+                    .checked_add(info.amount)
+                    .expect("total pending should never overflow");
+            }
+
+            let total_account_balances = *total_account_balances.lock().unwrap();
+
+            assert_eq!(
+                total_committed_rep_weight, total_account_balances,
+                "the representative weights are inconsistent with the current account states!"
+            );
+
+            assert_eq!(
+                total_account_balances.wrapping_add(total_pending),
+                Amount::MAX,
+                "account balances and pending balances don't add up to max supply!"
+            );
+        }
 
         Ok(())
     }
