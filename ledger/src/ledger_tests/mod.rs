@@ -334,8 +334,7 @@ fn ledger_cache() {
     let ledger = Ledger::new(
         env,
         LedgerConstants::live(),
-        Amount::ZERO,
-        RepWeightCache::new().into(),
+        RepWeightCache::default().into(),
         Arc::new(Stats::default()),
         1,
     )

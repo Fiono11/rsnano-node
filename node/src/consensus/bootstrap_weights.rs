@@ -30,7 +30,7 @@ fn get_bootstrap_weights_text(network: Networks) -> &'static str {
 }
 
 fn deserialize_bootstrap_weights(buffer: &str) -> BootstrapWeights {
-    let mut weights = RepWeights::new();
+    let mut weights = RepWeights::default();
     let mut first_line = true;
     let mut max_blocks = 0;
     for line in buffer.lines() {
@@ -43,7 +43,7 @@ fn deserialize_bootstrap_weights(buffer: &str) -> BootstrapWeights {
         let mut it = line.split(':');
         let account = Account::parse(it.next().unwrap()).unwrap();
         let weight = Amount::decode_dec(it.next().unwrap()).unwrap();
-        weights.insert(account.into(), weight);
+        weights.put(account.into(), weight);
     }
 
     BootstrapWeights {

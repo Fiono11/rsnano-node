@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     mem::size_of,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     sync::{
         Arc, RwLock, RwLockReadGuard,
         atomic::{AtomicBool, Ordering},
@@ -13,15 +13,31 @@ use rsnano_types::{Account, Amount, PublicKey};
 use rsnano_utils::container_info::ContainerInfo;
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct RepWeights(HashMap<PublicKey, Amount>);
+pub struct RepWeights {
+    entries: HashMap<PublicKey, Amount>,
+
+    /// Representatives with a weight below this min_weight are discarded
+    min_weight: Amount,
+}
 
 impl RepWeights {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(min_weight: Amount) -> Self {
+        Self {
+            entries: HashMap::new(),
+            min_weight,
+        }
     }
 
     pub fn weight(&self, rep: &PublicKey) -> Amount {
         self.get(rep).cloned().unwrap_or_default()
+    }
+
+    pub fn put(&mut self, rep: PublicKey, new_weight: Amount) {
+        if new_weight < self.min_weight || new_weight.is_zero() {
+            self.entries.remove(&rep);
+        } else {
+            self.entries.insert(rep, new_weight);
+        }
     }
 }
 
@@ -29,13 +45,7 @@ impl Deref for RepWeights {
     type Target = HashMap<PublicKey, Amount>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for RepWeights {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &self.entries
     }
 }
 
@@ -57,10 +67,10 @@ pub struct RepWeightCache {
 }
 
 impl RepWeightCache {
-    pub fn new() -> Self {
+    pub fn new(min_weight: Amount) -> Self {
         Self {
-            weights: Arc::new(RwLock::new(RepWeights::new())),
-            bootstrap_weights: RwLock::new(RepWeights::new()),
+            weights: Arc::new(RwLock::new(RepWeights::new(min_weight))),
+            bootstrap_weights: RwLock::new(RepWeights::default()),
             max_blocks: 0,
             ledger_cache: Arc::new(LedgerCache::new()),
             check_bootstrap_weights: AtomicBool::new(false),
@@ -70,9 +80,10 @@ impl RepWeightCache {
     pub fn with_bootstrap_weights(
         bootstrap_weights: BootstrapWeights,
         ledger_cache: Arc<LedgerCache>,
+        min_weight: Amount,
     ) -> Self {
         Self {
-            weights: Arc::new(RwLock::new(RepWeights::new())),
+            weights: Arc::new(RwLock::new(RepWeights::new(min_weight))),
             bootstrap_weights: RwLock::new(bootstrap_weights.weights),
             max_blocks: bootstrap_weights.max_blocks,
             ledger_cache,
@@ -135,8 +146,8 @@ impl RepWeightCache {
         self.weights.read().unwrap().len()
     }
 
-    pub fn set(&self, account: PublicKey, weight: Amount) {
-        self.weights.write().unwrap().insert(account, weight);
+    pub fn put(&self, account: PublicKey, weight: Amount) {
+        self.weights.write().unwrap().put(account, weight);
     }
 
     pub(super) fn inner(&self) -> Arc<RwLock<RepWeights>> {
@@ -150,8 +161,18 @@ impl RepWeightCache {
 
 impl From<RepWeights> for RepWeightCache {
     fn from(value: RepWeights) -> Self {
-        let mut rep_weights_cache = RepWeightCache::new();
-        rep_weights_cache.weights = RwLock::new(value).into();
-        rep_weights_cache
+        Self {
+            weights: Arc::new(RwLock::new(value)),
+            bootstrap_weights: RwLock::new(RepWeights::default()),
+            max_blocks: 0,
+            ledger_cache: Arc::new(LedgerCache::new()),
+            check_bootstrap_weights: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Default for RepWeightCache {
+    fn default() -> Self {
+        Self::new(Amount::ZERO)
     }
 }

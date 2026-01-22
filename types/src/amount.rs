@@ -109,6 +109,14 @@ impl Amount {
         }
     }
 
+    pub fn checked_add(&self, other: Amount) -> Option<Amount> {
+        self.raw.checked_add(other.raw).map(Self::raw)
+    }
+
+    pub fn checked_sub(&self, other: Amount) -> Option<Amount> {
+        self.raw.checked_sub(other.raw).map(Self::raw)
+    }
+
     pub fn wrapping_add(&self, other: Amount) -> Amount {
         self.raw.wrapping_add(other.raw).into()
     }

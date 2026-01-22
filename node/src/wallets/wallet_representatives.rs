@@ -43,7 +43,7 @@ impl WalletRepresentatives {
         Self::new(
             false,
             Amount::ZERO,
-            Arc::new(RepWeightCache::new()),
+            Arc::new(RepWeightCache::default()),
             Arc::new(Wallets::new_null()),
             Arc::new(Mutex::new(OnlineReps::new_test_instance())),
         )

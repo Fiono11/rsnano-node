@@ -3,8 +3,8 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::SystemTime,
 };
@@ -17,7 +17,7 @@ use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
-    ConfiguredPendingDatabaseBuilder, LmdbStore, MemoryStats,
+    ConfiguredPendingDatabaseBuilder, ConfiguredRepWeightDatabaseBuilder, LmdbStore, MemoryStats,
 };
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
@@ -32,12 +32,12 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
-    RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
+    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerSet,
+    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
+    RollbackError,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
@@ -131,6 +131,7 @@ pub struct NullLedgerBuilder {
     accounts: ConfiguredAccountDatabaseBuilder,
     pending: ConfiguredPendingDatabaseBuilder,
     peers: ConfiguredPeersDatabaseBuilder,
+    rep_weights: ConfiguredRepWeightDatabaseBuilder,
     #[cfg(feature = "ledger_snapshots")]
     forks: ConfiguredForksDatabaseBuilder,
     confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder,
@@ -144,6 +145,7 @@ impl NullLedgerBuilder {
             accounts: ConfiguredAccountDatabaseBuilder::new(),
             pending: ConfiguredPendingDatabaseBuilder::new(),
             peers: ConfiguredPeersDatabaseBuilder::new(),
+            rep_weights: ConfiguredRepWeightDatabaseBuilder::new(),
             #[cfg(feature = "ledger_snapshots")]
             forks: ConfiguredForksDatabaseBuilder::new(),
             confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder::new(),
@@ -166,6 +168,13 @@ impl NullLedgerBuilder {
     pub fn peers(mut self, peers: impl IntoIterator<Item = (SocketAddrV6, SystemTime)>) -> Self {
         for (peer, time) in peers.into_iter() {
             self.peers = self.peers.peer(peer, time)
+        }
+        self
+    }
+
+    pub fn rep_weights(mut self, weights: impl IntoIterator<Item = (PublicKey, Amount)>) -> Self {
+        for (rep, weight) in weights.into_iter() {
+            self.rep_weights = self.rep_weights.entry(rep, weight);
         }
         self
     }
@@ -228,7 +237,8 @@ impl NullLedgerBuilder {
             .configured_database(self.accounts.build())
             .configured_database(self.pending.build())
             .configured_database(self.confirmation_height.build())
-            .configured_database(self.peers.build());
+            .configured_database(self.peers.build())
+            .configured_database(self.rep_weights.build());
 
         let env_builder = {
             #[cfg(not(feature = "ledger_snapshots"))]
@@ -245,8 +255,7 @@ impl NullLedgerBuilder {
         Ledger::new(
             env,
             LedgerConstants::unit_test(),
-            self.min_rep_weight,
-            Arc::new(RepWeightCache::new()),
+            Arc::new(RepWeightCache::new(self.min_rep_weight)),
             Arc::new(Stats::default()),
             1,
         )
@@ -259,8 +268,7 @@ impl Ledger {
         Self::new(
             LmdbEnvironment::new_null(),
             LedgerConstants::unit_test(),
-            Amount::ZERO,
-            Arc::new(RepWeightCache::new()),
+            Arc::new(RepWeightCache::default()),
             Arc::new(Stats::default()),
             1,
         )
@@ -274,7 +282,6 @@ impl Ledger {
     pub(crate) fn new(
         env: LmdbEnvironment,
         constants: LedgerConstants,
-        min_rep_weight: Amount,
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
@@ -282,8 +289,7 @@ impl Ledger {
         let mut store = LmdbStore::new(env)?;
         store.cache = rep_weights.ledger_cache.clone();
 
-        let rep_weights_updater =
-            RepWeightsUpdater::new(store.rep_weight.clone(), min_rep_weight, &rep_weights);
+        let rep_weights_updater = RepWeightsUpdater::new(store.rep_weight.clone(), &rep_weights);
 
         let mut ledger = Self {
             rep_weights,
@@ -295,19 +301,17 @@ impl Ledger {
             store_version: 0,
         };
 
-        ledger.initialize(thread_count, &GenerateCacheFlags::new())?;
+        ledger.initialize(thread_count)?;
 
         Ok(ledger)
     }
 
-    fn initialize(
-        &mut self,
-        thread_count: usize,
-        generate_cache: &GenerateCacheFlags,
-    ) -> anyhow::Result<()> {
+    fn initialize(&mut self, thread_count: usize) -> anyhow::Result<()> {
         {
             let txn = self.store.begin_read();
             self.store_version = self.store.version.get(&txn).unwrap_or_default() as u32;
+
+            // Add genesis block to new ledger
             if self.store.account.iter(&txn).next().is_none() {
                 let mut txn = self.store.begin_write();
                 self.add_genesis_block(&mut txn);
@@ -315,50 +319,52 @@ impl Ledger {
             }
         }
 
-        if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
-            self.store
-                .account
-                .for_each_par(&self.store.env, thread_count, |iter| {
-                    let mut block_count = 0;
-                    let mut account_count = 0;
-                    let mut rep_weights: HashMap<PublicKey, Amount> = HashMap::new();
-
-                    for (_, info) in iter {
-                        block_count += info.block_count;
-                        account_count += 1;
-                        if !info.balance.is_zero() {
-                            let total = rep_weights.entry(info.representative).or_default();
-                            *total += info.balance;
-                        }
-                    }
-                    self.store
-                        .cache
-                        .block_count
-                        .fetch_add(block_count, Ordering::SeqCst);
-
-                    self.store
-                        .cache
-                        .account_count
-                        .fetch_add(account_count, Ordering::SeqCst);
-
-                    self.rep_weights_updater.copy_from(&rep_weights);
-                });
+        // Load rep weights
+        {
+            let txn = self.store.begin_read();
+            let rep_weights = self.rep_weights.inner();
+            let mut write_guard = rep_weights.write().unwrap();
+            for (rep, weight) in self.store.rep_weight.iter(&txn) {
+                write_guard.put(rep, weight);
+            }
         }
 
-        if generate_cache.confirmed_count {
-            self.store
-                .confirmation_height
-                .for_each_par(&self.store.env, thread_count, |iter| {
-                    let mut confirmed_count = 0;
-                    for (_, info) in iter {
-                        confirmed_count += info.height;
-                    }
-                    self.store
-                        .cache
-                        .confirmed_count
-                        .fetch_add(confirmed_count, Ordering::SeqCst);
-                });
-        }
+        // Count blocks and accounts
+        self.store
+            .account
+            .for_each_par(&self.store.env, thread_count, |iter| {
+                let mut block_count = 0;
+                let mut account_count = 0;
+
+                for (_, info) in iter {
+                    block_count += info.block_count;
+                    account_count += 1;
+                }
+
+                self.store
+                    .cache
+                    .block_count
+                    .fetch_add(block_count, Ordering::SeqCst);
+
+                self.store
+                    .cache
+                    .account_count
+                    .fetch_add(account_count, Ordering::SeqCst);
+            });
+
+        // Count confirmed blocks
+        self.store
+            .confirmation_height
+            .for_each_par(&self.store.env, thread_count, |iter| {
+                let mut confirmed_count = 0;
+                for (_, info) in iter {
+                    confirmed_count += info.height;
+                }
+                self.store
+                    .cache
+                    .confirmed_count
+                    .fetch_add(confirmed_count, Ordering::SeqCst);
+            });
 
         Ok(())
     }

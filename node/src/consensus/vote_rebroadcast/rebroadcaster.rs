@@ -131,7 +131,7 @@ mod tests {
         let queue = Arc::new(VoteRebroadcastQueue::default());
         let message_flooder = MessageFlooder::new_null();
         let flood_tracker = message_flooder.track_floods();
-        let rep_weights = Arc::new(RepWeightCache::new());
+        let rep_weights = Arc::new(RepWeightCache::default());
         let clock = Arc::new(SteadyClock::new_null());
         let rebroadcaster = VoteRebroadcaster::new(
             queue.clone(),

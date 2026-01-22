@@ -44,7 +44,7 @@ impl OnlineRepsBuilder {
     pub fn finish(self) -> OnlineReps {
         let rep_weights = self
             .rep_weights
-            .unwrap_or_else(|| Arc::new(RepWeightCache::new()));
+            .unwrap_or_else(|| Arc::new(RepWeightCache::default()));
 
         let mut online_reps = OnlineReps::new(
             rep_weights,

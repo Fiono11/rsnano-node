@@ -595,14 +595,14 @@ mod tests {
         fn finish(self) -> Fixture {
             let online_weight = Amount::nano(100_000_000);
             let quorum_weight = Amount::nano(67_000_000);
-            let mut rep_weights = RepWeights::new();
+            let mut rep_weights = RepWeights::default();
             let rep_weight = online_weight / 4_u128;
 
             let rep_keys = RepKeys::default();
-            rep_weights.insert(rep_keys.local_rep.public_key(), rep_weight);
-            rep_weights.insert(rep_keys.rep2.public_key(), rep_weight);
-            rep_weights.insert(rep_keys.rep3.public_key(), rep_weight);
-            rep_weights.insert(rep_keys.rep4.public_key(), rep_weight);
+            rep_weights.put(rep_keys.local_rep.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep2.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep3.public_key(), rep_weight);
+            rep_weights.put(rep_keys.rep4.public_key(), rep_weight);
 
             let ledger = Ledger::new_null_builder()
                 .frontiers(self.frontiers)

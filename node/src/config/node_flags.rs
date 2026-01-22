@@ -1,5 +1,3 @@
-use rsnano_ledger::GenerateCacheFlags;
-
 #[derive(Clone)]
 pub struct NodeFlags {
     pub config_overrides: Vec<String>,
@@ -16,7 +14,6 @@ pub struct NodeFlags {
     pub fast_bootstrap: bool,
     pub read_only: bool,
     pub disable_connection_cleanup: bool,
-    pub generate_cache: GenerateCacheFlags,
     pub inactive_node: bool,
     pub bootstrap_interval: usize, // For testing only
 }
@@ -38,7 +35,6 @@ impl NodeFlags {
             fast_bootstrap: false,
             read_only: false,
             disable_connection_cleanup: false,
-            generate_cache: GenerateCacheFlags::new(),
             inactive_node: false,
             bootstrap_interval: 0,
         }
