@@ -14,6 +14,8 @@ use rsnano_ledger::Ledger;
 use rsnano_messages::{Aggregatable, Message, Preproposal, Proposal, ProposalVote};
 use rsnano_network::TrafficType;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+#[cfg(feature = "ledger_snapshots")]
+use rsnano_store_lmdb::{LmdbSnapshotStore, SnapshotData};
 use rsnano_types::{Account, Amount, BlockHash};
 use rsnano_types::{PrivateKey, SnapshotNumber};
 use std::sync::{Arc, Mutex};
@@ -40,6 +42,18 @@ impl LedgerSnapshots {
         flooder: MessageFlooder,
         online_reps: Arc<Mutex<OnlineReps>>,
     ) -> Self {
+        // Load current snapshot number from store
+        #[cfg(feature = "ledger_snapshots")]
+        let current_snapshot_number = {
+            let txn = ledger.store.begin_read();
+            ledger.store.snapshots.get_current_snapshot_number(&txn)
+        };
+        #[cfg(not(feature = "ledger_snapshots"))]
+        let current_snapshot_number = 0;
+
+        let mut state = State::default();
+        state.current_snapshot_number = current_snapshot_number;
+
         Self {
             ledger,
             get_private_key: Box::new(get_private_key),
@@ -47,7 +61,7 @@ impl LedgerSnapshots {
             receive_preproposal_listener: OutputListenerMt::new(),
             receive_proposal_listener: OutputListenerMt::new(),
             receive_vote_listener: OutputListenerMt::new(),
-            state: Default::default(),
+            state: Mutex::new(state),
             online_reps,
         }
     }
@@ -277,8 +291,39 @@ impl LedgerSnapshots {
                     proposal_hash = ?winner,
                     "=== SNAPSHOT CONSENSUS REACHED === Found winning proposal!"
                 );
+
+                // Collect frontiers for the snapshot before advancing epoch
+                let frontiers = self.collect_frontiers();
+
+                // Store the snapshot
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    let snapshot_data = SnapshotData {
+                        proposal_hash: Some(winner),
+                        frontiers: frontiers.clone(),
+                    };
+                    let mut txn = self.ledger.store.begin_write();
+                    self.ledger
+                        .store
+                        .snapshots
+                        .put(&mut txn, snapshot_number, &snapshot_data);
+                    txn.commit();
+                }
+
                 state.advance_epoch();
                 let new_snapshot_number = state.current_snapshot_number;
+
+                // Persist the new snapshot number
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    let mut txn = self.ledger.store.begin_write();
+                    self.ledger
+                        .store
+                        .snapshots
+                        .set_current_snapshot_number(&mut txn, new_snapshot_number);
+                    txn.commit();
+                }
+
                 tracing::warn!(
                     old_snapshot_number = snapshot_number,
                     new_snapshot_number = new_snapshot_number,
@@ -299,13 +344,42 @@ impl LedgerSnapshots {
                 );
             } else {
                 // Nil confirmed - no snapshot taken
+                let snapshot_number = state.current_snapshot_number;
                 tracing::warn!(
-                    snapshot_number = state.current_snapshot_number,
+                    snapshot_number = snapshot_number,
                     total_vote_weight = ?total_vote_weight,
                     "=== SNAPSHOT CONSENSUS: NIL CONFIRMED === No snapshot will be taken"
                 );
+
+                // Store nil snapshot
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    let snapshot_data = SnapshotData {
+                        proposal_hash: None,
+                        frontiers: Vec::new(),
+                    };
+                    let mut txn = self.ledger.store.begin_write();
+                    self.ledger
+                        .store
+                        .snapshots
+                        .put(&mut txn, snapshot_number, &snapshot_data);
+                    txn.commit();
+                }
+
                 // Advance epoch even for nil to move to next snapshot number
                 state.advance_epoch();
+                let new_snapshot_number = state.current_snapshot_number;
+
+                // Persist the new snapshot number
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    let mut txn = self.ledger.store.begin_write();
+                    self.ledger
+                        .store
+                        .snapshots
+                        .set_current_snapshot_number(&mut txn, new_snapshot_number);
+                    txn.commit();
+                }
             }
         }
     }

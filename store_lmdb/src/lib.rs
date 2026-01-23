@@ -17,6 +17,8 @@ mod online_weight_store;
 mod peer_store;
 mod pending_store;
 mod rep_weight_store;
+#[cfg(feature = "ledger_snapshots")]
+mod snapshot_store;
 mod store;
 mod successor_store;
 mod upgrades;
@@ -41,6 +43,8 @@ pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;
+#[cfg(feature = "ledger_snapshots")]
+pub use snapshot_store::{LmdbSnapshotStore, SnapshotData};
 pub use store::{LedgerCache, LmdbStore, MemoryStats};
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;
@@ -102,6 +106,8 @@ pub const REP_WEIGHT_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(7);
 pub const CONFIRMATION_HEIGHT_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(8);
 pub const PEERS_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(9);
 pub const FORKS_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(10);
+#[cfg(feature = "ledger_snapshots")]
+pub const SNAPSHOT_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(11);
 
 #[cfg(test)]
 mod test {
