@@ -382,21 +382,70 @@ impl Election {
     }
 
     fn check_new_winner(&mut self, quorum_delta: Amount) -> Option<BlockHash> {
-        if self.tallies.sum() < quorum_delta {
-            // The winner can only be changed after a super majority of votes has been observed!
+        use primitive_types::U256;
+
+        let total_vote_weight = self.tallies.sum();
+
+        // Calculate online weight from quorum_delta (quorum_delta is 67% of online weight)
+        // online_weight = quorum_delta * 100 / 67
+        let online_weight = if quorum_delta == Amount::MAX {
+            // If quorum_delta is MAX, use total_vote_weight as a proxy
+            total_vote_weight
+        } else {
+            let quorum_u256 = U256::from(quorum_delta.number());
+            let online_u256 = quorum_u256 * U256::from(100) / U256::from(67);
+            Amount::raw(online_u256.as_u128())
+        };
+
+        // Check if we have 4f+1 votes (80% of online weight)
+        let four_f_plus_one_threshold = if online_weight > Amount::ZERO {
+            let threshold_u256 =
+                U256::from(online_weight.number()) * U256::from(80) / U256::from(100);
+            Amount::raw(threshold_u256.as_u128())
+        } else {
+            Amount::ZERO
+        };
+
+        // Only proceed if we have at least 4f+1 votes (80% of online weight)
+        if total_vote_weight < four_f_plus_one_threshold {
             return None;
         }
 
-        // Check if the fork with the highest tally has reached the quorum threshold
-        let highest_tally = self
+        // Find the most popular block (highest tally)
+        let (most_popular_hash, most_popular_weight) = self
             .tallies
             .winner()
-            .map(|(_, tally)| *tally)
-            .unwrap_or_default();
+            .map(|(hash, tally)| (*hash, *tally))
+            .unwrap_or((BlockHash::ZERO, Amount::ZERO));
 
-        // If at least 2/3 + 1 of voting weight has voted but no fork has reached that threshold,
-        // create a dummy block and change winner to it
-        if highest_tally < quorum_delta {
+        if most_popular_hash.is_zero() {
+            return None;
+        }
+
+        let current_winner_hash = self.winner.hash();
+
+        // Decision rules (same as ledger snapshot):
+        // 1. If 4f+1 (80%) vote for the same block, confirm that one
+        if most_popular_weight >= four_f_plus_one_threshold {
+            // Check if it's different from current winner
+            if most_popular_hash != current_winner_hash {
+                return Some(most_popular_hash);
+            } else {
+                return None; // Winner stays the same
+            }
+        }
+
+        // 2. If (total votes - votes for most popular) >= 40% of online weight, confirm nil (dummy)
+        let votes_not_for_most_popular = total_vote_weight - most_popular_weight;
+        let forty_percent_threshold = if online_weight > Amount::ZERO {
+            let threshold_u256 =
+                U256::from(online_weight.number()) * U256::from(40) / U256::from(100);
+            Amount::raw(threshold_u256.as_u128())
+        } else {
+            Amount::ZERO
+        };
+
+        if votes_not_for_most_popular >= forty_percent_threshold {
             // Create a dummy block with the same previous as the current winner
             let current_winner_previous = self.winner.previous();
             let dummy_block: Block = DummyBlockArgs {
@@ -414,10 +463,54 @@ impl Election {
                 self.tallies.insert(dummy_hash, Amount::ZERO);
             }
 
-            // Return the dummy block hash to change winner to it
-            return Some(dummy_hash);
+            // Check if it's different from current winner
+            if dummy_hash != current_winner_hash {
+                return Some(dummy_hash);
+            } else {
+                return None; // Winner stays the same (already dummy)
+            }
+        }
+
+        // 3. Else (<40%), if some block has at least 41% of online weight, confirm that one
+        let forty_one_percent_threshold = if online_weight > Amount::ZERO {
+            let threshold_u256 =
+                U256::from(online_weight.number()) * U256::from(41) / U256::from(100);
+            Amount::raw(threshold_u256.as_u128())
         } else {
-            None
+            Amount::ZERO
+        };
+
+        if most_popular_weight >= forty_one_percent_threshold {
+            // Check if it's different from current winner
+            if most_popular_hash != current_winner_hash {
+                return Some(most_popular_hash);
+            } else {
+                return None; // Winner stays the same
+            }
+        }
+
+        // 4. Else confirm nil (dummy)
+        let current_winner_previous = self.winner.previous();
+        let dummy_block: Block = DummyBlockArgs {
+            previous: current_winner_previous,
+        }
+        .into();
+
+        let dummy_hash = dummy_block.hash();
+
+        // Add the dummy block to candidate blocks if it doesn't already exist
+        if !self.candidate_blocks.contains_key(&dummy_hash) {
+            self.candidate_blocks
+                .insert(dummy_hash, MaybeSavedBlock::Unsaved(dummy_block.clone()));
+            // Initialize tally for the dummy block (starting with 0)
+            self.tallies.insert(dummy_hash, Amount::ZERO);
+        }
+
+        // Check if it's different from current winner
+        if dummy_hash != current_winner_hash {
+            Some(dummy_hash)
+        } else {
+            None // Winner stays the same (already dummy)
         }
     }
 

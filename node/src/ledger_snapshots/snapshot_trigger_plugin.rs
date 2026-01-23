@@ -1,8 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    block_processing::LedgerEvent,
-    ledger_event_processor::LedgerEventProcessorPlugin,
+    block_processing::LedgerEvent, ledger_event_processor::LedgerEventProcessorPlugin,
     ledger_snapshots::LedgerSnapshots,
 };
 use tracing::{info, warn};
@@ -53,9 +52,7 @@ impl LedgerEventProcessorPlugin for SnapshotTriggerPlugin {
                 );
                 self.ledger_snapshots.start_ledger_snapshot();
                 *total_count = 0;
-                info!(
-                    "Snapshot triggered, counter reset to 0"
-                );
+                info!("Snapshot triggered, counter reset to 0");
             }
         }
     }
