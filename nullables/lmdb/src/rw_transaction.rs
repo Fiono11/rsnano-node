@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     rc::Rc,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -167,7 +168,7 @@ impl RwTransaction {
         let db_copies = databases.lock().unwrap().clone();
         Self {
             strategy: RwTransactionStrategy::Nulled(RwTransactionStub {
-                db_copies,
+                db_copies: RefCell::new(db_copies),
                 databases,
             }),
         }
@@ -243,8 +244,9 @@ impl RwTransaction {
     }
 
     pub fn clear_db(&mut self, database: LmdbDatabase) -> lmdb::Result<()> {
-        if let RwTransactionStrategy::Real(s) = &mut self.strategy {
-            s.clear_db(database.as_real())?;
+        match &mut self.strategy {
+            RwTransactionStrategy::Real(s) => s.clear_db(database.as_real())?,
+            RwTransactionStrategy::Nulled(s) => s.clear_db(database)?,
         }
         Ok(())
     }
@@ -266,7 +268,7 @@ impl RwTransaction {
     pub fn count(&self, database: LmdbDatabase) -> u64 {
         match &self.strategy {
             RwTransactionStrategy::Real(s) => s.count(database.as_real()),
-            RwTransactionStrategy::Nulled(_) => 0,
+            RwTransactionStrategy::Nulled(s) => s.count(database),
         }
     }
 
@@ -358,7 +360,7 @@ impl RwTransactionWrapper {
 }
 
 pub struct RwTransactionStub {
-    db_copies: Vec<ConfiguredDatabase>,
+    db_copies: RefCell<Vec<ConfiguredDatabase>>,
     databases: Arc<Mutex<Vec<ConfiguredDatabase>>>,
 }
 
@@ -380,9 +382,11 @@ impl RwTransactionStub {
     }
 
     fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
-        Ok(RoCursor::new_null_with(
-            self.db_copies.iter().find(|db| db.dbi == database).unwrap(),
-        ))
+        let db = self.get_database(database)?;
+        // SAFETY: The reference is valid as long as the RefCell borrow is held,
+        // but we need to return it. This is safe because we're only reading,
+        // and the database won't be removed from db_copies during the transaction.
+        Ok(RoCursor::new_null_with(unsafe { std::mem::transmute(db) }))
     }
 
     fn create_db(&self, _name: Option<&str>, _flags: DatabaseFlags) -> lmdb::Result<LmdbDatabase> {
@@ -390,28 +394,82 @@ impl RwTransactionStub {
     }
 
     fn get_database(&self, database: LmdbDatabase) -> lmdb::Result<&ConfiguredDatabase> {
-        self.db_copies
-            .iter()
-            .find(|d| d.dbi == database)
-            .ok_or(lmdb::Error::NotFound)
+        // First check db_copies
+        {
+            let db_copies = self.db_copies.borrow();
+            if let Some(db) = db_copies.iter().find(|d| d.dbi == database) {
+                // SAFETY: The reference is valid as long as the RefCell borrow is held,
+                // but we need to return it. This is safe because we're only reading,
+                // and the database won't be removed from db_copies during the transaction.
+                return unsafe { Ok(std::mem::transmute(db)) };
+            }
+        }
+        // If not found, check the environment's databases and add to db_copies
+        let env_dbs = self.databases.lock().unwrap();
+        if let Some(db) = env_dbs.iter().find(|d| d.dbi == database) {
+            // Clone and add to db_copies
+            let db_clone = db.clone();
+            drop(env_dbs);
+            self.db_copies.borrow_mut().push(db_clone);
+            // Now find it in db_copies
+            let db_copies = self.db_copies.borrow();
+            let db = db_copies.iter().find(|d| d.dbi == database).unwrap();
+            // SAFETY: Same as above - safe because we're only reading
+            return unsafe { Ok(std::mem::transmute(db)) };
+        }
+        Err(lmdb::Error::NotFound)
     }
 
     fn get_database_mut(
         &mut self,
         database: LmdbDatabase,
     ) -> lmdb::Result<&mut ConfiguredDatabase> {
-        self.db_copies
-            .iter_mut()
-            .find(|d| d.dbi == database)
-            .ok_or(lmdb::Error::NotFound)
+        // First check db_copies
+        {
+            let mut db_copies = self.db_copies.borrow_mut();
+            if let Some(db) = db_copies.iter_mut().find(|d| d.dbi == database) {
+                // SAFETY: The mutable reference is valid as long as the RefCell borrow is held.
+                // This is safe because we're the only one with a mutable reference to self.
+                return unsafe { Ok(std::mem::transmute(db)) };
+            }
+        }
+        // If not found, check the environment's databases and add to db_copies
+        let env_dbs = self.databases.lock().unwrap();
+        if let Some(db) = env_dbs.iter().find(|d| d.dbi == database) {
+            // Clone and add to db_copies
+            let db_clone = db.clone();
+            drop(env_dbs);
+            let mut db_copies = self.db_copies.borrow_mut();
+            db_copies.push(db_clone);
+            // Now find it in db_copies
+            let db = db_copies.iter_mut().find(|d| d.dbi == database).unwrap();
+            // SAFETY: Same as above
+            return unsafe { Ok(std::mem::transmute(db)) };
+        }
+        Err(lmdb::Error::NotFound)
     }
 
     fn commit(self) {
-        *self.databases.lock().unwrap() = self.db_copies;
+        *self.databases.lock().unwrap() = self.db_copies.into_inner();
     }
 
     fn del(&mut self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<()> {
         self.get_database_mut(database)?.entries.remove(key);
+        Ok(())
+    }
+
+    fn count(&self, database: LmdbDatabase) -> u64 {
+        match self.get_database(database) {
+            Ok(db) => db.entries.len() as u64,
+            Err(_) => 0,
+        }
+    }
+
+    fn clear_db(&mut self, database: LmdbDatabase) -> lmdb::Result<()> {
+        // If database doesn't exist, that's fine - clearing a non-existent database is a no-op
+        if let Ok(db) = self.get_database_mut(database) {
+            db.entries.clear();
+        }
         Ok(())
     }
 }
