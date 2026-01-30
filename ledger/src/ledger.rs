@@ -332,7 +332,7 @@ impl Ledger {
                 write_guard.put(rep, weight);
                 total_committed_rep_weight = total_committed_rep_weight
                     .checked_add(weight)
-                    .expect("total rep weight should never overlow");
+                    .expect("total rep weight should never overflow");
             }
         }
 
