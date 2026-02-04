@@ -5,9 +5,7 @@ use rsnano_types::{Block, PrivateKey};
 
 impl RpcCommandHandler {
     pub(crate) fn sign(&self, args: SignArgs) -> anyhow::Result<SignResponse> {
-        // Retrieving hash
         let mut hash = args.hash.unwrap_or_default();
-        // Retrieving block
         let block = args.block.map(Block::from);
         if let Some(b) = &block {
             hash = b.hash();
@@ -22,16 +20,13 @@ impl RpcCommandHandler {
         let prv: PrivateKey = if let Some(key) = args.key {
             // Retrieving private key from request
             key.into()
-        } else {
+        } else if let Some(wallet_id) = args.wallet
+            && let Some(account) = args.account
+        {
             // Retrieving private key from wallet
-            if args.wallet.is_some() && args.account.is_some() {
-                self.node
-                    .wallets
-                    .fetch(&args.wallet.unwrap(), &args.account.unwrap().into())?
-                    .into()
-            } else {
-                PrivateKey::zero()
-            }
+            self.node.wallets.fetch(&wallet_id, &account.into())?.into()
+        } else {
+            PrivateKey::zero()
         };
 
         // Signing

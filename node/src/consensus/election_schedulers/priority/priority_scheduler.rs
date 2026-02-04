@@ -246,10 +246,12 @@ impl PriorityScheduler {
     }
 
     fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {
-        if let Some(destination) = block.destination() {
-            if block.is_send() && !destination.is_zero() && destination != block.account() {
-                self.activate(any, &destination);
-            }
+        if let Some(destination) = block.destination()
+            && block.is_send()
+            && !destination.is_zero()
+            && destination != block.account()
+        {
+            self.activate(any, &destination);
         }
     }
 
@@ -281,7 +283,7 @@ impl PrioritySchedulerExt for Arc<PriorityScheduler> {
     fn start(&self) {
         debug_assert!(self.thread.lock().unwrap().is_none());
 
-        let self_l = Arc::clone(&self);
+        let self_l = Arc::clone(self);
         *self.thread.lock().unwrap() = Some(
             std::thread::Builder::new()
                 .name("Sched Priority".to_string())

@@ -314,11 +314,8 @@ impl CacheEntry {
 
         // Vote from a new representative, add it to the list and update tally
         if should_add {
-            self.voters.insert(VoterEntry::new(
-                representative,
-                rep_weight,
-                Arc::clone(&vote),
-            ));
+            self.voters
+                .insert(VoterEntry::new(representative, rep_weight, vote.clone()));
 
             // If we have reached the maximum number of voters, remove the lowest weight voter
             if self.voters.len() >= max_voters {
@@ -515,11 +512,11 @@ impl OrderedVoters {
     }
 
     fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
-        if let Some(mut accounts) = self.by_weight.remove(weight) {
-            if accounts.len() > 1 {
-                accounts.retain(|a| a != representative);
-                self.by_weight.insert(*weight, accounts);
-            }
+        if let Some(mut accounts) = self.by_weight.remove(weight)
+            && accounts.len() > 1
+        {
+            accounts.retain(|a| a != representative);
+            self.by_weight.insert(*weight, accounts);
         }
     }
 

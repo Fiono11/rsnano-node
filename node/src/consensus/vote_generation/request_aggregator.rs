@@ -1,5 +1,4 @@
 use std::{
-    cmp::{max, min},
     sync::{Arc, Condvar, Mutex, MutexGuard},
     thread::JoinHandle,
 };
@@ -29,21 +28,20 @@ pub struct RequestAggregatorConfig {
 impl RequestAggregatorConfig {
     pub fn new(parallelism: usize) -> Self {
         Self {
-            threads: max(1, min(parallelism / 2, 4)),
+            threads: (parallelism / 2).clamp(1, 4),
             max_queue: 128,
             batch_size: 16,
         }
     }
 }
 
-/**
- * Pools together confirmation requests, separately for each endpoint.
- * Requests are added from network messages, and aggregated to minimize bandwidth and vote generation. Example:
- * * Two votes are cached, one for hashes {1,2,3} and another for hashes {4,5,6}
- * * A request arrives for hashes {1,4,5}. Another request arrives soon afterwards for hashes {2,3,6}
- * * The aggregator will reply with the two cached votes
- * Votes are generated for uncached hashes.
- */
+///  Pools together confirmation requests, separately for each endpoint.
+///  Requests are added from network messages, and aggregated to minimize bandwidth and vote generation. Example:
+///  * Two votes are cached, one for hashes {1,2,3} and another for hashes {4,5,6}
+///  * A request arrives for hashes {1,4,5}. Another request arrives soon afterwards for hashes {2,3,6}
+///  * The aggregator will reply with the two cached votes
+///
+///  Votes are generated for uncached hashes.
 pub struct RequestAggregator {
     config: RequestAggregatorConfig,
     stats: Arc<Stats>,

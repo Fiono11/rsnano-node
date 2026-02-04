@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{

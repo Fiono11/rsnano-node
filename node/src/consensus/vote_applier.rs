@@ -95,7 +95,7 @@ impl VoteApplier {
             })
         };
 
-        self.notify_vote_processed(&vote, voter_weight, &results);
+        self.notify_vote_processed(vote, voter_weight, &results);
         results
     }
 

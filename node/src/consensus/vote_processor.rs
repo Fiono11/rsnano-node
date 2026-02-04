@@ -186,7 +186,7 @@ pub fn aggregate_vote_results(
     let mut replay = false;
     let mut processed = false;
     let mut late = false;
-    for (_, res) in results {
+    for res in results.values() {
         ignored |= matches!(res, Err(VoteError::Ignored));
         replay |= matches!(res, Err(VoteError::Replay));
         processed |= res.is_ok();

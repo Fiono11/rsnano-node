@@ -11,7 +11,7 @@ impl LocalVotesRemover {
     /// Removes votes that were created by this node from an election
     /// if the election winner has changed
     pub fn remove_local_votes(&self, previous_winner: &BlockHash, root: &QualifiedRoot) {
-        let votes = self.vote_history.votes(&root.root, &previous_winner, false);
+        let votes = self.vote_history.votes(&root.root, previous_winner, false);
 
         self.active_elections
             .write()

@@ -83,6 +83,12 @@ pub struct CurrentRepTiers(Mutex<RepTiers>);
 
 impl CurrentRepTiers {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for CurrentRepTiers {
+    fn default() -> Self {
         Self(Mutex::new(RepTiers::default()))
     }
 }

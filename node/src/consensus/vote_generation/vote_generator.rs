@@ -308,7 +308,7 @@ impl SharedState {
         queues
     }
 
-    fn vote<F>(&self, hashes: &Vec<BlockHash>, roots: &Vec<Root>, action: F)
+    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], action: F)
     where
         F: Fn(Arc<Vote>),
     {
@@ -336,7 +336,7 @@ impl SharedState {
                 &rep_key,
                 timestamp,
                 duration,
-                hashes.clone(),
+                hashes.to_vec(),
             )));
         }
 
