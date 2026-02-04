@@ -10,8 +10,8 @@ ledger_snapshots = [
 ]
 
 [dependencies]
-eframe = "0.33.2"
-egui_extras = "0.33.2"
+eframe = "0.33.3"
+egui_extras = "0.33.3"
 rsnano_nullable_clock = { path = "../../nullables/clock" }
 rsnano_nullable_tracing_subscriber = { path = "../../nullables/tracing_subscriber" }
 rsnano_types = { path = "../../types" }
@@ -27,7 +27,7 @@ num-format = "0.4.4"
 num = "0"
 num-traits = "0"
 num-derive = "0"
-chrono = "0.4.42"
+chrono = "0.4.43"
 strum = "0"
 tracing = "0"
 serde_json = "1"
