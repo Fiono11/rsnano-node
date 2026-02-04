@@ -24,7 +24,7 @@ impl NodeConfig {
             self.callback_address = address.clone();
         }
         if let Some(port) = &toml.port {
-            self.callback_port = port.clone();
+            self.callback_port = *port;
         }
         if let Some(target) = &toml.target {
             self.callback_target = target.clone();

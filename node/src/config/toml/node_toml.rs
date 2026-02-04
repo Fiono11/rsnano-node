@@ -105,10 +105,10 @@ impl NodeConfig {
         if let Some(enable_voting) = toml.enable_voting {
             self.enable_voting = enable_voting;
         }
-        if let Some(opt) = &toml.optimistic_scheduler {
-            if let Some(enable) = opt.enable {
-                self.enable_optimistic_scheduler = enable;
-            }
+        if let Some(opt) = &toml.optimistic_scheduler
+            && let Some(enable) = opt.enable
+        {
+            self.enable_optimistic_scheduler = enable;
         }
         if let Some(external_address) = &toml.external_address {
             self.external_address = external_address.clone();
@@ -169,7 +169,7 @@ impl NodeConfig {
         }
         if let Some(representative_vote_weight_minimum) = &toml.representative_vote_weight_minimum {
             self.representative_vote_weight_minimum =
-                Amount::decode_dec(&representative_vote_weight_minimum)
+                Amount::decode_dec(representative_vote_weight_minimum)
                     .expect("Invalid representative vote weight minimum");
         }
         if let Some(request_aggregator_threads) = toml.request_aggregator_threads {
@@ -188,12 +188,12 @@ impl NodeConfig {
             self.vote_generator_delay = Duration::from_millis(delay);
         }
         if let Some(vote_minimum) = &toml.vote_minimum {
-            self.vote_minimum = Amount::decode_dec(&vote_minimum).expect("Invalid vote minimum");
+            self.vote_minimum = Amount::decode_dec(vote_minimum).expect("Invalid vote minimum");
         }
         if let Some(work_peers) = &toml.work_peers {
             self.work_peers = work_peers
                 .iter()
-                .map(|string| Peer::from_str(&string).expect("Invalid work peer"))
+                .map(|string| Peer::from_str(string).expect("Invalid work peer"))
                 .collect();
         }
         if let Some(work_threads) = toml.work_threads {
@@ -209,7 +209,7 @@ impl NodeConfig {
             if let Some(enable) = cfg.enable {
                 self.enable_hinted_scheduler = enable;
             }
-            self.hinted_scheduler.merge_toml(&cfg);
+            self.hinted_scheduler.merge_toml(cfg);
         }
         if let Some(priority_bucket_toml) = &toml.priority_bucket {
             self.priority_bucket = priority_bucket_toml.into();
@@ -281,7 +281,7 @@ impl NodeConfig {
             }
         }
         if let Some(websocket_config_toml) = &toml.websocket {
-            self.websocket_config.merge_toml(&websocket_config_toml);
+            self.websocket_config.merge_toml(websocket_config_toml);
         }
         if let Some(lmdb_config_toml) = &toml.lmdb {
             self.lmdb_config = lmdb_config_toml.into();
@@ -317,7 +317,7 @@ impl NodeConfig {
             }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
-            self.vote_processor.merge_toml(&vote_processor_toml);
+            self.vote_processor.merge_toml(vote_processor_toml);
         }
         if let Some(request_aggregator_toml) = &toml.request_aggregator {
             self.request_aggregator.merge_toml(request_aggregator_toml);
@@ -334,7 +334,7 @@ impl NodeConfig {
             }
         }
         if let Some(rep_crawler_weight_minimum) = &toml.rep_crawler_weight_minimum {
-            self.rep_crawler_weight_minimum = Amount::decode_dec(&rep_crawler_weight_minimum)
+            self.rep_crawler_weight_minimum = Amount::decode_dec(rep_crawler_weight_minimum)
                 .expect("Invalid rep crawler weight minimum");
         }
         if let Some(httpcallback) = &toml.httpcallback {
@@ -342,7 +342,7 @@ impl NodeConfig {
                 self.callback_address = address.clone();
             }
             if let Some(port) = &httpcallback.port {
-                self.callback_port = port.clone();
+                self.callback_port = *port;
             }
             if let Some(target) = &httpcallback.target {
                 self.callback_target = target.clone();
@@ -352,10 +352,10 @@ impl NodeConfig {
             self.backlog_scan.merge_toml(toml);
         }
         self.bounded_backlog.merge_toml(toml);
-        if let Some(toml) = &toml.bounded_backlog {
-            if let Some(enable) = toml.enable {
-                self.enable_bounded_backlog = enable;
-            }
+        if let Some(toml) = &toml.bounded_backlog
+            && let Some(enable) = toml.enable
+        {
+            self.enable_bounded_backlog = enable;
         }
 
         if let Some(toml) = &toml.tcp {

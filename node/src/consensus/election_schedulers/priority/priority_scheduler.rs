@@ -149,7 +149,7 @@ impl PriorityScheduler {
             let mut buckets = self.buckets.lock().unwrap();
             let (bucket, bucket_index) = self.find_bucket(&mut buckets, priority.balance);
             self.activations_per_bucket[bucket_index].fetch_add(1, Ordering::Relaxed);
-            bucket.insert(priority, block.into())
+            bucket.insert(priority, block)
         };
 
         match insert_result {
@@ -175,11 +175,11 @@ impl PriorityScheduler {
         }
     }
 
-    fn find_bucket<'a, 'b>(
-        &'a self,
-        buckets: &'b mut [Bucket],
+    fn find_bucket<'a>(
+        &self,
+        buckets: &'a mut [Bucket],
         priority: Amount,
-    ) -> (&'b mut Bucket, usize) {
+    ) -> (&'a mut Bucket, usize) {
         let index = prio_bucket_index(priority);
         (&mut buckets[index], index)
     }
@@ -212,12 +212,6 @@ impl PriorityScheduler {
         let buckets = self.buckets.lock().unwrap();
         let aec = self.aec.read().unwrap();
         buckets.iter().any(|b| b.available(&aec))
-        //let vacancy = self.aec.read().unwrap().vacancy();
-        //self.buckets
-        //    .lock()
-        //    .unwrap()
-        //    .iter()
-        //    .any(|b| b.available(vacancy))
     }
 
     fn run_one(&self) {
@@ -242,7 +236,7 @@ impl PriorityScheduler {
             self.activate_successors_listener.emit(block.clone());
         }
         self.activate(any, &block.account());
-        self.activate_destination_account(any, &block);
+        self.activate_destination_account(any, block);
     }
 
     fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {

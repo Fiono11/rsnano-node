@@ -43,7 +43,7 @@ impl AecForkInserter {
 
     pub fn try_add_cached_forks(&self, root: &QualifiedRoot) {
         let fork_cache = self.fork_cache.read().unwrap();
-        for fork in fork_cache.get_forks(&root) {
+        for fork in fork_cache.get_forks(root) {
             self.handle_fork(fork);
         }
     }
@@ -85,12 +85,9 @@ impl ForkInserterPlugin {
 
 impl LedgerEventProcessorPlugin for ForkInserterPlugin {
     fn process(&mut self, event: &LedgerEvent) {
-        match event {
-            LedgerEvent::BlocksProcessed(results) => {
-                // Notify elections about alternative (forked) blocks
-                self.fork_processor.handle_forks(&results);
-            }
-            _ => {}
+        if let LedgerEvent::BlocksProcessed(results) = event {
+            // Notify elections about alternative (forked) blocks
+            self.fork_processor.handle_forks(results);
         }
     }
 }

@@ -42,10 +42,10 @@ where
         self.sequential.push_back((key, new_id));
         while self.entries.len() > self.max_len() {
             let (k, id_to_remove) = self.sequential.pop_front().unwrap();
-            if let Some((_, id)) = self.entries.get(&k) {
-                if *id == id_to_remove {
-                    self.entries.remove(&k);
-                }
+            if let Some((_, id)) = self.entries.get(&k)
+                && *id == id_to_remove
+            {
+                self.entries.remove(&k);
             }
         }
         result.map(|(old, _)| old)

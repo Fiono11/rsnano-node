@@ -38,7 +38,7 @@ impl From<&VoteCacheConfig> for VoteCacheToml {
         Self {
             max_size: Some(config.max_size),
             max_voters: Some(config.max_voters),
-            age_cutoff: Some(config.age_cutoff.as_secs() as u64),
+            age_cutoff: Some(config.age_cutoff.as_secs()),
         }
     }
 }

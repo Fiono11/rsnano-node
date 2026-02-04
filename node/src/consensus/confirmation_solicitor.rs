@@ -98,14 +98,11 @@ impl ConfirmationSolicitor {
         for (channel, requests) in self.requests.values() {
             let mut roots_hashes = Vec::new();
             for root_hash in requests {
-                roots_hashes.push(root_hash.clone());
+                roots_hashes.push(*root_hash);
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
                     let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
-                    self.message_flooder.try_send(
-                        &channel,
-                        &req,
-                        TrafficType::ConfirmationRequests,
-                    );
+                    self.message_flooder
+                        .try_send(channel, &req, TrafficType::ConfirmationRequests);
                     roots_hashes = Vec::new();
                 }
             }

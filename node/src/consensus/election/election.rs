@@ -312,7 +312,7 @@ impl Election {
         // Replace if lowest tally is below inactive cache new block weight
         if self.tallies.len() < Self::MAX_BLOCKS {
             // If count of tally items is less than 10, remove any block without tally
-            for (hash, _) in &self.candidate_blocks {
+            for hash in self.candidate_blocks.keys() {
                 if !self.tallies.contains(hash) && *hash != winner_hash {
                     block_to_remove = *hash;
                     break;
@@ -337,13 +337,11 @@ impl Election {
             }
         }
 
-        let removed = if !block_to_remove.is_zero() {
+        if !block_to_remove.is_zero() {
             self.remove_block(&block_to_remove)
         } else {
             None
-        };
-
-        removed
+        }
     }
 
     /// Calculate tallies and try to confirm this election
@@ -397,7 +395,7 @@ impl Election {
     }
 
     fn change_winner_to(&mut self, new_winner: &BlockHash) {
-        self.winner = self.candidate_blocks().get(&new_winner).unwrap().clone();
+        self.winner = self.candidate_blocks().get(new_winner).unwrap().clone();
     }
 
     fn update_winner_tally(&mut self) {

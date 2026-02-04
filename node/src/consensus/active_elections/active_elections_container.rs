@@ -148,18 +148,16 @@ impl ActiveElectionsContainer {
         &mut self,
         request: &AecInsertRequest,
     ) -> Result<bool, AecInsertError> {
-        let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(&request);
+        let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(request);
 
         if upgraded {
             *self.count_by_behavior_mut(previous_behavior.unwrap()) -= 1;
             *self.count_by_behavior_mut(request.behavior) += 1;
             Ok(true)
+        } else if previous_behavior.is_some() {
+            Err(AecInsertError::Duplicate)
         } else {
-            if previous_behavior.is_some() {
-                Err(AecInsertError::Duplicate)
-            } else {
-                Ok(false)
-            }
+            Ok(false)
         }
     }
 
@@ -421,6 +419,10 @@ impl ActiveElectionsContainer {
 
     pub fn len(&self) -> usize {
         self.roots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn info(&self) -> ActiveElectionsInfo {

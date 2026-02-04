@@ -60,7 +60,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
                 .unwrap()
                 .try_broadcast_winner(&election.winner().clone(), election.votes());
             self.confirm_req_sender
-                .send_confirm_req(&mut solicitor, &election);
+                .send_confirm_req(&mut solicitor, election);
         }
 
         solicitor.flush();

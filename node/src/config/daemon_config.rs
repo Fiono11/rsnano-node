@@ -1,13 +1,10 @@
-use super::{
-    DaemonToml, NetworkParams, NodeConfig, NodeRpcConfig, get_node_toml_config_path, read_toml_file,
-};
+use super::{DaemonToml, NetworkParams, NodeConfig, get_node_toml_config_path, read_toml_file};
 use rsnano_types::Networks;
 use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub struct DaemonConfig {
     pub rpc_enable: bool,
-    pub rpc: NodeRpcConfig,
     pub node: NodeConfig,
 }
 
@@ -20,7 +17,6 @@ impl DaemonConfig {
                 network_params,
                 parallelism,
             ),
-            rpc: NodeRpcConfig::new(),
         }
     }
 
@@ -28,7 +24,6 @@ impl DaemonConfig {
         Self {
             rpc_enable: false,
             node: NodeConfig::default_for(network, parallelism),
-            rpc: NodeRpcConfig::new(),
         }
     }
 

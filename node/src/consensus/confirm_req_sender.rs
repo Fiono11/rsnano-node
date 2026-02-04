@@ -33,18 +33,16 @@ impl ConfirmReqSender {
     }
 
     pub fn send_confirm_req(&mut self, solicitor: &mut ConfirmationSolicitor, election: &Election) {
-        if self.should_send_confirm_req(election) {
-            if solicitor.add(election) {
-                self.last_requests
-                    .insert(election.qualified_root().clone(), self.clock.now());
-                self.stats
-                    .inc(StatType::Election, DetailType::ConfirmationRequest);
-            }
+        if self.should_send_confirm_req(election) && solicitor.add(election) {
+            self.last_requests
+                .insert(election.qualified_root().clone(), self.clock.now());
+            self.stats
+                .inc(StatType::Election, DetailType::ConfirmationRequest);
         }
     }
 
     fn should_send_confirm_req(&self, election: &Election) -> bool {
-        if let Some(last_req) = self.last_requests.get(&election.qualified_root()) {
+        if let Some(last_req) = self.last_requests.get(election.qualified_root()) {
             last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election)
         } else {
             true

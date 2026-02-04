@@ -138,7 +138,7 @@ impl OptimisticScheduler {
             {
                 let mut candidates = self.candidates.lock().unwrap();
                 // Prevent duplicate candidate accounts
-                if candidates.contains(&account) {
+                if candidates.contains(account) {
                     return false; // Not activated
                 }
                 // Limit candidates container size
@@ -290,7 +290,7 @@ struct OrderedCandidates {
 
 impl OrderedCandidates {
     fn insert(&mut self, account: Account, time: Instant) {
-        if let Some(_) = self.by_account.insert(account, time) {
+        if self.by_account.insert(account, time).is_some() {
             self.sequenced.retain(|i| *i != account);
         }
         self.sequenced.push_back(account);

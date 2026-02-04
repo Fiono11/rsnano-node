@@ -27,12 +27,11 @@ impl RecentlyConfirmedCache {
         self.sequential.push_back(hash);
         self.by_root.insert(root.clone(), hash);
         self.by_hash.insert(hash, root);
-        if self.sequential.len() > self.max_len {
-            if let Some(old_hash) = self.sequential.pop_front() {
-                if let Some(old_root) = self.by_hash.remove(&old_hash) {
-                    self.by_root.remove(&old_root);
-                }
-            }
+        if self.sequential.len() > self.max_len
+            && let Some(old_hash) = self.sequential.pop_front()
+            && let Some(old_root) = self.by_hash.remove(&old_hash)
+        {
+            self.by_root.remove(&old_root);
         }
         true
     }

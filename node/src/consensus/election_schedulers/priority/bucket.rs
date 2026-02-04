@@ -56,6 +56,10 @@ impl Bucket {
         self.block_queue.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn blocks(&self) -> impl Iterator<Item = &SavedBlock> {
         self.block_queue.iter().map(|i| &i.block)
     }
@@ -113,7 +117,7 @@ impl Bucket {
         now: Timestamp,
         stats: &BucketStats,
     ) {
-        if !self.available(&aec) {
+        if !self.available(aec) {
             return;
         }
 

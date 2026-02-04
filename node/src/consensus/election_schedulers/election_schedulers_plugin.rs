@@ -18,8 +18,7 @@ impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
     fn process(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
-                self.schedulers
-                    .activate_accounts_with_fresh_blocks(&results);
+                self.schedulers.activate_accounts_with_fresh_blocks(results);
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
                 self.schedulers

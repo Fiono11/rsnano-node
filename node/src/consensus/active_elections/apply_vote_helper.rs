@@ -48,14 +48,12 @@ impl<'a> ApplyVoteHelper<'a> {
                         result.confirmed.push(entry);
                     }
                 }
+            } else if self.recently_confirmed.hash_exists(block_hash) {
+                result.per_block.insert(*block_hash, Err(VoteError::Late));
             } else {
-                if self.recently_confirmed.hash_exists(block_hash) {
-                    result.per_block.insert(*block_hash, Err(VoteError::Late));
-                } else {
-                    result
-                        .per_block
-                        .insert(*block_hash, Err(VoteError::Indeterminate));
-                }
+                result
+                    .per_block
+                    .insert(*block_hash, Err(VoteError::Indeterminate));
             }
         }
 
@@ -131,10 +129,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
         self.notify_winner_changed(old_winner);
 
-        if self.election.is_final() {
-            if self.election.is_confirmed() {
-                self.election_got_confirmed();
-            }
+        if self.election.is_final() && self.election.is_confirmed() {
+            self.election_got_confirmed();
         }
     }
 

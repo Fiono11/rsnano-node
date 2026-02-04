@@ -4,7 +4,6 @@ mod network_constants;
 mod network_params;
 mod node_config;
 mod node_flags;
-mod node_rpc_config;
 mod toml;
 mod websocket_config;
 
@@ -13,7 +12,6 @@ pub use network_constants::*;
 pub use network_params::*;
 pub use node_config::*;
 pub use node_flags::*;
-pub use node_rpc_config::*;
 pub use rsnano_types::Networks;
 use rsnano_wallet::WalletsConfig;
 use serde::de::DeserializeOwned;
@@ -34,10 +32,6 @@ pub fn get_rpc_toml_config_path(data_path: impl Into<PathBuf>) -> PathBuf {
     let mut rpc_toml = data_path.into();
     rpc_toml.push("config-rpc.toml");
     rpc_toml
-}
-
-pub fn get_default_rpc_filepath() -> PathBuf {
-    get_default_rpc_filepath_from(std::env::current_exe().unwrap_or_default().as_path())
 }
 
 pub fn get_default_rpc_filepath_from(node_exe_path: &Path) -> PathBuf {

@@ -2,7 +2,7 @@ use crate::consensus::election::ElectionBehavior;
 use rsnano_types::Amount;
 use std::sync::LazyLock;
 
-static BUCKETING: LazyLock<Bucketing> = LazyLock::new(|| Bucketing::default());
+static BUCKETING: LazyLock<Bucketing> = LazyLock::new(Bucketing::default);
 
 pub fn prio_bucket_index(balance: Amount) -> usize {
     BUCKETING.bucket_index(balance)

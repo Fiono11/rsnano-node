@@ -43,13 +43,10 @@ impl AecTicker {
     where
         T: AecTickerPlugin + 'static,
     {
-        let Some(p) = self
+        let p = self
             .plugins
             .iter()
-            .find(|p| (***p).type_id() == TypeId::of::<T>())
-        else {
-            return None;
-        };
+            .find(|p| (***p).type_id() == TypeId::of::<T>())?;
 
         (*p).as_any().downcast_ref::<T>()
     }

@@ -71,7 +71,7 @@ impl RootContainer {
         let hash = entry.election.winner().hash();
         let bucket_entry = BucketEntry {
             root: entry.root.clone(),
-            priority: entry.priority.clone(),
+            priority: entry.priority,
         };
         self.buckets[entry.bucket()].insert(bucket_entry);
         self.by_root.insert(root.clone(), entry);
@@ -96,7 +96,7 @@ impl RootContainer {
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
         let root = self.vote_router.qualified_root(block_hash)?;
-        self.election_for_root(&root)
+        self.election_for_root(root)
     }
 
     pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {

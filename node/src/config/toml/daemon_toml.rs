@@ -32,7 +32,6 @@ impl DaemonConfig {
             if let Some(enable) = rpc.enable {
                 self.rpc_enable = enable;
             }
-            self.rpc.merge_toml(rpc);
         }
     }
 }
@@ -51,8 +50,6 @@ impl From<&DaemonConfig> for NodeRpcToml {
     fn from(config: &DaemonConfig) -> Self {
         Self {
             enable: Some(config.rpc_enable),
-            enable_sign_hash: Some(config.rpc.enable_sign_hash),
-            child_process: Some((&config.rpc.child_process).into()),
         }
     }
 }
@@ -72,7 +69,6 @@ impl From<&DaemonConfig> for OpenclToml {
 mod tests {
     use crate::config::{DaemonConfig, DaemonToml};
     use rsnano_types::Networks;
-    use std::path::PathBuf;
 
     static CUSTOM_TOML_STR: &str = r#"[node]
         allow_local_peers = false
@@ -754,20 +750,7 @@ mod tests {
 
         // RPC section
         assert_ne!(deserialized.rpc_enable, default_cfg.rpc_enable);
-        assert_ne!(
-            deserialized.rpc.enable_sign_hash,
-            default_cfg.rpc.enable_sign_hash
-        );
 
-        // RPC Child Process section
-        assert_ne!(
-            deserialized.rpc.child_process.enable,
-            default_cfg.rpc.child_process.enable
-        );
-        assert_ne!(
-            deserialized.rpc.child_process.rpc_path,
-            default_cfg.rpc.child_process.rpc_path
-        );
         assert_ne!(
             deserialized.node.bounded_backlog.max_backlog,
             default_cfg.node.bounded_backlog.max_backlog
@@ -850,8 +833,6 @@ mod tests {
     }
 
     fn create_default_daemon_config() -> DaemonConfig {
-        let mut config = DaemonConfig::new2(Networks::NanoBetaNetwork, 8);
-        config.rpc.child_process.rpc_path = PathBuf::from("/home/foo/nano_rpc");
-        config
+        DaemonConfig::new2(Networks::NanoBetaNetwork, 8)
     }
 }

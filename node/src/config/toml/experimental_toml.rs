@@ -13,7 +13,7 @@ impl NodeConfig {
         if let Some(peers) = &toml.secondary_work_peers {
             self.secondary_work_peers = peers
                 .iter()
-                .map(|string| Peer::from_str(&string).expect("Invalid secondary work peer"))
+                .map(|string| Peer::from_str(string).expect("Invalid secondary work peer"))
                 .collect();
         }
     }
