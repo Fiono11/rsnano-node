@@ -141,30 +141,24 @@ impl BlockInspector {
                                 StatType::BootstrapAccountSets,
                                 DetailType::PriorityUnblocked,
                             );
+                        } else if matches!(
+                            state.candidate_accounts.priority_up(&destination),
+                            PriorityUpResult::Inserted | PriorityUpResult::Updated
+                        ) {
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
                         } else {
-                            if matches!(
-                                state.candidate_accounts.priority_up(&destination),
-                                PriorityUpResult::Inserted | PriorityUpResult::Updated
-                            ) {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityInsert,
-                                );
-                            } else {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PrioritizeFailed,
-                                );
-                            };
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
                         }
                     }
                 }
 
                 let info = state.block_ack_processor.block_queue.processed(&hash);
-                if let Some(account) = info.account {
-                    if info.was_last {
-                        state.candidate_accounts.reset_last_request(&account);
-                    }
+                if let Some(account) = info.account
+                    && info.was_last
+                {
+                    state.candidate_accounts.reset_last_request(&account);
                 }
             }
             Err(error) => {
@@ -207,23 +201,22 @@ impl BlockInspector {
                         if result.source == BlockSource::Live
                             && !state.candidate_accounts.priority_half_full()
                             && !state.candidate_accounts.blocked_half_full()
+                            && result.block.block_type() == BlockType::State
                         {
-                            if result.block.block_type() == BlockType::State {
-                                let account = result.block.account_field().unwrap();
-                                if matches!(
-                                    state.candidate_accounts.priority_up(&account),
-                                    PriorityUpResult::Updated | PriorityUpResult::Inserted
-                                ) {
-                                    self.stats.inc(
-                                        StatType::BootstrapAccountSets,
-                                        DetailType::PriorityInsert,
-                                    );
-                                } else {
-                                    self.stats.inc(
-                                        StatType::BootstrapAccountSets,
-                                        DetailType::PrioritizeFailed,
-                                    );
-                                }
+                            let account = result.block.account_field().unwrap();
+                            if matches!(
+                                state.candidate_accounts.priority_up(&account),
+                                PriorityUpResult::Updated | PriorityUpResult::Inserted
+                            ) {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityInsert,
+                                );
+                            } else {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PrioritizeFailed,
+                                );
                             }
                         }
                     }

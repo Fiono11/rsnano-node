@@ -51,7 +51,7 @@ impl BlockAckProcessor {
         let mut blocks = response.take_blocks();
 
         // Avoid re-processing the block we already have
-        assert!(blocks.len() >= 1);
+        assert!(!blocks.is_empty());
         if blocks.front().unwrap().hash() == query.start.into() {
             blocks.pop_front();
         }

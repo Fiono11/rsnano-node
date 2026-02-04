@@ -37,11 +37,10 @@ impl Default for VoteCacheConfig {
     }
 }
 
-///	A container holding votes that do not match any active or recently finished elections.
-///	It keeps track of votes in two internal structures: cache and queue
-///
-///	Cache: Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
-///			When cache size exceeds `max_size` oldest entries are evicted first.
+/// A container holding votes that do not match any active or recently finished elections.
+/// It keeps track of votes in two internal structures: cache and queue.
+/// Cache: Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
+/// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
     config: VoteCacheConfig,
     cache: CacheEntryCollection,

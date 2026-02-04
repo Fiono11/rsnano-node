@@ -141,6 +141,10 @@ impl ConfirmingSet {
         self.thread.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn info(&self) -> ConfirmingSetInfo {
         let guard = self.thread.mutex.lock().unwrap();
         ConfirmingSetInfo {

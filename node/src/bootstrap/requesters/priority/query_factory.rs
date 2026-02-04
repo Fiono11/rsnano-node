@@ -50,7 +50,7 @@ impl QueryFactory {
         let req_type = AscPullReqType::Blocks(BlocksReqPayload {
             start_type: pull_start.start_type,
             start: pull_start.start,
-            count: (&self).pull_count_decider.pull_count((&next).priority),
+            count: self.pull_count_decider.pull_count(next.priority),
         });
 
         // Only cooldown accounts that are likely to have more blocks
@@ -63,7 +63,7 @@ impl QueryFactory {
             channel: channel,
             req_type,
             hash: pull_start.hash,
-            account: (&next).account,
+            account: next.account,
             cooldown_account,
         };
         trace!(query_id = context.id, ?pull_type, "Created pull query spec");

@@ -74,7 +74,7 @@ impl BootstrapPromiseRunner {
                         return Err(Self::INITIAL_INTERVAL);
                     }
                     reset_wait_interval = true;
-                    if poll_count % 100 == 0 {
+                    if poll_count.is_multiple_of(100) {
                         drop(state);
                         std::thread::yield_now();
                         state = self.state.lock().unwrap();

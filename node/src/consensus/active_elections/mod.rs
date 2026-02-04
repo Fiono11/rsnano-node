@@ -114,4 +114,4 @@ impl AecInsertRequest {
     }
 }
 
-const AEC_STAT_KEY: &'static str = "active_elections";
+const AEC_STAT_KEY: &str = "active_elections";

@@ -245,15 +245,16 @@ impl CandidateAccounts {
             .blocking
             .modify_dependency_account(dependency, dependency_account);
 
-        if updated > 0 && !self.priority_full() {
-            if Self::priority_set_impl(
+        if updated > 0
+            && !self.priority_full()
+            && Self::priority_set_impl(
                 &dependency_account,
                 Self::PRIORITY_INITIAL,
                 &self.blocking,
                 &mut self.priorities,
-            ) {
-                self.trim_overflow();
-            }
+            )
+        {
+            self.trim_overflow();
         }
 
         updated
@@ -293,7 +294,7 @@ impl CandidateAccounts {
     }
 
     pub fn next_blocking(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
-        if self.blocking.len() == 0 {
+        if self.blocking.is_empty() {
             return BlockHash::ZERO;
         }
 
@@ -374,12 +375,12 @@ impl CandidateAccounts {
     /// Blocked accounts are assumed priority 0.0f
     #[allow(dead_code)]
     pub fn priority(&self, account: &Account) -> Priority {
-        if !self.blocked(account) {
-            if let Some(existing) = self.priorities.get(account) {
-                return existing.priority;
-            }
+        if !self.blocked(account)
+            && let Some(existing) = self.priorities.get(account)
+        {
+            return existing.priority;
         }
-        return Priority::ZERO;
+        Priority::ZERO
     }
 
     #[allow(dead_code)]

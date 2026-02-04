@@ -81,11 +81,11 @@ impl BootstrapPromise<Arc<Channel>> for ChannelWaiter {
                 let network = self.network.read().unwrap();
                 let channel_ids = Self::candidate_channels(&network);
 
-                if let Some(channel_id) = context.logic.scoring.channel(channel_ids) {
-                    if let Some(channel) = network.get(channel_id) {
-                        self.state = ChannelWaitState::Initial;
-                        return PollResult::Finished(channel.clone());
-                    }
+                if let Some(channel_id) = context.logic.scoring.channel(channel_ids)
+                    && let Some(channel) = network.get(channel_id)
+                {
+                    self.state = ChannelWaitState::Initial;
+                    return PollResult::Finished(channel.clone());
                 }
                 self.stats.no_candidate.fetch_add(1, Ordering::Relaxed);
             }

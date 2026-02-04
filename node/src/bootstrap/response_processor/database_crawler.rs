@@ -46,10 +46,10 @@ where
     }
 
     fn target_reached(current: &Option<(Account, T::Value)>, target: &Account) -> bool {
-        if let Some((account, _)) = current {
-            if account >= target {
-                return true;
-            }
+        if let Some((account, _)) = current
+            && account >= target
+        {
+            return true;
         }
         false
     }

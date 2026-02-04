@@ -12,7 +12,7 @@ impl From<&NodeConfig> for HttpcallbackToml {
     fn from(config: &NodeConfig) -> Self {
         Self {
             address: Some(config.callback_address.clone()),
-            port: Some(config.callback_port.clone()),
+            port: Some(config.callback_port),
             target: Some(config.callback_target.clone()),
         }
     }

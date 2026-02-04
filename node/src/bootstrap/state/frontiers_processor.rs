@@ -51,11 +51,12 @@ impl FrontiersProcessor {
     pub(crate) fn process(&mut self, query: &RunningQuery, frontiers: Vec<Frontier>) -> bool {
         self.stats.processed_responses += 1;
 
-        let valid_frontiers = match query.verify_frontiers(&frontiers) {
+        match query.verify_frontiers(&frontiers) {
             VerifyResult::Ok => {
                 self.stats.verified += 1;
                 self.frontier_scan.process(query.start.into(), &frontiers);
                 self.frontiers_to_check.push_back(frontiers);
+                // valid frontiers
                 true
             }
             VerifyResult::NothingNew => {
@@ -67,8 +68,7 @@ impl FrontiersProcessor {
                 self.stats.invalid += 1;
                 false
             }
-        };
-        valid_frontiers
+        }
     }
 
     pub fn pop_frontiers_to_check(&mut self) -> Option<Vec<Frontier>> {

@@ -344,12 +344,12 @@ impl ActiveElectionsContainer {
     ) -> ConfirmedElection {
         // Check if the currently confirmed block was part of an election that triggered
         // the block confirmation
-        if let Some(source) = source_election {
-            if confirmed_block.hash() == source.winner.hash() {
-                // This is the block that was directly confirmed by the source election.
-                // The election is already confirmed, so there is nothing to do.
-                return source;
-            }
+        if let Some(source) = source_election
+            && confirmed_block.hash() == source.winner.hash()
+        {
+            // This is the block that was directly confirmed by the source election.
+            // The election is already confirmed, so there is nothing to do.
+            return source;
         }
 
         let Some(corresponding) = self.roots.get_mut(&confirmed_block.qualified_root()) else {

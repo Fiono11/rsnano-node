@@ -62,14 +62,13 @@ impl FrontierHead {
         self.trim_candidates();
         self.wrap_around_if_no_candidates_found();
 
-        let done = if self.should_advance() {
+        if self.should_advance() {
             self.advance();
+            // done
             true
         } else {
             false
-        };
-
-        done
+        }
     }
 
     fn insert_candidates(&mut self, response: &[Frontier]) {

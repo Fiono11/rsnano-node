@@ -131,8 +131,7 @@ fn backlog_factor(backlog_count: u64, max_backlog: u64) -> f64 {
     }
 
     let max_with_threshold = max_backlog as f64 * BACKLOG_THRESHOLD;
-    let factor = backlog_count as f64 / max_with_threshold;
-    factor
+    backlog_count as f64 / max_with_threshold
 }
 
 #[cfg(test)]

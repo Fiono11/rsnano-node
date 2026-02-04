@@ -12,7 +12,7 @@ pub struct BucketStats {
     pub replaced: AtomicU64,
 }
 
-const STATS_KEY: &'static str = "election_bucket";
+const STATS_KEY: &str = "election_bucket";
 
 impl StatsSource for BucketStats {
     fn collect_stats(&self, result: &mut StatsCollection) {

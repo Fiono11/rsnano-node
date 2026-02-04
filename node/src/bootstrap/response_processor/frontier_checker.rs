@@ -67,23 +67,21 @@ impl<'a> FrontierChecker<'a> {
         self.advance_to(frontier.account);
 
         // Check if account exists in our ledger
-        if let Some((account, info)) = &self.account_crawler.current {
-            if *account == frontier.account {
-                // Check for frontier mismatch
-                if info.head != frontier.hash {
-                    if !self.any.block_exists(&frontier.hash) {
-                        return FrontierCheckResult::Outdated; // Frontier is outdated
-                    }
-                }
-                return FrontierCheckResult::UpToDate;
+        if let Some((account, info)) = &self.account_crawler.current
+            && *account == frontier.account
+        {
+            // Check for frontier mismatch
+            if info.head != frontier.hash && !self.any.block_exists(&frontier.hash) {
+                return FrontierCheckResult::Outdated; // Frontier is outdated
             }
+            return FrontierCheckResult::UpToDate;
         }
 
         // Check if account has pending blocks in our ledger
-        if let Some((account, _)) = &self.pending_crawler.current {
-            if *account == frontier.account {
-                return FrontierCheckResult::Pending;
-            }
+        if let Some((account, _)) = &self.pending_crawler.current
+            && *account == frontier.account
+        {
+            return FrontierCheckResult::Pending;
         }
 
         FrontierCheckResult::UnknownAccount

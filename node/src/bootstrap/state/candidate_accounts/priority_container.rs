@@ -88,7 +88,7 @@ impl PriorityContainer {
     pub fn pop_lowest_prio(&mut self) -> Option<PriorityEntry> {
         let lowest_prio_account = {
             let (_, v) = self.by_priority.last_key_value()?;
-            v.iter().next().unwrap().clone()
+            *v.iter().next().unwrap()
         };
         Some(self.remove_account(&lowest_prio_account))
     }
@@ -137,10 +137,10 @@ impl PriorityContainer {
             .flatten()
             .map(|account| self.by_account.get(account).unwrap())
             .find(|entry| {
-                if let Some(ts) = entry.last_request {
-                    if ts > cutoff {
-                        return false;
-                    }
+                if let Some(ts) = entry.last_request
+                    && ts > cutoff
+                {
+                    return false;
                 }
                 filter(&entry.account)
             })

@@ -17,11 +17,11 @@ use rsnano_network::Channel;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 
-pub(self) trait BootstrapPromise<T> {
+trait BootstrapPromise<T> {
     fn poll(&mut self, context: &mut PromiseContext) -> PollResult<T>;
 }
 
-pub(self) enum PollResult<T> {
+enum PollResult<T> {
     Progress,
     Wait,
     Finished(T),

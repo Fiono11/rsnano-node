@@ -181,7 +181,7 @@ impl Bootstrapper {
             .lock()
             .unwrap()
             .candidate_accounts
-            .priority_up(&genesis_account);
+            .priority_up(genesis_account);
 
         if inserted == PriorityUpResult::Inserted {
             self.priority_inserted()

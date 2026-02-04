@@ -28,10 +28,10 @@ impl DaemonConfig {
                 self.node.opencl.threads = threads;
             }
         }
-        if let Some(rpc) = &toml.rpc {
-            if let Some(enable) = rpc.enable {
-                self.rpc_enable = enable;
-            }
+        if let Some(rpc) = &toml.rpc
+            && let Some(enable) = rpc.enable
+        {
+            self.rpc_enable = enable;
         }
     }
 }

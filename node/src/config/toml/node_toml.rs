@@ -136,7 +136,7 @@ impl NodeConfig {
         }
         if let Some(online_weight_minimum) = &toml.online_weight_minimum {
             self.online_weight_minimum =
-                Amount::decode_dec(&online_weight_minimum).expect("Invalid online weight minimum");
+                Amount::decode_dec(online_weight_minimum).expect("Invalid online weight minimum");
         }
         if let Some(password_fanout) = toml.password_fanout {
             self.password_fanout = password_fanout;
@@ -152,7 +152,7 @@ impl NodeConfig {
             self.preconfigured_representatives = preconfigured_representatives
                 .iter()
                 .map(|string| {
-                    Account::parse(&string)
+                    Account::parse(string)
                         .expect("Invalid representative")
                         .into()
                 })
@@ -160,12 +160,12 @@ impl NodeConfig {
         }
         if let Some(receive_minimum) = &toml.receive_minimum {
             self.receive_minimum =
-                Amount::decode_dec(&receive_minimum).expect("Invalid receive minimum");
+                Amount::decode_dec(receive_minimum).expect("Invalid receive minimum");
         }
-        if let Some(rep_crawler) = &toml.rep_crawler {
-            if let Some(query_timeout) = rep_crawler.query_timeout {
-                self.rep_crawler_query_timeout = Duration::from_millis(query_timeout);
-            }
+        if let Some(rep_crawler) = &toml.rep_crawler
+            && let Some(query_timeout) = rep_crawler.query_timeout
+        {
+            self.rep_crawler_query_timeout = Duration::from_millis(query_timeout);
         }
         if let Some(representative_vote_weight_minimum) = &toml.representative_vote_weight_minimum {
             self.representative_vote_weight_minimum =

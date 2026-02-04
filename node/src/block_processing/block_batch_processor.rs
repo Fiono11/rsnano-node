@@ -60,13 +60,12 @@ impl BlockBatchProcessor {
             })
             .collect();
 
-        if !processed_result.is_empty() {
-            if let Err(e) = self
+        if !processed_result.is_empty()
+            && let Err(e) = self
                 .event_publisher
                 .send(LedgerEvent::BlocksProcessed(processed_result))
-            {
-                warn!("Failed to publish blocks processed event: {e:?}");
-            }
+        {
+            warn!("Failed to publish blocks processed event: {e:?}");
         }
 
         assert_eq!(result.processed.len(), batch.len());
