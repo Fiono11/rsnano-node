@@ -92,7 +92,7 @@ impl ProcessQueue {
 
     fn next(&mut self) -> Arc<BlockContext> {
         if !self.queue.is_empty() {
-            let ((source, _), request) = self.queue.next().unwrap();
+            let ((source, _), request) = self.queue.pop().unwrap();
             assert!(source != BlockSource::Forced || request.source == BlockSource::Forced);
             return request;
         }

@@ -60,10 +60,8 @@ impl WorkQueue {
         let mut cancelled = Vec::new();
         self.0.retain_mut(|item| {
             let retain = item.root != *root;
-            if !retain {
-                if let Some(callback) = item.done.take() {
-                    cancelled.push(callback);
-                }
+            if !retain && let Some(callback) = item.done.take() {
+                cancelled.push(callback);
             }
             retain
         });

@@ -71,6 +71,9 @@ impl WriteTransaction {
         self.clear_listener.track()
     }
 
+    /// ## Safety
+    ///
+    /// This function **must not** be called from multiple concurrent transactions in the same environment.
     pub unsafe fn create_db(
         &mut self,
         name: Option<&str>,

@@ -26,3 +26,9 @@ impl<T> OneShotNotification<T> {
         self.0.1.wait_while(guard, |i| !i.0).unwrap().1.take()
     }
 }
+
+impl<T> Default for OneShotNotification<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

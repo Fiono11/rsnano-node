@@ -26,7 +26,7 @@ pub const WORK_THRESHOLD_EPOCH2_RECEIVE: u64 = 0xfffffe0000000000; // 8x lower t
 
 pub const WORKING_PATH_PREFIX: &str = "Nano";
 
-pub const PRECONFIGURED_REPRESENTATIVES_LIVE: [&'static str; 8] = [
+pub const PRECONFIGURED_REPRESENTATIVES_LIVE: [&str; 8] = [
     "nano_3arg3asgtigae3xckabaaewkx3bzsh7nwz7jkmjos79ihyaxwphhm6qgjps4",
     "nano_1stofnrxuz3cai7ze75o174bpm7scwj9jn3nxsn8ntzg784jf1gzn1jjdkou",
     "nano_1q3hqecaw15cjt7thbtxu3pbzr1eihtzzpzxguoc37bj1wc5ffoh7w74gi6p",
@@ -37,12 +37,12 @@ pub const PRECONFIGURED_REPRESENTATIVES_LIVE: [&'static str; 8] = [
     "nano_1hza3f7wiiqa7ig3jczyxj5yo86yegcmqk3criaz838j91sxcckpfhbhhra1",
 ];
 
-pub const PRECONFIGURED_REPRESENTATIVES_BETA: [&'static str; 1] =
+pub const PRECONFIGURED_REPRESENTATIVES_BETA: [&str; 1] =
     ["nano_1defau1t9off1ine9rep99999999999999999999999999999999wgmuzxxy"];
 
-pub const PRECONFIGURED_PEERS_LIVE: [&'static str; 1] = ["peering.nano.org"];
-pub const PRECONFIGURED_PEERS_BETA: [&'static str; 1] = ["peering-beta.nano.org"];
-pub const PRECONFIGURED_PEERS_TEST: [&'static str; 1] = ["peering-test.nano.org"];
+pub const PRECONFIGURED_PEERS_LIVE: [&str; 1] = ["peering.nano.org"];
+pub const PRECONFIGURED_PEERS_BETA: [&str; 1] = ["peering-beta.nano.org"];
+pub const PRECONFIGURED_PEERS_TEST: [&str; 1] = ["peering-test.nano.org"];
 
 pub const BETA_PUBLIC_KEY_HEX: &str =
     "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC";

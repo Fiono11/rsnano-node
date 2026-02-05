@@ -91,7 +91,7 @@ impl WriteQueue {
                 return None;
             }
 
-            let result = self.queue.lock().unwrap().next();
+            let result = self.queue.lock().unwrap().pop();
             if let Some((ttype, ent)) = result {
                 traffic_type = ttype;
                 entry = ent;

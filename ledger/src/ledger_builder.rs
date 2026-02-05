@@ -1,8 +1,4 @@
-use std::{
-    cmp::{max, min},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 use rsnano_store_lmdb::{

@@ -49,7 +49,7 @@ impl Keepalive {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let mut peers = empty_peers();
 
-        for i in 0..8 {
+        for peer in &mut peers {
             let mut addr_buffer = [0u8; 16];
             let mut port_buffer = [0u8; 2];
             bytes.read_exact(&mut addr_buffer)?;
@@ -58,7 +58,7 @@ impl Keepalive {
             let port = u16::from_le_bytes(port_buffer);
             let ip_addr = Ipv6Addr::from(addr_buffer);
 
-            peers[i] = SocketAddrV6::new(ip_addr, port, 0, 0);
+            *peer = SocketAddrV6::new(ip_addr, port, 0, 0);
         }
 
         Ok(Self { peers })

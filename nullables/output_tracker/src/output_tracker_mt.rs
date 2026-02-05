@@ -29,12 +29,12 @@ impl<T: Clone + 'static> OutputTrackerMt<T> {
         self.output.lock().unwrap().clone()
     }
 
-    pub fn wait_output(&self) -> Result<Vec<T>, ()> {
+    pub fn wait_output(&self) -> Result<Vec<T>, &'static str> {
         let mut guard = self.output.lock().unwrap();
         guard = self
             .added
             .wait_timeout_while(guard, Duration::from_secs(5), |i| i.is_empty())
-            .map_err(|_| ())?
+            .map_err(|_| "poison error")?
             .0;
         Ok(guard.clone())
     }

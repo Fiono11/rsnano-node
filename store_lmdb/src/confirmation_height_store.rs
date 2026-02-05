@@ -145,6 +145,12 @@ impl ConfiguredConfirmationHeightDatabaseBuilder {
     }
 }
 
+impl Default for ConfiguredConfirmationHeightDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn read_conf_height_record(key: &[u8], mut value: &[u8]) -> (Account, ConfirmationHeightInfo) {
     let account = Account::from_bytes(key.try_into().unwrap());
     let info = ConfirmationHeightInfo::deserialize(&mut value).unwrap();

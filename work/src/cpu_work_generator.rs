@@ -158,7 +158,7 @@ where
         while !work_ticket.expired() {
             let result = self.try_create_batch(item, min_difficulty);
             if result.is_some() {
-                return result.map(|i| i.into());
+                return result;
             }
 
             // Add a rate limiter (if specified) to the pow calculation to save some CPUs which don't want to operate at full throttle

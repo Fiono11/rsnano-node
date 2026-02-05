@@ -91,7 +91,7 @@ where
     /// item will be dropped if the queue is full
     /// @return true if added, false if dropped
     pub fn push(&mut self, source: S, item: T) -> bool {
-        let entry = self.queues.entry(source.clone()).or_insert_with(|| {
+        let entry = self.queues.entry(source).or_insert_with(|| {
             let max_size = (self.max_size_query)(&source);
             let priority = (self.priority_query)(&source);
             Entry::new(max_size, priority)
@@ -103,7 +103,7 @@ where
         added
     }
 
-    pub fn next(&mut self) -> Option<(S, T)> {
+    pub fn pop(&mut self) -> Option<(S, T)> {
         if self.total_len == 0 {
             return None;
         }
@@ -116,7 +116,7 @@ where
         let queue = self.queues.get_mut(it).unwrap();
         self.counter += 1;
         self.total_len -= 1;
-        Some((it.clone(), queue.pop().unwrap()))
+        Some((*it, queue.pop().unwrap()))
     }
 
     fn should_seek(&self) -> bool {
@@ -141,7 +141,7 @@ where
 
         let mut result = VecDeque::new();
         while result.len() < count {
-            result.push_back(self.next().unwrap());
+            result.push_back(self.pop().unwrap());
         }
         result
     }
@@ -211,13 +211,13 @@ where
         loop {
             if let Some(current) = self.current_queue_key.take() {
                 let mut it = self.queues.range(current..);
-                if let Some(_) = it.next() {
-                    self.current_queue_key = it.next().map(|(k, _)| k.clone());
+                if it.next().is_some() {
+                    self.current_queue_key = it.next().map(|(k, _)| *k);
                 }
             }
 
             if self.current_queue_key.is_none() {
-                self.current_queue_key = Some(self.queues.first_key_value().unwrap().0.clone());
+                self.current_queue_key = Some(*self.queues.first_key_value().unwrap().0);
             }
 
             if !self
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(queue.free_capacity(&7), 0);
         assert_eq!(queue.free_capacity(&8), 1);
 
-        let (source, item) = queue.next().unwrap();
+        let (source, item) = queue.pop().unwrap();
         assert_eq!(source, 7);
         assert_eq!(item, "foo");
         assert!(queue.is_empty());
@@ -344,9 +344,9 @@ mod tests {
         assert_eq!(queue.queues_len(), 1);
         assert_eq!(queue.queue_len(&7), 3);
 
-        assert_eq!(queue.next(), Some((7, "a")));
-        assert_eq!(queue.next(), Some((7, "b")));
-        assert_eq!(queue.next(), Some((7, "c")));
+        assert_eq!(queue.pop(), Some((7, "a")));
+        assert_eq!(queue.pop(), Some((7, "b")));
+        assert_eq!(queue.pop(), Some((7, "c")));
         assert!(queue.is_empty());
         assert_eq!(queue.free_capacity(&7), 999);
     }
@@ -362,9 +362,9 @@ mod tests {
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.queues_len(), 3);
 
-        assert_eq!(queue.next(), Some((7, "a")));
-        assert_eq!(queue.next(), Some((8, "b")));
-        assert_eq!(queue.next(), Some((9, "c")));
+        assert_eq!(queue.pop(), Some((7, "a")));
+        assert_eq!(queue.pop(), Some((8, "b")));
+        assert_eq!(queue.pop(), Some((9, "c")));
         assert!(queue.is_empty());
     }
 
@@ -378,8 +378,8 @@ mod tests {
 
         assert_eq!(queue.len(), 2);
 
-        assert_eq!(queue.next(), Some((7, "a")));
-        assert_eq!(queue.next(), Some((7, "b")));
+        assert_eq!(queue.pop(), Some((7, "a")));
+        assert_eq!(queue.pop(), Some((7, "b")));
         assert!(queue.is_empty());
     }
 
@@ -407,15 +407,15 @@ mod tests {
         assert_eq!(queue.len(), 9);
 
         // Processing 1x live, 2x bootstrap, 3x unchecked before moving to the next source
-        assert_eq!(queue.next().unwrap().1, "7a");
-        assert_eq!(queue.next().unwrap().1, "8a");
-        assert_eq!(queue.next().unwrap().1, "8b");
-        assert_eq!(queue.next().unwrap().1, "9a");
-        assert_eq!(queue.next().unwrap().1, "9b");
-        assert_eq!(queue.next().unwrap().1, "9c");
-        assert_eq!(queue.next().unwrap().1, "7b");
-        assert_eq!(queue.next().unwrap().1, "8c");
-        assert_eq!(queue.next().unwrap().1, "7c");
+        assert_eq!(queue.pop().unwrap().1, "7a");
+        assert_eq!(queue.pop().unwrap().1, "8a");
+        assert_eq!(queue.pop().unwrap().1, "8b");
+        assert_eq!(queue.pop().unwrap().1, "9a");
+        assert_eq!(queue.pop().unwrap().1, "9b");
+        assert_eq!(queue.pop().unwrap().1, "9c");
+        assert_eq!(queue.pop().unwrap().1, "7b");
+        assert_eq!(queue.pop().unwrap().1, "8c");
+        assert_eq!(queue.pop().unwrap().1, "7c");
         assert!(queue.is_empty());
     }
 

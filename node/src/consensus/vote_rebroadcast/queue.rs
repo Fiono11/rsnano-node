@@ -257,7 +257,7 @@ impl QueueImpl {
     }
 
     fn dequeue(&mut self) -> Option<(RepTier, Arc<Vote>)> {
-        let vote = self.queue.next();
+        let vote = self.queue.pop();
         if let Some((_, v)) = &vote {
             self.queue_hashes.remove(&v.signature);
         }

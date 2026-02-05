@@ -101,7 +101,7 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
 
     fn clear_locked(&self, digest: u128, lock: &mut MutexGuard<Vec<Entry>>) {
         let element = self.get_element(digest, lock);
-        if self.compare(&element, digest) {
+        if self.compare(element, digest) {
             *element = Default::default();
         }
     }

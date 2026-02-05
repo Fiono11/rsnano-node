@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard, RwLock},
-    u64,
 };
 
 use super::Direction;
@@ -27,7 +26,7 @@ impl StatsCollection {
     }
 
     pub fn get(&self, stat: &'static str, detail: &'static str) -> u64 {
-        Self::get_dir(&self, stat, detail, Direction::In)
+        Self::get_dir(self, stat, detail, Direction::In)
     }
 
     pub fn get_dir(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
@@ -56,6 +55,10 @@ impl StatsCollection {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn contains(&self, stat: &'static str, detail: &'static str, dir: Direction) -> bool {
@@ -124,6 +127,12 @@ impl StatsCollector {
             source.collect_stats(&mut stats);
         }
         stats
+    }
+}
+
+impl Default for StatsCollector {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

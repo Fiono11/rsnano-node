@@ -16,11 +16,11 @@ impl<'a> BlockValidator<'a> {
         if let Block::State(state) = self.block
             && self.is_epoch_block()
             && let Some(info) = &self.old_account_info
+            && state.representative() != info.representative
         {
-            if state.representative() != info.representative {
-                return Err(BlockError::RepresentativeMismatch);
-            }
+            return Err(BlockError::RepresentativeMismatch);
         }
+
         Ok(())
     }
 

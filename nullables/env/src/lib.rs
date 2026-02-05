@@ -1,5 +1,6 @@
 use std::env::VarError;
 
+#[derive(Default)]
 pub struct Env {
     is_nulled: bool,
     configured_responses: Vec<(&'static str, &'static str)>,
@@ -39,15 +40,6 @@ impl Env {
         Self {
             is_nulled: true,
             configured_responses,
-        }
-    }
-}
-
-impl Default for Env {
-    fn default() -> Self {
-        Self {
-            is_nulled: false,
-            configured_responses: Vec::new(),
         }
     }
 }

@@ -1,7 +1,6 @@
 use std::{
     cmp::{max, min},
     sync::LazyLock,
-    u64,
 };
 
 use rsnano_types::{
