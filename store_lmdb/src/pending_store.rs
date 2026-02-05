@@ -137,6 +137,12 @@ impl ConfiguredPendingDatabaseBuilder {
     }
 }
 
+impl Default for ConfiguredPendingDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn read_pending_record(mut key: &[u8], mut value: &[u8]) -> (PendingKey, PendingInfo) {
     let key = PendingKey::deserialize(&mut key).unwrap();
     let info = PendingInfo::deserialize(&mut value).unwrap();

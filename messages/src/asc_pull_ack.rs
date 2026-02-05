@@ -204,7 +204,7 @@ impl BlocksAckPayload {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let mut blocks = VecDeque::new();
 
-        while bytes.len() > 0 {
+        while !bytes.is_empty() {
             let type_id = BlockTypeId::from_u8(read_u8(&mut bytes)?)
                 .ok_or(DeserializationError::InvalidData)?;
 

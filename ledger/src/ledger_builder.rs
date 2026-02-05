@@ -100,7 +100,6 @@ impl<'a> LedgerBuilder<'a> {
 
         if self.thread_count == 0 {
             // Between 10 and 40 threads, scales well even in low power systems as long as actions are I/O bound
-            self.thread_count = max(10, min(40, 11 * get_cpu_count()));
             self.thread_count = (11 * get_cpu_count()).clamp(10, 40);
         }
 

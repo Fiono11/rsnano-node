@@ -685,7 +685,7 @@ impl LmdbWalletStore {
     ) -> anyhow::Result<WorkNonce> {
         let entry = self.entry_get_raw(txn, pub_key);
         if !entry.key.is_zero() {
-            Ok(entry.work.into())
+            Ok(entry.work)
         } else {
             Err(anyhow!("not found"))
         }

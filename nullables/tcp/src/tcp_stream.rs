@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ErrorKind};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 pub const TEST_ENDPOINT_1: SocketAddrV6 =
     SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0xffff, 0x10, 0, 0, 1), 1111, 0, 0);

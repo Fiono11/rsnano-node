@@ -46,14 +46,20 @@ impl ConfiguredBlockDatabaseBuilder {
         self.next_id += 1;
 
         self.index_db
-            .insert(block.hash().as_bytes(), &id.to_be_bytes());
+            .insert(block.hash().as_bytes(), id.to_be_bytes());
         self.block_db
-            .insert(&id.to_be_bytes(), block.serialize_with_sideband());
+            .insert(id.to_be_bytes(), block.serialize_with_sideband());
         self
     }
 
     pub fn build(self) -> (ConfiguredDatabase, ConfiguredDatabase) {
         (self.index_db, self.block_db)
+    }
+}
+
+impl Default for ConfiguredBlockDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -156,8 +162,7 @@ impl LmdbBlockStore {
                 .get(self.block_db, &id.to_be_bytes())
                 .expect("Block data should exist");
 
-            let block = SavedBlock::deserialize(&mut data).expect("Block data should be valid");
-            block
+            SavedBlock::deserialize(&mut data).expect("Block data should be valid")
         })
     }
 

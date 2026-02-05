@@ -148,6 +148,12 @@ impl ConfiguredAccountDatabaseBuilder {
     }
 }
 
+impl Default for ConfiguredAccountDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn read_account_info_record(key: &[u8], mut value: &[u8]) -> (Account, AccountInfo) {
     let account = Account::from_bytes(key.try_into().unwrap());
     let info = AccountInfo::deserialize(&mut value).unwrap();

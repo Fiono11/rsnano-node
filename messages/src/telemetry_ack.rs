@@ -164,8 +164,8 @@ impl TelemetryData {
         let timestamp_ms = read_u64_be(reader)?;
         let active_difficulty = read_u64_be(reader)?;
         let mut unknown_data = Vec::new();
-        if payload_len as usize > TelemetryData::SERIALIZED_SIZE_OF_KNOWN_DATA {
-            let unknown_len = (payload_len as usize) - TelemetryData::SERIALIZED_SIZE_OF_KNOWN_DATA;
+        if payload_len > TelemetryData::SERIALIZED_SIZE_OF_KNOWN_DATA {
+            let unknown_len = payload_len - TelemetryData::SERIALIZED_SIZE_OF_KNOWN_DATA;
             unknown_data.resize(unknown_len, 0);
             reader.read_exact(&mut unknown_data)?;
         }
