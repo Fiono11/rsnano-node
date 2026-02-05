@@ -84,7 +84,7 @@ pub(crate) struct DependencyRequesterStats {
 
 impl StatsSource for DependencyRequesterStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        const STAT_NAME: &'static str = "boot_requester_dep";
+        const STAT_NAME: &str = "boot_requester_dep";
 
         result.insert(STAT_NAME, "loop", self.loop_count.load(Ordering::Relaxed));
         result.insert(

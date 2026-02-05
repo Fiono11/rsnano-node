@@ -28,7 +28,7 @@ fn deserialize_bootstrap_weights(mut buffer: &[u8]) -> BootstrapWeights {
         let Ok(weight) = Amount::deserialize(&mut buffer) else {
             break;
         };
-        weights.put(account.into(), weight);
+        weights.put(account, weight);
     }
 
     BootstrapWeights {

@@ -261,12 +261,11 @@ impl NanoDataReceiver {
                         message.message_type(),
                         self.channel.peer_addr()
                     );
-                    if matches!(status, HandshakeStatus::AbortOwnNodeId) {
-                        if let Some(peering_addr) = self.channel.peering_addr() {
-                            if let Some(network) = self.network.upgrade() {
-                                network.write().unwrap().perma_ban(peering_addr);
-                            }
-                        }
+                    if matches!(status, HandshakeStatus::AbortOwnNodeId)
+                        && let Some(peering_addr) = self.channel.peering_addr()
+                        && let Some(network) = self.network.upgrade()
+                    {
+                        network.write().unwrap().perma_ban(peering_addr);
                     }
                     return ReceiveResult::Abort;
                 }

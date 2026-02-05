@@ -191,7 +191,7 @@ impl Default for BootstrapLogic {
 
 impl StatsSource for BootstrapLogic {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        const BOOTSTRAP_PROCESS: &'static str = "bootstrap_process";
+        const BOOTSTRAP_PROCESS: &str = "bootstrap_process";
         result.insert(BOOTSTRAP_PROCESS, "blocks", self.response_blocks);
         result.insert(BOOTSTRAP_PROCESS, "account_info", self.response_account);
         result.insert(BOOTSTRAP_PROCESS, "frontiers", self.response_frontiers);

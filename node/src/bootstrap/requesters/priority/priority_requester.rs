@@ -128,7 +128,7 @@ pub(crate) struct PriorityRequesterStats {
 
 impl StatsSource for PriorityRequesterStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        const STAT_NAME: &'static str = "boot_requester_prio";
+        const STAT_NAME: &str = "boot_requester_prio";
 
         result.insert(STAT_NAME, "loop", self.loop_count.load(Ordering::Relaxed));
         result.insert(

@@ -74,12 +74,11 @@ impl HandshakeProcess {
         };
         debug!("Handshake message received: {} ({})", log_type, peer);
 
-        let our_response = if let Some(query) = message.query.clone() {
-            // Send response + our own query
-            Some(self.create_response(&query, message.is_v2, peer))
-        } else {
-            None
-        };
+        // Send response + our own query
+        let our_response = message
+            .query
+            .as_ref()
+            .map(|query| self.create_response(query, message.is_v2, peer));
 
         if let Some(their_response) = &message.response {
             match self.verify_response(their_response, peer) {
@@ -129,10 +128,10 @@ impl HandshakeProcess {
         }
 
         // Prevent mismatched genesis
-        if let Some(v2) = &response.v2 {
-            if v2.genesis != self.genesis_hash {
-                return Err(HandshakeResponseError::InvalidGenesis);
-            }
+        if let Some(v2) = &response.v2
+            && v2.genesis != self.genesis_hash
+        {
+            return Err(HandshakeResponseError::InvalidGenesis);
         }
 
         let Some(cookie) = self.syn_cookies.cookie(&peer_addr) else {

@@ -104,10 +104,10 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
 
                 for (hash, block) in election.candidate_blocks() {
                     // Notify observers about dropped elections & blocks lost confirmed elections
-                    if !election.is_confirmed() || *hash != election.winner().hash() {
-                        if let Some(tx) = &self.node_observer {
-                            tx.send(NodeEvent::ElectionStopped(*hash)).unwrap();
-                        }
+                    if (!election.is_confirmed() || *hash != election.winner().hash())
+                        && let Some(tx) = &self.node_observer
+                    {
+                        tx.send(NodeEvent::ElectionStopped(*hash)).unwrap();
                     }
 
                     if !election.is_confirmed() {

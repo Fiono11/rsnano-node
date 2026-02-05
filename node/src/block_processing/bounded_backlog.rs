@@ -146,10 +146,10 @@ impl BoundedBacklog {
     pub fn insert_processed(&self, batch: &[ProcessedResult]) {
         let any = self.backlog_impl.ledger.any();
         for result in batch {
-            if result.status.is_ok() {
-                if let Some(block) = &result.saved_block {
-                    self.insert(&any, block);
-                }
+            if result.status.is_ok()
+                && let Some(block) = &result.saved_block
+            {
+                self.insert(&any, block);
             }
         }
     }
@@ -283,14 +283,9 @@ impl BoundedBacklogImpl {
 
             // Calculate the number of targets to rollback
             let backlog = self.ledger.backlog_count();
-
-            let target_count = if backlog > self.config.max_backlog {
-                backlog - self.config.max_backlog
-            } else {
-                0
-            };
-
+            let target_count = backlog.saturating_sub(self.config.max_backlog);
             let can_roll_back = self.can_roll_back.read().unwrap();
+
             let targets = guard.gather_targets(
                 min(target_count as usize, self.config.batch_size),
                 &*can_roll_back,

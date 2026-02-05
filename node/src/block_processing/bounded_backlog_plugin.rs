@@ -17,10 +17,10 @@ impl LedgerEventProcessorPlugin for BoundedBacklogPlugin {
     fn process(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
-                self.bounded_backlog.insert_processed(&results);
+                self.bounded_backlog.insert_processed(results);
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
-                self.bounded_backlog.remove(&confirmed);
+                self.bounded_backlog.remove(confirmed);
             }
             LedgerEvent::BlocksRolledBack(rolled_back) => {
                 // Unblock rolled back accounts as the dependency is no longer valid

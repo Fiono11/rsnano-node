@@ -60,7 +60,7 @@ impl QueryFactory {
 
         let query_spec = AscPullQuerySpec {
             query_id: context.id,
-            channel: channel,
+            channel,
             req_type,
             hash: pull_start.hash,
             account: next.account,

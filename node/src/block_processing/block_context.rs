@@ -101,3 +101,9 @@ impl BlockProcessorWaiter {
         self.condition.wait_while(guard, |i| !i.1).unwrap().0
     }
 }
+
+impl Default for BlockProcessorWaiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}

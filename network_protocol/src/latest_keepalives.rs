@@ -58,6 +58,10 @@ impl LatestKeepalives {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn max_len(&self) -> usize {
         self.max_len
     }

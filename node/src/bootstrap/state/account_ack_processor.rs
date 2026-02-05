@@ -74,7 +74,7 @@ pub(super) struct AccountAckStats {
 
 impl StatsSource for AccountAckStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        const PROCESSOR: &'static str = "bootstr_acc_ack_proc";
+        const PROCESSOR: &str = "bootstr_acc_ack_proc";
 
         result.insert(PROCESSOR, "account_info_empty", self.empty);
         result.insert(PROCESSOR, "dependency_update", self.dependency_update);

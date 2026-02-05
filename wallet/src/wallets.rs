@@ -414,21 +414,22 @@ impl Wallets {
         };
 
         for id in wallet_ids {
-            // New wallet
-            if !guard.contains_key(&id) {
+            guard.entry(id).or_insert_with(|| {
+                // New wallet
                 let text = PathBuf::from(id.encode_hex());
                 let representative = self.random_representative();
-                if let Ok(wallet) = Wallet::new(
+                Wallet::new(
                     id,
                     &self.env,
                     self.wallets_config.password_fanout as usize,
                     self.kdf.clone(),
                     representative,
                     &text,
-                ) {
-                    guard.insert(id, Arc::new(wallet));
-                }
-            }
+                )
+                .expect("wallet creation should succeed")
+                .into()
+            });
+
             // List of wallets on disk
             stored_items.insert(id);
         }
@@ -584,7 +585,7 @@ impl Wallets {
 
     fn prepare_send_with_id(
         &self,
-        tx: &mut WriteTransaction,
+        txn: &mut WriteTransaction,
         id: &str,
         wallet: &Arc<Wallet>,
         source: Account,
@@ -594,15 +595,14 @@ impl Wallets {
     ) -> anyhow::Result<PreparedSend> {
         let any = self.ledger.any();
 
-        let block = match self.get_block_hash(tx, id)? {
-            Some(hash) => Some(any.get_block(&hash).unwrap()),
-            None => None,
-        };
+        let block = self
+            .get_block_hash(txn, id)?
+            .map(|hash| any.get_block(&hash).expect("block should exist"));
 
         if let Some(block) = block {
             Ok(PreparedSend::Cached(block))
         } else {
-            if !wallet.store.valid_password(tx) {
+            if !wallet.store.valid_password(txn) {
                 bail!("invalid password");
             }
 
@@ -613,11 +613,11 @@ impl Wallets {
             }
 
             let info = any.get_account(&source).unwrap();
-            let prv_key_raw = wallet.store.fetch(tx, &source.into()).unwrap();
+            let prv_key_raw = wallet.store.fetch(txn, &source.into()).unwrap();
             if work.is_zero() {
                 work = wallet
                     .store
-                    .work_get(tx, &source.into())
+                    .work_get(txn, &source.into())
                     .unwrap_or_default();
             }
             let priv_key = PrivateKey::from(prv_key_raw);
@@ -631,14 +631,14 @@ impl Wallets {
             }
             .into();
             let details = BlockDetails::new(info.epoch, true, false, false);
-            self.set_block_hash(tx, id, &state_block.hash())?;
+            self.set_block_hash(txn, id, &state_block.hash())?;
             Ok(PreparedSend::New(state_block, details))
         }
     }
 
     pub fn work_get(&self, wallet_id: &WalletId, pub_key: &PublicKey) -> WorkNonce {
         let guard = self.wallets.lock().unwrap();
-        let Some(wallet) = guard.get(&wallet_id) else {
+        let Some(wallet) = guard.get(wallet_id) else {
             return 1.into();
         };
         let txn = self.env.begin_read();
@@ -716,7 +716,7 @@ impl Wallets {
         let _wallet = Wallet::new_from_json(
             wallet_id,
             &self.env,
-            self.wallets_config.password_fanout as usize,
+            self.wallets_config.password_fanout,
             self.kdf.clone(),
             &PathBuf::from(wallet_id.to_string()),
             json,
@@ -847,12 +847,11 @@ impl Wallets {
         }
 
         let result = work_queue.send(request);
-        if result.is_err() {
-            if let Some(WorkItem::BlockWork(_, block_promise, _, _)) =
+        if result.is_err()
+            && let Some(WorkItem::BlockWork(_, block_promise, _, _)) =
                 self.waiting_for_work.lock().unwrap().remove(&root)
-            {
-                block_promise.set_result(Err(WalletsError::Generic));
-            }
+        {
+            block_promise.set_result(Err(WalletsError::Generic));
         }
     }
 
@@ -1073,8 +1072,8 @@ impl Wallets {
                 let mut txn = self.env.begin_write();
                 let result = self.prepare_send_with_id(
                     &mut txn,
-                    &id,
-                    &wallet,
+                    id,
+                    wallet,
                     source,
                     destination,
                     amount,
@@ -1085,7 +1084,7 @@ impl Wallets {
             }
             None => {
                 let txn = self.env.begin_read();
-                self.prepare_send(&txn, &wallet, source, destination, amount, work)
+                self.prepare_send(&txn, wallet, source, destination, amount, work)
             }
         };
 
@@ -1307,7 +1306,7 @@ impl Wallets {
             let Ok(wallet) = Wallet::new(
                 wallet_id,
                 &self.env,
-                self.wallets_config.password_fanout as usize,
+                self.wallets_config.password_fanout,
                 self.kdf.clone(),
                 self.random_representative(),
                 &PathBuf::from(wallet_id.to_string()),
@@ -1381,10 +1380,10 @@ impl Wallets {
                 let txn = self.env.begin_read();
                 let any = self.ledger.any();
                 for (account, _) in wallet.store.iter(&txn) {
-                    if let Some(info) = any.get_account(&account.into()) {
-                        if info.representative != rep {
-                            accounts.push(account);
-                        }
+                    if let Some(info) = any.get_account(&account.into())
+                        && info.representative != rep
+                    {
+                        accounts.push(account);
                     }
                 }
                 txn.commit();
@@ -1510,11 +1509,9 @@ impl Wallets {
             return;
         };
 
-        if generate_work {
-            if let Some(block) = &result {
-                // Pregenerate work for next block based on the block just created
-                self.work_ensure(&wallet, block.account(), block.hash().into());
-            }
+        if generate_work && let Some(block) = &result {
+            // Pregenerate work for next block based on the block just created
+            self.work_ensure(&wallet, block.account(), block.hash().into());
         }
 
         promise.set_result(result.ok_or(WalletsError::Generic));

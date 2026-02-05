@@ -511,7 +511,7 @@ impl LedgerEventProcessorPlugin for LocalBlockBroadcasterPlugin {
     fn process(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
-                self.local_block_broadcaster.blocks_processed(&results);
+                self.local_block_broadcaster.blocks_processed(results);
             }
             LedgerEvent::BlocksConfirmed(confirmed) => {
                 self.local_block_broadcaster
