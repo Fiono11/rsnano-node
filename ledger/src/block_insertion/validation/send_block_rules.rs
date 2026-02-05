@@ -5,10 +5,11 @@ use rsnano_types::Block;
 impl<'a> BlockValidator<'a> {
     /// If there's no link, the balance must remain the same, only the representative can change
     pub(crate) fn ensure_no_reveive_balance_change_without_link(&self) -> Result<(), BlockError> {
-        if let Block::State(state) = self.block {
-            if state.link().is_zero() && !self.amount_received().is_zero() {
-                return Err(BlockError::BalanceMismatch);
-            }
+        if let Block::State(state) = self.block
+            && state.link().is_zero()
+            && !self.amount_received().is_zero()
+        {
+            return Err(BlockError::BalanceMismatch);
         }
 
         Ok(())
@@ -16,10 +17,10 @@ impl<'a> BlockValidator<'a> {
 
     pub(crate) fn ensure_no_negative_amount_send(&self) -> Result<(), BlockError> {
         // Is this trying to spend a negative amount (Malicious)
-        if let Block::LegacySend(send) = self.block {
-            if self.previous_balance() < send.balance() {
-                return Err(BlockError::NegativeSpend);
-            };
+        if let Block::LegacySend(send) = self.block
+            && self.previous_balance() < send.balance()
+        {
+            return Err(BlockError::NegativeSpend);
         }
 
         Ok(())

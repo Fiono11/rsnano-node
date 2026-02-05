@@ -3,6 +3,10 @@ use rsnano_types::RawKey;
 
 /// The fan spreads a key out over the heap to decrease the likelihood of it being recovered by memory inspection
 pub struct Fan {
+    #[allow(
+        clippy::vec_box,
+        reason = "having the Keys in boxes causes them to be scatttered on the heap, which increases security"
+    )]
     values: Vec<Box<RawKey>>,
 }
 
@@ -24,7 +28,7 @@ impl Fan {
     pub fn value(&self) -> RawKey {
         let mut key = RawKey::ZERO;
         for i in self.values.iter() {
-            key ^= i.as_ref().clone();
+            key ^= *i.as_ref();
         }
         key
     }

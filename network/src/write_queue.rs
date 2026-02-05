@@ -78,6 +78,10 @@ impl WriteQueue {
         self.queue.lock().unwrap().len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub async fn pop(&self) -> Option<Entry> {
         let entry;
         let traffic_type;

@@ -35,7 +35,7 @@ impl TcpChannelAdapter {
 
     pub fn new_null_with_id(id: impl Into<ChannelId>) -> Self {
         let channel_id = id.into();
-        let channel = Self::new(
+        Self::new(
             Arc::new(Channel::new(
                 channel_id,
                 TEST_ENDPOINT_1,
@@ -48,8 +48,7 @@ impl TcpChannelAdapter {
             )),
             Arc::downgrade(&Arc::new(TcpStream::new_null())),
             Arc::new(SteadyClock::new_null()),
-        );
-        channel
+        )
     }
 
     pub fn create(
@@ -140,7 +139,7 @@ impl TcpChannelAdapter {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.channel.read_failed();
-                return Err(e.into());
+                Err(e.into())
             }
         }
     }

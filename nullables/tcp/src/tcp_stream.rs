@@ -110,7 +110,7 @@ impl TcpStreamStub {
     }
 
     fn no_data_error() -> tokio::io::Error {
-        tokio::io::Error::new(ErrorKind::Other, "nulled tcp stream has no data")
+        tokio::io::Error::other("nulled tcp stream has no data")
     }
 
     fn next_bytes(&self) -> &[u8] {

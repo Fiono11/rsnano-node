@@ -139,7 +139,7 @@ impl Channel {
     /// The address where the peer accepts incoming connections. In case of an outbound
     /// channel, the peer_addr and peering_addr are the same
     pub fn peering_addr(&self) -> Option<SocketAddrV6> {
-        self.data.lock().unwrap().peering_addr.clone()
+        self.data.lock().unwrap().peering_addr
     }
 
     pub fn peering_addr_or_peer_addr(&self) -> SocketAddrV6 {
@@ -147,12 +147,11 @@ impl Channel {
             .lock()
             .unwrap()
             .peering_addr
-            .clone()
             .unwrap_or(self.peer_addr)
     }
 
     pub fn ipv4_address_or_ipv6_subnet(&self) -> Ipv6Addr {
-        ipv4_address_or_ipv6_subnet(&self.peer_addr().ip())
+        ipv4_address_or_ipv6_subnet(self.peer_addr().ip())
     }
 
     pub fn subnetwork(&self) -> Ipv6Addr {
@@ -257,10 +256,9 @@ impl Channel {
             return false;
         }
 
-        let inserted = self
-            .write_queue
-            .try_insert(Arc::new(buffer.to_vec()), traffic_type); // TODO don't copy into vec. Split into fixed size packets
-        inserted
+        // TODO don't copy into vec. Split into fixed size packets
+        self.write_queue
+            .try_insert(Arc::new(buffer.to_vec()), traffic_type)
     }
 
     pub fn free_capacity(&self, traffic_type: TrafficType) -> usize {

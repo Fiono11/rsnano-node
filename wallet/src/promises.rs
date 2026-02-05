@@ -58,6 +58,12 @@ impl BlockPromise {
     }
 }
 
+impl Default for BlockPromise {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct BlockPromiseState {
     done: bool,
     result: Result<SavedBlock, WalletsError>,

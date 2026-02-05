@@ -45,10 +45,10 @@ impl<'a> RollbackPlanner<'a> {
         self.ensure_block_is_not_confirmed()?;
         let block_sub_type = self.block_sub_type();
 
-        if block_sub_type == BlockSubType::Send {
-            if let Some(step) = self.roll_back_destination_account_if_send_block_is_received() {
-                return Ok(step);
-            }
+        if block_sub_type == BlockSubType::Send
+            && let Some(step) = self.roll_back_destination_account_if_send_block_is_received()
+        {
+            return Ok(step);
         }
 
         if self.previous_representative.is_none()

@@ -54,10 +54,7 @@ impl<'a> BlockValidatorFactory<'a> {
     fn get_account(&self, previous: &Option<SavedBlock>) -> Option<Account> {
         match self.block.account_field() {
             Some(account) => Some(account),
-            None => match previous {
-                Some(p) => Some(p.account()),
-                None => None,
-            },
+            None => previous.as_ref().map(|p| p.account()),
         }
     }
 

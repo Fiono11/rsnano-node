@@ -146,6 +146,10 @@ impl RepWeightCache {
         self.weights.read().unwrap().len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn put(&self, account: PublicKey, weight: Amount) {
         self.weights.write().unwrap().put(account, weight);
     }

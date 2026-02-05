@@ -19,7 +19,7 @@ pub fn map_address_to_subnetwork(input: &Ipv6Addr) -> Ipv6Addr {
 
 pub fn ipv4_address_or_ipv6_subnet(input: &Ipv6Addr) -> Ipv6Addr {
     if is_ipv4_mapped(input) {
-        input.clone()
+        *input
     } else {
         // Assuming /48 subnet prefix for IPv6 as it's relatively easy to acquire such a /48 address range
         first_ipv6_subnet_address(input, 48)
@@ -114,15 +114,13 @@ pub fn reserved_address(endpoint: &SocketAddrV6, allow_local_peers: bool) -> boo
         return true;
     }
 
-    if !allow_local_peers {
-        if (ip >= RFC1918_1_MIN && ip <= RFC1918_1_MAX)
-            || (ip >= RFC1918_2_MIN && ip <= RFC1918_2_MAX)
-            || (ip >= RFC1918_3_MIN && ip <= RFC1918_3_MAX)
-            || (ip >= RFC6598_MIN && ip <= RFC6598_MAX)
-            || (ip >= RFC4193_MIN && ip <= RFC4193_MAX)
-        {
-            return true;
-        }
+    if !allow_local_peers && (ip >= RFC1918_1_MIN && ip <= RFC1918_1_MAX)
+        || (ip >= RFC1918_2_MIN && ip <= RFC1918_2_MAX)
+        || (ip >= RFC1918_3_MIN && ip <= RFC1918_3_MAX)
+        || (ip >= RFC6598_MIN && ip <= RFC6598_MAX)
+        || (ip >= RFC4193_MIN && ip <= RFC4193_MAX)
+    {
+        return true;
     }
 
     false

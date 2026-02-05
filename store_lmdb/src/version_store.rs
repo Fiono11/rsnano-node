@@ -32,7 +32,7 @@ impl LmdbVersionStore {
     }
 
     pub fn check_upgrade(env: &LmdbEnvironment) -> anyhow::Result<UpgradeInfo> {
-        let info = match LmdbVersionStore::try_read_version(&env) {
+        let info = match LmdbVersionStore::try_read_version(env) {
             Some(version) => UpgradeInfo {
                 is_fresh_db: false,
                 is_fully_upgraded: version == STORE_VERSION_CURRENT,

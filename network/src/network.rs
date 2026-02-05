@@ -156,7 +156,7 @@ impl Network {
     }
 
     pub fn protocol_info(&self) -> ProtocolInfo {
-        self.config.protocol_info.clone()
+        self.config.protocol_info
     }
 
     pub fn bandwidth_limit(&self) -> usize {
@@ -217,7 +217,7 @@ impl Network {
     }
 
     pub fn remove_attempt(&mut self, remote: &SocketAddrV6) {
-        self.attempts.remove(&remote);
+        self.attempts.remove(remote);
     }
 
     pub fn add_test_channel(&mut self) -> Arc<Channel> {
@@ -504,12 +504,11 @@ impl Network {
         for i in self.iter_by_last_bootstrap_attempt() {
             if i.mode() == ChannelMode::Realtime
                 && i.protocol_version() >= self.config.protocol_info.version_min
+                && let Some(peering) = i.peering_addr()
             {
-                if let Some(peering) = i.peering_addr() {
-                    channel = Some(i);
-                    peering_endpoint = Some(peering);
-                    break;
-                }
+                channel = Some(i);
+                peering_endpoint = Some(peering);
+                break;
             }
         }
 
@@ -529,7 +528,7 @@ impl Network {
             .filter(|c| c.is_alive())
             .cloned()
             .collect();
-        channels.sort_by(|a, b| a.last_bootstrap_attempt().cmp(&b.last_bootstrap_attempt()));
+        channels.sort_by_key(|a| a.last_bootstrap_attempt());
         channels
     }
 
@@ -550,14 +549,13 @@ impl Network {
     }
 
     fn max_ip_connections(&self, endpoint: &SocketAddrV6) -> bool {
-        let count =
-            self.count_by_ip(&endpoint.ip()) + self.attempts.count_by_address(&endpoint.ip());
+        let count = self.count_by_ip(endpoint.ip()) + self.attempts.count_by_address(endpoint.ip());
         count >= self.config.max_peers_per_ip as usize
     }
 
     fn max_subnetwork_connections(&self, peer: &SocketAddrV6) -> bool {
         // If the address is IPv4 we don't check for a network limit, since its address space isn't big as IPv6/64.
-        if is_ipv4_mapped(&peer.ip()) {
+        if is_ipv4_mapped(peer.ip()) {
             return false;
         }
 
@@ -604,10 +602,10 @@ impl Network {
 
         if direction == ChannelDirection::Outbound {
             // Don't connect to nodes that already sent us something
-            if self.find_channels_by_remote_addr(peer).len() > 0 {
+            if !self.find_channels_by_remote_addr(peer).is_empty() {
                 return Err(NetworkError::DuplicateConnection);
             }
-            if self.find_channels_by_peering_addr(peer).len() > 0 {
+            if !self.find_channels_by_peering_addr(peer).is_empty() {
                 return Err(NetworkError::DuplicateConnection);
             }
         }
@@ -696,16 +694,14 @@ impl Network {
             return None;
         }
 
-        let Some(channel) = self.channels.get(&channel_id) else {
-            return None;
-        };
+        let channel = self.channels.get(&channel_id)?;
 
-        if let Some(other) = self.find_node_id(&node_id) {
-            if other.ipv4_address_or_ipv6_subnet() == channel.ipv4_address_or_ipv6_subnet() {
-                // We already have a connection to that node. We allow duplicate node ids, but
-                // only if they come from different IP addresses
-                return None;
-            }
+        if let Some(other) = self.find_node_id(&node_id)
+            && other.ipv4_address_or_ipv6_subnet() == channel.ipv4_address_or_ipv6_subnet()
+        {
+            // We already have a connection to that node. We allow duplicate node ids, but
+            // only if they come from different IP addresses
+            return None;
         }
 
         channel.set_node_id(node_id);
@@ -733,9 +729,8 @@ impl Network {
         let mut info = ChannelsInfo::default();
         for channel in self.channels.values() {
             info.total += 1;
-            match channel.mode() {
-                ChannelMode::Realtime => info.realtime += 1,
-                _ => {}
+            if channel.mode() == ChannelMode::Realtime {
+                info.realtime += 1;
             }
             match channel.direction() {
                 ChannelDirection::Inbound => info.inbound += 1,
@@ -747,6 +742,10 @@ impl Network {
 
     pub fn len(&self) -> usize {
         self.channels.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn is_stopped(&self) -> bool {

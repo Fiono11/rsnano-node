@@ -342,7 +342,7 @@ pub(crate) struct BorrowingAnySet<'a> {
 
 impl<'a> BorrowingAnySet<'a> {
     fn dependent_blocks_for_unsaved_block(&self, block: &Block) -> DependentBlocks {
-        DependentBlocksFinder::new(self, &self.constants)
+        DependentBlocksFinder::new(self, self.constants)
             .find_dependent_blocks_for_unsaved_block(block)
     }
 }

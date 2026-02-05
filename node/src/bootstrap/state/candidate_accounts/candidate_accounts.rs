@@ -217,10 +217,7 @@ impl CandidateAccounts {
 
     #[allow(dead_code)]
     pub fn last_request(&self, account: &Account) -> Option<Timestamp> {
-        self.priorities
-            .get(account)
-            .map(|i| i.last_request)
-            .flatten()
+        self.priorities.get(account).and_then(|i| i.last_request)
     }
 
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {

@@ -138,6 +138,12 @@ impl SavedBlockLatticeBuilder {
     }
 }
 
+impl Default for SavedBlockLatticeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Clone for SavedBlockLatticeBuilder {
     fn clone(&self) -> Self {
         Self {
@@ -282,7 +288,7 @@ impl<'a> SavedAccountChainBuilder<'a> {
 
         let work = self.create_pow(root);
         let receive: Block = OpenBlockArgs {
-            key: &self.key,
+            key: self.key,
             source: corresponding_send.hash(),
             representative: new_representative.into(),
             work,

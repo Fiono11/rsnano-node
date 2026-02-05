@@ -139,6 +139,7 @@ pub trait DataReceiver {
     fn try_unpause(&self) -> ReceiveResult;
 }
 
+#[derive(Default)]
 pub struct NullDataReceiverFactory;
 
 impl NullDataReceiverFactory {
@@ -153,6 +154,7 @@ impl DataReceiverFactory for NullDataReceiverFactory {
     }
 }
 
+#[derive(Default)]
 pub struct NullDataReceiver;
 
 impl NullDataReceiver {

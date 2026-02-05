@@ -70,20 +70,15 @@ impl<'a> BlockInserter<'a> {
     }
 
     fn account_changed_since_validation(&mut self) -> bool {
-        let account_info = self.get_current_account_info();
-        let account_changed_since_validation =
-            account_info.head != self.instructions.old_account_info.head;
-        account_changed_since_validation
+        self.get_current_account_info().head != self.instructions.old_account_info.head
     }
 
     fn get_current_account_info(&mut self) -> AccountInfo {
-        let account_info = self
-            .ledger
+        self.ledger
             .store
             .account
             .get(self.txn, &self.instructions.account)
-            .unwrap_or_default();
-        account_info
+            .unwrap_or_default()
     }
 
     fn update_account(&mut self) {

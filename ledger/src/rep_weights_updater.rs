@@ -67,12 +67,10 @@ impl RepWeightsUpdater {
             let mut cache = self.weight_cache.write().unwrap();
             cache.put(sub_rep, new_sub_weight);
             cache.put(add_rep, new_add_weight);
+        } else if add_amount >= sub_amount {
+            self.add(txn, add_rep, add_amount - sub_amount);
         } else {
-            if add_amount >= sub_amount {
-                self.add(txn, add_rep, add_amount - sub_amount);
-            } else {
-                self.sub(txn, add_rep, sub_amount - add_amount);
-            }
+            self.sub(txn, add_rep, sub_amount - add_amount);
         }
     }
 

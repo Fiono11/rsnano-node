@@ -41,7 +41,7 @@ impl<'a> BlockRollbackPerformer<'a> {
     ) -> Result<(), RollbackError> {
         while let Some((target_block, head_block)) = targets.last_mut() {
             if self.any().block_exists(&target_block.hash()) {
-                let step = self.roll_back_head_block(&head_block)?;
+                let step = self.roll_back_head_block(head_block)?;
                 match step {
                     RollbackStep::RollBackBlock(instructions) => {
                         RollbackInstructionsExecutor::new(self.ledger, self.txn, &instructions)
@@ -56,7 +56,7 @@ impl<'a> BlockRollbackPerformer<'a> {
                     }
                     RollbackStep::RequestDependencyRollback(dependency_hash) => {
                         let dep_block = self.load_block(&dependency_hash)?;
-                        let dep_head = self.load_account_head(&target_block)?;
+                        let dep_head = self.load_account_head(target_block)?;
                         targets.push((dep_block, dep_head));
                     }
                 }

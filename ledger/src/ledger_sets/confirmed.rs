@@ -212,7 +212,7 @@ impl<'a> Iterator for ConfirmedReceivableIterator<'a> {
             Some(account) => {
                 if key.receiving_account == account {
                     self.next_hash = key.send_block_hash.inc();
-                    Some((key.clone(), info.clone()))
+                    Some((key, info.clone()))
                 } else {
                     None
                 }

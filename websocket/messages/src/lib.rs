@@ -148,7 +148,7 @@ pub fn work_generation_message(
         None
     };
 
-    let bad_peers = bad_peers.iter().cloned().collect();
+    let bad_peers = bad_peers.to_vec();
     MessageEnvelope::new(
         Topic::Work,
         WorkGeneration {

@@ -36,7 +36,7 @@ impl PeerExclusion {
     /// excluded its exclusion duration gets increased.
     /// Returns the new score for the peer.
     pub fn peer_misbehaved(&mut self, endpoint: &SocketAddrV6, now: Timestamp) -> u64 {
-        if let Some(peer) = self.by_ip.get_mut(&endpoint.ip()) {
+        if let Some(peer) = self.by_ip.get_mut(endpoint.ip()) {
             let old_exclution_end = peer.exclude_until;
             peer.misbehaved(now);
             if peer.exclude_until != old_exclution_end {
@@ -59,7 +59,7 @@ impl PeerExclusion {
 
     #[allow(dead_code)]
     pub fn contains(&self, endpoint: &SocketAddrV6) -> bool {
-        self.by_ip.contains_key(&endpoint.ip()) || self.perma_bans.contains(endpoint)
+        self.by_ip.contains_key(endpoint.ip()) || self.perma_bans.contains(endpoint)
     }
 
     #[allow(dead_code)]
@@ -67,19 +67,17 @@ impl PeerExclusion {
         if self.perma_bans.contains(endpoint) {
             Some(Timestamp::MAX)
         } else {
-            self.by_ip
-                .get(&endpoint.ip())
-                .map(|item| item.exclude_until)
+            self.by_ip.get(endpoint.ip()).map(|item| item.exclude_until)
         }
     }
 
     /// Checks if an endpoint is currently excluded.
     pub fn is_excluded(&mut self, peer_addr: &SocketAddrV6, now: Timestamp) -> bool {
-        if self.perma_bans.contains(&peer_addr) {
+        if self.perma_bans.contains(peer_addr) {
             return true;
         }
 
-        if let Some(peer) = self.by_ip.get(&peer_addr.ip()).cloned() {
+        if let Some(peer) = self.by_ip.get(peer_addr.ip()).cloned() {
             if peer.has_expired(now) {
                 self.remove(&peer.address);
             }
@@ -90,15 +88,20 @@ impl PeerExclusion {
     }
 
     fn remove(&mut self, endpoint: &SocketAddrV6) {
-        if let Some(item) = self.by_ip.remove(&endpoint.ip()) {
+        if let Some(item) = self.by_ip.remove(endpoint.ip()) {
             self.ordered_by_date
-                .remove(&item.address.ip(), item.exclude_until);
+                .remove(item.address.ip(), item.exclude_until);
         }
     }
 
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.by_ip.len() + self.perma_bans.len()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     fn clean_old_peers(&mut self) {
@@ -193,7 +196,7 @@ impl PeersOrderedByExclusionDate {
     }
 
     fn update_exclusion_end(&mut self, old_date: Timestamp, peer: &Peer) {
-        self.remove(&peer.address.ip(), old_date);
+        self.remove(peer.address.ip(), old_date);
         self.insert(*peer.address.ip(), peer.exclude_until);
     }
 

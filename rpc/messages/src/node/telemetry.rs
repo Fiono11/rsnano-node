@@ -10,7 +10,7 @@ impl RpcCommand {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Default)]
 pub struct TelemetryArgs {
     pub raw: Option<RpcBool>,
     pub address: Option<Ipv6Addr>,
@@ -19,11 +19,7 @@ pub struct TelemetryArgs {
 
 impl TelemetryArgs {
     pub fn new() -> TelemetryArgs {
-        TelemetryArgs {
-            raw: None,
-            address: None,
-            port: None,
-        }
+        Self::default()
     }
 
     pub fn builder() -> TelemetryArgsBuilder {
@@ -44,7 +40,7 @@ impl TelemetryArgsBuilder {
     }
 
     pub fn remote_addr(mut self, addr: SocketAddrV6) -> Self {
-        self.args.address = Some(addr.ip().clone());
+        self.args.address = Some(*addr.ip());
         self.args.port = Some(addr.port().into());
         self
     }
@@ -93,7 +89,7 @@ impl From<TelemetryData> for TelemetryDto {
             uptime: data.uptime.into(),
             peer_count: data.peer_count.into(),
             protocol_version: data.protocol_version.into(),
-            genesis_block: data.genesis_block.into(),
+            genesis_block: data.genesis_block,
             major_version: data.major_version.into(),
             minor_version: data.minor_version.into(),
             patch_version: data.patch_version.into(),

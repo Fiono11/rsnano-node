@@ -131,6 +131,12 @@ impl ConfiguredRepWeightDatabaseBuilder {
     }
 }
 
+impl Default for ConfiguredRepWeightDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

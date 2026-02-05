@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+#[derive(Default)]
 pub struct LedgerCache {
     pub confirmed_count: AtomicU64,
     pub block_count: AtomicU64,
@@ -20,11 +21,7 @@ pub struct LedgerCache {
 
 impl LedgerCache {
     pub fn new() -> Self {
-        Self {
-            confirmed_count: AtomicU64::new(0),
-            block_count: AtomicU64::new(0),
-            account_count: AtomicU64::new(0),
-        }
+        Self::default()
     }
 
     pub fn reset(&self) {

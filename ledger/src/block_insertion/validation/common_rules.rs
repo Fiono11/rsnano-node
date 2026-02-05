@@ -47,10 +47,10 @@ impl<'a> BlockValidator<'a> {
     }
 
     fn ensure_previous_block_is_account_head(&self) -> Result<(), BlockError> {
-        if let Some(info) = &self.old_account_info {
-            if self.block.previous() != info.head {
-                return Err(BlockError::Fork);
-            }
+        if let Some(info) = &self.old_account_info
+            && self.block.previous() != info.head
+        {
+            return Err(BlockError::Fork);
         }
 
         Ok(())

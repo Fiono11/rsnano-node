@@ -99,6 +99,10 @@ impl AttemptContainer {
         self.by_endpoint.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn purge(&mut self, now: Timestamp, timeout: Duration) {
         while let Some((time, endpoint)) = self.get_oldest() {
             if now - time < timeout {

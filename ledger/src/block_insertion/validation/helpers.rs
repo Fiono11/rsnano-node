@@ -88,10 +88,10 @@ impl<'a> BlockValidator<'a> {
                 Block::State(i) => Some(i.balance()),
                 _ => None,
             };
-            if let Some(balance) = balance {
-                if balance < info.balance {
-                    return info.balance - balance;
-                }
+            if let Some(balance) = balance
+                && balance < info.balance
+            {
+                return info.balance - balance;
             }
         }
         Amount::ZERO

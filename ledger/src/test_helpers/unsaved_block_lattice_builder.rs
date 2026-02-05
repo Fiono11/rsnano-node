@@ -2,7 +2,7 @@ use rsnano_types::{Account, Amount, Block, DEV_GENESIS_KEY, PrivateKey, PublicKe
 
 use super::{SavedAccountChainBuilder, SavedBlockLatticeBuilder};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct UnsavedBlockLatticeBuilder {
     inner: SavedBlockLatticeBuilder,
 }

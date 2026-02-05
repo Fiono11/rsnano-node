@@ -1,16 +1,14 @@
 use crate::RpcBoolNumber;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Default)]
 pub struct SuccessResponse {
     success: String,
 }
 
 impl SuccessResponse {
     pub fn new() -> Self {
-        Self {
-            success: String::new(),
-        }
+        Self::default()
     }
 }
 

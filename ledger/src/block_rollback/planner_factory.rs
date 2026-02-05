@@ -95,15 +95,14 @@ impl<'a> RollbackPlannerFactory<'a> {
             BlockHash::ZERO
         };
 
-        let previous_rep = if !rep_block_hash.is_zero() {
+        if !rep_block_hash.is_zero() {
             let rep_block = self
                 .load_block(&rep_block_hash)
                 .expect("Could not load representative block!");
             Some(rep_block.representative_field().unwrap_or_default())
         } else {
             None
-        };
-        previous_rep
+        }
     }
 
     fn load_block(&self, block_hash: &BlockHash) -> anyhow::Result<SavedBlock> {

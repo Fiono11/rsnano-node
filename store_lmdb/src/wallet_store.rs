@@ -266,7 +266,7 @@ impl LmdbWalletStore {
     }
 
     fn db_handle(&self) -> LmdbDatabase {
-        self.db_handle.lock().unwrap().unwrap().clone()
+        self.db_handle.lock().unwrap().unwrap()
     }
 
     pub fn entry_get_raw(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> WalletValue {
@@ -419,16 +419,12 @@ impl LmdbWalletStore {
         )
     }
 
-    pub fn find<'txn>(
-        &self,
-        txn: &'txn dyn Transaction,
-        pub_key: &PublicKey,
-    ) -> Option<WalletValue> {
+    pub fn find(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Option<WalletValue> {
         let mut result = self.iter_range(txn, *pub_key..);
-        if let Some((key, value)) = result.next() {
-            if key == *pub_key {
-                return Some(value);
-            }
+        if let Some((key, value)) = result.next()
+            && key == *pub_key
+        {
+            return Some(value);
         }
 
         None
@@ -459,13 +455,10 @@ impl LmdbWalletStore {
         {
             let mut it = self.iter_range(txn, PublicKey::ZERO..);
             while let Some((account, value)) = it.next() {
-                match Self::key_type(&value) {
-                    KeyType::Deterministic => {
-                        drop(it);
-                        self.erase(txn, &account);
-                        it = self.iter_range(txn, account..);
-                    }
-                    _ => {}
+                if let KeyType::Deterministic = Self::key_type(&value) {
+                    drop(it);
+                    self.erase(txn, &account);
+                    it = self.iter_range(txn, account..);
                 }
             }
         }

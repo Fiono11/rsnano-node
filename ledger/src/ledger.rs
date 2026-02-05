@@ -515,7 +515,7 @@ impl Ledger {
         self.rollback_listener.emit(*block);
         let result = self.roll_back_batch(&[*block], usize::MAX, |_| true);
         let rolled_back = result[0].rolled_back.len();
-        result[0].error.map_or(Ok(rolled_back), |e| Err(e))
+        result[0].error.map_or(Ok(rolled_back), Err)
     }
 
     pub fn roll_back_batch<'a, T, F>(
@@ -711,24 +711,24 @@ impl Ledger {
         let hash = fork_block.hash();
         if let Some(successor) =
             self.block_successor_by_qualified_root(tx, &fork_block.qualified_root())
+            && successor != hash
         {
-            if successor != hash {
-                // Replace our block with the winner and roll back any dependent blocks
-                debug!("Rolling back: {} and replacing with: {}", successor, hash);
-                let (list, error) = self.roll_back_with_txn(tx, &successor);
-                rollback_list = list;
-                match error {
-                    None => {
-                        self.stats.inc(StatType::Ledger, DetailType::Rollback);
-                        debug!("Blocks rolled back: {}", rollback_list.len());
-                    }
-                    Some(e) => {
-                        self.stats.inc(StatType::Ledger, DetailType::RollbackFailed);
-                        debug!(error = ?e, "Failed to roll back");
-                    }
-                };
-            }
+            // Replace our block with the winner and roll back any dependent blocks
+            debug!("Rolling back: {} and replacing with: {}", successor, hash);
+            let (list, error) = self.roll_back_with_txn(tx, &successor);
+            rollback_list = list;
+            match error {
+                None => {
+                    self.stats.inc(StatType::Ledger, DetailType::Rollback);
+                    debug!("Blocks rolled back: {}", rollback_list.len());
+                }
+                Some(e) => {
+                    self.stats.inc(StatType::Ledger, DetailType::RollbackFailed);
+                    debug!(error = ?e, "Failed to roll back");
+                }
+            };
         }
+
         rollback_list
     }
 
@@ -832,7 +832,7 @@ impl Ledger {
                             confirmed.push((block, *confirmation_root));
                         }
                     } else if BorrowingConfirmedSet::new(&self.store, &txn)
-                        .block_exists(&confirmation_root)
+                        .block_exists(confirmation_root)
                     {
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
@@ -916,11 +916,7 @@ impl Ledger {
     pub fn backlog_count(&self) -> u64 {
         let blocks = self.block_count();
         let confirmed = self.confirmed_count();
-        if blocks > confirmed {
-            blocks - confirmed
-        } else {
-            0
-        }
+        blocks.saturating_sub(confirmed)
     }
 
     pub fn genesis(&self) -> &SavedBlock {

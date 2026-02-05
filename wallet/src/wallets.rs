@@ -176,7 +176,7 @@ impl Wallets {
                 let wallet = Wallet::new(
                     id,
                     &self.env,
-                    self.wallets_config.password_fanout as usize,
+                    self.wallets_config.password_fanout,
                     self.kdf.clone(),
                     representative,
                     &text,
@@ -421,7 +421,7 @@ impl Wallets {
                 Wallet::new(
                     id,
                     &self.env,
-                    self.wallets_config.password_fanout as usize,
+                    self.wallets_config.password_fanout,
                     self.kdf.clone(),
                     representative,
                     &text,

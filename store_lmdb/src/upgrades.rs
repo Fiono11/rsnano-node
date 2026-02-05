@@ -29,7 +29,7 @@ pub fn create_and_update_lmdb_env(
 }
 
 fn upgrade_if_needed(env: &mut LmdbEnvironment) -> Result<bool, anyhow::Error> {
-    let upgrade_info = LmdbVersionStore::check_upgrade(&env)?;
+    let upgrade_info = LmdbVersionStore::check_upgrade(env)?;
     if upgrade_info.is_fully_upgraded {
         debug!("No database upgrade needed");
         return Ok(false);
@@ -231,7 +231,7 @@ impl<'a> V24Sideband<'a> {
     pub fn remove_successor_and_upgrade_timestamp_to_millis(&self, result: &mut Vec<u8>) {
         result.clear();
         result.extend_from_slice(self.block_without_sideband());
-        result.extend_from_slice(&self.sideband_without_successor());
+        result.extend_from_slice(self.sideband_without_successor());
         self.upgrade_timestamp_to_millis(result);
     }
 

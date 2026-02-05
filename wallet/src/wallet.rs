@@ -21,7 +21,7 @@ impl Wallet {
         representative: PublicKey,
         wallet_path: &Path,
     ) -> anyhow::Result<Self> {
-        let store = LmdbWalletStore::new(fanout, kdf, env, &representative, &wallet_path)
+        let store = LmdbWalletStore::new(fanout, kdf, env, &representative, wallet_path)
             .context("could not create wallet store")?;
 
         Ok(Self {
@@ -38,7 +38,7 @@ impl Wallet {
         wallet_path: &Path,
         json: &str,
     ) -> anyhow::Result<Self> {
-        let store = LmdbWalletStore::new_from_json(fanout, kdf, env, &wallet_path, json)
+        let store = LmdbWalletStore::new_from_json(fanout, kdf, env, wallet_path, json)
             .context("could not create wallet store")?;
 
         Ok(Self {

@@ -20,10 +20,11 @@ impl<'a> BlockValidator<'a> {
     }
 
     pub(crate) fn ensure_open_block_has_link(&self) -> Result<(), BlockError> {
-        if let Block::State(state) = self.block {
-            if self.block.is_open() && state.link().is_zero() {
-                return Err(BlockError::GapSource);
-            }
+        if let Block::State(state) = self.block
+            && self.block.is_open()
+            && state.link().is_zero()
+        {
+            return Err(BlockError::GapSource);
         }
         Ok(())
     }

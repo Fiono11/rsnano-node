@@ -26,8 +26,7 @@ impl TcpStreamFactory {
                 let tokio_stream = tokio::net::TcpStream::connect(addr).await?;
                 Ok(TcpStream::new(tokio_stream))
             }
-            FactoryType::Null => Err(tokio::io::Error::new(
-                std::io::ErrorKind::Other,
+            FactoryType::Null => Err(tokio::io::Error::other(
                 "nulled TcpStreamFactory has no configured connections",
             )),
         }

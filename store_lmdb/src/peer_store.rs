@@ -40,7 +40,7 @@ impl LmdbPeerStore {
     }
 
     pub fn put(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6, time: SystemTime) {
-        self.put_listener.emit((endpoint.clone(), time));
+        self.put_listener.emit((endpoint, time));
         txn.put(
             self.database,
             &EndpointBytes::from(endpoint),
@@ -81,8 +81,8 @@ impl LmdbPeerStore {
             .expect("Could not read peer store database");
         PeerIterator(LmdbIterator::new(cursor, |k, v| {
             (
-                EndpointBytes::try_from(k).unwrap().into(),
-                TimeBytes::try_from(v).unwrap().into(),
+                EndpointBytes::try_from(k).unwrap(),
+                TimeBytes::try_from(v).unwrap(),
             )
         }))
     }
@@ -194,6 +194,12 @@ impl ConfiguredPeersDatabaseBuilder {
 
     pub fn build(self) -> ConfiguredDatabase {
         self.database
+    }
+}
+
+impl Default for ConfiguredPeersDatabaseBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -13,23 +13,24 @@ impl<'a> BlockValidator<'a> {
     }
 
     fn ensure_epoch_block_does_not_change_representative(&self) -> Result<(), BlockError> {
-        if let Block::State(state) = self.block {
-            if self.is_epoch_block() {
-                if let Some(info) = &self.old_account_info {
-                    if state.representative() != info.representative {
-                        return Err(BlockError::RepresentativeMismatch);
-                    };
-                }
+        if let Block::State(state) = self.block
+            && self.is_epoch_block()
+            && let Some(info) = &self.old_account_info
+        {
+            if state.representative() != info.representative {
+                return Err(BlockError::RepresentativeMismatch);
             }
         }
         Ok(())
     }
 
     fn ensure_epoch_open_has_burn_account_as_rep(&self) -> Result<(), BlockError> {
-        if let Block::State(state) = self.block {
-            if self.is_epoch_block() && self.block.is_open() && !state.representative().is_zero() {
-                return Err(BlockError::RepresentativeMismatch);
-            }
+        if let Block::State(state) = self.block
+            && self.is_epoch_block()
+            && self.block.is_open()
+            && !state.representative().is_zero()
+        {
+            return Err(BlockError::RepresentativeMismatch);
         }
         Ok(())
     }
@@ -53,12 +54,11 @@ impl<'a> BlockValidator<'a> {
     }
 
     fn ensure_epoch_upgrade_is_sequential_for_existing_account(&self) -> Result<(), BlockError> {
-        if self.is_epoch_block() {
-            if let Some(info) = &self.old_account_info {
-                if !Epochs::is_sequential(info.epoch, self.block_epoch_version()) {
-                    return Err(BlockError::BlockPosition);
-                }
-            }
+        if self.is_epoch_block()
+            && let Some(info) = &self.old_account_info
+            && !Epochs::is_sequential(info.epoch, self.block_epoch_version())
+        {
+            return Err(BlockError::BlockPosition);
         }
         Ok(())
     }
@@ -101,13 +101,12 @@ impl<'a> BlockValidator<'a> {
     }
 
     pub fn ensure_previous_block_exists_for_epoch_block_candidate(&self) -> Result<(), BlockError> {
-        if let Block::State(state_block) = self.block {
-            if self.has_epoch_link(state_block)
-                && !self.block.previous().is_zero()
-                && self.previous_block.is_none()
-            {
-                return Err(BlockError::GapPrevious);
-            }
+        if let Block::State(state_block) = self.block
+            && self.has_epoch_link(state_block)
+            && !self.block.previous().is_zero()
+            && self.previous_block.is_none()
+        {
+            return Err(BlockError::GapPrevious);
         }
         Ok(())
     }

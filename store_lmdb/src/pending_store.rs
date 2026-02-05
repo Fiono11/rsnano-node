@@ -39,7 +39,7 @@ impl LmdbPendingStore {
     }
 
     pub fn put(&self, txn: &mut WriteTransaction, key: &PendingKey, pending: &PendingInfo) {
-        self.put_listener.emit((key.clone(), pending.clone()));
+        self.put_listener.emit((*key, pending.clone()));
         let key_bytes = key.to_bytes();
         let pending_bytes = pending.to_bytes();
         txn.put(
@@ -52,7 +52,7 @@ impl LmdbPendingStore {
     }
 
     pub fn del(&self, txn: &mut WriteTransaction, key: &PendingKey) {
-        self.delete_listener.emit(key.clone());
+        self.delete_listener.emit(*key);
         let key_bytes = key.to_bytes();
         txn.delete(self.database, &key_bytes, None).unwrap();
     }

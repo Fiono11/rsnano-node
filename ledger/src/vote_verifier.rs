@@ -56,7 +56,7 @@ impl<'a> VoteVerifier<'a> {
 
     fn should_vote_final(&self, tx: &mut WriteTransaction, root: &Root, hash: &BlockHash) -> bool {
         let any = BorrowingAnySet {
-            constants: &self.constants,
+            constants: self.constants,
             store: self.store,
             tx,
         };
