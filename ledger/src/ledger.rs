@@ -322,7 +322,7 @@ impl Ledger {
             }
         }
 
-        // Load rep weights
+        debug!("Generating representative weights cache...");
         let mut total_committed_rep_weight = Amount::ZERO;
         {
             let txn = self.store.begin_read();
@@ -335,8 +335,9 @@ impl Ledger {
                     .expect("total rep weight should never overflow");
             }
         }
+        debug!("Representative weights cache generated");
 
-        // Count blocks and accounts
+        debug!("Generating block and account count cache...");
         let total_account_balances = Mutex::new(Amount::ZERO);
         self.store
             .account
@@ -368,8 +369,9 @@ impl Ledger {
                     .checked_add(total.into())
                     .expect("total account balances should never overflow");
             });
+        debug!("Block and account count cache generated");
 
-        // Count confirmed blocks
+        debug!("Generating cemented count cache...");
         self.store
             .confirmation_height
             .for_each_par(&self.store.env, thread_count, |iter| {
@@ -382,9 +384,11 @@ impl Ledger {
                     .confirmed_count
                     .fetch_add(confirmed_count, Ordering::SeqCst);
             });
+        debug!("Cemented count cache generated");
 
         // Count pending balances
         if integrity_check {
+            debug!("Verifying ledger balance consistency...");
             let mut total_pending = Amount::ZERO;
             let txn = self.store.begin_read();
             for (_, info) in self.store.pending.iter(&txn) {
@@ -405,6 +409,7 @@ impl Ledger {
                 Amount::MAX,
                 "account balances and pending balances don't add up to max supply!"
             );
+            debug!("Ledger balance consistency verified");
         }
 
         Ok(())
