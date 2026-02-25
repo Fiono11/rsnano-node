@@ -54,7 +54,7 @@ impl BacklogWaiter {
 
     pub fn wait_for_backlog(&self) {
         self.call_count.fetch_add(1, Relaxed);
-        let backlog_count = self.ledger.backlog_count();
+        let backlog_count = self.ledger.backlog_size();
         let throttle_wait = throttle_wait(backlog_count, self.max_backlog);
         if throttle_wait.is_zero() {
             return;

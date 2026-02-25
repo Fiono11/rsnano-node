@@ -918,7 +918,7 @@ impl Ledger {
         self.store.cache.account_count.load(Ordering::SeqCst)
     }
 
-    pub fn backlog_count(&self) -> u64 {
+    pub fn backlog_size(&self) -> u64 {
         let blocks = self.block_count();
         let confirmed = self.confirmed_count();
         blocks.saturating_sub(confirmed)

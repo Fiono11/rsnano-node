@@ -282,7 +282,7 @@ impl BoundedBacklogImpl {
             self.stats.inc(StatType::BoundedBacklog, DetailType::Loop);
 
             // Calculate the number of targets to rollback
-            let backlog = self.ledger.backlog_count();
+            let backlog = self.ledger.backlog_size();
             let target_count = backlog.saturating_sub(self.config.max_backlog);
             let can_roll_back = self.can_roll_back.read().unwrap();
 
@@ -425,8 +425,13 @@ impl BacklogData {
         }
 
         // Both ledger and tracked backlog must be over the threshold
-        self.ledger.backlog_count() > self.config.max_backlog
-            && self.index.len() > self.config.max_backlog as usize
+        let max_backlog = self.config.max_backlog;
+        debug_assert!(
+            max_backlog > 0,
+            "Should be fully disabled if max_backlog is 0"
+        );
+
+        self.ledger.backlog_size() > max_backlog && self.index.len() > max_backlog as usize
     }
 
     fn gather_targets(
