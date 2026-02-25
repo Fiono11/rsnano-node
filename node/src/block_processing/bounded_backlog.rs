@@ -13,7 +13,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{DetailType, StatType, Stats},
+    stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
 };
 
@@ -57,15 +57,7 @@ impl BoundedBacklog {
     ) -> Self {
         let backlog_impl = Arc::new(BoundedBacklogImpl {
             condition: Condvar::new(),
-            mutex: Mutex::new(BacklogData {
-                stopped: false,
-                cool_down: false,
-                index: BacklogIndex::new(prio_bucket_count()),
-                ledger: ledger.clone(),
-                config: config.clone(),
-                bucket_count: prio_bucket_count(),
-                scan_limiter: TokenBucket::new(config.scan_rate),
-            }),
+            state: Mutex::new(BoundedBacklogState::new(config.clone())),
             config,
             stats,
             ledger,
@@ -97,7 +89,7 @@ impl BoundedBacklog {
         let backlog_impl = self.backlog_impl.clone();
         let handle = std::thread::Builder::new()
             .name("Bounded backlog".to_owned())
-            .spawn(move || backlog_impl.run())
+            .spawn(move || backlog_impl.run_process())
             .unwrap();
         *self.process_thread.lock().unwrap() = Some(handle);
 
@@ -110,7 +102,7 @@ impl BoundedBacklog {
     }
 
     pub fn stop(&self) {
-        self.backlog_impl.mutex.lock().unwrap().stopped = true;
+        self.backlog_impl.state.lock().unwrap().stopped = true;
         self.backlog_impl.condition.notify_all();
 
         let handle = self.process_thread.lock().unwrap().take();
@@ -131,7 +123,7 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.backlog_impl.mutex.lock().unwrap().cool_down = cool_down;
+        self.backlog_impl.state.lock().unwrap().cool_down = cool_down;
         self.backlog_impl.condition.notify_all();
     }
 
@@ -155,21 +147,21 @@ impl BoundedBacklog {
     }
 
     pub fn erase_accounts(&self, accounts: &[Account]) {
-        let mut guard = self.backlog_impl.mutex.lock().unwrap();
+        let mut guard = self.backlog_impl.state.lock().unwrap();
         for account in accounts {
             guard.index.erase_account(account);
         }
     }
 
     pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        let mut guard = self.backlog_impl.mutex.lock().unwrap();
+        let mut guard = self.backlog_impl.state.lock().unwrap();
         for account in accounts.into_iter() {
             guard.index.erase_hash(&account);
         }
     }
 
     fn contains(&self, hash: &BlockHash) -> bool {
-        let guard = self.backlog_impl.mutex.lock().unwrap();
+        let guard = self.backlog_impl.state.lock().unwrap();
         guard.index.contains(hash)
     }
 
@@ -216,7 +208,7 @@ impl BoundedBacklog {
         let bucket_index = prio_bucket_index(priority.balance);
 
         self.backlog_impl
-            .mutex
+            .state
             .lock()
             .unwrap()
             .index
@@ -244,7 +236,7 @@ impl Drop for BoundedBacklog {
 
 impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
-        let guard = self.backlog_impl.mutex.lock().unwrap();
+        let guard = self.backlog_impl.state.lock().unwrap();
         ContainerInfo::builder()
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())
@@ -252,8 +244,12 @@ impl ContainerInfoProvider for BoundedBacklog {
     }
 }
 
+impl StatsSource for BoundedBacklog {
+    fn collect_stats(&self, result: &mut StatsCollection) {}
+}
+
 struct BoundedBacklogImpl {
-    mutex: Mutex<BacklogData>,
+    state: Mutex<BoundedBacklogState>,
     condition: Condvar,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
@@ -264,18 +260,18 @@ struct BoundedBacklogImpl {
 }
 
 impl BoundedBacklogImpl {
-    fn run(&self) {
-        let mut guard = self.mutex.lock().unwrap();
-        while !guard.stopped {
-            guard = self
+    fn run_process(&self) {
+        let mut state = self.state.lock().unwrap();
+        while !state.stopped {
+            state = self
                 .condition
-                .wait_timeout_while(guard, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.predicate()
+                .wait_timeout_while(state, Duration::from_secs(1), |i| {
+                    !i.stopped && !i.predicate(self.ledger.backlog_size())
                 })
                 .unwrap()
                 .0;
 
-            if guard.stopped {
+            if state.stopped {
                 return;
             }
 
@@ -286,13 +282,13 @@ impl BoundedBacklogImpl {
             let target_count = backlog.saturating_sub(self.config.max_backlog);
             let can_roll_back = self.can_roll_back.read().unwrap();
 
-            let targets = guard.gather_targets(
+            let targets = state.gather_targets(
                 min(target_count as usize, self.config.batch_size),
                 &*can_roll_back,
             );
 
             if !targets.is_empty() {
-                drop(guard);
+                drop(state);
                 self.stats.add(
                     StatType::BoundedBacklog,
                     DetailType::GatheredTargets,
@@ -300,19 +296,19 @@ impl BoundedBacklogImpl {
                 );
 
                 let processed = self.roll_back(&targets, target_count as usize, &*can_roll_back);
-                guard = self.mutex.lock().unwrap();
+                state = self.state.lock().unwrap();
 
                 // Erase rolled back blocks from the index
                 for hash in &processed {
-                    guard.index.erase_hash(hash);
+                    state.index.erase_hash(hash);
                 }
             } else {
                 // Cooldown, this should not happen in normal operation
                 self.stats
                     .inc(StatType::BoundedBacklog, DetailType::NoTargets);
-                guard = self
+                state = self
                     .condition
-                    .wait_timeout_while(guard, Duration::from_millis(100), |i| !i.stopped)
+                    .wait_timeout_while(state, Duration::from_millis(100), |i| !i.stopped)
                     .unwrap()
                     .0;
             }
@@ -355,7 +351,7 @@ impl BoundedBacklogImpl {
     }
 
     fn run_scan(&self) {
-        let mut guard = self.mutex.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         while !guard.stopped {
             let mut last = BlockHash::ZERO;
             while !guard.stopped {
@@ -393,7 +389,7 @@ impl BoundedBacklogImpl {
                         last = hash;
                     }
                 }
-                guard = self.mutex.lock().unwrap();
+                guard = self.state.lock().unwrap();
             }
         }
     }
@@ -401,23 +397,33 @@ impl BoundedBacklogImpl {
     fn update(&self, unconfirmed: &impl LedgerSet, hash: &BlockHash) {
         // Erase if the block is either confirmed or missing
         if !unconfirmed.block_exists(hash) {
-            self.mutex.lock().unwrap().index.erase_hash(hash);
+            self.state.lock().unwrap().index.erase_hash(hash);
         }
     }
 }
 
-struct BacklogData {
+struct BoundedBacklogState {
     stopped: bool,
     cool_down: bool,
     index: BacklogIndex,
-    ledger: Arc<Ledger>,
     config: BoundedBacklogConfig,
     bucket_count: usize,
     scan_limiter: TokenBucket,
 }
 
-impl BacklogData {
-    fn predicate(&self) -> bool {
+impl BoundedBacklogState {
+    fn new(config: BoundedBacklogConfig) -> Self {
+        Self {
+            stopped: false,
+            cool_down: false,
+            index: BacklogIndex::new(prio_bucket_count()),
+            scan_limiter: TokenBucket::new(config.scan_rate),
+            config,
+            bucket_count: prio_bucket_count(),
+        }
+    }
+
+    fn predicate(&self, backlog_size: u64) -> bool {
         if self.cool_down {
             return false;
         }
@@ -429,7 +435,7 @@ impl BacklogData {
             "Should be fully disabled if max_backlog is 0"
         );
 
-        self.ledger.backlog_size() > max_backlog && self.index.len() > max_backlog as usize
+        backlog_size > max_backlog && self.index.len() > max_backlog as usize
     }
 
     fn gather_targets(

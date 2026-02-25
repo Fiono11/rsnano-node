@@ -1317,6 +1317,7 @@ impl Node {
         stats_collector.add_source(bootstrapper.clone());
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
+        stats_collector.add_source(bounded_backlog.clone());
 
         let mut container_info = ContainerInfoFactory::new();
         container_info.add("work", work_factory.clone());
