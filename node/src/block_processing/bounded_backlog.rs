@@ -56,8 +56,8 @@ impl BoundedBacklog {
         publish_event: Sender<LedgerEvent>,
     ) -> Self {
         let backlog_impl = Arc::new(BoundedBacklogImpl {
-            condition: Condvar::new(),
-            state: Mutex::new(BoundedBacklogState::new(config.clone())),
+            condition: Condvar::new().into(),
+            state: Mutex::new(BoundedBacklogState::new(config.clone())).into(),
             config,
             stats,
             ledger,
@@ -93,10 +93,17 @@ impl BoundedBacklog {
             .unwrap();
         *self.process_thread.lock().unwrap() = Some(handle);
 
-        let backlog_impl = self.backlog_impl.clone();
+        let scan_loop = ScanLoop {
+            state: self.backlog_impl.state.clone(),
+            condition: self.backlog_impl.condition.clone(),
+            config: self.backlog_impl.config.clone(),
+            stats: self.backlog_impl.stats.clone(),
+            ledger: self.backlog_impl.ledger.clone(),
+            clock: self.backlog_impl.clock.clone(),
+        };
         let handle = std::thread::Builder::new()
             .name("Bounded b scan".to_owned())
-            .spawn(move || backlog_impl.run_scan())
+            .spawn(move || scan_loop.run())
             .unwrap();
         *self.scan_thread.lock().unwrap() = Some(handle);
     }
@@ -245,12 +252,12 @@ impl ContainerInfoProvider for BoundedBacklog {
 }
 
 impl StatsSource for BoundedBacklog {
-    fn collect_stats(&self, result: &mut StatsCollection) {}
+    fn collect_stats(&self, _result: &mut StatsCollection) {}
 }
 
 struct BoundedBacklogImpl {
-    state: Mutex<BoundedBacklogState>,
-    condition: Condvar,
+    state: Arc<Mutex<BoundedBacklogState>>,
+    condition: Arc<Condvar>,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
     ledger: Arc<Ledger>,
@@ -349,23 +356,36 @@ impl BoundedBacklogImpl {
 
         processed_hashes
     }
+}
 
-    fn run_scan(&self) {
-        let mut guard = self.state.lock().unwrap();
-        while !guard.stopped {
+struct ScanLoop {
+    state: Arc<Mutex<BoundedBacklogState>>,
+    condition: Arc<Condvar>,
+    config: BoundedBacklogConfig,
+    stats: Arc<Stats>,
+
+    // Infrastructure:
+    ledger: Arc<Ledger>,
+    clock: Arc<SteadyClock>,
+}
+
+impl ScanLoop {
+    fn run(self) {
+        let mut state = self.state.lock().unwrap();
+        while !state.stopped {
             let mut last = BlockHash::ZERO;
-            while !guard.stopped {
+            while !state.stopped {
                 //	wait
-                while !guard
+                while !state
                     .scan_limiter
                     .try_consume(self.config.batch_size, self.clock.now())
                 {
-                    guard = self
+                    state = self
                         .condition
-                        .wait_timeout(guard, Duration::from_millis(100))
+                        .wait_timeout(state, Duration::from_millis(100))
                         .unwrap()
                         .0;
-                    if guard.stopped {
+                    if state.stopped {
                         return;
                     }
                 }
@@ -373,13 +393,13 @@ impl BoundedBacklogImpl {
                 self.stats
                     .inc(StatType::BoundedBacklog, DetailType::LoopScan);
 
-                let batch = guard.index.next(&last, self.config.batch_size);
+                let batch = state.index.next(&last, self.config.batch_size);
                 // If batch is empty, we iterated over all accounts in the index
                 if batch.is_empty() {
                     break;
                 }
 
-                drop(guard);
+                drop(state);
                 {
                     let unconfirmed = self.ledger.unconfirmed();
                     for hash in batch {
@@ -389,7 +409,7 @@ impl BoundedBacklogImpl {
                         last = hash;
                     }
                 }
-                guard = self.state.lock().unwrap();
+                state = self.state.lock().unwrap();
             }
         }
     }
