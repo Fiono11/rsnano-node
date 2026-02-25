@@ -42,7 +42,7 @@ impl Default for BoundedBacklogConfig {
 }
 
 pub struct BoundedBacklog {
-    thread: Mutex<Option<JoinHandle<()>>>,
+    process_thread: Mutex<Option<JoinHandle<()>>>,
     scan_thread: Mutex<Option<JoinHandle<()>>>,
     backlog_impl: Arc<BoundedBacklogImpl>,
 }
@@ -76,7 +76,7 @@ impl BoundedBacklog {
 
         Self {
             backlog_impl,
-            thread: Mutex::new(None),
+            process_thread: Mutex::new(None),
             scan_thread: Mutex::new(None),
         }
     }
@@ -92,14 +92,14 @@ impl BoundedBacklog {
     }
 
     pub fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
+        debug_assert!(self.process_thread.lock().unwrap().is_none());
 
         let backlog_impl = self.backlog_impl.clone();
         let handle = std::thread::Builder::new()
             .name("Bounded backlog".to_owned())
             .spawn(move || backlog_impl.run())
             .unwrap();
-        *self.thread.lock().unwrap() = Some(handle);
+        *self.process_thread.lock().unwrap() = Some(handle);
 
         let backlog_impl = self.backlog_impl.clone();
         let handle = std::thread::Builder::new()
@@ -113,7 +113,7 @@ impl BoundedBacklog {
         self.backlog_impl.mutex.lock().unwrap().stopped = true;
         self.backlog_impl.condition.notify_all();
 
-        let handle = self.thread.lock().unwrap().take();
+        let handle = self.process_thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
@@ -237,7 +237,7 @@ impl BoundedBacklog {
 impl Drop for BoundedBacklog {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
+        debug_assert!(self.process_thread.lock().unwrap().is_none());
         debug_assert!(self.scan_thread.lock().unwrap().is_none());
     }
 }
