@@ -100,6 +100,7 @@ impl BoundedBacklog {
             stats: self.backlog_impl.stats.clone(),
             ledger: self.backlog_impl.ledger.clone(),
             clock: self.backlog_impl.clock.clone(),
+            scan_limiter: TokenBucket::new(self.backlog_impl.config.scan_rate),
         };
         let handle = std::thread::Builder::new()
             .name("Bounded b scan".to_owned())
@@ -363,6 +364,7 @@ struct ScanLoop {
     condition: Arc<Condvar>,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
+    scan_limiter: TokenBucket,
 
     // Infrastructure:
     ledger: Arc<Ledger>,
@@ -370,54 +372,49 @@ struct ScanLoop {
 }
 
 impl ScanLoop {
-    fn run(self) {
+    fn run(mut self) {
+        let mut last = BlockHash::ZERO;
         let mut state = self.state.lock().unwrap();
         while !state.stopped {
-            let mut last = BlockHash::ZERO;
-            while !state.stopped {
-                //	wait
-                while !state
-                    .scan_limiter
-                    .try_consume(self.config.batch_size, self.clock.now())
-                {
-                    state = self
-                        .condition
-                        .wait_timeout(state, Duration::from_millis(100))
-                        .unwrap()
-                        .0;
-                    if state.stopped {
-                        return;
-                    }
+            //	wait
+            while !self
+                .scan_limiter
+                .try_consume(self.config.batch_size, self.clock.now())
+            {
+                state = self
+                    .condition
+                    .wait_timeout(state, Duration::from_millis(100))
+                    .unwrap()
+                    .0;
+                if state.stopped {
+                    return;
                 }
-
-                self.stats
-                    .inc(StatType::BoundedBacklog, DetailType::LoopScan);
-
-                let batch = state.index.next(&last, self.config.batch_size);
-                // If batch is empty, we iterated over all accounts in the index
-                if batch.is_empty() {
-                    break;
-                }
-
-                drop(state);
-                {
-                    let unconfirmed = self.ledger.unconfirmed();
-                    for hash in batch {
-                        self.stats
-                            .inc(StatType::BoundedBacklog, DetailType::Scanned);
-                        self.update(&unconfirmed, &hash);
-                        last = hash;
-                    }
-                }
-                state = self.state.lock().unwrap();
             }
-        }
-    }
 
-    fn update(&self, unconfirmed: &impl LedgerSet, hash: &BlockHash) {
-        // Erase if the block is either confirmed or missing
-        if !unconfirmed.block_exists(hash) {
-            self.state.lock().unwrap().index.erase_hash(hash);
+            self.stats
+                .inc(StatType::BoundedBacklog, DetailType::LoopScan);
+
+            let batch = state.index.next(&last, self.config.batch_size);
+            // If batch is empty, we iterated over all accounts in the index
+            if batch.is_empty() {
+                last = BlockHash::ZERO;
+                continue;
+            }
+
+            drop(state);
+            {
+                let unconfirmed = self.ledger.unconfirmed();
+                for hash in batch {
+                    self.stats
+                        .inc(StatType::BoundedBacklog, DetailType::Scanned);
+                    // Erase if the block is either confirmed or missing
+                    if !unconfirmed.block_exists(&hash) {
+                        self.state.lock().unwrap().index.erase_hash(&hash);
+                    }
+                    last = hash;
+                }
+            }
+            state = self.state.lock().unwrap();
         }
     }
 }
@@ -428,7 +425,6 @@ struct BoundedBacklogState {
     index: BacklogIndex,
     config: BoundedBacklogConfig,
     bucket_count: usize,
-    scan_limiter: TokenBucket,
 }
 
 impl BoundedBacklogState {
@@ -437,7 +433,6 @@ impl BoundedBacklogState {
             stopped: false,
             cool_down: false,
             index: BacklogIndex::new(prio_bucket_count()),
-            scan_limiter: TokenBucket::new(config.scan_rate),
             config,
             bucket_count: prio_bucket_count(),
         }
