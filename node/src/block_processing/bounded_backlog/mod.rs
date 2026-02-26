@@ -1,4 +1,5 @@
 mod ledger_adapter;
+mod scan_loop;
 
 use std::{
     cmp::min,
@@ -9,9 +10,9 @@ use std::{
 
 use tracing::warn;
 
-use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
-use rsnano_network::token_bucket::TokenBucket;
+use rsnano_ledger::{AnySet, Ledger, OwningAnySet};
 use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -24,9 +25,10 @@ use super::{
     backlog_index::{BacklogEntry, BacklogIndex},
     backlog_scan::UnconfirmedInfo,
 };
-use crate::consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index};
-use rsnano_nullable_condvar::NullableCondvarMutex;
-
+use crate::{
+    block_processing::bounded_backlog::scan_loop::ScanLoop,
+    consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index},
+};
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,14 +99,14 @@ impl BoundedBacklog {
             .unwrap();
         *self.process_thread.lock().unwrap() = Some(handle);
 
-        let scan_loop = ScanLoop {
-            state: self.backlog_impl.state.clone(),
-            config: self.backlog_impl.config.clone(),
-            stats: self.backlog_impl.stats.clone(),
-            ledger: self.backlog_impl.ledger.clone(),
-            clock: self.backlog_impl.clock.clone(),
-            scan_limiter: TokenBucket::new(self.backlog_impl.config.scan_rate),
-        };
+        let scan_loop = ScanLoop::new(
+            self.backlog_impl.state.clone(),
+            self.backlog_impl.stats.clone(),
+            self.backlog_impl.ledger.clone(),
+            self.backlog_impl.clock.clone(),
+            self.backlog_impl.config.scan_rate,
+            self.backlog_impl.config.batch_size,
+        );
         let handle = std::thread::Builder::new()
             .name("Bounded b scan".to_owned())
             .spawn(move || scan_loop.run())
@@ -351,76 +353,6 @@ impl BoundedBacklogImpl {
         }
 
         processed_hashes
-    }
-}
-
-struct ScanLoop {
-    state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
-    config: BoundedBacklogConfig,
-    stats: Arc<Stats>,
-    scan_limiter: TokenBucket,
-
-    // Infrastructure:
-    ledger: Arc<Ledger>,
-    clock: Arc<SteadyClock>,
-}
-
-impl ScanLoop {
-    fn run(mut self) {
-        let mut last = BlockHash::ZERO;
-        let mut to_erase: Vec<BlockHash> = Vec::with_capacity(self.config.batch_size);
-        let mut state = self.state.lock();
-        while !state.stopped {
-            //	wait
-            while !self
-                .scan_limiter
-                .try_consume(self.config.batch_size, self.clock.now())
-            {
-                state = self.state.wait_timeout(state, Duration::from_millis(100)).0;
-                if state.stopped {
-                    return;
-                }
-            }
-
-            self.stats
-                .inc(StatType::BoundedBacklog, DetailType::LoopScan);
-
-            let batch = state.index.next(&last, self.config.batch_size);
-            // If batch is empty, we iterated over all accounts in the index
-            if batch.is_empty() {
-                last = BlockHash::ZERO;
-                continue;
-            }
-
-            drop(state);
-            {
-                to_erase.clear();
-                {
-                    let unconfirmed = self.ledger.unconfirmed();
-                    for hash in batch {
-                        self.stats
-                            .inc(StatType::BoundedBacklog, DetailType::Scanned);
-                        // Erase if the block is either confirmed or missing
-                        if !unconfirmed.block_exists(&hash) {
-                            to_erase.push(hash);
-                            self.state.lock().index.erase_hash(&hash);
-                        }
-                        last = hash;
-                    }
-                }
-
-                if !to_erase.is_empty() {
-                    {
-                        let mut state = self.state.lock();
-                        for hash in &to_erase {
-                            state.index.erase_hash(hash);
-                        }
-                    }
-                    self.state.notify_all();
-                }
-            }
-            state = self.state.lock();
-        }
     }
 }
 
