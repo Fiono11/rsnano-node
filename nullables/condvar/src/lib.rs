@@ -1,0 +1,261 @@
+use std::{
+    sync::{Condvar, LockResult, Mutex, MutexGuard, WaitTimeoutResult},
+    time::Duration,
+};
+
+pub struct NullableCondvarMutex<T> {
+    strategy: CondvarStrategy<T>,
+    mutex: Mutex<T>,
+}
+
+impl<T> NullableCondvarMutex<T> {
+    pub fn new(t: T) -> Self {
+        Self {
+            strategy: CondvarStrategy::Real(Condvar::new()),
+            mutex: Mutex::new(t),
+        }
+    }
+
+    pub fn new_null(t: T) -> Self {
+        Self {
+            strategy: CondvarStrategy::Nulled(Default::default()),
+            mutex: Mutex::new(t),
+        }
+    }
+
+    pub fn null_builder(t: T) -> NullableCondvarMutexBuilder<T> {
+        NullableCondvarMutexBuilder { t, callbacks: None }
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, T> {
+        self.mutex.lock().unwrap()
+    }
+
+    pub fn notify_one(&self) {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => condvar.notify_one(),
+            CondvarStrategy::Nulled(_) => {}
+        }
+    }
+
+    pub fn notify_all(&self) {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => condvar.notify_all(),
+            CondvarStrategy::Nulled(_) => {}
+        }
+    }
+
+    pub fn wait<'a>(&'a self, mut guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => condvar.wait(guard).unwrap(),
+            CondvarStrategy::Nulled(condvar) => {
+                condvar.execute_wait_callback(&mut guard);
+                guard
+            }
+        }
+    }
+
+    pub fn wait_while<'a, F>(
+        &'a self,
+        mut guard: MutexGuard<'a, T>,
+        mut condition: F,
+    ) -> MutexGuard<'a, T>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => condvar.wait_while(guard, condition).unwrap(),
+            CondvarStrategy::Nulled(condvar) => {
+                condvar.execute_wait_callback(&mut guard);
+                if condition(&mut guard) {
+                    panic!("wait_while called on nulled condvar, but condition met");
+                }
+                guard
+            }
+        }
+    }
+
+    pub fn wait_timeout<'a>(
+        &'a self,
+        mut guard: MutexGuard<'a, T>,
+        dur: Duration,
+    ) -> (MutexGuard<'a, T>, bool) {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => {
+                let (guard, timeout) = condvar.wait_timeout(guard, dur).unwrap();
+                (guard, timeout.timed_out())
+            }
+            CondvarStrategy::Nulled(condvar) => {
+                condvar.execute_wait_callback(&mut guard);
+                (guard, false)
+            }
+        }
+    }
+}
+
+type WaitCallback<T> = Box<dyn FnOnce(&mut T) + Send>;
+
+enum CondvarStrategy<T> {
+    Real(Condvar),
+    Nulled(StubCondvar<T>),
+}
+
+struct StubCondvar<T> {
+    wait_callbacks: Mutex<Option<Vec<WaitCallback<T>>>>,
+}
+
+impl<T> StubCondvar<T> {
+    fn new(wait_callbacks: Option<Vec<WaitCallback<T>>>) -> Self {
+        Self {
+            wait_callbacks: Mutex::new(wait_callbacks),
+        }
+    }
+
+    fn execute_wait_callback(&self, data: &mut T) {
+        let mut callbacks_guard = self.wait_callbacks.lock().unwrap();
+        if let Some(callbacks) = &mut *callbacks_guard {
+            let Some(cb) = callbacks.pop() else {
+                panic!("wait called unexpectedly on nulled condvar");
+            };
+            drop(callbacks_guard);
+            cb(data);
+        }
+    }
+}
+
+impl<T> Default for StubCondvar<T> {
+    fn default() -> Self {
+        Self {
+            wait_callbacks: Mutex::new(None),
+        }
+    }
+}
+
+pub struct NullableCondvarMutexBuilder<T> {
+    t: T,
+    callbacks: Option<Vec<WaitCallback<T>>>,
+}
+
+impl<T> NullableCondvarMutexBuilder<T> {
+    pub fn wait<F>(mut self, callback: F) -> Self
+    where
+        F: FnOnce(&mut T) + Send + 'static,
+    {
+        self.callbacks
+            .get_or_insert_default()
+            .push(Box::new(callback));
+        self
+    }
+
+    pub fn finish(self) -> NullableCondvarMutex<T> {
+        NullableCondvarMutex {
+            strategy: CondvarStrategy::Nulled(StubCondvar::new(self.callbacks)),
+            mutex: Mutex::new(self.t),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /*
+     * Real implementation
+     */
+
+    #[test]
+    fn delegates_to_real_condvar() {
+        let mutex = Arc::new(NullableCondvarMutex::new(0));
+        let mutex1 = mutex.clone();
+        let mut guard = mutex.lock();
+        std::thread::spawn(move || mutex1.notify_one());
+        guard = mutex.wait(guard);
+        assert_eq!(*guard, 0);
+    }
+
+    #[test]
+    fn wait_while() {
+        let mutex = Arc::new(Mutex::new(false));
+        let mutex1 = mutex.clone();
+        let condvar = Arc::new(NullableCondvarMutex::new(false));
+        let condvar1 = condvar.clone();
+        let guard = mutex.lock().unwrap();
+        std::thread::spawn(move || {
+            condvar1.notify_all();
+            *mutex1.lock().unwrap() = true;
+            condvar1.notify_all()
+        });
+        let guard = condvar.wait_while(guard, |g| !*g);
+        assert!(*guard);
+    }
+
+    /*
+     * Nullability
+     */
+
+    #[test]
+    fn nulled_condvar_returns_immediately_when_wait_called() {
+        let mutex = NullableCondvarMutex::new_null(0);
+        let mut guard = mutex.lock();
+        guard = mutex.wait(guard);
+        assert_eq!(*guard, 0);
+    }
+
+    #[test]
+    fn nulled_condvar_returns_immediately_when_wait_while_called_and_condition_not_met() {
+        let mutex = NullableCondvarMutex::new_null(1);
+        let mut guard = mutex.lock();
+        guard = mutex.wait_while(guard, |g| *g != 1);
+        assert_eq!(*guard, 1);
+    }
+
+    #[test]
+    #[should_panic = "wait_while called on nulled condvar, but condition met"]
+    fn nulled_condvar_panics_when_wait_while_called_and_condition_met() {
+        let mutex = NullableCondvarMutex::new_null(1);
+        let guard = mutex.lock();
+        drop(mutex.wait_while(guard, |g| *g == 1));
+    }
+
+    #[test]
+    fn nulled_condvar_executes_configured_wait_callback() {
+        let mutex = NullableCondvarMutex::<usize>::null_builder(1)
+            .wait(|i| *i = 2)
+            .finish();
+        let mut guard = mutex.lock();
+        guard = mutex.wait_while(guard, |g| *g == 1);
+        assert_eq!(*guard, 2);
+    }
+
+    #[test]
+    #[should_panic = "wait called unexpectedly on nulled condvar"]
+    fn nulled_condvar_panics_when_wait_called_more_often_than_configured() {
+        let mutex = NullableCondvarMutex::<usize>::null_builder(1)
+            .wait(|_| {})
+            .finish();
+        let mut guard = mutex.lock();
+        guard = mutex.wait(guard);
+        guard = mutex.wait(guard);
+        drop(guard);
+    }
+
+    #[test]
+    fn nulled_condvar_returns_immediately_when_wait_timeout_called() {
+        let mutex = NullableCondvarMutex::new_null(0);
+        let mut guard = mutex.lock();
+        guard = mutex.wait_timeout(guard, Duration::from_secs(5)).0;
+        guard = mutex.wait_timeout(guard, Duration::from_secs(5)).0;
+        assert_eq!(*guard, 0);
+    }
+
+    #[test]
+    fn nulled_condvar_executes_configured_callback_when_wait_timeout_called() {
+        let mutex = NullableCondvarMutex::null_builder(0)
+            .wait(|i| *i = 1)
+            .finish();
+        let mut guard = mutex.lock();
+        guard = mutex.wait_timeout(guard, Duration::from_secs(5)).0;
+        assert_eq!(*guard, 1);
+    }
+}

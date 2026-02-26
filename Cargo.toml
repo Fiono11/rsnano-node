@@ -10,6 +10,7 @@ members = [
 	"nullables/console", 
 	"nullables/tracing_subscriber",
 	"nullables/env", 
+	"nullables/condvar", 
 	"types",
 	"utils",
 	"work",
@@ -32,7 +33,8 @@ members = [
 	"tools/nanospam", 
 	"tools/test_helpers", 
 	"tools/signature-checker", 
-	"tools/insight", "tools/rep-weights-converter", 
+	"tools/insight", 
+	"tools/rep-weights-converter", 
 	]
 
 resolver = "2"
