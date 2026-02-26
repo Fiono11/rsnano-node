@@ -1,3 +1,5 @@
+mod ledger_adapter;
+
 use std::{
     cmp::min,
     sync::{Arc, Mutex, RwLock},
@@ -24,6 +26,8 @@ use super::{
 };
 use crate::consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index};
 use rsnano_nullable_condvar::NullableCondvarMutex;
+
+pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
@@ -364,6 +368,7 @@ struct ScanLoop {
 impl ScanLoop {
     fn run(mut self) {
         let mut last = BlockHash::ZERO;
+        let mut to_erase: Vec<BlockHash> = Vec::with_capacity(self.config.batch_size);
         let mut state = self.state.lock();
         while !state.stopped {
             //	wait
@@ -389,15 +394,29 @@ impl ScanLoop {
 
             drop(state);
             {
-                let unconfirmed = self.ledger.unconfirmed();
-                for hash in batch {
-                    self.stats
-                        .inc(StatType::BoundedBacklog, DetailType::Scanned);
-                    // Erase if the block is either confirmed or missing
-                    if !unconfirmed.block_exists(&hash) {
-                        self.state.lock().index.erase_hash(&hash);
+                to_erase.clear();
+                {
+                    let unconfirmed = self.ledger.unconfirmed();
+                    for hash in batch {
+                        self.stats
+                            .inc(StatType::BoundedBacklog, DetailType::Scanned);
+                        // Erase if the block is either confirmed or missing
+                        if !unconfirmed.block_exists(&hash) {
+                            to_erase.push(hash);
+                            self.state.lock().index.erase_hash(&hash);
+                        }
+                        last = hash;
                     }
-                    last = hash;
+                }
+
+                if !to_erase.is_empty() {
+                    {
+                        let mut state = self.state.lock();
+                        for hash in &to_erase {
+                            state.index.erase_hash(hash);
+                        }
+                    }
+                    self.state.notify_all();
                 }
             }
             state = self.state.lock();

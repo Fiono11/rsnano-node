@@ -51,9 +51,9 @@ use crate::{
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
-        BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
-        LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer,
-        UncheckedMap,
+        BoundedBacklog, BoundedBacklogLedgerAdapter, LocalBlockBroadcaster,
+        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult,
+        UncheckedBlockReenqueuer, UncheckedMap,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -803,8 +803,9 @@ impl Node {
                 config.bounded_backlog.scan_rate
             );
 
-            ledger_event_processor_plugins
-                .push(Box::new(BoundedBacklogPlugin::new(bounded_backlog.clone())));
+            ledger_event_processor_plugins.push(Box::new(BoundedBacklogLedgerAdapter::new(
+                bounded_backlog.clone(),
+            )));
 
             // Activate accounts with unconfirmed blocks
             let backlog_w = Arc::downgrade(&bounded_backlog);

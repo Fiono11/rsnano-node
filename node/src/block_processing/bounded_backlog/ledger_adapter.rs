@@ -3,17 +3,17 @@ use std::sync::Arc;
 use super::{BoundedBacklog, LedgerEvent};
 use crate::ledger_event_processor::LedgerEventProcessorPlugin;
 
-pub(crate) struct BoundedBacklogPlugin {
+pub(crate) struct BoundedBacklogLedgerAdapter {
     bounded_backlog: Arc<BoundedBacklog>,
 }
 
-impl BoundedBacklogPlugin {
+impl BoundedBacklogLedgerAdapter {
     pub(crate) fn new(bounded_backlog: Arc<BoundedBacklog>) -> Self {
         Self { bounded_backlog }
     }
 }
 
-impl LedgerEventProcessorPlugin for BoundedBacklogPlugin {
+impl LedgerEventProcessorPlugin for BoundedBacklogLedgerAdapter {
     fn process(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
