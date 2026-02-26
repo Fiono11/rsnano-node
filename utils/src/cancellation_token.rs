@@ -39,6 +39,7 @@ impl CancellationToken {
         }
     }
 
+    /// Returns true if cancelled
     pub fn wait_for_cancellation(&self, timeout: Duration) -> bool {
         self.wait_listener.emit(timeout);
         match &*self.strategy {

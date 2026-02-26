@@ -15,6 +15,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
+    CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
@@ -52,6 +53,7 @@ pub struct BoundedBacklog {
     process_thread: Mutex<Option<JoinHandle<()>>>,
     scan_thread: Mutex<Option<JoinHandle<()>>>,
     backlog_impl: Arc<BoundedBacklogImpl>,
+    cancel_token: CancellationToken,
 }
 
 impl BoundedBacklog {
@@ -76,6 +78,7 @@ impl BoundedBacklog {
             backlog_impl,
             process_thread: Mutex::new(None),
             scan_thread: Mutex::new(None),
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -107,9 +110,11 @@ impl BoundedBacklog {
             self.backlog_impl.config.scan_rate,
             self.backlog_impl.config.batch_size,
         );
+
+        let cancel2 = self.cancel_token.clone();
         let handle = std::thread::Builder::new()
             .name("Bounded b scan".to_owned())
-            .spawn(move || scan_loop.run())
+            .spawn(move || scan_loop.run(cancel2))
             .unwrap();
         *self.scan_thread.lock().unwrap() = Some(handle);
     }
@@ -117,6 +122,7 @@ impl BoundedBacklog {
     pub fn stop(&self) {
         self.backlog_impl.state.lock().stopped = true;
         self.backlog_impl.state.notify_all();
+        self.cancel_token.cancel();
 
         let handle = self.process_thread.lock().unwrap().take();
         if let Some(handle) = handle {

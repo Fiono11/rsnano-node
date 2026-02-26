@@ -83,6 +83,12 @@ impl BacklogIndex {
         true
     }
 
+    pub fn erase_hashes<'a>(&mut self, hashes: impl IntoIterator<Item = &'a BlockHash>) {
+        for hash in hashes.into_iter() {
+            self.erase_hash(hash);
+        }
+    }
+
     pub fn erase_hash(&mut self, hash: &BlockHash) -> bool {
         let Some(entry) = self.by_hash.remove(hash) else {
             return false;

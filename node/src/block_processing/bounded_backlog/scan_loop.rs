@@ -5,7 +5,10 @@ use rsnano_network::token_bucket::TokenBucket;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
-use rsnano_utils::stats::{DetailType, StatType, Stats};
+use rsnano_utils::{
+    CancellationToken,
+    stats::{DetailType, StatType, Stats},
+};
 
 use crate::block_processing::bounded_backlog::BoundedBacklogState;
 
@@ -15,7 +18,6 @@ pub(crate) struct ScanLoop {
     scan_limiter: TokenBucket,
     batch_size: usize,
     last: BlockHash,
-    to_erase: Vec<BlockHash>,
 
     // Infrastructure:
     ledger: Arc<Ledger>,
@@ -39,64 +41,63 @@ impl ScanLoop {
             scan_limiter: TokenBucket::new(scan_rate),
             batch_size,
             last: BlockHash::ZERO,
-            to_erase: Vec::with_capacity(batch_size),
         }
     }
 
-    pub(crate) fn run(mut self) {
-        let mut state = self.state.lock();
-        while !state.stopped {
-            while !self
-                .scan_limiter
-                .try_consume(self.batch_size, self.clock.now())
-            {
-                state = self.state.wait_timeout(state, Duration::from_millis(100)).0;
-                if state.stopped {
-                    return;
-                }
-            }
+    pub(crate) fn run(mut self, cancel_token: CancellationToken) {
+        let mut confirmed: Vec<BlockHash> = Vec::with_capacity(self.batch_size);
 
-            if state.stopped {
+        while !cancel_token.is_cancelled() {
+            self.wait_limiter(&cancel_token);
+
+            if cancel_token.is_cancelled() {
                 return;
             }
 
             self.stats
                 .inc(StatType::BoundedBacklog, DetailType::LoopScan);
 
-            let batch = state.index.next(&self.last, self.batch_size);
+            let batch = self.state.lock().index.next(&self.last, self.batch_size);
+
+            self.stats.add(
+                StatType::BoundedBacklog,
+                DetailType::Scanned,
+                batch.len() as u64,
+            );
+
             // If batch is empty, we iterated over all accounts in the index
-            if batch.is_empty() {
-                self.last = BlockHash::ZERO;
-                continue;
-            }
+            self.last = batch.last().cloned().unwrap_or_default();
 
-            drop(state);
-            {
-                {
-                    let unconfirmed = self.ledger.unconfirmed();
-                    for hash in batch {
-                        self.stats
-                            .inc(StatType::BoundedBacklog, DetailType::Scanned);
-                        // Erase if the block is either confirmed or missing
-                        if !unconfirmed.block_exists(&hash) {
-                            self.to_erase.push(hash);
-                            self.state.lock().index.erase_hash(&hash);
-                        }
-                        self.last = hash;
-                    }
-                }
+            if !batch.is_empty() {
+                confirmed.clear();
+                self.check_confirmed(&batch, &mut confirmed);
 
-                if !self.to_erase.is_empty() {
-                    {
-                        let mut state = self.state.lock();
-                        for hash in self.to_erase.drain(..) {
-                            state.index.erase_hash(&hash);
-                        }
-                    }
+                if !confirmed.is_empty() {
+                    self.state.lock().index.erase_hashes(&confirmed);
                     self.state.notify_all();
                 }
             }
-            state = self.state.lock();
+        }
+    }
+
+    fn wait_limiter(&mut self, cancel_token: &CancellationToken) {
+        while !self
+            .scan_limiter
+            .try_consume(self.batch_size, self.clock.now())
+        {
+            if cancel_token.wait_for_cancellation(Duration::from_millis(100)) {
+                break;
+            }
+        }
+    }
+
+    fn check_confirmed(&self, hashes: &[BlockHash], confirmed: &mut Vec<BlockHash>) {
+        let unconfirmed = self.ledger.unconfirmed();
+        for hash in hashes {
+            // Erase if the block is either confirmed or missing
+            if !unconfirmed.block_exists(&hash) {
+                confirmed.push(*hash);
+            }
         }
     }
 }
