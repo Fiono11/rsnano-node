@@ -791,7 +791,6 @@ impl Node {
             config.bounded_backlog.clone(),
             ledger.clone(),
             stats.clone(),
-            steady_clock.clone(),
             ledger_tx.clone(),
         ));
 

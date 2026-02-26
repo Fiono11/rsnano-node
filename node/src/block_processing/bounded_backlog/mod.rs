@@ -1,5 +1,7 @@
+mod confirmed_scan;
 mod ledger_adapter;
-mod scan_loop;
+mod rate_limit_loop;
+mod rate_limit_thread;
 
 use std::{
     cmp::min,
@@ -11,7 +13,6 @@ use std::{
 use tracing::warn;
 
 use rsnano_ledger::{AnySet, Ledger, OwningAnySet};
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
@@ -27,7 +28,9 @@ use super::{
     backlog_scan::UnconfirmedInfo,
 };
 use crate::{
-    block_processing::bounded_backlog::scan_loop::ScanLoop,
+    block_processing::bounded_backlog::{
+        confirmed_scan::RecentlyConfirmedScan, rate_limit_thread::RateLimitThreadFactory,
+    },
     consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index},
 };
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
@@ -51,9 +54,10 @@ impl Default for BoundedBacklogConfig {
 
 pub struct BoundedBacklog {
     process_thread: Mutex<Option<JoinHandle<()>>>,
-    scan_thread: Mutex<Option<JoinHandle<()>>>,
+    scan_thread: Mutex<Option<rsnano_utils::thread_factory::JoinHandle>>,
     backlog_impl: Arc<BoundedBacklogImpl>,
     cancel_token: CancellationToken,
+    rate_limit_thread_factory: RateLimitThreadFactory,
 }
 
 impl BoundedBacklog {
@@ -61,7 +65,6 @@ impl BoundedBacklog {
         config: BoundedBacklogConfig,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
-        clock: Arc<SteadyClock>,
         publish_event: Sender<LedgerEvent>,
     ) -> Self {
         let backlog_impl = Arc::new(BoundedBacklogImpl {
@@ -69,7 +72,6 @@ impl BoundedBacklog {
             config,
             stats,
             ledger,
-            clock,
             can_roll_back: RwLock::new(Box::new(|_| true)),
             publish_event: Mutex::new(Some(publish_event)),
         });
@@ -79,6 +81,7 @@ impl BoundedBacklog {
             process_thread: Mutex::new(None),
             scan_thread: Mutex::new(None),
             cancel_token: CancellationToken::new(),
+            rate_limit_thread_factory: Default::default(),
         }
     }
 
@@ -86,10 +89,9 @@ impl BoundedBacklog {
         let config = BoundedBacklogConfig::default();
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
-        let clock = Arc::new(SteadyClock::new_null());
         let (sender, _) = channel(0);
 
-        Self::new(config, ledger, stats, clock, sender)
+        Self::new(config, ledger, stats, sender)
     }
 
     pub fn start(&self) {
@@ -102,20 +104,25 @@ impl BoundedBacklog {
             .unwrap();
         *self.process_thread.lock().unwrap() = Some(handle);
 
-        let scan_loop = ScanLoop::new(
+        let mut confirmed_scan = RecentlyConfirmedScan::new(
             self.backlog_impl.state.clone(),
             self.backlog_impl.stats.clone(),
             self.backlog_impl.ledger.clone(),
-            self.backlog_impl.clock.clone(),
-            self.backlog_impl.config.scan_rate,
             self.backlog_impl.config.batch_size,
         );
 
         let cancel2 = self.cancel_token.clone();
-        let handle = std::thread::Builder::new()
-            .name("Bounded b scan".to_owned())
-            .spawn(move || scan_loop.run(cancel2))
-            .unwrap();
+
+        let handle = self.rate_limit_thread_factory.spawn(
+            "Bounded b scan",
+            cancel2,
+            self.backlog_impl.config.scan_rate,
+            self.backlog_impl.config.batch_size,
+            move || {
+                confirmed_scan.scan_batch();
+            },
+        );
+
         *self.scan_thread.lock().unwrap() = Some(handle);
     }
 
@@ -268,7 +275,6 @@ struct BoundedBacklogImpl {
     stats: Arc<Stats>,
     ledger: Arc<Ledger>,
     can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
-    clock: Arc<SteadyClock>,
     publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
