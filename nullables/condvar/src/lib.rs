@@ -1,5 +1,5 @@
 use std::{
-    sync::{Condvar, LockResult, Mutex, MutexGuard, WaitTimeoutResult},
+    sync::{Condvar, Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -87,6 +87,30 @@ impl<T> NullableCondvarMutex<T> {
             }
             CondvarStrategy::Nulled(condvar) => {
                 condvar.execute_wait_callback(&mut guard);
+                (guard, false)
+            }
+        }
+    }
+
+    pub fn wait_timeout_while<'a, F>(
+        &'a self,
+        mut guard: MutexGuard<'a, T>,
+        dur: Duration,
+        mut condition: F,
+    ) -> (MutexGuard<'a, T>, bool)
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        match &self.strategy {
+            CondvarStrategy::Real(condvar) => {
+                let (guard, timeout) = condvar.wait_timeout_while(guard, dur, condition).unwrap();
+                (guard, timeout.timed_out())
+            }
+            CondvarStrategy::Nulled(condvar) => {
+                condvar.execute_wait_callback(&mut guard);
+                if condition(&mut guard) {
+                    panic!("wait_timeout_while called on nulled condvar, but condition met");
+                }
                 (guard, false)
             }
         }
@@ -257,5 +281,13 @@ mod tests {
         let mut guard = mutex.lock();
         guard = mutex.wait_timeout(guard, Duration::from_secs(5)).0;
         assert_eq!(*guard, 1);
+    }
+
+    #[test]
+    #[should_panic = "wait_timeout_while called on nulled condvar, but condition met"]
+    fn nulled_condvar_panics_when_wait_timeout_while_called_and_condition_met() {
+        let mutex = NullableCondvarMutex::new_null(1);
+        let guard = mutex.lock();
+        drop(mutex.wait_timeout_while(guard, Duration::from_secs(5), |g| *g == 1));
     }
 }

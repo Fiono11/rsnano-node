@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
@@ -23,6 +23,7 @@ use super::{
     backlog_scan::UnconfirmedInfo,
 };
 use crate::consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index};
+use rsnano_nullable_condvar::NullableCondvarMutex;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
@@ -56,8 +57,7 @@ impl BoundedBacklog {
         publish_event: Sender<LedgerEvent>,
     ) -> Self {
         let backlog_impl = Arc::new(BoundedBacklogImpl {
-            condition: Condvar::new().into(),
-            state: Mutex::new(BoundedBacklogState::new(config.clone())).into(),
+            state: NullableCondvarMutex::new(BoundedBacklogState::new(config.clone())).into(),
             config,
             stats,
             ledger,
@@ -95,7 +95,6 @@ impl BoundedBacklog {
 
         let scan_loop = ScanLoop {
             state: self.backlog_impl.state.clone(),
-            condition: self.backlog_impl.condition.clone(),
             config: self.backlog_impl.config.clone(),
             stats: self.backlog_impl.stats.clone(),
             ledger: self.backlog_impl.ledger.clone(),
@@ -110,8 +109,8 @@ impl BoundedBacklog {
     }
 
     pub fn stop(&self) {
-        self.backlog_impl.state.lock().unwrap().stopped = true;
-        self.backlog_impl.condition.notify_all();
+        self.backlog_impl.state.lock().stopped = true;
+        self.backlog_impl.state.notify_all();
 
         let handle = self.process_thread.lock().unwrap().take();
         if let Some(handle) = handle {
@@ -131,8 +130,8 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.backlog_impl.state.lock().unwrap().cool_down = cool_down;
-        self.backlog_impl.condition.notify_all();
+        self.backlog_impl.state.lock().cool_down = cool_down;
+        self.backlog_impl.state.notify_all();
     }
 
     pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
@@ -155,21 +154,21 @@ impl BoundedBacklog {
     }
 
     pub fn erase_accounts(&self, accounts: &[Account]) {
-        let mut guard = self.backlog_impl.state.lock().unwrap();
+        let mut guard = self.backlog_impl.state.lock();
         for account in accounts {
             guard.index.erase_account(account);
         }
     }
 
     pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        let mut guard = self.backlog_impl.state.lock().unwrap();
+        let mut guard = self.backlog_impl.state.lock();
         for account in accounts.into_iter() {
             guard.index.erase_hash(&account);
         }
     }
 
     fn contains(&self, hash: &BlockHash) -> bool {
-        let guard = self.backlog_impl.state.lock().unwrap();
+        let guard = self.backlog_impl.state.lock();
         guard.index.contains(hash)
     }
 
@@ -215,17 +214,12 @@ impl BoundedBacklog {
         let priority = any.block_priority(block);
         let bucket_index = prio_bucket_index(priority.balance);
 
-        self.backlog_impl
-            .state
-            .lock()
-            .unwrap()
-            .index
-            .insert(BacklogEntry {
-                hash: block.hash(),
-                account: block.account(),
-                bucket_index,
-                priority: priority.time,
-            })
+        self.backlog_impl.state.lock().index.insert(BacklogEntry {
+            hash: block.hash(),
+            account: block.account(),
+            bucket_index,
+            priority: priority.time,
+        })
     }
 
     pub fn remove(&self, confirmed: &Vec<(SavedBlock, BlockHash)>) {
@@ -244,7 +238,7 @@ impl Drop for BoundedBacklog {
 
 impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
-        let guard = self.backlog_impl.state.lock().unwrap();
+        let guard = self.backlog_impl.state.lock();
         ContainerInfo::builder()
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())
@@ -257,8 +251,7 @@ impl StatsSource for BoundedBacklog {
 }
 
 struct BoundedBacklogImpl {
-    state: Arc<Mutex<BoundedBacklogState>>,
-    condition: Arc<Condvar>,
+    state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
     ledger: Arc<Ledger>,
@@ -269,14 +262,13 @@ struct BoundedBacklogImpl {
 
 impl BoundedBacklogImpl {
     fn run_process(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock();
         while !state.stopped {
             state = self
-                .condition
+                .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
                     !i.stopped && !i.predicate(self.ledger.backlog_size())
                 })
-                .unwrap()
                 .0;
 
             if state.stopped {
@@ -304,7 +296,7 @@ impl BoundedBacklogImpl {
                 );
 
                 let processed = self.roll_back(&targets, target_count as usize, &*can_roll_back);
-                state = self.state.lock().unwrap();
+                state = self.state.lock();
 
                 // Erase rolled back blocks from the index
                 for hash in &processed {
@@ -315,9 +307,8 @@ impl BoundedBacklogImpl {
                 self.stats
                     .inc(StatType::BoundedBacklog, DetailType::NoTargets);
                 state = self
-                    .condition
+                    .state
                     .wait_timeout_while(state, Duration::from_millis(100), |i| !i.stopped)
-                    .unwrap()
                     .0;
             }
         }
@@ -360,8 +351,7 @@ impl BoundedBacklogImpl {
 }
 
 struct ScanLoop {
-    state: Arc<Mutex<BoundedBacklogState>>,
-    condition: Arc<Condvar>,
+    state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
     scan_limiter: TokenBucket,
@@ -374,18 +364,14 @@ struct ScanLoop {
 impl ScanLoop {
     fn run(mut self) {
         let mut last = BlockHash::ZERO;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock();
         while !state.stopped {
             //	wait
             while !self
                 .scan_limiter
                 .try_consume(self.config.batch_size, self.clock.now())
             {
-                state = self
-                    .condition
-                    .wait_timeout(state, Duration::from_millis(100))
-                    .unwrap()
-                    .0;
+                state = self.state.wait_timeout(state, Duration::from_millis(100)).0;
                 if state.stopped {
                     return;
                 }
@@ -409,12 +395,12 @@ impl ScanLoop {
                         .inc(StatType::BoundedBacklog, DetailType::Scanned);
                     // Erase if the block is either confirmed or missing
                     if !unconfirmed.block_exists(&hash) {
-                        self.state.lock().unwrap().index.erase_hash(&hash);
+                        self.state.lock().index.erase_hash(&hash);
                     }
                     last = hash;
                 }
             }
-            state = self.state.lock().unwrap();
+            state = self.state.lock();
         }
     }
 }
