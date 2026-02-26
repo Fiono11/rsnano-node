@@ -124,10 +124,22 @@ impl TokenBucket {
     }
 }
 
+impl Default for TokenBucket {
+    fn default() -> Self {
+        Self::new(UNLIMITED)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn default_is_unlimited() {
+        let bucket = TokenBucket::default();
+        assert_eq!(bucket.max_token_count, UNLIMITED);
+    }
 
     #[test]
     fn basic() {

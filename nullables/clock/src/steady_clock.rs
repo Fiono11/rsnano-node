@@ -1,10 +1,11 @@
 use std::{
     collections::VecDeque,
     ops::{Add, AddAssign, Sub},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+#[derive(Clone)]
 pub struct SteadyClock {
     time_source: TimeSource,
 }
@@ -14,7 +15,7 @@ impl SteadyClock {
         let mut offsets = VecDeque::new();
         offsets.push_back(DEFAULT_STUB_DURATION);
         Self {
-            time_source: TimeSource::Stub(Mutex::new(offsets)),
+            time_source: TimeSource::Stub(Mutex::new(offsets).into()),
         }
     }
 
@@ -32,7 +33,7 @@ impl SteadyClock {
             last = now;
         }
         Self {
-            time_source: TimeSource::Stub(Mutex::new(nows)),
+            time_source: TimeSource::Stub(Mutex::new(nows).into()),
         }
     }
 
@@ -63,9 +64,10 @@ impl Default for SteadyClock {
     }
 }
 
+#[derive(Clone)]
 enum TimeSource {
     System(Instant),
-    Stub(Mutex<VecDeque<i128>>),
+    Stub(Arc<Mutex<VecDeque<i128>>>),
 }
 
 impl TimeSource {

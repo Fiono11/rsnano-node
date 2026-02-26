@@ -1,6 +1,5 @@
 mod confirmed_scan;
 mod ledger_adapter;
-mod rate_limit_loop;
 mod rate_limit_thread;
 
 use std::{
@@ -111,11 +110,9 @@ impl BoundedBacklog {
             self.backlog_impl.config.batch_size,
         );
 
-        let cancel2 = self.cancel_token.clone();
-
         let handle = self.rate_limit_thread_factory.spawn(
             "Bounded b scan",
-            cancel2,
+            self.cancel_token.clone(),
             self.backlog_impl.config.scan_rate,
             self.backlog_impl.config.batch_size,
             move || {
