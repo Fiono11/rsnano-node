@@ -618,7 +618,7 @@ impl Ledger {
     }
 
     pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockError> {
-        let mut result = self.process_batch2(BlockSource::Local, std::iter::once(block));
+        let mut result = self.process_batch(std::iter::once((block, BlockSource::Local)));
         let result = result.pop().expect("should always return one result");
         match result.status {
             Ok(()) => Ok(result
@@ -630,64 +630,14 @@ impl Ledger {
 
     pub fn process_batch<'a>(
         &self,
-        batch: impl IntoIterator<Item = &'a Block>,
-    ) -> BatchProcessResult {
-        let mut validation_results = Vec::new();
-
-        // Validate blocks
-        {
-            let tx = self.store.begin_read();
-            for block in batch.into_iter() {
-                let any = BorrowingAnySet {
-                    constants: &self.constants,
-                    store: &self.store,
-                    tx: &tx,
-                };
-                let validator =
-                    BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
-                let result = validator.validate();
-                validation_results.push((result, block));
-            }
-        }
-
-        // Insert blocks
-        let mut processed = Vec::with_capacity(validation_results.len());
-        {
-            let mut txn = self.store.begin_write();
-            for (result, block) in validation_results {
-                match result {
-                    Ok(instructions) => {
-                        if let Some(saved_block) =
-                            BlockInserter::new(self, &mut txn, block, &instructions).insert()
-                        {
-                            processed.push((Ok(()), Some(saved_block.clone())));
-                        } else {
-                            let err = BlockError::Conflict;
-                            processed.push((Err(err), None));
-                        }
-                    }
-                    Err(err) => {
-                        processed.push((Err(err), None));
-                    }
-                }
-            }
-            txn.commit();
-        }
-
-        BatchProcessResult { processed }
-    }
-
-    pub fn process_batch2<'a>(
-        &self,
-        source: BlockSource,
-        batch: impl IntoIterator<Item = &'a Block>,
+        batch: impl IntoIterator<Item = (&'a Block, BlockSource)>,
     ) -> Vec<ProcessResult> {
         let mut validation_results = Vec::new();
 
         // Validate blocks
         {
             let tx = self.store.begin_read();
-            for block in batch.into_iter() {
+            for (block, source) in batch.into_iter() {
                 let any = BorrowingAnySet {
                     constants: &self.constants,
                     store: &self.store,
@@ -696,7 +646,7 @@ impl Ledger {
                 let validator =
                     BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
                 let result = validator.validate();
-                validation_results.push((result, block));
+                validation_results.push((result, block, source));
             }
         }
 
@@ -704,7 +654,7 @@ impl Ledger {
         let mut processed = Vec::with_capacity(validation_results.len());
         {
             let mut txn = self.store.begin_write();
-            for (result, block) in validation_results {
+            for (result, block, source) in validation_results {
                 match result {
                     Ok(instructions) => {
                         if let Some(saved_block) =

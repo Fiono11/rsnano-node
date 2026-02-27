@@ -40,44 +40,33 @@ impl BlockBatchProcessor {
         }
     }
 
-    pub(crate) fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>) {
+    pub(crate) fn process_blocks(&mut self, batch: VecDeque<Arc<BlockContext>>) {
         let now = self.clock.now();
 
         self.roll_back_competitor_blocks(&batch);
 
-        let mut result = self.ledger.process_batch(batch.iter().map(|c| &c.block));
-
-        let process_result: Vec<_> = result
-            .processed
-            .iter()
-            .zip(&batch)
-            .map(|((result, block), ctx)| ProcessResult {
-                block: ctx.block.clone(),
-                source: ctx.source,
-                status: *result,
-                saved_block: block.clone(),
-            })
-            .collect();
+        let process_result = self
+            .ledger
+            .process_batch(batch.iter().map(|c| (&c.block, c.source)));
 
         if !process_result.is_empty()
             && let Err(e) = self
                 .event_publisher
-                .send(LedgerEvent::BlocksProcessed(process_result))
+                .send(LedgerEvent::BlocksProcessed(process_result.clone()))
         {
             warn!("Failed to publish blocks processed event: {e:?}");
         }
 
-        assert_eq!(result.processed.len(), batch.len());
-        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = result
-            .processed
-            .drain(..)
-            .zip(batch.drain(..))
-            .map(|((status, saved_block), block_ctx)| {
-                if saved_block.is_some() {
-                    *block_ctx.saved_block.lock().unwrap() = saved_block;
+        assert_eq!(process_result.len(), batch.len());
+        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = process_result
+            .into_iter()
+            .zip(batch.into_iter())
+            .map(|(result, block_ctx)| {
+                if result.saved_block.is_some() {
+                    *block_ctx.saved_block.lock().unwrap() = result.saved_block;
                 }
 
-                (status, block_ctx)
+                (result.status, block_ctx)
             })
             .collect();
 
