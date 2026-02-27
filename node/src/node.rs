@@ -790,7 +790,6 @@ impl Node {
         let bounded_backlog = Arc::new(BoundedBacklog::new(
             config.bounded_backlog.clone(),
             ledger.clone(),
-            stats.clone(),
             ledger_tx.clone(),
         ));
 

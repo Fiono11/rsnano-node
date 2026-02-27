@@ -16,7 +16,7 @@ use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, Save
 use rsnano_utils::{
     CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{Stats, StatsCollection, StatsSource},
+    stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
 };
 
@@ -67,19 +67,18 @@ impl BoundedBacklog {
     pub(crate) fn new(
         config: BoundedBacklogConfig,
         ledger: Arc<Ledger>,
-        stats: Arc<Stats>,
         publish_event: Sender<LedgerEvent>,
     ) -> Self {
         let state = Arc::new(NullableCondvarMutex::new(BoundedBacklogState::new(
             config.clone(),
         )));
 
-        let stats2 = Arc::new(BoundedBacklogStats::default());
+        let stats = Arc::new(BoundedBacklogStats::default());
 
         let rollback_loop = Arc::new(RollbackLoop {
             state: state.clone(),
             config: config.clone(),
-            stats: stats2.clone(),
+            stats: stats.clone(),
             ledger: ledger.clone(),
             can_roll_back: RwLock::new(Box::new(|_| true)),
             publish_event: Mutex::new(Some(publish_event)),
@@ -91,7 +90,7 @@ impl BoundedBacklog {
             scan_thread: Mutex::new(None),
             cancel_token: CancellationToken::new(),
             rate_limit_thread_factory: Default::default(),
-            stats: stats2,
+            stats,
             state,
             ledger,
             config,
@@ -101,10 +100,9 @@ impl BoundedBacklog {
     pub fn new_null() -> Self {
         let config = BoundedBacklogConfig::default();
         let ledger = Arc::new(Ledger::new_null());
-        let stats = Arc::new(Stats::default());
         let (sender, _) = channel(0);
 
-        Self::new(config, ledger, stats, sender)
+        Self::new(config, ledger, sender)
     }
 
     pub fn start(&self) {
@@ -127,8 +125,8 @@ impl BoundedBacklog {
         let handle = self.rate_limit_thread_factory.spawn(
             "Bounded b scan",
             self.cancel_token.clone(),
-            self.rollback_loop.config.scan_rate,
-            self.rollback_loop.config.batch_size,
+            self.config.scan_rate,
+            self.config.batch_size,
             move || {
                 confirmed_scan.scan_batch();
             },
@@ -161,12 +159,12 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.rollback_loop.state.lock().cool_down = cool_down;
-        self.rollback_loop.state.notify_all();
+        self.state.lock().cool_down = cool_down;
+        self.state.notify_all();
     }
 
     pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
-        let mut any = self.rollback_loop.ledger.any();
+        let mut any = self.ledger.any();
         for info in batch {
             self.activate(&mut any, &info.account, &info.account_info, &info.conf_info);
         }
@@ -174,7 +172,7 @@ impl BoundedBacklog {
 
     /// Track unconfirmed blocks
     pub fn insert_processed(&self, batch: &[ProcessedResult]) {
-        let any = self.rollback_loop.ledger.any();
+        let any = self.ledger.any();
         for result in batch {
             if result.status.is_ok()
                 && let Some(block) = &result.saved_block
@@ -185,22 +183,21 @@ impl BoundedBacklog {
     }
 
     pub fn erase_accounts(&self, accounts: &[Account]) {
-        let mut guard = self.rollback_loop.state.lock();
+        let mut guard = self.state.lock();
         for account in accounts {
             guard.index.erase_account(account);
         }
     }
 
     pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        let mut guard = self.rollback_loop.state.lock();
+        let mut guard = self.state.lock();
         for account in accounts.into_iter() {
             guard.index.erase_hash(&account);
         }
     }
 
     fn contains(&self, hash: &BlockHash) -> bool {
-        let guard = self.rollback_loop.state.lock();
-        guard.index.contains(hash)
+        self.state.lock().index.contains(hash)
     }
 
     fn activate<'a>(
@@ -234,7 +231,7 @@ impl BoundedBacklog {
             }
 
             if any.should_refresh() {
-                *any = self.rollback_loop.ledger.any();
+                *any = self.ledger.any();
             }
 
             block = any.get_block(&blk.previous());
@@ -245,7 +242,7 @@ impl BoundedBacklog {
         let priority = any.block_priority(block);
         let bucket_index = prio_bucket_index(priority.balance);
 
-        self.rollback_loop.state.lock().index.insert(BacklogEntry {
+        self.state.lock().index.insert(BacklogEntry {
             hash: block.hash(),
             account: block.account(),
             bucket_index,
@@ -269,7 +266,7 @@ impl Drop for BoundedBacklog {
 
 impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
-        let guard = self.rollback_loop.state.lock();
+        let guard = self.state.lock();
         ContainerInfo::builder()
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())
