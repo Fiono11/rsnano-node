@@ -102,7 +102,8 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
                     .unblock_batch(rolled_back.affected_accounts());
             }
             LedgerEvent::ConfirmationFailed(block_hash) => {
-                // Do some cleanup due to this block never being processed
+                // The block never got confirmed! Clean up the election, so
+                // that a new election for this block can be started
                 self.active_elections
                     .write()
                     .unwrap()

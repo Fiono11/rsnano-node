@@ -30,6 +30,8 @@ pub enum LedgerEvent {
     BlocksProcessed(Vec<ProcessedResult>),
     BlocksConfirmed(Vec<(SavedBlock, BlockHash)>),
     BlocksRolledBack(RollbackResults),
+
+    // Events from confirming set:
     ConfirmationFailed(BlockHash),
     ConfirmingSetNearFull,
     ConfirmingSetRecovered,
@@ -48,11 +50,9 @@ pub struct ProcessedResult {
 )]
 #[strum(serialize_all = "snake_case")]
 pub enum BlockSource {
-    Unknown = 0,
     Live,
     LiveOriginator,
     Bootstrap,
-    BootstrapLegacy,
     Unchecked,
     Local,
     Forced,
@@ -62,11 +62,9 @@ pub enum BlockSource {
 impl From<BlockSource> for DetailType {
     fn from(value: BlockSource) -> Self {
         match value {
-            BlockSource::Unknown => DetailType::Unknown,
             BlockSource::Live => DetailType::Live,
             BlockSource::LiveOriginator => DetailType::LiveOriginator,
             BlockSource::Bootstrap => DetailType::Bootstrap,
-            BlockSource::BootstrapLegacy => DetailType::BootstrapLegacy,
             BlockSource::Unchecked => DetailType::Unchecked,
             BlockSource::Local => DetailType::Local,
             BlockSource::Forced => DetailType::Forced,

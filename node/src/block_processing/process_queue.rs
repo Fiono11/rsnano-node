@@ -61,13 +61,9 @@ impl ProcessQueue {
         let config_l = config.clone();
         let priority_query = move |origin: &(BlockSource, ChannelId)| match origin.0 {
             BlockSource::Live | BlockSource::LiveOriginator => config.priority_live,
-            BlockSource::Bootstrap | BlockSource::BootstrapLegacy | BlockSource::Unchecked => {
-                config_l.priority_bootstrap
-            }
+            BlockSource::Bootstrap | BlockSource::Unchecked => config_l.priority_bootstrap,
             BlockSource::Local => config_l.priority_local,
-            BlockSource::Election | BlockSource::Forced | BlockSource::Unknown => {
-                config.priority_system
-            }
+            BlockSource::Election | BlockSource::Forced => config.priority_system,
         };
 
         Self {
