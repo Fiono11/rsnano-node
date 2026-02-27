@@ -14,6 +14,12 @@ impl UnsavedBlockLatticeBuilder {
         }
     }
 
+    pub fn with_stub_work() -> Self {
+        Self {
+            inner: SavedBlockLatticeBuilder::with_stub_work(),
+        }
+    }
+
     pub fn genesis(&mut self) -> UnsavedAccountChainBuilder<'_> {
         self.account(&DEV_GENESIS_KEY)
     }

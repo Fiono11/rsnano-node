@@ -145,6 +145,11 @@ impl BacklogIndex {
         self.by_hash.len()
     }
 
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len_of_bucket(&self, bucket_index: usize) -> usize {
         self.bucket_lens[bucket_index]
     }

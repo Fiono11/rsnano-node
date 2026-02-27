@@ -250,6 +250,10 @@ mod tests {
 
         let stub_rng = StubWorkRng::new(vec![1, 2, 3, 4, work.into()]);
         let mut difficulty_calc = StubDifficulty::new();
+        difficulty_calc.set_difficulty(root, WorkNonce::new(1), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(2), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(3), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(4), 0);
         difficulty_calc.set_difficulty(root, work, difficulty);
 
         let sleeper = StubSleeper::new();
@@ -270,6 +274,10 @@ mod tests {
 
         let stub_rng = StubWorkRng::new(vec![1, 2, 3, 4, work.into()]);
         let mut difficulty_calc = StubDifficulty::new();
+        difficulty_calc.set_difficulty(root, WorkNonce::new(1), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(2), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(3), 0);
+        difficulty_calc.set_difficulty(root, WorkNonce::new(4), 0);
         difficulty_calc.set_difficulty(root, work, difficulty);
 
         let sleeper = StubSleeper::new();

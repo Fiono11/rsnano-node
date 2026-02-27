@@ -3,8 +3,8 @@ use blake2::{
     Blake2bVar,
     digest::{Update, VariableOutput},
 };
-use std::collections::HashMap;
 use std::mem::size_of;
+use std::{collections::HashMap, u64};
 
 pub trait Difficulty: Send + Sync {
     fn get_difficulty(&self, root: &Root, work: WorkNonce) -> u64;
@@ -71,7 +71,7 @@ impl Difficulty for StubDifficulty {
         self.preset_difficulties
             .get(&(*root, work.0))
             .cloned()
-            .unwrap_or(work.0)
+            .unwrap_or(u64::MAX)
     }
 
     fn clone(&self) -> Box<dyn Difficulty> {
@@ -90,7 +90,7 @@ mod tests {
         let mut difficulty = StubDifficulty::new();
         assert_eq!(
             difficulty.get_difficulty(&Root::from(1), WorkNonce::from(2)),
-            2
+            u64::MAX
         );
 
         difficulty.set_difficulty(Root::from(1), WorkNonce::from(2), 3);
