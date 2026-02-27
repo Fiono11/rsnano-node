@@ -1,6 +1,7 @@
 mod confirmed_scan;
 mod ledger_adapter;
 mod rate_limit_thread;
+mod stats;
 
 use std::{
     cmp::min,
@@ -29,6 +30,7 @@ use super::{
 use crate::{
     block_processing::bounded_backlog::{
         confirmed_scan::RecentlyConfirmedScan, rate_limit_thread::RateLimitThreadFactory,
+        stats::BoundedBacklogStats,
     },
     consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index},
 };
@@ -57,6 +59,7 @@ pub struct BoundedBacklog {
     backlog_impl: Arc<BoundedBacklogImpl>,
     cancel_token: CancellationToken,
     rate_limit_thread_factory: RateLimitThreadFactory,
+    stats: Arc<BoundedBacklogStats>,
 }
 
 impl BoundedBacklog {
@@ -81,6 +84,7 @@ impl BoundedBacklog {
             scan_thread: Mutex::new(None),
             cancel_token: CancellationToken::new(),
             rate_limit_thread_factory: Default::default(),
+            stats: Default::default(),
         }
     }
 
@@ -105,7 +109,7 @@ impl BoundedBacklog {
 
         let mut confirmed_scan = RecentlyConfirmedScan::new(
             self.backlog_impl.state.clone(),
-            self.backlog_impl.stats.clone(),
+            self.stats.clone(),
             self.backlog_impl.ledger.clone(),
             self.backlog_impl.config.batch_size,
         );
@@ -263,7 +267,9 @@ impl ContainerInfoProvider for BoundedBacklog {
 }
 
 impl StatsSource for BoundedBacklog {
-    fn collect_stats(&self, _result: &mut StatsCollection) {}
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        self.stats.collect_stats(result);
+    }
 }
 
 struct BoundedBacklogImpl {
@@ -423,5 +429,25 @@ impl BoundedBacklogState {
 
     fn bucket_threshold(&self) -> usize {
         self.config.max_backlog as usize / self.bucket_count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn collects_stats() {
+        let bounded_backlog = BoundedBacklog::new_null();
+        bounded_backlog
+            .stats
+            .loop_scan
+            .fetch_add(1, Ordering::Relaxed);
+
+        let mut result = StatsCollection::new();
+        bounded_backlog.collect_stats(&mut result);
+
+        assert_eq!(result.get("bounded_backlog", "loop_scan"), 1);
     }
 }

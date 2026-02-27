@@ -305,7 +305,6 @@ pub enum DetailType {
     ActivateFailed,
     ActivateSkip,
     ActivateFull,
-    Scanned,
 
     // active
     Insert,
@@ -386,7 +385,6 @@ pub enum DetailType {
     NoTargets,
     RollbackMissingBlock,
     RollbackSkipped,
-    LoopScan,
 }
 
 impl DetailType {

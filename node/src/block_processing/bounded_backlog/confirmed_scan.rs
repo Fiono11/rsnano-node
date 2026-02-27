@@ -1,16 +1,15 @@
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering::Relaxed};
 
 use rsnano_ledger::{Ledger, LedgerSet};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
-use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use crate::block_processing::bounded_backlog::BoundedBacklogState;
+use crate::block_processing::bounded_backlog::{BoundedBacklogState, stats::BoundedBacklogStats};
 
 /// Scans the bounded backlog index for recently confirmed blocks and removes those from the index
 pub(crate) struct RecentlyConfirmedScan {
     state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
-    stats: Arc<Stats>,
+    stats2: Arc<BoundedBacklogStats>,
     batch_size: usize,
     last: BlockHash,
     confirmed: Vec<BlockHash>,
@@ -22,13 +21,13 @@ pub(crate) struct RecentlyConfirmedScan {
 impl RecentlyConfirmedScan {
     pub(crate) fn new(
         state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
-        stats: Arc<Stats>,
+        stats: Arc<BoundedBacklogStats>,
         ledger: Arc<Ledger>,
         batch_size: usize,
     ) -> Self {
         Self {
             state,
-            stats,
+            stats2: stats,
             ledger,
             batch_size,
             last: BlockHash::ZERO,
@@ -37,16 +36,11 @@ impl RecentlyConfirmedScan {
     }
 
     pub(crate) fn scan_batch(&mut self) {
-        self.stats
-            .inc(StatType::BoundedBacklog, DetailType::LoopScan);
+        self.stats2.loop_scan.fetch_add(1, Relaxed);
 
         let batch = self.state.lock().index.next(&self.last, self.batch_size);
 
-        self.stats.add(
-            StatType::BoundedBacklog,
-            DetailType::Scanned,
-            batch.len() as u64,
-        );
+        self.stats2.scanned.fetch_add(batch.len(), Relaxed);
 
         // If batch is empty, we iterated over all accounts in the index
         self.last = batch.last().cloned().unwrap_or_default();
