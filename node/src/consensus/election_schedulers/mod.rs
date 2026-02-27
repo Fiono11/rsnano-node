@@ -11,7 +11,7 @@ pub use optimistic_scheduler::*;
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use rsnano_ledger::{AnySet, Ledger};
+use rsnano_ledger::{AnySet, Ledger, ProcessedResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, Networks, SavedBlock};
@@ -22,7 +22,6 @@ use rsnano_utils::{
 
 use super::{ActiveElectionsContainer, VoteCache};
 use crate::{
-    block_processing::ProcessedResult,
     cementation::ConfirmingSet,
     config::{NetworkConstants, NodeConfig},
     representatives::OnlineReps,

@@ -5,15 +5,16 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use crate::{
     NodeEvent,
-    block_processing::{BlockProcessorQueue, BoundedBacklog, LedgerEvent},
+    block_processing::{BlockProcessorQueue, BoundedBacklog},
     bootstrap::Bootstrapper,
     cementation::ConfirmingSet,
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
-        ForkCacheUpdater, LocalVoteHistory,
+        ActiveElectionsContainer, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        LocalVoteHistory,
     },
     utils::BackpressureEventProcessor,
 };
+use rsnano_ledger::LedgerEvent;
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,

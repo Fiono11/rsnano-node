@@ -3,7 +3,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
@@ -11,8 +11,8 @@ use rsnano_utils::{
 };
 
 use super::{
-    BlockProcessorQueue, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap,
-    backlog_waiter::BacklogWaiter, block_batch_processor::BlockBatchProcessorStats,
+    BlockProcessorQueue, UncheckedBlockReenqueuer, UncheckedMap, backlog_waiter::BacklogWaiter,
+    block_batch_processor::BlockBatchProcessorStats,
 };
 use crate::block_processing::block_batch_processor::BlockBatchProcessor;
 

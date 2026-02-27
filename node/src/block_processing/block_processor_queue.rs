@@ -4,10 +4,9 @@ use std::{
     time::Duration,
 };
 
-use strum::{EnumCount, IntoEnumIterator};
 use tracing::trace;
 
-use rsnano_ledger::BlockError;
+use rsnano_ledger::{BlockError, BlockSource};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Block, SavedBlock};
@@ -18,9 +17,10 @@ use rsnano_utils::{
 };
 
 use super::{
-    BlockContext, BlockSource,
+    BlockContext,
     process_queue::{ProcessQueue, ProcessQueueConfig},
 };
+use strum::{EnumCount, IntoEnumIterator};
 
 pub struct BlockProcessorQueue {
     queue: Mutex<BlockProcessorQueueImpl>,

@@ -8,7 +8,8 @@ use chrono::Utc;
 
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::{block_processing::LedgerEvent, ledger_event_processor::LedgerEventProcessorPlugin};
+use crate::ledger_event_processor::LedgerEventProcessorPlugin;
+use rsnano_ledger::LedgerEvent;
 
 const STATS_KEY: &str = "confirmation_time";
 const DEFAULT_SAMPLE_SIZE: usize = 1000;

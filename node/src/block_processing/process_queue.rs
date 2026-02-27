@@ -11,7 +11,8 @@ use rsnano_utils::{
     fair_queue::{FairQueue, FairQueueInfo},
 };
 
-use super::{BlockContext, BlockSource};
+use super::BlockContext;
+use rsnano_ledger::BlockSource;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessQueueConfig {

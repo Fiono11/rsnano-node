@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use tracing::trace;
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{BlockSource, Ledger};
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
@@ -9,7 +9,7 @@ use rsnano_utils::stats::Stats;
 
 use super::super::state::BootstrapLogic;
 use crate::{
-    block_processing::{BlockContext, BlockProcessorQueue, BlockSource},
+    block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::{
         response_processor::frontier_check_pool::FrontierCheckPool,
         state::bootstrap_logic::{ProcessError, ProcessInfo},

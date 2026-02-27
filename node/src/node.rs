@@ -14,7 +14,9 @@ use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
-use rsnano_ledger::{AnySet, BlockError, Ledger, LedgerBuilder, LedgerSet};
+use rsnano_ledger::{
+    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessedResult,
+};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
@@ -50,9 +52,9 @@ use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
     block_processing::{
-        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
+        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
         BoundedBacklog, BoundedBacklogLedgerAdapter, LocalBlockBroadcaster,
-        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult,
+        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, ProcessQueueConfig,
         UncheckedBlockReenqueuer, UncheckedMap,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},

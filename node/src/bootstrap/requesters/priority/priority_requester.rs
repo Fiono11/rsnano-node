@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{BlockSource, Ledger};
 use rsnano_network::Channel;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
@@ -12,7 +12,7 @@ use super::{
     query_factory::QueryFactory,
 };
 use crate::{
-    block_processing::{BlockProcessorQueue, BlockSource},
+    block_processing::BlockProcessorQueue,
     bootstrap::{
         AscPullQuerySpec, BootstrapConfig, BootstrapPromise, PollResult, PromiseContext,
         requesters::channel_waiter::{ChannelWaiter, ChannelWaiterStats},

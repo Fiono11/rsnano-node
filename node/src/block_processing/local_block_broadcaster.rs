@@ -9,7 +9,7 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_ledger::{Ledger, LedgerSet};
+use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessedResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
@@ -19,7 +19,6 @@ use rsnano_utils::{
     stats::{DetailType, Direction, StatType, Stats},
 };
 
-use super::{BlockSource, LedgerEvent, ProcessedResult};
 use crate::{
     cementation::ConfirmingSet, ledger_event_processor::LedgerEventProcessorPlugin,
     transport::MessageFlooder,
@@ -521,7 +520,6 @@ impl LedgerEventProcessorPlugin for LocalBlockBroadcasterPlugin {
                 self.local_block_broadcaster
                     .rolled_back(rolled_back.hashes());
             }
-            _ => {}
         }
     }
 }

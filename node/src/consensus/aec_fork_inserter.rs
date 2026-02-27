@@ -2,15 +2,12 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tracing::debug;
 
-use rsnano_ledger::{BlockError, RepWeightCache};
+use rsnano_ledger::{BlockError, LedgerEvent, ProcessedResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
 use rsnano_utils::stats::Stats;
 
 use super::{ActiveElectionsContainer, ForkCache, VoteCache};
-use crate::{
-    block_processing::{LedgerEvent, ProcessedResult},
-    ledger_event_processor::LedgerEventProcessorPlugin,
-};
+use crate::ledger_event_processor::LedgerEventProcessorPlugin;
 
 pub(crate) struct AecForkInserter {
     pub(crate) rep_weights: Arc<RepWeightCache>,

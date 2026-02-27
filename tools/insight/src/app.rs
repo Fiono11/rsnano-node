@@ -3,8 +3,8 @@ use std::{
     time::Duration,
 };
 
+use rsnano_ledger::BlockSource;
 use rsnano_node::{
-    block_processing::BlockSource,
     cementation::ConfirmingSetInfo,
     consensus::{ActiveElectionsInfo, RepTier},
 };

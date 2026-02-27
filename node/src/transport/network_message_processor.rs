@@ -14,12 +14,13 @@ use rsnano_work::WorkThresholds;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    block_processing::{BlockContext, BlockProcessorQueue, BlockSource},
+    block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::{BootstrapServer, Bootstrapper},
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
     telemetry::Telemetry,
     wallets::WalletRepresentatives,
 };
+use rsnano_ledger::BlockSource;
 
 /// Process messages that were received from other nodes in the network
 pub struct NetworkMessageProcessor {

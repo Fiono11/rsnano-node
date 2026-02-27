@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rsnano_ledger::{CementingObserver, Ledger};
+use rsnano_ledger::{CementingObserver, Ledger, LedgerEvent, ProcessedResult};
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -19,7 +19,6 @@ use rsnano_utils::{
 
 use super::ordered_entries::OrderedEntries;
 use crate::{
-    block_processing::{LedgerEvent, ProcessedResult},
     cementation::ConfirmingSetEvent,
     consensus::{ConfirmedElectionsCache, election::ConfirmedElection},
 };

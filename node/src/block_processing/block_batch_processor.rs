@@ -9,15 +9,14 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{trace, warn};
 
-use rsnano_ledger::{BlockError, Ledger};
+use rsnano_ledger::{BlockError, BlockSource, Ledger, LedgerEvent, ProcessedResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
 };
 
-use super::{BlockContext, BlockSource, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap};
-use crate::block_processing::ProcessedResult;
+use super::{BlockContext, UncheckedBlockReenqueuer, UncheckedMap};
 
 pub(crate) struct BlockBatchProcessor {
     pub ledger: Arc<Ledger>,

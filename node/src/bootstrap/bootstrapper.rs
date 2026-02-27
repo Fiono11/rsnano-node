@@ -6,7 +6,7 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{Ledger, ProcessedResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
@@ -23,7 +23,7 @@ use super::{
     state::{BootstrapLogic, CandidateAccountsConfig},
 };
 use crate::{
-    block_processing::{BlockProcessorQueue, ProcessedResult},
+    block_processing::BlockProcessorQueue,
     bootstrap::state::{PriorityUpResult, bootstrap_logic::ProcessError},
     transport::MessageSender,
 };

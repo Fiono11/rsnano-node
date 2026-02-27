@@ -6,13 +6,13 @@ use std::{
 
 use tracing::warn;
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{BoundedBacklogConfig, BoundedBacklogState};
-use crate::block_processing::{LedgerEvent, bounded_backlog::stats::BoundedBacklogStats};
+use crate::block_processing::bounded_backlog::stats::BoundedBacklogStats;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit

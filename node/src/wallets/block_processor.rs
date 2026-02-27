@@ -4,7 +4,8 @@ use rsnano_network::ChannelId;
 use rsnano_types::Block;
 use rsnano_wallet::Wallets;
 
-use crate::block_processing::{BlockContext, BlockProcessorQueue, BlockSource};
+use crate::block_processing::{BlockContext, BlockProcessorQueue};
+use rsnano_ledger::BlockSource;
 
 pub(crate) struct WalletBlockProcessor {
     inbound: mpsc::Receiver<Block>,

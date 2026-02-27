@@ -6,7 +6,9 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::{Ledger, LedgerSet};
+use tracing::trace;
+
+use rsnano_ledger::{BlockSource, Ledger, LedgerSet};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, BlockHash};
@@ -17,8 +19,7 @@ use rsnano_utils::{
 };
 
 use super::UncheckedMap;
-use crate::block_processing::{BlockContext, BlockProcessorQueue, BlockSource};
-use tracing::trace;
+use crate::block_processing::{BlockContext, BlockProcessorQueue};
 
 /// Re-enqueues an unchecked block when its missing dependency block got inserted into the ledger
 #[derive(Clone)]
@@ -166,7 +167,6 @@ impl StatsSource for UncheckedBlockReenqueuerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_processing::BlockSource;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Block, BlockHash, SavedBlock};
     use std::time::Duration;
