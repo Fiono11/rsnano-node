@@ -11,13 +11,13 @@ RsNano is a full Nano/Banano node written in Rust. It implements the Nano paymen
 ### Build
 ```bash
 cargo build --all-targets          # build everything including tests
-cargo build --release --bin rsnano_node  # build the node binary
-cargo run --release --bin rsnano-insight # run the GUI insight app
+cargo build --bin rsnano_node  # build the node binary
 ```
 
 ### Test
 ```bash
-cargo test -q                      # run all tests
+cargo test --lib -q                # Run only the unit tests. This is the preferred command during development 
+cargo test -q                      # run unit tests and integation tests
 cargo test -q -p rsnano_node       # run tests for a specific crate
 cargo test -q some_test_name       # run a specific test by name
 ```
@@ -30,8 +30,7 @@ cargo fmt --all --check            # check formatting (used in CI)
 
 ### Run the node
 ```bash
-cargo run --release --bin rsnano_node -- --network=live node run
-cargo run --release --features banano --bin rsnano_node -- node run  # Banano mode
+cargo run --bin rsnano_node -- --network=live node run
 ```
 
 ## Architecture

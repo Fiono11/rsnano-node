@@ -56,7 +56,7 @@ impl Default for BoundedBacklogConfig {
 pub struct BoundedBacklog {
     process_thread: Mutex<Option<JoinHandle<()>>>,
     scan_thread: Mutex<Option<rsnano_utils::thread_factory::JoinHandle>>,
-    backlog_impl: Arc<BoundedBacklogImpl>,
+    backlog_impl: Arc<RollbackLoop>,
     cancel_token: CancellationToken,
     rate_limit_thread_factory: RateLimitThreadFactory,
     stats: Arc<BoundedBacklogStats>,
@@ -69,7 +69,7 @@ impl BoundedBacklog {
         stats: Arc<Stats>,
         publish_event: Sender<LedgerEvent>,
     ) -> Self {
-        let backlog_impl = Arc::new(BoundedBacklogImpl {
+        let backlog_impl = Arc::new(RollbackLoop {
             state: NullableCondvarMutex::new(BoundedBacklogState::new(config.clone())).into(),
             config,
             stats,
@@ -272,7 +272,7 @@ impl StatsSource for BoundedBacklog {
     }
 }
 
-struct BoundedBacklogImpl {
+struct RollbackLoop {
     state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     config: BoundedBacklogConfig,
     stats: Arc<Stats>,
@@ -281,7 +281,7 @@ struct BoundedBacklogImpl {
     publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
-impl BoundedBacklogImpl {
+impl RollbackLoop {
     fn run_process(&self) {
         let mut state = self.state.lock();
         while !state.stopped {

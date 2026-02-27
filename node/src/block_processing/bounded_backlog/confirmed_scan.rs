@@ -126,6 +126,30 @@ mod tests {
         assert!(index.is_empty());
     }
 
+    #[test]
+    fn keeps_block_if_still_unconfirmed() {
+        let mut state = test_state();
+        let ledger = Ledger::new_null();
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        let account = Account::from(1);
+        let block = builder.genesis().send(account, 100);
+
+        ledger.process_one(&block).unwrap();
+
+        let entry = BacklogEntry {
+            hash: block.hash(),
+            account,
+            ..BacklogEntry::new_test_instance()
+        };
+        state.index.insert(entry);
+        let mut scan = create_test_scan(state, ledger);
+
+        scan.scan_batch();
+
+        let (index, _) = dismantle(scan);
+        assert_eq!(index.len(), 1);
+    }
+
     /*
      * Test Helpers
      */
