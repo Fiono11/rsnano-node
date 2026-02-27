@@ -20,6 +20,7 @@ use rsnano_utils::{
 use super::ordered_entries::OrderedEntries;
 use crate::{
     block_processing::{LedgerEvent, ProcessedResult},
+    cementation::ConfirmingSetEvent,
     consensus::{ConfirmedElectionsCache, election::ConfirmedElection},
 };
 
@@ -85,6 +86,7 @@ impl ConfirmingSet {
                 config,
                 workers: ThreadPool::new(1, "Conf notif"),
                 event_publisher: Mutex::new(None),
+                event_publisher2: Mutex::new(None),
             }),
         }
     }
@@ -99,6 +101,10 @@ impl ConfirmingSet {
 
     pub fn set_event_publisher(&self, sink: Sender<LedgerEvent>) {
         *self.thread.event_publisher.lock().unwrap() = Some(sink);
+    }
+
+    pub fn set_event_publisher2(&self, sink: Sender<ConfirmingSetEvent>) {
+        *self.thread.event_publisher2.lock().unwrap() = Some(sink);
     }
 
     /// Adds a block to the set of blocks to be confirmed
@@ -216,7 +222,8 @@ struct ConfirmingSetThread {
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
     workers: ThreadPool,
-    event_publisher: Mutex<Option<Sender<LedgerEvent>>>,
+    event_publisher: Mutex<Option<Sender<LedgerEvent>>>, // TODO: delete this
+    event_publisher2: Mutex<Option<Sender<ConfirmingSetEvent>>>,
 }
 
 impl ConfirmingSetThread {
@@ -226,6 +233,7 @@ impl ConfirmingSetThread {
             self.stopped.store(true, Ordering::SeqCst);
         }
         drop(self.event_publisher.lock().unwrap().take());
+        drop(self.event_publisher2.lock().unwrap().take());
         self.condition.notify_all();
     }
 
@@ -257,7 +265,7 @@ impl ConfirmingSetThread {
         }
 
         if near_full_warning {
-            self.notify(LedgerEvent::ConfirmingSetNearFull);
+            self.notify2(ConfirmingSetEvent::NearFull);
         }
     }
 
@@ -283,7 +291,9 @@ impl ConfirmingSetThread {
                 drop(guard);
                 {
                     for entry in evicted {
-                        self.notify(LedgerEvent::ConfirmationFailed(entry.confirmation_root));
+                        self.notify2(ConfirmingSetEvent::ConfirmationFailed(
+                            entry.confirmation_root,
+                        ));
                     }
                 }
                 guard = self.mutex.lock().unwrap();
@@ -306,7 +316,7 @@ impl ConfirmingSetThread {
 
                 self.run_batch(batch);
                 if recovered {
-                    self.notify(LedgerEvent::ConfirmingSetRecovered);
+                    self.notify2(ConfirmingSetEvent::Recovered);
                 }
 
                 guard = self.mutex.lock().unwrap();
@@ -336,6 +346,12 @@ impl ConfirmingSetThread {
 
     fn notify(&self, event: LedgerEvent) {
         if let Some(sender) = self.event_publisher.lock().unwrap().as_ref() {
+            sender.send(event).unwrap();
+        }
+    }
+
+    fn notify2(&self, event: ConfirmingSetEvent) {
+        if let Some(sender) = self.event_publisher2.lock().unwrap().as_ref() {
             sender.send(event).unwrap();
         }
     }

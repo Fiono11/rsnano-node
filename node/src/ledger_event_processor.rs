@@ -101,26 +101,6 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
                 self.bootstrapper
                     .unblock_batch(rolled_back.affected_accounts());
             }
-            LedgerEvent::ConfirmationFailed(block_hash) => {
-                // The block never got confirmed! Clean up the election, so
-                // that a new election for this block can be started
-                self.active_elections
-                    .write()
-                    .unwrap()
-                    .remove_recently_confirmed(&block_hash);
-            }
-            LedgerEvent::ConfirmingSetNearFull => {
-                self.active_elections
-                    .write()
-                    .unwrap()
-                    .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
-            }
-            LedgerEvent::ConfirmingSetRecovered => {
-                self.active_elections
-                    .write()
-                    .unwrap()
-                    .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
-            }
         }
     }
 }

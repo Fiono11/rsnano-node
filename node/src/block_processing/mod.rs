@@ -30,11 +30,6 @@ pub enum LedgerEvent {
     BlocksProcessed(Vec<ProcessedResult>),
     BlocksConfirmed(Vec<(SavedBlock, BlockHash)>),
     BlocksRolledBack(RollbackResults),
-
-    // Events from confirming set:
-    ConfirmationFailed(BlockHash),
-    ConfirmingSetNearFull,
-    ConfirmingSetRecovered,
 }
 
 #[derive(Clone, Debug)]
