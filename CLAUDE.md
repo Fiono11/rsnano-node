@@ -8,6 +8,12 @@ RsNano is a full Nano/Banano node written in Rust. It implements the Nano paymen
 
 ## Commands
 
+
+### Quickly check for compile errors
+```bash
+cargo check --tests
+```
+
 ### Build
 ```bash
 cargo build --all-targets          # build everything including tests
