@@ -33,9 +33,9 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerEvent,
-    LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache,
-    RepWeightsUpdater, RollbackError,
+    BlockRollbackPerformer, BlockSource, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants,
+    LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, ProcessResult,
+    RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -618,12 +618,13 @@ impl Ledger {
     }
 
     pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockError> {
-        let mut result = self.process_batch(std::iter::once(block));
-        let mut drain = result.processed.drain(..);
-        match drain.next().unwrap() {
-            (Ok(_), Some(block)) => Ok(block),
-            (Ok(_), None) => unreachable!(),
-            (Err(e), _) => Err(e),
+        let mut result = self.process_batch2(BlockSource::Local, std::iter::once(block));
+        let result = result.pop().expect("should always return one result");
+        match result.status {
+            Ok(()) => Ok(result
+                .saved_block
+                .expect("saved block should always be set if block was processed")),
+            Err(e) => Err(e),
         }
     }
 
@@ -674,6 +675,71 @@ impl Ledger {
         }
 
         BatchProcessResult { processed }
+    }
+
+    pub fn process_batch2<'a>(
+        &self,
+        source: BlockSource,
+        batch: impl IntoIterator<Item = &'a Block>,
+    ) -> Vec<ProcessResult> {
+        let mut validation_results = Vec::new();
+
+        // Validate blocks
+        {
+            let tx = self.store.begin_read();
+            for block in batch.into_iter() {
+                let any = BorrowingAnySet {
+                    constants: &self.constants,
+                    store: &self.store,
+                    tx: &tx,
+                };
+                let validator =
+                    BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
+                let result = validator.validate();
+                validation_results.push((result, block));
+            }
+        }
+
+        // Insert blocks
+        let mut processed = Vec::with_capacity(validation_results.len());
+        {
+            let mut txn = self.store.begin_write();
+            for (result, block) in validation_results {
+                match result {
+                    Ok(instructions) => {
+                        if let Some(saved_block) =
+                            BlockInserter::new(self, &mut txn, block, &instructions).insert()
+                        {
+                            processed.push(ProcessResult {
+                                block: block.clone(),
+                                source,
+                                status: Ok(()),
+                                saved_block: Some(saved_block),
+                            });
+                        } else {
+                            let err = BlockError::Conflict;
+                            processed.push(ProcessResult {
+                                block: block.clone(),
+                                source,
+                                status: Err(err),
+                                saved_block: None,
+                            });
+                        }
+                    }
+                    Err(err) => {
+                        processed.push(ProcessResult {
+                            block: block.clone(),
+                            source,
+                            status: Err(err),
+                            saved_block: None,
+                        });
+                    }
+                }
+            }
+            txn.commit();
+        }
+
+        processed
     }
 
     pub fn roll_back_competitors<'a, T, F>(&self, blocks: T, mut rolled_back_callback: F)
