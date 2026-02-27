@@ -318,6 +318,7 @@ impl Node {
 
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
+        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024);
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
             .config(config.lmdb_config.clone())
@@ -325,6 +326,7 @@ impl Node {
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
             .stats(stats.clone())
+            .publish_to(ledger_tx.clone())
             .finish();
 
         let ledger = match ledger {
@@ -340,7 +342,6 @@ impl Node {
         let rep_weights = ledger.rep_weights.clone();
 
         let mut event_queues_info = ContainerInfoFactory::new();
-        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024);
         let ledger_tx_clone = ledger_tx.clone();
         event_queues_info.add_leaf("ledger", move || ledger_tx_clone.len());
 

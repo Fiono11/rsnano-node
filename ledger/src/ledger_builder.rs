@@ -5,10 +5,10 @@ use rsnano_store_lmdb::{
     EnvironmentOptions, LedgerCache, LmdbConfig, create_and_update_lmdb_env, get_lmdb_flags,
 };
 use rsnano_types::Amount;
-use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
+use rsnano_utils::{get_cpu_count, sync::backpressure_channel::Sender};
 
-use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
+use crate::{BootstrapWeights, Ledger, LedgerConstants, LedgerEvent, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
@@ -19,6 +19,7 @@ pub struct LedgerBuilder<'a> {
     min_rep_weight: Amount,
     ledger_constants: Option<LedgerConstants>,
     thread_count: usize,
+    sender: Option<Sender<LedgerEvent>>,
 }
 
 impl<'a> LedgerBuilder<'a> {
@@ -32,6 +33,7 @@ impl<'a> LedgerBuilder<'a> {
             min_rep_weight: Amount::ZERO,
             ledger_constants: None,
             thread_count: 0,
+            sender: None,
         }
     }
 
@@ -70,6 +72,11 @@ impl<'a> LedgerBuilder<'a> {
         self
     }
 
+    pub fn publish_to(mut self, tx: Sender<LedgerEvent>) -> Self {
+        self.sender = Some(tx);
+        self
+    }
+
     pub fn finish(mut self) -> anyhow::Result<Ledger> {
         let ledger_cache = Arc::new(LedgerCache::new());
         let bootstrap_weights = self.bootstrap_weights.unwrap_or_default();
@@ -101,13 +108,17 @@ impl<'a> LedgerBuilder<'a> {
 
         let env = create_and_update_lmdb_env(env_factory, env_options)?;
 
-        Ledger::new(
+        let mut ledger = Ledger::new(
             env,
             ledger_constants,
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,
             true,
-        )
+        )?;
+
+        ledger.sender = self.sender.take();
+
+        Ok(ledger)
     }
 }

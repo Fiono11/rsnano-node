@@ -28,13 +28,14 @@ use rsnano_types::{
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
+    sync::backpressure_channel::Sender,
 };
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerSet,
-    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
-    RollbackError,
+    BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerEvent,
+    LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache,
+    RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -124,6 +125,7 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     rollback_listener: OutputListenerMt<BlockHash>,
     store_version: u32,
+    pub(crate) sender: Option<Sender<LedgerEvent>>,
 }
 
 pub struct NullLedgerBuilder {
@@ -302,6 +304,7 @@ impl Ledger {
             stats,
             rollback_listener: Default::default(),
             store_version: 0,
+            sender: None,
         };
 
         ledger.initialize(thread_count, integrity_check)?;
