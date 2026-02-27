@@ -68,10 +68,16 @@ impl StubDifficulty {
 
 impl Difficulty for StubDifficulty {
     fn get_difficulty(&self, root: &Root, work: WorkNonce) -> u64 {
-        self.preset_difficulties
-            .get(&(*root, work.0))
-            .cloned()
-            .unwrap_or(u64::MAX)
+        match self.preset_difficulties.get(&(*root, work.0)) {
+            Some(difficulty) => *difficulty,
+            None => {
+                if work.0 >= 42 {
+                    u64::MAX
+                } else {
+                    0
+                }
+            }
+        }
     }
 
     fn clone(&self) -> Box<dyn Difficulty> {
@@ -89,8 +95,16 @@ mod tests {
     fn stub_difficulty() {
         let mut difficulty = StubDifficulty::new();
         assert_eq!(
-            difficulty.get_difficulty(&Root::from(1), WorkNonce::from(2)),
+            difficulty.get_difficulty(&Root::from(1), WorkNonce::from(42)),
             u64::MAX
+        );
+        assert_eq!(
+            difficulty.get_difficulty(&Root::from(1), WorkNonce::from(100)),
+            u64::MAX
+        );
+        assert_eq!(
+            difficulty.get_difficulty(&Root::from(1), WorkNonce::from(41)),
+            0
         );
 
         difficulty.set_difficulty(Root::from(1), WorkNonce::from(2), 3);

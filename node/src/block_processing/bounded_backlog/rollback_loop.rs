@@ -17,6 +17,8 @@ use rsnano_utils::{
 use super::{BoundedBacklogConfig, BoundedBacklogState};
 use crate::block_processing::LedgerEvent;
 
+/// Continuously rolls back unconfirmed blocks with the lowest priority
+/// if the backlog exceeds the configured limit
 pub(super) struct RollbackLoop {
     pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     pub(super) config: BoundedBacklogConfig,
@@ -33,7 +35,7 @@ impl RollbackLoop {
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.predicate(self.ledger.backlog_size())
+                    !i.stopped && !i.should_roll_back(self.ledger.backlog_size())
                 })
                 .0;
 
@@ -68,7 +70,9 @@ impl RollbackLoop {
                 for hash in &processed {
                     state.index.erase_hash(hash);
                 }
-            } else {
+            }
+
+            if targets.is_empty() {
                 // Cooldown, this should not happen in normal operation
                 self.stats
                     .inc(StatType::BoundedBacklog, DetailType::NoTargets);
@@ -92,12 +96,12 @@ impl RollbackLoop {
 
         let mut processed_hashes = Vec::new();
         for result in results.iter() {
-            if !result.rolled_back.is_empty() {
+            if result.rolled_back.is_empty() {
+                processed_hashes.push(result.target_hash);
+            } else {
                 for h in &result.rolled_back {
                     processed_hashes.push(h.hash());
                 }
-            } else {
-                processed_hashes.push(result.target_hash);
             }
         }
 
