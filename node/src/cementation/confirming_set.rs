@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rsnano_ledger::{CementingObserver, Ledger, LedgerEvent, ProcessedResult};
+use rsnano_ledger::{CementingObserver, Ledger, LedgerEvent, ProcessResult};
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -159,7 +159,7 @@ impl ConfirmingSet {
     }
 
     /// Requeue blocks that failed to cement immediately due to missing ledger blocks
-    pub fn requeue_blocks(&self, batch: &[ProcessedResult]) {
+    pub fn requeue_blocks(&self, batch: &[ProcessResult]) {
         let mut should_notify = false;
         {
             let mut guard = self.thread.mutex.lock().unwrap();

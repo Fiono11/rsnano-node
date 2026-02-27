@@ -9,7 +9,7 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessedResult};
+use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
@@ -304,7 +304,7 @@ impl LocalBlockBroadcaster {
         }
     }
 
-    pub fn blocks_processed(&self, batch: &[ProcessedResult]) {
+    pub fn blocks_processed(&self, batch: &[ProcessResult]) {
         if !self.enabled {
             return;
         }

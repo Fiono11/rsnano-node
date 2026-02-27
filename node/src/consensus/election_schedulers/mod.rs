@@ -11,7 +11,7 @@ pub use optimistic_scheduler::*;
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use rsnano_ledger::{AnySet, Ledger, ProcessedResult};
+use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, Networks, SavedBlock};
@@ -146,7 +146,7 @@ impl ElectionSchedulers {
             .activate_with_info(any, account_info, conf_info);
     }
 
-    pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessedResult]) {
+    pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
         let any = self.ledger.any();
         for result in processed {
             if result.status.is_ok() {

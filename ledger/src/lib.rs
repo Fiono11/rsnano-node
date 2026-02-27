@@ -39,13 +39,13 @@ use rsnano_types::{Block, BlockHash, SavedBlock};
 
 pub enum LedgerEvent {
     /// The confirmed block + it's confirmation root
-    BlocksProcessed(Vec<ProcessedResult>),
+    BlocksProcessed(Vec<ProcessResult>),
     BlocksConfirmed(Vec<(SavedBlock, BlockHash)>),
     BlocksRolledBack(RollbackResults),
 }
 
 #[derive(Clone, Debug)]
-pub struct ProcessedResult {
+pub struct ProcessResult {
     pub block: Block,
     pub source: BlockSource,
     pub status: Result<(), BlockError>,

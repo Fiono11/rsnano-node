@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tracing::debug;
 
-use rsnano_ledger::{BlockError, LedgerEvent, ProcessedResult, RepWeightCache};
+use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
 use rsnano_utils::stats::Stats;
 
@@ -30,7 +30,7 @@ impl AecForkInserter {
         }
     }
 
-    pub fn handle_forks(&self, batch: &[ProcessedResult]) {
+    pub fn handle_forks(&self, batch: &[ProcessResult]) {
         for result in batch {
             if result.status == Err(BlockError::Fork) {
                 self.handle_fork(&result.block);

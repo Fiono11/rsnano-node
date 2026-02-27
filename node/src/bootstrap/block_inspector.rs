@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use tracing::trace;
 
-use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessedResult};
+use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Block, BlockType, SavedBlock};
@@ -37,7 +37,7 @@ impl BlockInspector {
         }
     }
 
-    pub fn inspect(&self, batch: &[ProcessedResult]) {
+    pub fn inspect(&self, batch: &[ProcessResult]) {
         let mut state = self.state.lock().unwrap();
         let any = self.ledger.any();
         for result in batch {
@@ -90,12 +90,7 @@ impl BlockInspector {
     /// Inspects a block that has been processed by the block processor
     /// - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
     /// - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
-    fn inspect_block(
-        &self,
-        state: &mut BootstrapLogic,
-        result: &ProcessedResult,
-        account: &Account,
-    ) {
+    fn inspect_block(&self, state: &mut BootstrapLogic, result: &ProcessResult, account: &Account) {
         let hash = result.block.hash();
 
         match result.status {

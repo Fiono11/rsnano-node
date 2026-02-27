@@ -10,7 +10,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessedResult};
+use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessResult};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
@@ -179,7 +179,7 @@ impl BoundedBacklog {
     }
 
     /// Track unconfirmed blocks
-    pub fn insert_processed(&self, batch: &[ProcessedResult]) {
+    pub fn insert_processed(&self, batch: &[ProcessResult]) {
         let any = self.ledger.any();
         for result in batch {
             if result.status.is_ok()

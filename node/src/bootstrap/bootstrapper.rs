@@ -6,7 +6,7 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, ProcessedResult};
+use rsnano_ledger::{Ledger, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
@@ -278,7 +278,7 @@ impl Bootstrapper {
             .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
     }
 
-    pub fn inspect_blocks(&self, batch: &[ProcessedResult]) {
+    pub fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
         self.state_changed.notify_all();
     }

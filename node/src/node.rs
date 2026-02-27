@@ -15,7 +15,7 @@ use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
 use rsnano_ledger::{
-    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessedResult,
+    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
 };
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
@@ -1698,7 +1698,7 @@ pub enum NodeEvent {
     ElectionStopped(BlockHash),
     BlockConfirmed(SavedBlock, ConfirmedElection),
     VoteProcessed(Arc<Vote>, Result<(), VoteError>),
-    BlocksProcessed(Vec<ProcessedResult>),
+    BlocksProcessed(Vec<ProcessResult>),
 }
 
 pub trait NodeEventHandler {
