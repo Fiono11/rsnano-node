@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    sync::{Arc, Mutex, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, Mutex, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -21,7 +21,7 @@ pub(super) struct RollbackLoop {
     pub(super) config: BoundedBacklogConfig,
     pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
-    pub(super) can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
+    pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
     pub(super) publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
@@ -45,11 +45,10 @@ impl RollbackLoop {
             // Calculate the number of targets to rollback
             let backlog = self.ledger.backlog_size();
             let target_count = backlog.saturating_sub(self.config.max_backlog);
-            let can_roll_back = self.can_roll_back.read().unwrap();
 
             let targets = state.gather_targets(
                 min(target_count as usize, self.config.batch_size),
-                &*can_roll_back,
+                &self.can_roll_back,
             );
 
             if !targets.is_empty() {
@@ -58,7 +57,8 @@ impl RollbackLoop {
                     .gathered_targets
                     .fetch_add(targets.len(), Relaxed);
 
-                let processed = self.roll_back(&targets, target_count as usize, &*can_roll_back);
+                let processed =
+                    self.roll_back(&targets, target_count as usize, &self.can_roll_back);
                 state = self.state.lock();
 
                 // Erase rolled back blocks from the index

@@ -6,7 +6,7 @@ mod stats;
 
 use std::{
     cmp::min,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread::JoinHandle,
 };
 
@@ -54,13 +54,14 @@ impl Default for BoundedBacklogConfig {
 pub struct BoundedBacklog {
     process_thread: Mutex<Option<JoinHandle<()>>>,
     scan_thread: Mutex<Option<rsnano_utils::thread_factory::JoinHandle>>,
-    rollback_loop: Arc<RollbackLoop>,
     cancel_token: CancellationToken,
     rate_limit_thread_factory: RateLimitThreadFactory,
     stats: Arc<BoundedBacklogStats>,
     state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     ledger: Arc<Ledger>,
     config: BoundedBacklogConfig,
+    can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
+    publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
 impl BoundedBacklog {
@@ -75,17 +76,7 @@ impl BoundedBacklog {
 
         let stats = Arc::new(BoundedBacklogStats::default());
 
-        let rollback_loop = Arc::new(RollbackLoop {
-            state: state.clone(),
-            config: config.clone(),
-            stats: stats.clone(),
-            ledger: ledger.clone(),
-            can_roll_back: RwLock::new(Box::new(|_| true)),
-            publish_event: Mutex::new(Some(publish_event)),
-        });
-
         Self {
-            rollback_loop,
             process_thread: Mutex::new(None),
             scan_thread: Mutex::new(None),
             cancel_token: CancellationToken::new(),
@@ -94,6 +85,8 @@ impl BoundedBacklog {
             state,
             ledger,
             config,
+            can_roll_back: Mutex::new(None),
+            publish_event: Mutex::new(Some(publish_event)),
         }
     }
 
@@ -108,11 +101,27 @@ impl BoundedBacklog {
     pub fn start(&self) {
         debug_assert!(self.process_thread.lock().unwrap().is_none());
 
-        let rollback_loop = self.rollback_loop.clone();
+        let can_roll_back = self
+            .can_roll_back
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| Box::new(|_| true));
+
+        let rollback_loop = RollbackLoop {
+            state: self.state.clone(),
+            config: self.config.clone(),
+            stats: self.stats.clone(),
+            ledger: self.ledger.clone(),
+            can_roll_back,
+            publish_event: Mutex::new(self.publish_event.lock().unwrap().take()),
+        };
+
         let handle = std::thread::Builder::new()
             .name("Bounded backlog".to_owned())
             .spawn(move || rollback_loop.run_process())
             .unwrap();
+
         *self.process_thread.lock().unwrap() = Some(handle);
 
         let mut confirmed_scan = RecentlyConfirmedScan::new(
@@ -150,12 +159,12 @@ impl BoundedBacklog {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
-        drop(self.rollback_loop.publish_event.lock().unwrap().take());
+        drop(self.publish_event.lock().unwrap().take());
     }
 
     // Give other components a chance to veto a rollback
     pub fn can_roll_back(&self, f: impl Fn(&BlockHash) -> bool + Send + Sync + 'static) {
-        *self.rollback_loop.can_roll_back.write().unwrap() = Box::new(f);
+        *self.can_roll_back.lock().unwrap() = Some(Box::new(f));
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
