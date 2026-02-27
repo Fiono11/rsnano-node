@@ -380,7 +380,6 @@ pub enum DetailType {
     AccountInfoByHash,
 
     // bounded backlog
-    GatheredTargets,
     PerformingRollbacks,
     NoTargets,
     RollbackMissingBlock,

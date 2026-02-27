@@ -74,10 +74,12 @@ impl BoundedBacklog {
             config.clone(),
         )));
 
+        let stats2 = Arc::new(BoundedBacklogStats::default());
+
         let rollback_loop = Arc::new(RollbackLoop {
             state: state.clone(),
             config: config.clone(),
-            stats,
+            stats: stats2.clone(),
             ledger: ledger.clone(),
             can_roll_back: RwLock::new(Box::new(|_| true)),
             publish_event: Mutex::new(Some(publish_event)),
@@ -89,7 +91,7 @@ impl BoundedBacklog {
             scan_thread: Mutex::new(None),
             cancel_token: CancellationToken::new(),
             rate_limit_thread_factory: Default::default(),
-            stats: Default::default(),
+            stats: stats2,
             state,
             ledger,
             config,
@@ -138,8 +140,8 @@ impl BoundedBacklog {
     pub fn stop(&self) {
         self.cancel_token.cancel();
 
-        self.rollback_loop.state.lock().stopped = true;
-        self.rollback_loop.state.notify_all();
+        self.state.lock().stopped = true;
+        self.state.notify_all();
 
         let handle = self.process_thread.lock().unwrap().take();
         if let Some(handle) = handle {

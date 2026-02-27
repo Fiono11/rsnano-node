@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -9,20 +9,17 @@ use tracing::warn;
 use rsnano_ledger::Ledger;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
-use rsnano_utils::{
-    stats::{DetailType, StatType, Stats},
-    sync::backpressure_channel::Sender,
-};
+use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{BoundedBacklogConfig, BoundedBacklogState};
-use crate::block_processing::LedgerEvent;
+use crate::block_processing::{LedgerEvent, bounded_backlog::stats::BoundedBacklogStats};
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
 pub(super) struct RollbackLoop {
     pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     pub(super) config: BoundedBacklogConfig,
-    pub(super) stats: Arc<Stats>,
+    pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
     pub(super) publish_event: Mutex<Option<Sender<LedgerEvent>>>,
@@ -43,7 +40,7 @@ impl RollbackLoop {
                 return;
             }
 
-            self.stats.inc(StatType::BoundedBacklog, DetailType::Loop);
+            self.stats.loop_rollback.fetch_add(1, Relaxed);
 
             // Calculate the number of targets to rollback
             let backlog = self.ledger.backlog_size();
@@ -57,11 +54,9 @@ impl RollbackLoop {
 
             if !targets.is_empty() {
                 drop(state);
-                self.stats.add(
-                    StatType::BoundedBacklog,
-                    DetailType::GatheredTargets,
-                    targets.len() as u64,
-                );
+                self.stats
+                    .gathered_targets
+                    .fetch_add(targets.len(), Relaxed);
 
                 let processed = self.roll_back(&targets, target_count as usize, &*can_roll_back);
                 state = self.state.lock();
@@ -74,8 +69,7 @@ impl RollbackLoop {
 
             if targets.is_empty() {
                 // Cooldown, this should not happen in normal operation
-                self.stats
-                    .inc(StatType::BoundedBacklog, DetailType::NoTargets);
+                self.stats.no_targets.fetch_add(1, Relaxed);
                 state = self
                     .state
                     .wait_timeout_while(state, Duration::from_millis(100), |i| !i.stopped)
