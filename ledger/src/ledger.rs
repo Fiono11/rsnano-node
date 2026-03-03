@@ -693,17 +693,16 @@ impl Ledger {
                 // TODO: Some tests expect no events to be raised when process_one called! Fix
                 // those tests
             } else {
-                (self.sender)(LedgerEvent::BlocksProcessed(processed.clone()));
+                self.notify(LedgerEvent::BlocksProcessed(processed.clone()));
             }
         }
 
         processed
     }
 
-    pub fn roll_back_competitors<'a, T, F>(&self, blocks: T, mut rolled_back_callback: F)
+    pub fn roll_back_competitors<'a, T>(&self, blocks: T)
     where
         T: IntoIterator<Item = &'a Block>,
-        F: FnMut(RollbackResults),
     {
         let mut rolled_back = RollbackResults::new();
         {
@@ -712,7 +711,7 @@ impl Ledger {
                 if txn.is_refresh_needed() {
                     txn.commit();
                     if !rolled_back.is_empty() {
-                        rolled_back_callback(rolled_back);
+                        self.notify(LedgerEvent::BlocksRolledBack(rolled_back));
                         rolled_back = RollbackResults::new();
                     }
                     txn = self.store.begin_write();
@@ -730,7 +729,7 @@ impl Ledger {
             txn.commit();
         }
         if !rolled_back.is_empty() {
-            rolled_back_callback(rolled_back);
+            self.notify(LedgerEvent::BlocksRolledBack(rolled_back));
         }
     }
 
@@ -1026,6 +1025,10 @@ impl Ledger {
                 }
             })
             .collect()
+    }
+
+    fn notify(&self, ev: LedgerEvent) {
+        (self.sender)(ev);
     }
 }
 
