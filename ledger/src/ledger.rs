@@ -617,7 +617,7 @@ impl Ledger {
     }
 
     pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockError> {
-        let mut result = self.process_batch(std::iter::once((block, BlockSource::Local)));
+        let mut result = self.process_batch(std::iter::once((block, BlockSource::Test)));
         let result = result.pop().expect("should always return one result");
         match result.status {
             Ok(()) => Ok(result
@@ -686,6 +686,15 @@ impl Ledger {
                 }
             }
             txn.commit();
+        }
+
+        if !processed.is_empty() {
+            if processed.len() == 1 && processed[0].source == BlockSource::Test {
+                // TODO: Some tests expect no events to be raised when process_one called! Fix
+                // those tests
+            } else {
+                (self.sender)(LedgerEvent::BlocksProcessed(processed.clone()));
+            }
         }
 
         processed

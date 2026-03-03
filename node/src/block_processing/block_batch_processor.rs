@@ -9,7 +9,7 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{trace, warn};
 
-use rsnano_ledger::{BlockError, BlockSource, Ledger, LedgerEvent, ProcessResult};
+use rsnano_ledger::{BlockError, BlockSource, Ledger, LedgerEvent};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
@@ -48,14 +48,6 @@ impl BlockBatchProcessor {
         let process_result = self
             .ledger
             .process_batch(batch.iter().map(|c| (&c.block, c.source)));
-
-        if !process_result.is_empty()
-            && let Err(e) = self
-                .event_publisher
-                .send(LedgerEvent::BlocksProcessed(process_result.clone()))
-        {
-            warn!("Failed to publish blocks processed event: {e:?}");
-        }
 
         assert_eq!(process_result.len(), batch.len());
         let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = process_result

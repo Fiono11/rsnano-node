@@ -318,7 +318,7 @@ impl Node {
 
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
-        let (event_tx, event_rx) = backpressure_channel::channel(2048);
+        let (event_tx, event_rx) = backpressure_channel::channel(1024 * 5);
         let event_tx2 = event_tx.clone();
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
