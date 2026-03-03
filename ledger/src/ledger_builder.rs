@@ -111,7 +111,7 @@ impl<'a> LedgerBuilder<'a> {
 
         let env = create_and_update_lmdb_env(env_factory, env_options)?;
 
-        let mut ledger = Ledger::new(
+        let ledger = Ledger::new(
             env,
             ledger_constants,
             rep_weights.clone(),
@@ -121,7 +121,7 @@ impl<'a> LedgerBuilder<'a> {
         )?;
 
         if let Some(sender) = self.sender {
-            ledger.sender = sender
+            *ledger.publish.write().unwrap() = Some(sender);
         }
 
         Ok(ledger)

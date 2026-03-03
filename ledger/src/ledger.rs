@@ -3,7 +3,7 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::SystemTime,
@@ -124,7 +124,7 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     rollback_listener: OutputListenerMt<BlockHash>,
     store_version: u32,
-    pub(crate) sender: Box<dyn Fn(LedgerEvent) + Send + Sync>,
+    pub(crate) publish: RwLock<Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>>,
 }
 
 pub struct NullLedgerBuilder {
@@ -303,7 +303,7 @@ impl Ledger {
             stats,
             rollback_listener: Default::default(),
             store_version: 0,
-            sender: Box::new(|_| {}),
+            publish: RwLock::new(None),
         };
 
         ledger.initialize(thread_count, integrity_check)?;
@@ -1003,6 +1003,10 @@ impl Ledger {
         txn.commit();
     }
 
+    pub fn drop_publisher(&self) {
+        *self.publish.write().unwrap() = None;
+    }
+
     #[cfg(feature = "ledger_snapshots")]
     fn find_forks_to_roll_back(&self, snapshot_number: u32) -> Vec<(BlockHash, QualifiedRoot)> {
         let txn = self.store.begin_read();
@@ -1028,7 +1032,10 @@ impl Ledger {
     }
 
     fn notify(&self, ev: LedgerEvent) {
-        (self.sender)(ev);
+        let guard = self.publish.read().unwrap();
+        if let Some(callback) = &*guard {
+            (callback)(ev);
+        }
     }
 }
 

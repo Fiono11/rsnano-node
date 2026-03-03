@@ -1688,6 +1688,7 @@ impl Node {
         self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
+        self.ledger.drop_publisher();
         self.workers.join();
         self.tokio_runner.stop();
         // work pool is not stopped on purpose due to testing setup
