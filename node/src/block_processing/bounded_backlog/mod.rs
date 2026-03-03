@@ -17,7 +17,6 @@ use rsnano_utils::{
     CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    sync::backpressure_channel::{Sender, channel},
 };
 
 use super::{
@@ -60,15 +59,10 @@ pub struct BoundedBacklog {
     ledger: Arc<Ledger>,
     config: BoundedBacklogConfig,
     can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
-    publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
 impl BoundedBacklog {
-    pub(crate) fn new(
-        config: BoundedBacklogConfig,
-        ledger: Arc<Ledger>,
-        publish_event: Sender<LedgerEvent>,
-    ) -> Self {
+    pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
         let state = Arc::new(NullableCondvarMutex::new(BoundedBacklogState::new(
             config.clone(),
         )));
@@ -85,16 +79,14 @@ impl BoundedBacklog {
             ledger,
             config,
             can_roll_back: Mutex::new(None),
-            publish_event: Mutex::new(Some(publish_event)),
         }
     }
 
     pub fn new_null() -> Self {
         let config = BoundedBacklogConfig::default();
         let ledger = Arc::new(Ledger::new_null());
-        let (sender, _) = channel(0);
 
-        Self::new(config, ledger, sender)
+        Self::new(config, ledger)
     }
 
     pub fn start(&self) {
@@ -113,7 +105,6 @@ impl BoundedBacklog {
             stats: self.stats.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,
-            publish_event: Mutex::new(self.publish_event.lock().unwrap().take()),
         };
 
         let handle = std::thread::Builder::new()
@@ -158,7 +149,6 @@ impl BoundedBacklog {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
-        drop(self.publish_event.lock().unwrap().take());
     }
 
     // Give other components a chance to veto a rollback

@@ -1,15 +1,12 @@
 use std::{
     cmp::min,
-    sync::{Arc, Mutex, atomic::Ordering::Relaxed},
+    sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
-use tracing::warn;
-
-use rsnano_ledger::{Ledger, LedgerEvent};
+use rsnano_ledger::Ledger;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
-use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{BoundedBacklogConfig, BoundedBacklogState};
 use crate::block_processing::bounded_backlog::stats::BoundedBacklogStats;
@@ -22,7 +19,6 @@ pub(super) struct RollbackLoop {
     pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
-    pub(super) publish_event: Mutex<Option<Sender<LedgerEvent>>>,
 }
 
 impl RollbackLoop {
@@ -88,6 +84,8 @@ impl RollbackLoop {
             .ledger
             .roll_back_batch(targets, max_rollbacks, can_roll_back);
 
+        // TODO: listen for LedgerEvent::BlocksRolledBack instead of returning the rolled back
+        // blocks from ledger?
         let mut processed_hashes = Vec::new();
         for result in results.iter() {
             if result.rolled_back.is_empty() {
@@ -97,17 +95,6 @@ impl RollbackLoop {
                     processed_hashes.push(h.hash());
                 }
             }
-        }
-
-        if let Err(e) = self
-            .publish_event
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .send(LedgerEvent::BlocksRolledBack(results))
-        {
-            warn!("Failed to publish rolled back event: {e:?}")
         }
 
         processed_hashes

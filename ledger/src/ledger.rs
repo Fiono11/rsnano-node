@@ -601,6 +601,8 @@ impl Ledger {
             txn.commit();
         }
 
+        self.notify(LedgerEvent::BlocksRolledBack(results.clone()));
+
         results
     }
 
