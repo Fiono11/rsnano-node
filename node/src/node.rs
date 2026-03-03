@@ -922,14 +922,12 @@ impl Node {
             config.bounded_backlog.max_backlog,
         ));
 
-        let event_tx2 = event_tx.clone();
         let block_processor = Arc::new(BlockProcessor::new(
             block_processor_queue.clone(),
             ledger.clone(),
             unchecked.clone(),
             unchecked_reenqueuer.clone(),
             backlog_waiter.clone(),
-            event_tx2,
             steady_clock.clone(),
         ));
 

@@ -3,12 +3,9 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{Ledger, LedgerEvent};
+use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_utils::{
-    stats::{StatsCollection, StatsSource},
-    sync::backpressure_channel::Sender,
-};
+use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{
     BlockProcessorQueue, UncheckedBlockReenqueuer, UncheckedMap, backlog_waiter::BacklogWaiter,
@@ -23,7 +20,6 @@ pub struct BlockProcessor {
     unchecked: Arc<Mutex<UncheckedMap>>,
     process_stats: Arc<BlockBatchProcessorStats>,
     backlog_waiter: Arc<BacklogWaiter>,
-    event_publisher: Mutex<Option<Sender<LedgerEvent>>>,
     unchecked_reenqueuer: UncheckedBlockReenqueuer,
     clock: Arc<SteadyClock>,
 }
@@ -35,7 +31,6 @@ impl BlockProcessor {
         unchecked: Arc<Mutex<UncheckedMap>>,
         unchecked_reenqueuer: UncheckedBlockReenqueuer,
         backlog_waiter: Arc<BacklogWaiter>,
-        event_publisher: Sender<LedgerEvent>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
@@ -46,7 +41,6 @@ impl BlockProcessor {
             process_stats: Arc::new(BlockBatchProcessorStats::default()),
             threads: Mutex::new(Vec::new()),
             backlog_waiter,
-            event_publisher: Mutex::new(Some(event_publisher)),
             clock,
         }
     }
@@ -80,20 +74,12 @@ impl BlockProcessor {
             ledger: self.ledger.clone(),
             unchecked: self.unchecked.clone(),
             stats: self.process_stats.clone(),
-            event_publisher: self
-                .event_publisher
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .clone(),
             unchecked_reenqueuer: self.unchecked_reenqueuer.clone(),
             clock: self.clock.clone(),
         }
     }
 
     pub fn stop(&self) {
-        drop(self.event_publisher.lock().unwrap().take());
         self.process_queue.stop();
         let mut threads = self.threads.lock().unwrap();
         for join_handle in threads.drain(..) {
