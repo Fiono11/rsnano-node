@@ -318,8 +318,8 @@ impl Node {
 
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
-        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024);
-        let ledger_tx2 = ledger_tx.clone();
+        let (event_tx, event_rx) = backpressure_channel::channel(2048);
+        let event_tx2 = event_tx.clone();
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
             .config(config.lmdb_config.clone())
@@ -327,7 +327,7 @@ impl Node {
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
             .stats(stats.clone())
-            .publish_to(move |ev| ledger_tx2.send(ev).expect("channel should be open"))
+            .publish_to(move |ev| event_tx2.send(ev).expect("channel should be open"))
             .finish();
 
         let ledger = match ledger {
@@ -343,8 +343,8 @@ impl Node {
         let rep_weights = ledger.rep_weights.clone();
 
         let mut event_queues_info = ContainerInfoFactory::new();
-        let ledger_tx_clone = ledger_tx.clone();
-        event_queues_info.add_leaf("ledger", move || ledger_tx_clone.len());
+        let event_tx2 = event_tx.clone();
+        event_queues_info.add_leaf("app", move || event_tx2.len());
 
         let ledger = Arc::new(ledger);
         info!(
@@ -485,7 +485,7 @@ impl Node {
             ledger.clone(),
             stats.clone(),
         ));
-        confirming_set.set_event_publisher(ledger_tx.clone());
+        confirming_set.set_event_publisher(event_tx.clone());
 
         let (conf_set_tx, conf_set_rx) = backpressure_channel::channel(512);
         confirming_set.set_event_publisher2(conf_set_tx);
@@ -798,7 +798,7 @@ impl Node {
         let bounded_backlog = Arc::new(BoundedBacklog::new(
             config.bounded_backlog.clone(),
             ledger.clone(),
-            ledger_tx.clone(),
+            event_tx.clone(),
         ));
 
         if config.enable_bounded_backlog {
@@ -922,14 +922,14 @@ impl Node {
             config.bounded_backlog.max_backlog,
         ));
 
-        let ledger_tx_clone = ledger_tx.clone();
+        let event_tx2 = event_tx.clone();
         let block_processor = Arc::new(BlockProcessor::new(
             block_processor_queue.clone(),
             ledger.clone(),
             unchecked.clone(),
             unchecked_reenqueuer.clone(),
             backlog_waiter.clone(),
-            ledger_tx_clone,
+            event_tx2,
             steady_clock.clone(),
         ));
 
@@ -1300,7 +1300,7 @@ impl Node {
             plugins: ledger_event_processor_plugins,
         };
 
-        spawn_backpressure_processor("Ledger ev proc", ledger_rx, ledger_event_processor);
+        spawn_backpressure_processor("Nano ev proc", event_rx, ledger_event_processor);
 
         let conf_set_event_processor = ConfirmingSetEventProcessor {
             active_elections: active_elections.clone(),

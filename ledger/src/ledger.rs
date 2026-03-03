@@ -28,7 +28,6 @@ use rsnano_types::{
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
-    sync::backpressure_channel::Sender,
 };
 use rsnano_work::WorkThresholds;
 
