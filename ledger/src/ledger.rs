@@ -125,7 +125,7 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     rollback_listener: OutputListenerMt<BlockHash>,
     store_version: u32,
-    pub(crate) sender: Option<Sender<LedgerEvent>>,
+    pub(crate) sender: Box<dyn Fn(LedgerEvent) + Send + Sync>,
 }
 
 pub struct NullLedgerBuilder {
@@ -304,7 +304,7 @@ impl Ledger {
             stats,
             rollback_listener: Default::default(),
             store_version: 0,
-            sender: None,
+            sender: Box::new(|_| {}),
         };
 
         ledger.initialize(thread_count, integrity_check)?;

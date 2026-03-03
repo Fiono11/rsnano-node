@@ -5,8 +5,8 @@ use rsnano_store_lmdb::{
     EnvironmentOptions, LedgerCache, LmdbConfig, create_and_update_lmdb_env, get_lmdb_flags,
 };
 use rsnano_types::Amount;
+use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
-use rsnano_utils::{get_cpu_count, sync::backpressure_channel::Sender};
 
 use crate::{BootstrapWeights, Ledger, LedgerConstants, LedgerEvent, RepWeightCache};
 
@@ -19,7 +19,7 @@ pub struct LedgerBuilder<'a> {
     min_rep_weight: Amount,
     ledger_constants: Option<LedgerConstants>,
     thread_count: usize,
-    sender: Option<Sender<LedgerEvent>>,
+    sender: Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>,
 }
 
 impl<'a> LedgerBuilder<'a> {
@@ -72,8 +72,11 @@ impl<'a> LedgerBuilder<'a> {
         self
     }
 
-    pub fn publish_to(mut self, tx: Sender<LedgerEvent>) -> Self {
-        self.sender = Some(tx);
+    pub fn publish_to<T>(mut self, tx: T) -> Self
+    where
+        T: Fn(LedgerEvent) + Send + Sync + 'static,
+    {
+        self.sender = Some(Box::new(tx));
         self
     }
 
@@ -117,7 +120,9 @@ impl<'a> LedgerBuilder<'a> {
             true,
         )?;
 
-        ledger.sender = self.sender.take();
+        if let Some(sender) = self.sender {
+            ledger.sender = sender
+        }
 
         Ok(ledger)
     }
