@@ -835,7 +835,7 @@ impl Ledger {
                         blocks_confirmed = 0;
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
-                        cementing_observer.batch_confirmed(confirmed);
+                        self.notify(LedgerEvent::BlocksConfirmed(confirmed));
                         confirmed = Vec::new();
                         txn = self.store.env.begin_write();
                     }
@@ -907,7 +907,7 @@ impl Ledger {
         }
 
         if !confirmed.is_empty() {
-            cementing_observer.batch_confirmed(confirmed);
+            self.notify(LedgerEvent::BlocksConfirmed(confirmed));
         }
     }
 
@@ -1062,7 +1062,6 @@ pub struct BatchProcessResult {
 pub trait CementingObserver {
     fn already_confirmed(&mut self, hash: &BlockHash);
     fn cementing_failed(&mut self, hash: &BlockHash);
-    fn batch_confirmed(&mut self, batch: Vec<(SavedBlock, BlockHash)>);
 }
 
 #[derive(Clone, Default)]

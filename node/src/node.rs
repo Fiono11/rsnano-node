@@ -485,10 +485,9 @@ impl Node {
             ledger.clone(),
             stats.clone(),
         ));
-        confirming_set.set_event_publisher(event_tx.clone());
 
         let (conf_set_tx, conf_set_rx) = backpressure_channel::channel(512);
-        confirming_set.set_event_publisher2(conf_set_tx);
+        confirming_set.set_event_publisher(conf_set_tx);
 
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
             config.vote_cache.clone(),

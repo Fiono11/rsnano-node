@@ -85,7 +85,6 @@ impl ConfirmingSet {
                 config,
                 workers: ThreadPool::new(1, "Conf notif"),
                 event_publisher: Mutex::new(None),
-                event_publisher2: Mutex::new(None),
             }),
         }
     }
@@ -98,12 +97,8 @@ impl ConfirmingSet {
         )
     }
 
-    pub fn set_event_publisher(&self, sink: Sender<LedgerEvent>) {
+    pub fn set_event_publisher(&self, sink: Sender<ConfirmingSetEvent>) {
         *self.thread.event_publisher.lock().unwrap() = Some(sink);
-    }
-
-    pub fn set_event_publisher2(&self, sink: Sender<ConfirmingSetEvent>) {
-        *self.thread.event_publisher2.lock().unwrap() = Some(sink);
     }
 
     /// Adds a block to the set of blocks to be confirmed
@@ -221,8 +216,7 @@ struct ConfirmingSetThread {
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
     workers: ThreadPool,
-    event_publisher: Mutex<Option<Sender<LedgerEvent>>>, // TODO: delete this
-    event_publisher2: Mutex<Option<Sender<ConfirmingSetEvent>>>,
+    event_publisher: Mutex<Option<Sender<ConfirmingSetEvent>>>,
 }
 
 impl ConfirmingSetThread {
@@ -232,7 +226,6 @@ impl ConfirmingSetThread {
             self.stopped.store(true, Ordering::SeqCst);
         }
         drop(self.event_publisher.lock().unwrap().take());
-        drop(self.event_publisher2.lock().unwrap().take());
         self.condition.notify_all();
     }
 
@@ -264,7 +257,7 @@ impl ConfirmingSetThread {
         }
 
         if near_full_warning {
-            self.notify2(ConfirmingSetEvent::NearFull);
+            self.notify(ConfirmingSetEvent::NearFull);
         }
     }
 
@@ -290,7 +283,7 @@ impl ConfirmingSetThread {
                 drop(guard);
                 {
                     for entry in evicted {
-                        self.notify2(ConfirmingSetEvent::ConfirmationFailed(
+                        self.notify(ConfirmingSetEvent::ConfirmationFailed(
                             entry.confirmation_root,
                         ));
                     }
@@ -315,7 +308,7 @@ impl ConfirmingSetThread {
 
                 self.run_batch(batch);
                 if recovered {
-                    self.notify2(ConfirmingSetEvent::Recovered);
+                    self.notify(ConfirmingSetEvent::Recovered);
                 }
 
                 guard = self.mutex.lock().unwrap();
@@ -343,14 +336,8 @@ impl ConfirmingSetThread {
         self.mutex.lock().unwrap().current.clear();
     }
 
-    fn notify(&self, event: LedgerEvent) {
+    fn notify(&self, event: ConfirmingSetEvent) {
         if let Some(sender) = self.event_publisher.lock().unwrap().as_ref() {
-            sender.send(event).unwrap();
-        }
-    }
-
-    fn notify2(&self, event: ConfirmingSetEvent) {
-        if let Some(sender) = self.event_publisher2.lock().unwrap().as_ref() {
             sender.send(event).unwrap();
         }
     }
@@ -447,11 +434,6 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
                 confirmation_root: *hash,
                 timestamp: Instant::now(),
             });
-    }
-
-    fn batch_confirmed(&mut self, batch: Vec<(SavedBlock, BlockHash)>) {
-        self.confirming_set
-            .notify(LedgerEvent::BlocksConfirmed(batch))
     }
 }
 
