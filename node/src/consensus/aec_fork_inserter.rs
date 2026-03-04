@@ -4,10 +4,9 @@ use tracing::debug;
 
 use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
-use rsnano_utils::stats::Stats;
+use rsnano_utils::{EventHandler, stats::Stats};
 
 use super::{ActiveElectionsContainer, ForkCache, VoteCache};
-use crate::ledger_event_processor::LedgerEventProcessorPlugin;
 
 pub(crate) struct AecForkInserter {
     pub(crate) rep_weights: Arc<RepWeightCache>,
@@ -80,8 +79,8 @@ impl ForkInserterPlugin {
     }
 }
 
-impl LedgerEventProcessorPlugin for ForkInserterPlugin {
-    fn process(&mut self, event: &LedgerEvent) {
+impl EventHandler<LedgerEvent> for ForkInserterPlugin {
+    fn handle(&mut self, event: &LedgerEvent) {
         if let LedgerEvent::BlocksProcessed(results) = event {
             // Notify elections about alternative (forked) blocks
             self.fork_processor.handle_forks(results);

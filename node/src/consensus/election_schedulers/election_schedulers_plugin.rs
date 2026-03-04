@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use rsnano_ledger::LedgerEvent;
+use rsnano_utils::EventHandler;
 
 use super::ElectionSchedulers;
-use crate::ledger_event_processor::LedgerEventProcessorPlugin;
 
 pub(crate) struct ElectionSchedulersPlugin {
     schedulers: Arc<ElectionSchedulers>,
@@ -15,8 +15,8 @@ impl ElectionSchedulersPlugin {
     }
 }
 
-impl LedgerEventProcessorPlugin for ElectionSchedulersPlugin {
-    fn process(&mut self, event: &LedgerEvent) {
+impl EventHandler<LedgerEvent> for ElectionSchedulersPlugin {
+    fn handle(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
                 self.schedulers.activate_accounts_with_fresh_blocks(results);
@@ -43,7 +43,7 @@ mod tests {
 
         let block = SavedBlock::new_test_instance();
         let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
-        processor.process(&LedgerEvent::BlocksConfirmed(confirmed_blocks));
+        processor.handle(&LedgerEvent::BlocksConfirmed(confirmed_blocks));
 
         let output = activation_tracker.output();
         assert_eq!(output, [block]);

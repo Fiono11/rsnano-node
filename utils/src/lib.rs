@@ -25,3 +25,7 @@ pub fn get_cpu_count() -> usize {
 
     available_parallelism().unwrap().get()
 }
+
+pub trait EventHandler<T>: Send {
+    fn handle(&mut self, event: &T);
+}

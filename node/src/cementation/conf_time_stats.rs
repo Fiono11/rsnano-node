@@ -6,10 +6,11 @@ use std::{
 use bounded_vec_deque::BoundedVecDeque;
 use chrono::Utc;
 
-use rsnano_utils::stats::{StatsCollection, StatsSource};
-
-use crate::ledger_event_processor::LedgerEventProcessorPlugin;
 use rsnano_ledger::LedgerEvent;
+use rsnano_utils::{
+    EventHandler,
+    stats::{StatsCollection, StatsSource},
+};
 
 const STATS_KEY: &str = "confirmation_time";
 const DEFAULT_SAMPLE_SIZE: usize = 1000;
@@ -75,8 +76,8 @@ impl Default for TrackConfirmationTimes {
     }
 }
 
-impl LedgerEventProcessorPlugin for TrackConfirmationTimes {
-    fn process(&mut self, event: &LedgerEvent) {
+impl EventHandler<LedgerEvent> for TrackConfirmationTimes {
+    fn handle(&mut self, event: &LedgerEvent) {
         if let LedgerEvent::BlocksConfirmed(blocks) = event {
             let now = Utc::now();
             let mut stats = self.stats.lock().unwrap();

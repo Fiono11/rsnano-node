@@ -1,6 +1,6 @@
 use crate::{
     block_processing::LedgerEvent, consensus::ActiveElectionsContainer,
-    ledger_event_processor::LedgerEventProcessorPlugin, ledger_snapshots::LedgerSnapshots,
+    ledger_event_processor::LedgerEventHandler, ledger_snapshots::LedgerSnapshots,
 };
 use rsnano_ledger::{BlockError, Ledger};
 use std::sync::{Arc, RwLock};
@@ -25,8 +25,8 @@ impl ForkDetector {
     }
 }
 
-impl LedgerEventProcessorPlugin for ForkDetector {
-    fn process(&mut self, event: &LedgerEvent) {
+impl LedgerEventHandler for ForkDetector {
+    fn handle(&mut self, event: &LedgerEvent) {
         if let LedgerEvent::BlocksProcessed(results) = event {
             for result in results {
                 if result.status == Err(BlockError::Fork) {
@@ -48,7 +48,7 @@ mod tests {
     use crate::{
         block_processing::{BlockSource, LedgerEvent, ProcessedResult},
         consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
-        ledger_event_processor::LedgerEventProcessorPlugin,
+        ledger_event_processor::LedgerEventHandler,
         ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector},
     };
     use rsnano_ledger::{BlockError, Ledger};
@@ -77,7 +77,7 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.process(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
 
         assert_eq!(
             ledger
@@ -118,7 +118,7 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.process(&LedgerEvent::BlocksProcessed(vec![
+        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![
             processed_result1,
             processed_result2,
         ]));
@@ -160,7 +160,7 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.process(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
 
         assert_eq!(
             ledger
@@ -200,7 +200,7 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.process(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
 
         assert_eq!(
             fork_detector

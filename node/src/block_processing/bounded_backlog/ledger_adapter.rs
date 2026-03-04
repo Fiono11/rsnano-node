@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::{BoundedBacklog, LedgerEvent};
-use crate::ledger_event_processor::LedgerEventProcessorPlugin;
+use rsnano_utils::EventHandler;
 
 pub(crate) struct BoundedBacklogLedgerAdapter {
     bounded_backlog: Arc<BoundedBacklog>,
@@ -13,8 +13,8 @@ impl BoundedBacklogLedgerAdapter {
     }
 }
 
-impl LedgerEventProcessorPlugin for BoundedBacklogLedgerAdapter {
-    fn process(&mut self, event: &LedgerEvent) {
+impl EventHandler<LedgerEvent> for BoundedBacklogLedgerAdapter {
+    fn handle(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
                 self.bounded_backlog.insert_processed(results);

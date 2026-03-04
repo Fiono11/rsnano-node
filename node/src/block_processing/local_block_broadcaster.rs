@@ -15,14 +15,12 @@ use rsnano_network::{TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, BlockHash, Networks};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, StatType, Stats},
 };
 
-use crate::{
-    cementation::ConfirmingSet, ledger_event_processor::LedgerEventProcessorPlugin,
-    transport::MessageFlooder,
-};
+use crate::{cementation::ConfirmingSet, transport::MessageFlooder};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalBlockBroadcasterConfig {
@@ -506,8 +504,8 @@ impl LocalBlockBroadcasterPlugin {
     }
 }
 
-impl LedgerEventProcessorPlugin for LocalBlockBroadcasterPlugin {
-    fn process(&mut self, event: &LedgerEvent) {
+impl EventHandler<LedgerEvent> for LocalBlockBroadcasterPlugin {
+    fn handle(&mut self, event: &LedgerEvent) {
         match event {
             LedgerEvent::BlocksProcessed(results) => {
                 self.local_block_broadcaster.blocks_processed(results);

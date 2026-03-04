@@ -15,7 +15,7 @@ use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
 use rsnano_ledger::{
-    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
+    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerEvent, LedgerSet, ProcessResult,
 };
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
@@ -37,7 +37,7 @@ use rsnano_types::{
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
-    CancellationToken,
+    CancellationToken, EventHandler,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
@@ -77,7 +77,7 @@ use crate::{
         election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
         get_bootstrap_weights, log_bootstrap_weights,
     },
-    ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorPlugin},
+    ledger_event_processor::LedgerEventProcessor,
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
@@ -366,8 +366,7 @@ impl Node {
 
         log_bootstrap_weights(&rep_weights);
 
-        let mut ledger_event_processor_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>> =
-            Vec::new();
+        let mut ledger_event_handlers: Vec<Box<dyn EventHandler<LedgerEvent>>> = Vec::new();
 
         let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
 
@@ -672,7 +671,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
         ));
-        ledger_event_processor_plugins.push(Box::new(ElectionSchedulersPlugin::new(
+        ledger_event_handlers.push(Box::new(ElectionSchedulersPlugin::new(
             election_schedulers.clone(),
         )));
 
@@ -809,7 +808,7 @@ impl Node {
                 config.bounded_backlog.scan_rate
             );
 
-            ledger_event_processor_plugins.push(Box::new(BoundedBacklogLedgerAdapter::new(
+            ledger_event_handlers.push(Box::new(BoundedBacklogLedgerAdapter::new(
                 bounded_backlog.clone(),
             )));
 
@@ -832,7 +831,7 @@ impl Node {
 
         let track_conf_times = Box::new(TrackConfirmationTimes::default());
         let conf_time_stats = track_conf_times.stats();
-        ledger_event_processor_plugins.push(track_conf_times);
+        ledger_event_handlers.push(track_conf_times);
 
         let bootstrapper = Arc::new(Bootstrapper::new(
             block_processor_queue.clone(),
@@ -870,7 +869,7 @@ impl Node {
             !flags.disable_block_processor_republishing,
         ));
 
-        ledger_event_processor_plugins.push(Box::new(LocalBlockBroadcasterPlugin::new(
+        ledger_event_handlers.push(Box::new(LocalBlockBroadcasterPlugin::new(
             local_block_broadcaster.clone(),
         )));
 
@@ -1238,13 +1237,13 @@ impl Node {
         {
             use crate::consensus::ForkInserterPlugin;
 
-            ledger_event_processor_plugins
+            ledger_event_handlers
                 .push(Box::new(ForkInserterPlugin::new(aec_fork_inserter.clone())));
         }
 
         #[cfg(feature = "ledger_snapshots")]
         {
-            ledger_event_processor_plugins.push(Box::new(ForkDetector::new(
+            ledger_event_handlers.push(Box::new(ForkDetector::new(
                 ledger.clone(),
                 ledger_snapshots.clone(),
                 active_elections.clone(),
@@ -1295,7 +1294,7 @@ impl Node {
             block_processor_queue: block_processor_queue.clone(),
             bounded_backlog: bounded_backlog.clone(),
             fork_cache_updater,
-            plugins: ledger_event_processor_plugins,
+            plugins: ledger_event_handlers,
         };
 
         spawn_backpressure_processor("Nano ev proc", event_rx, ledger_event_processor);
