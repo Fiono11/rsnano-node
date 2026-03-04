@@ -318,8 +318,8 @@ impl Node {
 
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
-        let (event_tx, event_rx) = backpressure_channel::channel(1024 * 5);
-        let event_tx2 = event_tx.clone();
+        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024 * 5);
+        let ledger_tx2 = ledger_tx.clone();
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
             .config(config.lmdb_config.clone())
@@ -327,7 +327,7 @@ impl Node {
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
             .stats(stats.clone())
-            .publish_to(move |ev| event_tx2.send(ev).expect("channel should be open"))
+            .publish_to(move |ev| ledger_tx2.send(ev).expect("channel should be open"))
             .finish();
 
         let ledger = match ledger {
@@ -343,8 +343,8 @@ impl Node {
         let rep_weights = ledger.rep_weights.clone();
 
         let mut event_queues_info = ContainerInfoFactory::new();
-        let event_tx2 = event_tx.clone();
-        event_queues_info.add_leaf("app", move || event_tx2.len());
+        let ledger_tx2 = ledger_tx.clone();
+        event_queues_info.add_leaf("app", move || ledger_tx2.len());
 
         let ledger = Arc::new(ledger);
         info!(
@@ -1291,7 +1291,7 @@ impl Node {
             plugins: ledger_event_handlers,
         };
 
-        spawn_backpressure_processor("Nano ev proc", event_rx, ledger_event_processor);
+        spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
 
         let conf_set_event_processor = ConfirmingSetEventProcessor {
             active_elections: active_elections.clone(),

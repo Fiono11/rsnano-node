@@ -10,7 +10,7 @@ use crate::{
     NodeEvent,
     block_processing::{BlockProcessorQueue, BoundedBacklog},
     bootstrap::Bootstrapper,
-    cementation::ConfirmingSet,
+    cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
         ActiveElectionsContainer, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         LocalVoteHistory,
@@ -18,6 +18,11 @@ use crate::{
     utils::BackpressureEventProcessor,
 };
 use rsnano_ledger::LedgerEvent;
+
+pub(crate) enum LedgerPipelineEvent {
+    Ledger(LedgerEvent),
+    ConfirmingSet(ConfirmingSetEvent),
+}
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
