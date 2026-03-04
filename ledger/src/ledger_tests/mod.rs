@@ -1,19 +1,15 @@
 use std::{
     net::SocketAddrV6,
-    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 
-use rsnano_nullable_lmdb::LmdbEnvironment;
-use rsnano_store_lmdb::{LmdbAccountStore, LmdbRepWeightStore};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, DEV_GENESIS_KEY, PrivateKey, PublicKey, Root,
     SavedBlock, TestBlockBuilder, UnixMillisTimestamp,
 };
-use rsnano_utils::stats::Stats;
 
 use crate::{
-    AnySet, DEV_GENESIS_HASH, Ledger, LedgerConstants, LedgerInserter, LedgerSet, RepWeightCache,
+    AnySet, DEV_GENESIS_HASH, Ledger, LedgerInserter, LedgerSet,
     ledger_constants::{DEV_GENESIS_BLOCK, DEV_GENESIS_PUB_KEY},
     test_helpers::SavedBlockLatticeBuilder,
 };

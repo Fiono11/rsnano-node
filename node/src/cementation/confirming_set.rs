@@ -96,8 +96,11 @@ impl ConfirmingSet {
         )
     }
 
-    pub fn set_event_publisher(&self, sink: Box<dyn Fn(ConfirmingSetEvent) + Send>) {
-        *self.thread.event_publisher.lock().unwrap() = Some(sink);
+    pub fn set_event_publisher<F>(&self, sink: F)
+    where
+        F: Fn(ConfirmingSetEvent) + Send + 'static,
+    {
+        *self.thread.event_publisher.lock().unwrap() = Some(Box::new(sink));
     }
 
     /// Adds a block to the set of blocks to be confirmed
