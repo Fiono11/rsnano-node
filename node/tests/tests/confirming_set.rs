@@ -28,9 +28,8 @@ fn confirmed_history() {
 
         // Confirm send1
         node.force_confirm(&send2.hash());
-        assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
+        assert_timely2(|| !node.is_active_hash(&send2.hash()));
         assert_eq!(node.recently_cemented.lock().unwrap().len(), 0);
-        assert_eq!(node.active.read().unwrap().len(), 0);
         assert_eq!(node.ledger.confirmed().block_exists(&send1.hash()), false);
 
         // Confirm that no inactive callbacks have been called when the

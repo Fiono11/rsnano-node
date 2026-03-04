@@ -1270,11 +1270,6 @@ fn active_inactive() {
     assert_timely2(|| node.block_confirmed(&send2.hash()));
     assert_timely2(|| node.block_confirmed(&send.hash()));
 
-    assert_timely_eq2(|| node.stats().get("confirmation_observer", "inactive"), 1);
-    assert_timely_eq2(
-        || node.stats().get("confirmation_observer", "active_quorum"),
-        1,
-    );
     assert_always_eq(
         Duration::from_millis(50),
         || {

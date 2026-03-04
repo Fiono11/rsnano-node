@@ -68,8 +68,8 @@ mod election_scheduler {
         let receive = lattice.account(&key).receive(&send);
         let receive = node.process(receive.clone());
         assert_timely2(|| node.is_active_hash(&send.hash()));
-
         node.confirming_set.add_block(send.hash());
+        assert_timely2(|| node.is_active_hash(&receive.hash()));
         node.confirming_set.add_block(receive.hash());
 
         assert_timely2(|| {
