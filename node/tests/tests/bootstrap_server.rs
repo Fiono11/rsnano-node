@@ -65,7 +65,7 @@ fn serve_hash() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let mut chains = setup_chains_deprecated(&node, 1, 256, &DEV_GENESIS_KEY, true);
+    let mut chains = setup_chains(&node, 1, 256, &DEV_GENESIS_KEY, true);
     let (_, blocks) = chains.pop().unwrap();
 
     // Skip a few blocks to request hash in the middle of the chain
@@ -108,7 +108,7 @@ fn serve_hash_one() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let mut chains = setup_chains_deprecated(&node, 1, 256, &DEV_GENESIS_KEY, true);
+    let mut chains = setup_chains(&node, 1, 256, &DEV_GENESIS_KEY, true);
     let (_account, blocks) = chains.pop().unwrap();
 
     // Skip a few blocks to request hash in the middle of the chain
@@ -148,7 +148,7 @@ fn serve_end_of_chain() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let mut chains = setup_chains_deprecated(&node, 1, 128, &DEV_GENESIS_KEY, true);
+    let mut chains = setup_chains(&node, 1, 128, &DEV_GENESIS_KEY, true);
     let (_account, blocks) = chains.pop().unwrap();
 
     // Request blocks from account frontier
@@ -189,7 +189,7 @@ fn serve_missing() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    setup_chains_deprecated(&node, 1, 128, &DEV_GENESIS_KEY, true);
+    setup_chains(&node, 1, 128, &DEV_GENESIS_KEY, true);
 
     // Request blocks from account frontier
     //
@@ -225,7 +225,7 @@ fn serve_multiple() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let chains = setup_chains_deprecated(&node, 32, 16, &DEV_GENESIS_KEY, true);
+    let chains = setup_chains(&node, 32, 16, &DEV_GENESIS_KEY, true);
 
     {
         // Request blocks from multiple chains at once
@@ -278,7 +278,7 @@ fn serve_account_info() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let mut chains = setup_chains_deprecated(&node, 1, 128, &DEV_GENESIS_KEY, true);
+    let mut chains = setup_chains(&node, 1, 128, &DEV_GENESIS_KEY, true);
     let (account, blocks) = chains.pop().unwrap();
 
     // Request blocks from account root
@@ -324,7 +324,7 @@ fn serve_account_info_missing() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    setup_chains_deprecated(&node, 1, 128, &DEV_GENESIS_KEY, true);
+    setup_chains(&node, 1, 128, &DEV_GENESIS_KEY, true);
 
     // Request blocks from account root
     let request = Message::AscPullReq(AscPullReq {
@@ -366,7 +366,7 @@ fn serve_frontiers() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    let chains = setup_chains_deprecated(&node, 32, 4, &DEV_GENESIS_KEY, true);
+    let chains = setup_chains(&node, 32, 4, &DEV_GENESIS_KEY, true);
 
     // Request all frontiers
     let request = Message::AscPullReq(AscPullReq {
@@ -413,7 +413,7 @@ fn serve_frontiers_invalid_count() {
     let responses = ResponseHelper::new();
     responses.connect(&node);
 
-    setup_chains_deprecated(&node, 4, 4, &DEV_GENESIS_KEY, true);
+    setup_chains(&node, 4, 4, &DEV_GENESIS_KEY, true);
 
     // Zero count
     {

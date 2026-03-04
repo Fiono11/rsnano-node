@@ -139,7 +139,7 @@ pub struct Node {
     pub election_schedulers: Arc<ElectionSchedulers>,
     pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
-    bounded_backlog: Arc<BoundedBacklog>,
+    pub bounded_backlog: Arc<BoundedBacklog>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
     message_processor: Mutex<MessageProcessor>,
@@ -1451,7 +1451,9 @@ impl Node {
         let hash = block.hash();
         match self.ledger.process_one(&block) {
             Ok(saved_block) => saved_block,
-            Err(BlockError::Old) | Err(BlockError::Conflict) => self.block(&hash).unwrap(),
+            Err(BlockError::Old) | Err(BlockError::Conflict) => {
+                self.block(&hash).expect("block should exist")
+            }
             Err(e) => {
                 panic!("Could not process block: {:?}", e);
             }

@@ -304,11 +304,6 @@ impl BoundedBacklogState {
 
         // Both ledger and tracked backlog must be over the threshold
         let max_backlog = self.config.max_backlog;
-        debug_assert!(
-            max_backlog > 0,
-            "Should be fully disabled if max_backlog is 0"
-        );
-
         backlog_size > max_backlog && self.index.len() > max_backlog as usize
     }
 

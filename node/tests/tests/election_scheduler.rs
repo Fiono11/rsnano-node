@@ -1,10 +1,10 @@
-use test_helpers::{System, assert_timely_eq2, assert_timely2};
+use test_helpers::{System, assert_timely2};
 
 mod election_scheduler {
     use std::time::Duration;
 
     use super::*;
-    use rsnano_ledger::{DEV_GENESIS_ACCOUNT, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
     use rsnano_node::{
         config::NodeConfig,
         consensus::{
@@ -13,7 +13,7 @@ mod election_scheduler {
         },
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
-    use test_helpers::{setup_chains_deprecated, setup_rep};
+    use test_helpers::{setup_chains, setup_chains_deprecated, setup_rep};
 
     #[test]
     fn activate_one_timely() {
@@ -136,7 +136,7 @@ mod election_scheduler {
 
         // Create a chain of blocks - and trigger an optimistic election for the last block
         let howmany_blocks = 2;
-        let chains = setup_chains_deprecated(
+        let chains = setup_chains(
             &node,
             /* single chain */ 1,
             howmany_blocks,

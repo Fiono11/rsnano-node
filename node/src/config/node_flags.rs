@@ -8,6 +8,7 @@ pub struct NodeFlags {
     /// Disables the AEC ticker
     pub disable_request_loop: bool, // For testing only
     pub disable_providing_telemetry_metrics: bool,
+    /// Disables the local block rebroadcaster
     pub disable_block_processor_republishing: bool,
     pub allow_bootstrap_peers_duplicates: bool,
     pub disable_search_pending: bool, // For testing only

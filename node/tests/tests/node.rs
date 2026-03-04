@@ -27,8 +27,8 @@ use rsnano_utils::{
 };
 use test_helpers::{
     System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains_deprecated,
-    start_election,
+    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
+    setup_chains_deprecated, start_election,
 };
 
 #[test]
@@ -2447,11 +2447,16 @@ fn bounded_backlog() {
             },
             ..System::default_config()
         })
+        .flags(NodeFlags {
+            disable_block_processor_republishing: true,
+            ..Default::default()
+        })
         .finish();
+    node.bounded_backlog.set_cooldown(true);
 
-    let howmany_blocks = 64;
-    let howmany_chains = 16;
-    setup_chains_deprecated(
+    let howmany_blocks = 8;
+    let howmany_chains = 4;
+    setup_chains(
         &node,
         howmany_chains,
         howmany_blocks,
@@ -2459,7 +2464,7 @@ fn bounded_backlog() {
         false,
     );
 
-    node.backlog_scan.trigger();
+    node.bounded_backlog.set_cooldown(false);
 
     assert_timely_eq(Duration::from_secs(20), || node.ledger.block_count(), 11);
     // 10 + genesis

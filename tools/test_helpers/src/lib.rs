@@ -585,7 +585,7 @@ pub fn setup_chains(
 
         latest = send.hash();
         node.process(send.clone());
-        let open = node.process_deprecated(open);
+        let open = node.process(open);
 
         if confirm {
             node.confirm(send.hash());
@@ -596,15 +596,15 @@ pub fn setup_chains(
         blocks.insert(0, open);
 
         chains.push((key.account(), blocks));
-    }
 
-    assert_timely2(|| {
-        let empty = node.active.read().unwrap().is_empty();
-        if !empty {
-            node.active.write().unwrap().cancel_all();
-        }
-        empty
-    });
+        assert_timely2(|| {
+            let empty = node.active.read().unwrap().is_empty();
+            if !empty {
+                node.active.write().unwrap().cancel_all();
+            }
+            empty
+        });
+    }
 
     chains
 }
