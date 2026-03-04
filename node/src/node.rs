@@ -489,9 +489,9 @@ impl Node {
             stats.clone(),
         ));
 
-        let ledger_tx3 = ledger_tx.clone();
+        let ledger_tx2 = ledger_tx.clone();
         confirming_set.set_event_publisher(Box::new(move |event| {
-            ledger_tx3
+            ledger_tx2
                 .send(LedgerPipelineEvent::ConfirmingSet(event))
                 .unwrap();
         }));
@@ -608,13 +608,13 @@ impl Node {
             _ => Duration::from_millis(1000),
         };
 
-        let (aec_sender, aec_receiver) = backpressure_channel::channel(1024 * 5);
-        let aec_sender_clone = aec_sender.clone();
-        event_queues_info.add_leaf("aec", move || aec_sender_clone.len());
+        let (aec_tx, aec_rx) = backpressure_channel::channel(1024 * 5);
+        let aec_rx2 = aec_tx.clone();
+        event_queues_info.add_leaf("aec", move || aec_rx2.len());
 
         let mut active_elections =
             ActiveElectionsContainer::new(config.active_elections.clone(), base_latency);
-        active_elections.set_observer(aec_sender.clone());
+        active_elections.set_observer(aec_tx.clone());
         let active_elections = Arc::new(RwLock::new(active_elections));
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
@@ -1273,7 +1273,7 @@ impl Node {
             winner_block_broadcaster: winner_block_broadcaster.clone(),
         };
 
-        spawn_backpressure_processor("AEC ev proc", aec_receiver, aec_event_processor);
+        spawn_backpressure_processor("AEC ev proc", aec_rx, aec_event_processor);
 
         let dependent_elections_confirmer = DependentElectionsConfirmer {
             confirming_set: confirming_set.clone(),
@@ -1299,7 +1299,7 @@ impl Node {
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
 
-        vote_processor.add_observer(aec_sender);
+        vote_processor.add_observer(aec_tx);
 
         let mut stats_collector = StatsCollector::new();
         stats_collector.add_source(stats.clone());
