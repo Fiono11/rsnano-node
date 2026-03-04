@@ -487,7 +487,9 @@ impl Node {
         ));
 
         let (conf_set_tx, conf_set_rx) = backpressure_channel::channel(512);
-        confirming_set.set_event_publisher(conf_set_tx);
+        confirming_set.set_event_publisher(Box::new(move |event| {
+            conf_set_tx.send(event).unwrap();
+        }));
 
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
             config.vote_cache.clone(),

@@ -8,12 +8,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rsnano_ledger::{CementingObserver, Ledger, LedgerEvent, ProcessResult};
+use rsnano_ledger::{CementingObserver, Ledger, ProcessResult};
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
-    sync::backpressure_channel::Sender,
     thread_pool::ThreadPool,
 };
 
@@ -97,7 +96,7 @@ impl ConfirmingSet {
         )
     }
 
-    pub fn set_event_publisher(&self, sink: Sender<ConfirmingSetEvent>) {
+    pub fn set_event_publisher(&self, sink: Box<dyn Fn(ConfirmingSetEvent) + Send>) {
         *self.thread.event_publisher.lock().unwrap() = Some(sink);
     }
 
@@ -216,7 +215,7 @@ struct ConfirmingSetThread {
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
     workers: ThreadPool,
-    event_publisher: Mutex<Option<Sender<ConfirmingSetEvent>>>,
+    event_publisher: Mutex<Option<Box<dyn Fn(ConfirmingSetEvent) + Send>>>,
 }
 
 impl ConfirmingSetThread {
@@ -337,8 +336,8 @@ impl ConfirmingSetThread {
     }
 
     fn notify(&self, event: ConfirmingSetEvent) {
-        if let Some(sender) = self.event_publisher.lock().unwrap().as_ref() {
-            sender.send(event).unwrap();
+        if let Some(publisher) = self.event_publisher.lock().unwrap().as_ref() {
+            publisher(event);
         }
     }
 }
