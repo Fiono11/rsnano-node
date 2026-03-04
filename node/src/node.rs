@@ -1435,18 +1435,6 @@ impl Node {
         self.ledger.process_one(&block)
     }
 
-    #[deprecated]
-    pub fn process_deprecated(&self, block: Block) -> SavedBlock {
-        let hash = block.hash();
-        match self.ledger.process_one_deprecated(&block) {
-            Ok(saved_block) => saved_block,
-            Err(BlockError::Old) | Err(BlockError::Conflict) => self.block(&hash).unwrap(),
-            Err(e) => {
-                panic!("Could not process block: {:?}", e);
-            }
-        }
-    }
-
     pub fn process(&self, block: Block) -> SavedBlock {
         let hash = block.hash();
         match self.ledger.process_one(&block) {

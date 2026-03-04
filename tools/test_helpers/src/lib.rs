@@ -668,7 +668,7 @@ pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> 
     }
     .into();
 
-    node.process_deprecated(send.clone());
+    node.process(send.clone());
 
     send
 }
@@ -692,7 +692,7 @@ pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
     }
     .into();
 
-    node.process_deprecated(open.clone());
+    node.process(open.clone());
 
     open
 }
@@ -713,7 +713,7 @@ pub fn upgrade_epoch(node: Arc<Node>, epoch: Epoch) -> Block {
     }
     .into();
 
-    node.process_deprecated(epoch_block.clone());
+    node.process(epoch_block.clone());
 
     epoch_block
 }
@@ -757,8 +757,8 @@ pub fn setup_new_account(
     }
     .into();
 
-    node.process_deprecated(send.clone());
-    node.process_deprecated(open.clone());
+    node.process(send.clone());
+    node.process(open.clone());
 
     if force_confirm {
         node.confirm(send.hash());
