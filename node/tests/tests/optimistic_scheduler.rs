@@ -1,10 +1,8 @@
 use std::time::Duration;
 
-use rsnano_node::consensus::election::ElectionBehavior;
+use rsnano_node::{config::NodeConfig, consensus::election::ElectionBehavior};
 use rsnano_types::DEV_GENESIS_KEY;
-use test_helpers::{
-    System, assert_never, assert_timely, assert_timely2, setup_chains, setup_chains_deprecated,
-};
+use test_helpers::{System, assert_never, assert_timely, assert_timely2, setup_chains};
 
 /*
  * Ensure account gets activated for a single unconfirmed account chain
@@ -51,13 +49,20 @@ pub fn activate_one() {
 #[test]
 pub fn activate_one_zero_conf() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system
+        .build_node()
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            ..System::default_config()
+        })
+        .finish();
 
     // Can be smaller than optimistic scheduler `gap_threshold`
     // This is meant to activate short account chains (eg. binary tree spam leaf accounts)
     let howmany_blocks = 6;
 
-    let chains = setup_chains_deprecated(
+    let chains = setup_chains(
         &node,
         /* single chain */ 1,
         howmany_blocks,
@@ -88,13 +93,20 @@ pub fn activate_one_zero_conf() {
 #[test]
 pub fn activate_many() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system
+        .build_node()
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            ..System::default_config()
+        })
+        .finish();
 
     // Needs to be greater than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;
     let howmany_chains = 16;
 
-    let chains = setup_chains_deprecated(
+    let chains = setup_chains(
         &node,
         howmany_chains,
         howmany_blocks,
@@ -125,13 +137,17 @@ pub fn under_gap_threshold() {
     let mut system = System::new();
     let node = system
         .build_node()
-        .config(System::default_config_without_backlog_scan())
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            ..System::default_config_without_backlog_scan()
+        })
         .finish();
 
     // Must be smaller than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;
 
-    let chains = setup_chains_deprecated(
+    let chains = setup_chains(
         &node,
         1,
         howmany_blocks,

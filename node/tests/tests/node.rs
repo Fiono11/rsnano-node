@@ -28,7 +28,7 @@ use rsnano_utils::{
 use test_helpers::{
     System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
     assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
-    setup_chains_deprecated, start_election,
+    start_election,
 };
 
 #[test]

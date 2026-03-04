@@ -14,7 +14,6 @@ use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, Sa
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
     System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel, setup_chains,
-    setup_chains_deprecated,
 };
 
 #[test]

@@ -13,7 +13,7 @@ mod election_scheduler {
         },
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
-    use test_helpers::{setup_chains, setup_chains_deprecated, setup_rep};
+    use test_helpers::{setup_chains, setup_rep};
 
     #[test]
     fn activate_one_timely() {
