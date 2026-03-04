@@ -1270,7 +1270,6 @@ impl Node {
             aec_fork_inserter,
             stats: stats.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
-            plugins: Vec::new(),
         };
 
         spawn_backpressure_processor("AEC ev proc", aec_receiver, aec_event_processor);

@@ -24,10 +24,6 @@ use crate::{
     utils::BackpressureEventProcessor,
 };
 
-pub(crate) trait AecEventHandler {
-    fn handle(&mut self, event: &AecEvent);
-}
-
 /// Processes events from the active election container (AEC)
 pub(crate) struct AecEventProcessor {
     pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
@@ -49,7 +45,6 @@ pub(crate) struct AecEventProcessor {
     pub(crate) stats: Arc<Stats>,
     pub(crate) aec_fork_inserter: Arc<AecForkInserter>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
-    pub(crate) plugins: Vec<Box<dyn AecEventHandler + Send>>,
 }
 
 impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
@@ -70,10 +65,6 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
     }
 
     fn process(&mut self, event: AecEvent) {
-        for plugin in &mut self.plugins {
-            plugin.handle(&event)
-        }
-
         match event {
             AecEvent::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
@@ -165,11 +156,6 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
 }
 
 impl AecEventProcessor {
-    #[allow(dead_code)]
-    pub fn add(&mut self, handler: impl AecEventHandler + Send + 'static) {
-        self.plugins.push(Box::new(handler));
-    }
-
     fn clear_network_filter(&mut self, block: &Block) {
         let mut buffer = Vec::new();
         block
