@@ -619,7 +619,7 @@ impl Ledger {
     }
 
     #[deprecated = "This function doesn't raise ledger events! Use process_one() which raises the events'"]
-    pub fn process_one_legacy(&self, block: &Block) -> Result<SavedBlock, BlockError> {
+    pub fn process_one_deprecated(&self, block: &Block) -> Result<SavedBlock, BlockError> {
         let mut result = self.process_batch(std::iter::once((block, BlockSource::Test)));
         let result = result.pop().expect("should always return one result");
         match result.status {

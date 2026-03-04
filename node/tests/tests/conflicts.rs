@@ -13,7 +13,7 @@ fn start_stop() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
-    node1.process(send1.clone());
+    node1.process_deprecated(send1.clone());
     assert_eq!(node1.active.read().unwrap().len(), 0);
     start_election(&node1, &send1.hash());
     assert_eq!(node1.active.read().unwrap().len(), 1);
@@ -31,7 +31,7 @@ fn add_existing() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
 
     // add the block to ledger as an unconfirmed block
-    node1.process(send1.clone());
+    node1.process_deprecated(send1.clone());
 
     // instruct the election scheduler to trigger an election for send1
     start_election(&node1, &send1.hash());
@@ -79,8 +79,8 @@ fn add_two() {
     let send_b = lattice.account(&key2).send(&key3, 1);
 
     // activate elections for the previous two send blocks (to account3) that we did not forcefully confirm
-    node.process(send_a.clone());
-    node.process(send_b.clone());
+    node.process_deprecated(send_a.clone());
+    node.process_deprecated(send_b.clone());
     start_elections(&node, &[send_a.hash(), send_b.hash()], false);
 
     assert!(node.is_active_root(&send_a.qualified_root()));

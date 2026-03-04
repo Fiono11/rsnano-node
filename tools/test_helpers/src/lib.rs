@@ -428,7 +428,7 @@ pub fn setup_chain(
     }
 
     for block in &blocks {
-        let saved = node.process(block.clone());
+        let saved = node.process_deprecated(block.clone());
         result.push(saved);
     }
 
@@ -478,8 +478,8 @@ pub fn setup_chains(
         .into();
 
         latest = send.hash();
-        node.process(send.clone());
-        let open = node.process(open);
+        node.process_deprecated(send.clone());
+        let open = node.process_deprecated(open);
 
         if confirm {
             node.confirm(send.hash());
@@ -528,8 +528,8 @@ pub fn setup_independent_blocks(node: &Node, count: usize, source: &PrivateKey) 
         }
         .into();
 
-        node.process(send.clone());
-        let open = node.process(open);
+        node.process_deprecated(send.clone());
+        let open = node.process_deprecated(open);
         // Ensure blocks are in the ledger
         assert_timely(Duration::from_secs(5), || {
             node.block_hashes_exist([send.hash(), open.hash()])
@@ -652,7 +652,7 @@ pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> 
     }
     .into();
 
-    node.process(send.clone());
+    node.process_deprecated(send.clone());
 
     send
 }
@@ -676,7 +676,7 @@ pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
     }
     .into();
 
-    node.process(open.clone());
+    node.process_deprecated(open.clone());
 
     open
 }
@@ -697,7 +697,7 @@ pub fn upgrade_epoch(node: Arc<Node>, epoch: Epoch) -> Block {
     }
     .into();
 
-    node.process(epoch_block.clone());
+    node.process_deprecated(epoch_block.clone());
 
     epoch_block
 }
@@ -741,8 +741,8 @@ pub fn setup_new_account(
     }
     .into();
 
-    node.process(send.clone());
-    node.process(open.clone());
+    node.process_deprecated(send.clone());
+    node.process_deprecated(open.clone());
 
     if force_confirm {
         node.confirm(send.hash());

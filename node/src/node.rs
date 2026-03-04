@@ -1432,12 +1432,13 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.ledger.process_one_legacy(&block)
+        self.ledger.process_one(&block)
     }
 
-    pub fn process(&self, block: Block) -> SavedBlock {
+    #[deprecated]
+    pub fn process_deprecated(&self, block: Block) -> SavedBlock {
         let hash = block.hash();
-        match self.try_process(block) {
+        match self.ledger.process_one_deprecated(&block) {
             Ok(saved_block) => saved_block,
             Err(BlockError::Old) | Err(BlockError::Conflict) => self.block(&hash).unwrap(),
             Err(e) => {
@@ -1446,14 +1447,13 @@ impl Node {
         }
     }
 
-    #[deprecated]
-    pub fn process_multi_legacy(&self, blocks: &[Block]) {
-        for (i, block) in blocks.iter().enumerate() {
-            match self.ledger.process_one_legacy(block) {
-                Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
-                Err(e) => {
-                    panic!("Could not multi-process block index {}: {:?}", i, e);
-                }
+    pub fn process(&self, block: Block) -> SavedBlock {
+        let hash = block.hash();
+        match self.ledger.process_one(&block) {
+            Ok(saved_block) => saved_block,
+            Err(BlockError::Old) | Err(BlockError::Conflict) => self.block(&hash).unwrap(),
+            Err(e) => {
+                panic!("Could not process block: {:?}", e);
             }
         }
     }
@@ -1470,10 +1470,9 @@ impl Node {
     }
 
     pub fn process_and_confirm_multi(&self, blocks: &[Block]) {
-        self.process_multi_legacy(blocks);
+        self.process_multi(blocks);
         self.confirm_multi(blocks);
     }
-
     pub fn insert_into_wallet(&self, keys: &PrivateKey) {
         let wallet_id = self.wallets.wallet_ids()[0];
         self.wallets

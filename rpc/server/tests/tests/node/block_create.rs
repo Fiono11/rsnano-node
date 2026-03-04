@@ -47,7 +47,7 @@ fn block_create_state() {
     assert_eq!(block.block_type(), BlockType::State);
     assert_eq!(block.hash(), block_hash);
 
-    node.process(block.clone());
+    node.process_deprecated(block.clone());
 
     assert_eq!(
         node.ledger.any().block_account(&block.hash()),

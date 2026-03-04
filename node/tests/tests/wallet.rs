@@ -1411,7 +1411,7 @@ fn epoch_2_receive_unopened() {
             work: node.work_generate_dev(&key),
         }
         .into();
-        node.process(epoch2_unopened);
+        node.process_deprecated(epoch2_unopened);
 
         node.wallets
             .insert_adhoc2(&wallet_id, &key.raw_key(), false)
@@ -1475,7 +1475,7 @@ fn search_receivable() {
     let send = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
-    node.process(send.clone());
+    node.process_deprecated(send.clone());
     node.wallets.search_receivable(&wallet_id).wait().unwrap();
     assert_always_eq(Duration::from_millis(300), || node.ledger.block_count(), 2);
 

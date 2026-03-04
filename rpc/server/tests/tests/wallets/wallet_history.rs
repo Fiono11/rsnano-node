@@ -8,10 +8,10 @@ use test_helpers::{System, setup_rpc_client_and_server};
 fn setup_test_environment(node: Arc<Node>, keys: PrivateKey, send_amount: Amount) -> BlockHash {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(&keys, send_amount);
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
 
     let open = lattice.account(&keys).receive(&send1);
-    node.process(open.clone());
+    node.process_deprecated(open.clone());
 
     open.hash()
 }

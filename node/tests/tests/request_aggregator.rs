@@ -179,17 +179,17 @@ fn one_update() {
     let key1 = PrivateKey::new();
 
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
     node.confirm(send1.hash());
 
     let send2 = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-    node.process(send2.clone());
+    node.process_deprecated(send2.clone());
     node.confirm(send2.hash());
 
     let receive1 = lattice.account(&key1).receive(&send1);
-    node.process(receive1.clone());
+    node.process_deprecated(receive1.clone());
     node.confirm(receive1.hash());
 
     let dummy_channel = make_fake_channel(&node);
@@ -328,29 +328,17 @@ fn two() {
     // Process both blocks
     node.request_aggregator.request(request.clone());
     // One vote should be generated for both blocks
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || {
-            node.stats.count(
-                StatType::Requests,
-                DetailType::RequestsGeneratedVotes,
-                Direction::In,
-            ) > 0
-        },
-        "generated votes",
-    );
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || node.request_aggregator.is_empty(),
-        "aggregator empty",
-    );
+    assert_timely2(|| {
+        node.stats.count(
+            StatType::Requests,
+            DetailType::RequestsGeneratedVotes,
+            Direction::In,
+        ) > 0
+    });
+    assert_timely2(|| node.request_aggregator.is_empty());
     // The same request should now send the cached vote
     node.request_aggregator.request(request.clone());
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || node.request_aggregator.is_empty(),
-        "aggregator empty",
-    );
+    assert_timely2(|| node.request_aggregator.is_empty());
     assert_eq!(
         node.stats.count(
             StatType::Aggregator,
@@ -367,8 +355,7 @@ fn two() {
         ),
         0
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -378,8 +365,7 @@ fn two() {
         },
         0,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -389,8 +375,7 @@ fn two() {
         },
         4,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -400,8 +385,7 @@ fn two() {
         },
         2,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -448,7 +432,7 @@ fn split() {
 
     for _ in 0..=MAX_VBH {
         let block = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-        node.process(block.clone());
+        node.process_deprecated(block.clone());
         roots_hashes.push((block.hash(), block.root()));
         blocks.push(block);
     }
@@ -542,7 +526,7 @@ fn channel_max_queue() {
     let send1 = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
 
     let channel = make_fake_channel(&node);
     let request = AggregatorRequest {
@@ -572,8 +556,8 @@ fn cannot_vote() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
     let send2 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-    node.process(send1.clone());
-    let send2 = node.process(send2.clone());
+    node.process_deprecated(send1.clone());
+    let send2 = node.process_deprecated(send2.clone());
 
     node.wallets
         .insert_adhoc2(
@@ -745,8 +729,8 @@ fn forked_open() {
     let open0 = lattice.account(&key).receive_and_change(&send0, 1);
     let open1 = fork_lattice.account(&key).receive_and_change(&send0, 2);
 
-    node.process(send0);
-    node.process(open0.clone());
+    node.process_deprecated(send0);
+    node.process_deprecated(open0.clone());
     node.confirm(open0.hash());
 
     let vote_tracker = node.vote_generators.track();

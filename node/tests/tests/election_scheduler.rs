@@ -72,7 +72,10 @@ mod election_scheduler {
         node.confirming_set.add_block(receive.hash());
 
         assert_timely2(|| {
-            node.block_confirmed(&send.hash()) && node.block_confirmed(&receive.hash())
+            node.block_confirmed(&send.hash())
+                && node.block_confirmed(&receive.hash())
+                && !node.is_active_hash(&send.hash())
+                && !node.is_active_hash(&receive.hash())
         });
 
         // Second, process two eligible transactions
@@ -81,10 +84,6 @@ mod election_scheduler {
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
         node.process(block1.clone());
 
-        // There is vacancy so it should be inserted
-        node.election_schedulers
-            .priority
-            .activate(&node.ledger.any(), &DEV_GENESIS_ACCOUNT);
         assert_timely2(|| node.is_active_root(&block1.qualified_root()));
 
         let block2 = lattice.account(&key).send(&key, Amount::nano(1000));
@@ -94,7 +93,6 @@ mod election_scheduler {
         node.election_schedulers
             .priority
             .activate(&node.ledger.any(), &key.account());
-        assert_timely_eq2(|| node.election_schedulers.priority.len(), 1);
         assert_eq!(node.is_active_root(&block2.qualified_root()), false);
 
         // Election confirmed, next in queue should begin

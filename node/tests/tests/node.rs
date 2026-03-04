@@ -104,13 +104,13 @@ fn vote_by_hash_bundle() {
     let block = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
 
     blocks.push(block.clone());
-    node.process(block);
+    node.process_deprecated(block);
 
     // Create a chain of blocks
     for _ in 2..20 {
         let block = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
         blocks.push(block.clone());
-        node.process(block);
+        node.process_deprecated(block);
     }
 
     // Confirm the last block to confirm the entire chain
@@ -296,7 +296,7 @@ fn bootstrap_confirm_frontiers() {
 
     // create block to send 500 raw from genesis to key0 and save into node0 ledger without immediately triggering an election
     let send0 = lattice.genesis().legacy_send(Account::from(123), 500);
-    node0.process(send0.clone());
+    node0.process_deprecated(send0.clone());
 
     assert_timely(Duration::from_secs(10), || {
         node1.block_confirmed(&send0.hash())
@@ -339,8 +339,8 @@ fn bootstrap_fork_open() {
         .receive_and_change(&send0, PublicKey::from_bytes([2; 32]));
 
     // Both know about send0
-    node0.process(send0.clone());
-    node1.process(send0.clone());
+    node0.process_deprecated(send0.clone());
+    node1.process_deprecated(send0.clone());
 
     // Confirm send0 to allow starting and voting on the following blocks
     node0.confirm(send0.hash());
@@ -349,8 +349,8 @@ fn bootstrap_fork_open() {
     assert_timely2(|| node0.block_confirmed(&send0.hash()));
 
     // They disagree about open0/open1
-    node0.process(open0.clone());
-    node1.process(open1.clone());
+    node0.process_deprecated(open0.clone());
+    node1.process_deprecated(open1.clone());
 
     node0.confirming_set.add_block(open0.hash());
     assert_timely2(|| node0.block_confirmed(&open0.hash()));
@@ -510,10 +510,10 @@ fn fork_multi_flip() {
     let send2 = fork_lattice.genesis().legacy_send(&key2, 100);
     let send3 = fork_lattice.genesis().legacy_send(&key2, 0);
 
-    node1.process(send1.clone());
+    node1.process_deprecated(send1.clone());
     // Node2 has two blocks that will be rolled back by node1's vote
-    node2.process(send2.clone());
-    node2.process(send3.clone());
+    node2.process_deprecated(send2.clone());
+    node2.process_deprecated(send3.clone());
 
     // Insert voting key into node1
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
@@ -1295,9 +1295,9 @@ fn fork_no_vote_quorum() {
     }
     .into();
 
-    node1.process(send1.clone());
-    node2.process(send1.clone());
-    node3.process(send1.clone());
+    node1.process_deprecated(send1.clone());
+    node2.process_deprecated(send1.clone());
+    node3.process_deprecated(send1.clone());
 
     let key2 = node3
         .wallets
@@ -1361,7 +1361,7 @@ fn fork_open() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     let mut fork_lattice = lattice.clone();
 
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
     node.confirm(send1.hash());
 
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
@@ -1653,9 +1653,9 @@ fn confirm_back() {
     let open = lattice.account(&key).receive(&send1);
     let send2 = lattice.account(&key).send(&*DEV_GENESIS_KEY, 1);
 
-    node.process(send1.clone());
-    node.process(open.clone());
-    node.process(send2.clone());
+    node.process_deprecated(send1.clone());
+    node.process_deprecated(open.clone());
+    node.process_deprecated(send2.clone());
 
     start_election(&node, &send1.hash());
     start_election(&node, &open.hash());
@@ -1694,10 +1694,10 @@ fn rep_crawler_rep_remove() {
     // Receive by Rep2
     let receive_rep2 = lattice.account(&key_rep2).receive(&send_to_rep2);
 
-    searching_node.process(send_to_rep1);
-    searching_node.process(receive_rep1);
-    searching_node.process(send_to_rep2);
-    searching_node.process(receive_rep2);
+    searching_node.process_deprecated(send_to_rep1);
+    searching_node.process_deprecated(receive_rep1);
+    searching_node.process_deprecated(send_to_rep2);
+    searching_node.process_deprecated(receive_rep2);
 
     // Create channel for Rep1
     let channel_rep1 = make_fake_channel(&searching_node);
@@ -1963,7 +1963,7 @@ fn fork_open_flip() {
 
     // send 1 raw from genesis to key1 on both node1 and node2
     let send1 = lattice.genesis().legacy_send(&key1, 1);
-    node1.process(send1.clone());
+    node1.process_deprecated(send1.clone());
 
     let mut fork_lattice = lattice.clone();
     // We should be keeping this block
@@ -1976,7 +1976,7 @@ fn fork_open_flip() {
     assert_ne!(open1.hash(), open2.hash());
 
     // give block open1 to node1, manually trigger an election for open1 and ensure it is in the ledger
-    let open1 = node1.process(open1);
+    let open1 = node1.process_deprecated(open1);
     node1.election_schedulers.manual.push(open1.clone());
     assert_timely2(|| node1.is_active_root(&open1.qualified_root()));
     node1
@@ -2506,7 +2506,7 @@ fn backlog_scan_election_activation() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(Account::from(1), Amount::nano(1000));
 
-    node.process(send);
+    node.process_deprecated(send);
 
     assert_timely_eq2(|| node.active.read().unwrap().len(), 1);
 }

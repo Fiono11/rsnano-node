@@ -26,7 +26,7 @@ fn check_signature() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(&key1, 100);
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
     start_election(&node, &send1.hash());
     let channel = make_fake_channel(&node);
     let mut vote1 = Vote::new(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()]);
@@ -66,7 +66,7 @@ fn add_cooldown() {
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send_max(&key1);
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
     start_election(&node, &send1.hash());
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     let vote1 = Arc::new(Vote::new(
@@ -390,7 +390,7 @@ fn vote_spacing_rapid() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
-    node.process(send1.clone());
+    node.process_deprecated(send1.clone());
 
     node.vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
