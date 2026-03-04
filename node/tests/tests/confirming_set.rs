@@ -15,22 +15,23 @@ fn confirmed_history() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let send = lattice.genesis().send(&key1, Amount::nano(1000));
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
+    let send2 = lattice.genesis().send(&key1, Amount::nano(1000));
 
-    node.process_multi_legacy(&[send.clone(), send1.clone()]);
-
-    start_election(&node, &send1.hash());
+    node.process_multi(&[send1.clone(), send2.clone()]);
+    assert_timely2(|| node.active.read().unwrap().is_active_hash(&send1.hash()));
+    node.active.write().unwrap().cancel(&send1.qualified_root());
+    start_election(&node, &send2.hash());
     {
         // Prevent the confirming set doing any writes
         node.confirming_set.set_cooldown(true);
 
         // Confirm send1
-        node.force_confirm(&send1.hash());
+        node.force_confirm(&send2.hash());
         assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
         assert_eq!(node.recently_cemented.lock().unwrap().len(), 0);
         assert_eq!(node.active.read().unwrap().len(), 0);
-        assert_eq!(node.ledger.confirmed().block_exists(&send.hash()), false);
+        assert_eq!(node.ledger.confirmed().block_exists(&send1.hash()), false);
 
         // Confirm that no inactive callbacks have been called when the
         // confirmation height processor has already iterated over it, waiting to write
@@ -48,7 +49,7 @@ fn confirmed_history() {
         node.confirming_set.set_cooldown(false);
     }
 
-    assert_timely2(|| node.ledger.confirmed().block_exists(&send.hash()));
+    assert_timely2(|| node.ledger.confirmed().block_exists(&send1.hash()));
 
     assert_timely_eq2(|| node.active.read().unwrap().len(), 0);
     assert_timely_eq2(
@@ -87,16 +88,20 @@ fn dependent_election() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let send = lattice.genesis().send(&key1, Amount::nano(1000));
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
     let send2 = lattice.genesis().send(&key1, Amount::nano(1000));
-    node.process_multi_legacy(&[send.clone(), send1.clone(), send2.clone()]);
+    let send3 = lattice.genesis().send(&key1, Amount::nano(1000));
+    node.process_multi(&[send1.clone(), send2.clone(), send3.clone()]);
+
+    assert_timely2(|| node.active.read().unwrap().is_active_hash(&send1.hash()));
+    node.active.write().unwrap().cancel(&send1.qualified_root());
+    assert_timely2(|| !node.active.read().unwrap().is_active_hash(&send1.hash()));
 
     // This election should be confirmed as active_conf_height
-    start_election(&node, &send1.hash());
-    // Start an election and confirm it
     start_election(&node, &send2.hash());
-    node.force_confirm(&send2.hash());
+    // Start an election and confirm it
+    start_election(&node, &send3.hash());
+    node.force_confirm(&send3.hash());
 
     // Wait for blocks to be confirmed in ledger, callbacks will happen after
     assert_timely_eq2(
@@ -110,7 +115,7 @@ fn dependent_election() {
         3,
     );
     // Once the item added to the confirming set no longer exists, callbacks have completed
-    assert_timely2(|| !node.confirming_set.contains(&send2.hash()));
+    assert_timely2(|| !node.confirming_set.contains(&send3.hash()));
 
     assert_timely_eq2(
         || node.stats().get("confirmation_observer", "active_quorum"),

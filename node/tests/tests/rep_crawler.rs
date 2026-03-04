@@ -85,10 +85,10 @@ fn rep_weight() {
     let send_pr = lattice.genesis().send(&key_pr, amount_pr);
     let open_pr = lattice.account(&key_pr).receive(&send_pr);
     let blocks = [send_non_pr, open_no_pr, send_pr, open_pr];
-    node.process_multi_legacy(&blocks);
-    node1.process_multi_legacy(&blocks);
-    node2.process_multi_legacy(&blocks);
-    node3.process_multi_legacy(&blocks);
+    node.process_multi(&blocks);
+    node1.process_multi(&blocks);
+    node2.process_multi(&blocks);
+    node3.process_multi(&blocks);
     assert_eq!(node.online_reps.lock().unwrap().online_reps().count(), 0);
 
     assert_timely_eq2(

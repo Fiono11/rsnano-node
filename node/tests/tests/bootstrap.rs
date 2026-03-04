@@ -3,7 +3,7 @@ use rsnano_node::{bootstrap::BootstrapConfig, config::NodeConfig};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{Account, PrivateKey};
 use std::time::Duration;
-use test_helpers::{System, assert_always_eq, assert_timely, assert_timely_eq2};
+use test_helpers::{System, assert_always_eq, assert_timely};
 
 /**
  * Tests the base case for returning
