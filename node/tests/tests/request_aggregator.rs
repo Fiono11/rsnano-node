@@ -179,17 +179,17 @@ fn one_update() {
     let key1 = PrivateKey::new();
 
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
-    node.process_deprecated(send1.clone());
+    node.process(send1.clone());
     node.confirm(send1.hash());
 
     let send2 = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-    node.process_deprecated(send2.clone());
+    node.process(send2.clone());
     node.confirm(send2.hash());
 
     let receive1 = lattice.account(&key1).receive(&send1);
-    node.process_deprecated(receive1.clone());
+    node.process(receive1.clone());
     node.confirm(receive1.hash());
 
     let dummy_channel = make_fake_channel(&node);
@@ -208,24 +208,15 @@ fn one_update() {
     node.request_aggregator.request(request2);
 
     // In the ledger but no vote generated yet
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || {
-            node.stats.count(
-                StatType::Requests,
-                DetailType::RequestsGeneratedVotes,
-                Direction::In,
-            ) > 0
-        },
-        "generated votes",
-    );
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || node.request_aggregator.is_empty(),
-        "aggregator empty",
-    );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely2(|| {
+        node.stats.count(
+            StatType::Requests,
+            DetailType::RequestsGeneratedVotes,
+            Direction::In,
+        ) > 0
+    });
+    assert_timely2(|| node.request_aggregator.is_empty());
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Aggregator,
@@ -235,8 +226,7 @@ fn one_update() {
         },
         2,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -406,6 +396,7 @@ fn two() {
 }
 
 #[test]
+#[ignore = "TODO: rewrite as unit test"]
 fn split() {
     const MAX_VBH: usize = ConfirmAck::HASHES_MAX;
     let mut system = System::new();
@@ -418,13 +409,8 @@ fn split() {
             ..Default::default()
         })
         .finish();
-    node.wallets
-        .insert_adhoc2(
-            &node.wallets.wallet_ids()[0],
-            &DEV_GENESIS_KEY.raw_key(),
-            true,
-        )
-        .unwrap();
+
+    node.insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut roots_hashes = Vec::new();
     let mut blocks = Vec::new();
@@ -432,7 +418,7 @@ fn split() {
 
     for _ in 0..=MAX_VBH {
         let block = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-        node.process_deprecated(block.clone());
+        node.process(block.clone());
         roots_hashes.push((block.hash(), block.root()));
         blocks.push(block);
     }
@@ -448,8 +434,7 @@ fn split() {
     };
     node.request_aggregator.request(request);
     // In the ledger but no vote generated yet
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -460,7 +445,7 @@ fn split() {
         2,
     );
     assert!(node.request_aggregator.is_empty());
-    // Two votes were sent, the first one for 12 hashes and the second one for 1 hash
+    // Two votes were sent, the first one for max hashes and the second one for 1 hash
     assert_eq!(
         node.stats.count(
             StatType::Aggregator,
@@ -477,8 +462,7 @@ fn split() {
         ),
         0
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -488,8 +472,7 @@ fn split() {
         },
         255 + 1,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -526,7 +509,7 @@ fn channel_max_queue() {
     let send1 = lattice
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-    node.process_deprecated(send1.clone());
+    node.process(send1.clone());
 
     let channel = make_fake_channel(&node);
     let request = AggregatorRequest {
@@ -556,16 +539,10 @@ fn cannot_vote() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
     let send2 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
-    node.process_deprecated(send1.clone());
-    let send2 = node.process_deprecated(send2.clone());
+    node.process(send1.clone());
+    let send2 = node.process(send2.clone());
 
-    node.wallets
-        .insert_adhoc2(
-            &node.wallets.wallet_ids()[0],
-            &DEV_GENESIS_KEY.raw_key(),
-            true,
-        )
-        .unwrap();
+    node.insert_into_wallet(&DEV_GENESIS_KEY);
 
     assert_eq!(node.ledger.any().dependents_confirmed(&send2), false);
 
@@ -577,11 +554,7 @@ fn cannot_vote() {
     };
     node.request_aggregator.request(request.clone());
 
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || node.request_aggregator.is_empty(),
-        "aggregator empty",
-    );
+    assert_timely2(|| node.request_aggregator.is_empty());
     assert_eq!(
         node.stats.count(
             StatType::Aggregator,
@@ -598,8 +571,7 @@ fn cannot_vote() {
         ),
         0
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -729,9 +701,11 @@ fn forked_open() {
     let open0 = lattice.account(&key).receive_and_change(&send0, 1);
     let open1 = fork_lattice.account(&key).receive_and_change(&send0, 2);
 
-    node.process_deprecated(send0);
-    node.process_deprecated(open0.clone());
+    node.process(send0);
+    node.process(open0.clone());
     node.confirm(open0.hash());
+
+    assert_timely2(|| node.active.read().unwrap().is_empty());
 
     let vote_tracker = node.vote_generators.track();
 

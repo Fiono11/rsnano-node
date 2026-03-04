@@ -207,7 +207,7 @@ impl LocalBlockBroadcaster {
                 .unwrap()
                 .try_consume(1, self.clock.now())
             {
-                guard = self.mutex.lock().unwrap();
+                let mut guard = self.mutex.lock().unwrap();
                 guard = self
                     .condition
                     .wait_timeout_while(guard, Duration::from_millis(100), |g| !g.stopped)

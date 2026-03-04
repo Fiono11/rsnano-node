@@ -10,7 +10,8 @@ use rsnano_types::{
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain, start_election,
+    System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain_deprecated,
+    start_election,
 };
 
 #[test]
@@ -20,7 +21,7 @@ fn codes() {
     config.enable_hinted_scheduler = false;
     config.enable_optimistic_scheduler = false;
     let node = system.build_node().config(config).finish();
-    let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+    let blocks = setup_chain_deprecated(&node, 1, &DEV_GENESIS_KEY, false);
 
     let vote = Vote::new(
         &DEV_GENESIS_KEY,
@@ -86,7 +87,7 @@ fn codes() {
 fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
-    let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+    let chain = setup_chain_deprecated(&node, 1, &DEV_GENESIS_KEY, false);
     let key = PrivateKey::new();
     let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
     let mut vote_invalid = vote.clone();

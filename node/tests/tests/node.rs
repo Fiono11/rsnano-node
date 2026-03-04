@@ -27,7 +27,7 @@ use rsnano_utils::{
 };
 use test_helpers::{
     System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
+    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains_deprecated,
     start_election,
 };
 
@@ -1676,10 +1676,10 @@ fn rep_crawler_rep_remove() {
     // Receive by Rep2
     let receive_rep2 = lattice.account(&key_rep2).receive(&send_to_rep2);
 
-    searching_node.process_deprecated(send_to_rep1);
-    searching_node.process_deprecated(receive_rep1);
-    searching_node.process_deprecated(send_to_rep2);
-    searching_node.process_deprecated(receive_rep2);
+    searching_node.process(send_to_rep1);
+    searching_node.process(receive_rep1);
+    searching_node.process(send_to_rep2);
+    searching_node.process(receive_rep2);
 
     // Create channel for Rep1
     let channel_rep1 = make_fake_channel(&searching_node);
@@ -1698,8 +1698,7 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_rep1);
 
-    assert_timely_eq(
-        Duration::from_secs(5),
+    assert_timely_eq2(
         || {
             searching_node
                 .online_reps
@@ -1718,8 +1717,7 @@ fn rep_crawler_rep_remove() {
 
     // When rep1 disconnects then rep1 should not be found anymore
     channel_rep1.close();
-    assert_timely_eq(
-        Duration::from_secs(5),
+    assert_timely_eq2(
         || {
             searching_node
                 .online_reps
@@ -1759,8 +1757,7 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_genesis_rep);
 
-    assert_timely_eq(
-        Duration::from_secs(10),
+    assert_timely_eq2(
         || {
             searching_node
                 .online_reps
@@ -1777,18 +1774,14 @@ fn rep_crawler_rep_remove() {
         .peer_connector
         .connect_to(node_rep2.tcp_listener.local_address());
 
-    assert_timely_msg(
-        Duration::from_secs(10),
-        || {
-            searching_node
-                .network
-                .read()
-                .unwrap()
-                .find_node_id(&node_rep2.get_node_id())
-                .is_some()
-        },
-        "channel to rep2 not found",
-    );
+    assert_timely2(|| {
+        searching_node
+            .network
+            .read()
+            .unwrap()
+            .find_node_id(&node_rep2.get_node_id())
+            .is_some()
+    });
     let channel_rep2 = searching_node
         .network
         .read()
@@ -1811,8 +1804,7 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_rep2);
 
-    assert_timely_eq(
-        Duration::from_secs(10),
+    assert_timely_eq2(
         || {
             searching_node
                 .online_reps
@@ -1945,7 +1937,7 @@ fn fork_open_flip() {
 
     // send 1 raw from genesis to key1 on both node1 and node2
     let send1 = lattice.genesis().legacy_send(&key1, 1);
-    node1.process_deprecated(send1.clone());
+    node1.process(send1.clone());
 
     let mut fork_lattice = lattice.clone();
     // We should be keeping this block
@@ -1958,7 +1950,7 @@ fn fork_open_flip() {
     assert_ne!(open1.hash(), open2.hash());
 
     // give block open1 to node1, manually trigger an election for open1 and ensure it is in the ledger
-    let open1 = node1.process_deprecated(open1);
+    let open1 = node1.process(open1);
     node1.election_schedulers.manual.push(open1.clone());
     assert_timely2(|| node1.is_active_root(&open1.qualified_root()));
     node1
@@ -1993,22 +1985,14 @@ fn fork_open_flip() {
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    assert_timely_msg(
-        Duration::from_secs(5),
-        || node1.block_confirmed(&open1.hash()),
-        "open1 not confirmed on node1",
-    );
+    assert_timely2(|| node1.block_confirmed(&open1.hash()));
 
     // Notify both nodes of both blocks, both nodes will become aware that a fork exists
     node1.process_active(open2.clone().into());
     node2.process_active(open1.clone().into());
 
     // Node2 should eventually settle on open1
-    assert_timely_msg(
-        Duration::from_secs(10),
-        || node2.block_exists(&open1.hash()),
-        "open1 not found on node2",
-    );
+    assert_timely2(|| node2.block_exists(&open1.hash()));
     assert_timely2(|| node1.block_confirmed(&open1.hash()));
 
     // check the correct blocks are in the ledgers
@@ -2467,7 +2451,7 @@ fn bounded_backlog() {
 
     let howmany_blocks = 64;
     let howmany_chains = 16;
-    setup_chains(
+    setup_chains_deprecated(
         &node,
         howmany_chains,
         howmany_blocks,
@@ -2488,7 +2472,11 @@ fn backlog_scan_election_activation() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(Account::from(1), Amount::nano(1000));
 
-    node.process_deprecated(send);
+    node.process(send.clone());
+    assert_timely2(|| node.is_active_hash(&send.hash()));
+    node.active.write().unwrap().cancel(&send.qualified_root());
 
-    assert_timely_eq2(|| node.active.read().unwrap().len(), 1);
+    std::thread::sleep(Duration::from_secs(1));
+
+    assert_timely2(|| node.is_active_hash(&send.hash()));
 }

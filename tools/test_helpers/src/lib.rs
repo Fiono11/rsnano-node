@@ -399,7 +399,8 @@ pub fn activate_hashes(node: &Node, hashes: &[BlockHash]) {
     }
 }
 
-pub fn setup_chain(
+#[deprecated]
+pub fn setup_chain_deprecated(
     node: &Node,
     count: usize,
     target: &PrivateKey,
@@ -442,7 +443,8 @@ pub fn setup_chain(
     result
 }
 
-pub fn setup_chains(
+#[deprecated]
+pub fn setup_chains_deprecated(
     node: &Node,
     chain_count: usize,
     block_count: usize,
@@ -486,11 +488,123 @@ pub fn setup_chains(
             node.confirm(open.hash());
         }
 
+        let mut blocks = setup_chain_deprecated(node, block_count, &key, confirm);
+        blocks.insert(0, open);
+
+        chains.push((key.account(), blocks));
+    }
+
+    chains
+}
+
+pub fn setup_chain(
+    node: &Node,
+    count: usize,
+    target: &PrivateKey,
+    confirm: bool,
+) -> Vec<SavedBlock> {
+    let mut latest = node.latest(&target.account());
+    let mut balance = node.balance(&target.account());
+
+    let mut blocks = Vec::with_capacity(count);
+    let mut result = Vec::with_capacity(count);
+
+    for _ in 0..count {
+        let throwaway = PrivateKey::new();
+        balance -= Amount::raw(1);
+        let send: Block = StateBlockArgs {
+            key: target,
+            previous: latest,
+            representative: target.public_key(),
+            balance,
+            link: throwaway.account().into(),
+            work: node.work_generate_dev(latest),
+        }
+        .into();
+        latest = send.hash();
+        blocks.push(send);
+    }
+
+    for block in &blocks {
+        let saved = node.process(block.clone());
+        result.push(saved);
+    }
+
+    if confirm {
+        // Confirm whole chain at once
+        for block in &blocks {
+            node.confirm(block.hash());
+        }
+    }
+
+    assert_timely2(|| {
+        let empty = node.active.read().unwrap().is_empty();
+        if !empty {
+            node.active.write().unwrap().cancel_all();
+        }
+        empty
+    });
+
+    result
+}
+
+pub fn setup_chains(
+    node: &Node,
+    chain_count: usize,
+    block_count: usize,
+    source: &PrivateKey,
+    confirm: bool,
+) -> Vec<(Account, Vec<SavedBlock>)> {
+    let mut latest = node.latest(&source.account());
+    let mut balance = node.balance(&source.account());
+
+    let mut chains = Vec::new();
+    for _ in 0..chain_count {
+        let key = PrivateKey::new();
+        let amount_sent = Amount::raw(block_count as u128 * 2);
+        balance -= amount_sent; // Send enough to later create `block_count` blocks
+        let send: Block = StateBlockArgs {
+            key: source,
+            previous: latest,
+            representative: source.public_key(),
+            balance,
+            link: key.account().into(),
+            work: node.work_generate_dev(latest),
+        }
+        .into();
+
+        let open: Block = StateBlockArgs {
+            key: &key,
+            previous: BlockHash::ZERO,
+            representative: key.public_key(),
+            balance: amount_sent,
+            link: send.hash().into(),
+            work: node.work_generate_dev(&key),
+        }
+        .into();
+
+        latest = send.hash();
+        node.process(send.clone());
+        let open = node.process_deprecated(open);
+
+        if confirm {
+            node.confirm(send.hash());
+            node.confirm(open.hash());
+        }
+
         let mut blocks = setup_chain(node, block_count, &key, confirm);
         blocks.insert(0, open);
 
         chains.push((key.account(), blocks));
     }
+
+    assert_timely2(|| {
+        let empty = node.active.read().unwrap().is_empty();
+        if !empty {
+            node.active.write().unwrap().cancel_all();
+        }
+        empty
+    });
 
     chains
 }

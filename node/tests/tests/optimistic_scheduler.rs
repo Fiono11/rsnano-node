@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rsnano_node::consensus::election::ElectionBehavior;
 use rsnano_types::DEV_GENESIS_KEY;
-use test_helpers::{System, assert_never, assert_timely, assert_timely2, setup_chains};
+use test_helpers::{System, assert_never, assert_timely, assert_timely2, setup_chains_deprecated};
 
 /*
  * Ensure account gets activated for a single unconfirmed account chain
@@ -15,7 +15,7 @@ pub fn activate_one() {
     // Needs to be greater than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;
 
-    let chains = setup_chains(
+    let chains = setup_chains_deprecated(
         &node,
         /* single chain */ 1,
         howmany_blocks,
@@ -55,7 +55,7 @@ pub fn activate_one_zero_conf() {
     // This is meant to activate short account chains (eg. binary tree spam leaf accounts)
     let howmany_blocks = 6;
 
-    let chains = setup_chains(
+    let chains = setup_chains_deprecated(
         &node,
         /* single chain */ 1,
         howmany_blocks,
@@ -92,7 +92,7 @@ pub fn activate_many() {
     let howmany_blocks = 64;
     let howmany_chains = 16;
 
-    let chains = setup_chains(
+    let chains = setup_chains_deprecated(
         &node,
         howmany_chains,
         howmany_blocks,
@@ -129,7 +129,7 @@ pub fn under_gap_threshold() {
     // Must be smaller than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;
 
-    let chains = setup_chains(
+    let chains = setup_chains_deprecated(
         &node,
         1,
         howmany_blocks,

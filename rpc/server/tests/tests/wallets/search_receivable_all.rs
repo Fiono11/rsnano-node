@@ -18,7 +18,7 @@ fn search_receivable_all() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
 
-    node.process_deprecated(send);
+    node.process(send);
 
     node.runtime.block_on(async {
         server.client.search_receivable_all().await.unwrap();

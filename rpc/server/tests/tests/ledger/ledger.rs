@@ -12,10 +12,10 @@ fn setup_test_environment(node: Arc<Node>) -> (PrivateKey, Block, Block) {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
     let send = lattice.genesis().send(&keys, rep_weight);
-    node.process_deprecated(send.clone());
+    node.process(send.clone());
 
     let open = lattice.account(&keys).receive(&send);
-    node.process_deprecated(open.clone());
+    node.process(open.clone());
 
     (keys, send, open)
 }
@@ -101,7 +101,7 @@ fn test_ledger_pending() {
     }
     .into();
 
-    node.process_deprecated(send2_block);
+    node.process(send2_block);
 
     let args = LedgerArgs::builder()
         .count(2)
