@@ -3,6 +3,7 @@ use std::thread::available_parallelism;
 mod cancellation_token;
 pub mod container_info;
 pub mod env;
+mod event_handler;
 pub mod fair_queue;
 pub mod stats;
 pub mod sync;
@@ -11,6 +12,7 @@ pub mod thread_pool;
 pub mod ticker;
 
 pub use cancellation_token::CancellationToken;
+pub use event_handler::EventHandler;
 
 pub fn get_cpu_count() -> usize {
     // Try to read overridden value from environment variable
@@ -24,8 +26,4 @@ pub fn get_cpu_count() -> usize {
     }
 
     available_parallelism().unwrap().get()
-}
-
-pub trait EventHandler<T>: Send {
-    fn handle(&mut self, event: &T);
 }
