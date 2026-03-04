@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock, mpsc::SyncSender};
 
 use rsnano_types::Networks;
 use rsnano_utils::{
-    EventHandler,
+    EventHandlerRegistry,
     stats::{DetailType, StatType, Stats},
 };
 
@@ -30,7 +30,7 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
     pub(crate) bounded_backlog: Arc<BoundedBacklog>,
-    pub(crate) plugins: Vec<Box<dyn EventHandler<LedgerEvent>>>,
+    pub(crate) plugins: EventHandlerRegistry<LedgerEvent>,
 }
 
 impl LedgerEventProcessor {
@@ -47,7 +47,7 @@ impl LedgerEventProcessor {
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             bounded_backlog: Arc::new(BoundedBacklog::new_null()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
-            plugins: Vec::new(),
+            plugins: EventHandlerRegistry::default(),
         }
     }
 }
@@ -70,9 +70,7 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
     }
 
     fn process(&mut self, event: LedgerEvent) {
-        for plugin in &mut self.plugins {
-            plugin.handle(&event);
-        }
+        self.plugins.raise(&event);
 
         match event {
             LedgerEvent::BlocksProcessed(results) => {

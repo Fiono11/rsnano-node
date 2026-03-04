@@ -2,9 +2,16 @@ pub trait EventHandler<T>: Send {
     fn handle(&mut self, event: &T);
 }
 
-#[derive(Default)]
 pub struct EventHandlerRegistry<T> {
     handlers: Vec<Box<dyn EventHandler<T>>>,
+}
+
+impl<T> Default for EventHandlerRegistry<T> {
+    fn default() -> Self {
+        Self {
+            handlers: Vec::new(),
+        }
+    }
 }
 
 impl<T> EventHandlerRegistry<T> {

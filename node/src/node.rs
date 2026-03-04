@@ -37,7 +37,7 @@ use rsnano_types::{
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
-    CancellationToken, EventHandler,
+    CancellationToken, EventHandlerRegistry,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
@@ -366,7 +366,7 @@ impl Node {
 
         log_bootstrap_weights(&rep_weights);
 
-        let mut ledger_event_handlers: Vec<Box<dyn EventHandler<LedgerEvent>>> = Vec::new();
+        let mut ledger_event_handlers = EventHandlerRegistry::<LedgerEvent>::default();
 
         let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
 
@@ -671,9 +671,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
         ));
-        ledger_event_handlers.push(Box::new(ElectionSchedulersPlugin::new(
-            election_schedulers.clone(),
-        )));
+        ledger_event_handlers.add(ElectionSchedulersPlugin::new(election_schedulers.clone()));
 
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
@@ -808,9 +806,7 @@ impl Node {
                 config.bounded_backlog.scan_rate
             );
 
-            ledger_event_handlers.push(Box::new(BoundedBacklogLedgerAdapter::new(
-                bounded_backlog.clone(),
-            )));
+            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(bounded_backlog.clone()));
 
             // Activate accounts with unconfirmed blocks
             let backlog_w = Arc::downgrade(&bounded_backlog);
@@ -829,9 +825,9 @@ impl Node {
             });
         }
 
-        let track_conf_times = Box::new(TrackConfirmationTimes::default());
+        let track_conf_times = TrackConfirmationTimes::default();
         let conf_time_stats = track_conf_times.stats();
-        ledger_event_handlers.push(track_conf_times);
+        ledger_event_handlers.add(track_conf_times);
 
         let bootstrapper = Arc::new(Bootstrapper::new(
             block_processor_queue.clone(),
@@ -869,9 +865,9 @@ impl Node {
             !flags.disable_block_processor_republishing,
         ));
 
-        ledger_event_handlers.push(Box::new(LocalBlockBroadcasterPlugin::new(
+        ledger_event_handlers.add(LocalBlockBroadcasterPlugin::new(
             local_block_broadcaster.clone(),
-        )));
+        ));
 
         let vote_cache_w = Arc::downgrade(&vote_cache);
         let active_w = Arc::downgrade(&active_elections);
@@ -1237,17 +1233,16 @@ impl Node {
         {
             use crate::consensus::ForkInserterPlugin;
 
-            ledger_event_handlers
-                .push(Box::new(ForkInserterPlugin::new(aec_fork_inserter.clone())));
+            ledger_event_handlers.add(ForkInserterPlugin::new(aec_fork_inserter.clone()));
         }
 
         #[cfg(feature = "ledger_snapshots")]
         {
-            ledger_event_handlers.push(Box::new(ForkDetector::new(
+            ledger_event_handlers.add(ForkDetector::new(
                 ledger.clone(),
                 ledger_snapshots.clone(),
                 active_elections.clone(),
-            )));
+            ));
         }
 
         let aec_event_processor = AecEventProcessor {

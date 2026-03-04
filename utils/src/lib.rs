@@ -12,7 +12,7 @@ pub mod thread_pool;
 pub mod ticker;
 
 pub use cancellation_token::CancellationToken;
-pub use event_handler::EventHandler;
+pub use event_handler::{EventHandler, EventHandlerRegistry};
 
 pub fn get_cpu_count() -> usize {
     // Try to read overridden value from environment variable
