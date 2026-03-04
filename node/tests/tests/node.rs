@@ -500,13 +500,12 @@ fn fork_multi_flip() {
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
 
     assert_timely2(|| {
-        node2
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send2.qualified_root())
-            .unwrap()
-            .contains_block(&send1.hash())
+        let aec = node2.active.read().unwrap();
+        if let Some(election) = aec.election_for_root(&send2.qualified_root()) {
+            election.contains_block(&send1.hash())
+        } else {
+            false
+        }
     });
 
     node1.confirm(send1.hash());
