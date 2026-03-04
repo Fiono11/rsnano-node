@@ -304,20 +304,7 @@ fn vote_spacing_vote_generator() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
-    node.ledger.process_one_legacy(&send1).unwrap();
-    assert_eq!(
-        node.stats.count(
-            StatType::VoteGenerator,
-            DetailType::GeneratorBroadcasts,
-            Direction::In
-        ),
-        0
-    );
-    node.vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send1.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.ledger.process_one(&send1).unwrap();
 
     assert_timely_eq2(
         || {
@@ -331,7 +318,7 @@ fn vote_spacing_vote_generator() {
     );
 
     node.ledger.roll_back(&send1.hash()).unwrap();
-    node.ledger.process_one_legacy(&send2).unwrap();
+    node.ledger.process_one(&send2).unwrap();
     node.vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
@@ -423,12 +410,7 @@ fn vote_spacing_rapid() {
     );
 
     node.ledger.roll_back(&send1.hash()).unwrap();
-    node.ledger.process_one_legacy(&send2).unwrap();
-    node.vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send2.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.ledger.process_one(&send2).unwrap();
 
     assert_timely_eq2(
         || {

@@ -25,35 +25,8 @@ mod election_scheduler {
             .genesis()
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-        node.ledger.process_one_legacy(&send1).unwrap();
+        node.ledger.process_one(&send1).unwrap();
 
-        node.election_schedulers
-            .priority
-            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
-
-        assert_timely2(|| node.is_active_root(&send1.qualified_root()));
-    }
-
-    #[test]
-    fn activate_one_flush() {
-        let mut system = System::new();
-        let node = system.make_node();
-        let mut lattice = UnsavedBlockLatticeBuilder::new();
-
-        // Create a send block
-        let send1 = lattice
-            .genesis()
-            .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
-
-        // Process the block
-        node.ledger.process_one_legacy(&send1).unwrap();
-
-        // Activate the account
-        node.election_schedulers
-            .priority
-            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
-
-        // Assert that the election is created within 5 seconds
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     }
 

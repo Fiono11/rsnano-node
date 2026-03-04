@@ -417,6 +417,12 @@ impl ActiveElectionsContainer {
         }
     }
 
+    pub fn cancel_all(&mut self) {
+        for entry in self.roots.iter_mut() {
+            entry.election.cancel();
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.roots.len()
     }

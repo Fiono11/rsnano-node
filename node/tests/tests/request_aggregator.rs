@@ -68,7 +68,7 @@ fn one() {
     );
 
     // Process and confirm
-    node.ledger.process_one_legacy(&send1).unwrap();
+    node.ledger.process_one(&send1).unwrap();
     node.confirm(send1.hash());
 
     // In the ledger but no vote generated yet
@@ -799,7 +799,7 @@ fn epoch_conflict() {
     let epoch_open = lattice.epoch_open(change.root());
 
     // Process and confirm the initial chain with the change block
-    node.process_multi(&[send, open, change.clone()]);
+    node.process_multi_legacy(&[send, open, change.clone()]);
     node.confirm(change.hash());
     assert_timely2(|| node.block_confirmed(&change.hash()));
 
@@ -821,7 +821,7 @@ fn epoch_conflict() {
     vote_tracker.clear();
 
     // Process the conflicting epoch block
-    node.process_multi(&[pending.clone(), epoch_open.clone()]);
+    node.process_multi_legacy(&[pending.clone(), epoch_open.clone()]);
     node.confirm_multi(&[pending.clone(), epoch_open.clone()]);
 
     // Workaround for vote spacing dropping requests with the same root
@@ -855,7 +855,7 @@ fn cemented_no_spacing() {
     let send3 = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
 
     // Process and confirm all blocks in the chain
-    node.process_multi(&[send1.clone(), send2.clone(), send3.clone()]);
+    node.process_multi_legacy(&[send1.clone(), send2.clone(), send3.clone()]);
     node.confirm_multi(&[send1.clone(), send2.clone(), send3.clone()]);
 
     let vote_tracker = node.vote_generators.track();

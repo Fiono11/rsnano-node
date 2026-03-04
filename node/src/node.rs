@@ -1446,7 +1446,8 @@ impl Node {
         }
     }
 
-    pub fn process_multi(&self, blocks: &[Block]) {
+    #[deprecated]
+    pub fn process_multi_legacy(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
             match self.ledger.process_one_legacy(block) {
                 Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
@@ -1457,8 +1458,19 @@ impl Node {
         }
     }
 
+    pub fn process_multi(&self, blocks: &[Block]) {
+        for (i, block) in blocks.iter().enumerate() {
+            match self.ledger.process_one(block) {
+                Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
+                Err(e) => {
+                    panic!("Could not multi-process block index {}: {:?}", i, e);
+                }
+            }
+        }
+    }
+
     pub fn process_and_confirm_multi(&self, blocks: &[Block]) {
-        self.process_multi(blocks);
+        self.process_multi_legacy(blocks);
         self.confirm_multi(blocks);
     }
 

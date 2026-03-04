@@ -3,7 +3,7 @@ use rsnano_node::{bootstrap::BootstrapConfig, config::NodeConfig};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{Account, PrivateKey};
 use std::time::Duration;
-use test_helpers::{System, assert_always_eq, assert_timely};
+use test_helpers::{System, assert_always_eq, assert_timely, assert_timely_eq2};
 
 /**
  * Tests the base case for returning
@@ -230,6 +230,8 @@ fn frontier_scan_cannot_prioritize() {
     system.initialization_blocks = blocks.clone();
 
     let node0 = system.build_node().config(config.clone()).finish();
+    // Prevent the local block broadcaster to send blocks to node1
+    node0.local_block_broadcaster.stop();
     node0.process_multi(&sends2);
     node0.process_multi(&opens2);
 

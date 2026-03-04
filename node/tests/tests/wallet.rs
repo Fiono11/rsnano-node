@@ -1507,5 +1507,5 @@ fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
         work: node.work_generate_dev(latest),
     }
     .into();
-    node.ledger.process_one_legacy(&epoch).unwrap();
+    node.ledger.process_one(&epoch).unwrap();
 }

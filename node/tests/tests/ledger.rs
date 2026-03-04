@@ -139,7 +139,7 @@ fn block_hash_account_conflict() {
      */
     let open_epoch1 = lattice.epoch_open(unreceivable_account);
 
-    node1.process_multi(&[
+    node1.process_multi_legacy(&[
         send1.clone(),
         receive1.clone(),
         send2.clone(),

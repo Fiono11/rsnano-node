@@ -1251,13 +1251,14 @@ fn active_inactive() {
         .finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let key = PrivateKey::new();
+    let key = PrivateKey::from(123);
 
     let send = lattice.genesis().send(&key, 1);
     let send2 = lattice.genesis().send(Account::from(1), 1);
     let open = lattice.account(&key).receive(&send);
     node.process_multi(&[send.clone(), send2.clone(), open]);
-
+    assert_timely2(|| node.active.read().unwrap().is_active_hash(&send.hash()));
+    node.active.write().unwrap().cancel(&send.qualified_root());
     start_election(&node, &send2.hash());
     node.force_confirm(&send2.hash());
 
@@ -1295,6 +1296,9 @@ fn activate_inactive() {
     let open = lattice.account(&key).receive(&send);
 
     node.process_multi(&[send.clone(), send2.clone(), open.clone()]);
+
+    assert_timely2(|| node.active.read().unwrap().is_active_hash(&send.hash()));
+    node.active.write().unwrap().cancel(&send.qualified_root());
 
     start_elections(&node, &[send2.hash()], true);
 

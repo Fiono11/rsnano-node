@@ -18,7 +18,7 @@ fn confirmed_history() {
     let send = lattice.genesis().send(&key1, Amount::nano(1000));
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
 
-    node.process_multi(&[send.clone(), send1.clone()]);
+    node.process_multi_legacy(&[send.clone(), send1.clone()]);
 
     start_election(&node, &send1.hash());
     {
@@ -90,7 +90,7 @@ fn dependent_election() {
     let send = lattice.genesis().send(&key1, Amount::nano(1000));
     let send1 = lattice.genesis().send(&key1, Amount::nano(1000));
     let send2 = lattice.genesis().send(&key1, Amount::nano(1000));
-    node.process_multi(&[send.clone(), send1.clone(), send2.clone()]);
+    node.process_multi_legacy(&[send.clone(), send1.clone(), send2.clone()]);
 
     // This election should be confirmed as active_conf_height
     start_election(&node, &send1.hash());

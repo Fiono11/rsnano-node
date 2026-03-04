@@ -86,11 +86,11 @@ impl System {
 
     fn setup_node(&mut self, node: &Node) {
         for block in &self.initialization_blocks {
-            node.ledger.process_one_legacy(block).unwrap();
+            node.ledger.process_one(block).unwrap();
         }
 
         for block in &self.initialization_blocks_cemented {
-            node.ledger.process_one_legacy(block).unwrap();
+            node.ledger.process_one(block).unwrap();
             node.ledger.confirm(block.hash());
         }
     }

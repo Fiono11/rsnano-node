@@ -76,7 +76,7 @@ fn multiple_accounts() {
     let send6 = lattice.account(&key2).send_all_except(&key3, 10);
     let receive2 = lattice.account(&key2).receive(&send5);
 
-    node.process_multi(&[
+    node.process_multi_legacy(&[
         send1.clone(),
         send2.clone(),
         send3.clone(),
@@ -121,7 +121,7 @@ fn multiple_accounts() {
 
     // The nodes process a live receive which propagates across to all accounts
     let receive3 = lattice.account(&key3).receive(&send6);
-    node.ledger.process_one_legacy(&receive3).unwrap();
+    node.ledger.process_one(&receive3).unwrap();
 
     let confirmed = node.ledger.confirm(receive3.hash());
 
@@ -218,7 +218,7 @@ fn send_receive_between_2_accounts() {
     let send6 = lattice.genesis().send(&key2, Amount::raw(1));
     // Unpocketed send
 
-    node.process_multi(&[
+    node.process_multi_legacy(&[
         send1.clone(),
         open1.clone(),
         send2.clone(),
@@ -265,7 +265,7 @@ fn send_receive_self() {
         .genesis()
         .send_all_except(&key1, node.online_reps.lock().unwrap().quorum_delta());
 
-    node.process_multi(&[
+    node.process_multi_legacy(&[
         send1.clone(),
         receive1.clone(),
         send2.clone(),
@@ -318,7 +318,7 @@ fn all_block_types() {
     let state_send3 = lattice.account(&key2).send(&key1, 1);
     let state_send4 = lattice.account(&key1).send(&*DEV_GENESIS_KEY, 1);
     let state_receive3 = lattice.genesis().receive(&state_send4);
-    node.process_multi(&[
+    node.process_multi_legacy(&[
         send,
         send1,
         open,

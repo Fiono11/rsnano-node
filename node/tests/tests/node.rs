@@ -1872,8 +1872,8 @@ fn epoch_conflict_confirm() {
     let epoch_open = lattice.epoch_open(conflict_account);
 
     // Process initial blocks
-    node0.process_multi(&[send.clone(), send2.clone(), open.clone()]);
-    node1.process_multi(&[send.clone(), send2.clone(), open.clone()]);
+    node0.process_multi_legacy(&[send.clone(), send2.clone(), open.clone()]);
+    node1.process_multi_legacy(&[send.clone(), send2.clone(), open.clone()]);
 
     // Process conflicting blocks on nodes as blocks coming from live network
     node0.process_active(change.clone());
@@ -2292,7 +2292,7 @@ fn dependency_graph_frontier() {
     let key3_epoch = lattice.account(&key3).epoch1();
 
     for node in &system.nodes {
-        node.process_multi(&[
+        node.process_multi_legacy(&[
             gen_send1.clone(),
             key1_open.clone(),
             key1_send1.clone(),
@@ -2370,7 +2370,7 @@ fn dependency_graph() {
     let key3_epoch = lattice.account(&key3).epoch1();
 
     for node in &system.nodes {
-        node.process_multi(&[
+        node.process_multi_legacy(&[
             gen_send1.clone(),
             key1_open.clone(),
             key1_send1.clone(),

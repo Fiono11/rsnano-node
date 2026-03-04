@@ -109,7 +109,7 @@ mod tests {
         let account = Account::from(1);
         let block = builder.genesis().send(account, 100);
 
-        ledger.process_one_legacy(&block).unwrap();
+        ledger.process_one(&block).unwrap();
         ledger.confirm(block.hash());
 
         let entry = BacklogEntry {
@@ -134,7 +134,7 @@ mod tests {
         let account = Account::from(1);
         let block = builder.genesis().send(account, 100);
 
-        ledger.process_one_legacy(&block).unwrap();
+        ledger.process_one(&block).unwrap();
 
         let entry = BacklogEntry {
             hash: block.hash(),
