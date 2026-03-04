@@ -10,7 +10,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessResult};
+use rsnano_ledger::{AnySet, Ledger, OwningAnySet, ProcessResult};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{

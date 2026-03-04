@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_ledger::LedgerEvent;
 use rsnano_utils::EventHandler;
 
-use crate::ledger_event_processor::LedgerPipelineEvent;
+use crate::block_processing::LedgerPipelineEvent;
 
 use super::ElectionSchedulers;
 

@@ -10,6 +10,14 @@ mod local_block_broadcaster;
 mod process_queue;
 mod unchecked_map;
 
+use crate::cementation::ConfirmingSetEvent;
+use rsnano_ledger::LedgerEvent;
+
+pub(crate) enum LedgerPipelineEvent {
+    Ledger(LedgerEvent),
+    ConfirmingSet(ConfirmingSetEvent),
+}
+
 pub use backlog_scan::{BacklogScan, BacklogScanConfig};
 pub(crate) use backlog_waiter::BacklogWaiter;
 pub use block_context::*;

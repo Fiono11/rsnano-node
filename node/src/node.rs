@@ -51,6 +51,7 @@ use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
+    block_processing::LedgerPipelineEvent,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
         BoundedBacklog, BoundedBacklogLedgerAdapter, LocalBlockBroadcaster,
@@ -77,7 +78,6 @@ use crate::{
         get_bootstrap_weights, log_bootstrap_weights,
     },
     ledger_event_processor::LedgerEventProcessor,
-    ledger_event_processor::LedgerPipelineEvent,
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,

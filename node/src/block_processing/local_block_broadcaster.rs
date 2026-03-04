@@ -9,7 +9,7 @@ use std::{
 
 use tracing::debug;
 
-use crate::ledger_event_processor::LedgerPipelineEvent;
+use crate::block_processing::LedgerPipelineEvent;
 use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};

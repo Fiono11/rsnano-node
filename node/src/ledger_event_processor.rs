@@ -8,7 +8,7 @@ use rsnano_utils::{
 
 use crate::{
     NodeEvent,
-    block_processing::{BlockProcessorQueue, BoundedBacklog},
+    block_processing::{BlockProcessorQueue, BoundedBacklog, LedgerPipelineEvent},
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
@@ -18,11 +18,6 @@ use crate::{
     utils::BackpressureEventProcessor,
 };
 use rsnano_ledger::LedgerEvent;
-
-pub(crate) enum LedgerPipelineEvent {
-    Ledger(LedgerEvent),
-    ConfirmingSet(ConfirmingSetEvent),
-}
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,

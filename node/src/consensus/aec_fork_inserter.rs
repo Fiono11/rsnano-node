@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tracing::debug;
 
-use crate::ledger_event_processor::LedgerPipelineEvent;
+use crate::block_processing::LedgerPipelineEvent;
 use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
 use rsnano_utils::{EventHandler, stats::Stats};

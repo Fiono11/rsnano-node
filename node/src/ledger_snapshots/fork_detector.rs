@@ -1,5 +1,5 @@
 use crate::{
-    consensus::ActiveElectionsContainer, ledger_event_processor::LedgerPipelineEvent,
+    block_processing::LedgerPipelineEvent, consensus::ActiveElectionsContainer,
     ledger_snapshots::LedgerSnapshots,
 };
 use rsnano_ledger::LedgerEvent;
@@ -48,9 +48,9 @@ impl EventHandler<LedgerPipelineEvent> for ForkDetector {
 #[cfg(test)]
 mod tests {
     use crate::{
+        block_processing::LedgerPipelineEvent,
         block_processing::{BlockSource, ProcessedResult},
         consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
-        ledger_event_processor::LedgerPipelineEvent,
         ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector},
     };
     use rsnano_ledger::LedgerEvent;
