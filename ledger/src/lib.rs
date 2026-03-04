@@ -64,5 +64,4 @@ pub enum BlockSource {
     Local,
     Forced,
     Election,
-    Test, // TODO remove this as soon as possible
 }

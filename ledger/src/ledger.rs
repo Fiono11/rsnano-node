@@ -691,12 +691,7 @@ impl Ledger {
         }
 
         if !processed.is_empty() {
-            if processed.len() == 1 && processed[0].source == BlockSource::Test {
-                // TODO: Some tests expect no events to be raised when process_one called! Fix
-                // those tests
-            } else {
-                self.notify(LedgerEvent::BlocksProcessed(processed.clone()));
-            }
+            self.notify(LedgerEvent::BlocksProcessed(processed.clone()));
         }
 
         processed
