@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tracing::debug;
 
+use crate::ledger_event_processor::LedgerPipelineEvent;
 use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
 use rsnano_utils::{EventHandler, stats::Stats};
@@ -79,9 +80,9 @@ impl ForkInserterPlugin {
     }
 }
 
-impl EventHandler<LedgerEvent> for ForkInserterPlugin {
-    fn handle(&mut self, event: &LedgerEvent) {
-        if let LedgerEvent::BlocksProcessed(results) = event {
+impl EventHandler<LedgerPipelineEvent> for ForkInserterPlugin {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
             // Notify elections about alternative (forked) blocks
             self.fork_processor.handle_forks(results);
         }

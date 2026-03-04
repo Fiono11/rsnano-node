@@ -9,6 +9,7 @@ use std::{
 
 use tracing::debug;
 
+use crate::ledger_event_processor::LedgerPipelineEvent;
 use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
@@ -504,19 +505,21 @@ impl LocalBlockBroadcasterPlugin {
     }
 }
 
-impl EventHandler<LedgerEvent> for LocalBlockBroadcasterPlugin {
-    fn handle(&mut self, event: &LedgerEvent) {
-        match event {
-            LedgerEvent::BlocksProcessed(results) => {
-                self.local_block_broadcaster.blocks_processed(results);
-            }
-            LedgerEvent::BlocksConfirmed(confirmed) => {
-                self.local_block_broadcaster
-                    .confirmed(confirmed.iter().map(|i| i.1));
-            }
-            LedgerEvent::BlocksRolledBack(rolled_back) => {
-                self.local_block_broadcaster
-                    .rolled_back(rolled_back.hashes());
+impl EventHandler<LedgerPipelineEvent> for LocalBlockBroadcasterPlugin {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(event) = event {
+            match event {
+                LedgerEvent::BlocksProcessed(results) => {
+                    self.local_block_broadcaster.blocks_processed(results);
+                }
+                LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.local_block_broadcaster
+                        .confirmed(confirmed.iter().map(|i| i.1));
+                }
+                LedgerEvent::BlocksRolledBack(rolled_back) => {
+                    self.local_block_broadcaster
+                        .rolled_back(rolled_back.hashes());
+                }
             }
         }
     }

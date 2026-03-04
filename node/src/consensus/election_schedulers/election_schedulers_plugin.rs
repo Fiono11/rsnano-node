@@ -3,6 +3,8 @@ use std::sync::Arc;
 use rsnano_ledger::LedgerEvent;
 use rsnano_utils::EventHandler;
 
+use crate::ledger_event_processor::LedgerPipelineEvent;
+
 use super::ElectionSchedulers;
 
 pub(crate) struct ElectionSchedulersPlugin {
@@ -15,17 +17,19 @@ impl ElectionSchedulersPlugin {
     }
 }
 
-impl EventHandler<LedgerEvent> for ElectionSchedulersPlugin {
-    fn handle(&mut self, event: &LedgerEvent) {
-        match event {
-            LedgerEvent::BlocksProcessed(results) => {
-                self.schedulers.activate_accounts_with_fresh_blocks(results);
+impl EventHandler<LedgerPipelineEvent> for ElectionSchedulersPlugin {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(event) = event {
+            match event {
+                LedgerEvent::BlocksProcessed(results) => {
+                    self.schedulers.activate_accounts_with_fresh_blocks(results);
+                }
+                LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.schedulers
+                        .activate_successors(confirmed.iter().map(|(b, _)| b));
+                }
+                _ => {}
             }
-            LedgerEvent::BlocksConfirmed(confirmed) => {
-                self.schedulers
-                    .activate_successors(confirmed.iter().map(|(b, _)| b));
-            }
-            _ => {}
         }
     }
 }
@@ -43,7 +47,9 @@ mod tests {
 
         let block = SavedBlock::new_test_instance();
         let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
-        processor.handle(&LedgerEvent::BlocksConfirmed(confirmed_blocks));
+        processor.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(
+            confirmed_blocks,
+        )));
 
         let output = activation_tracker.output();
         assert_eq!(output, [block]);

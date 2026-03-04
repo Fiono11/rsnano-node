@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
-use super::{BoundedBacklog, LedgerEvent};
+use rsnano_ledger::LedgerEvent;
 use rsnano_utils::EventHandler;
+
+use crate::ledger_event_processor::LedgerPipelineEvent;
+
+use super::BoundedBacklog;
 
 pub(crate) struct BoundedBacklogLedgerAdapter {
     bounded_backlog: Arc<BoundedBacklog>,
@@ -13,18 +17,20 @@ impl BoundedBacklogLedgerAdapter {
     }
 }
 
-impl EventHandler<LedgerEvent> for BoundedBacklogLedgerAdapter {
-    fn handle(&mut self, event: &LedgerEvent) {
-        match event {
-            LedgerEvent::BlocksProcessed(results) => {
-                self.bounded_backlog.insert_processed(results);
-            }
-            LedgerEvent::BlocksConfirmed(confirmed) => {
-                self.bounded_backlog.remove(confirmed);
-            }
-            LedgerEvent::BlocksRolledBack(rolled_back) => {
-                // Unblock rolled back accounts as the dependency is no longer valid
-                self.bounded_backlog.erase_hashes(rolled_back.hashes());
+impl EventHandler<LedgerPipelineEvent> for BoundedBacklogLedgerAdapter {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(event) = event {
+            match event {
+                LedgerEvent::BlocksProcessed(results) => {
+                    self.bounded_backlog.insert_processed(results);
+                }
+                LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.bounded_backlog.remove(confirmed);
+                }
+                LedgerEvent::BlocksRolledBack(rolled_back) => {
+                    // Unblock rolled back accounts as the dependency is no longer valid
+                    self.bounded_backlog.erase_hashes(rolled_back.hashes());
+                }
             }
         }
     }

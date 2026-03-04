@@ -12,8 +12,8 @@ use crate::{
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
-        ActiveElectionsContainer, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory,
+        ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
+        ForkCacheUpdater, LocalVoteHistory,
     },
     utils::BackpressureEventProcessor,
 };
@@ -35,7 +35,7 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
     pub(crate) bounded_backlog: Arc<BoundedBacklog>,
-    pub(crate) plugins: EventHandlerRegistry<LedgerEvent>,
+    pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
 }
 
 impl LedgerEventProcessor {
@@ -57,7 +57,7 @@ impl LedgerEventProcessor {
     }
 }
 
-impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
+impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
     fn cool_down(&mut self) {
         self.confirming_set.set_cooldown(true);
         self.block_processor_queue.set_cooldown(true);
@@ -74,40 +74,64 @@ impl BackpressureEventProcessor<LedgerEvent> for LedgerEventProcessor {
             .inc(StatType::ConfirmingSet, DetailType::Recovered);
     }
 
-    fn process(&mut self, event: LedgerEvent) {
+    fn process(&mut self, event: LedgerPipelineEvent) {
         self.plugins.raise(&event);
 
         match event {
-            LedgerEvent::BlocksProcessed(results) => {
-                self.confirming_set.requeue_blocks(&results);
-                self.bootstrapper.inspect_blocks(&results);
-                self.fork_cache_updater.update(&results);
-                if let Some(sender) = &self.node_event_sender {
-                    sender.send(NodeEvent::BlocksProcessed(results)).unwrap();
+            LedgerPipelineEvent::Ledger(event) => match event {
+                LedgerEvent::BlocksProcessed(results) => {
+                    self.confirming_set.requeue_blocks(&results);
+                    self.bootstrapper.inspect_blocks(&results);
+                    self.fork_cache_updater.update(&results);
+                    if let Some(sender) = &self.node_event_sender {
+                        sender.send(NodeEvent::BlocksProcessed(results)).unwrap();
+                    }
                 }
-            }
-            LedgerEvent::BlocksConfirmed(confirmed) => {
-                self.dependent_elections_confirmer
-                    .confirm_dependent_elections(&confirmed);
-            }
-            LedgerEvent::BlocksRolledBack(rolled_back) => {
-                {
-                    let mut aec = self.active_elections.write().unwrap();
-                    for result in rolled_back.iter() {
-                        for block in &result.rolled_back {
-                            // Stop all rolled back elections except initial
-                            if block.qualified_root() != result.target_root {
-                                aec.erase(&block.qualified_root());
+                LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.dependent_elections_confirmer
+                        .confirm_dependent_elections(&confirmed);
+                }
+                LedgerEvent::BlocksRolledBack(rolled_back) => {
+                    {
+                        let mut aec = self.active_elections.write().unwrap();
+                        for result in rolled_back.iter() {
+                            for block in &result.rolled_back {
+                                // Stop all rolled back elections except initial
+                                if block.qualified_root() != result.target_root {
+                                    aec.erase(&block.qualified_root());
+                                }
                             }
                         }
                     }
+
+                    self.vote_history.erase_batch(rolled_back.roots());
+
+                    self.bootstrapper
+                        .unblock_batch(rolled_back.affected_accounts());
                 }
-
-                self.vote_history.erase_batch(rolled_back.roots());
-
-                self.bootstrapper
-                    .unblock_batch(rolled_back.affected_accounts());
-            }
+            },
+            LedgerPipelineEvent::ConfirmingSet(event) => match event {
+                ConfirmingSetEvent::ConfirmationFailed(hash) => {
+                    // The block never got confirmed! Clean up the election, so
+                    // that a new election for this block can be started
+                    self.active_elections
+                        .write()
+                        .unwrap()
+                        .remove_recently_confirmed(&hash);
+                }
+                ConfirmingSetEvent::NearFull => {
+                    self.active_elections
+                        .write()
+                        .unwrap()
+                        .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
+                }
+                ConfirmingSetEvent::Recovered => {
+                    self.active_elections
+                        .write()
+                        .unwrap()
+                        .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
+                }
+            },
         }
     }
 }

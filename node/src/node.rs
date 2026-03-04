@@ -15,7 +15,7 @@ use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
 use rsnano_ledger::{
-    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerEvent, LedgerSet, ProcessResult,
+    AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
 };
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
@@ -62,7 +62,6 @@ use crate::{
         BootstrapExt, BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup,
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
-    conf_set_event_processor::ConfirmingSetEventProcessor,
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, AecForkInserter, AecTicker, AecVoter, BootstrapElectionActivator,
@@ -78,6 +77,7 @@ use crate::{
         get_bootstrap_weights, log_bootstrap_weights,
     },
     ledger_event_processor::LedgerEventProcessor,
+    ledger_event_processor::LedgerPipelineEvent,
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
@@ -327,7 +327,11 @@ impl Node {
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
             .stats(stats.clone())
-            .publish_to(move |ev| ledger_tx2.send(ev).expect("channel should be open"))
+            .publish_to(move |ev| {
+                ledger_tx2
+                    .send(LedgerPipelineEvent::Ledger(ev))
+                    .expect("channel should be open")
+            })
             .finish();
 
         let ledger = match ledger {
@@ -366,7 +370,7 @@ impl Node {
 
         log_bootstrap_weights(&rep_weights);
 
-        let mut ledger_event_handlers = EventHandlerRegistry::<LedgerEvent>::default();
+        let mut ledger_event_handlers = EventHandlerRegistry::<LedgerPipelineEvent>::default();
 
         let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
 
@@ -485,9 +489,11 @@ impl Node {
             stats.clone(),
         ));
 
-        let (conf_set_tx, conf_set_rx) = backpressure_channel::channel(512);
+        let ledger_tx3 = ledger_tx.clone();
         confirming_set.set_event_publisher(Box::new(move |event| {
-            conf_set_tx.send(event).unwrap();
+            ledger_tx3
+                .send(LedgerPipelineEvent::ConfirmingSet(event))
+                .unwrap();
         }));
 
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
@@ -1292,11 +1298,6 @@ impl Node {
         };
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
-
-        let conf_set_event_processor = ConfirmingSetEventProcessor {
-            active_elections: active_elections.clone(),
-        };
-        spawn_backpressure_processor("Conf set ev proc", conf_set_rx, conf_set_event_processor);
 
         vote_processor.add_observer(aec_sender);
 

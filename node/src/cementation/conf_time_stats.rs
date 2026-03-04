@@ -6,6 +6,7 @@ use std::{
 use bounded_vec_deque::BoundedVecDeque;
 use chrono::Utc;
 
+use crate::ledger_event_processor::LedgerPipelineEvent;
 use rsnano_ledger::LedgerEvent;
 use rsnano_utils::{
     EventHandler,
@@ -76,9 +77,9 @@ impl Default for TrackConfirmationTimes {
     }
 }
 
-impl EventHandler<LedgerEvent> for TrackConfirmationTimes {
-    fn handle(&mut self, event: &LedgerEvent) {
-        if let LedgerEvent::BlocksConfirmed(blocks) = event {
+impl EventHandler<LedgerPipelineEvent> for TrackConfirmationTimes {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(blocks)) = event {
             let now = Utc::now();
             let mut stats = self.stats.lock().unwrap();
 

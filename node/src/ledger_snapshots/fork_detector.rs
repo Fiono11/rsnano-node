@@ -1,8 +1,10 @@
 use crate::{
-    block_processing::LedgerEvent, consensus::ActiveElectionsContainer,
-    ledger_event_processor::LedgerEventHandler, ledger_snapshots::LedgerSnapshots,
+    consensus::ActiveElectionsContainer, ledger_event_processor::LedgerPipelineEvent,
+    ledger_snapshots::LedgerSnapshots,
 };
+use rsnano_ledger::LedgerEvent;
 use rsnano_ledger::{BlockError, Ledger};
+use rsnano_utils::EventHandler;
 use std::sync::{Arc, RwLock};
 
 pub(crate) struct ForkDetector {
@@ -25,9 +27,9 @@ impl ForkDetector {
     }
 }
 
-impl LedgerEventHandler for ForkDetector {
-    fn handle(&mut self, event: &LedgerEvent) {
-        if let LedgerEvent::BlocksProcessed(results) = event {
+impl EventHandler<LedgerPipelineEvent> for ForkDetector {
+    fn handle(&mut self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
             for result in results {
                 if result.status == Err(BlockError::Fork) {
                     let root = result.block.qualified_root();
@@ -46,14 +48,16 @@ impl LedgerEventHandler for ForkDetector {
 #[cfg(test)]
 mod tests {
     use crate::{
-        block_processing::{BlockSource, LedgerEvent, ProcessedResult},
+        block_processing::{BlockSource, ProcessedResult},
         consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
-        ledger_event_processor::LedgerEventHandler,
+        ledger_event_processor::LedgerPipelineEvent,
         ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector},
     };
+    use rsnano_ledger::LedgerEvent;
     use rsnano_ledger::{BlockError, Ledger};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Block, BlockPriority, SavedBlock};
+    use rsnano_utils::EventHandler;
     use std::sync::{Arc, RwLock};
 
     #[test]
@@ -77,7 +81,9 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![processed_results],
+        )));
 
         assert_eq!(
             ledger
@@ -118,10 +124,9 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![
-            processed_result1,
-            processed_result2,
-        ]));
+        fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![processed_result1, processed_result2],
+        )));
 
         assert_eq!(
             ledger
@@ -160,7 +165,9 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![processed_results],
+        )));
 
         assert_eq!(
             ledger
@@ -200,7 +207,9 @@ mod tests {
             saved_block: None,
         };
 
-        fork_detector.handle(&LedgerEvent::BlocksProcessed(vec![processed_results]));
+        fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![processed_results],
+        )));
 
         assert_eq!(
             fork_detector
