@@ -53,7 +53,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn send_and_change(
@@ -74,7 +74,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn legacy_send(
@@ -93,7 +93,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn receive(&mut self, corresponding_send: BlockHash) -> SavedBlock {
@@ -116,7 +116,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn receive_and_change(
@@ -137,7 +137,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     fn get_pending(&self, corresponding_send: BlockHash) -> PendingInfo {
@@ -156,7 +156,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn legacy_receive(&mut self, corresponding_send: BlockHash) -> SavedBlock {
@@ -170,7 +170,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn change(&mut self, new_rep: impl Into<PublicKey>) -> SavedBlock {
@@ -186,7 +186,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn legacy_change(&mut self, new_rep: impl Into<PublicKey>) -> SavedBlock {
@@ -200,7 +200,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     pub fn epoch_v1(&mut self) -> SavedBlock {
@@ -216,7 +216,7 @@ impl<'a> LedgerBlockInserter<'a> {
         }
         .into();
 
-        self.ledger.process_one(&block).unwrap()
+        self.ledger.process_one_legacy(&block).unwrap()
     }
 
     fn get_opened_account(&mut self) -> AccountInfo {

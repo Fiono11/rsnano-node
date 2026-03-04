@@ -68,7 +68,7 @@ fn one() {
     );
 
     // Process and confirm
-    node.ledger.process_one(&send1).unwrap();
+    node.ledger.process_one_legacy(&send1).unwrap();
     node.confirm(send1.hash());
 
     // In the ledger but no vote generated yet

@@ -25,7 +25,7 @@ mod election_scheduler {
             .genesis()
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-        node.ledger.process_one(&send1).unwrap();
+        node.ledger.process_one_legacy(&send1).unwrap();
 
         node.election_schedulers
             .priority
@@ -46,7 +46,7 @@ mod election_scheduler {
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
         // Process the block
-        node.ledger.process_one(&send1).unwrap();
+        node.ledger.process_one_legacy(&send1).unwrap();
 
         // Activate the account
         node.election_schedulers

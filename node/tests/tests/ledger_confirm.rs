@@ -121,7 +121,7 @@ fn multiple_accounts() {
 
     // The nodes process a live receive which propagates across to all accounts
     let receive3 = lattice.account(&key3).receive(&send6);
-    node.ledger.process_one(&receive3).unwrap();
+    node.ledger.process_one_legacy(&receive3).unwrap();
 
     let confirmed = node.ledger.confirm(receive3.hash());
 

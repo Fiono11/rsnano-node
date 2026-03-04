@@ -1432,7 +1432,7 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.ledger.process_one(&block)
+        self.ledger.process_one_legacy(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -1448,7 +1448,7 @@ impl Node {
 
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
-            match self.ledger.process_one(block) {
+            match self.ledger.process_one_legacy(block) {
                 Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
