@@ -637,7 +637,7 @@ fn confirm_election_by_request() {
     let send1 = lattice.genesis().send(Account::from(1), 100);
 
     // Process send1 locally on node1
-    node1.process_deprecated(send1.clone());
+    node1.process(send1.clone());
 
     // Add rep key to node1
     let wallet_id = node1.wallets.wallet_ids()[0];
@@ -727,7 +727,7 @@ fn confirm_frontier() {
         })
         .finish();
 
-    node1.process_deprecated(send.clone());
+    node1.process(send.clone());
     node1.confirm(send.hash());
 
     // The rep crawler would otherwise request confirmations in order to find representatives
@@ -757,7 +757,7 @@ fn confirm_frontier() {
         node2.steady_clock.now(),
     );
 
-    node2.process_deprecated(send.clone());
+    node2.process(send.clone());
     assert_timely2(|| node2.active.read().unwrap().len() > 0);
 
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
@@ -827,7 +827,8 @@ fn broadcast_block_on_activation() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(*DEV_GENESIS_ACCOUNT, 1000);
     // Adds a block to the first node
-    let send1 = node1.process_deprecated(send1.clone());
+    node1.local_block_broadcaster.stop();
+    let send1 = node1.process(send1.clone());
 
     // The second node should not have the block
     assert_never(Duration::from_millis(500), || {

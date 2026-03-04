@@ -25,10 +25,8 @@ mod votes {
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().legacy_send(&key1, 100);
-        let send1 = node1.process_deprecated(send1);
-        node1.election_schedulers.manual.push(send1.clone().into());
-
-        assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
+        let send1 = node1.process(send1);
+        assert_timely2(|| node1.is_active_hash(&send1.hash()));
 
         let vote1 = Arc::new(Vote::new(
             &DEV_GENESIS_KEY,
@@ -99,7 +97,7 @@ fn epoch_open_pending() {
     assert_eq!(status, BlockError::GapEpochOpenPending);
 
     // New block to process epoch open
-    node1.process_deprecated(send1);
+    node1.process(send1);
 
     node1.block_processor_queue.push(BlockContext::new(
         epoch_open.clone().into(),

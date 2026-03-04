@@ -138,9 +138,8 @@ fn receivable_processor_confirm_insufficient_pos() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(Account::ZERO, 1);
-    node1.process_deprecated(send1.clone());
-
-    start_election(&node1, &send1.hash());
+    node1.process(send1.clone());
+    assert_timely2(|| node1.is_active_hash(&send1.hash()));
     let key1 = PrivateKey::new();
     let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
     let channel = make_fake_channel(&node1);
@@ -181,9 +180,8 @@ fn receivable_processor_confirm_sufficient_pos() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(Account::ZERO, 1);
-    node1.process_deprecated(send1.clone());
-
-    start_election(&node1, &send1.hash());
+    node1.process(send1.clone());
+    assert_timely2(|| node1.is_active_hash(&send1.hash()));
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
     let channel = make_fake_channel(&node1);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(

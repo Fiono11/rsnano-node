@@ -5,6 +5,7 @@ pub struct NodeFlags {
     pub disable_backup: bool,
     pub disable_ongoing_bootstrap: bool, // For testing only
     pub disable_rep_crawler: bool,
+    /// Disables the AEC ticker
     pub disable_request_loop: bool, // For testing only
     pub disable_providing_telemetry_metrics: bool,
     pub disable_block_processor_republishing: bool,

@@ -18,7 +18,7 @@ fn single() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let latest1 = node.latest(&DEV_GENESIS_ACCOUNT);
     let send1 = lattice.genesis().send(&key1, 100);
-    node.process_deprecated(send1.clone());
+    node.process(send1.clone());
     assert_eq!(node.ledger.confirmed().block_exists(&send1.hash()), false);
     node.ledger.confirm(send1.hash());
 
@@ -354,7 +354,7 @@ fn conflict_rollback_confirmed() {
     // create one side of a forked transaction on node1
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let fork1a = lattice.genesis().send(&key1, 100);
-    node1.process_deprecated(fork1a.clone());
+    node1.process(fork1a.clone());
     node1.confirm(fork1a.hash());
 
     // create the other side of the fork on node2
@@ -385,9 +385,9 @@ fn observers() {
     let mut system = System::new();
     let node1 = system.make_node();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let key1 = PrivateKey::new();
+    let key1 = PrivateKey::from(123);
     let send = lattice.genesis().send(&key1, 100);
-    node1.process_deprecated(send.clone());
+    node1.process(send.clone());
     node1.confirm(send.hash());
     assert_eq!(
         node1.stats.count(

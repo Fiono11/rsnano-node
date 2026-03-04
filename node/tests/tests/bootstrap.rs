@@ -1,9 +1,12 @@
 use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
-use rsnano_node::{bootstrap::BootstrapConfig, config::NodeConfig};
+use rsnano_node::{
+    bootstrap::BootstrapConfig,
+    config::{NodeConfig, NodeFlags},
+};
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{Account, PrivateKey};
 use std::time::Duration;
-use test_helpers::{System, assert_always_eq, assert_timely};
+use test_helpers::{System, assert_always_eq, assert_timely, assert_timely2};
 
 /**
  * Tests the base case for returning
@@ -14,47 +17,62 @@ fn account_base() {
     let node0 = system.make_node();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(Account::ZERO, 1);
-    node0.process_deprecated(send1.clone());
+    node0.local_block_broadcaster.stop();
+    node0.process(send1.clone());
     let node1 = system.make_node();
     assert_timely(Duration::from_secs(5), || node1.block_exists(&send1.hash()));
 }
 
 /**
- * Tests that bootstrap_ascending will return multiple new blocks in-order
+ * Tests that bootstrap will return multiple new blocks in-order
  */
 #[test]
 fn account_inductive() {
     let mut system = System::new();
-    let node0 = system.make_node();
+    let node0 = system
+        .build_node()
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            enable_optimistic_scheduler: false,
+            ..System::default_config_without_backlog_scan()
+        })
+        .finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice.genesis().send(Account::ZERO, 1);
     let send2 = lattice.genesis().send(Account::ZERO, 1);
-    node0.process_deprecated(send1);
-    node0.process_deprecated(send2.clone());
+    node0.process(send1);
+    node0.process(send2.clone());
     let node1 = system.make_node();
-    assert_timely(Duration::from_secs(50), || {
+    assert_timely(Duration::from_secs(30), || {
         node1.block_exists(&send2.hash())
     });
 }
 
 /**
- * Tests that bootstrap_ascending will return multiple new blocks in-order
+ * Tests that bootstrap will return multiple new blocks in-order
  */
 
 #[test]
 fn trace_base() {
     let mut system = System::new();
-    let node0 = system.make_node();
+    let node0 = system
+        .build_node()
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            enable_optimistic_scheduler: false,
+            ..System::default_config_without_backlog_scan()
+        })
+        .finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
     let send1 = lattice.genesis().send(&key, 1);
     let receive1 = lattice.account(&key).receive(&send1);
-    node0.process_deprecated(send1);
-    node0.process_deprecated(receive1.clone());
+    node0.process(send1);
+    node0.process(receive1.clone());
     let node1 = system.make_node();
-    assert_timely(Duration::from_secs(10), || {
-        node1.block_exists(&receive1.hash())
-    });
+    assert_timely2(|| node1.block_exists(&receive1.hash()));
 }
 
 /// Tests that bootstrap will prioritize existing accounts with outdated frontiers
