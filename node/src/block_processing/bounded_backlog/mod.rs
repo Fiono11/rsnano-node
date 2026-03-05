@@ -101,7 +101,6 @@ impl BoundedBacklog {
 
         let rollback_loop = RollbackLoop {
             state: self.state.clone(),
-            config: self.config.clone(),
             stats: self.stats.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,
@@ -284,6 +283,7 @@ pub(super) struct BoundedBacklogState {
     index: BacklogIndex,
     config: BoundedBacklogConfig,
     bucket_count: usize,
+    backlog_size: u64,
 }
 
 impl BoundedBacklogState {
@@ -294,26 +294,32 @@ impl BoundedBacklogState {
             index: BacklogIndex::new(prio_bucket_count()),
             config,
             bucket_count: prio_bucket_count(),
+            backlog_size: 0,
         }
     }
 
-    fn rollback_needed(&self, backlog_size: u64) -> bool {
+    fn rollback_needed(&self) -> bool {
         if self.cool_down {
             return false;
         }
 
         // Both ledger and tracked backlog must be over the threshold
         let max_backlog = self.config.max_backlog;
-        backlog_size > max_backlog && self.index.len() > max_backlog as usize
+        self.backlog_size > max_backlog && self.index.len() > max_backlog as usize
     }
 
-    fn gather_targets(
-        &self,
-        max_count: usize,
-        can_rollback: impl Fn(&BlockHash) -> bool,
-    ) -> Vec<BlockHash> {
+    fn target_count(&self) -> u64 {
+        self.backlog_size.saturating_sub(self.config.max_backlog)
+    }
+
+    fn batch_size(&self) -> usize {
+        min(self.target_count(), self.config.batch_size as u64) as usize
+    }
+
+    fn gather_targets(&self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
         let mut targets = Vec::new();
 
+        let max_count = self.batch_size();
         // Start rolling back from lowest index buckets first
         for bucket in 0..self.bucket_count {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks

@@ -14,7 +14,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType};
 
 use test_helpers::{
     System, assert_always_eq, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, start_election,
+    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel,
 };
 
 #[test]

@@ -1,5 +1,4 @@
 use std::{
-    cmp::min,
     sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
@@ -8,14 +7,13 @@ use rsnano_ledger::Ledger;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
 
-use super::{BoundedBacklogConfig, BoundedBacklogState};
+use super::BoundedBacklogState;
 use crate::block_processing::bounded_backlog::stats::BoundedBacklogStats;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
 pub(super) struct RollbackLoop {
     pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
-    pub(super) config: BoundedBacklogConfig,
     pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
@@ -25,11 +23,11 @@ impl RollbackLoop {
     pub(super) fn run_process(&self) {
         let mut state = self.state.lock();
         while !state.stopped {
-            let backlog_size = self.ledger.backlog_size();
+            state.backlog_size = self.ledger.backlog_size();
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.rollback_needed(backlog_size)
+                    !i.stopped && !i.rollback_needed()
                 })
                 .0;
 
@@ -37,22 +35,16 @@ impl RollbackLoop {
                 return;
             }
 
-            if !state.rollback_needed(backlog_size) {
+            if !state.rollback_needed() {
                 continue;
             }
 
             self.stats.loop_rollback.fetch_add(1, Relaxed);
 
-            // Calculate the number of targets to rollback
-            let backlog = self.ledger.backlog_size();
-            let target_count = backlog.saturating_sub(self.config.max_backlog);
-
-            let targets = state.gather_targets(
-                min(target_count as usize, self.config.batch_size),
-                &self.can_roll_back,
-            );
+            let targets = state.gather_targets(&self.can_roll_back);
 
             if !targets.is_empty() {
+                let target_count = state.target_count();
                 drop(state);
                 self.stats
                     .gathered_targets

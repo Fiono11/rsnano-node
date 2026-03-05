@@ -13,8 +13,7 @@ use rsnano_types::{
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_timely, assert_timely_eq2, assert_timely2, make_fake_channel, start_election,
-    upgrade_epoch,
+    System, assert_timely, assert_timely_eq2, assert_timely2, make_fake_channel, upgrade_epoch,
 };
 
 #[test]
