@@ -25,10 +25,11 @@ impl RollbackLoop {
     pub(super) fn run_process(&self) {
         let mut state = self.state.lock();
         while !state.stopped {
+            let backlog_size = self.ledger.backlog_size();
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.rollback_needed(self.ledger.backlog_size())
+                    !i.stopped && !i.rollback_needed(backlog_size)
                 })
                 .0;
 
@@ -36,7 +37,7 @@ impl RollbackLoop {
                 return;
             }
 
-            if !state.rollback_needed(self.ledger.backlog_size()) {
+            if !state.rollback_needed(backlog_size) {
                 continue;
             }
 
@@ -65,15 +66,6 @@ impl RollbackLoop {
                 for hash in &processed {
                     state.index.erase_hash(hash);
                 }
-            }
-
-            if targets.is_empty() {
-                // Cooldown, this should not happen in normal operation
-                self.stats.no_targets.fetch_add(1, Relaxed);
-                state = self
-                    .state
-                    .wait_timeout_while(state, Duration::from_millis(100), |i| !i.stopped)
-                    .0;
             }
         }
     }

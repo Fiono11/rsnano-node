@@ -8,7 +8,6 @@ pub(crate) struct BoundedBacklogStats {
     pub(crate) scanned: AtomicUsize,
     pub(crate) loop_rollback: AtomicUsize,
     pub(crate) gathered_targets: AtomicUsize,
-    pub(crate) no_targets: AtomicUsize,
 }
 
 impl StatsSource for BoundedBacklogStats {
@@ -20,11 +19,6 @@ impl StatsSource for BoundedBacklogStats {
             "bounded_backlog",
             "gathered_targets",
             self.gathered_targets.load(Relaxed),
-        );
-        result.insert(
-            "bounded_backlog",
-            "no_targets",
-            self.no_targets.load(Relaxed),
         );
     }
 }
@@ -40,7 +34,6 @@ mod tests {
             scanned: AtomicUsize::new(2),
             loop_rollback: AtomicUsize::new(3),
             gathered_targets: AtomicUsize::new(4),
-            no_targets: AtomicUsize::new(5),
         };
 
         let mut result = StatsCollection::new();
@@ -50,6 +43,5 @@ mod tests {
         assert_eq!(result.get("bounded_backlog", "scanned"), 2);
         assert_eq!(result.get("bounded_backlog", "loop"), 3);
         assert_eq!(result.get("bounded_backlog", "gathered_targets"), 4);
-        assert_eq!(result.get("bounded_backlog", "no_targets"), 5);
     }
 }
