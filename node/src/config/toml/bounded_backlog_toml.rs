@@ -19,7 +19,7 @@ impl BoundedBacklogConfig {
         };
 
         if let Some(size) = backlog_toml.batch_size {
-            self.batch_size = size;
+            self.rollback_batch_size = size;
         }
         if let Some(rate) = backlog_toml.scan_rate {
             self.scan_rate = rate;
@@ -31,7 +31,7 @@ impl From<&NodeConfig> for BoundedBacklogToml {
     fn from(value: &NodeConfig) -> Self {
         Self {
             enable: Some(value.enable_bounded_backlog),
-            batch_size: Some(value.bounded_backlog.batch_size),
+            batch_size: Some(value.bounded_backlog.rollback_batch_size),
             scan_rate: Some(value.bounded_backlog.scan_rate),
         }
     }

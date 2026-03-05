@@ -33,7 +33,8 @@ pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
     pub max_backlog: u64,
-    pub batch_size: usize,
+    /// The rollback is done in batches of this configured size
+    pub rollback_batch_size: usize,
     pub scan_rate: usize,
 }
 
@@ -41,7 +42,7 @@ impl Default for BoundedBacklogConfig {
     fn default() -> Self {
         Self {
             max_backlog: 100_000,
-            batch_size: 32,
+            rollback_batch_size: 32,
             scan_rate: 64,
         }
     }
@@ -115,14 +116,14 @@ impl BoundedBacklog {
             self.state.clone(),
             self.stats.clone(),
             self.ledger.clone(),
-            self.config.batch_size,
+            self.config.rollback_batch_size,
         );
 
         let handle = self.rate_limit_thread_factory.spawn(
             "Bounded b scan",
             self.cancel_token.clone(),
             self.config.scan_rate,
-            self.config.batch_size,
+            self.config.rollback_batch_size,
             move || {
                 confirmed_scan.scan_batch();
             },

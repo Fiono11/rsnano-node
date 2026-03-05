@@ -50,7 +50,7 @@ impl RollbackLoop {
             let targets = state.gather_targets(&self.can_roll_back);
 
             if !targets.is_empty() {
-                let target_count = state.target_count();
+                let target_count = state.rollback_target_count();
                 drop(state);
                 self.stats
                     .gathered_targets
@@ -126,28 +126,35 @@ impl BoundedBacklogState {
         self.backlog_size > max_backlog && self.index.len() > max_backlog as usize
     }
 
-    fn target_count(&self) -> u64 {
+    /// The number of rollbacks required in order to reach the max allowed backlog
+    fn rollback_target_count(&self) -> u64 {
         self.backlog_size.saturating_sub(self.config.max_backlog)
     }
 
-    fn batch_size(&self) -> usize {
-        min(self.target_count(), self.config.batch_size as u64) as usize
+    fn rollback_batch_size(&self) -> usize {
+        min(
+            self.rollback_target_count(),
+            self.config.rollback_batch_size as u64,
+        ) as usize
     }
 
     fn gather_targets(&self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
         let mut targets = Vec::new();
 
-        let max_count = self.batch_size();
+        let mut space_left = self.rollback_batch_size();
         // Start rolling back from lowest index buckets first
         for bucket in 0..self.bucket_count {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
             if self.index.len_of_bucket(bucket) > self.bucket_threshold() {
-                let count = min(max_count, self.config.batch_size);
-                let top = self.index.top(bucket, count, |hash| {
+                let top = self.index.top(bucket, space_left, |hash| {
                     // Only rollback if the block is not being used by the node
                     can_rollback(hash)
                 });
+                space_left = space_left.saturating_sub(top.len());
                 targets.extend(top);
+                if space_left == 0 {
+                    break;
+                }
             }
         }
         targets

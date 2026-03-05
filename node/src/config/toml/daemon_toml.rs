@@ -760,8 +760,8 @@ mod tests {
             default_cfg.node.enable_bounded_backlog
         );
         assert_ne!(
-            deserialized.node.bounded_backlog.batch_size,
-            default_cfg.node.bounded_backlog.batch_size
+            deserialized.node.bounded_backlog.rollback_batch_size,
+            default_cfg.node.bounded_backlog.rollback_batch_size
         );
         assert_ne!(
             deserialized.node.bounded_backlog.scan_rate,

@@ -175,7 +175,7 @@ mod tests {
     fn test_state() -> BoundedBacklogState {
         BoundedBacklogState::new(BoundedBacklogConfig {
             max_backlog: 0,
-            batch_size: TEST_BATCH_SIZE,
+            rollback_batch_size: TEST_BATCH_SIZE,
             scan_rate: 0,
         })
     }
