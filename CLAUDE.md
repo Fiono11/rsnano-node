@@ -108,7 +108,7 @@ Long-running work uses `ThreadPool` (from `rsnano_utils::thread_pool`) and `Tick
 
 After finishing editing source files:
 1. Run `cargo fmt --all` to format the code.
-2. Run `cargo test -q` to verify all tests pass.
+2. Run `cargo test --lib -q` to verify all unit tests pass.
 
 ## Feature Flags
 
