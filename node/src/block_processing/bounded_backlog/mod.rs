@@ -1,6 +1,6 @@
+mod app;
 mod backlog_logic;
 mod ledger_adapter;
-mod rollback_loop;
 
 use std::{
     sync::{Arc, Mutex},
@@ -18,7 +18,7 @@ use rsnano_utils::{
 use super::{backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo};
 use crate::{
     block_processing::bounded_backlog::{
-        backlog_logic::BoundedBacklogLogic, rollback_loop::RollbackLoop,
+        app::BoundedBacklogApp, backlog_logic::BoundedBacklogLogic,
     },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
@@ -34,13 +34,13 @@ pub struct BoundedBacklog {
 
 impl BoundedBacklog {
     pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
-        let state = Arc::new(NullableCondvarMutex::new(BoundedBacklogLogic::new(
+        let logic = Arc::new(NullableCondvarMutex::new(BoundedBacklogLogic::new(
             config.clone(),
         )));
 
         Self {
             thread: Mutex::new(None),
-            logic: state,
+            logic,
             ledger,
             can_roll_back: Mutex::new(None),
         }
@@ -63,7 +63,7 @@ impl BoundedBacklog {
             .take()
             .unwrap_or_else(|| Box::new(|_| true));
 
-        let rollback_loop = RollbackLoop {
+        let rollback_loop = BoundedBacklogApp {
             logic: self.logic.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,

@@ -10,7 +10,7 @@ Under heavy load or during a network partition, unconfirmed blocks can accumulat
 
 Blocks are tracked in a `BacklogIndex` organized into priority buckets based on account balance (via `prio_bucket_index`). Lower-balance accounts occupy lower-indexed buckets and are rolled back first.
 
-### Rollback thread (`RollbackLoop`)
+### Rollback thread (`BoundedBacklogApp`)
 
 A single background thread wakes up whenever both of the following conditions are true:
 1. The ledger's total unconfirmed block count exceeds `max_backlog`.
@@ -53,5 +53,5 @@ The `set_cooldown(true)` method pauses rollbacks without stopping the thread. Th
 | File | Purpose |
 |---|---|
 | `mod.rs` | `BoundedBacklog` main struct and configuration |
-| `rollback_loop.rs` | Background thread that detects overflow and executes rollbacks |
+| `app.rs` | Application layer (`BoundedBacklogApp`) that detects overflow and executes rollbacks |
 | `ledger_adapter.rs` | Bridges ledger events to the bounded backlog |

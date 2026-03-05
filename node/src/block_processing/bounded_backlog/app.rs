@@ -11,13 +11,13 @@ use super::backlog_logic::BoundedBacklogLogic;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
-pub(crate) struct RollbackLoop {
+pub(crate) struct BoundedBacklogApp {
     pub(super) logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
 }
 
-impl RollbackLoop {
+impl BoundedBacklogApp {
     pub(crate) fn run(&self) {
         let mut logic = self.logic.lock();
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
