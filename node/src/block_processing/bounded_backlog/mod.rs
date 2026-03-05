@@ -27,7 +27,7 @@ pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 
 pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,
-    state: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
+    logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     ledger: Arc<Ledger>,
     can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
 }
@@ -40,7 +40,7 @@ impl BoundedBacklog {
 
         Self {
             thread: Mutex::new(None),
-            state,
+            logic: state,
             ledger,
             can_roll_back: Mutex::new(None),
         }
@@ -64,7 +64,7 @@ impl BoundedBacklog {
             .unwrap_or_else(|| Box::new(|_| true));
 
         let rollback_loop = RollbackLoop {
-            state: self.state.clone(),
+            logic: self.logic.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,
         };
@@ -78,8 +78,8 @@ impl BoundedBacklog {
     }
 
     pub fn stop(&self) {
-        self.state.lock().stop();
-        self.state.notify_all();
+        self.logic.lock().stop();
+        self.logic.notify_all();
 
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
@@ -93,8 +93,8 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.state.lock().set_cool_down(cool_down);
-        self.state.notify_all();
+        self.logic.lock().set_cool_down(cool_down);
+        self.logic.notify_all();
     }
 
     /// Track unconfirmed blocks
@@ -110,21 +110,21 @@ impl BoundedBacklog {
     }
 
     pub fn erase_accounts(&self, accounts: &[Account]) {
-        let mut guard = self.state.lock();
+        let mut guard = self.logic.lock();
         for account in accounts {
             guard.index.erase_account(account);
         }
     }
 
     pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        let mut guard = self.state.lock();
+        let mut guard = self.logic.lock();
         for account in accounts.into_iter() {
             guard.index.erase_hash(&account);
         }
     }
 
     fn contains(&self, hash: &BlockHash) -> bool {
-        self.state.lock().index.contains(hash)
+        self.logic.lock().index.contains(hash)
     }
 
     pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
@@ -175,7 +175,7 @@ impl BoundedBacklog {
         let priority = any.block_priority(block);
         let bucket_index = prio_bucket_index(priority.balance);
 
-        self.state.lock().index.insert(BacklogEntry {
+        self.logic.lock().index.insert(BacklogEntry {
             hash: block.hash(),
             account: block.account(),
             bucket_index,
@@ -198,13 +198,13 @@ impl Drop for BoundedBacklog {
 
 impl StatsSource for BoundedBacklog {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.state.lock().collect_stats(result);
+        self.logic.lock().collect_stats(result);
     }
 }
 
 impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
-        let guard = self.state.lock();
+        let guard = self.logic.lock();
         ContainerInfo::builder()
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())

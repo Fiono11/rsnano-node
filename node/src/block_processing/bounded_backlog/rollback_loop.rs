@@ -12,26 +12,26 @@ use super::backlog_logic::BoundedBacklogLogic;
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
 pub(crate) struct RollbackLoop {
-    pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
+    pub(super) logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
 }
 
 impl RollbackLoop {
     pub(crate) fn run(&self) {
-        let mut state = self.state.lock();
-        let mut targets = Vec::with_capacity(state.config.rollback_batch_size);
+        let mut logic = self.logic.lock();
+        let mut targets = Vec::with_capacity(logic.rollback_batch_size());
 
-        while !state.stopped() {
-            state.set_current_backlog_size(self.ledger.backlog_size());
-            state = self
-                .state
-                .wait_timeout_while(state, Duration::from_secs(1), |i| {
+        while !logic.stopped() {
+            logic.set_current_backlog_size(self.ledger.backlog_size());
+            logic = self
+                .logic
+                .wait_timeout_while(logic, Duration::from_secs(1), |i| {
                     !i.stopped() && !i.rollback_needed()
                 })
                 .0;
 
-            state = self.run_one(state, &mut targets);
+            logic = self.run_one(logic, &mut targets);
         }
     }
 
@@ -53,7 +53,7 @@ impl RollbackLoop {
             self.ledger
                 .roll_back_batch(&*targets, target_count as usize, &self.can_roll_back);
 
-            state = self.state.lock();
+            state = self.logic.lock();
         }
 
         state

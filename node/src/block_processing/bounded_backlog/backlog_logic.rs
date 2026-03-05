@@ -70,6 +70,10 @@ impl BoundedBacklogLogic {
         self.current_backlog_size = size;
     }
 
+    pub(crate) fn rollback_batch_size(&self) -> usize {
+        self.config.rollback_batch_size
+    }
+
     pub(crate) fn rollback_needed(&self) -> bool {
         if self.cool_down {
             return false;
