@@ -22,23 +22,8 @@ use crate::{
     },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
+pub use backlog_logic::BoundedBacklogConfig;
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct BoundedBacklogConfig {
-    pub max_backlog: u64,
-    /// The rollback is done in batches of this configured size
-    pub rollback_batch_size: usize,
-}
-
-impl Default for BoundedBacklogConfig {
-    fn default() -> Self {
-        Self {
-            max_backlog: 100_000,
-            rollback_batch_size: 32,
-        }
-    }
-}
 
 pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,

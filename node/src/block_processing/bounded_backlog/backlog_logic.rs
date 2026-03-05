@@ -4,9 +4,28 @@ use rsnano_types::BlockHash;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::{
-    block_processing::{BoundedBacklogConfig, backlog_index::BacklogIndex},
+    block_processing::backlog_index::BacklogIndex,
     consensus::election_schedulers::priority::prio_bucket_count,
 };
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoundedBacklogConfig {
+    /// The maximum allowed count of unconfirmed blocks, before the bounded backlog
+    /// starts rolling back blocks
+    pub max_backlog: u64,
+
+    /// The rollback is done in batches of this configured size
+    pub rollback_batch_size: usize,
+}
+
+impl Default for BoundedBacklogConfig {
+    fn default() -> Self {
+        Self {
+            max_backlog: 100_000,
+            rollback_batch_size: 32,
+        }
+    }
+}
 
 pub(crate) struct BoundedBacklogLogic {
     stopped: bool,
