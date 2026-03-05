@@ -1,4 +1,5 @@
 use std::{
+    cmp::min,
     sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
@@ -7,12 +8,17 @@ use rsnano_ledger::Ledger;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
 
-use super::BoundedBacklogState;
-use crate::block_processing::bounded_backlog::stats::BoundedBacklogStats;
+use crate::{
+    block_processing::{
+        BoundedBacklogConfig, backlog_index::BacklogIndex,
+        bounded_backlog::stats::BoundedBacklogStats,
+    },
+    consensus::election_schedulers::priority::prio_bucket_count,
+};
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
-pub(super) struct RollbackLoop {
+pub(crate) struct RollbackLoop {
     pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
@@ -20,7 +26,7 @@ pub(super) struct RollbackLoop {
 }
 
 impl RollbackLoop {
-    pub(super) fn run_process(&self) {
+    pub(crate) fn run_process(&self) {
         let mut state = self.state.lock();
         while !state.stopped {
             state.backlog_size = self.ledger.backlog_size();
@@ -86,5 +92,68 @@ impl RollbackLoop {
         }
 
         processed_hashes
+    }
+}
+
+pub(crate) struct BoundedBacklogState {
+    pub(crate) stopped: bool,
+    pub(crate) cool_down: bool,
+    pub(crate) index: BacklogIndex,
+    config: BoundedBacklogConfig,
+    bucket_count: usize,
+    backlog_size: u64,
+}
+
+impl BoundedBacklogState {
+    pub(crate) fn new(config: BoundedBacklogConfig) -> Self {
+        Self {
+            stopped: false,
+            cool_down: false,
+            index: BacklogIndex::new(prio_bucket_count()),
+            config,
+            bucket_count: prio_bucket_count(),
+            backlog_size: 0,
+        }
+    }
+
+    pub(crate) fn rollback_needed(&self) -> bool {
+        if self.cool_down {
+            return false;
+        }
+
+        // Both ledger and tracked backlog must be over the threshold
+        let max_backlog = self.config.max_backlog;
+        self.backlog_size > max_backlog && self.index.len() > max_backlog as usize
+    }
+
+    fn target_count(&self) -> u64 {
+        self.backlog_size.saturating_sub(self.config.max_backlog)
+    }
+
+    fn batch_size(&self) -> usize {
+        min(self.target_count(), self.config.batch_size as u64) as usize
+    }
+
+    fn gather_targets(&self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
+        let mut targets = Vec::new();
+
+        let max_count = self.batch_size();
+        // Start rolling back from lowest index buckets first
+        for bucket in 0..self.bucket_count {
+            // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
+            if self.index.len_of_bucket(bucket) > self.bucket_threshold() {
+                let count = min(max_count, self.config.batch_size);
+                let top = self.index.top(bucket, count, |hash| {
+                    // Only rollback if the block is not being used by the node
+                    can_rollback(hash)
+                });
+                targets.extend(top);
+            }
+        }
+        targets
+    }
+
+    fn bucket_threshold(&self) -> usize {
+        self.config.max_backlog as usize / self.bucket_count
     }
 }
