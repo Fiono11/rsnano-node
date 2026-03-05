@@ -8,7 +8,7 @@ use rsnano_utils::{
 
 use crate::{
     NodeEvent,
-    block_processing::{BlockProcessorQueue, BoundedBacklog, LedgerPipelineEvent},
+    block_processing::{BlockProcessorQueue, LedgerPipelineEvent, bounded_backlog::BoundedBacklog},
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{

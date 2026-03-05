@@ -51,12 +51,11 @@ use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
-    block_processing::LedgerPipelineEvent,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
-        BoundedBacklog, BoundedBacklogLedgerAdapter, LocalBlockBroadcaster,
-        LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin, ProcessQueueConfig,
-        UncheckedBlockReenqueuer, UncheckedMap,
+        LedgerPipelineEvent, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
+        LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
+        bounded_backlog::{BoundedBacklog, BoundedBacklogLedgerAdapter, BoundedBacklogThread},
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -140,6 +139,7 @@ pub struct Node {
     pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
     pub bounded_backlog: Arc<BoundedBacklog>,
+    pub bounded_backlog_thread: Arc<BoundedBacklogThread>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
     message_processor: Mutex<MessageProcessor>,
@@ -804,16 +804,20 @@ impl Node {
             ledger.clone(),
         ));
 
+        let bounded_backlog_thread = Arc::new(BoundedBacklogThread::new2(bounded_backlog.clone()));
+
         if config.enable_bounded_backlog {
             info!(
                 "Bounded backlog enabled: max backlog={}, batch_size={}",
                 config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
             );
 
-            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(bounded_backlog.clone()));
+            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(
+                bounded_backlog_thread.clone(),
+            ));
 
             // Activate accounts with unconfirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog);
+            let backlog_w = Arc::downgrade(&bounded_backlog_thread);
             backlog_scan.on_unconfirmed_found(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
                     backlog.activate_batch(batch);
@@ -821,7 +825,7 @@ impl Node {
             });
 
             // Erase accounts with all confirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog);
+            let backlog_w = Arc::downgrade(&bounded_backlog_thread);
             backlog_scan.on_up_to_date(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
                     backlog.erase_accounts(batch);
@@ -1318,7 +1322,7 @@ impl Node {
         stats_collector.add_source(bootstrapper.clone());
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
-        stats_collector.add_source(bounded_backlog.clone());
+        stats_collector.add_source(bounded_backlog_thread.clone());
 
         let mut container_info = ContainerInfoFactory::new();
         container_info.add("work", work_factory.clone());
@@ -1344,7 +1348,7 @@ impl Node {
         container_info.add("local_block_broadcaster", local_block_broadcaster.clone());
         container_info.add("rep_tiers", rep_tiers.clone());
         container_info.add("inbound_msg_queue", inbound_message_queue.clone());
-        container_info.add("bounded_backlog", bounded_backlog.clone());
+        container_info.add("bounded_backlog", bounded_backlog_thread.clone());
         container_info.add("vote_rebroadcaster", vote_rebroadcast_queue.clone());
         container_info.add("fork_cache", fork_cache.clone());
         container_info.add("event_queues", event_queues_info);
@@ -1386,6 +1390,7 @@ impl Node {
             request_aggregator,
             backlog_scan,
             bounded_backlog,
+            bounded_backlog_thread,
             bootstrapper,
             local_block_broadcaster,
             network_threads,
@@ -1624,7 +1629,7 @@ impl Node {
         self.election_schedulers.start();
         self.backlog_scan.start();
         if self.config.enable_bounded_backlog {
-            self.bounded_backlog.start();
+            self.bounded_backlog_thread.start();
         }
         if self.config.enable_bootstrap_responder {
             self.bootstrap_server.start();
@@ -1661,6 +1666,7 @@ impl Node {
         self.backlog_scan.stop();
         self.bootstrapper.stop();
         self.bounded_backlog.stop();
+        self.bounded_backlog_thread.stop();
         self.rep_crawler.stop();
         self.block_processor.stop();
         self.request_aggregator.stop();

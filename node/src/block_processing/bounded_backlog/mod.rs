@@ -15,20 +15,27 @@ use rsnano_utils::{
 };
 
 use super::backlog_scan::UnconfirmedInfo;
-use crate::block_processing::bounded_backlog::app::BoundedBacklogApp;
+pub use app::BoundedBacklog;
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 pub use logic::BoundedBacklogConfig;
 
-pub struct BoundedBacklog {
+pub struct BoundedBacklogThread {
     thread: Mutex<Option<JoinHandle<()>>>,
-    app: Arc<BoundedBacklogApp>,
+    app: Arc<BoundedBacklog>,
 }
 
-impl BoundedBacklog {
+impl BoundedBacklogThread {
     pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
         Self {
             thread: Mutex::new(None),
-            app: Arc::new(BoundedBacklogApp::new(config, ledger)),
+            app: Arc::new(BoundedBacklog::new(config, ledger)),
+        }
+    }
+
+    pub(crate) fn new2(app: Arc<BoundedBacklog>) -> Self {
+        Self {
+            thread: Mutex::new(None),
+            app,
         }
     }
 
@@ -85,20 +92,20 @@ impl BoundedBacklog {
     }
 }
 
-impl Drop for BoundedBacklog {
+impl Drop for BoundedBacklogThread {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
         debug_assert!(self.thread.lock().unwrap().is_none());
     }
 }
 
-impl StatsSource for BoundedBacklog {
+impl StatsSource for BoundedBacklogThread {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.app.collect_stats(result);
     }
 }
 
-impl ContainerInfoProvider for BoundedBacklog {
+impl ContainerInfoProvider for BoundedBacklogThread {
     fn container_info(&self) -> ContainerInfo {
         self.app.container_info()
     }

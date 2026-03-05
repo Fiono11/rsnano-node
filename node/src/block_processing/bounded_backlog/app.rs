@@ -14,22 +14,28 @@ use rsnano_utils::{
 use super::logic::BoundedBacklogLogic;
 use crate::{
     block_processing::{
-        BoundedBacklogConfig, backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
+        backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
+        bounded_backlog::BoundedBacklogConfig,
     },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
-pub(crate) struct BoundedBacklogApp {
-    pub(super) logic: NullableCondvarMutex<BoundedBacklogLogic>,
-    pub(super) ledger: Arc<Ledger>,
+/// This struct belongs to the application layer
+pub struct BoundedBacklog {
+    logic: NullableCondvarMutex<BoundedBacklogLogic>,
+    ledger: Arc<Ledger>,
 }
 
-impl BoundedBacklogApp {
+impl BoundedBacklog {
     pub fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
         let logic = NullableCondvarMutex::new(BoundedBacklogLogic::new(config));
         Self { logic, ledger }
+    }
+
+    pub fn new_null() -> Self {
+        Self::new(Default::default(), Ledger::new_null().into())
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
@@ -175,13 +181,13 @@ impl BoundedBacklogApp {
     }
 }
 
-impl StatsSource for BoundedBacklogApp {
+impl StatsSource for BoundedBacklog {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.logic.lock().collect_stats(result);
     }
 }
 
-impl ContainerInfoProvider for BoundedBacklogApp {
+impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
         let guard = self.logic.lock();
         ContainerInfo::builder()

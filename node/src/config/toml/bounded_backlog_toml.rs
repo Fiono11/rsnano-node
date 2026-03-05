@@ -1,5 +1,5 @@
 use super::NodeToml;
-use crate::{block_processing::BoundedBacklogConfig, config::NodeConfig};
+use crate::{block_processing::bounded_backlog::BoundedBacklogConfig, config::NodeConfig};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]

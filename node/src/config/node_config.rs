@@ -15,7 +15,8 @@ use rsnano_work::OpenClConfig;
 use super::{DEV_NETWORK_PARAMS, NetworkParams, Networks, websocket_config::WebsocketConfig};
 use crate::{
     block_processing::{
-        BacklogScanConfig, BoundedBacklogConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
+        BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
+        bounded_backlog::BoundedBacklogConfig,
     },
     bootstrap::{BootstrapConfig, BootstrapServerConfig},
     cementation::ConfirmingSetConfig,
