@@ -3,10 +3,11 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::{AnySet, Ledger, OwningAnySet, ProcessResult};
+use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessResult};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
+    EventHandler, EventHandlerMut,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
@@ -14,7 +15,7 @@ use rsnano_utils::{
 use super::logic::BoundedBacklogLogic;
 use crate::{
     block_processing::{
-        backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
+        LedgerPipelineEvent, backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
         bounded_backlog::BoundedBacklogConfig,
     },
     consensus::election_schedulers::priority::prio_bucket_index,
@@ -89,14 +90,14 @@ impl BoundedBacklog {
         state
     }
 
-    pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
+    pub fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
         let mut any = self.ledger.any();
         for info in batch {
-            self.activate(&mut any, &info.account_info, &info.conf_info);
+            self.process_unconfirmed_account(&mut any, &info.account_info, &info.conf_info);
         }
     }
 
-    fn activate<'a>(
+    fn process_unconfirmed_account<'a>(
         &'a self,
         any: &mut OwningAnySet<'a>,
         account_info: &AccountInfo,
@@ -114,7 +115,7 @@ impl BoundedBacklog {
             }
 
             // Check if the block is already in the backlog, avoids unnecessary ledger lookups
-            if self.contains(&blk.hash()) {
+            if self.logic.lock().index.contains(&blk.hash()) {
                 break;
             }
 
@@ -157,23 +158,14 @@ impl BoundedBacklog {
         })
     }
 
-    fn contains(&self, hash: &BlockHash) -> bool {
-        self.logic.lock().index.contains(hash)
-    }
-
-    pub fn remove(&self, confirmed: &Vec<(SavedBlock, BlockHash)>) {
-        // Remove confirmed blocks from the backlog
-        self.erase_hashes(confirmed.iter().map(|i| i.0.hash()));
-    }
-
-    pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
+    pub fn remove_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
         let mut guard = self.logic.lock();
         for account in accounts.into_iter() {
             guard.index.erase_hash(&account);
         }
     }
 
-    pub fn erase_accounts(&self, accounts: &[Account]) {
+    pub fn remove_accounts(&self, accounts: &[Account]) {
         let mut guard = self.logic.lock();
         for account in accounts {
             guard.index.erase_account(account);
@@ -194,5 +186,23 @@ impl ContainerInfoProvider for BoundedBacklog {
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())
             .finish()
+    }
+}
+
+impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
+    fn handle(&self, event: &LedgerPipelineEvent) {
+        if let LedgerPipelineEvent::Ledger(event) = event {
+            match event {
+                LedgerEvent::BlocksProcessed(results) => {
+                    self.insert_processed(results);
+                }
+                LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.remove_hashes(confirmed.iter().map(|i| i.0.hash()));
+                }
+                LedgerEvent::BlocksRolledBack(rolled_back) => {
+                    self.remove_hashes(rolled_back.hashes());
+                }
+            }
+        }
     }
 }

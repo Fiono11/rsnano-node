@@ -5,7 +5,7 @@ use tracing::debug;
 use crate::block_processing::LedgerPipelineEvent;
 use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult, RepWeightCache};
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot};
-use rsnano_utils::{EventHandler, stats::Stats};
+use rsnano_utils::{EventHandlerMut, stats::Stats};
 
 use super::{ActiveElectionsContainer, ForkCache, VoteCache};
 
@@ -80,7 +80,7 @@ impl ForkInserterPlugin {
     }
 }
 
-impl EventHandler<LedgerPipelineEvent> for ForkInserterPlugin {
+impl EventHandlerMut<LedgerPipelineEvent> for ForkInserterPlugin {
     fn handle(&mut self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
             // Notify elections about alternative (forked) blocks

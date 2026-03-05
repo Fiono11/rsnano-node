@@ -4,7 +4,7 @@ use crate::{
 };
 use rsnano_ledger::LedgerEvent;
 use rsnano_ledger::{BlockError, Ledger};
-use rsnano_utils::EventHandler;
+use rsnano_utils::EventHandlerMut;
 use std::sync::{Arc, RwLock};
 
 pub(crate) struct ForkDetector {
@@ -27,7 +27,7 @@ impl ForkDetector {
     }
 }
 
-impl EventHandler<LedgerPipelineEvent> for ForkDetector {
+impl EventHandlerMut<LedgerPipelineEvent> for ForkDetector {
     fn handle(&mut self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
             for result in results {
@@ -57,7 +57,7 @@ mod tests {
     use rsnano_ledger::{BlockError, Ledger};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Block, BlockPriority, SavedBlock};
-    use rsnano_utils::EventHandler;
+    use rsnano_utils::EventHandlerMut;
     use std::sync::{Arc, RwLock};
 
     #[test]

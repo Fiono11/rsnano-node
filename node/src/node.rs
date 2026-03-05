@@ -56,7 +56,7 @@ use crate::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
         LedgerPipelineEvent, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
         LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
-        bounded_backlog::{BoundedBacklog, BoundedBacklogLedgerAdapter},
+        bounded_backlog::BoundedBacklog,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -685,7 +685,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
         ));
-        ledger_event_handlers.add(ElectionSchedulersPlugin::new(election_schedulers.clone()));
+        ledger_event_handlers.add_mut(ElectionSchedulersPlugin::new(election_schedulers.clone()));
 
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
@@ -818,13 +818,13 @@ impl Node {
                 config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
             );
 
-            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(bounded_backlog.clone()));
+            ledger_event_handlers.add(bounded_backlog.clone());
 
             // Activate accounts with unconfirmed blocks
             let backlog_w = Arc::downgrade(&bounded_backlog);
             backlog_scan.on_unconfirmed_found(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
-                    backlog.activate_batch(batch);
+                    backlog.unconfirmed_accounts_found(batch);
                 }
             });
 
@@ -832,14 +832,14 @@ impl Node {
             let backlog_w = Arc::downgrade(&bounded_backlog);
             backlog_scan.on_up_to_date(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
-                    backlog.erase_accounts(batch);
+                    backlog.remove_accounts(batch);
                 }
             });
         }
 
         let track_conf_times = TrackConfirmationTimes::default();
         let conf_time_stats = track_conf_times.stats();
-        ledger_event_handlers.add(track_conf_times);
+        ledger_event_handlers.add_mut(track_conf_times);
 
         let bootstrapper = Arc::new(Bootstrapper::new(
             block_processor_queue.clone(),
@@ -877,7 +877,7 @@ impl Node {
             !flags.disable_block_processor_republishing,
         ));
 
-        ledger_event_handlers.add(LocalBlockBroadcasterPlugin::new(
+        ledger_event_handlers.add_mut(LocalBlockBroadcasterPlugin::new(
             local_block_broadcaster.clone(),
         ));
 
@@ -1244,12 +1244,12 @@ impl Node {
         {
             use crate::consensus::ForkInserterPlugin;
 
-            ledger_event_handlers.add(ForkInserterPlugin::new(aec_fork_inserter.clone()));
+            ledger_event_handlers.add_mut(ForkInserterPlugin::new(aec_fork_inserter.clone()));
         }
 
         #[cfg(feature = "ledger_snapshots")]
         {
-            ledger_event_handlers.add(ForkDetector::new(
+            ledger_event_handlers.add_mut(ForkDetector::new(
                 ledger.clone(),
                 ledger_snapshots.clone(),
                 active_elections.clone(),

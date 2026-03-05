@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rsnano_ledger::LedgerEvent;
-use rsnano_utils::EventHandler;
+use rsnano_utils::EventHandlerMut;
 
 use crate::block_processing::LedgerPipelineEvent;
 
@@ -17,7 +17,7 @@ impl ElectionSchedulersPlugin {
     }
 }
 
-impl EventHandler<LedgerPipelineEvent> for ElectionSchedulersPlugin {
+impl EventHandlerMut<LedgerPipelineEvent> for ElectionSchedulersPlugin {
     fn handle(&mut self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(event) = event {
             match event {

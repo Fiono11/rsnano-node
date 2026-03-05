@@ -1,25 +1,49 @@
-pub trait EventHandler<T>: Send {
+use std::{ops::Deref, sync::Arc};
+
+pub trait EventHandlerMut<T>: Send {
     fn handle(&mut self, event: &T);
 }
 
+pub trait EventHandler<T>: Send {
+    fn handle(&self, event: &T);
+}
+
+impl<H, T> EventHandler<T> for Arc<H>
+where
+    H: EventHandler<T> + Send + Sync,
+{
+    fn handle(&self, event: &T) {
+        self.deref().handle(event);
+    }
+}
+
 pub struct EventHandlerRegistry<T> {
+    mut_handlers: Vec<Box<dyn EventHandlerMut<T>>>,
     handlers: Vec<Box<dyn EventHandler<T>>>,
 }
 
 impl<T> Default for EventHandlerRegistry<T> {
     fn default() -> Self {
         Self {
+            mut_handlers: Vec::new(),
             handlers: Vec::new(),
         }
     }
 }
 
 impl<T> EventHandlerRegistry<T> {
+    pub fn add_mut(&mut self, handler: impl EventHandlerMut<T> + 'static) {
+        self.mut_handlers.push(Box::new(handler));
+    }
+
     pub fn add(&mut self, handler: impl EventHandler<T> + 'static) {
         self.handlers.push(Box::new(handler));
     }
 
     pub fn raise(&mut self, event: &T) {
+        for handler in &mut self.mut_handlers {
+            handler.handle(event);
+        }
         for handler in &mut self.handlers {
             handler.handle(event);
         }
@@ -42,14 +66,14 @@ mod tests {
         let log: Arc<Mutex<Vec<i32>>> = Arc::new(Mutex::new(Vec::new()));
 
         struct LogHandler(Arc<Mutex<Vec<i32>>>);
-        impl EventHandler<i32> for LogHandler {
+        impl EventHandlerMut<i32> for LogHandler {
             fn handle(&mut self, event: &i32) {
                 self.0.lock().unwrap().push(*event);
             }
         }
 
         let mut registry = EventHandlerRegistry::default();
-        registry.add(LogHandler(Arc::clone(&log)));
+        registry.add_mut(LogHandler(Arc::clone(&log)));
 
         registry.raise(&1);
         registry.raise(&2);
@@ -66,22 +90,22 @@ mod tests {
             tag: &'static str,
             log: Arc<Mutex<Vec<&'static str>>>,
         }
-        impl EventHandler<i32> for TaggedHandler {
+        impl EventHandlerMut<i32> for TaggedHandler {
             fn handle(&mut self, _event: &i32) {
                 self.log.lock().unwrap().push(self.tag);
             }
         }
 
         let mut registry = EventHandlerRegistry::default();
-        registry.add(TaggedHandler {
+        registry.add_mut(TaggedHandler {
             tag: "first",
             log: Arc::clone(&log),
         });
-        registry.add(TaggedHandler {
+        registry.add_mut(TaggedHandler {
             tag: "second",
             log: Arc::clone(&log),
         });
-        registry.add(TaggedHandler {
+        registry.add_mut(TaggedHandler {
             tag: "third",
             log: Arc::clone(&log),
         });

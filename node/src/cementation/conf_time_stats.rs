@@ -9,7 +9,7 @@ use chrono::Utc;
 use crate::block_processing::LedgerPipelineEvent;
 use rsnano_ledger::LedgerEvent;
 use rsnano_utils::{
-    EventHandler,
+    EventHandlerMut,
     stats::{StatsCollection, StatsSource},
 };
 
@@ -77,7 +77,7 @@ impl Default for TrackConfirmationTimes {
     }
 }
 
-impl EventHandler<LedgerPipelineEvent> for TrackConfirmationTimes {
+impl EventHandlerMut<LedgerPipelineEvent> for TrackConfirmationTimes {
     fn handle(&mut self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(blocks)) = event {
             let now = Utc::now();

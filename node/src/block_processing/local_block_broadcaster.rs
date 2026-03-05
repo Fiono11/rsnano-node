@@ -16,7 +16,7 @@ use rsnano_network::{TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, BlockHash, Networks};
 use rsnano_utils::{
-    EventHandler,
+    EventHandlerMut,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, StatType, Stats},
 };
@@ -505,7 +505,7 @@ impl LocalBlockBroadcasterPlugin {
     }
 }
 
-impl EventHandler<LedgerPipelineEvent> for LocalBlockBroadcasterPlugin {
+impl EventHandlerMut<LedgerPipelineEvent> for LocalBlockBroadcasterPlugin {
     fn handle(&mut self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(event) = event {
             match event {
