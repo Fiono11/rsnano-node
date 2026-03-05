@@ -13,18 +13,25 @@ use rsnano_utils::{
 
 use super::logic::BoundedBacklogLogic;
 use crate::{
-    block_processing::{backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo},
+    block_processing::{
+        BoundedBacklogConfig, backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
+    },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
 pub(crate) struct BoundedBacklogApp {
-    pub(super) logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
+    pub(super) logic: NullableCondvarMutex<BoundedBacklogLogic>,
     pub(super) ledger: Arc<Ledger>,
 }
 
 impl BoundedBacklogApp {
+    pub fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
+        let logic = NullableCondvarMutex::new(BoundedBacklogLogic::new(config));
+        Self { logic, ledger }
+    }
+
     pub fn set_cooldown(&self, cool_down: bool) {
         self.logic.lock().set_cool_down(cool_down);
         self.logic.notify_all();

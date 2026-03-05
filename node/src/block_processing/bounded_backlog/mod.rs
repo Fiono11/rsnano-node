@@ -8,7 +8,6 @@ use std::{
 };
 
 use rsnano_ledger::{Ledger, ProcessResult};
-use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -16,9 +15,7 @@ use rsnano_utils::{
 };
 
 use super::backlog_scan::UnconfirmedInfo;
-use crate::block_processing::bounded_backlog::{
-    app::BoundedBacklogApp, logic::BoundedBacklogLogic,
-};
+use crate::block_processing::bounded_backlog::app::BoundedBacklogApp;
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 pub use logic::BoundedBacklogConfig;
 
@@ -29,25 +26,15 @@ pub struct BoundedBacklog {
 
 impl BoundedBacklog {
     pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
-        let logic = Arc::new(NullableCondvarMutex::new(BoundedBacklogLogic::new(
-            config.clone(),
-        )));
-
-        let app = Arc::new(BoundedBacklogApp {
-            logic: logic.clone(),
-            ledger,
-        });
-
         Self {
             thread: Mutex::new(None),
-            app,
+            app: Arc::new(BoundedBacklogApp::new(config, ledger)),
         }
     }
 
     pub fn new_null() -> Self {
         let config = BoundedBacklogConfig::default();
         let ledger = Arc::new(Ledger::new_null());
-
         Self::new(config, ledger)
     }
 
