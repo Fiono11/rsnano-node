@@ -469,7 +469,8 @@ fn fork_bootstrap_flip() {
 fn fork_multi_flip() {
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();
-    let flags = NodeFlags::default();
+    let mut flags = NodeFlags::default();
+    flags.disable_block_processor_republishing = true;
     let node1 = system
         .build_node()
         .config(config.clone())
@@ -533,13 +534,12 @@ fn fork_publish() {
     // Wait until the genesis rep activated & makes vote
     assert_timely_eq2(
         || {
-            node1
-                .active
-                .read()
-                .unwrap()
-                .election_for_root(&send1.qualified_root())
-                .unwrap()
-                .vote_count()
+            let aec = node1.active.read().unwrap();
+            if let Some(e) = aec.election_for_root(&send1.qualified_root()) {
+                e.vote_count()
+            } else {
+                0
+            }
         },
         1,
     );

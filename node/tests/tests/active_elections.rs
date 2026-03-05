@@ -849,7 +849,16 @@ fn dropped_cleanup() {
         disable_request_loop: true,
         ..Default::default()
     };
-    let node = system.build_node().flags(flags).finish();
+    let node = system
+        .build_node()
+        .config(NodeConfig {
+            enable_priority_scheduler: false,
+            enable_hinted_scheduler: false,
+            enable_optimistic_scheduler: false,
+            ..System::default_config_without_backlog_scan()
+        })
+        .flags(flags)
+        .finish();
     let chain = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY);
     let hash = chain[0].hash();
     let qual_root = chain[0].qualified_root();
