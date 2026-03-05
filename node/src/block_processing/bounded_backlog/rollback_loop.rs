@@ -25,6 +25,8 @@ pub(crate) struct RollbackLoop {
 impl RollbackLoop {
     pub(crate) fn run(&self) {
         let mut state = self.state.lock();
+        let mut targets = Vec::with_capacity(state.config.rollback_batch_size);
+
         while !state.stopped {
             state.backlog_size = self.ledger.backlog_size();
             state = self
@@ -34,60 +36,32 @@ impl RollbackLoop {
                 })
                 .0;
 
-            state = self.run_one(state);
+            state = self.run_one(state, &mut targets);
         }
     }
 
     fn run_one<'a>(
         &'a self,
         mut state: MutexGuard<'a, BoundedBacklogState>,
+        targets: &mut Vec<BlockHash>,
     ) -> MutexGuard<'a, BoundedBacklogState> {
         if state.stopped || !state.rollback_needed() {
             return state;
         }
 
-        let targets = state.gather_targets(&self.can_roll_back);
+        state.gather_targets(targets);
 
         if !targets.is_empty() {
             let target_count = state.rollback_target_count();
             drop(state);
 
-            let processed = self.roll_back(&targets, target_count as usize, &self.can_roll_back);
-            state = self.state.lock();
+            self.ledger
+                .roll_back_batch(&*targets, target_count as usize, &self.can_roll_back);
 
-            // Erase rolled back blocks from the index
-            for hash in &processed {
-                state.index.erase_hash(hash);
-            }
+            state = self.state.lock();
         }
 
         state
-    }
-
-    fn roll_back(
-        &self,
-        targets: &[BlockHash],
-        max_rollbacks: usize,
-        can_roll_back: impl Fn(&BlockHash) -> bool,
-    ) -> Vec<BlockHash> {
-        let results = self
-            .ledger
-            .roll_back_batch(targets, max_rollbacks, can_roll_back);
-
-        // TODO: listen for LedgerEvent::BlocksRolledBack instead of returning the rolled back
-        // blocks from ledger?
-        let mut processed_hashes = Vec::new();
-        for result in results.iter() {
-            if result.rolled_back.is_empty() {
-                processed_hashes.push(result.target_hash);
-            } else {
-                for h in &result.rolled_back {
-                    processed_hashes.push(h.hash());
-                }
-            }
-        }
-
-        processed_hashes
     }
 }
 
@@ -140,27 +114,23 @@ impl BoundedBacklogState {
         ) as usize
     }
 
-    fn gather_targets(&mut self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
+    fn gather_targets(&mut self, targets: &mut Vec<BlockHash>) {
         self.gather_called += 1;
-        let mut space_left = self.rollback_batch_size();
-        let mut targets = Vec::with_capacity(space_left);
+        targets.clear();
+        let batch_size = self.rollback_batch_size();
+
         // Start rolling back from lowest index buckets first
         for bucket in 0..self.bucket_count {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
             if self.index.len_of_bucket(bucket) > self.bucket_threshold() {
-                let top = self.index.top(bucket, space_left, |hash| {
-                    // Only rollback if the block is not being used by the node
-                    can_rollback(hash)
-                });
-                space_left = space_left.saturating_sub(top.len());
-                targets.extend(top);
-                if space_left == 0 {
+                let count = batch_size - targets.len();
+                self.index.drain_top(bucket, count, targets);
+                if targets.len() >= batch_size {
                     break;
                 }
             }
         }
         self.total_gathered += targets.len() as u64;
-        targets
     }
 
     fn bucket_threshold(&self) -> usize {

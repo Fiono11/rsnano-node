@@ -111,7 +111,7 @@ impl BacklogIndex {
         true
     }
 
-    pub fn pop_top(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
+    pub fn drain_top(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
         let start_len = result.len();
 
         let iter = self.by_priority[bucket_index]
@@ -122,21 +122,6 @@ impl BacklogIndex {
         result.extend(iter);
 
         self.erase_hashes(&result[start_len..]);
-    }
-
-    pub fn top(
-        &self,
-        bucket_index: usize,
-        count: usize,
-        mut filter: impl FnMut(&BlockHash) -> bool,
-    ) -> Vec<BlockHash> {
-        self.by_priority[bucket_index]
-            .iter()
-            .flat_map(|(_, hashes)| hashes)
-            .cloned()
-            .filter(|hash| filter(hash))
-            .take(count)
-            .collect()
     }
 
     pub fn next(&self, last: &BlockHash, count: usize) -> Vec<BlockHash> {
@@ -191,7 +176,6 @@ mod tests {
         assert_eq!(index.len(), 0);
         assert_eq!(index.contains(&BlockHash::from(1)), false);
 
-        assert!(index.top(0, 100, |_| unreachable!()).is_empty());
         assert!(index.next(&BlockHash::ZERO, 100).is_empty());
 
         assert_eq!(index.erase_hash(&BlockHash::from(1)), false);
@@ -367,63 +351,6 @@ mod tests {
     }
 
     #[test]
-    fn top() {
-        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
-
-        let entry1 = BacklogEntry {
-            account: 1000.into(),
-            hash: 1001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(1),
-        };
-
-        let entry2 = BacklogEntry {
-            account: 2000.into(),
-            hash: 2001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(10000),
-        };
-
-        // Same priority as entry2
-        let entry3 = BacklogEntry {
-            account: 3000.into(),
-            hash: 3001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(2),
-        };
-
-        // filtered out!
-        let entry4 = BacklogEntry {
-            account: 4000.into(),
-            hash: 4001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(2),
-        };
-
-        // different bucket
-        let entry5 = BacklogEntry {
-            account: 5000.into(),
-            hash: 5001.into(),
-            priority: TimePriority::new(2),
-            bucket_index: 1,
-        };
-
-        index.insert(entry1.clone());
-        index.insert(entry2.clone());
-        index.insert(entry3.clone());
-        index.insert(entry4.clone());
-        index.insert(entry5.clone());
-
-        let top_all = index.top(3, usize::MAX, |h| *h != entry4.hash);
-
-        // ordered by ascending priority (=descending timestamp)
-        assert_eq!(top_all, vec![entry2.hash, entry3.hash, entry1.hash]);
-
-        let top_limit = index.top(3, 2, |h| *h != entry4.hash);
-        assert_eq!(top_limit, vec![entry2.hash, entry3.hash]);
-    }
-
-    #[test]
     fn next() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
 
@@ -469,18 +396,39 @@ mod tests {
     }
 
     #[test]
-    fn pop_top_empty() {
+    fn drain_top_empty() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let mut result = Vec::new();
         let bucket_index = 3;
 
-        index.pop_top(bucket_index, 2, &mut result);
+        index.drain_top(bucket_index, 2, &mut result);
 
         assert!(result.is_empty());
     }
 
     #[test]
-    fn pop_top() {
+    fn drain_top_one() {
+        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
+        let bucket_index = 3;
+
+        let entry1 = BacklogEntry {
+            account: 1000.into(),
+            hash: 1001.into(),
+            bucket_index,
+            priority: TimePriority::new(1),
+        };
+
+        index.insert(entry1.clone());
+
+        let mut result = Vec::with_capacity(1);
+        index.drain_top(bucket_index, 300, &mut result);
+
+        assert_eq!(result, vec![entry1.hash], "drained hashes");
+        assert!(index.is_empty(), "index should be empty");
+    }
+
+    #[test]
+    fn drain_top_limit() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let bucket_index = 3;
 
@@ -512,25 +460,27 @@ mod tests {
             priority: TimePriority::new(4000),
         };
 
+        // different bucket
+        let entry5 = BacklogEntry {
+            account: 5000.into(),
+            hash: 5001.into(),
+            priority: TimePriority::new(2),
+            bucket_index: 1,
+        };
+
         index.insert(entry1.clone());
         index.insert(entry2.clone());
         index.insert(entry3.clone());
         index.insert(entry4.clone());
+        index.insert(entry5);
 
         let mut result = Vec::with_capacity(2);
-        index.pop_top(bucket_index, 2, &mut result);
+        index.drain_top(bucket_index, 2, &mut result);
 
-        assert_eq!(result.len(), 2, "result len");
-        assert!(
-            result.contains(&entry4.hash),
-            "result should contain entry 4"
-        );
-        assert!(
-            result.contains(&entry3.hash),
-            "result should contain entry 3"
-        );
+        // ordered by ascending priority (=descending timestamp)
+        assert_eq!(result, vec![entry4.hash, entry3.hash], "drained hashes");
 
-        assert_eq!(index.len(), 2, "index len after pop");
+        assert_eq!(index.len(), 3, "index len after pop");
         assert!(index.contains(&entry1.hash), "index should contain entry 1");
         assert!(index.contains(&entry2.hash), "index should contain entry 2");
     }
