@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    sync::{Arc, MutexGuard, atomic::Ordering::Relaxed},
+    sync::{Arc, MutexGuard},
     time::Duration,
 };
 
@@ -9,10 +9,7 @@ use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
 
 use crate::{
-    block_processing::{
-        BoundedBacklogConfig, backlog_index::BacklogIndex,
-        bounded_backlog::stats::BoundedBacklogStats,
-    },
+    block_processing::{BoundedBacklogConfig, backlog_index::BacklogIndex},
     consensus::election_schedulers::priority::prio_bucket_count,
 };
 use rsnano_utils::stats::{StatsCollection, StatsSource};
@@ -21,7 +18,6 @@ use rsnano_utils::stats::{StatsCollection, StatsSource};
 /// if the backlog exceeds the configured limit
 pub(crate) struct RollbackLoop {
     pub(super) state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
-    pub(crate) stats: Arc<BoundedBacklogStats>,
     pub(super) ledger: Arc<Ledger>,
     pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
 }
@@ -163,7 +159,7 @@ impl BoundedBacklogState {
                 }
             }
         }
-        self.total_gathered += targets.len();
+        self.total_gathered += targets.len() as u64;
         targets
     }
 

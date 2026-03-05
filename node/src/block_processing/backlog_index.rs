@@ -111,6 +111,19 @@ impl BacklogIndex {
         true
     }
 
+    pub fn pop_top(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
+        let start_len = result.len();
+
+        let iter = self.by_priority[bucket_index]
+            .iter()
+            .flat_map(|(_, hashes)| hashes)
+            .take(count);
+
+        result.extend(iter);
+
+        self.erase_hashes(&result[start_len..]);
+    }
+
     pub fn top(
         &self,
         bucket_index: usize,
@@ -453,6 +466,73 @@ mod tests {
         index.insert(BacklogEntry::new_test_instance());
         let next = index.next(&BlockHash::MAX, usize::MAX);
         assert!(next.is_empty());
+    }
+
+    #[test]
+    fn pop_top_empty() {
+        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
+        let mut result = Vec::new();
+        let bucket_index = 3;
+
+        index.pop_top(bucket_index, 2, &mut result);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn pop_top() {
+        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
+        let bucket_index = 3;
+
+        let entry1 = BacklogEntry {
+            account: 1000.into(),
+            hash: 1001.into(),
+            bucket_index,
+            priority: TimePriority::new(1),
+        };
+
+        let entry2 = BacklogEntry {
+            account: 2000.into(),
+            hash: 2001.into(),
+            bucket_index,
+            priority: TimePriority::new(2000),
+        };
+
+        let entry3 = BacklogEntry {
+            account: 3000.into(),
+            hash: 3001.into(),
+            bucket_index,
+            priority: TimePriority::new(3000),
+        };
+
+        let entry4 = BacklogEntry {
+            account: 4000.into(),
+            hash: 4001.into(),
+            bucket_index,
+            priority: TimePriority::new(4000),
+        };
+
+        index.insert(entry1.clone());
+        index.insert(entry2.clone());
+        index.insert(entry3.clone());
+        index.insert(entry4.clone());
+
+        let mut result = Vec::with_capacity(2);
+        index.pop_top(bucket_index, 2, &mut result);
+
+        assert_eq!(result.len(), 2, "result len");
+        assert!(
+            result.contains(&entry4.hash),
+            "result should contain entry 4"
+        );
+        assert!(
+            result.contains(&entry3.hash),
+            "result should contain entry 3"
+        );
+
+        assert_eq!(index.len(), 2, "index len after pop");
+        assert!(index.contains(&entry1.hash), "index should contain entry 1");
+        assert!(index.contains(&entry2.hash), "index should contain entry 2");
     }
 
     #[test]

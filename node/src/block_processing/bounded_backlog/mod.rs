@@ -100,7 +100,6 @@ impl BoundedBacklog {
 
         let rollback_loop = RollbackLoop {
             state: self.state.clone(),
-            stats: self.stats.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,
         };
