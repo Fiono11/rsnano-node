@@ -93,7 +93,7 @@ impl BoundedBacklog {
     }
 
     pub fn stop(&self) {
-        self.state.lock().set_stopped(true);
+        self.state.lock().stop();
         self.state.notify_all();
 
         let handle = self.thread.lock().unwrap().take();

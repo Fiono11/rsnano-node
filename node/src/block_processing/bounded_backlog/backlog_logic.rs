@@ -39,8 +39,8 @@ impl BoundedBacklogLogic {
         self.stopped
     }
 
-    pub(crate) fn set_stopped(&mut self, stopped: bool) {
-        self.stopped = stopped;
+    pub(crate) fn stop(&mut self) {
+        self.stopped = true;
     }
 
     pub(crate) fn set_cool_down(&mut self, cool_down: bool) {
