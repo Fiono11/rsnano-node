@@ -7,6 +7,7 @@ use crate::block_processing::LedgerPipelineEvent;
 
 use super::BoundedBacklog;
 
+/// Makes the bounded backlog react to ledger events
 pub(crate) struct BoundedBacklogLedgerAdapter {
     bounded_backlog: Arc<BoundedBacklog>,
 }
@@ -28,7 +29,6 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklogLedgerAdapter {
                     self.bounded_backlog.remove(confirmed);
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
-                    // Unblock rolled back accounts as the dependency is no longer valid
                     self.bounded_backlog.erase_hashes(rolled_back.hashes());
                 }
             }

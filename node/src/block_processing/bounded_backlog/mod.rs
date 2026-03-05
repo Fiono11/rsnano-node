@@ -38,7 +38,7 @@ impl Default for BoundedBacklogConfig {
 }
 
 pub struct BoundedBacklog {
-    process_thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
     state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     ledger: Arc<Ledger>,
     can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
@@ -51,7 +51,7 @@ impl BoundedBacklog {
         )));
 
         Self {
-            process_thread: Mutex::new(None),
+            thread: Mutex::new(None),
             state,
             ledger,
             can_roll_back: Mutex::new(None),
@@ -66,7 +66,7 @@ impl BoundedBacklog {
     }
 
     pub fn start(&self) {
-        debug_assert!(self.process_thread.lock().unwrap().is_none());
+        debug_assert!(self.thread.lock().unwrap().is_none());
 
         let can_roll_back = self
             .can_roll_back
@@ -86,14 +86,14 @@ impl BoundedBacklog {
             .spawn(move || rollback_loop.run())
             .unwrap();
 
-        *self.process_thread.lock().unwrap() = Some(handle);
+        *self.thread.lock().unwrap() = Some(handle);
     }
 
     pub fn stop(&self) {
         self.state.lock().stopped = true;
         self.state.notify_all();
 
-        let handle = self.process_thread.lock().unwrap().take();
+        let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
@@ -107,13 +107,6 @@ impl BoundedBacklog {
     pub fn set_cooldown(&self, cool_down: bool) {
         self.state.lock().cool_down = cool_down;
         self.state.notify_all();
-    }
-
-    pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
-        let mut any = self.ledger.any();
-        for info in batch {
-            self.activate(&mut any, &info.account, &info.account_info, &info.conf_info);
-        }
     }
 
     /// Track unconfirmed blocks
@@ -146,10 +139,16 @@ impl BoundedBacklog {
         self.state.lock().index.contains(hash)
     }
 
+    pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
+        let mut any = self.ledger.any();
+        for info in batch {
+            self.activate(&mut any, &info.account_info, &info.conf_info);
+        }
+    }
+
     fn activate<'a>(
         &'a self,
         any: &mut OwningAnySet<'a>,
-        _account: &Account,
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) {
@@ -205,7 +204,7 @@ impl BoundedBacklog {
 impl Drop for BoundedBacklog {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
-        debug_assert!(self.process_thread.lock().unwrap().is_none());
+        debug_assert!(self.thread.lock().unwrap().is_none());
     }
 }
 
