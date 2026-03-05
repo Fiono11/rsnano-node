@@ -1,3 +1,4 @@
+mod backlog_logic;
 mod ledger_adapter;
 mod rollback_loop;
 
@@ -16,7 +17,9 @@ use rsnano_utils::{
 
 use super::{backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo};
 use crate::{
-    block_processing::bounded_backlog::rollback_loop::{BoundedBacklogState, RollbackLoop},
+    block_processing::bounded_backlog::{
+        backlog_logic::BoundedBacklogLogic, rollback_loop::RollbackLoop,
+    },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
@@ -39,14 +42,14 @@ impl Default for BoundedBacklogConfig {
 
 pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,
-    state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
+    state: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     ledger: Arc<Ledger>,
     can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
 }
 
 impl BoundedBacklog {
     pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
-        let state = Arc::new(NullableCondvarMutex::new(BoundedBacklogState::new(
+        let state = Arc::new(NullableCondvarMutex::new(BoundedBacklogLogic::new(
             config.clone(),
         )));
 
