@@ -2454,7 +2454,7 @@ fn bounded_backlog() {
     node.bounded_backlog.set_cooldown(true);
 
     let howmany_blocks = 8;
-    let howmany_chains = 4;
+    let howmany_chains = 8;
     setup_chains(
         &node,
         howmany_chains,
@@ -2462,6 +2462,8 @@ fn bounded_backlog() {
         &DEV_GENESIS_KEY,
         false,
     );
+
+    assert_timely_eq2(|| node.ledger.block_count() as usize, 81);
 
     node.bounded_backlog.set_cooldown(false);
 

@@ -28,12 +28,16 @@ impl RollbackLoop {
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.should_roll_back(self.ledger.backlog_size())
+                    !i.stopped && (i.cool_down || !i.should_roll_back(self.ledger.backlog_size()))
                 })
                 .0;
 
             if state.stopped {
                 return;
+            }
+
+            if state.cool_down {
+                continue;
             }
 
             self.stats.loop_rollback.fetch_add(1, Relaxed);
