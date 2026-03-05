@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::BlockHash;
 
-use super::backlog_logic::BoundedBacklogLogic;
+use super::logic::BoundedBacklogLogic;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit

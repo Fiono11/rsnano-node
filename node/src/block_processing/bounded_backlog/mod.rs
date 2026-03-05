@@ -1,6 +1,6 @@
 mod app;
-mod backlog_logic;
 mod ledger_adapter;
+mod logic;
 
 use std::{
     sync::{Arc, Mutex},
@@ -17,13 +17,11 @@ use rsnano_utils::{
 
 use super::{backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo};
 use crate::{
-    block_processing::bounded_backlog::{
-        app::BoundedBacklogApp, backlog_logic::BoundedBacklogLogic,
-    },
+    block_processing::bounded_backlog::{app::BoundedBacklogApp, logic::BoundedBacklogLogic},
     consensus::election_schedulers::priority::prio_bucket_index,
 };
-pub use backlog_logic::BoundedBacklogConfig;
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
+pub use logic::BoundedBacklogConfig;
 
 pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -63,7 +61,7 @@ impl BoundedBacklog {
             .take()
             .unwrap_or_else(|| Box::new(|_| true));
 
-        let rollback_loop = BoundedBacklogApp {
+        let app = BoundedBacklogApp {
             logic: self.logic.clone(),
             ledger: self.ledger.clone(),
             can_roll_back,
@@ -71,7 +69,7 @@ impl BoundedBacklog {
 
         let handle = std::thread::Builder::new()
             .name("Bounded backlog".to_owned())
-            .spawn(move || rollback_loop.run())
+            .spawn(move || app.run())
             .unwrap();
 
         *self.thread.lock().unwrap() = Some(handle);
