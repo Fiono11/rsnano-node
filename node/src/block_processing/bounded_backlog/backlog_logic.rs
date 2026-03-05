@@ -9,16 +9,16 @@ use crate::{
 };
 
 pub(crate) struct BoundedBacklogLogic {
-    pub(crate) stopped: bool,
-    pub(crate) cool_down: bool,
+    stopped: bool,
+    cool_down: bool,
     pub(crate) index: BacklogIndex,
     pub(crate) config: BoundedBacklogConfig,
     bucket_count: usize,
-    pub(crate) backlog_size: u64,
+    backlog_size: u64,
 
     // stats
-    pub(crate) gather_called: u64,
-    pub(crate) total_gathered: u64,
+    gather_called: u64,
+    total_gathered: u64,
 }
 
 impl BoundedBacklogLogic {
@@ -33,6 +33,22 @@ impl BoundedBacklogLogic {
             gather_called: 0,
             total_gathered: 0,
         }
+    }
+
+    pub(crate) fn stopped(&self) -> bool {
+        self.stopped
+    }
+
+    pub(crate) fn set_stopped(&mut self, stopped: bool) {
+        self.stopped = stopped;
+    }
+
+    pub(crate) fn set_cool_down(&mut self, cool_down: bool) {
+        self.cool_down = cool_down;
+    }
+
+    pub(crate) fn set_backlog_size(&mut self, backlog_size: u64) {
+        self.backlog_size = backlog_size;
     }
 
     pub(crate) fn rollback_needed(&self) -> bool {

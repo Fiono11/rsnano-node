@@ -22,12 +22,12 @@ impl RollbackLoop {
         let mut state = self.state.lock();
         let mut targets = Vec::with_capacity(state.config.rollback_batch_size);
 
-        while !state.stopped {
-            state.backlog_size = self.ledger.backlog_size();
+        while !state.stopped() {
+            state.set_backlog_size(self.ledger.backlog_size());
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && !i.rollback_needed()
+                    !i.stopped() && !i.rollback_needed()
                 })
                 .0;
 
@@ -40,7 +40,7 @@ impl RollbackLoop {
         mut state: MutexGuard<'a, BoundedBacklogLogic>,
         targets: &mut Vec<BlockHash>,
     ) -> MutexGuard<'a, BoundedBacklogLogic> {
-        if state.stopped || !state.rollback_needed() {
+        if state.stopped() || !state.rollback_needed() {
             return state;
         }
 

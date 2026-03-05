@@ -93,7 +93,7 @@ impl BoundedBacklog {
     }
 
     pub fn stop(&self) {
-        self.state.lock().stopped = true;
+        self.state.lock().set_stopped(true);
         self.state.notify_all();
 
         let handle = self.thread.lock().unwrap().take();
@@ -108,7 +108,7 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.state.lock().cool_down = cool_down;
+        self.state.lock().set_cool_down(cool_down);
         self.state.notify_all();
     }
 
