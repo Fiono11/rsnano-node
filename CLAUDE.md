@@ -43,7 +43,46 @@ cargo run --bin rsnano_node -- --network=live node run
 
 ### Design Philosophy
 
-The codebase follows **A-frame architecture** and **nullable infrastructure** (testing without mocks). Key idea: infrastructure dependencies are wrapped in nullable versions that can be swapped out in tests without mocking frameworks. See [James Shore's documentation](http://www.jamesshore.com/v2/projects/nullables/testing-without-mocks) for details.
+The codebase follows **A-frame architecture** and **nullable infrastructure** (testing without mocks) as described by [James Shore](http://www.jamesshore.com/v2/projects/nullables/testing-without-mocks). Understanding these patterns is essential when adding or modifying code.
+
+#### A-Frame Architecture
+
+Logic and Infrastructure are **peers** — neither depends on the other. An Application layer (the "top of the A") coordinates between them. This means:
+
+- **Logic** (pure computation, decisions, state machines) never imports infrastructure types.
+- **Infrastructure** (network, disk, clock, database) never contains business logic.
+- **Application** code calls infrastructure to read data, passes it to logic, then calls infrastructure to write results (the "Logic Sandwich" pattern).
+
+Example: `BoundedBacklogLogic` contains all rollback decisions. `RollbackLoop` is the application layer that reads from the ledger (infrastructure), drives `BoundedBacklogLogic`, and writes back via the ledger. `Ledger` is pure infrastructure.
+
+#### Infrastructure vs Logic separation rules
+
+- If a struct reads from the network, database, clock, filesystem, or spawns threads → it is **infrastructure**.
+- If a struct only takes inputs, computes outputs, and holds state → it is **logic**.
+- Logic structs must be unit-testable with no nullable/mock setup.
+- Never mix logic and infrastructure in the same struct.
+
+#### Nullable Infrastructure
+
+Infrastructure classes provide a `new_null()` constructor (or `new_null_with_*` variants) that disables all real I/O while keeping the same interface. Tests use nullables instead of mocks — no mocking framework is needed.
+
+Rules:
+- Every infrastructure wrapper must have a `new_null()` constructor.
+- `new_null()` must have zero side effects (no threads, no file handles, no network connections).
+- Nullables behave correctly and run the same logic paths as real implementations.
+- Use `OutputTracker` / `OutputTrackerMt` (from `rsnano_output_tracker`) to observe side effects in tests (e.g., what was written, what events fired).
+
+#### Parameterless / Zero-Impact Instantiation
+
+Constructors must not start threads, open connections, or perform I/O. Those belong in a separate `start()` method. This keeps test setup instant and free of side effects.
+
+#### State-Based Tests
+
+Tests assert on **outputs and observable state**, not on which methods were called. Avoid interaction-based assertions. Tests should survive refactoring of internal call sequences.
+
+#### Embedded Stubs
+
+Stub implementations live in the **same file** as the production infrastructure code they stand in for, not in separate test files. This keeps the stub and the real implementation in sync.
 
 ### Crate Structure
 
