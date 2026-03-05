@@ -12,7 +12,7 @@ use std::{
 
 use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use rsnano_ledger::{
     AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
@@ -41,6 +41,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
+    thread_factory::{JoinHandle, ThreadFactory},
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
@@ -55,7 +56,7 @@ use crate::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
         LedgerPipelineEvent, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
         LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
-        bounded_backlog::{BoundedBacklog, BoundedBacklogLedgerAdapter, BoundedBacklogThread},
+        bounded_backlog::{BoundedBacklog, BoundedBacklogLedgerAdapter},
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
@@ -108,6 +109,7 @@ pub struct Node {
     pub runtime: tokio::runtime::Handle,
     pub data_path: PathBuf,
     pub steady_clock: Arc<SteadyClock>,
+    pub thread_factory: ThreadFactory,
     pub node_id: PrivateKey,
     pub config: NodeConfig,
     pub network_params: NetworkParams,
@@ -139,7 +141,7 @@ pub struct Node {
     pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
     pub bounded_backlog: Arc<BoundedBacklog>,
-    pub bounded_backlog_thread: Arc<BoundedBacklogThread>,
+    pub bounded_backlog_thread: Option<JoinHandle>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
     message_processor: Mutex<MessageProcessor>,
@@ -369,6 +371,12 @@ impl Node {
         );
 
         log_bootstrap_weights(&rep_weights);
+
+        let thread_factory = if is_nulled {
+            ThreadFactory::new_null()
+        } else {
+            ThreadFactory::default()
+        };
 
         let mut ledger_event_handlers = EventHandlerRegistry::<LedgerPipelineEvent>::default();
 
@@ -803,8 +811,6 @@ impl Node {
             config.bounded_backlog.clone(),
             ledger.clone(),
         ));
-
-        let bounded_backlog_thread = Arc::new(BoundedBacklogThread::new(bounded_backlog.clone()));
 
         if config.enable_bounded_backlog {
             info!(
@@ -1354,6 +1360,7 @@ impl Node {
         Self {
             is_nulled,
             steady_clock,
+            thread_factory,
             peer_connector,
             node_id: node_id_key,
             workers,
@@ -1388,7 +1395,7 @@ impl Node {
             request_aggregator,
             backlog_scan,
             bounded_backlog,
-            bounded_backlog_thread,
+            bounded_backlog_thread: None,
             bootstrapper,
             local_block_broadcaster,
             network_threads,
@@ -1627,7 +1634,11 @@ impl Node {
         self.election_schedulers.start();
         self.backlog_scan.start();
         if self.config.enable_bounded_backlog {
-            self.bounded_backlog_thread.start();
+            let bbacklog = self.bounded_backlog.clone();
+            let handle = self.thread_factory.spawn("Bounded backlog", move || {
+                bbacklog.run_loop();
+            });
+            self.bounded_backlog_thread = Some(handle);
         }
         if self.config.enable_bootstrap_responder {
             self.bootstrap_server.start();
@@ -1664,7 +1675,11 @@ impl Node {
         self.backlog_scan.stop();
         self.bootstrapper.stop();
         self.bounded_backlog.stop();
-        self.bounded_backlog_thread.stop();
+        if let Some(handle) = self.bounded_backlog_thread.take() {
+            debug!("Waiting for bounded backlog thread to stop...");
+            handle.join().unwrap();
+            debug!("Bounded backlog thread stopped");
+        }
         self.rep_crawler.stop();
         self.block_processor.stop();
         self.request_aggregator.stop();

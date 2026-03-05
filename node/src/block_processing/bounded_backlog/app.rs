@@ -48,7 +48,7 @@ impl BoundedBacklog {
         self.logic.notify_all();
     }
 
-    pub(crate) fn run(&self) {
+    pub(crate) fn run_loop(&self) {
         let mut logic = self.logic.lock();
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
 
