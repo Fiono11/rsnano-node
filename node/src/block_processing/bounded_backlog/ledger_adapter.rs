@@ -3,17 +3,15 @@ use std::sync::Arc;
 use rsnano_ledger::LedgerEvent;
 use rsnano_utils::EventHandler;
 
-use crate::block_processing::LedgerPipelineEvent;
-
-use super::BoundedBacklogThread;
+use crate::block_processing::{LedgerPipelineEvent, bounded_backlog::BoundedBacklog};
 
 /// Makes the bounded backlog react to ledger events
 pub(crate) struct BoundedBacklogLedgerAdapter {
-    bounded_backlog: Arc<BoundedBacklogThread>,
+    bounded_backlog: Arc<BoundedBacklog>,
 }
 
 impl BoundedBacklogLedgerAdapter {
-    pub(crate) fn new(bounded_backlog: Arc<BoundedBacklogThread>) -> Self {
+    pub(crate) fn new(bounded_backlog: Arc<BoundedBacklog>) -> Self {
         Self { bounded_backlog }
     }
 }

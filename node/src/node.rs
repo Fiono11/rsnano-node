@@ -804,7 +804,7 @@ impl Node {
             ledger.clone(),
         ));
 
-        let bounded_backlog_thread = Arc::new(BoundedBacklogThread::new2(bounded_backlog.clone()));
+        let bounded_backlog_thread = Arc::new(BoundedBacklogThread::new(bounded_backlog.clone()));
 
         if config.enable_bounded_backlog {
             info!(
@@ -812,12 +812,10 @@ impl Node {
                 config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
             );
 
-            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(
-                bounded_backlog_thread.clone(),
-            ));
+            ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(bounded_backlog.clone()));
 
             // Activate accounts with unconfirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog_thread);
+            let backlog_w = Arc::downgrade(&bounded_backlog);
             backlog_scan.on_unconfirmed_found(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
                     backlog.activate_batch(batch);
@@ -825,7 +823,7 @@ impl Node {
             });
 
             // Erase accounts with all confirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog_thread);
+            let backlog_w = Arc::downgrade(&bounded_backlog);
             backlog_scan.on_up_to_date(move |batch| {
                 if let Some(backlog) = backlog_w.upgrade() {
                     backlog.erase_accounts(batch);
@@ -1322,7 +1320,7 @@ impl Node {
         stats_collector.add_source(bootstrapper.clone());
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
-        stats_collector.add_source(bounded_backlog_thread.clone());
+        stats_collector.add_source(bounded_backlog.clone());
 
         let mut container_info = ContainerInfoFactory::new();
         container_info.add("work", work_factory.clone());
@@ -1348,7 +1346,7 @@ impl Node {
         container_info.add("local_block_broadcaster", local_block_broadcaster.clone());
         container_info.add("rep_tiers", rep_tiers.clone());
         container_info.add("inbound_msg_queue", inbound_message_queue.clone());
-        container_info.add("bounded_backlog", bounded_backlog_thread.clone());
+        container_info.add("bounded_backlog", bounded_backlog.clone());
         container_info.add("vote_rebroadcaster", vote_rebroadcast_queue.clone());
         container_info.add("fork_cache", fork_cache.clone());
         container_info.add("event_queues", event_queues_info);

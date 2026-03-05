@@ -7,14 +7,6 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{Ledger, ProcessResult};
-use rsnano_types::{Account, BlockHash, SavedBlock};
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-};
-
-use super::backlog_scan::UnconfirmedInfo;
 pub use app::BoundedBacklog;
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
 pub use logic::BoundedBacklogConfig;
@@ -25,14 +17,7 @@ pub struct BoundedBacklogThread {
 }
 
 impl BoundedBacklogThread {
-    pub(crate) fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
-        Self {
-            thread: Mutex::new(None),
-            app: Arc::new(BoundedBacklog::new(config, ledger)),
-        }
-    }
-
-    pub(crate) fn new2(app: Arc<BoundedBacklog>) -> Self {
+    pub(crate) fn new(app: Arc<BoundedBacklog>) -> Self {
         Self {
             thread: Mutex::new(None),
             app,
@@ -40,9 +25,7 @@ impl BoundedBacklogThread {
     }
 
     pub fn new_null() -> Self {
-        let config = BoundedBacklogConfig::default();
-        let ledger = Arc::new(Ledger::new_null());
-        Self::new(config, ledger)
+        Self::new(BoundedBacklog::new_null().into())
     }
 
     pub fn start(&self) {
@@ -65,48 +48,11 @@ impl BoundedBacklogThread {
             handle.join().unwrap();
         }
     }
-
-    pub fn set_cooldown(&self, cool_down: bool) {
-        self.app.set_cooldown(cool_down);
-    }
-
-    /// Track unconfirmed blocks
-    pub fn insert_processed(&self, batch: &[ProcessResult]) {
-        self.app.insert_processed(batch);
-    }
-
-    pub fn erase_accounts(&self, accounts: &[Account]) {
-        self.app.erase_accounts(accounts);
-    }
-
-    pub fn erase_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        self.app.erase_hashes(accounts);
-    }
-
-    pub fn activate_batch(&self, batch: &[UnconfirmedInfo]) {
-        self.app.activate_batch(batch);
-    }
-
-    pub fn remove(&self, confirmed: &Vec<(SavedBlock, BlockHash)>) {
-        self.app.remove(confirmed);
-    }
 }
 
 impl Drop for BoundedBacklogThread {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
         debug_assert!(self.thread.lock().unwrap().is_none());
-    }
-}
-
-impl StatsSource for BoundedBacklogThread {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.app.collect_stats(result);
-    }
-}
-
-impl ContainerInfoProvider for BoundedBacklogThread {
-    fn container_info(&self) -> ContainerInfo {
-        self.app.container_info()
     }
 }
