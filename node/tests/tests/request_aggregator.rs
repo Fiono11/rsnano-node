@@ -654,14 +654,9 @@ fn cannot_vote() {
 
     node.request_aggregator.request(request.clone());
 
-    assert_timely_msg(
-        Duration::from_secs(3),
-        || node.request_aggregator.is_empty(),
-        "aggregator empty",
-    );
+    assert_timely2(|| node.request_aggregator.is_empty());
 
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
@@ -671,8 +666,7 @@ fn cannot_vote() {
         },
         1,
     );
-    assert_timely_eq(
-        Duration::from_secs(3),
+    assert_timely_eq2(
         || {
             node.stats.count(
                 StatType::Requests,
