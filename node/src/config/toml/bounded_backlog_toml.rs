@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 pub struct BoundedBacklogToml {
     pub enable: Option<bool>,
     pub batch_size: Option<usize>,
-    pub scan_rate: Option<usize>,
 }
 
 impl BoundedBacklogConfig {
@@ -21,9 +20,6 @@ impl BoundedBacklogConfig {
         if let Some(size) = backlog_toml.batch_size {
             self.rollback_batch_size = size;
         }
-        if let Some(rate) = backlog_toml.scan_rate {
-            self.scan_rate = rate;
-        }
     }
 }
 
@@ -32,7 +28,6 @@ impl From<&NodeConfig> for BoundedBacklogToml {
         Self {
             enable: Some(value.enable_bounded_backlog),
             batch_size: Some(value.bounded_backlog.rollback_batch_size),
-            scan_rate: Some(value.bounded_backlog.scan_rate),
         }
     }
 }

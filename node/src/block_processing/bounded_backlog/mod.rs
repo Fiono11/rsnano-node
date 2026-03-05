@@ -1,8 +1,5 @@
-mod confirmed_scan;
 mod ledger_adapter;
-mod rate_limit_thread;
 mod rollback_loop;
-mod stats;
 
 use std::{
     sync::{Arc, Mutex},
@@ -13,19 +10,13 @@ use rsnano_ledger::{AnySet, Ledger, OwningAnySet, ProcessResult};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
-    CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
 use super::{backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo};
 use crate::{
-    block_processing::bounded_backlog::{
-        confirmed_scan::RecentlyConfirmedScan,
-        rate_limit_thread::RateLimitThreadFactory,
-        rollback_loop::{BoundedBacklogState, RollbackLoop},
-        stats::BoundedBacklogStats,
-    },
+    block_processing::bounded_backlog::rollback_loop::{BoundedBacklogState, RollbackLoop},
     consensus::election_schedulers::priority::prio_bucket_index,
 };
 pub(crate) use ledger_adapter::BoundedBacklogLedgerAdapter;
@@ -35,7 +26,6 @@ pub struct BoundedBacklogConfig {
     pub max_backlog: u64,
     /// The rollback is done in batches of this configured size
     pub rollback_batch_size: usize,
-    pub scan_rate: usize,
 }
 
 impl Default for BoundedBacklogConfig {
@@ -43,20 +33,14 @@ impl Default for BoundedBacklogConfig {
         Self {
             max_backlog: 100_000,
             rollback_batch_size: 32,
-            scan_rate: 64,
         }
     }
 }
 
 pub struct BoundedBacklog {
     process_thread: Mutex<Option<JoinHandle<()>>>,
-    scan_thread: Mutex<Option<rsnano_utils::thread_factory::JoinHandle>>,
-    cancel_token: CancellationToken,
-    rate_limit_thread_factory: RateLimitThreadFactory,
-    stats: Arc<BoundedBacklogStats>,
     state: Arc<NullableCondvarMutex<BoundedBacklogState>>,
     ledger: Arc<Ledger>,
-    config: BoundedBacklogConfig,
     can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
 }
 
@@ -66,17 +50,10 @@ impl BoundedBacklog {
             config.clone(),
         )));
 
-        let stats = Arc::new(BoundedBacklogStats::default());
-
         Self {
             process_thread: Mutex::new(None),
-            scan_thread: Mutex::new(None),
-            cancel_token: CancellationToken::new(),
-            rate_limit_thread_factory: Default::default(),
-            stats,
             state,
             ledger,
-            config,
             can_roll_back: Mutex::new(None),
         }
     }
@@ -110,39 +87,13 @@ impl BoundedBacklog {
             .unwrap();
 
         *self.process_thread.lock().unwrap() = Some(handle);
-
-        let mut confirmed_scan = RecentlyConfirmedScan::new(
-            self.state.clone(),
-            self.stats.clone(),
-            self.ledger.clone(),
-            self.config.rollback_batch_size,
-        );
-
-        let handle = self.rate_limit_thread_factory.spawn(
-            "Bounded b scan",
-            self.cancel_token.clone(),
-            self.config.scan_rate,
-            self.config.rollback_batch_size,
-            move || {
-                confirmed_scan.scan_batch();
-            },
-        );
-
-        *self.scan_thread.lock().unwrap() = Some(handle);
     }
 
     pub fn stop(&self) {
-        self.cancel_token.cancel();
-
         self.state.lock().stopped = true;
         self.state.notify_all();
 
         let handle = self.process_thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().unwrap();
-        }
-
-        let handle = self.scan_thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
@@ -255,7 +206,12 @@ impl Drop for BoundedBacklog {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
         debug_assert!(self.process_thread.lock().unwrap().is_none());
-        debug_assert!(self.scan_thread.lock().unwrap().is_none());
+    }
+}
+
+impl StatsSource for BoundedBacklog {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        self.state.lock().collect_stats(result);
     }
 }
 
@@ -266,32 +222,5 @@ impl ContainerInfoProvider for BoundedBacklog {
             .leaf("backlog", guard.index.len(), 0)
             .node("index", guard.index.container_info())
             .finish()
-    }
-}
-
-impl StatsSource for BoundedBacklog {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.stats.collect_stats(result);
-        self.state.lock().collect_stats(result);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::Ordering;
-
-    #[test]
-    fn collects_stats() {
-        let bounded_backlog = BoundedBacklog::new_null();
-        bounded_backlog
-            .stats
-            .loop_scan
-            .fetch_add(1, Ordering::Relaxed);
-
-        let mut result = StatsCollection::new();
-        bounded_backlog.collect_stats(&mut result);
-
-        assert_eq!(result.get("bounded_backlog", "loop_scan"), 1);
     }
 }

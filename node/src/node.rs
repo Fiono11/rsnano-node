@@ -806,10 +806,8 @@ impl Node {
 
         if config.enable_bounded_backlog {
             info!(
-                "Bounded backlog enabled: max backlog={}, batch_size={}, scan_rate={}",
-                config.bounded_backlog.max_backlog,
-                config.bounded_backlog.rollback_batch_size,
-                config.bounded_backlog.scan_rate
+                "Bounded backlog enabled: max backlog={}, batch_size={}",
+                config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
             );
 
             ledger_event_handlers.add(BoundedBacklogLedgerAdapter::new(bounded_backlog.clone()));

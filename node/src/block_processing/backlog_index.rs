@@ -124,17 +124,6 @@ impl BacklogIndex {
         self.erase_hashes(&result[start_len..]);
     }
 
-    pub fn next(&self, last: &BlockHash, count: usize) -> Vec<BlockHash> {
-        let Some(start) = last.inc() else {
-            return Vec::new();
-        };
-        self.by_hash
-            .range(start..)
-            .map(|(hash, _)| *hash)
-            .take(count)
-            .collect()
-    }
-
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
     }
@@ -175,8 +164,6 @@ mod tests {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         assert_eq!(index.len(), 0);
         assert_eq!(index.contains(&BlockHash::from(1)), false);
-
-        assert!(index.next(&BlockHash::ZERO, 100).is_empty());
 
         assert_eq!(index.erase_hash(&BlockHash::from(1)), false);
         assert_eq!(index.erase_account(&Account::from(1)), false);
@@ -348,51 +335,6 @@ mod tests {
         assert!(index.contains(&entry3.hash));
         assert_eq!(index.by_priority.iter().map(|i| i.len()).sum::<usize>(), 1);
         assert_eq!(index.by_account.values().map(|i| i.len()).sum::<usize>(), 1);
-    }
-
-    #[test]
-    fn next() {
-        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
-
-        let entry1 = BacklogEntry {
-            account: 1000.into(),
-            hash: 1001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(1),
-        };
-
-        let entry2 = BacklogEntry {
-            account: 2000.into(),
-            hash: 2001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(10000),
-        };
-
-        // Same priority as entry2
-        let entry3 = BacklogEntry {
-            account: 3000.into(),
-            hash: 3001.into(),
-            bucket_index: 3,
-            priority: TimePriority::new(2),
-        };
-
-        index.insert(entry1.clone());
-        index.insert(entry2.clone());
-        index.insert(entry3.clone());
-
-        let next_all = index.next(&entry1.hash, usize::MAX);
-        assert_eq!(next_all, vec![entry2.hash, entry3.hash]);
-
-        let next_limit = index.next(&entry1.hash, 1);
-        assert_eq!(next_limit, vec![entry2.hash]);
-    }
-
-    #[test]
-    fn next_max_hash() {
-        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
-        index.insert(BacklogEntry::new_test_instance());
-        let next = index.next(&BlockHash::MAX, usize::MAX);
-        assert!(next.is_empty());
     }
 
     #[test]

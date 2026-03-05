@@ -104,6 +104,12 @@ Stats are in `rsnano_utils::stats`. Components hold an `Arc<Stats>` and call `.i
 
 Long-running work uses `ThreadPool` (from `rsnano_utils::thread_pool`) and `TickerPool`/`TimerThread` for periodic tasks. `CancellationToken` is used for cooperative shutdown. Background threads use `backpressure_channel` for flow control.
 
+## Workflow
+
+After finishing editing source files:
+1. Run `cargo fmt --all` to format the code.
+2. Run `cargo test -q` to verify all tests pass.
+
 ## Feature Flags
 
 - `banano` — Compile as a Banano node instead of Nano

@@ -123,7 +123,6 @@ mod tests {
         enable = false
         batch_size = 999
         max_queued_notifications = 999
-        scan_rate = 999
 
         [node.block_processor]
         max_peer_queue = 999
@@ -762,10 +761,6 @@ mod tests {
         assert_ne!(
             deserialized.node.bounded_backlog.rollback_batch_size,
             default_cfg.node.bounded_backlog.rollback_batch_size
-        );
-        assert_ne!(
-            deserialized.node.bounded_backlog.scan_rate,
-            default_cfg.node.bounded_backlog.scan_rate
         );
 
         // TCP
