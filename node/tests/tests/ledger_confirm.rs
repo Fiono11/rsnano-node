@@ -3,7 +3,7 @@ use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_network::ChannelId;
-use rsnano_node::block_processing::BlockContext;
+use rsnano_node::{block_processing::BlockContext, config::NodeFlags};
 use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{System, assert_timely_eq2};
@@ -48,8 +48,18 @@ fn single() {
 #[test]
 fn multiple_accounts() {
     let mut system = System::new();
-    let cfg = System::default_config_without_backlog_scan();
-    let node = system.build_node().config(cfg).finish();
+    let mut cfg = System::default_config_without_backlog_scan();
+    cfg.enable_hinted_scheduler = false;
+    cfg.enable_priority_scheduler = false;
+    cfg.enable_optimistic_scheduler = false;
+    let node = system
+        .build_node()
+        .config(cfg)
+        .flags(NodeFlags {
+            disable_block_processor_republishing: true,
+            ..Default::default()
+        })
+        .finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let key2 = PrivateKey::new();

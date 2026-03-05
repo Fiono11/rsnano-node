@@ -27,7 +27,6 @@ pub struct BoundedBacklog {
     thread: Mutex<Option<JoinHandle<()>>>,
     logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     ledger: Arc<Ledger>,
-    can_roll_back: Mutex<Option<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>>,
 }
 
 impl BoundedBacklog {
@@ -40,7 +39,6 @@ impl BoundedBacklog {
             thread: Mutex::new(None),
             logic,
             ledger,
-            can_roll_back: Mutex::new(None),
         }
     }
 
@@ -54,17 +52,9 @@ impl BoundedBacklog {
     pub fn start(&self) {
         debug_assert!(self.thread.lock().unwrap().is_none());
 
-        let can_roll_back = self
-            .can_roll_back
-            .lock()
-            .unwrap()
-            .take()
-            .unwrap_or_else(|| Box::new(|_| true));
-
         let app = BoundedBacklogApp {
             logic: self.logic.clone(),
             ledger: self.ledger.clone(),
-            can_roll_back,
         };
 
         let handle = std::thread::Builder::new()
@@ -83,11 +73,6 @@ impl BoundedBacklog {
         if let Some(handle) = handle {
             handle.join().unwrap();
         }
-    }
-
-    // Give other components a chance to veto a rollback
-    pub fn can_roll_back(&self, f: impl Fn(&BlockHash) -> bool + Send + Sync + 'static) {
-        *self.can_roll_back.lock().unwrap() = Some(Box::new(f));
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {

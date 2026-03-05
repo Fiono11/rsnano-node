@@ -879,8 +879,7 @@ impl Node {
         let confirming_set_w = Arc::downgrade(&confirming_set);
         let local_block_broadcaster_w = Arc::downgrade(&local_block_broadcaster);
 
-        // TODO: remove the duplication of the on_rolling_back event
-        bounded_backlog.can_roll_back(move |hash| {
+        ledger.set_can_roll_back(move |hash| {
             if let Some(i) = vote_cache_w.upgrade()
                 && i.lock().unwrap().contains(hash)
             {

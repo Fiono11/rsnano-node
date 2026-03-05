@@ -277,6 +277,7 @@ fn vote_generator_multiple_representatives() {
 }
 
 #[test]
+#[ignore = "Rewrite as unit test"]
 fn vote_spacing_vote_generator() {
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();

@@ -14,7 +14,6 @@ use super::logic::BoundedBacklogLogic;
 pub(crate) struct BoundedBacklogApp {
     pub(super) logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     pub(super) ledger: Arc<Ledger>,
-    pub(super) can_roll_back: Box<dyn Fn(&BlockHash) -> bool + Send + Sync>,
 }
 
 impl BoundedBacklogApp {
@@ -51,7 +50,7 @@ impl BoundedBacklogApp {
             drop(state);
 
             self.ledger
-                .roll_back_batch(&*targets, target_count as usize, &self.can_roll_back);
+                .roll_back_batch(&*targets, target_count as usize);
 
             state = self.logic.lock();
         }

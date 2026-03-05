@@ -125,6 +125,7 @@ pub struct Ledger {
     rollback_listener: OutputListenerMt<BlockHash>,
     store_version: u32,
     pub(crate) publish: RwLock<Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>>,
+    can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
 }
 
 pub struct NullLedgerBuilder {
@@ -304,6 +305,7 @@ impl Ledger {
             rollback_listener: Default::default(),
             store_version: 0,
             publish: RwLock::new(None),
+            can_roll_back: RwLock::new(Box::new(|_| true)),
         };
 
         ledger.initialize(thread_count, integrity_check)?;
@@ -520,20 +522,14 @@ impl Ledger {
     /// Rollback blocks until `block' doesn't exist or it tries to penetrate the confirmation height
     pub fn roll_back(&self, block: &BlockHash) -> Result<usize, RollbackError> {
         self.rollback_listener.emit(*block);
-        let result = self.roll_back_batch(&[*block], usize::MAX, |_| true);
+        let result = self.roll_back_batch(&[*block], usize::MAX);
         let rolled_back = result[0].rolled_back.len();
         result[0].error.map_or(Ok(rolled_back), Err)
     }
 
-    pub fn roll_back_batch<'a, T, F>(
-        &self,
-        targets: T,
-        max_rollbacks: usize,
-        mut can_roll_back: F,
-    ) -> RollbackResults
+    pub fn roll_back_batch<'a, T>(&self, targets: T, max_rollbacks: usize) -> RollbackResults
     where
         T: IntoIterator<Item = &'a BlockHash>,
-        F: FnMut(&BlockHash) -> bool,
     {
         self.stats
             .inc(StatType::BoundedBacklog, DetailType::PerformingRollbacks);
@@ -542,6 +538,7 @@ impl Ledger {
         let mut results = RollbackResults::new();
         {
             let mut txn = self.store.begin_write();
+            let can_roll_back = self.can_roll_back.read().unwrap();
 
             for hash in targets {
                 // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
@@ -998,6 +995,10 @@ impl Ledger {
             self.store.forks.del(&mut txn, &root);
         }
         txn.commit();
+    }
+
+    pub fn set_can_roll_back(&self, f: impl Fn(&BlockHash) -> bool + Send + Sync + 'static) {
+        *self.can_roll_back.write().unwrap() = Box::new(f);
     }
 
     pub fn drop_publisher(&self) {
