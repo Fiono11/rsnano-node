@@ -33,7 +33,7 @@ pub(crate) struct BoundedBacklogLogic {
     pub(crate) index: BacklogIndex,
     pub(crate) config: BoundedBacklogConfig,
     bucket_count: usize,
-    backlog_size: u64,
+    current_backlog_size: u64,
 
     // stats
     gather_called: u64,
@@ -48,7 +48,7 @@ impl BoundedBacklogLogic {
             index: BacklogIndex::new(prio_bucket_count()),
             config,
             bucket_count: prio_bucket_count(),
-            backlog_size: 0,
+            current_backlog_size: 0,
             gather_called: 0,
             total_gathered: 0,
         }
@@ -66,8 +66,8 @@ impl BoundedBacklogLogic {
         self.cool_down = cool_down;
     }
 
-    pub(crate) fn set_backlog_size(&mut self, backlog_size: u64) {
-        self.backlog_size = backlog_size;
+    pub(crate) fn set_current_backlog_size(&mut self, size: u64) {
+        self.current_backlog_size = size;
     }
 
     pub(crate) fn rollback_needed(&self) -> bool {
@@ -77,15 +77,16 @@ impl BoundedBacklogLogic {
 
         // Both ledger and tracked backlog must be over the threshold
         let max_backlog = self.config.max_backlog;
-        self.backlog_size > max_backlog && self.index.len() > max_backlog as usize
+        self.current_backlog_size > max_backlog && self.index.len() > max_backlog as usize
     }
 
     /// The number of rollbacks required in order to reach the max allowed backlog
     pub(crate) fn rollback_target_count(&self) -> u64 {
-        self.backlog_size.saturating_sub(self.config.max_backlog)
+        self.current_backlog_size
+            .saturating_sub(self.config.max_backlog)
     }
 
-    fn rollback_batch_size(&self) -> usize {
+    fn next_rollback_batch_size(&self) -> usize {
         min(
             self.rollback_target_count(),
             self.config.rollback_batch_size as u64,
@@ -95,7 +96,7 @@ impl BoundedBacklogLogic {
     pub(crate) fn gather_targets(&mut self, targets: &mut Vec<BlockHash>) {
         self.gather_called += 1;
         targets.clear();
-        let batch_size = self.rollback_batch_size();
+        let batch_size = self.next_rollback_batch_size();
 
         // Start rolling back from lowest index buckets first
         for bucket in 0..self.bucket_count {

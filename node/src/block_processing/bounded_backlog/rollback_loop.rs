@@ -23,7 +23,7 @@ impl RollbackLoop {
         let mut targets = Vec::with_capacity(state.config.rollback_batch_size);
 
         while !state.stopped() {
-            state.set_backlog_size(self.ledger.backlog_size());
+            state.set_current_backlog_size(self.ledger.backlog_size());
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
