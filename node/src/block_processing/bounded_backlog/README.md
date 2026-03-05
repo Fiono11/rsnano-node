@@ -23,17 +23,17 @@ Both conditions must hold to avoid reacting to transient spikes. When triggered,
 3. Passes the gathered targets to `Ledger::roll_back_batch()`, which rolls back each target and its dependents.
 4. Erases the rolled-back hashes from the index.
 
-## Ledger Integration (`BoundedBacklogLedgerAdapter`)
+## Ledger Integration
 
-The adapter listens for `LedgerPipelineEvent`s and keeps the index in sync:
+`BoundedBacklog` directly implements `EventHandler<LedgerPipelineEvent>` and keeps the index in sync:
 
 | Event | Action |
 |---|---|
 | `BlocksProcessed` | Insert successfully processed blocks into the index |
 | `BlocksConfirmed` | Remove confirmed blocks from the index |
-| `BlocksRolledBack` | Erase rolled-back blocks from the index |
+| `BlocksRolledBack` | Remove rolled-back blocks from the index |
 
-Because the adapter handles all ledger events, the index stays consistent without any additional reconciliation pass.
+Because `BoundedBacklog` handles all ledger events, the index stays consistent without any additional reconciliation pass.
 
 ## Configuration
 
@@ -55,10 +55,10 @@ classDiagram
         +stop()
         +set_cooldown()
         +insert_processed()
-        +activate_batch()
-        +erase_accounts()
-        +erase_hashes()
-        +remove()
+        +unconfirmed_accounts_found()
+        +remove_accounts()
+        +remove_hashes()
+        +handle(LedgerPipelineEvent)
     }
 
     class BoundedBacklogLogic {
@@ -77,10 +77,6 @@ classDiagram
         +len() usize
     }
 
-    class BoundedBacklogLedgerAdapter {
-        +handle(LedgerPipelineEvent)
-    }
-
     class Ledger {
         +roll_back_batch()
         +backlog_size() u64
@@ -90,7 +86,7 @@ classDiagram
     BoundedBacklog --> BoundedBacklogLogic : owns (condvar-wrapped)
     BoundedBacklog --> Ledger : calls roll_back_batch
     BoundedBacklogLogic --> BacklogIndex : owns
-    BoundedBacklogLedgerAdapter --> BoundedBacklog : insert/remove/erase
+    BoundedBacklog ..|> EventHandler : implements
 ```
 
 ## Files
@@ -98,5 +94,5 @@ classDiagram
 | File | Purpose |
 |---|---|
 | `mod.rs` | Re-exports |
-| `app.rs` | `BoundedBacklog` application layer: detects overflow, tracks the index, and executes rollbacks |
-| `ledger_adapter.rs` | Bridges ledger events to the bounded backlog |
+| `app.rs` | `BoundedBacklog`: application layer that detects overflow, tracks the index, executes rollbacks, and handles ledger events |
+| `logic.rs` | `BoundedBacklogLogic`: pure rollback decision logic and `BacklogIndex` management |
