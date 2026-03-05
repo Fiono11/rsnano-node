@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    sync::{Arc, atomic::Ordering::Relaxed},
+    sync::{Arc, MutexGuard, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -15,6 +15,7 @@ use crate::{
     },
     consensus::election_schedulers::priority::prio_bucket_count,
 };
+use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
@@ -26,7 +27,7 @@ pub(crate) struct RollbackLoop {
 }
 
 impl RollbackLoop {
-    pub(crate) fn run_process(&self) {
+    pub(crate) fn run(&self) {
         let mut state = self.state.lock();
         while !state.stopped {
             state.backlog_size = self.ledger.backlog_size();
@@ -37,35 +38,34 @@ impl RollbackLoop {
                 })
                 .0;
 
-            if state.stopped {
-                return;
-            }
+            state = self.run_one(state);
+        }
+    }
 
-            if !state.rollback_needed() {
-                continue;
-            }
+    fn run_one<'a>(
+        &'a self,
+        mut state: MutexGuard<'a, BoundedBacklogState>,
+    ) -> MutexGuard<'a, BoundedBacklogState> {
+        if state.stopped || !state.rollback_needed() {
+            return state;
+        }
 
-            self.stats.loop_rollback.fetch_add(1, Relaxed);
+        let targets = state.gather_targets(&self.can_roll_back);
 
-            let targets = state.gather_targets(&self.can_roll_back);
+        if !targets.is_empty() {
+            let target_count = state.rollback_target_count();
+            drop(state);
 
-            if !targets.is_empty() {
-                let target_count = state.rollback_target_count();
-                drop(state);
-                self.stats
-                    .gathered_targets
-                    .fetch_add(targets.len(), Relaxed);
+            let processed = self.roll_back(&targets, target_count as usize, &self.can_roll_back);
+            state = self.state.lock();
 
-                let processed =
-                    self.roll_back(&targets, target_count as usize, &self.can_roll_back);
-                state = self.state.lock();
-
-                // Erase rolled back blocks from the index
-                for hash in &processed {
-                    state.index.erase_hash(hash);
-                }
+            // Erase rolled back blocks from the index
+            for hash in &processed {
+                state.index.erase_hash(hash);
             }
         }
+
+        state
     }
 
     fn roll_back(
@@ -102,6 +102,10 @@ pub(crate) struct BoundedBacklogState {
     config: BoundedBacklogConfig,
     bucket_count: usize,
     backlog_size: u64,
+
+    // stats
+    gather_called: u64,
+    total_gathered: u64,
 }
 
 impl BoundedBacklogState {
@@ -113,6 +117,8 @@ impl BoundedBacklogState {
             config,
             bucket_count: prio_bucket_count(),
             backlog_size: 0,
+            gather_called: 0,
+            total_gathered: 0,
         }
     }
 
@@ -138,10 +144,10 @@ impl BoundedBacklogState {
         ) as usize
     }
 
-    fn gather_targets(&self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
-        let mut targets = Vec::new();
-
+    fn gather_targets(&mut self, can_rollback: impl Fn(&BlockHash) -> bool) -> Vec<BlockHash> {
+        self.gather_called += 1;
         let mut space_left = self.rollback_batch_size();
+        let mut targets = Vec::with_capacity(space_left);
         // Start rolling back from lowest index buckets first
         for bucket in 0..self.bucket_count {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
@@ -157,10 +163,36 @@ impl BoundedBacklogState {
                 }
             }
         }
+        self.total_gathered += targets.len();
         targets
     }
 
     fn bucket_threshold(&self) -> usize {
         self.config.max_backlog as usize / self.bucket_count
+    }
+}
+
+impl StatsSource for BoundedBacklogState {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert("bounded_backlog", "loop", self.gather_called);
+        result.insert("bounded_backlog", "gathered_targets", self.total_gathered);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collects_stats() {
+        let mut state = BoundedBacklogState::new(Default::default());
+        state.gather_called = 10;
+        state.total_gathered = 11;
+
+        let mut result = StatsCollection::new();
+        state.collect_stats(&mut result);
+
+        assert_eq!(result.get("bounded_backlog", "loop"), 10);
+        assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
     }
 }

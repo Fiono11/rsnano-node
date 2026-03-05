@@ -107,7 +107,7 @@ impl BoundedBacklog {
 
         let handle = std::thread::Builder::new()
             .name("Bounded backlog".to_owned())
-            .spawn(move || rollback_loop.run_process())
+            .spawn(move || rollback_loop.run())
             .unwrap();
 
         *self.process_thread.lock().unwrap() = Some(handle);
@@ -273,6 +273,7 @@ impl ContainerInfoProvider for BoundedBacklog {
 impl StatsSource for BoundedBacklog {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.stats.collect_stats(result);
+        self.state.lock().collect_stats(result);
     }
 }
 
