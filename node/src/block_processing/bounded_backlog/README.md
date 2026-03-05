@@ -10,7 +10,7 @@ Under heavy load or during a network partition, unconfirmed blocks can accumulat
 
 Blocks are tracked in a `BacklogIndex` organized into priority buckets based on account balance (via `prio_bucket_index`). Lower-balance accounts occupy lower-indexed buckets and are rolled back first.
 
-### Rollback thread (`BoundedBacklogApp`)
+### Rollback thread (`BoundedBacklog`)
 
 A single background thread wakes up whenever both of the following conditions are true:
 1. The ledger's total unconfirmed block count exceeds `max_backlog`.
@@ -22,8 +22,6 @@ Both conditions must hold to avoid reacting to transient spikes. When triggered,
 2. Scans buckets from lowest priority upward; a bucket is only a rollback candidate if it individually exceeds `max_backlog / bucket_count`.
 3. Passes the gathered targets to `Ledger::roll_back_batch()`, which rolls back each target and its dependents.
 4. Erases the rolled-back hashes from the index.
-
-Other node components can veto individual rollbacks by registering a `can_roll_back` callback. This lets active elections or other subsystems protect blocks they are currently working on.
 
 ## Ledger Integration (`BoundedBacklogLedgerAdapter`)
 
@@ -48,10 +46,57 @@ Because the adapter handles all ledger events, the index stays consistent withou
 
 The `set_cooldown(true)` method pauses rollbacks without stopping the thread. This is used during bootstrap and other phases where rolling back would be counterproductive. The rollback thread checks the cooldown flag before each rollback decision.
 
+## Design
+
+```mermaid
+classDiagram
+    class BoundedBacklog {
+        +run_loop()
+        +stop()
+        +set_cooldown()
+        +insert_processed()
+        +activate_batch()
+        +erase_accounts()
+        +erase_hashes()
+        +remove()
+    }
+
+    class BoundedBacklogLogic {
+        +rollback_needed() bool
+        +gather_targets()
+        +set_current_backlog_size()
+        +set_cool_down()
+        +stopped() bool
+    }
+
+    class BacklogIndex {
+        +insert()
+        +erase_hash()
+        +erase_account()
+        +contains() bool
+        +len() usize
+    }
+
+    class BoundedBacklogLedgerAdapter {
+        +handle(LedgerPipelineEvent)
+    }
+
+    class Ledger {
+        +roll_back_batch()
+        +backlog_size() u64
+        +set_can_roll_back()
+    }
+
+    BoundedBacklog --> BoundedBacklogLogic : owns (condvar-wrapped)
+    BoundedBacklog --> Ledger : calls roll_back_batch
+    BoundedBacklogLogic --> BacklogIndex : owns
+    BoundedBacklogLedgerAdapter --> BoundedBacklog : insert/remove/erase
+```
+
 ## Files
 
 | File | Purpose |
 |---|---|
-| `mod.rs` | `BoundedBacklog` main struct and configuration |
-| `app.rs` | Application layer (`BoundedBacklogApp`) that detects overflow and executes rollbacks |
+| `mod.rs` | Re-exports |
+| `app.rs` | `BoundedBacklog` application layer: detects overflow, tracks the index, and executes rollbacks |
 | `ledger_adapter.rs` | Bridges ledger events to the bounded backlog |
