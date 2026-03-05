@@ -28,7 +28,7 @@ impl RollbackLoop {
             state = self
                 .state
                 .wait_timeout_while(state, Duration::from_secs(1), |i| {
-                    !i.stopped && (i.cool_down || !i.should_roll_back(self.ledger.backlog_size()))
+                    !i.stopped && !i.rollback_needed(self.ledger.backlog_size())
                 })
                 .0;
 
@@ -36,7 +36,7 @@ impl RollbackLoop {
                 return;
             }
 
-            if state.cool_down {
+            if !state.rollback_needed(self.ledger.backlog_size()) {
                 continue;
             }
 

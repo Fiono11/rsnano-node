@@ -481,7 +481,12 @@ fn fork_multi_flip() {
     config.network.listening_port = get_available_port();
     // Reduce cooldown to speed up fork resolution
     config.bootstrap.candidate_accounts.cooldown = Duration::from_millis(100);
-    let node2 = system.build_node().config(config).flags(flags).finish();
+    let node2 = system
+        .build_node()
+        .config(config)
+        .flags(flags)
+        .disconnected()
+        .finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut fork_lattice = lattice.clone();
@@ -496,6 +501,8 @@ fn fork_multi_flip() {
     // Node2 has two blocks that will be rolled back by node1's vote
     node2.process(send2.clone());
     node2.process(send3.clone());
+
+    establish_tcp(&node1, &node2);
 
     // Insert voting key into node1
     node1.insert_into_wallet(&DEV_GENESIS_KEY);

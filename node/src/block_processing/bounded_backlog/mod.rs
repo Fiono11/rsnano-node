@@ -297,7 +297,7 @@ impl BoundedBacklogState {
         }
     }
 
-    fn should_roll_back(&self, backlog_size: u64) -> bool {
+    fn rollback_needed(&self, backlog_size: u64) -> bool {
         if self.cool_down {
             return false;
         }
