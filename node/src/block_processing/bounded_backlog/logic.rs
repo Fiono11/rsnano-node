@@ -1,9 +1,16 @@
 use std::cmp::min;
 
-use rsnano_types::BlockHash;
-use rsnano_utils::stats::{StatsCollection, StatsSource};
+use rsnano_ledger::ProcessResult;
+use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
+use rsnano_utils::{
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{StatsCollection, StatsSource},
+};
 
-use crate::consensus::election_schedulers::priority::prio_bucket_count;
+use crate::{
+    block_processing::bounded_backlog::index::BacklogEntry,
+    consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index},
+};
 
 use super::index::BacklogIndex;
 
@@ -124,12 +131,42 @@ impl BoundedBacklogLogic {
             self.index.remove(&account);
         }
     }
+
+    /// Track newly inserted blocks, wich are unconfirmed
+    pub(crate) fn insert_processed(&mut self, batch: &[ProcessResult]) {
+        for result in batch {
+            if result.status.is_ok()
+                && let Some(block) = &result.saved_block
+            {
+                self.insert(block, result.priority);
+            }
+        }
+    }
+
+    pub(crate) fn insert(&mut self, block: &SavedBlock, priority: BlockPriority) -> bool {
+        let bucket_index = prio_bucket_index(priority.balance);
+        self.index.insert(BacklogEntry {
+            hash: block.hash(),
+            account: block.account(),
+            bucket_index,
+            priority: priority.time,
+        })
+    }
 }
 
 impl StatsSource for BoundedBacklogLogic {
     fn collect_stats(&self, result: &mut StatsCollection) {
         result.insert("bounded_backlog", "loop", self.gather_called);
         result.insert("bounded_backlog", "gathered_targets", self.total_gathered);
+    }
+}
+
+impl ContainerInfoProvider for BoundedBacklogLogic {
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .leaf("backlog", self.index.len(), 0)
+            .node("index", self.index.container_info())
+            .finish()
     }
 }
 

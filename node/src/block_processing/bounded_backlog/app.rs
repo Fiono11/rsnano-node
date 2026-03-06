@@ -3,21 +3,18 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessResult};
+use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet};
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::{AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{AccountInfo, BlockHash, ConfirmationHeightInfo};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
-use super::{index::BacklogEntry, logic::BoundedBacklogLogic};
-use crate::{
-    block_processing::{
-        LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
-    },
-    consensus::election_schedulers::priority::prio_bucket_index,
+use super::logic::BoundedBacklogLogic;
+use crate::block_processing::{
+    LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
 };
 use tracing::info;
 
@@ -124,7 +121,8 @@ impl BoundedBacklog {
                 break;
             }
 
-            let inserted = self.insert(any, &blk);
+            let priority = any.block_priority(&blk);
+            let inserted = self.logic.lock().insert(&blk, priority);
 
             // If the block was not inserted, we already have it in the backlog
             if !inserted {
@@ -138,30 +136,6 @@ impl BoundedBacklog {
             block = any.get_block(&blk.previous());
         }
     }
-
-    /// Track unconfirmed blocks
-    pub fn insert_processed(&self, batch: &[ProcessResult]) {
-        let any = self.ledger.any();
-        for result in batch {
-            if result.status.is_ok()
-                && let Some(block) = &result.saved_block
-            {
-                self.insert(&any, block);
-            }
-        }
-    }
-
-    fn insert(&self, any: &impl AnySet, block: &SavedBlock) -> bool {
-        let priority = any.block_priority(block);
-        let bucket_index = prio_bucket_index(priority.balance);
-
-        self.logic.lock().index.insert(BacklogEntry {
-            hash: block.hash(),
-            account: block.account(),
-            bucket_index,
-            priority: priority.time,
-        })
-    }
 }
 
 impl StatsSource for BoundedBacklog {
@@ -172,11 +146,7 @@ impl StatsSource for BoundedBacklog {
 
 impl ContainerInfoProvider for BoundedBacklog {
     fn container_info(&self) -> ContainerInfo {
-        let guard = self.logic.lock();
-        ContainerInfo::builder()
-            .leaf("backlog", guard.index.len(), 0)
-            .node("index", guard.index.container_info())
-            .finish()
+        self.logic.lock().container_info()
     }
 }
 
@@ -185,7 +155,7 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
         match event {
             LedgerPipelineEvent::Ledger(event) => match event {
                 LedgerEvent::BlocksProcessed(results) => {
-                    self.insert_processed(results);
+                    self.logic.lock().insert_processed(results);
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
                     self.logic
