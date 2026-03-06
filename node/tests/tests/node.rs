@@ -2447,10 +2447,6 @@ fn bounded_backlog() {
                 max_backlog: 10,
                 ..Default::default()
             },
-            backlog_scan: BacklogScanConfig {
-                enabled: false,
-                ..Default::default()
-            },
             ..System::default_config()
         })
         .flags(NodeFlags {
