@@ -27,7 +27,7 @@ Both conditions must hold to avoid reacting to transient spikes. When triggered,
 
 1. Computes how many blocks to remove: `ledger_backlog - max_backlog`.
 2. Scans buckets from lowest index (lowest balance) upward; a bucket is a rollback candidate only if it individually exceeds `max_backlog / bucket_count`.
-3. Drains rollback targets from qualifying buckets via `drain_top()`, which removes blocks with the highest `TimePriority` value first (= oldest receive time = lowest timestamp priority).
+3. Drains rollback targets from qualifying buckets via `drain_lowest_priority()`, which removes blocks with the highest `TimePriority` value first (= oldest receive time = lowest timestamp priority).
 4. Passes the gathered targets to `Ledger::roll_back_batch()`, which rolls back each target and its dependents.
 
 ## Ledger Integration
@@ -81,7 +81,7 @@ classDiagram
         +insert(entry) bool
         +remove(hash) bool
         +remove_batch(hashes)
-        +drain_top(bucket_index, count, result)
+        +drain_lowest_priority(bucket_index, count, result)
         +contains(hash) bool
         +len() usize
         +len_of_bucket(bucket_index) usize

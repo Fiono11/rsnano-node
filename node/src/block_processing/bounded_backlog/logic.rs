@@ -127,7 +127,7 @@ impl BoundedBacklogLogic {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
             if self.index.len_of_bucket(bucket) > self.bucket_threshold() {
                 let count = batch_size - targets.len();
-                self.index.drain_top(bucket, count, targets);
+                self.index.drain_lowest_priority(bucket, count, targets);
                 if targets.len() >= batch_size {
                     break;
                 }

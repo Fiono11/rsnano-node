@@ -77,7 +77,7 @@ impl BacklogIndex {
         true
     }
 
-    pub fn drain_top(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
+    pub fn drain_lowest_priority(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
         let start_len = result.len();
 
         let iter = self.by_priority[bucket_index]
@@ -250,18 +250,18 @@ mod tests {
     }
 
     #[test]
-    fn drain_top_empty() {
+    fn drain_lowest_priority_empty() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let mut result = Vec::new();
         let bucket_index = 3;
 
-        index.drain_top(bucket_index, 2, &mut result);
+        index.drain_lowest_priority(bucket_index, 2, &mut result);
 
         assert!(result.is_empty());
     }
 
     #[test]
-    fn drain_top_one() {
+    fn drain_lowest_priority_one() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let bucket_index = 3;
 
@@ -274,14 +274,14 @@ mod tests {
         index.insert(entry1.clone());
 
         let mut result = Vec::with_capacity(1);
-        index.drain_top(bucket_index, 300, &mut result);
+        index.drain_lowest_priority(bucket_index, 300, &mut result);
 
         assert_eq!(result, vec![entry1.hash], "drained hashes");
         assert!(index.is_empty(), "index should be empty");
     }
 
     #[test]
-    fn drain_top_limit() {
+    fn drain_lowest_priority_limit() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let bucket_index = 3;
 
@@ -323,7 +323,7 @@ mod tests {
         index.insert(entry5);
 
         let mut result = Vec::with_capacity(2);
-        index.drain_top(bucket_index, 2, &mut result);
+        index.drain_lowest_priority(bucket_index, 2, &mut result);
 
         // ordered by ascending priority (=descending timestamp)
         assert_eq!(result, vec![entry4.hash, entry3.hash], "drained hashes");
