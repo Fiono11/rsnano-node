@@ -4,7 +4,7 @@ use rsnano_types::{Account, BlockHash, TimePriority};
 use rsnano_utils::container_info::ContainerInfo;
 
 #[derive(Clone)]
-pub(super) struct BacklogEntry {
+pub(crate) struct BacklogEntry {
     pub hash: BlockHash,
     pub account: Account,
     pub bucket_index: usize,
@@ -23,7 +23,7 @@ impl BacklogEntry {
     }
 }
 
-pub(super) struct BacklogIndex {
+pub(crate) struct BacklogIndex {
     by_hash: BTreeMap<BlockHash, BacklogEntry>,
     by_account: HashMap<Account, Vec<BlockHash>>,
     /// indexed by bucket index!

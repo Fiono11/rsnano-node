@@ -12,11 +12,10 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use super::logic::BoundedBacklogLogic;
+use super::{backlog_index::BacklogEntry, logic::BoundedBacklogLogic};
 use crate::{
     block_processing::{
-        LedgerPipelineEvent, backlog_index::BacklogEntry, backlog_scan::UnconfirmedInfo,
-        bounded_backlog::BoundedBacklogConfig,
+        LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
     },
     consensus::election_schedulers::priority::prio_bucket_index,
 };

@@ -1,4 +1,3 @@
-mod backlog_index;
 mod backlog_scan;
 mod backlog_waiter;
 mod block_batch_processor;

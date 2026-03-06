@@ -3,10 +3,9 @@ use std::cmp::min;
 use rsnano_types::BlockHash;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::{
-    block_processing::backlog_index::BacklogIndex,
-    consensus::election_schedulers::priority::prio_bucket_count,
-};
+use crate::consensus::election_schedulers::priority::prio_bucket_count;
+
+use super::backlog_index::BacklogIndex;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
