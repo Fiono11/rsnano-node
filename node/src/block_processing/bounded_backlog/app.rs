@@ -150,9 +150,9 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+    use rsnano_ledger::{BlockSource, ProcessResult, test_helpers::UnsavedBlockLatticeBuilder};
     use rsnano_nullable_condvar::NotifyEvent;
-    use rsnano_types::BlockPriority;
+    use rsnano_types::{Block, BlockPriority, SavedBlock};
     use tracing_test::traced_test;
 
     #[test]
@@ -253,6 +253,27 @@ mod tests {
         backlog.set_cooldown(true);
         assert!(backlog.logic.lock().cool_down());
         assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    #[test]
+    fn blocks_processed_inserts_blocks() {
+        let backlog = BoundedBacklog::new_null();
+
+        let saved_block = SavedBlock::new_test_instance();
+        let hash = saved_block.hash();
+        let result = ProcessResult {
+            block: Block::new_test_instance(),
+            source: BlockSource::Live,
+            status: Ok(()),
+            saved_block: Some(saved_block),
+            priority: BlockPriority::new_test_instance(),
+        };
+
+        backlog.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![result],
+        )));
+
+        assert!(backlog.logic.lock().contains(&hash));
     }
 
     #[test]

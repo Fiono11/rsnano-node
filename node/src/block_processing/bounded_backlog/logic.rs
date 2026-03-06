@@ -167,6 +167,11 @@ impl BoundedBacklogLogic {
             priority: priority.time,
         })
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn contains(&self, hash: &BlockHash) -> bool {
+        self.index.contains(hash)
+    }
 }
 
 impl StatsSource for BoundedBacklogLogic {
