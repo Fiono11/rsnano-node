@@ -1,7 +1,14 @@
-use crate::{Amount, BlockPriority, SavedBlock};
+use crate::{Amount, BlockPriority, BlockSideband, SavedBlock};
 use std::cmp::max;
 
 pub fn block_priority(block: &SavedBlock, previous_block: Option<&SavedBlock>) -> BlockPriority {
+    block_priority_sideband(&block.sideband(), previous_block)
+}
+
+pub fn block_priority_sideband(
+    sideband: &BlockSideband,
+    previous_block: Option<&SavedBlock>,
+) -> BlockPriority {
     let previous_balance = previous_block
         .as_ref()
         .map(|b| b.balance())
@@ -9,8 +16,8 @@ pub fn block_priority(block: &SavedBlock, previous_block: Option<&SavedBlock>) -
 
     // Handle full send case nicely where the balance would otherwise be 0
     let priority_balance = max(
-        block.balance(),
-        if block.is_send() {
+        sideband.balance,
+        if sideband.details.is_send {
             previous_balance
         } else {
             Amount::ZERO
@@ -23,7 +30,7 @@ pub fn block_priority(block: &SavedBlock, previous_block: Option<&SavedBlock>) -
     // rollbacks happen
     let priority_timestamp = previous_block
         .map(|b| b.timestamp())
-        .unwrap_or(block.timestamp());
+        .unwrap_or(sideband.timestamp);
 
     BlockPriority::new(priority_balance, priority_timestamp.into())
 }
@@ -33,7 +40,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::{BlockSideband, StateBlockArgs, UnixMillisTimestamp};
+    use crate::{BlockDetails, BlockSideband, Epoch, StateBlockArgs, UnixMillisTimestamp};
 
     #[test]
     fn open_block() {
@@ -110,24 +117,35 @@ mod tests {
         timestamp: UnixMillisTimestamp,
         previous: Option<(Amount, UnixMillisTimestamp)>,
     ) -> BlockPriority {
-        let previous = previous
-            .map(|(prev_balance, prev_timestamp)| create_block(prev_balance, prev_timestamp));
+        let previous = previous.map(|(prev_balance, prev_timestamp)| {
+            create_block(prev_balance, prev_timestamp, false)
+        });
 
-        let block = create_block(balance, timestamp);
+        let is_send = if let Some(p) = &previous
+            && p.balance() > balance
+        {
+            true
+        } else {
+            false
+        };
+        let block = create_block(balance, timestamp, is_send);
         block_priority(&block, previous.as_ref())
     }
 
-    fn create_block(balance: Amount, timestamp: UnixMillisTimestamp) -> SavedBlock {
-        SavedBlock::new(
-            StateBlockArgs {
-                balance,
-                ..StateBlockArgs::new_test_instance()
-            }
-            .into(),
-            BlockSideband {
-                timestamp,
-                ..BlockSideband::new_test_instance()
-            },
-        )
+    fn create_block(balance: Amount, timestamp: UnixMillisTimestamp, is_send: bool) -> SavedBlock {
+        let sideband = BlockSideband {
+            timestamp,
+            balance,
+            details: BlockDetails::new(Epoch::Epoch2, is_send, !is_send, false),
+            ..BlockSideband::new_test_instance()
+        };
+
+        let block = StateBlockArgs {
+            balance,
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+
+        SavedBlock::new(block, sideband)
     }
 }

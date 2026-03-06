@@ -2,7 +2,7 @@ mod block_details;
 mod block_priority;
 
 pub use block_details::BlockDetails;
-pub use block_priority::block_priority;
+pub use block_priority::{block_priority, block_priority_sideband};
 
 mod block_sideband;
 pub use block_sideband::BlockSideband;

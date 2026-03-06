@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_types::{
-    Account, AccountInfo, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
+    Account, AccountInfo, Block, BlockPriority, BlockSideband, PendingInfo, PendingKey, SavedBlock,
 };
 
 use crate::Ledger;
@@ -16,6 +16,7 @@ pub(crate) struct BlockInsertInstructions {
     pub insert_pending: Option<(PendingKey, PendingInfo)>,
     pub set_sideband: BlockSideband,
     pub is_epoch_block: bool,
+    pub priority: BlockPriority,
 }
 
 /// Inserts a new block into the ledger
@@ -307,6 +308,7 @@ mod tests {
             insert_pending: None,
             set_sideband: sideband,
             is_epoch_block: false,
+            priority: BlockPriority::new_test_instance(),
         };
 
         (block, instructions)
@@ -328,6 +330,7 @@ mod tests {
             insert_pending: None,
             set_sideband: sideband,
             is_epoch_block: false,
+            priority: BlockPriority::new_test_instance(),
         };
 
         (block, instructions)
@@ -363,6 +366,7 @@ mod tests {
             insert_pending: None,
             set_sideband: sideband,
             is_epoch_block: false,
+            priority: BlockPriority::new_test_instance(),
         };
 
         (block, instructions)

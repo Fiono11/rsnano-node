@@ -9,6 +9,7 @@ mod tests;
 
 use rsnano_types::{
     Account, AccountInfo, Block, Epochs, PendingInfo, SavedBlock, UnixMillisTimestamp,
+    block_priority_sideband,
 };
 use rsnano_work::WorkThresholds;
 
@@ -51,14 +52,18 @@ impl<'a> BlockValidator<'a> {
     }
 
     fn create_instructions(&self) -> BlockInsertInstructions {
+        let set_sideband = self.new_sideband();
+        let priority = block_priority_sideband(&set_sideband, self.previous_block.as_ref());
+
         BlockInsertInstructions {
             account: self.account,
             old_account_info: self.old_account_info.clone().unwrap_or_default(),
             set_account_info: self.new_account_info(),
             delete_pending: self.delete_received_pending_info(),
             insert_pending: self.new_pending_info(),
-            set_sideband: self.new_sideband(),
+            set_sideband,
             is_epoch_block: self.is_epoch_block(),
+            priority,
         }
     }
 }
