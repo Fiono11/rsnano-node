@@ -827,14 +827,6 @@ impl Node {
                     backlog.unconfirmed_accounts_found(batch);
                 }
             });
-
-            // Erase accounts with all confirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog);
-            backlog_scan.on_up_to_date(move |batch| {
-                if let Some(backlog) = backlog_w.upgrade() {
-                    backlog.remove_accounts(batch);
-                }
-            });
         }
 
         let track_conf_times = TrackConfirmationTimes::default();

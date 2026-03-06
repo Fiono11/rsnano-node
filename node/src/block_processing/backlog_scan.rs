@@ -74,7 +74,6 @@ impl BacklogScan {
                 ledger,
                 stats: stats.clone(),
                 unconfirmed_observers: Vec::new(),
-                up_to_date_observers: Vec::new(),
                 limiter: Mutex::new(TokenBucket::new(config.rate_limit)),
                 config,
                 flags: flags.clone(),
@@ -94,13 +93,6 @@ impl BacklogScan {
     ) {
         self.scan_loop_mut()
             .unconfirmed_observers
-            .push(Box::new(callback));
-    }
-
-    /// Accounts scanned but not activated
-    pub fn on_up_to_date(&mut self, callback: impl Fn(&[Account]) + Send + Sync + 'static) {
-        self.scan_loop_mut()
-            .up_to_date_observers
             .push(Box::new(callback));
     }
 
@@ -169,7 +161,6 @@ struct BacklogScanLoop {
     ledger: Arc<Ledger>,
     stats: Arc<BacklogScanStats>,
     unconfirmed_observers: Vec<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>,
-    up_to_date_observers: Vec<Box<dyn Fn(&[Account]) + Send + Sync>>,
     config: BacklogScanConfig,
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
@@ -250,7 +241,7 @@ impl BacklogScanLoop {
             let is_confirmed = conf_info.height >= account_info.block_count;
 
             if is_confirmed {
-                result.fully_confirmed.push(account);
+                result.fully_confirmed += 1;
             } else {
                 result.unconfirmed.push(UnconfirmedInfo {
                     account,
@@ -280,9 +271,6 @@ impl BacklogScanLoop {
     }
 
     fn notify_observers(&self, result: BacklogScanResult) {
-        for observer in &self.up_to_date_observers {
-            observer(&result.fully_confirmed);
-        }
         for observer in &self.unconfirmed_observers {
             observer(&result.unconfirmed);
         }
@@ -297,7 +285,7 @@ impl StatsSource for BacklogScan {
 
 #[derive(Default)]
 pub struct BacklogScanResult {
-    fully_confirmed: Vec<Account>,
+    fully_confirmed: usize,
     unconfirmed: Vec<UnconfirmedInfo>,
     next: Account,
     done: bool,
@@ -305,7 +293,7 @@ pub struct BacklogScanResult {
 
 impl BacklogScanResult {
     pub fn len(&self) -> usize {
-        self.fully_confirmed.len() + self.unconfirmed.len()
+        self.fully_confirmed + self.unconfirmed.len()
     }
 }
 
