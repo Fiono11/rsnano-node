@@ -44,7 +44,7 @@ impl BacklogWaiter {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_null() -> Self {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let ledger = Arc::new(Ledger::new_null());
@@ -87,7 +87,7 @@ impl BacklogWaiter {
         should_log
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn call_count(&self) -> usize {
         self.call_count.load(Relaxed)
     }
