@@ -277,6 +277,24 @@ mod tests {
     }
 
     #[test]
+    fn blocks_confirmed_removes_blocks() {
+        let backlog = BoundedBacklog::new_null();
+
+        let saved_block = SavedBlock::new_test_instance();
+        let hash = saved_block.hash();
+        backlog
+            .logic
+            .lock()
+            .insert(&saved_block, BlockPriority::new_test_instance());
+
+        backlog.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(
+            vec![(saved_block, BlockHash::ZERO)],
+        )));
+
+        assert!(!backlog.logic.lock().contains(&hash));
+    }
+
+    #[test]
     fn collects_stats() {
         let backlog = BoundedBacklog::new_null();
 
