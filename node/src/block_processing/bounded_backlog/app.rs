@@ -116,18 +116,22 @@ impl BoundedBacklog {
                 break;
             }
 
-            // Check if the block is already in the backlog, avoids unnecessary ledger lookups
-            if self.logic.lock().index.contains(&blk.hash()) {
-                break;
-            }
-
             let priority = any.block_priority(&blk);
-            let inserted = self.logic.lock().insert(&blk, priority);
 
-            // If the block was not inserted, we already have it in the backlog
-            if !inserted {
-                break;
-            }
+            {
+                let logic = self.logic.lock();
+                // Check if the block is already in the backlog, avoids unnecessary ledger lookups
+                if logic.index.contains(&blk.hash()) {
+                    break;
+                }
+
+                let inserted = self.logic.lock().insert(&blk, priority);
+
+                // If the block was not inserted, we already have it in the backlog
+                if !inserted {
+                    break;
+                }
+            };
 
             if any.should_refresh() {
                 *any = self.ledger.any();

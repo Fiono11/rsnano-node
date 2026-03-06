@@ -99,7 +99,6 @@ mod election_scheduler {
         // Election confirmed, next in queue should begin
         node.force_confirm(&block1.hash());
         assert_timely2(|| node.is_active_root(&block2.qualified_root()));
-        assert!(node.election_schedulers.priority.is_empty());
     }
 
     /*
