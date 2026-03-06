@@ -117,7 +117,7 @@ mod tests {
         ledger.process_one(&open).unwrap();
         chain.push(open.hash());
 
-        for _ in 1..=num_blocks {
+        for _ in 1..num_blocks {
             let block = builder.account(&account).send(42, 1);
             ledger.process_one(&block).unwrap();
             chain.push(block.hash());
