@@ -5,7 +5,7 @@ use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::consensus::election_schedulers::priority::prio_bucket_count;
 
-use super::backlog_index::BacklogIndex;
+use super::index::BacklogIndex;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundedBacklogConfig {
