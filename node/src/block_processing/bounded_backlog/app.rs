@@ -162,13 +162,6 @@ impl BoundedBacklog {
             priority: priority.time,
         })
     }
-
-    pub fn remove_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
-        let mut guard = self.logic.lock();
-        for account in accounts.into_iter() {
-            guard.index.remove(&account);
-        }
-    }
 }
 
 impl StatsSource for BoundedBacklog {
@@ -195,10 +188,12 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
                     self.insert_processed(results);
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
-                    self.remove_hashes(confirmed.iter().map(|i| i.0.hash()));
+                    self.logic
+                        .lock()
+                        .remove_batch(confirmed.iter().map(|i| i.0.hash()));
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
-                    self.remove_hashes(rolled_back.hashes());
+                    self.logic.lock().remove_batch(rolled_back.hashes());
                 }
             },
             LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {

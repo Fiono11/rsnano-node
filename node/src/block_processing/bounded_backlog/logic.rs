@@ -118,6 +118,12 @@ impl BoundedBacklogLogic {
     fn bucket_threshold(&self) -> usize {
         self.config.max_backlog as usize / self.bucket_count
     }
+
+    pub(crate) fn remove_batch(&mut self, accounts: impl IntoIterator<Item = BlockHash>) {
+        for account in accounts.into_iter() {
+            self.index.remove(&account);
+        }
+    }
 }
 
 impl StatsSource for BoundedBacklogLogic {
