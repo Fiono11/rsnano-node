@@ -781,7 +781,7 @@ impl Node {
         ));
 
         let ledger_tx2 = ledger_tx.clone();
-        let mut backlog_scan = BacklogScan::new(
+        let backlog_scan = BacklogScan::new(
             global_config.into(),
             ledger.clone(),
             steady_clock.clone(),
@@ -805,20 +805,7 @@ impl Node {
         ));
 
         if config.enable_bounded_backlog {
-            info!(
-                "Bounded backlog enabled: max backlog={}, batch_size={}",
-                config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
-            );
-
             ledger_event_handlers.add(bounded_backlog.clone());
-
-            // Activate accounts with unconfirmed blocks
-            let backlog_w = Arc::downgrade(&bounded_backlog);
-            backlog_scan.on_unconfirmed_found(move |batch| {
-                if let Some(backlog) = backlog_w.upgrade() {
-                    backlog.unconfirmed_accounts_found(batch);
-                }
-            });
         }
 
         let track_conf_times = TrackConfirmationTimes::default();

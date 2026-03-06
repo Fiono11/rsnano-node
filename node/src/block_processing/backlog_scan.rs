@@ -77,7 +77,6 @@ impl BacklogScan {
             scan_loop: Some(BacklogScanLoop {
                 ledger,
                 stats: stats.clone(),
-                unconfirmed_observers: Vec::new(),
                 publish: publish.clone(),
                 limiter: Mutex::new(TokenBucket::new(config.rate_limit)),
                 config,
@@ -91,21 +90,6 @@ impl BacklogScan {
             publish,
             thread: None,
         }
-    }
-
-    pub fn on_unconfirmed_found(
-        &mut self,
-        callback: impl Fn(&[UnconfirmedInfo]) + Send + Sync + 'static,
-    ) {
-        self.scan_loop_mut()
-            .unconfirmed_observers
-            .push(Box::new(callback));
-    }
-
-    fn scan_loop_mut(&mut self) -> &mut BacklogScanLoop {
-        self.scan_loop
-            .as_mut()
-            .expect("Cannot modify started backlog scan")
     }
 
     pub fn start(&mut self) {
@@ -167,7 +151,6 @@ struct BacklogScanFlags {
 struct BacklogScanLoop {
     ledger: Arc<Ledger>,
     stats: Arc<BacklogScanStats>,
-    unconfirmed_observers: Vec<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>,
     publish: Arc<RwLock<Option<Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync>>>>,
     config: BacklogScanConfig,
     flags: Arc<Mutex<BacklogScanFlags>>,
@@ -280,9 +263,6 @@ impl BacklogScanLoop {
 
     fn notify_observers(&self, result: BacklogScanResult) {
         if !result.unconfirmed.is_empty() {
-            for observer in &self.unconfirmed_observers {
-                observer(&result.unconfirmed);
-            }
             let guard = self.publish.read().unwrap();
             if let Some(callback) = &*guard {
                 callback(result.unconfirmed);

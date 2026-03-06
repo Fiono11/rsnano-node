@@ -19,6 +19,7 @@ use crate::{
     },
     consensus::election_schedulers::priority::prio_bucket_index,
 };
+use tracing::info;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
@@ -50,6 +51,11 @@ impl BoundedBacklog {
 
     pub(crate) fn run_loop(&self) {
         let mut logic = self.logic.lock();
+        info!(
+            "Bounded backlog enabled: max backlog={}, batch_size={}",
+            logic.config.max_backlog, logic.config.rollback_batch_size,
+        );
+
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
 
         while !logic.stopped() {
@@ -89,7 +95,7 @@ impl BoundedBacklog {
         state
     }
 
-    pub fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
+    fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
         let mut any = self.ledger.any();
         for info in batch {
             self.process_unconfirmed_account(&mut any, &info.account_info, &info.conf_info);
@@ -183,8 +189,8 @@ impl ContainerInfoProvider for BoundedBacklog {
 
 impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
     fn handle(&self, event: &LedgerPipelineEvent) {
-        if let LedgerPipelineEvent::Ledger(event) = event {
-            match event {
+        match event {
+            LedgerPipelineEvent::Ledger(event) => match event {
                 LedgerEvent::BlocksProcessed(results) => {
                     self.insert_processed(results);
                 }
@@ -194,7 +200,11 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.remove_hashes(rolled_back.hashes());
                 }
+            },
+            LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
+                self.unconfirmed_accounts_found(unconfirmed);
             }
+            _ => (),
         }
     }
 }
