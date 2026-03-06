@@ -5,16 +5,16 @@ use std::{
 
 use tracing::info;
 
-use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet};
+use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
+use rsnano_types::BlockHash;
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
-use super::logic::BoundedBacklogLogic;
+use super::{logic::BoundedBacklogLogic, walker::AccountWalker};
 use crate::block_processing::{
     LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
 };
@@ -101,47 +101,6 @@ impl BoundedBacklog {
                 info.conf_info.frontier,
                 |block, priority| self.logic.lock().insert(&block, priority),
             );
-        }
-    }
-}
-
-/// Walks the specified block range of an account from newest to oldest block
-struct AccountWalker<'a> {
-    ledger: &'a Ledger,
-    any: OwningAnySet<'a>,
-}
-
-impl<'a> AccountWalker<'a> {
-    fn new(ledger: &'a Ledger) -> Self {
-        Self {
-            ledger,
-            any: ledger.any(),
-        }
-    }
-
-    fn walk_backwards<T>(&mut self, start: BlockHash, end: BlockHash, mut handle: T)
-    where
-        T: FnMut(&SavedBlock, BlockPriority) -> bool,
-    {
-        let mut block = self.any.get_block(&start);
-
-        while let Some(blk) = block {
-            if blk.hash() == end {
-                break;
-            }
-
-            let priority = self.any.block_priority(&blk);
-            let should_continue = handle(&blk, priority);
-
-            if !should_continue {
-                break;
-            }
-
-            if self.any.should_refresh() {
-                self.any = self.ledger.any();
-            }
-
-            block = self.any.get_block(&blk.previous());
         }
     }
 }
