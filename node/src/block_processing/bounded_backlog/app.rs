@@ -1,13 +1,9 @@
-use std::{
-    sync::{Arc, MutexGuard},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use tracing::info;
 
 use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::BlockHash;
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -65,38 +61,28 @@ impl BoundedBacklog {
                 })
                 .0;
 
-            logic = self.tick(logic, &mut targets);
+            if logic.stopped() {
+                return;
+            }
+
+            logic.set_current_backlog_size(self.ledger.backlog_size());
+
+            if !logic.rollback_needed() {
+                continue;
+            }
+
+            logic.gather_targets(&mut targets);
+
+            if !targets.is_empty() {
+                let target_count = logic.rollback_target_count();
+                drop(logic);
+
+                self.ledger
+                    .roll_back_batch(&*targets, target_count as usize);
+
+                logic = self.logic.lock();
+            }
         }
-    }
-
-    fn tick<'a>(
-        &'a self,
-        mut logic: MutexGuard<'a, BoundedBacklogLogic>,
-        targets: &mut Vec<BlockHash>,
-    ) -> MutexGuard<'a, BoundedBacklogLogic> {
-        if logic.stopped() {
-            return logic;
-        }
-
-        logic.set_current_backlog_size(self.ledger.backlog_size());
-
-        if !logic.rollback_needed() {
-            return logic;
-        }
-
-        logic.gather_targets(targets);
-
-        if !targets.is_empty() {
-            let target_count = logic.rollback_target_count();
-            drop(logic);
-
-            self.ledger
-                .roll_back_batch(&*targets, target_count as usize);
-
-            logic = self.logic.lock();
-        }
-
-        logic
     }
 
     fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
@@ -156,8 +142,8 @@ mod tests {
     };
     use rsnano_nullable_condvar::NotifyEvent;
     use rsnano_types::{
-        AccountInfo, Block, BlockPriority, ConfirmationHeightInfo, PrivateKey, QualifiedRoot,
-        SavedBlock,
+        AccountInfo, Block, BlockHash, BlockPriority, ConfirmationHeightInfo, PrivateKey,
+        QualifiedRoot, SavedBlock,
     };
     use tracing_test::traced_test;
 
