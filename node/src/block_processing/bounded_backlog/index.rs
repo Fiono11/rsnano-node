@@ -104,6 +104,7 @@ impl BacklogIndex {
         self.remove_batch(&result[start_len..]);
     }
 
+    #[allow(dead_code)]
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
     }

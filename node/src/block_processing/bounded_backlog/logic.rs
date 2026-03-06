@@ -143,6 +143,7 @@ impl BoundedBacklogLogic {
         }
     }
 
+    /// Returns false, if the block wasn't inserted, because it was already in the index
     pub(crate) fn insert(&mut self, block: &SavedBlock, priority: BlockPriority) -> bool {
         let bucket_index = prio_bucket_index(priority.balance);
         self.index.insert(BacklogEntry {

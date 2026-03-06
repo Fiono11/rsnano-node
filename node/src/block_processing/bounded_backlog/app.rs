@@ -3,9 +3,11 @@ use std::{
     time::Duration,
 };
 
+use tracing::info;
+
 use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet};
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::{AccountInfo, BlockHash, ConfirmationHeightInfo};
+use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -16,7 +18,6 @@ use super::logic::BoundedBacklogLogic;
 use crate::block_processing::{
     LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
 };
-use tracing::info;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
@@ -93,51 +94,54 @@ impl BoundedBacklog {
     }
 
     fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
-        let mut any = self.ledger.any();
+        let mut walker = AccountWalker::new(&self.ledger);
         for info in batch {
-            self.process_unconfirmed_account(&mut any, &info.account_info, &info.conf_info);
+            walker.walk_backwards(
+                info.account_info.head,
+                info.conf_info.frontier,
+                |block, priority| self.logic.lock().insert(&block, priority),
+            );
+        }
+    }
+}
+
+/// Walks the specified block range of an account from newest to oldest block
+struct AccountWalker<'a> {
+    ledger: &'a Ledger,
+    any: OwningAnySet<'a>,
+}
+
+impl<'a> AccountWalker<'a> {
+    fn new(ledger: &'a Ledger) -> Self {
+        Self {
+            ledger,
+            any: ledger.any(),
         }
     }
 
-    fn process_unconfirmed_account<'a>(
-        &'a self,
-        any: &mut OwningAnySet<'a>,
-        account_info: &AccountInfo,
-        conf_info: &ConfirmationHeightInfo,
-    ) {
-        debug_assert!(conf_info.frontier != account_info.head);
-
-        // Insert blocks into the index starting from the account head block
-        let mut block = any.get_block(&account_info.head);
+    fn walk_backwards<T>(&mut self, start: BlockHash, end: BlockHash, mut handle: T)
+    where
+        T: FnMut(&SavedBlock, BlockPriority) -> bool,
+    {
+        let mut block = self.any.get_block(&start);
 
         while let Some(blk) = block {
-            // We reached the confirmed frontier, no need to track more blocks
-            if blk.hash() == conf_info.frontier {
+            if blk.hash() == end {
                 break;
             }
 
-            let priority = any.block_priority(&blk);
+            let priority = self.any.block_priority(&blk);
+            let should_continue = handle(&blk, priority);
 
-            {
-                let logic = self.logic.lock();
-                // Check if the block is already in the backlog, avoids unnecessary ledger lookups
-                if logic.index.contains(&blk.hash()) {
-                    break;
-                }
-
-                let inserted = self.logic.lock().insert(&blk, priority);
-
-                // If the block was not inserted, we already have it in the backlog
-                if !inserted {
-                    break;
-                }
-            };
-
-            if any.should_refresh() {
-                *any = self.ledger.any();
+            if !should_continue {
+                break;
             }
 
-            block = any.get_block(&blk.previous());
+            if self.any.should_refresh() {
+                self.any = self.ledger.any();
+            }
+
+            block = self.any.get_block(&blk.previous());
         }
     }
 }
