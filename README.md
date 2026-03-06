@@ -86,7 +86,60 @@ Watch James Shore's presentation of nullables on YouTube: [Testing Without Mocks
 
 The following diagram shows how the crates are organized. The crates will be split up more when the codebase grows.
 
-![crate diagram](http://www.plantuml.com/plantuml/proxy?cache=no&fmt=svg&src=https://raw.github.com/rsnano-node/rsnano-node/develop/doc/crates.puml)
+```mermaid
+flowchart TD
+    main --> daemon
+    daemon --> node
+    daemon --> rpc_server
+    daemon --> websocket_server
+    rpc_server --> node
+    rpc_server --> rpc_messages
+    rpc_client --> rpc_messages
+    rpc_messages --> types
+    node --> ledger
+    node --> network_protocol
+    node --> wallet
+    network_protocol --> messages
+    network_protocol --> network
+    websocket_server --> websocket_messages
+    websocket_server --> node
+    websocket_messages --> types
+    websocket_client --> websocket_messages
+    messages --> work
+    messages --> utils
+    network --> utils
+    ledger --> store_lmdb
+    ledger --> work
+    ledger --> utils
+    store_lmdb --> types
+    work --> types
+    work --> utils
+    wallet --> ledger
+
+    subgraph rpc
+        rpc_messages
+        rpc_server
+        rpc_client
+    end
+
+    subgraph websocket
+        websocket_messages
+        websocket_server
+        websocket_client
+    end
+
+    subgraph nullables
+        fs
+        clock
+        random
+        tcp
+        lmdb
+        http_client
+        console
+        env
+        output_tracker
+    end
+```
 
 * `main`: The node executable.
 * `daemon`: Starts the node and optionally the RPC server.
