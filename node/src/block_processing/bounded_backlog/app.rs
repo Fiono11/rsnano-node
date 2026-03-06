@@ -38,7 +38,7 @@ impl BoundedBacklog {
     }
 
     pub fn set_cooldown(&self, cool_down: bool) {
-        self.logic.lock().set_cool_down(cool_down);
+        self.logic.lock().set_cooldown(cool_down);
         self.logic.notify_all();
     }
 
@@ -203,7 +203,7 @@ mod tests {
 
         let logic = backlog.logic.lock();
         assert_eq!(logic.current_backlog_size(), 1);
-        assert_eq!(logic.gather_called, 0);
+        assert_eq!(logic.rollback_iterations, 0);
     }
 
     #[test]
@@ -239,7 +239,7 @@ mod tests {
 
         let logic = backlog.logic.lock();
         assert_eq!(logic.current_backlog_size(), 2);
-        assert_eq!(logic.gather_called, 1);
+        assert_eq!(logic.rollback_iterations, 1);
         assert_ne!(ledger.backlog_size(), 2);
     }
 

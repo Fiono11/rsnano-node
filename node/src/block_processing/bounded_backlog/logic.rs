@@ -38,11 +38,10 @@ pub(crate) struct BoundedBacklogLogic {
     cool_down: bool,
     index: BacklogIndex,
     config: BoundedBacklogConfig,
-    bucket_count: usize,
     current_backlog_size: u64,
 
     // stats
-    pub gather_called: u64,
+    pub rollback_iterations: u64,
     total_gathered: u64,
 }
 
@@ -53,9 +52,8 @@ impl BoundedBacklogLogic {
             cool_down: false,
             index: BacklogIndex::new(prio_bucket_count()),
             config,
-            bucket_count: prio_bucket_count(),
             current_backlog_size: 0,
-            gather_called: 0,
+            rollback_iterations: 0,
             total_gathered: 0,
         }
     }
@@ -68,16 +66,16 @@ impl BoundedBacklogLogic {
         self.stopped = true;
     }
 
-    pub(crate) fn set_cool_down(&mut self, cool_down: bool) {
+    pub(crate) fn set_cooldown(&mut self, cool_down: bool) {
         self.cool_down = cool_down;
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn cool_down(&self) -> bool {
         self.cool_down
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn current_backlog_size(&self) -> u64 {
         self.current_backlog_size
     }
@@ -118,12 +116,12 @@ impl BoundedBacklogLogic {
     }
 
     pub(crate) fn gather_targets(&mut self, targets: &mut Vec<BlockHash>) {
-        self.gather_called += 1;
+        self.rollback_iterations += 1;
         targets.clear();
         let batch_size = self.next_rollback_batch_size();
 
         // Start rolling back from lowest index buckets first
-        for bucket in 0..self.bucket_count {
+        for bucket in 0..self.index.bucket_count() {
             // Only start rolling back if the bucket is over the threshold of unconfirmed blocks
             if self.index.len_of_bucket(bucket) > self.bucket_threshold() {
                 let count = batch_size - targets.len();
@@ -137,7 +135,7 @@ impl BoundedBacklogLogic {
     }
 
     fn bucket_threshold(&self) -> usize {
-        self.config.max_backlog as usize / self.bucket_count
+        self.config.max_backlog as usize / self.index.bucket_count()
     }
 
     pub(crate) fn remove_batch(&mut self, accounts: impl IntoIterator<Item = BlockHash>) {
@@ -167,7 +165,7 @@ impl BoundedBacklogLogic {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn contains(&self, hash: &BlockHash) -> bool {
         self.index.contains(hash)
     }
@@ -175,7 +173,11 @@ impl BoundedBacklogLogic {
 
 impl StatsSource for BoundedBacklogLogic {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert("bounded_backlog", "loop", self.gather_called);
+        result.insert(
+            "bounded_backlog",
+            "rollback_iterations",
+            self.rollback_iterations,
+        );
         result.insert("bounded_backlog", "gathered_targets", self.total_gathered);
     }
 }
@@ -226,7 +228,7 @@ mod tests {
     #[test]
     fn set_cool_down_sets_flag() {
         let mut logic = BoundedBacklogLogic::default();
-        logic.set_cool_down(true);
+        logic.set_cooldown(true);
         assert!(logic.cool_down());
     }
 
@@ -283,7 +285,7 @@ mod tests {
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
         logic.set_current_backlog_size(3);
-        logic.set_cool_down(true);
+        logic.set_cooldown(true);
         assert!(!logic.rollback_needed());
     }
 
@@ -424,7 +426,7 @@ mod tests {
         let mut logic = BoundedBacklogLogic::new(small_config());
         let mut targets = Vec::new();
         logic.gather_targets(&mut targets);
-        assert_eq!(logic.gather_called, 1);
+        assert_eq!(logic.rollback_iterations, 1);
     }
 
     #[test]
@@ -506,13 +508,13 @@ mod tests {
     #[test]
     fn collects_stats() {
         let mut logic = BoundedBacklogLogic::new(Default::default());
-        logic.gather_called = 10;
+        logic.rollback_iterations = 10;
         logic.total_gathered = 11;
 
         let mut result = StatsCollection::new();
         logic.collect_stats(&mut result);
 
-        assert_eq!(result.get("bounded_backlog", "loop"), 10);
+        assert_eq!(result.get("bounded_backlog", "rollback_iterations"), 10);
         assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
     }
 

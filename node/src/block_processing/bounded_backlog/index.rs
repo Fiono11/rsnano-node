@@ -11,7 +11,7 @@ pub(crate) struct BacklogEntry {
 }
 
 impl BacklogEntry {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_test_instance() -> Self {
         Self {
             hash: 100.into(),
@@ -35,6 +35,10 @@ impl BacklogIndex {
             by_priority: vec![Default::default(); bucket_count],
             bucket_lens: vec![0; bucket_count],
         }
+    }
+
+    pub fn bucket_count(&self) -> usize {
+        self.bucket_lens.len()
     }
 
     pub fn insert(&mut self, entry: BacklogEntry) -> bool {
@@ -77,7 +81,12 @@ impl BacklogIndex {
         true
     }
 
-    pub fn drain_lowest_priority(&mut self, bucket_index: usize, count: usize, result: &mut Vec<BlockHash>) {
+    pub fn drain_lowest_priority(
+        &mut self,
+        bucket_index: usize,
+        count: usize,
+        result: &mut Vec<BlockHash>,
+    ) {
         let start_len = result.len();
 
         let iter = self.by_priority[bucket_index]
@@ -90,7 +99,7 @@ impl BacklogIndex {
         self.remove_batch(&result[start_len..]);
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
     }
@@ -99,7 +108,7 @@ impl BacklogIndex {
         self.by_hash.len()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -325,7 +334,7 @@ mod tests {
         let mut result = Vec::with_capacity(2);
         index.drain_lowest_priority(bucket_index, 2, &mut result);
 
-        // ordered by ascending priority (=descending timestamp)
+        // ordered by ascending priority
         assert_eq!(result, vec![entry4.hash, entry3.hash], "drained hashes");
 
         assert_eq!(index.len(), 3, "index len after pop");
