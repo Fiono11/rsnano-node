@@ -35,7 +35,7 @@ pub use ledger_sets::*;
 pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
-use rsnano_types::{Block, BlockHash, SavedBlock};
+use rsnano_types::{Block, BlockHash, BlockPriority, SavedBlock};
 
 pub enum LedgerEvent {
     /// The confirmed block + it's confirmation root
@@ -44,12 +44,14 @@ pub enum LedgerEvent {
     BlocksRolledBack(RollbackResults),
 }
 
+/// Result of a processed block
 #[derive(Clone, Debug)]
 pub struct ProcessResult {
     pub block: Block,
     pub source: BlockSource,
     pub status: Result<(), BlockError>,
     pub saved_block: Option<SavedBlock>,
+    pub priority: BlockPriority,
 }
 
 #[derive(

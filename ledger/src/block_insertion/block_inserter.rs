@@ -42,7 +42,7 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    pub(crate) fn insert(&mut self) -> Option<SavedBlock> {
+    pub(crate) fn insert(&mut self) -> Option<(SavedBlock, BlockPriority)> {
         if self.account_changed_since_validation() {
             return None;
         }
@@ -67,7 +67,7 @@ impl<'a> BlockInserter<'a> {
             .block_count
             .fetch_add(1, Ordering::SeqCst);
 
-        Some(saved_block)
+        Some((saved_block, self.instructions.priority))
     }
 
     fn account_changed_since_validation(&mut self) -> bool {

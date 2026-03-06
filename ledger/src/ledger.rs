@@ -22,8 +22,8 @@ use rsnano_store_lmdb::{
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
 use rsnano_types::{
-    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, Epoch, Link,
-    PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, UnixTimestamp,
+    Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, ConfirmationHeightInfo, Epoch,
+    Link, PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, UnixTimestamp,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -655,7 +655,7 @@ impl Ledger {
             for (result, block, source) in validation_results {
                 match result {
                     Ok(instructions) => {
-                        if let Some(saved_block) =
+                        if let Some((saved_block, priority)) =
                             BlockInserter::new(self, &mut txn, block, &instructions).insert()
                         {
                             processed.push(ProcessResult {
@@ -663,6 +663,7 @@ impl Ledger {
                                 source,
                                 status: Ok(()),
                                 saved_block: Some(saved_block),
+                                priority,
                             });
                         } else {
                             let err = BlockError::Conflict;
@@ -671,6 +672,7 @@ impl Ledger {
                                 source,
                                 status: Err(err),
                                 saved_block: None,
+                                priority: BlockPriority::default(),
                             });
                         }
                     }
@@ -680,6 +682,7 @@ impl Ledger {
                             source,
                             status: Err(err),
                             saved_block: None,
+                            priority: BlockPriority::default(),
                         });
                     }
                 }
