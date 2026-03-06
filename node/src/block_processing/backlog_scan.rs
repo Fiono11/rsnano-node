@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard,
+        Arc, Condvar, Mutex, MutexGuard, RwLock,
         atomic::{AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
@@ -50,6 +50,7 @@ pub struct BacklogScan {
     stats: Arc<BacklogScanStats>,
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
+    publish: Arc<RwLock<Option<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>>>,
     /** Thread that runs the backlog implementation logic. The thread always runs, even if
      *  backlog population is disabled, so that it can service a manual trigger (e.g. via RPC). */
     thread: Option<JoinHandle<()>>,
@@ -69,11 +70,13 @@ impl BacklogScan {
         }));
 
         let condition = Arc::new(Condvar::new());
+        let publish = Arc::new(RwLock::new(None));
         Self {
             scan_loop: Some(BacklogScanLoop {
                 ledger,
                 stats: stats.clone(),
                 unconfirmed_observers: Vec::new(),
+                publish: Arc::clone(&publish),
                 limiter: Mutex::new(TokenBucket::new(config.rate_limit)),
                 config,
                 flags: flags.clone(),
@@ -83,6 +86,7 @@ impl BacklogScan {
             stats,
             flags,
             condition,
+            publish,
             thread: None,
         }
     }
@@ -94,6 +98,17 @@ impl BacklogScan {
         self.scan_loop_mut()
             .unconfirmed_observers
             .push(Box::new(callback));
+    }
+
+    pub fn set_unconfirmed_publisher(
+        &self,
+        callback: impl Fn(&[UnconfirmedInfo]) + Send + Sync + 'static,
+    ) {
+        *self.publish.write().unwrap() = Some(Box::new(callback));
+    }
+
+    pub fn drop_publisher(&self) {
+        *self.publish.write().unwrap() = None;
     }
 
     fn scan_loop_mut(&mut self) -> &mut BacklogScanLoop {
@@ -161,6 +176,7 @@ struct BacklogScanLoop {
     ledger: Arc<Ledger>,
     stats: Arc<BacklogScanStats>,
     unconfirmed_observers: Vec<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>,
+    publish: Arc<RwLock<Option<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>>>,
     config: BacklogScanConfig,
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
@@ -274,6 +290,10 @@ impl BacklogScanLoop {
         if !result.unconfirmed.is_empty() {
             for observer in &self.unconfirmed_observers {
                 observer(&result.unconfirmed);
+            }
+            let guard = self.publish.read().unwrap();
+            if let Some(callback) = &*guard {
+                callback(&result.unconfirmed);
             }
         }
     }

@@ -1657,6 +1657,7 @@ impl Node {
         }
         info!("Node stopping...");
 
+        self.backlog_scan.drop_publisher();
         self.ticker_pool.stop();
         self.tcp_listener.stop();
         self.aec_voter.stop();
