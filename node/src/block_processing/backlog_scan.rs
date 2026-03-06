@@ -271,8 +271,10 @@ impl BacklogScanLoop {
     }
 
     fn notify_observers(&self, result: BacklogScanResult) {
-        for observer in &self.unconfirmed_observers {
-            observer(&result.unconfirmed);
+        if !result.unconfirmed.is_empty() {
+            for observer in &self.unconfirmed_observers {
+                observer(&result.unconfirmed);
+            }
         }
     }
 }

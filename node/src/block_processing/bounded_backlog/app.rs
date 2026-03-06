@@ -12,7 +12,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use super::{backlog_index::BacklogEntry, logic::BoundedBacklogLogic};
+use super::{index::BacklogEntry, logic::BoundedBacklogLogic};
 use crate::{
     block_processing::{
         LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
