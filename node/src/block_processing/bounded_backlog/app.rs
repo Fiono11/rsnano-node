@@ -58,7 +58,6 @@ impl BoundedBacklog {
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
 
         while !logic.stopped() {
-            logic.set_current_backlog_size(self.ledger.backlog_size());
             logic = self
                 .logic
                 .wait_timeout_while(logic, Duration::from_secs(1), |i| {
@@ -66,32 +65,38 @@ impl BoundedBacklog {
                 })
                 .0;
 
-            logic = self.run_one(logic, &mut targets);
+            logic = self.tick(logic, &mut targets);
         }
     }
 
-    fn run_one<'a>(
+    fn tick<'a>(
         &'a self,
-        mut state: MutexGuard<'a, BoundedBacklogLogic>,
+        mut logic: MutexGuard<'a, BoundedBacklogLogic>,
         targets: &mut Vec<BlockHash>,
     ) -> MutexGuard<'a, BoundedBacklogLogic> {
-        if state.stopped() || !state.rollback_needed() {
-            return state;
+        if logic.stopped() {
+            return logic;
         }
 
-        state.gather_targets(targets);
+        logic.set_current_backlog_size(self.ledger.backlog_size());
+
+        if !logic.rollback_needed() {
+            return logic;
+        }
+
+        logic.gather_targets(targets);
 
         if !targets.is_empty() {
-            let target_count = state.rollback_target_count();
-            drop(state);
+            let target_count = logic.rollback_target_count();
+            drop(logic);
 
             self.ledger
                 .roll_back_batch(&*targets, target_count as usize);
 
-            state = self.logic.lock();
+            logic = self.logic.lock();
         }
 
-        state
+        logic
     }
 
     fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
@@ -145,7 +150,9 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
     use rsnano_nullable_condvar::NotifyEvent;
+    use rsnano_types::BlockPriority;
     use tracing_test::traced_test;
 
     #[test]
@@ -157,6 +164,77 @@ mod tests {
         assert!(logs_contain(
             "Bounded backlog enabled: max backlog=100000, batch_size=32"
         ));
+    }
+
+    #[test]
+    fn stop_immediately() {
+        let logic = NullableCondvarMutex::null_builder(BoundedBacklogLogic::default())
+            .wait(|l| l.stop())
+            .finish();
+
+        let ledger = Arc::new(Ledger::new_null());
+        let backlog = BoundedBacklog { logic, ledger };
+
+        backlog.run_loop();
+
+        // should not hang
+    }
+
+    #[test]
+    fn set_current_backlog_size() {
+        let logic = NullableCondvarMutex::null_builder(BoundedBacklogLogic::default())
+            .wait(|_| {})
+            .wait(|l| l.stop())
+            .finish();
+
+        let ledger = Arc::new(Ledger::new_null());
+        let block = UnsavedBlockLatticeBuilder::new().genesis().send(1, 1);
+        ledger.process_one(&block).unwrap();
+        assert_eq!(ledger.backlog_size(), 1);
+
+        let backlog = BoundedBacklog { logic, ledger };
+        backlog.run_loop();
+
+        let logic = backlog.logic.lock();
+        assert_eq!(logic.current_backlog_size(), 1);
+        assert_eq!(logic.gather_called, 0);
+    }
+
+    #[test]
+    fn gather_and_roll_back() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 1,
+            rollback_batch_size: 1,
+        };
+
+        let mut logic = BoundedBacklogLogic::new(config);
+
+        let ledger = Arc::new(Ledger::new_null());
+        let mut builder = UnsavedBlockLatticeBuilder::new();
+        let block1 = builder.genesis().send(1, 1);
+        let block2 = builder.genesis().send(1, 1);
+        let block1 = ledger.process_one(&block1).unwrap();
+        let block2 = ledger.process_one(&block2).unwrap();
+        assert_eq!(ledger.backlog_size(), 2);
+
+        logic.insert(&block1, BlockPriority::new_test_instance());
+        logic.insert(&block2, BlockPriority::new_test_instance());
+
+        let logic = NullableCondvarMutex::null_builder(logic)
+            .wait(|_| {})
+            .wait(|l| l.stop())
+            .finish();
+
+        let backlog = BoundedBacklog {
+            logic,
+            ledger: ledger.clone(),
+        };
+        backlog.run_loop();
+
+        let logic = backlog.logic.lock();
+        assert_eq!(logic.current_backlog_size(), 2);
+        assert_eq!(logic.gather_called, 1);
+        assert_ne!(ledger.backlog_size(), 2);
     }
 
     #[test]

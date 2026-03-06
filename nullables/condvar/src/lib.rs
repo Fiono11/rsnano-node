@@ -124,10 +124,8 @@ impl<T> NullableCondvarMutex<T> {
             }
             CondvarStrategy::Nulled(condvar) => {
                 condvar.execute_wait_callback(&mut guard);
-                if condition(&mut guard) {
-                    panic!("wait_timeout_while called on nulled condvar, but condition met");
-                }
-                (guard, false)
+                let timed_out = condition(&mut guard);
+                (guard, timed_out)
             }
         }
     }
@@ -183,7 +181,7 @@ impl<T> NullableCondvarMutexBuilder<T> {
     {
         self.callbacks
             .get_or_insert_default()
-            .push(Box::new(callback));
+            .insert(0, Box::new(callback));
         self
     }
 
@@ -301,11 +299,31 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "wait_timeout_while called on nulled condvar, but condition met"]
-    fn nulled_condvar_panics_when_wait_timeout_while_called_and_condition_met() {
+    fn nulled_condvar_returns_timeout_when_wait_timeout_while_called_and_condition_met() {
         let mutex = NullableCondvarMutex::new_null(1);
         let guard = mutex.lock();
-        drop(mutex.wait_timeout_while(guard, Duration::from_secs(5), |g| *g == 1));
+        let (_unused, timeout) =
+            mutex.wait_timeout_while(guard, Duration::from_secs(5), |g| *g == 1);
+        assert!(timeout)
+    }
+
+    #[test]
+    fn nulled_condvar_allows_multiple_calls_to_wait_timeout_while() {
+        let mutex = NullableCondvarMutex::null_builder(0)
+            .wait(|i| *i = 1)
+            .wait(|i| *i = 2)
+            .finish();
+
+        let mut guard = mutex.lock();
+        let mut timeout;
+
+        (guard, timeout) = mutex.wait_timeout_while(guard, Duration::from_secs(10), |_| true);
+        assert!(timeout);
+        assert_eq!(*guard, 1);
+
+        (guard, timeout) = mutex.wait_timeout_while(guard, Duration::from_secs(10), |_| true);
+        assert!(timeout);
+        assert_eq!(*guard, 2);
     }
 
     /*

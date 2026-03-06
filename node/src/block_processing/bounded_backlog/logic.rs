@@ -42,7 +42,7 @@ pub(crate) struct BoundedBacklogLogic {
     current_backlog_size: u64,
 
     // stats
-    gather_called: u64,
+    pub gather_called: u64,
     total_gathered: u64,
 }
 
@@ -75,6 +75,11 @@ impl BoundedBacklogLogic {
     #[allow(dead_code)]
     pub(crate) fn cool_down(&self) -> bool {
         self.cool_down
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn current_backlog_size(&self) -> u64 {
+        self.current_backlog_size
     }
 
     pub(crate) fn set_current_backlog_size(&mut self, size: u64) {
@@ -177,6 +182,12 @@ impl ContainerInfoProvider for BoundedBacklogLogic {
             .leaf("backlog", self.index.len(), 0)
             .node("index", self.index.container_info())
             .finish()
+    }
+}
+
+impl Default for BoundedBacklogLogic {
+    fn default() -> Self {
+        Self::new(Default::default())
     }
 }
 
