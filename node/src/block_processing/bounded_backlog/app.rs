@@ -150,9 +150,12 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_ledger::{BlockSource, ProcessResult, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_ledger::{
+        BlockSource, ProcessResult, RollbackResult, RollbackResults,
+        test_helpers::UnsavedBlockLatticeBuilder,
+    };
     use rsnano_nullable_condvar::NotifyEvent;
-    use rsnano_types::{Block, BlockPriority, SavedBlock};
+    use rsnano_types::{Block, BlockPriority, QualifiedRoot, SavedBlock};
     use tracing_test::traced_test;
 
     #[test]
@@ -256,6 +259,33 @@ mod tests {
     }
 
     #[test]
+    fn collects_stats() {
+        let backlog = BoundedBacklog::new_null();
+
+        let mut expected = StatsCollection::new();
+        backlog.logic.lock().collect_stats(&mut expected);
+
+        let mut result = StatsCollection::new();
+        backlog.collect_stats(&mut result);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn collects_container_info() {
+        let backlog = BoundedBacklog::new_null();
+
+        let expected = backlog.logic.lock().container_info();
+        let result = backlog.container_info();
+
+        assert_eq!(result, expected);
+    }
+
+    /*
+     * Tests for handling LedgerPipelineEvents
+     */
+
+    #[test]
     fn blocks_processed_inserts_blocks() {
         let backlog = BoundedBacklog::new_null();
 
@@ -295,25 +325,28 @@ mod tests {
     }
 
     #[test]
-    fn collects_stats() {
+    fn blocks_rolled_back_removes_blocks() {
         let backlog = BoundedBacklog::new_null();
 
-        let mut expected = StatsCollection::new();
-        backlog.logic.lock().collect_stats(&mut expected);
+        let saved_block = SavedBlock::new_test_instance();
+        let hash = saved_block.hash();
+        backlog
+            .logic
+            .lock()
+            .insert(&saved_block, BlockPriority::new_test_instance());
 
-        let mut result = StatsCollection::new();
-        backlog.collect_stats(&mut result);
+        let mut results = RollbackResults::new();
+        results.push(RollbackResult {
+            target_hash: hash,
+            target_root: QualifiedRoot::new_test_instance(),
+            rolled_back: vec![saved_block],
+            error: None,
+        });
 
-        assert_eq!(result, expected);
-    }
+        backlog.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksRolledBack(
+            results,
+        )));
 
-    #[test]
-    fn collects_container_info() {
-        let backlog = BoundedBacklog::new_null();
-
-        let expected = backlog.logic.lock().container_info();
-        let result = backlog.container_info();
-
-        assert_eq!(result, expected);
+        assert!(!backlog.logic.lock().contains(&hash));
     }
 }
