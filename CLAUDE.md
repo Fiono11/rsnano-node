@@ -39,6 +39,12 @@ cargo fmt --all --check            # check formatting (used in CI)
 cargo run --bin rsnano_node -- --network=live node run
 ```
 
+## Workflow
+
+After finishing editing source files:
+1. Run `cargo fmt --all` to format the code.
+2. Run `cargo test --lib -q` to verify all unit tests pass.
+
 ## Architecture
 
 ### Design Philosophy
@@ -135,21 +141,7 @@ Each infrastructure concern has a nullable wrapper crate under `nullables/`:
 
 In tests, use `Ledger::new_null()` and `*::new_null()` constructors to get in-memory/stub implementations. Use `UnsavedBlockLatticeBuilder::with_stub_work()` from `tools/test_helpers` to build test block chains.
 
-### Stats system
-
-Stats are in `rsnano_utils::stats`. Components hold an `Arc<Stats>` and call `.inc()`, `.add()`, etc. Stats use atomic counters grouped by direction (`Direction`).
-
 ### Threading model
 
 Long-running work uses `ThreadPool` (from `rsnano_utils::thread_pool`) and `TickerPool`/`TimerThread` for periodic tasks. `CancellationToken` is used for cooperative shutdown. Background threads use `backpressure_channel` for flow control.
 
-## Workflow
-
-After finishing editing source files:
-1. Run `cargo fmt --all` to format the code.
-2. Run `cargo test --lib -q` to verify all unit tests pass.
-
-## Feature Flags
-
-- `banano` — Compile as a Banano node instead of Nano
-- `ledger_snapshots` — Enable ledger snapshot/fork detection tooling (gated behind this feature)
