@@ -13,11 +13,11 @@ use crate::{
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
         ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
-        ForkCacheUpdater, LocalVoteHistory,
+        ForkCacheUpdater, LocalVoteHistory, election_schedulers::ElectionSchedulers,
     },
     utils::BackpressureEventProcessor,
 };
-use rsnano_ledger::LedgerEvent;
+use rsnano_ledger::{Ledger, LedgerEvent};
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
@@ -30,6 +30,8 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
     pub(crate) bounded_backlog: Arc<BoundedBacklog>,
+    pub(crate) election_schedulers: Arc<ElectionSchedulers>,
+    pub(crate) ledger: Arc<Ledger>,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
 }
 
@@ -47,6 +49,8 @@ impl LedgerEventProcessor {
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             bounded_backlog: Arc::new(BoundedBacklog::new_null()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
+            election_schedulers: ElectionSchedulers::new_null().into(),
+            ledger: Ledger::new_null().into(),
             plugins: EventHandlerRegistry::default(),
         }
     }
@@ -127,7 +131,17 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
                 }
             },
-            _ => {}
+            LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
+                let any = self.ledger.any();
+                for info in unconfirmed {
+                    self.election_schedulers.activate_backlog(
+                        &any,
+                        &info.account,
+                        &info.account_info,
+                        &info.conf_info,
+                    );
+                }
+            }
         }
     }
 }

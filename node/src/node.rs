@@ -792,23 +792,6 @@ impl Node {
             },
         );
 
-        //  TODO: Hook this direclty in the schedulers
-        let schedulers_w = Arc::downgrade(&election_schedulers);
-        let ledger_l = ledger.clone();
-        backlog_scan.on_unconfirmed_found(move |batch| {
-            if let Some(schedulers) = schedulers_w.upgrade() {
-                let any = ledger_l.any();
-                for info in batch {
-                    schedulers.activate_backlog(
-                        &any,
-                        &info.account,
-                        &info.account_info,
-                        &info.conf_info,
-                    );
-                }
-            }
-        });
-
         if config.bounded_backlog.max_backlog == 0 {
             config.enable_bounded_backlog = false;
         }
@@ -1300,6 +1283,8 @@ impl Node {
             block_processor_queue: block_processor_queue.clone(),
             bounded_backlog: bounded_backlog.clone(),
             fork_cache_updater,
+            ledger: ledger.clone(),
+            election_schedulers: election_schedulers.clone(),
             plugins: ledger_event_handlers,
         };
 
