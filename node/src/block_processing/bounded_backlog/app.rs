@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_ledger::{AnySet, Ledger, LedgerEvent, OwningAnySet, ProcessResult};
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -161,14 +161,7 @@ impl BoundedBacklog {
     pub fn remove_hashes(&self, accounts: impl IntoIterator<Item = BlockHash>) {
         let mut guard = self.logic.lock();
         for account in accounts.into_iter() {
-            guard.index.erase_hash(&account);
-        }
-    }
-
-    pub fn remove_accounts(&self, accounts: &[Account]) {
-        let mut guard = self.logic.lock();
-        for account in accounts {
-            guard.index.erase_account(account);
+            guard.index.remove(&account);
         }
     }
 }

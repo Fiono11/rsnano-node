@@ -63,33 +63,13 @@ impl BacklogIndex {
         inserted
     }
 
-    pub fn erase_account(&mut self, account: &Account) -> bool {
-        let Some(hashes) = self.by_account.remove(account) else {
-            return false;
-        };
-
-        for hash in hashes {
-            let entry = self.by_hash.remove(&hash).unwrap();
-            let prio_hashes = self.by_priority[entry.bucket_index]
-                .get_mut(&entry.priority)
-                .unwrap();
-            if prio_hashes.len() == 1 {
-                self.by_priority[entry.bucket_index].remove(&entry.priority);
-            } else {
-                prio_hashes.retain(|h| *h != hash);
-            }
-            self.bucket_lens[entry.bucket_index] -= 1;
-        }
-        true
-    }
-
-    pub fn erase_hashes<'a>(&mut self, hashes: impl IntoIterator<Item = &'a BlockHash>) {
+    pub fn remove_batch<'a>(&mut self, hashes: impl IntoIterator<Item = &'a BlockHash>) {
         for hash in hashes.into_iter() {
-            self.erase_hash(hash);
+            self.remove(hash);
         }
     }
 
-    pub fn erase_hash(&mut self, hash: &BlockHash) -> bool {
+    pub fn remove(&mut self, hash: &BlockHash) -> bool {
         let Some(entry) = self.by_hash.remove(hash) else {
             return false;
         };
@@ -121,7 +101,7 @@ impl BacklogIndex {
 
         result.extend(iter);
 
-        self.erase_hashes(&result[start_len..]);
+        self.remove_batch(&result[start_len..]);
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
@@ -165,8 +145,7 @@ mod tests {
         assert_eq!(index.len(), 0);
         assert_eq!(index.contains(&BlockHash::from(1)), false);
 
-        assert_eq!(index.erase_hash(&BlockHash::from(1)), false);
-        assert_eq!(index.erase_account(&Account::from(1)), false);
+        assert_eq!(index.remove(&BlockHash::from(1)), false);
     }
 
     #[test]
@@ -257,51 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn erase_account() {
-        let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
-
-        let entry1 = BacklogEntry {
-            account: 1000.into(),
-            hash: 1001.into(),
-            ..BacklogEntry::new_test_instance()
-        };
-
-        let entry2 = BacklogEntry {
-            account: 2000.into(),
-            hash: 2001.into(),
-            priority: TimePriority::new(1),
-            ..BacklogEntry::new_test_instance()
-        };
-
-        let entry3 = BacklogEntry {
-            account: 2000.into(),
-            hash: 2002.into(),
-            priority: TimePriority::new(1),
-            ..BacklogEntry::new_test_instance()
-        };
-
-        let entry4 = BacklogEntry {
-            account: 2000.into(),
-            hash: 2003.into(),
-            priority: TimePriority::new(2),
-            ..BacklogEntry::new_test_instance()
-        };
-
-        index.insert(entry1.clone());
-        index.insert(entry2.clone());
-        index.insert(entry3);
-        index.insert(entry4);
-
-        index.erase_account(&entry2.account);
-
-        assert_eq!(index.len(), 1);
-        assert!(index.contains(&entry1.hash));
-        assert_eq!(index.by_priority.iter().map(|i| i.len()).sum::<usize>(), 1);
-        assert_eq!(index.by_account.values().map(|i| i.len()).sum::<usize>(), 1);
-    }
-
-    #[test]
-    fn erase_by_hash() {
+    fn remove_by_hash() {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
 
         let entry1 = BacklogEntry {
@@ -328,8 +263,8 @@ mod tests {
         index.insert(entry2.clone());
         index.insert(entry3.clone());
 
-        index.erase_hash(&entry1.hash);
-        index.erase_hash(&entry2.hash);
+        index.remove(&entry1.hash);
+        index.remove(&entry2.hash);
 
         assert_eq!(index.len(), 1);
         assert!(index.contains(&entry3.hash));
