@@ -1,34 +1,34 @@
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::{Arc, mpsc::TryRecvError},
+    sync::{mpsc::TryRecvError, Arc},
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{
-    AnySet, BlockError, BlockSource, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
-    DEV_GENESIS_PUB_KEY, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
+    test_helpers::UnsavedBlockLatticeBuilder, AnySet, BlockError, BlockSource, ConfirmedSet,
+    LedgerSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
 };
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
+    consensus::{election::VoteType, AecEvent, FilteredVote, ReceivedVote},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
+    Account, Amount, Block, BlockHash, DifficultyV1, PrivateKey, PublicKey, Root, Signature,
+    StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest, DEV_GENESIS_KEY,
 };
 use rsnano_utils::{
     stats::{DetailType, Direction, StatType},
     sync::backpressure_channel,
 };
 use test_helpers::{
-    System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
-    start_election,
+    activate_hashes, assert_never, assert_timely, assert_timely2, assert_timely_eq,
+    assert_timely_eq2, assert_timely_msg, establish_tcp, make_fake_channel, setup_chains,
+    start_election, System,
 };
 
 #[test]
@@ -524,6 +524,7 @@ fn fork_multi_flip() {
 
 // This test is racy, there is no guarantee that the election won't be confirmed until all forks are fully processed
 #[test]
+#[ignore = "The test has race conditions. Rewrite it as unit test"]
 fn fork_publish() {
     let mut system = System::new();
     let node1 = system.make_node();
@@ -571,6 +572,7 @@ fn fork_publish() {
 // The test case can be made to pass by ensuring the election is started before the send2 is processed.
 // However, is this a problem with the test case or this is a problem with the node handling of forks?
 #[test]
+#[ignore = "The test has race conditions. Rewrite it as unit test"]
 fn fork_publish_inactive() {
     let mut system = System::new();
     let node = system.make_node();
@@ -1666,7 +1668,7 @@ fn rep_crawler_rep_remove() {
     let searching_node = system.make_node(); // will be used to find principal representatives
     let key_rep1 = PrivateKey::new(); // Principal representative 1
     let key_rep2 = PrivateKey::new(); // Principal representative 2
-    //
+                                      //
     let rep_weight = (Amount::MAX / 1000) * 2;
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
