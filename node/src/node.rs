@@ -1657,15 +1657,14 @@ impl Node {
         }
         info!("Node stopping...");
 
-        self.backlog_scan.drop_publisher();
         self.ticker_pool.stop();
         self.tcp_listener.stop();
+        self.backlog_scan.stop();
         self.aec_voter.stop();
         self.peer_connector.stop();
         // Cancels ongoing work generation tasks, which may be blocking other threads
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
         self.work_factory.stop();
-        self.backlog_scan.stop();
         self.bootstrapper.stop();
         self.bounded_backlog.stop();
         if let Some(handle) = self.bounded_backlog_thread.take() {

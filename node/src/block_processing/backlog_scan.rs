@@ -107,10 +107,6 @@ impl BacklogScan {
         *self.publish.write().unwrap() = Some(Box::new(callback));
     }
 
-    pub fn drop_publisher(&self) {
-        *self.publish.write().unwrap() = None;
-    }
-
     fn scan_loop_mut(&mut self) -> &mut BacklogScanLoop {
         self.scan_loop
             .as_mut()
@@ -143,6 +139,7 @@ impl BacklogScan {
         if let Some(handle) = handle {
             handle.join().unwrap()
         }
+        *self.publish.write().unwrap() = None;
     }
 
     /** Manually trigger backlog population */
