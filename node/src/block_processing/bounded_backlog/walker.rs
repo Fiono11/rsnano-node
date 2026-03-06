@@ -65,7 +65,27 @@ mod tests {
     }
 
     #[test]
-    fn walks_all_account_blocks_when_no_end_given() {
+    fn walks_nothing_when_start_equals_end() {
+        let ledger = Ledger::new_null();
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        let account = PrivateKey::from(123);
+        let genesis_send = builder.genesis().send(&account, 1000);
+        let open = builder.account(&account).receive(&genesis_send);
+
+        ledger.process_one(&genesis_send).unwrap();
+        ledger.process_one(&open).unwrap();
+
+        let mut walker = AccountWalker::new(&ledger);
+        let mut callback_called = false;
+        walker.walk_backwards(open.hash(), open.hash(), |_, _| {
+            callback_called = true;
+            true
+        });
+        assert!(!callback_called);
+    }
+
+    #[test]
+    fn walks_entire_chain_when_end_is_zero() {
         let ledger = Ledger::new_null();
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account = PrivateKey::from(123);
@@ -89,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn walks_only_the_range_that_was_specified() {
+    fn end_block_is_exclusive() {
         let ledger = Ledger::new_null();
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account = PrivateKey::from(123);
@@ -115,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn stops_walk_when_callback_returns_false() {
+    fn stops_early_when_callback_returns_false() {
         let ledger = Ledger::new_null();
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account = PrivateKey::from(123);
