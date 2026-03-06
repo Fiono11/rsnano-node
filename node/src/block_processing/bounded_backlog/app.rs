@@ -141,3 +141,15 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_cooldown_sets_flag() {
+        let backlog = BoundedBacklog::new_null();
+        backlog.set_cooldown(true);
+        assert!(backlog.logic.lock().cool_down());
+    }
+}

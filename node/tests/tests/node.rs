@@ -1,34 +1,34 @@
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::{mpsc::TryRecvError, Arc},
+    sync::{Arc, mpsc::TryRecvError},
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{
-    test_helpers::UnsavedBlockLatticeBuilder, AnySet, BlockError, BlockSource, ConfirmedSet,
-    LedgerSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
+    AnySet, BlockError, BlockSource, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+    DEV_GENESIS_PUB_KEY, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{election::VoteType, AecEvent, FilteredVote, ReceivedVote},
+    consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DifficultyV1, PrivateKey, PublicKey, Root, Signature,
-    StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest, DEV_GENESIS_KEY,
+    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
+    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
 };
 use rsnano_utils::{
     stats::{DetailType, Direction, StatType},
     sync::backpressure_channel,
 };
 use test_helpers::{
-    activate_hashes, assert_never, assert_timely, assert_timely2, assert_timely_eq,
-    assert_timely_eq2, assert_timely_msg, establish_tcp, make_fake_channel, setup_chains,
-    start_election, System,
+    System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
+    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
+    start_election,
 };
 
 #[test]
@@ -1668,7 +1668,7 @@ fn rep_crawler_rep_remove() {
     let searching_node = system.make_node(); // will be used to find principal representatives
     let key_rep1 = PrivateKey::new(); // Principal representative 1
     let key_rep2 = PrivateKey::new(); // Principal representative 2
-                                      //
+    //
     let rep_weight = (Amount::MAX / 1000) * 2;
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();

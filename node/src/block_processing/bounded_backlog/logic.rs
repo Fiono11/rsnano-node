@@ -72,6 +72,11 @@ impl BoundedBacklogLogic {
         self.cool_down = cool_down;
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn cool_down(&self) -> bool {
+        self.cool_down
+    }
+
     pub(crate) fn set_current_backlog_size(&mut self, size: u64) {
         self.current_backlog_size = size;
     }
