@@ -4304,6 +4304,9 @@ version = "0.1.0"
 [[package]]
 name = "rsnano_nullable_condvar"
 version = "0.1.0"
+dependencies = [
+ "rsnano_output_tracker",
+]
 
 [[package]]
 name = "rsnano_nullable_console"

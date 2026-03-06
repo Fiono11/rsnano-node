@@ -1,11 +1,19 @@
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use std::{
-    sync::{Condvar, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
     time::Duration,
 };
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum NotifyEvent {
+    NotifyOne,
+    NotifyAll,
+}
 
 pub struct NullableCondvarMutex<T> {
     strategy: CondvarStrategy<T>,
     mutex: Mutex<T>,
+    notify_listener: OutputListenerMt<NotifyEvent>,
 }
 
 impl<T> NullableCondvarMutex<T> {
@@ -13,6 +21,7 @@ impl<T> NullableCondvarMutex<T> {
         Self {
             strategy: CondvarStrategy::Real(Condvar::new()),
             mutex: Mutex::new(t),
+            notify_listener: OutputListenerMt::new(),
         }
     }
 
@@ -20,6 +29,7 @@ impl<T> NullableCondvarMutex<T> {
         Self {
             strategy: CondvarStrategy::Nulled(Default::default()),
             mutex: Mutex::new(t),
+            notify_listener: OutputListenerMt::new(),
         }
     }
 
@@ -32,6 +42,7 @@ impl<T> NullableCondvarMutex<T> {
     }
 
     pub fn notify_one(&self) {
+        self.notify_listener.emit(NotifyEvent::NotifyOne);
         match &self.strategy {
             CondvarStrategy::Real(condvar) => condvar.notify_one(),
             CondvarStrategy::Nulled(_) => {}
@@ -39,10 +50,15 @@ impl<T> NullableCondvarMutex<T> {
     }
 
     pub fn notify_all(&self) {
+        self.notify_listener.emit(NotifyEvent::NotifyAll);
         match &self.strategy {
             CondvarStrategy::Real(condvar) => condvar.notify_all(),
             CondvarStrategy::Nulled(_) => {}
         }
+    }
+
+    pub fn track_notifications(&self) -> Arc<OutputTrackerMt<NotifyEvent>> {
+        self.notify_listener.track()
     }
 
     pub fn wait<'a>(&'a self, mut guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
@@ -175,6 +191,7 @@ impl<T> NullableCondvarMutexBuilder<T> {
         NullableCondvarMutex {
             strategy: CondvarStrategy::Nulled(StubCondvar::new(self.callbacks)),
             mutex: Mutex::new(self.t),
+            notify_listener: OutputListenerMt::new(),
         }
     }
 }
@@ -289,5 +306,54 @@ mod tests {
         let mutex = NullableCondvarMutex::new_null(1);
         let guard = mutex.lock();
         drop(mutex.wait_timeout_while(guard, Duration::from_secs(5), |g| *g == 1));
+    }
+
+    /*
+     * Notification tracking
+     */
+
+    #[test]
+    fn tracks_notify_one() {
+        let mutex = NullableCondvarMutex::new(0);
+        let tracker = mutex.track_notifications();
+        mutex.notify_one();
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyOne]);
+    }
+
+    #[test]
+    fn tracks_notify_all() {
+        let mutex = NullableCondvarMutex::new(0);
+        let tracker = mutex.track_notifications();
+        mutex.notify_all();
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    #[test]
+    fn tracks_multiple_notifications() {
+        let mutex = NullableCondvarMutex::new(0);
+        let tracker = mutex.track_notifications();
+        mutex.notify_one();
+        mutex.notify_all();
+        mutex.notify_one();
+        assert_eq!(
+            tracker.output(),
+            vec![
+                NotifyEvent::NotifyOne,
+                NotifyEvent::NotifyAll,
+                NotifyEvent::NotifyOne,
+            ]
+        );
+    }
+
+    #[test]
+    fn tracking_works_on_nulled_condvar() {
+        let mutex = NullableCondvarMutex::new_null(0);
+        let tracker = mutex.track_notifications();
+        mutex.notify_one();
+        mutex.notify_all();
+        assert_eq!(
+            tracker.output(),
+            vec![NotifyEvent::NotifyOne, NotifyEvent::NotifyAll]
+        );
     }
 }
