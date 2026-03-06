@@ -140,7 +140,7 @@ pub struct Node {
     pub election_schedulers: Arc<ElectionSchedulers>,
     pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
-    pub bounded_backlog: Arc<BoundedBacklog>,
+    pub bounded_backlog: Option<Arc<BoundedBacklog>>,
     pub bounded_backlog_thread: Option<JoinHandle>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
@@ -286,6 +286,8 @@ impl Node {
         info!("Node ID: {}", node_id);
 
         let stats = Arc::new(Stats::new(Default::default()));
+        let mut stats_collector = StatsCollector::new();
+        let mut container_info = ContainerInfoFactory::new();
 
         let bootstrap_weights = if (network_params.network.is_live_network()
             || network_params.network.is_beta_network())
@@ -800,15 +802,19 @@ impl Node {
             config.bounded_backlog.max_backlog = 0;
         }
 
-        let bounded_backlog = Arc::new(BoundedBacklog::new(
-            config.bounded_backlog.clone(),
-            ledger.clone(),
-        ));
-
-        if config.enable_bounded_backlog {
+        let bounded_backlog = if config.enable_bounded_backlog {
+            let bounded_backlog = Arc::new(BoundedBacklog::new(
+                config.bounded_backlog.clone(),
+                ledger.clone(),
+            ));
             ledger_event_handlers.add(bounded_backlog.clone());
             backpressure_handlers.add(bounded_backlog.clone());
-        }
+            stats_collector.add_source(bounded_backlog.clone());
+            container_info.add("bounded_backlog", bounded_backlog.clone());
+            Some(bounded_backlog)
+        } else {
+            None
+        };
 
         let track_conf_times = TrackConfirmationTimes::default();
         let conf_time_stats = track_conf_times.stats();
@@ -1281,7 +1287,6 @@ impl Node {
 
         vote_processor.add_observer(aec_tx);
 
-        let mut stats_collector = StatsCollector::new();
         stats_collector.add_source(stats.clone());
         stats_collector.add_source(online_reps.clone());
         stats_collector.add_source(fork_cache.clone());
@@ -1301,9 +1306,7 @@ impl Node {
         stats_collector.add_source(bootstrapper.clone());
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
-        stats_collector.add_source(bounded_backlog.clone());
 
-        let mut container_info = ContainerInfoFactory::new();
         container_info.add("work", work_factory.clone());
         container_info.add("ledger", ledger.clone());
         container_info.add("active", active_elections.clone());
@@ -1327,7 +1330,6 @@ impl Node {
         container_info.add("local_block_broadcaster", local_block_broadcaster.clone());
         container_info.add("rep_tiers", rep_tiers.clone());
         container_info.add("inbound_msg_queue", inbound_message_queue.clone());
-        container_info.add("bounded_backlog", bounded_backlog.clone());
         container_info.add("vote_rebroadcaster", vote_rebroadcast_queue.clone());
         container_info.add("fork_cache", fork_cache.clone());
         container_info.add("event_queues", event_queues_info);
@@ -1608,10 +1610,9 @@ impl Node {
         self.confirming_set.start();
         self.election_schedulers.start();
         self.backlog_scan.start();
-        if self.config.enable_bounded_backlog {
-            let bbacklog = self.bounded_backlog.clone();
+        if let Some(bounded_backlog) = self.bounded_backlog.as_ref().cloned() {
             let handle = self.thread_factory.spawn("Bounded backlog", move || {
-                bbacklog.run_loop();
+                bounded_backlog.run_loop();
             });
             self.bounded_backlog_thread = Some(handle);
         }
@@ -1649,7 +1650,9 @@ impl Node {
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
         self.work_factory.stop();
         self.bootstrapper.stop();
-        self.bounded_backlog.stop();
+        if let Some(i) = &self.bounded_backlog {
+            i.stop();
+        }
         if let Some(handle) = self.bounded_backlog_thread.take() {
             debug!("Waiting for bounded backlog thread to stop...");
             handle.join().unwrap();

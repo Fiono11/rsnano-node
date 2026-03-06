@@ -2457,7 +2457,7 @@ fn bounded_backlog() {
             ..Default::default()
         })
         .finish();
-    node.bounded_backlog.cool_down();
+    node.bounded_backlog.as_ref().unwrap().cool_down();
 
     let howmany_blocks = 8;
     let howmany_chains = 8;
@@ -2471,7 +2471,7 @@ fn bounded_backlog() {
 
     assert_timely_eq2(|| node.ledger.block_count() as usize, 81);
 
-    node.bounded_backlog.recovered();
+    node.bounded_backlog.as_ref().unwrap().recovered();
 
     assert_timely(Duration::from_secs(20), || node.ledger.block_count() <= 11);
     // 10 + genesis
