@@ -36,8 +36,8 @@ impl Default for BoundedBacklogConfig {
 pub(crate) struct BoundedBacklogLogic {
     stopped: bool,
     cool_down: bool,
-    pub(crate) index: BacklogIndex,
-    pub(crate) config: BoundedBacklogConfig,
+    index: BacklogIndex,
+    config: BoundedBacklogConfig,
     bucket_count: usize,
     current_backlog_size: u64,
 
@@ -74,6 +74,10 @@ impl BoundedBacklogLogic {
 
     pub(crate) fn set_current_backlog_size(&mut self, size: u64) {
         self.current_backlog_size = size;
+    }
+
+    pub(crate) fn max_backlog(&self) -> u64 {
+        self.config.max_backlog
     }
 
     pub(crate) fn rollback_batch_size(&self) -> usize {

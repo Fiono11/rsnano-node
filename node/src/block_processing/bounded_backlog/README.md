@@ -52,7 +52,7 @@ Because `BoundedBacklog` handles all relevant events, the index stays consistent
 
 ## Cooldown
 
-The `set_cooldown(true)` method pauses rollbacks without stopping the thread. This is used during bootstrap and other phases where rolling back would be counterproductive. The rollback thread checks the cooldown flag before each rollback decision.
+The `set_cooldown(true)` method pauses rollbacks without stopping the thread. This is used if there are too many `LedgerPipelineEvent`s. The rollback thread checks the cooldown flag before each rollback decision.
 
 ## Design
 

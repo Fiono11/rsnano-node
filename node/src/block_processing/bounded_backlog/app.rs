@@ -51,7 +51,8 @@ impl BoundedBacklog {
         let mut logic = self.logic.lock();
         info!(
             "Bounded backlog enabled: max backlog={}, batch_size={}",
-            logic.config.max_backlog, logic.config.rollback_batch_size,
+            logic.max_backlog(),
+            logic.rollback_batch_size(),
         );
 
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
