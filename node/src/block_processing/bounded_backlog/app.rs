@@ -144,12 +144,25 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
 
 #[cfg(test)]
 mod tests {
+    use rsnano_nullable_condvar::NotifyEvent;
+
     use super::*;
+
+    #[test]
+    fn stop_sets_stopped_flag() {
+        let backlog = BoundedBacklog::new_null();
+        let tracker = backlog.logic.track_notifications();
+        backlog.stop();
+        assert!(backlog.logic.lock().stopped());
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
 
     #[test]
     fn set_cooldown_sets_flag() {
         let backlog = BoundedBacklog::new_null();
+        let tracker = backlog.logic.track_notifications();
         backlog.set_cooldown(true);
         assert!(backlog.logic.lock().cool_down());
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
     }
 }
