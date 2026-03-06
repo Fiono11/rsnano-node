@@ -501,7 +501,7 @@ impl Node {
         confirming_set.set_event_publisher(Box::new(move |event| {
             ledger_tx2
                 .send(LedgerPipelineEvent::ConfirmingSet(event))
-                .unwrap();
+                .expect("channel should be open");
         }));
 
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
@@ -780,8 +780,17 @@ impl Node {
             ledger.clone(),
         ));
 
-        let mut backlog_scan =
-            BacklogScan::new(global_config.into(), ledger.clone(), steady_clock.clone());
+        let ledger_tx2 = ledger_tx.clone();
+        let mut backlog_scan = BacklogScan::new(
+            global_config.into(),
+            ledger.clone(),
+            steady_clock.clone(),
+            move |unconfirmed| {
+                ledger_tx2
+                    .send(LedgerPipelineEvent::UnconfirmedFound(unconfirmed))
+                    .expect("channel should be open");
+            },
+        );
 
         //  TODO: Hook this direclty in the schedulers
         let schedulers_w = Arc::downgrade(&election_schedulers);

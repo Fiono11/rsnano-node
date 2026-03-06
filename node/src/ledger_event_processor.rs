@@ -127,6 +127,7 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
                 }
             },
+            _ => {}
         }
     }
 }

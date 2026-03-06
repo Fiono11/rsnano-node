@@ -9,12 +9,13 @@ mod local_block_broadcaster;
 mod process_queue;
 mod unchecked_map;
 
-use crate::cementation::ConfirmingSetEvent;
+use crate::{block_processing::backlog_scan::UnconfirmedInfo, cementation::ConfirmingSetEvent};
 use rsnano_ledger::LedgerEvent;
 
 pub(crate) enum LedgerPipelineEvent {
     Ledger(LedgerEvent),
     ConfirmingSet(ConfirmingSetEvent),
+    UnconfirmedFound(Vec<UnconfirmedInfo>),
 }
 
 pub use backlog_scan::{BacklogScan, BacklogScanConfig};

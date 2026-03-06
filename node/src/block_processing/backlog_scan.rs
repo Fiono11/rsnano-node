@@ -50,7 +50,7 @@ pub struct BacklogScan {
     stats: Arc<BacklogScanStats>,
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
-    publish: Arc<RwLock<Option<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>>>,
+    publish: Arc<RwLock<Option<Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync>>>>,
     /** Thread that runs the backlog implementation logic. The thread always runs, even if
      *  backlog population is disabled, so that it can service a manual trigger (e.g. via RPC). */
     thread: Option<JoinHandle<()>>,
@@ -61,6 +61,7 @@ impl BacklogScan {
         config: BacklogScanConfig,
         ledger: Arc<Ledger>,
         clock: Arc<SteadyClock>,
+        publish: impl Fn(Vec<UnconfirmedInfo>) + Send + Sync + 'static,
     ) -> Self {
         let stats = Arc::new(BacklogScanStats::default());
 
@@ -70,13 +71,14 @@ impl BacklogScan {
         }));
 
         let condition = Arc::new(Condvar::new());
-        let publish = Arc::new(RwLock::new(None));
+        let publish: Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync> = Box::new(publish);
+        let publish = Arc::new(RwLock::new(Some(publish)));
         Self {
             scan_loop: Some(BacklogScanLoop {
                 ledger,
                 stats: stats.clone(),
                 unconfirmed_observers: Vec::new(),
-                publish: Arc::clone(&publish),
+                publish: publish.clone(),
                 limiter: Mutex::new(TokenBucket::new(config.rate_limit)),
                 config,
                 flags: flags.clone(),
@@ -98,13 +100,6 @@ impl BacklogScan {
         self.scan_loop_mut()
             .unconfirmed_observers
             .push(Box::new(callback));
-    }
-
-    pub fn set_unconfirmed_publisher(
-        &self,
-        callback: impl Fn(&[UnconfirmedInfo]) + Send + Sync + 'static,
-    ) {
-        *self.publish.write().unwrap() = Some(Box::new(callback));
     }
 
     fn scan_loop_mut(&mut self) -> &mut BacklogScanLoop {
@@ -173,7 +168,7 @@ struct BacklogScanLoop {
     ledger: Arc<Ledger>,
     stats: Arc<BacklogScanStats>,
     unconfirmed_observers: Vec<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>,
-    publish: Arc<RwLock<Option<Box<dyn Fn(&[UnconfirmedInfo]) + Send + Sync>>>>,
+    publish: Arc<RwLock<Option<Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync>>>>,
     config: BacklogScanConfig,
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
@@ -290,7 +285,7 @@ impl BacklogScanLoop {
             }
             let guard = self.publish.read().unwrap();
             if let Some(callback) = &*guard {
-                callback(&result.unconfirmed);
+                callback(result.unconfirmed);
             }
         }
     }
@@ -360,26 +355,24 @@ mod tests {
         );
         let clock = Arc::new(SteadyClock::new_null());
 
-        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger, clock);
-
         let found = Arc::new(Mutex::new(Vec::new()));
         let found2 = found.clone();
         let done = Arc::new(Condvar::new());
         let done2 = done.clone();
-
-        backlog_scan.on_unconfirmed_found(move |i| {
+        let callback = move |unconfirmed: Vec<UnconfirmedInfo>| {
             {
                 let mut guard = found2.lock().unwrap();
                 if !guard.is_empty() {
                     return;
                 }
 
-                for info in i {
-                    guard.push(info.account);
-                }
+                guard.extend(unconfirmed.into_iter().map(|i| i.account));
             }
             done2.notify_all();
-        });
+        };
+
+        let mut backlog_scan =
+            BacklogScan::new(BacklogScanConfig::default(), ledger, clock, callback);
 
         backlog_scan.start();
 
@@ -402,26 +395,24 @@ mod tests {
         );
         let clock = Arc::new(SteadyClock::new_null());
 
-        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger, clock);
-
         let found = Arc::new(Mutex::new(Vec::new()));
         let found2 = found.clone();
         let done = Arc::new(Condvar::new());
         let done2 = done.clone();
-
-        backlog_scan.on_unconfirmed_found(move |i| {
+        let callback = move |unconfirmed: Vec<UnconfirmedInfo>| {
             {
                 let mut guard = found2.lock().unwrap();
                 if guard.len() >= 4 {
                     return;
                 }
 
-                for info in i {
-                    guard.push(info.account);
-                }
+                guard.extend(unconfirmed.into_iter().map(|i| i.account));
             }
             done2.notify_all();
-        });
+        };
+
+        let mut backlog_scan =
+            BacklogScan::new(BacklogScanConfig::default(), ledger, clock, callback);
 
         backlog_scan.start();
 
