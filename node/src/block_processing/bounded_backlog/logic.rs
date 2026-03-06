@@ -162,7 +162,6 @@ impl BoundedBacklogLogic {
         let bucket_index = prio_bucket_index(priority.balance);
         self.index.insert(BacklogEntry {
             hash: block.hash(),
-            account: block.account(),
             bucket_index,
             priority: priority.time,
         })

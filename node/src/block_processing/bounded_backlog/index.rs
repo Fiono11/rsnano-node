@@ -1,12 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use rsnano_types::{Account, BlockHash, TimePriority};
+use rsnano_types::{BlockHash, TimePriority};
 use rsnano_utils::container_info::ContainerInfo;
 
 #[derive(Clone)]
 pub(crate) struct BacklogEntry {
     pub hash: BlockHash,
-    pub account: Account,
     pub bucket_index: usize,
     pub priority: TimePriority,
 }
@@ -16,7 +15,6 @@ impl BacklogEntry {
     pub fn new_test_instance() -> Self {
         Self {
             hash: 100.into(),
-            account: 200.into(),
             bucket_index: 1,
             priority: TimePriority::new(300),
         }
@@ -25,7 +23,6 @@ impl BacklogEntry {
 
 pub(crate) struct BacklogIndex {
     by_hash: BTreeMap<BlockHash, BacklogEntry>,
-    by_account: HashMap<Account, Vec<BlockHash>>,
     /// indexed by bucket index!
     by_priority: Vec<BTreeMap<TimePriority, Vec<BlockHash>>>,
     bucket_lens: Vec<usize>,
@@ -35,7 +32,6 @@ impl BacklogIndex {
     pub fn new(bucket_count: usize) -> Self {
         Self {
             by_hash: Default::default(),
-            by_account: Default::default(),
             by_priority: vec![Default::default(); bucket_count],
             bucket_lens: vec![0; bucket_count],
         }
@@ -49,10 +45,6 @@ impl BacklogIndex {
             .or_insert(entry.clone());
 
         if inserted {
-            self.by_account
-                .entry(entry.account)
-                .or_default()
-                .push(entry.hash);
             self.by_priority[entry.bucket_index]
                 .entry(entry.priority)
                 .or_default()
@@ -73,12 +65,6 @@ impl BacklogIndex {
         let Some(entry) = self.by_hash.remove(hash) else {
             return false;
         };
-        let account_hashes = self.by_account.get_mut(&entry.account).unwrap();
-        if account_hashes.len() == 1 {
-            self.by_account.remove(&entry.account);
-        } else {
-            account_hashes.retain(|h| *h != entry.hash);
-        }
         let prio_hashes = self.by_priority[entry.bucket_index]
             .get_mut(&entry.priority)
             .unwrap();
@@ -168,7 +154,6 @@ mod tests {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
         let entry1 = BacklogEntry::new_test_instance();
         let entry2 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             ..BacklogEntry::new_test_instance()
         };
@@ -188,27 +173,23 @@ mod tests {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
 
         let entry1 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry2 = BacklogEntry {
-            account: 2000.into(),
             hash: 2001.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry3 = BacklogEntry {
-            account: 2000.into(),
             hash: 2002.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry4 = BacklogEntry {
-            account: 2000.into(),
             hash: 2003.into(),
             priority: TimePriority::new(2),
             ..BacklogEntry::new_test_instance()
@@ -221,7 +202,6 @@ mod tests {
 
         assert_eq!(index.len(), 4);
         assert_eq!(index.by_priority.iter().map(|i| i.len()).sum::<usize>(), 3);
-        assert_eq!(index.by_account.values().map(|i| i.len()).sum::<usize>(), 4);
     }
 
     #[test]
@@ -241,20 +221,17 @@ mod tests {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
 
         let entry1 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry2 = BacklogEntry {
-            account: 2000.into(),
             hash: 2001.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry3 = BacklogEntry {
-            account: 2000.into(),
             hash: 2002.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
@@ -270,7 +247,6 @@ mod tests {
         assert_eq!(index.len(), 1);
         assert!(index.contains(&entry3.hash));
         assert_eq!(index.by_priority.iter().map(|i| i.len()).sum::<usize>(), 1);
-        assert_eq!(index.by_account.values().map(|i| i.len()).sum::<usize>(), 1);
     }
 
     #[test]
@@ -290,7 +266,6 @@ mod tests {
         let bucket_index = 3;
 
         let entry1 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             bucket_index,
             priority: TimePriority::new(1),
@@ -311,28 +286,24 @@ mod tests {
         let bucket_index = 3;
 
         let entry1 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             bucket_index,
             priority: TimePriority::new(1),
         };
 
         let entry2 = BacklogEntry {
-            account: 2000.into(),
             hash: 2001.into(),
             bucket_index,
             priority: TimePriority::new(2000),
         };
 
         let entry3 = BacklogEntry {
-            account: 3000.into(),
             hash: 3001.into(),
             bucket_index,
             priority: TimePriority::new(3000),
         };
 
         let entry4 = BacklogEntry {
-            account: 4000.into(),
             hash: 4001.into(),
             bucket_index,
             priority: TimePriority::new(4000),
@@ -340,7 +311,6 @@ mod tests {
 
         // different bucket
         let entry5 = BacklogEntry {
-            account: 5000.into(),
             hash: 5001.into(),
             priority: TimePriority::new(2),
             bucket_index: 1,
@@ -368,20 +338,17 @@ mod tests {
         let mut index = BacklogIndex::new(TEST_BUCKET_COUNT);
 
         let entry1 = BacklogEntry {
-            account: 1000.into(),
             hash: 1001.into(),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry2 = BacklogEntry {
-            account: 2000.into(),
             hash: 2001.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
         };
 
         let entry3 = BacklogEntry {
-            account: 2000.into(),
             hash: 2002.into(),
             priority: TimePriority::new(1),
             ..BacklogEntry::new_test_instance()
