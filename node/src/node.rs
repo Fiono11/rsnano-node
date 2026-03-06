@@ -802,19 +802,20 @@ impl Node {
             config.bounded_backlog.max_backlog = 0;
         }
 
-        let bounded_backlog = if config.enable_bounded_backlog {
-            let bounded_backlog = Arc::new(BoundedBacklog::new(
-                config.bounded_backlog.clone(),
-                ledger.clone(),
-            ));
-            ledger_event_handlers.add(bounded_backlog.clone());
-            backpressure_handlers.add(bounded_backlog.clone());
-            stats_collector.add_source(bounded_backlog.clone());
-            container_info.add("bounded_backlog", bounded_backlog.clone());
-            Some(bounded_backlog)
-        } else {
-            None
-        };
+        let bounded_backlog =
+            if config.enable_bounded_backlog && config.bounded_backlog.max_backlog > 0 {
+                let backlog = Arc::new(BoundedBacklog::new(
+                    config.bounded_backlog.clone(),
+                    ledger.clone(),
+                ));
+                ledger_event_handlers.add(backlog.clone());
+                backpressure_handlers.add(backlog.clone());
+                stats_collector.add_source(backlog.clone());
+                container_info.add("bounded_backlog", backlog.clone());
+                Some(backlog)
+            } else {
+                None
+            };
 
         let track_conf_times = TrackConfirmationTimes::default();
         let conf_time_stats = track_conf_times.stats();
