@@ -155,7 +155,10 @@ mod tests {
         test_helpers::UnsavedBlockLatticeBuilder,
     };
     use rsnano_nullable_condvar::NotifyEvent;
-    use rsnano_types::{AccountInfo, Block, BlockPriority, ConfirmationHeightInfo, PrivateKey, QualifiedRoot, SavedBlock};
+    use rsnano_types::{
+        AccountInfo, Block, BlockPriority, ConfirmationHeightInfo, PrivateKey, QualifiedRoot,
+        SavedBlock,
+    };
     use tracing_test::traced_test;
 
     #[test]

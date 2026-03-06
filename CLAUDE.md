@@ -86,6 +86,10 @@ Constructors must not start threads, open connections, or perform I/O. Those bel
 
 Tests assert on **outputs and observable state**, not on which methods were called. Avoid interaction-based assertions. Tests should survive refactoring of internal call sequences.
 
+#### Test Helper Functions
+
+Place test helper functions at the **bottom** of the `mod tests` block, under a `/* Test helpers */` comment. Tests themselves come first, helpers last.
+
 #### Embedded Stubs
 
 Stub implementations live in the **same file** as the production infrastructure code they stand in for, not in separate test files. This keeps the stub and the real implementation in sync.

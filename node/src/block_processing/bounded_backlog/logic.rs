@@ -199,6 +199,310 @@ impl Default for BoundedBacklogLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_ledger::{BlockError, BlockSource, ProcessResult};
+    use rsnano_types::{Block, BlockHash, BlockPriority, PrivateKey, SavedBlock};
+    use rsnano_utils::container_info::ContainerInfoEntry;
+
+    /*
+     * Flags / state
+     */
+
+    #[test]
+    fn stopped_initially_false() {
+        assert!(!BoundedBacklogLogic::default().stopped());
+    }
+
+    #[test]
+    fn stop_sets_flag() {
+        let mut logic = BoundedBacklogLogic::default();
+        logic.stop();
+        assert!(logic.stopped());
+    }
+
+    #[test]
+    fn cool_down_initially_false() {
+        assert!(!BoundedBacklogLogic::default().cool_down());
+    }
+
+    #[test]
+    fn set_cool_down_sets_flag() {
+        let mut logic = BoundedBacklogLogic::default();
+        logic.set_cool_down(true);
+        assert!(logic.cool_down());
+    }
+
+    /*
+     * Backlog size
+     */
+
+    #[test]
+    fn current_backlog_size_initially_zero() {
+        assert_eq!(BoundedBacklogLogic::default().current_backlog_size(), 0);
+    }
+
+    #[test]
+    fn set_current_backlog_size() {
+        let mut logic = BoundedBacklogLogic::default();
+        logic.set_current_backlog_size(42);
+        assert_eq!(logic.current_backlog_size(), 42);
+    }
+
+    /*
+     * Config accessors
+     */
+
+    #[test]
+    fn max_backlog_returns_configured_value() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 12345,
+            rollback_batch_size: 32,
+        };
+        assert_eq!(BoundedBacklogLogic::new(config).max_backlog(), 12345);
+    }
+
+    #[test]
+    fn rollback_batch_size_returns_configured_value() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 100,
+            rollback_batch_size: 7,
+        };
+        assert_eq!(BoundedBacklogLogic::new(config).rollback_batch_size(), 7);
+    }
+
+    /*
+     * rollback_needed
+     */
+
+    #[test]
+    fn rollback_not_needed_when_under_threshold() {
+        assert!(!BoundedBacklogLogic::default().rollback_needed());
+    }
+
+    #[test]
+    fn rollback_not_needed_when_cool_down_active() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        logic.set_current_backlog_size(3);
+        logic.set_cool_down(true);
+        assert!(!logic.rollback_needed());
+    }
+
+    #[test]
+    fn rollback_not_needed_when_only_backlog_size_is_over() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.set_current_backlog_size(3);
+        assert!(!logic.rollback_needed());
+    }
+
+    #[test]
+    fn rollback_not_needed_when_only_index_is_over() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        assert!(!logic.rollback_needed());
+    }
+
+    #[test]
+    fn rollback_needed_when_both_over_threshold() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        logic.set_current_backlog_size(3);
+        assert!(logic.rollback_needed());
+    }
+
+    /*
+     * rollback_target_count
+     */
+
+    #[test]
+    fn rollback_target_count_zero_when_at_or_below_max() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 5,
+            rollback_batch_size: 10,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        logic.set_current_backlog_size(5);
+        assert_eq!(logic.rollback_target_count(), 0);
+    }
+
+    #[test]
+    fn rollback_target_count_correct_when_over_max() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 3,
+            rollback_batch_size: 10,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        logic.set_current_backlog_size(5);
+        assert_eq!(logic.rollback_target_count(), 2);
+    }
+
+    /*
+     * insert / contains
+     */
+
+    #[test]
+    fn insert_returns_true_on_first_insert() {
+        let mut logic = BoundedBacklogLogic::default();
+        assert!(logic.insert(&make_block(1), BlockPriority::new_test_instance()));
+    }
+
+    #[test]
+    fn insert_returns_false_on_duplicate() {
+        let mut logic = BoundedBacklogLogic::default();
+        let block = make_block(1);
+        logic.insert(&block, BlockPriority::new_test_instance());
+        assert!(!logic.insert(&block, BlockPriority::new_test_instance()));
+    }
+
+    #[test]
+    fn contains_returns_true_after_insert() {
+        let mut logic = BoundedBacklogLogic::default();
+        let block = make_block(1);
+        logic.insert(&block, BlockPriority::new_test_instance());
+        assert!(logic.contains(&block.hash()));
+    }
+
+    #[test]
+    fn contains_returns_false_for_unknown_hash() {
+        assert!(!BoundedBacklogLogic::default().contains(&BlockHash::from(1)));
+    }
+
+    /*
+     * insert_processed
+     */
+
+    #[test]
+    fn insert_processed_inserts_ok_blocks_with_saved_block() {
+        let mut logic = BoundedBacklogLogic::default();
+        let block = make_block(1);
+        logic.insert_processed(&[make_result(block.clone())]);
+        assert!(logic.contains(&block.hash()));
+    }
+
+    #[test]
+    fn insert_processed_skips_error_status() {
+        let mut logic = BoundedBacklogLogic::default();
+        let block = make_block(1);
+        let result = ProcessResult {
+            block: Block::new_test_instance(),
+            source: BlockSource::Live,
+            status: Err(BlockError::GapPrevious),
+            saved_block: Some(block.clone()),
+            priority: BlockPriority::new_test_instance(),
+        };
+        logic.insert_processed(&[result]);
+        assert!(!logic.contains(&block.hash()));
+    }
+
+    /*
+     * remove_batch
+     */
+
+    #[test]
+    fn remove_batch_removes_inserted_blocks() {
+        let mut logic = BoundedBacklogLogic::default();
+        let block = make_block(1);
+        logic.insert(&block, BlockPriority::new_test_instance());
+        logic.remove_batch(std::iter::once(block.hash()));
+        assert!(!logic.contains(&block.hash()));
+    }
+
+    #[test]
+    fn remove_batch_ignores_unknown_hashes() {
+        let mut logic = BoundedBacklogLogic::default();
+        logic.remove_batch(std::iter::once(BlockHash::from(999)));
+        // should not panic
+    }
+
+    /*
+     * gather_targets
+     */
+
+    #[test]
+    fn gather_targets_increments_gather_called() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        let mut targets = Vec::new();
+        logic.gather_targets(&mut targets);
+        assert_eq!(logic.gather_called, 1);
+    }
+
+    #[test]
+    fn gather_targets_increments_total_gathered() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        logic.set_current_backlog_size(3);
+        let mut targets = Vec::new();
+        logic.gather_targets(&mut targets);
+        assert_eq!(logic.total_gathered, 2);
+    }
+
+    #[test]
+    fn gather_targets_clears_existing_targets() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        let mut targets = vec![BlockHash::from(1), BlockHash::from(2)];
+        logic.gather_targets(&mut targets);
+        assert!(!targets.contains(&BlockHash::from(1)));
+        assert!(!targets.contains(&BlockHash::from(2)));
+    }
+
+    #[test]
+    fn gather_targets_empty_when_no_blocks_in_index() {
+        let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.set_current_backlog_size(10);
+        let mut targets = Vec::new();
+        logic.gather_targets(&mut targets);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn gather_targets_respects_rollback_batch_size() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 1,
+            rollback_batch_size: 2,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        for i in 1..=5 {
+            logic.insert(&make_block(i), BlockPriority::new_test_instance());
+        }
+        logic.set_current_backlog_size(10);
+        let mut targets = Vec::new();
+        logic.gather_targets(&mut targets);
+        assert_eq!(targets.len(), 2);
+    }
+
+    #[test]
+    fn gather_targets_skips_buckets_under_threshold() {
+        // With a large max_backlog the bucket threshold is high,
+        // so a bucket with only 1 entry is skipped
+        let config = BoundedBacklogConfig {
+            max_backlog: 1_000_000,
+            rollback_batch_size: 10,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.set_current_backlog_size(1_000_001);
+        let mut targets = Vec::new();
+        logic.gather_targets(&mut targets);
+        assert!(targets.is_empty());
+    }
+
+    /*
+     * Introspection
+     */
+
+    #[test]
+    fn container_info_shows_backlog_count() {
+        let mut logic = BoundedBacklogLogic::default();
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        let ContainerInfoEntry::Leaf(leaf) = &logic.container_info()[0] else {
+            panic!("expected leaf");
+        };
+        assert_eq!(leaf.info.count, 2);
+    }
 
     #[test]
     fn collects_stats() {
@@ -211,5 +515,31 @@ mod tests {
 
         assert_eq!(result.get("bounded_backlog", "loop"), 10);
         assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn make_block(key: u64) -> SavedBlock {
+        SavedBlock::new_test_instance_with_key(PrivateKey::from(key))
+    }
+
+    fn make_result(block: SavedBlock) -> ProcessResult {
+        ProcessResult {
+            block: Block::new_test_instance(),
+            source: BlockSource::Live,
+            status: Ok(()),
+            saved_block: Some(block),
+            priority: BlockPriority::new_test_instance(),
+        }
+    }
+
+    /// Config where bucket_threshold = 0 so all non-empty buckets qualify for gather
+    fn small_config() -> BoundedBacklogConfig {
+        BoundedBacklogConfig {
+            max_backlog: 1,
+            rollback_batch_size: 10,
+        }
     }
 }
