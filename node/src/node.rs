@@ -37,7 +37,7 @@ use rsnano_types::{
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
-    CancellationToken, EventHandlerRegistry,
+    BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
@@ -379,6 +379,7 @@ impl Node {
         };
 
         let mut ledger_event_handlers = EventHandlerRegistry::<LedgerPipelineEvent>::default();
+        let mut backpressure_handlers = BackpressureHandlerRegistry::default();
 
         let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
 
@@ -806,6 +807,7 @@ impl Node {
 
         if config.enable_bounded_backlog {
             ledger_event_handlers.add(bounded_backlog.clone());
+            backpressure_handlers.add(bounded_backlog.clone());
         }
 
         let track_conf_times = TrackConfirmationTimes::default();
@@ -1268,11 +1270,11 @@ impl Node {
             vote_history: vote_history.clone(),
             active_elections: active_elections.clone(),
             block_processor_queue: block_processor_queue.clone(),
-            bounded_backlog: bounded_backlog.clone(),
             fork_cache_updater,
             ledger: ledger.clone(),
             election_schedulers: election_schedulers.clone(),
             plugins: ledger_event_handlers,
+            backpressure_plugins: backpressure_handlers,
         };
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);

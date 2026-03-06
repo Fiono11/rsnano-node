@@ -2,13 +2,13 @@ use std::sync::{Arc, RwLock, mpsc::SyncSender};
 
 use rsnano_types::Networks;
 use rsnano_utils::{
-    EventHandlerRegistry,
+    BackpressureHandlerRegistry, EventHandlerRegistry,
     stats::{DetailType, StatType, Stats},
 };
 
 use crate::{
     NodeEvent,
-    block_processing::{BlockProcessorQueue, LedgerPipelineEvent, bounded_backlog::BoundedBacklog},
+    block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
@@ -29,10 +29,10 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
-    pub(crate) bounded_backlog: Arc<BoundedBacklog>,
     pub(crate) election_schedulers: Arc<ElectionSchedulers>,
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
+    pub(crate) backpressure_plugins: BackpressureHandlerRegistry,
 }
 
 impl LedgerEventProcessor {
@@ -47,28 +47,28 @@ impl LedgerEventProcessor {
             vote_history: Arc::new(LocalVoteHistory::new(Networks::NanoLiveNetwork)),
             active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
-            bounded_backlog: Arc::new(BoundedBacklog::new_null()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
             election_schedulers: ElectionSchedulers::new_null().into(),
             ledger: Ledger::new_null().into(),
             plugins: EventHandlerRegistry::default(),
+            backpressure_plugins: BackpressureHandlerRegistry::default(),
         }
     }
 }
 
 impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
     fn cool_down(&mut self) {
+        self.backpressure_plugins.cool_down();
         self.confirming_set.set_cooldown(true);
         self.block_processor_queue.set_cooldown(true);
-        self.bounded_backlog.set_cooldown(true);
         self.stats
             .inc(StatType::ConfirmingSet, DetailType::Cooldown);
     }
 
     fn recovered(&mut self) {
+        self.backpressure_plugins.recovered();
         self.confirming_set.set_cooldown(false);
         self.block_processor_queue.set_cooldown(false);
-        self.bounded_backlog.set_cooldown(false);
         self.stats
             .inc(StatType::ConfirmingSet, DetailType::Recovered);
     }

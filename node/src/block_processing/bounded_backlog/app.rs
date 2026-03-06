@@ -5,7 +5,7 @@ use tracing::info;
 use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_utils::{
-    EventHandler,
+    BackpressureHandler, EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
@@ -33,7 +33,7 @@ impl BoundedBacklog {
         Self::new(Default::default(), Ledger::new_null().into())
     }
 
-    pub fn set_cooldown(&self, cool_down: bool) {
+    fn set_cooldown(&self, cool_down: bool) {
         self.logic.lock().set_cooldown(cool_down);
         self.logic.notify_all();
     }
@@ -130,6 +130,16 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
             }
             _ => (),
         }
+    }
+}
+
+impl BackpressureHandler for BoundedBacklog {
+    fn cool_down(&self) {
+        self.set_cooldown(true);
+    }
+
+    fn recovered(&self) {
+        self.set_cooldown(false);
     }
 }
 
@@ -242,7 +252,7 @@ mod tests {
     fn set_cooldown_sets_flag() {
         let backlog = BoundedBacklog::new_null();
         let tracker = backlog.logic.track_notifications();
-        backlog.set_cooldown(true);
+        backlog.cool_down();
         assert!(backlog.logic.lock().cool_down());
         assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
     }

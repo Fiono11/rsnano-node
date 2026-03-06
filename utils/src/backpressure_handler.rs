@@ -1,19 +1,34 @@
-pub trait BackpressureHandlerMut<T>: Send {
+use std::{ops::Deref, sync::Arc};
+
+pub trait BackpressureHandlerMut: Send {
     fn cool_down(&mut self);
     fn recovered(&mut self);
 }
 
-pub trait BackpressureHandler<T>: Send {
+pub trait BackpressureHandler: Send {
     fn cool_down(&self);
     fn recovered(&self);
 }
 
-pub struct BackpressureHandlerRegistry<T> {
-    mut_handlers: Vec<Box<dyn BackpressureHandlerMut<T>>>,
-    handlers: Vec<Box<dyn BackpressureHandler<T>>>,
+impl<T> BackpressureHandler for Arc<T>
+where
+    T: BackpressureHandler + Send + Sync,
+{
+    fn cool_down(&self) {
+        self.deref().cool_down();
+    }
+
+    fn recovered(&self) {
+        self.deref().recovered();
+    }
 }
 
-impl<T> Default for BackpressureHandlerRegistry<T> {
+pub struct BackpressureHandlerRegistry {
+    mut_handlers: Vec<Box<dyn BackpressureHandlerMut>>,
+    handlers: Vec<Box<dyn BackpressureHandler>>,
+}
+
+impl Default for BackpressureHandlerRegistry {
     fn default() -> Self {
         Self {
             mut_handlers: Vec::new(),
@@ -22,12 +37,12 @@ impl<T> Default for BackpressureHandlerRegistry<T> {
     }
 }
 
-impl<T> BackpressureHandlerRegistry<T> {
-    pub fn add_mut(&mut self, handler: impl BackpressureHandlerMut<T> + 'static) {
+impl BackpressureHandlerRegistry {
+    pub fn add_mut(&mut self, handler: impl BackpressureHandlerMut + 'static) {
         self.mut_handlers.push(Box::new(handler));
     }
 
-    pub fn add(&mut self, handler: impl BackpressureHandler<T> + 'static) {
+    pub fn add(&mut self, handler: impl BackpressureHandler + 'static) {
         self.handlers.push(Box::new(handler));
     }
 
@@ -57,7 +72,7 @@ mod tests {
 
     #[test]
     fn no_handlers_does_nothing() {
-        let mut registry = BackpressureHandlerRegistry::<()>::default();
+        let mut registry = BackpressureHandlerRegistry::default();
         registry.cool_down();
         registry.recovered();
     }
@@ -125,7 +140,7 @@ mod tests {
 
     struct LogHandler(Log);
 
-    impl BackpressureHandlerMut<()> for LogHandler {
+    impl BackpressureHandlerMut for LogHandler {
         fn cool_down(&mut self) {
             self.0.add("cool_down");
         }
@@ -134,7 +149,7 @@ mod tests {
         }
     }
 
-    impl BackpressureHandler<()> for LogHandler {
+    impl BackpressureHandler for LogHandler {
         fn cool_down(&self) {
             self.0.add("cool_down");
         }
@@ -148,7 +163,7 @@ mod tests {
         log: Log,
     }
 
-    impl BackpressureHandlerMut<()> for TaggedHandler {
+    impl BackpressureHandlerMut for TaggedHandler {
         fn cool_down(&mut self) {
             self.log.add(self.tag);
         }
