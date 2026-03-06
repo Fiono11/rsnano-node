@@ -144,9 +144,20 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
 
 #[cfg(test)]
 mod tests {
-    use rsnano_nullable_condvar::NotifyEvent;
-
     use super::*;
+    use rsnano_nullable_condvar::NotifyEvent;
+    use tracing_test::traced_test;
+
+    #[test]
+    #[traced_test]
+    fn run_loop_logs_current_configuration() {
+        let backlog = BoundedBacklog::new_null();
+        backlog.stop();
+        backlog.run_loop();
+        assert!(logs_contain(
+            "Bounded backlog enabled: max backlog=100000, batch_size=32"
+        ));
+    }
 
     #[test]
     fn stop_sets_stopped_flag() {
@@ -164,5 +175,28 @@ mod tests {
         backlog.set_cooldown(true);
         assert!(backlog.logic.lock().cool_down());
         assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    #[test]
+    fn collects_stats() {
+        let backlog = BoundedBacklog::new_null();
+
+        let mut expected = StatsCollection::new();
+        backlog.logic.lock().collect_stats(&mut expected);
+
+        let mut result = StatsCollection::new();
+        backlog.collect_stats(&mut result);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn collects_container_info() {
+        let backlog = BoundedBacklog::new_null();
+
+        let expected = backlog.logic.lock().container_info();
+        let result = backlog.container_info();
+
+        assert_eq!(result, expected);
     }
 }

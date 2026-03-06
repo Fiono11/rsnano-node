@@ -18,6 +18,7 @@ impl StatsKey {
     }
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct StatsCollection(HashMap<StatsKey, u64>);
 
 impl StatsCollection {
