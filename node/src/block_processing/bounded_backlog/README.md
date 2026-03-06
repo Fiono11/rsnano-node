@@ -87,12 +87,18 @@ classDiagram
         +len_of_bucket(bucket_index) usize
     }
 
+    class AccountWalker {
+        +new(ledger)
+        +walk_backwards(start, end, handle)
+    }
+
     class Ledger {
         +roll_back_batch(targets, target_count)
         +backlog_size() u64
     }
 
     BoundedBacklog --> BoundedBacklogLogic : owns (condvar-wrapped)
+    BoundedBacklog --> AccountWalker : creates per UnconfirmedFound event
     BoundedBacklog --> Ledger : calls roll_back_batch
     BoundedBacklogLogic --> BacklogIndex : owns
     BoundedBacklog ..|> EventHandler : implements
@@ -106,3 +112,4 @@ classDiagram
 | `app.rs` | `BoundedBacklog`: application layer — drives the rollback loop, handles ledger pipeline events, populates the index from confirmed/processed/unconfirmed events |
 | `logic.rs` | `BoundedBacklogLogic`: pure rollback decision logic — `rollback_needed()`, `gather_targets()`, and index insertion/removal |
 | `index.rs` | `BacklogIndex`: multi-key index of unconfirmed blocks, keyed by hash, account, and per-bucket priority |
+| `walker.rs` | `AccountWalker`: walks a block chain backwards from a given head to a frontier, yielding each block with its priority |
