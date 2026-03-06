@@ -155,7 +155,7 @@ mod tests {
         test_helpers::UnsavedBlockLatticeBuilder,
     };
     use rsnano_nullable_condvar::NotifyEvent;
-    use rsnano_types::{Block, BlockPriority, QualifiedRoot, SavedBlock};
+    use rsnano_types::{AccountInfo, Block, BlockPriority, ConfirmationHeightInfo, PrivateKey, QualifiedRoot, SavedBlock};
     use tracing_test::traced_test;
 
     #[test]
@@ -348,5 +348,33 @@ mod tests {
         )));
 
         assert!(!backlog.logic.lock().contains(&hash));
+    }
+
+    #[test]
+    fn unconfirmed_found_inserts_blocks() {
+        let logic = NullableCondvarMutex::new(BoundedBacklogLogic::default());
+        let ledger = Arc::new(Ledger::new_null());
+
+        let account_key = PrivateKey::from(123);
+        let mut builder = UnsavedBlockLatticeBuilder::new();
+        let genesis_send = builder.genesis().send(&account_key, 1000);
+        let open = builder.account(&account_key).receive(&genesis_send);
+        ledger.process_one(&genesis_send).unwrap();
+        let saved_open = ledger.process_one(&open).unwrap();
+
+        let backlog = BoundedBacklog { logic, ledger };
+
+        let info = UnconfirmedInfo {
+            account: saved_open.account(),
+            account_info: AccountInfo {
+                head: saved_open.hash(),
+                ..Default::default()
+            },
+            conf_info: ConfirmationHeightInfo::default(),
+        };
+
+        backlog.handle(&LedgerPipelineEvent::UnconfirmedFound(vec![info]));
+
+        assert!(backlog.logic.lock().contains(&saved_open.hash()));
     }
 }
