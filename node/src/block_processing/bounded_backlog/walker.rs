@@ -55,106 +55,89 @@ mod tests {
     #[test]
     fn walks_nothing_when_start_block_not_found() {
         let ledger = Ledger::new_null();
-        let mut walker = AccountWalker::new(&ledger);
-        let mut callback_called = false;
-        walker.walk_backwards(2.into(), 1.into(), |_, _| {
-            callback_called = true;
-            false
-        });
-        assert!(!callback_called);
+        let walked = test_walk(&ledger, 2.into(), 1.into(), BlockHash::ZERO);
+        assert_eq!(walked, vec![]);
     }
 
     #[test]
     fn walks_nothing_when_start_equals_end() {
         let ledger = Ledger::new_null();
-        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
-        let account = PrivateKey::from(123);
-        let genesis_send = builder.genesis().send(&account, 1000);
-        let open = builder.account(&account).receive(&genesis_send);
+        let chain = build_account_chain(&ledger, 1);
 
-        ledger.process_one(&genesis_send).unwrap();
-        ledger.process_one(&open).unwrap();
+        let walked = test_walk(&ledger, chain[0], chain[0], BlockHash::ZERO);
 
-        let mut walker = AccountWalker::new(&ledger);
-        let mut callback_called = false;
-        walker.walk_backwards(open.hash(), open.hash(), |_, _| {
-            callback_called = true;
-            true
-        });
-        assert!(!callback_called);
+        assert_eq!(walked, vec![]);
     }
 
     #[test]
     fn walks_entire_chain_when_end_is_zero() {
         let ledger = Ledger::new_null();
-        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
-        let account = PrivateKey::from(123);
-        let genesis_send = builder.genesis().send(&account, 1000);
-        let open = builder.account(&account).receive(&genesis_send);
-        let send1 = builder.account(&account).send(42, 1);
-        let send2 = builder.account(&account).send(42, 1);
+        let chain = build_account_chain(&ledger, 3);
 
-        ledger.process_one(&genesis_send).unwrap();
-        ledger.process_one(&open).unwrap();
-        ledger.process_one(&send1).unwrap();
-        ledger.process_one(&send2).unwrap();
+        let walked = test_walk(&ledger, chain[2], BlockHash::ZERO, BlockHash::ZERO);
 
-        let mut walker = AccountWalker::new(&ledger);
-        let mut walked = Vec::new();
-        walker.walk_backwards(send2.hash(), BlockHash::ZERO, |block, _| {
-            walked.push(block.hash());
-            true
-        });
-        assert_eq!(walked, vec![send2.hash(), send1.hash(), open.hash()]);
+        assert_eq!(walked, vec![chain[2], chain[1], chain[0]]);
     }
 
     #[test]
     fn end_block_is_exclusive() {
         let ledger = Ledger::new_null();
-        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
-        let account = PrivateKey::from(123);
-        let genesis_send = builder.genesis().send(&account, 1000);
-        let open = builder.account(&account).receive(&genesis_send);
-        let send1 = builder.account(&account).send(42, 1);
-        let send2 = builder.account(&account).send(42, 1);
-        let send3 = builder.account(&account).send(42, 1);
+        let chain = build_account_chain(&ledger, 4);
 
-        ledger.process_one(&genesis_send).unwrap();
-        ledger.process_one(&open).unwrap();
-        ledger.process_one(&send1).unwrap();
-        ledger.process_one(&send2).unwrap();
-        ledger.process_one(&send3).unwrap();
+        let walked = test_walk(&ledger, chain[2], chain[0], BlockHash::ZERO);
 
-        let mut walker = AccountWalker::new(&ledger);
-        let mut walked = Vec::new();
-        walker.walk_backwards(send2.hash(), open.hash(), |block, _| {
-            walked.push(block.hash());
-            true
-        });
-        assert_eq!(walked, vec![send2.hash(), send1.hash()]);
+        assert_eq!(walked, vec![chain[2], chain[1]]);
     }
 
     #[test]
     fn stops_early_when_callback_returns_false() {
         let ledger = Ledger::new_null();
+        let chain = build_account_chain(&ledger, 3);
+
+        let walked = test_walk(&ledger, chain[2], BlockHash::ZERO, chain[2]);
+
+        assert_eq!(walked, vec![chain[2]]);
+    }
+
+    /*
+     * Helpers
+     */
+
+    fn build_account_chain(ledger: &Ledger, num_blocks: usize) -> Vec<BlockHash> {
+        assert_ne!(num_blocks, 0);
+
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account = PrivateKey::from(123);
+        let mut chain = Vec::new();
+
         let genesis_send = builder.genesis().send(&account, 1000);
-        let open = builder.account(&account).receive(&genesis_send);
-        let send1 = builder.account(&account).send(42, 1);
-        let send2 = builder.account(&account).send(42, 1);
-
         ledger.process_one(&genesis_send).unwrap();
-        ledger.process_one(&open).unwrap();
-        ledger.process_one(&send1).unwrap();
-        ledger.process_one(&send2).unwrap();
 
+        let open = builder.account(&account).receive(&genesis_send);
+        ledger.process_one(&open).unwrap();
+        chain.push(open.hash());
+
+        for _ in 1..=num_blocks {
+            let block = builder.account(&account).send(42, 1);
+            ledger.process_one(&block).unwrap();
+            chain.push(block.hash());
+        }
+
+        chain
+    }
+
+    fn test_walk(
+        ledger: &Ledger,
+        start: BlockHash,
+        end: BlockHash,
+        early_exit: BlockHash,
+    ) -> Vec<BlockHash> {
         let mut walker = AccountWalker::new(&ledger);
         let mut walked = Vec::new();
-        walker.walk_backwards(send2.hash(), BlockHash::ZERO, |block, _| {
+        walker.walk_backwards(start, end, |block, _| {
             walked.push(block.hash());
-            false
+            block.hash() != early_exit
         });
-        assert_eq!(walked, vec![send2.hash()]);
+        walked
     }
 }
