@@ -7,6 +7,7 @@ mod block_processor_queue;
 pub(crate) mod bounded_backlog;
 mod local_block_broadcaster;
 mod process_queue;
+mod process_throttler;
 mod unchecked_map;
 
 use crate::{block_processing::backlog_scan::UnconfirmedInfo, cementation::ConfirmingSetEvent};
