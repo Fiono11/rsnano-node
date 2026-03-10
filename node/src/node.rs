@@ -802,18 +802,23 @@ impl Node {
             config.bounded_backlog.max_backlog = 0;
         }
 
+        let should_throttle_block_processor: Box<dyn Fn() -> bool + Send + Sync>;
         let bounded_backlog =
             if config.enable_bounded_backlog && config.bounded_backlog.max_backlog > 0 {
                 let backlog = Arc::new(BoundedBacklog::new(
                     config.bounded_backlog.clone(),
                     ledger.clone(),
                 ));
+                let backlog2 = backlog.clone();
+                should_throttle_block_processor =
+                    Box::new(move || backlog2.should_throttle_block_processor());
                 ledger_event_handlers.add(backlog.clone());
                 backpressure_handlers.add(backlog.clone());
                 stats_collector.add_source(backlog.clone());
                 container_info.add("bounded_backlog", backlog.clone());
                 Some(backlog)
             } else {
+                should_throttle_block_processor = Box::new(|| false);
                 None
             };
 

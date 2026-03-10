@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use tracing::info;
 
@@ -21,12 +27,17 @@ use crate::block_processing::{
 pub struct BoundedBacklog {
     logic: NullableCondvarMutex<BoundedBacklogLogic>,
     ledger: Arc<Ledger>,
+    should_throttle: AtomicBool,
 }
 
 impl BoundedBacklog {
     pub fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
         let logic = NullableCondvarMutex::new(BoundedBacklogLogic::new(config));
-        Self { logic, ledger }
+        Self {
+            logic,
+            ledger,
+            should_throttle: AtomicBool::new(false),
+        }
     }
 
     pub fn new_null() -> Self {
@@ -41,6 +52,10 @@ impl BoundedBacklog {
     pub fn stop(&self) {
         self.logic.lock().stop();
         self.logic.notify_all();
+    }
+
+    pub fn should_throttle_block_processor(&self) -> bool {
+        self.should_throttle.load(Ordering::Relaxed)
     }
 
     pub(crate) fn run_loop(&self) {
@@ -65,7 +80,10 @@ impl BoundedBacklog {
                 return;
             }
 
-            logic.set_current_backlog_size(self.ledger.backlog_size());
+            let backlog_size = self.ledger.backlog_size();
+            logic.set_current_backlog_size(backlog_size);
+            self.should_throttle
+                .store(logic.should_throttle_block_processor(), Ordering::Relaxed);
 
             if !logic.rollback_needed() {
                 continue;
@@ -175,7 +193,7 @@ mod tests {
             .finish();
 
         let ledger = Arc::new(Ledger::new_null());
-        let backlog = BoundedBacklog { logic, ledger };
+        let backlog = create_backlog(logic, ledger);
 
         backlog.run_loop();
 
@@ -194,7 +212,7 @@ mod tests {
         ledger.process_one(&block).unwrap();
         assert_eq!(ledger.backlog_size(), 1);
 
-        let backlog = BoundedBacklog { logic, ledger };
+        let backlog = create_backlog(logic, ledger);
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
@@ -227,10 +245,7 @@ mod tests {
             .wait(|l| l.stop())
             .finish();
 
-        let backlog = BoundedBacklog {
-            logic,
-            ledger: ledger.clone(),
-        };
+        let backlog = create_backlog(logic, ledger.clone());
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
@@ -361,7 +376,7 @@ mod tests {
         ledger.process_one(&genesis_send).unwrap();
         let saved_open = ledger.process_one(&open).unwrap();
 
-        let backlog = BoundedBacklog { logic, ledger };
+        let backlog = create_backlog(logic, ledger);
 
         let info = UnconfirmedInfo {
             account: saved_open.account(),
@@ -375,5 +390,20 @@ mod tests {
         backlog.handle(&LedgerPipelineEvent::UnconfirmedFound(vec![info]));
 
         assert!(backlog.logic.lock().contains(&saved_open.hash()));
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn create_backlog(
+        logic: NullableCondvarMutex<BoundedBacklogLogic>,
+        ledger: Arc<Ledger>,
+    ) -> BoundedBacklog {
+        BoundedBacklog {
+            logic,
+            ledger,
+            should_throttle: AtomicBool::new(false),
+        }
     }
 }

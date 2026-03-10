@@ -33,11 +33,11 @@ impl ProcessThrottler {
     pub fn new(
         queue: Arc<BlockProcessorQueue>,
         clock: Arc<SteadyClock>,
-        should_throttle: impl Fn() -> bool + Send + Sync + 'static,
+        should_throttle: Box<dyn Fn() -> bool + Send + Sync>,
     ) -> Self {
         Self {
             queue,
-            should_throttle: Box::new(should_throttle),
+            should_throttle,
             call_count: AtomicUsize::new(0),
             cooldown_count: AtomicUsize::new(0),
             last_log: Mutex::new(None),
@@ -50,10 +50,10 @@ impl ProcessThrottler {
     pub fn new_null() -> Self {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let clock = Arc::new(SteadyClock::new_null());
-        Self::new(queue, clock, || false)
+        Self::new(queue, clock, Box::new(|| false))
     }
 
-    pub fn wait_for_backlog(&self) {
+    pub fn throttle(&self) {
         self.call_count.fetch_add(1, Relaxed);
         if !(self.should_throttle)() {
             self.current_wait_ms.store(MIN_THROTTLE_WAIT_MS, Relaxed);
@@ -68,7 +68,6 @@ impl ProcessThrottler {
         let wait_ms = self.current_wait_ms.load(Relaxed);
         let next_wait_ms = (wait_ms * 2).min(MAX_THROTTLE_WAIT_MS);
         self.current_wait_ms.store(next_wait_ms, Relaxed);
-
         self.cooldown_count.fetch_add(1, Relaxed);
         self.queue.wait(Duration::from_millis(wait_ms));
     }
@@ -113,7 +112,7 @@ mod tests {
     fn dont_wait_when_not_throttling() {
         let (waiter, wait_tracker) = create_fixture(|| false);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
 
         assert_eq!(wait_tracker.output(), vec![]);
     }
@@ -122,7 +121,7 @@ mod tests {
     fn wait_when_throttling() {
         let (waiter, wait_tracker) = create_fixture(|| true);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
 
         assert_eq!(
             wait_tracker.output(),
@@ -134,9 +133,9 @@ mod tests {
     fn wait_doubles_on_consecutive_throttles() {
         let (waiter, wait_tracker) = create_fixture(|| true);
 
-        waiter.wait_for_backlog(); // 100 ms
-        waiter.wait_for_backlog(); // 200 ms
-        waiter.wait_for_backlog(); // 400 ms
+        waiter.throttle(); // 100 ms
+        waiter.throttle(); // 200 ms
+        waiter.throttle(); // 400 ms
 
         assert_eq!(
             wait_tracker.output(),
@@ -153,7 +152,7 @@ mod tests {
         let (waiter, wait_tracker) = create_fixture(|| true);
 
         for _ in 0..20 {
-            waiter.wait_for_backlog();
+            waiter.throttle();
         }
 
         let waits = wait_tracker.output();
@@ -172,15 +171,19 @@ mod tests {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         let wait_tracker = queue.track_waits();
-        let waiter = ProcessThrottler::new(queue, clock, move || {
-            let v = throttle2.load(Relaxed);
-            throttle2.store(!v, Relaxed);
-            v
-        });
+        let waiter = ProcessThrottler::new(
+            queue,
+            clock,
+            Box::new(move || {
+                let v = throttle2.load(Relaxed);
+                throttle2.store(!v, Relaxed);
+                v
+            }),
+        );
 
-        waiter.wait_for_backlog(); // throttled: 100 ms, next = 200
-        waiter.wait_for_backlog(); // not throttled: reset to 100, no wait
-        waiter.wait_for_backlog(); // throttled again: 100 ms
+        waiter.throttle(); // throttled: 100 ms, next = 200
+        waiter.throttle(); // not throttled: reset to 100, no wait
+        waiter.throttle(); // throttled again: 100 ms
 
         assert_eq!(
             wait_tracker.output(),
@@ -192,7 +195,7 @@ mod tests {
     fn stats_source() {
         let (waiter, _) = create_fixture(|| true);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
 
         let mut stats = StatsCollection::new();
         waiter.collect_stats(&mut stats);
@@ -205,7 +208,7 @@ mod tests {
     fn log_initial() {
         let (waiter, _) = create_fixture(|| true);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
 
         logs_assert(|logs| {
             if logs.len() != 1 {
@@ -224,11 +227,11 @@ mod tests {
         let clock =
             SteadyClock::new_null_with_offsets([Duration::from_secs(14), Duration::from_secs(1)]);
         let queue = Arc::new(BlockProcessorQueue::new_null());
-        let waiter = ProcessThrottler::new(queue, clock.into(), || true);
+        let waiter = ProcessThrottler::new(queue, clock.into(), Box::new(|| true));
 
-        waiter.wait_for_backlog();
-        waiter.wait_for_backlog();
-        waiter.wait_for_backlog();
+        waiter.throttle();
+        waiter.throttle();
+        waiter.throttle();
 
         logs_assert(|logs| {
             if logs.len() != 2 {
@@ -243,10 +246,10 @@ mod tests {
     fn can_track_waits() {
         let (waiter, _) = create_fixture(|| true);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
         assert_eq!(waiter.call_count(), 1);
 
-        waiter.wait_for_backlog();
+        waiter.throttle();
         assert_eq!(waiter.call_count(), 2);
     }
 
@@ -256,7 +259,7 @@ mod tests {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         let wait_tracker = queue.track_waits();
-        let waiter = ProcessThrottler::new(queue, clock, should_throttle);
+        let waiter = ProcessThrottler::new(queue, clock, Box::new(should_throttle));
         (waiter, wait_tracker)
     }
 }

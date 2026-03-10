@@ -88,6 +88,10 @@ impl BoundedBacklogLogic {
         self.config.max_backlog
     }
 
+    pub(crate) fn should_throttle_block_processor(&self) -> bool {
+        self.current_backlog_size as f64 > self.max_backlog() as f64 * 1.5
+    }
+
     pub(crate) fn rollback_batch_size(&self) -> usize {
         self.config.rollback_batch_size
     }
@@ -491,7 +495,7 @@ mod tests {
     }
 
     /*
-     * Introspection
+     * Observability
      */
 
     #[test]
@@ -516,6 +520,25 @@ mod tests {
 
         assert_eq!(result.get("bounded_backlog", "rollback_iterations"), 10);
         assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
+    }
+
+    /*
+     * Throttling
+     */
+
+    #[test]
+    fn throttle_block_processor() {
+        let mut logic = BoundedBacklogLogic::new(BoundedBacklogConfig {
+            max_backlog: 100,
+            rollback_batch_size: 1,
+        });
+        assert!(!logic.should_throttle_block_processor());
+        logic.set_current_backlog_size(150);
+        assert!(!logic.should_throttle_block_processor());
+        logic.set_current_backlog_size(151);
+        assert!(logic.should_throttle_block_processor());
+        logic.set_current_backlog_size(100);
+        assert!(!logic.should_throttle_block_processor());
     }
 
     /*
