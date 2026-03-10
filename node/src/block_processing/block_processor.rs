@@ -8,10 +8,12 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{
-    BlockProcessorQueue, UncheckedBlockReenqueuer, UncheckedMap, backlog_waiter::BacklogWaiter,
+    BlockProcessorQueue, UncheckedBlockReenqueuer, UncheckedMap,
     block_batch_processor::BlockBatchProcessorStats,
 };
-use crate::block_processing::block_batch_processor::BlockBatchProcessor;
+use crate::block_processing::{
+    block_batch_processor::BlockBatchProcessor, process_throttler::ProcessThrottler,
+};
 
 pub struct BlockProcessor {
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -19,7 +21,7 @@ pub struct BlockProcessor {
     ledger: Arc<Ledger>,
     unchecked: Arc<Mutex<UncheckedMap>>,
     process_stats: Arc<BlockBatchProcessorStats>,
-    backlog_waiter: Arc<BacklogWaiter>,
+    should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
     unchecked_reenqueuer: UncheckedBlockReenqueuer,
     clock: Arc<SteadyClock>,
 }
@@ -30,7 +32,7 @@ impl BlockProcessor {
         ledger: Arc<Ledger>,
         unchecked: Arc<Mutex<UncheckedMap>>,
         unchecked_reenqueuer: UncheckedBlockReenqueuer,
-        backlog_waiter: Arc<BacklogWaiter>,
+        should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
@@ -40,7 +42,7 @@ impl BlockProcessor {
             unchecked_reenqueuer,
             process_stats: Arc::new(BlockBatchProcessorStats::default()),
             threads: Mutex::new(Vec::new()),
-            backlog_waiter,
+            should_throttle,
             clock,
         }
     }
@@ -65,7 +67,11 @@ impl BlockProcessor {
         BlockProcessorLoop {
             queue: self.process_queue.clone(),
             process: self.create_block_batch_processor(),
-            backlog_waiter: self.backlog_waiter.clone(),
+            throttler: ProcessThrottler::new(
+                self.process_queue.clone(),
+                self.clock.clone(),
+                self.should_throttle.clone(),
+            ),
         }
     }
 
@@ -103,13 +109,13 @@ impl StatsSource for BlockProcessor {
 struct BlockProcessorLoop {
     queue: Arc<BlockProcessorQueue>,
     process: BlockBatchProcessor,
-    backlog_waiter: Arc<BacklogWaiter>,
+    throttler: ProcessThrottler,
 }
 
 impl BlockProcessorLoop {
     fn run(&mut self) {
         while let Some(blocks) = self.queue.pop_blocking() {
-            self.backlog_waiter.wait_for_backlog();
+            self.throttler.throttle();
 
             if self.queue.stopped() {
                 break;
@@ -131,16 +137,16 @@ mod tests {
             BlockContext::new_test_instance().into(),
         ]));
         let process = BlockBatchProcessor::new_null();
-        let backlog_waiter = Arc::new(BacklogWaiter::new_null());
+        let throttler = ProcessThrottler::new_null();
 
         let mut processor_loop = BlockProcessorLoop {
             queue,
             process,
-            backlog_waiter: backlog_waiter.clone(),
+            throttler,
         };
 
         processor_loop.run();
 
-        assert_eq!(backlog_waiter.call_count(), 1);
+        assert_eq!(processor_loop.throttler.call_count(), 1);
     }
 }

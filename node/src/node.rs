@@ -53,9 +53,9 @@ use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
     block_processing::{
-        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue,
-        LedgerPipelineEvent, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
-        LocalBlockBroadcasterPlugin, ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
+        BacklogScan, BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
+        LocalBlockBroadcaster, LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin,
+        ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
         bounded_backlog::BoundedBacklog,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
@@ -802,7 +802,7 @@ impl Node {
             config.bounded_backlog.max_backlog = 0;
         }
 
-        let should_throttle_block_processor: Box<dyn Fn() -> bool + Send + Sync>;
+        let should_throttle_block_processor: Arc<dyn Fn() -> bool + Send + Sync>;
         let bounded_backlog =
             if config.enable_bounded_backlog && config.bounded_backlog.max_backlog > 0 {
                 let backlog = Arc::new(BoundedBacklog::new(
@@ -811,14 +811,14 @@ impl Node {
                 ));
                 let backlog2 = backlog.clone();
                 should_throttle_block_processor =
-                    Box::new(move || backlog2.should_throttle_block_processor());
+                    Arc::new(move || backlog2.should_throttle_block_processor());
                 ledger_event_handlers.add(backlog.clone());
                 backpressure_handlers.add(backlog.clone());
                 stats_collector.add_source(backlog.clone());
                 container_info.add("bounded_backlog", backlog.clone());
                 Some(backlog)
             } else {
-                should_throttle_block_processor = Box::new(|| false);
+                should_throttle_block_processor = Arc::new(|| false);
                 None
             };
 
@@ -906,19 +906,12 @@ impl Node {
             true
         });
 
-        let backlog_waiter = Arc::new(BacklogWaiter::new(
-            block_processor_queue.clone(),
-            ledger.clone(),
-            steady_clock.clone(),
-            config.bounded_backlog.max_backlog,
-        ));
-
         let block_processor = Arc::new(BlockProcessor::new(
             block_processor_queue.clone(),
             ledger.clone(),
             unchecked.clone(),
             unchecked_reenqueuer.clone(),
-            backlog_waiter.clone(),
+            should_throttle_block_processor,
             steady_clock.clone(),
         ));
 
@@ -1306,7 +1299,6 @@ impl Node {
         stats_collector.add_source(bootstrap_stale_stats);
         stats_collector.add_source(block_processor.clone());
         stats_collector.add_source(block_processor_queue.clone());
-        stats_collector.add_source(backlog_waiter.clone());
         stats_collector.add_source(conf_time_stats);
         stats_collector.add_source(winner_block_broadcaster.clone());
         stats_collector.add_source(bootstrapper.clone());

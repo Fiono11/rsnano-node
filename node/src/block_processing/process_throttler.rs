@@ -21,7 +21,7 @@ const MAX_THROTTLE_WAIT_MS: u64 = 1000;
 /// up to a maximum of 1 second. It resets to the minimum when not throttling.
 pub(crate) struct ProcessThrottler {
     queue: Arc<BlockProcessorQueue>,
-    should_throttle: Box<dyn Fn() -> bool + Send + Sync>,
+    should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
     call_count: AtomicUsize,
     cooldown_count: AtomicUsize,
     last_log: Mutex<Option<Timestamp>>,
@@ -33,7 +33,7 @@ impl ProcessThrottler {
     pub fn new(
         queue: Arc<BlockProcessorQueue>,
         clock: Arc<SteadyClock>,
-        should_throttle: Box<dyn Fn() -> bool + Send + Sync>,
+        should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
     ) -> Self {
         Self {
             queue,
@@ -50,7 +50,7 @@ impl ProcessThrottler {
     pub fn new_null() -> Self {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let clock = Arc::new(SteadyClock::new_null());
-        Self::new(queue, clock, Box::new(|| false))
+        Self::new(queue, clock, Arc::new(|| false))
     }
 
     pub fn throttle(&self) {
@@ -174,7 +174,7 @@ mod tests {
         let waiter = ProcessThrottler::new(
             queue,
             clock,
-            Box::new(move || {
+            Arc::new(move || {
                 let v = throttle2.load(Relaxed);
                 throttle2.store(!v, Relaxed);
                 v
@@ -227,7 +227,7 @@ mod tests {
         let clock =
             SteadyClock::new_null_with_offsets([Duration::from_secs(14), Duration::from_secs(1)]);
         let queue = Arc::new(BlockProcessorQueue::new_null());
-        let waiter = ProcessThrottler::new(queue, clock.into(), Box::new(|| true));
+        let waiter = ProcessThrottler::new(queue, clock.into(), Arc::new(|| true));
 
         waiter.throttle();
         waiter.throttle();
@@ -259,7 +259,7 @@ mod tests {
         let queue = Arc::new(BlockProcessorQueue::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         let wait_tracker = queue.track_waits();
-        let waiter = ProcessThrottler::new(queue, clock, Box::new(should_throttle));
+        let waiter = ProcessThrottler::new(queue, clock, Arc::new(should_throttle));
         (waiter, wait_tracker)
     }
 }
