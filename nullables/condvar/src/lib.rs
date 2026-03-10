@@ -207,9 +207,10 @@ mod tests {
     fn delegates_to_real_condvar() {
         let mutex = Arc::new(NullableCondvarMutex::new(0));
         let mutex1 = mutex.clone();
-        let mut guard = mutex.lock();
-        std::thread::spawn(move || mutex1.notify_one());
-        guard = mutex.wait(guard);
+        let guard = mutex.lock();
+        std::thread::spawn(move || mutex1.notify_all());
+        let (guard, timeout) = mutex.wait_timeout(guard, Duration::from_secs(5));
+        assert!(!timeout);
         assert_eq!(*guard, 0);
     }
 

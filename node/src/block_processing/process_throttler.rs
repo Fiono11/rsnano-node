@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering::Relaxed},
+        atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed},
     },
     time::Duration,
 };
@@ -13,9 +13,12 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use super::BlockProcessorQueue;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-const THROTTLE_WAIT: Duration = Duration::from_millis(100);
+const MIN_THROTTLE_WAIT_MS: u64 = 100;
+const MAX_THROTTLE_WAIT_MS: u64 = 1000;
 
-/// Waits until a condition is met (the `should_throttle` callback returns false)
+/// Waits until a condition is met (the `should_throttle` callback returns false).
+/// The wait duration starts at 100 ms and doubles with each consecutive throttle,
+/// up to a maximum of 1 second. It resets to the minimum when not throttling.
 pub(crate) struct ProcessThrottler {
     queue: Arc<BlockProcessorQueue>,
     should_throttle: Box<dyn Fn() -> bool + Send + Sync>,
@@ -23,6 +26,7 @@ pub(crate) struct ProcessThrottler {
     cooldown_count: AtomicUsize,
     last_log: Mutex<Option<Timestamp>>,
     clock: Arc<SteadyClock>,
+    current_wait_ms: AtomicU64,
 }
 
 impl ProcessThrottler {
@@ -38,6 +42,7 @@ impl ProcessThrottler {
             cooldown_count: AtomicUsize::new(0),
             last_log: Mutex::new(None),
             clock,
+            current_wait_ms: AtomicU64::new(MIN_THROTTLE_WAIT_MS),
         }
     }
 
@@ -51,6 +56,7 @@ impl ProcessThrottler {
     pub fn wait_for_backlog(&self) {
         self.call_count.fetch_add(1, Relaxed);
         if !(self.should_throttle)() {
+            self.current_wait_ms.store(MIN_THROTTLE_WAIT_MS, Relaxed);
             return;
         }
 
@@ -59,8 +65,12 @@ impl ProcessThrottler {
             warn!("Throttling block processing!");
         }
 
+        let wait_ms = self.current_wait_ms.load(Relaxed);
+        let next_wait_ms = (wait_ms * 2).min(MAX_THROTTLE_WAIT_MS);
+        self.current_wait_ms.store(next_wait_ms, Relaxed);
+
         self.cooldown_count.fetch_add(1, Relaxed);
-        self.queue.wait(THROTTLE_WAIT);
+        self.queue.wait(Duration::from_millis(wait_ms));
     }
 
     fn should_log(&self, now: Timestamp) -> bool {
@@ -114,7 +124,68 @@ mod tests {
 
         waiter.wait_for_backlog();
 
-        assert_eq!(wait_tracker.output(), vec![THROTTLE_WAIT]);
+        assert_eq!(
+            wait_tracker.output(),
+            vec![Duration::from_millis(MIN_THROTTLE_WAIT_MS)]
+        );
+    }
+
+    #[test]
+    fn wait_doubles_on_consecutive_throttles() {
+        let (waiter, wait_tracker) = create_fixture(|| true);
+
+        waiter.wait_for_backlog(); // 100 ms
+        waiter.wait_for_backlog(); // 200 ms
+        waiter.wait_for_backlog(); // 400 ms
+
+        assert_eq!(
+            wait_tracker.output(),
+            vec![
+                Duration::from_millis(100),
+                Duration::from_millis(200),
+                Duration::from_millis(400),
+            ]
+        );
+    }
+
+    #[test]
+    fn wait_is_capped_at_max() {
+        let (waiter, wait_tracker) = create_fixture(|| true);
+
+        for _ in 0..20 {
+            waiter.wait_for_backlog();
+        }
+
+        let waits = wait_tracker.output();
+        assert_eq!(
+            *waits.last().unwrap(),
+            Duration::from_millis(MAX_THROTTLE_WAIT_MS)
+        );
+    }
+
+    #[test]
+    fn wait_resets_after_not_throttling() {
+        use std::sync::atomic::AtomicBool;
+        let throttle = Arc::new(AtomicBool::new(true));
+        let throttle2 = throttle.clone();
+
+        let queue = Arc::new(BlockProcessorQueue::new_null());
+        let clock = Arc::new(SteadyClock::new_null());
+        let wait_tracker = queue.track_waits();
+        let waiter = ProcessThrottler::new(queue, clock, move || {
+            let v = throttle2.load(Relaxed);
+            throttle2.store(!v, Relaxed);
+            v
+        });
+
+        waiter.wait_for_backlog(); // throttled: 100 ms, next = 200
+        waiter.wait_for_backlog(); // not throttled: reset to 100, no wait
+        waiter.wait_for_backlog(); // throttled again: 100 ms
+
+        assert_eq!(
+            wait_tracker.output(),
+            vec![Duration::from_millis(100), Duration::from_millis(100)]
+        );
     }
 
     #[test]
