@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::{config::NodeConfig, consensus::ReceivedVote};
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteSource};
-use test_helpers::{System, assert_timely2};
+use rsnano_types::{Amount, PrivateKey, Vote, VoteSource, DEV_GENESIS_KEY};
+use test_helpers::{assert_timely2, System};
 
 // checks that block cannot be confirmed if there is no enough votes to reach quorum
 #[test]
@@ -27,7 +27,7 @@ fn quorum_minimum_confirm_fail() {
         Amount::MAX - (node1.online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
     );
 
-    node1.process_active(send1.clone());
+    node1.process(send1.clone());
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
     let vote = ReceivedVote::new(
@@ -68,7 +68,7 @@ fn quorum_minimum_confirm_success() {
         Amount::MAX - node1.online_reps.lock().unwrap().quorum_delta(),
     );
 
-    node1.process_active(send1.clone());
+    node1.process(send1.clone());
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
     let vote = ReceivedVote::new(

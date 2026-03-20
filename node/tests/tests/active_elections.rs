@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_ledger::{
-    BlockError, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet,
-    test_helpers::UnsavedBlockLatticeBuilder,
+    test_helpers::UnsavedBlockLatticeBuilder, BlockError, LedgerSet, DEV_GENESIS_ACCOUNT,
+    DEV_GENESIS_PUB_KEY,
 };
 use rsnano_node::{
     bootstrap::BootstrapConfig,
@@ -11,13 +11,13 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
+    Account, Amount, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource, DEV_GENESIS_KEY,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
+    assert_always_eq, assert_never, assert_timely2, assert_timely_eq, assert_timely_eq2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections,
+    start_elections, System,
 };
 
 /// What this test is doing:
@@ -117,15 +117,13 @@ fn fork_replacement_tally() {
     // it is only 9, because the intital block of the election does not get replaced
     assert_timely_eq2(|| count_rep_votes_in_election(), 9);
 
-    assert!(
-        node1
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .has_max_blocks()
-    );
+    assert!(node1
+        .active
+        .read()
+        .unwrap()
+        .election_for_root(&send_last.qualified_root())
+        .unwrap()
+        .has_max_blocks());
 
     // Process correct block
     let node2 = system
@@ -207,15 +205,13 @@ fn fork_replacement_tally() {
             .contains_block(&send_last.hash())
     };
     assert_timely2(|| find_send_last_block());
-    assert!(
-        node1
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .has_max_blocks()
-    );
+    assert!(node1
+        .active
+        .read()
+        .unwrap()
+        .election_for_root(&send_last.qualified_root())
+        .unwrap()
+        .has_max_blocks());
 
     assert_timely2(|| {
         node1
@@ -1116,8 +1112,8 @@ fn vote_replays() {
     let open1 = lattice.account(&key).receive(&send1);
 
     // wait for elections objects to appear in the AEC
-    node.process_active(send1.clone());
-    node.process_active(open1.clone());
+    node.process(send1.clone());
+    node.process(open1.clone());
     start_elections(&node, &[send1.hash(), open1.hash()], false);
     assert_eq!(node.active.read().unwrap().len(), 2);
 
@@ -1159,7 +1155,7 @@ fn vote_replays() {
 
     // send 1 raw from key to key
     let send2 = lattice.account(&key).send(&key, 1);
-    node.process_active(send2.clone());
+    node.process(send2.clone());
     start_elections(&node, &[send2.hash()], false);
     assert_eq!(node.active.read().unwrap().len(), 1);
 
