@@ -330,6 +330,7 @@ impl Node {
             .constants(network_params.ledger.clone())
             .min_rep_weight(config.representative_vote_weight_minimum)
             .bootstrap_weights(bootstrap_weights)
+            .consistency_check(!flags.skip_consistency_check)
             .stats(stats.clone())
             .publish_to(move |ev| {
                 ledger_tx2

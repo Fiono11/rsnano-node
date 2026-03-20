@@ -20,6 +20,7 @@ pub struct LedgerBuilder<'a> {
     ledger_constants: Option<LedgerConstants>,
     thread_count: usize,
     sender: Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>,
+    consistency_check: bool,
 }
 
 impl<'a> LedgerBuilder<'a> {
@@ -34,6 +35,7 @@ impl<'a> LedgerBuilder<'a> {
             ledger_constants: None,
             thread_count: 0,
             sender: None,
+            consistency_check: true,
         }
     }
 
@@ -80,6 +82,11 @@ impl<'a> LedgerBuilder<'a> {
         self
     }
 
+    pub fn consistency_check(mut self, check: bool) -> Self {
+        self.consistency_check = check;
+        self
+    }
+
     pub fn finish(mut self) -> anyhow::Result<Ledger> {
         let ledger_cache = Arc::new(LedgerCache::new());
         let bootstrap_weights = self.bootstrap_weights.unwrap_or_default();
@@ -117,7 +124,7 @@ impl<'a> LedgerBuilder<'a> {
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,
-            true,
+            self.consistency_check,
         )?;
 
         if let Some(sender) = self.sender {

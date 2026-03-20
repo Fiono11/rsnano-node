@@ -118,8 +118,8 @@ impl NanoDataReceiver {
 
     fn process_realtime(&mut self, message: Message) -> ReceiveResult {
         if message.is_obsolete() {
-            // TODO: Ban the peer, instead of continuing?
-            warn!(message_type = ?message.message_type(), "Received an obsolete message");
+            // TODO: Ban the peer?
+            debug!(message_type = ?message.message_type(), "Received an obsolete message");
             return ReceiveResult::Continue;
         }
 

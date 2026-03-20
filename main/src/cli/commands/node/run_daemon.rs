@@ -36,6 +36,9 @@ pub(crate) struct RunDaemonArgs {
     /// Increase batch signature verification size in block processor, default 0 (limited by config signature_checker_threads), unlimited for fast_bootstrap
     #[arg(long)]
     block_processor_verification_size: Option<usize>,
+    /// Skip ledger consistency check on startup, this is not recommended and should only be used for testing or recovery purposes
+    #[arg(long)]
+    skip_consistency_check: bool,
 }
 
 impl RunDaemonArgs {
@@ -60,6 +63,7 @@ impl RunDaemonArgs {
         flags.allow_bootstrap_peers_duplicates = self.allow_bootstrap_peers_duplicates;
         flags.enable_voting = self.enable_voting;
         flags.fast_bootstrap = self.fast_bootstrap;
+        flags.skip_consistency_check = self.skip_consistency_check;
         flags
     }
 }

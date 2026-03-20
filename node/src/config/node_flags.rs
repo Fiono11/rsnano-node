@@ -17,7 +17,8 @@ pub struct NodeFlags {
     pub read_only: bool,
     pub disable_connection_cleanup: bool,
     pub inactive_node: bool,
-    pub bootstrap_interval: usize, // For testing only
+    pub bootstrap_interval: usize,
+    pub skip_consistency_check: bool, // For testing only
 }
 
 impl NodeFlags {
@@ -39,6 +40,7 @@ impl NodeFlags {
             disable_connection_cleanup: false,
             inactive_node: false,
             bootstrap_interval: 0,
+            skip_consistency_check: false,
         }
     }
 }

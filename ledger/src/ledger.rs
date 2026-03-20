@@ -303,7 +303,7 @@ impl Ledger {
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
-        integrity_check: bool,
+        consistency_check: bool,
     ) -> anyhow::Result<Self> {
         let mut store = LmdbStore::new(env)?;
         store.cache = rep_weights.ledger_cache.clone();
@@ -322,12 +322,12 @@ impl Ledger {
             can_roll_back: RwLock::new(Box::new(|_| true)),
         };
 
-        ledger.initialize(thread_count, integrity_check)?;
+        ledger.initialize(thread_count, consistency_check)?;
 
         Ok(ledger)
     }
 
-    fn initialize(&mut self, thread_count: usize, integrity_check: bool) -> anyhow::Result<()> {
+    fn initialize(&mut self, thread_count: usize, consistency_check: bool) -> anyhow::Result<()> {
         {
             let txn = self.store.begin_read();
             self.store_version = self.store.version.get(&txn).unwrap_or_default() as u32;
@@ -405,7 +405,7 @@ impl Ledger {
         debug!("Cemented count cache generated");
 
         // Count pending balances
-        if integrity_check {
+        if consistency_check {
             debug!("Verifying ledger balance consistency...");
             let mut total_pending = Amount::ZERO;
             let txn = self.store.begin_read();
