@@ -4,37 +4,17 @@
 
 These commits have been reviewed and merged into RsNano or put into the unmerged table below:
 
-- [x] 5961d8034d0a46b6e72ff85c0fff1d2b12e4ed35
-- [x] 5a17165b2c035489633f768d8b6754ad2df94bff
-- [x] 8672e7e71f35dcf65ab60aaad010a6f344828430
-- [x] 53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d
-- [x] 8b5fefde32582d0f30fe3f7db46603f69f4eaa80
-- [x] 8ceff83b55fed3703059d9ba3a872c4716481966
-- [x] e73d3d6087bdd7549745bc1457ad045d925f06be
-- [x] cdad2f65e8f807ab430538cb24ba814b85766532
-- [x] 8be760b1bb7032220ce5e13d3607baa2487e1c85
-- [x] 964ed6e759fabfb5edb872aeea7896f06c5e5542
-- [ ] fe8fb955eb9dec17c182a1f068df824bc94dc542
-- [ ] 8de5920578fc82129467f21e286dddbcf8a16de3
-- [ ] 997b26279e4d5e20ef510e3ab507594977ed46a0
-- [ ] 2d04f4bebada9873c893e89e053e6ebeb0d620df
-- [ ] 0c6afceb9470994adcd4b99914e76f1eab185b8a
-- [ ] 05de81c0331a81b2fdf79541c331ce2fda15aa11
-- [ ] 63206358955835103ed9ec66a4b951af572d1136
-- [ ] bc097f6543543453d28fcc1c16e445df52e210fd
-- [ ] afae10488acc5003107e8ca1d2e4c342ca6d45a4
-- [ ] 92ef2c4e9800b639d631a793ef968eda21e53150
-- [ ] 14bdb05f8f7e3633e1207a5d6b9b6f3402a1ed27
-- [ ] 04a288dfa4259a15239e507461c5f17821a71f7d
-- [ ] 963570e8e19da751ffe17860540864878f1c0b12
-- [ ] 34c76330c520035ce296f435d193da2a96713456
-- [ ] 83432e3fa290727e3b459d12a51d09e0f672c5ca
-- [ ] ff8bfc9692ac89a9804f79855357534ccd38af7a
-- [ ] 6d53b5f89f5feec87c111153ee5e86b36d4f9502
-- [ ] 772038ed1fccd3e42cda7d049ebc1d718cb0c24e
-- [ ] 1a8f1bb228fbd944a1f5b4a49d3f2c1e436f9b0f
-- [ ] 1aa9388cc7a06d3235de51855f878097f2fb7eab
-- [ ] 6827411563c1408f7c06230d0a649184f1656305
+- [x] 14bdb05f8f7e3633e1207a5d6b9b6f3402a1ed27
+- [x] 04a288dfa4259a15239e507461c5f17821a71f7d
+- [x] 963570e8e19da751ffe17860540864878f1c0b12
+- [x] 34c76330c520035ce296f435d193da2a96713456
+- [x] 83432e3fa290727e3b459d12a51d09e0f672c5ca
+- [x] ff8bfc9692ac89a9804f79855357534ccd38af7a
+- [x] 6d53b5f89f5feec87c111153ee5e86b36d4f9502
+- [x] 772038ed1fccd3e42cda7d049ebc1d718cb0c24e
+- [x] 1a8f1bb228fbd944a1f5b4a49d3f2c1e436f9b0f
+- [x] 1aa9388cc7a06d3235de51855f878097f2fb7eab
+- [x] 6827411563c1408f7c06230d0a649184f1656305
 - [ ] eb21bb320720e1022b3b87531a731101d03ad473
 - [ ] 3cfae9c17e318f3eefbc8530a28892d4aaafc77d
 - [ ] 1a13bbe398272574f28de42ac7907a874bab92d5
@@ -95,3 +75,8 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 |AEC Races (needs AEC Rework first!)             |285ae0ef10421383ac69504a61d9e981f4e7d734|https://github.com/nanocurrency/nano-node/pull/4945/ ||
 |CLI Benchmarks                                  |53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d|https://github.com/nanocurrency/nano-node/pull/4953/ ||
 |Shared Priority Pool                            |964ed6e759fabfb5edb872aeea7896f06c5e5542|https://github.com/nanocurrency/nano-node/pull/4954/ ||
+|Use Max Filedescriptor Limit                    |8de5920578fc82129467f21e286dddbcf8a16de3|https://github.com/nanocurrency/nano-node/pull/4968/ ||
+|Don't sample weights if below threshold         |997b26279e4d5e20ef510e3ab507594977ed46a0|https://github.com/nanocurrency/nano-node/pull/4969/ ||
+|TXN tracking                                    |34c76330c520035ce296f435d193da2a96713456|https://github.com/nanocurrency/nano-node/pull/4982/ ||
+|Super Rebroadcaster                             |6d53b5f89f5feec87c111153ee5e86b36d4f9502|https://github.com/nanocurrency/nano-node/pull/4985/ ||
+
