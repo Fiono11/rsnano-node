@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use strum::{EnumCount, IntoEnumIterator};
 use tracing::trace;
 
 use rsnano_ledger::{BlockError, BlockSource};
@@ -16,11 +17,8 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use super::{
-    BlockContext,
-    process_queue::{ProcessQueue, ProcessQueueConfig},
-};
-use strum::{EnumCount, IntoEnumIterator};
+use super::process_queue::{ProcessQueue, ProcessQueueConfig};
+use crate::block_processing::BlockContext;
 
 pub struct BlockProcessorQueue {
     queue: Mutex<BlockProcessorQueueImpl>,
@@ -199,7 +197,7 @@ impl DeadChannelCleanupStep for BlockProcessorQueue {
 
 impl StatsSource for BlockProcessorQueue {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.queue.lock().unwrap().collect_stats(result)
+        self.queue.lock().unwrap().collect_stats(result);
     }
 }
 
@@ -343,6 +341,8 @@ mod tests {
 
         assert_eq!(waits.output(), vec![duration]);
     }
+
+    /* Test helpers */
 
     fn test_block_context() -> Arc<BlockContext> {
         let block = Block::new_test_instance();

@@ -911,9 +911,9 @@ impl Node {
             ledger.clone(),
             unchecked.clone(),
             unchecked_reenqueuer.clone(),
-            should_throttle_block_processor,
             steady_clock.clone(),
         ));
+        block_processor.set_should_throttle(should_throttle_block_processor);
 
         let mut dead_channel_cleanup = DeadChannelCleanup::new(
             steady_clock.clone(),

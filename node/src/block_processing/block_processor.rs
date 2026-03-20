@@ -1,10 +1,14 @@
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
     thread::JoinHandle,
+    time::Duration,
 };
 
+use tracing::warn;
+
 use rsnano_ledger::Ledger;
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{
@@ -12,7 +16,7 @@ use super::{
     block_batch_processor::BlockBatchProcessorStats,
 };
 use crate::block_processing::{
-    block_batch_processor::BlockBatchProcessor, process_throttler::ProcessThrottler,
+    BlockContext, block_batch_processor::BlockBatchProcessor, process_throttler::ProcessThrottler,
 };
 
 pub struct BlockProcessor {
@@ -21,9 +25,9 @@ pub struct BlockProcessor {
     ledger: Arc<Ledger>,
     unchecked: Arc<Mutex<UncheckedMap>>,
     process_stats: Arc<BlockBatchProcessorStats>,
-    should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
     unchecked_reenqueuer: UncheckedBlockReenqueuer,
     clock: Arc<SteadyClock>,
+    throttler: Arc<ProcessThrottler>,
 }
 
 impl BlockProcessor {
@@ -32,7 +36,6 @@ impl BlockProcessor {
         ledger: Arc<Ledger>,
         unchecked: Arc<Mutex<UncheckedMap>>,
         unchecked_reenqueuer: UncheckedBlockReenqueuer,
-        should_throttle: Arc<dyn Fn() -> bool + Send + Sync>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
@@ -42,9 +45,13 @@ impl BlockProcessor {
             unchecked_reenqueuer,
             process_stats: Arc::new(BlockBatchProcessorStats::default()),
             threads: Mutex::new(Vec::new()),
-            should_throttle,
             clock,
+            throttler: ProcessThrottler::new(Arc::new(|| false)).into(),
         }
+    }
+
+    pub fn set_should_throttle(&self, callback: Arc<dyn Fn() -> bool + Send + Sync>) {
+        self.throttler.set_should_throttle(callback);
     }
 
     pub fn start(&self, thread_count: usize) {
@@ -67,11 +74,9 @@ impl BlockProcessor {
         BlockProcessorLoop {
             queue: self.process_queue.clone(),
             process: self.create_block_batch_processor(),
-            throttler: ProcessThrottler::new(
-                self.process_queue.clone(),
-                self.clock.clone(),
-                self.should_throttle.clone(),
-            ),
+            throttler: self.throttler.clone(),
+            clock: self.clock.clone(),
+            last_throttle_log: None,
         }
     }
 
@@ -103,50 +108,107 @@ impl Drop for BlockProcessor {
 impl StatsSource for BlockProcessor {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.process_stats.collect_stats(result);
+        self.throttler.collect_stats(result);
     }
 }
 
 struct BlockProcessorLoop {
     queue: Arc<BlockProcessorQueue>,
     process: BlockBatchProcessor,
-    throttler: ProcessThrottler,
+    throttler: Arc<ProcessThrottler>,
+    clock: Arc<SteadyClock>,
+    last_throttle_log: Option<Timestamp>,
 }
 
 impl BlockProcessorLoop {
     fn run(&mut self) {
         while let Some(blocks) = self.queue.pop_blocking() {
-            self.throttler.throttle();
-
             if self.queue.stopped() {
                 break;
             }
 
+            self.process(blocks);
+        }
+    }
+
+    fn process(&mut self, blocks: VecDeque<Arc<BlockContext>>) {
+        if let Some(duration) = self.throttler.throttle() {
+            if self.should_log_throttle() {
+                warn!("Throttling block processing!");
+            }
+            self.queue.wait(duration);
+        }
+
+        if !self.queue.stopped() {
             self.process.process_blocks(blocks);
         }
+    }
+
+    fn should_log_throttle(&mut self) -> bool {
+        let now = self.clock.now();
+        let should_log = match self.last_throttle_log {
+            Some(i) => i.elapsed(now) >= Duration::from_secs(15),
+            None => true,
+        };
+        if should_log {
+            self.last_throttle_log = Some(now);
+        }
+        should_log
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_processing::BlockContext;
+    use tracing_test::traced_test;
 
     #[test]
-    fn wait_for_backlog() {
-        let queue = Arc::new(BlockProcessorQueue::new_null_with(vec![
-            BlockContext::new_test_instance().into(),
-        ]));
-        let process = BlockBatchProcessor::new_null();
-        let throttler = ProcessThrottler::new_null();
-
+    #[traced_test]
+    fn throttle_logs_initially() {
         let mut processor_loop = BlockProcessorLoop {
-            queue,
-            process,
-            throttler,
+            queue: Arc::new(BlockProcessorQueue::new_null()),
+            process: BlockBatchProcessor::new_null(),
+            throttler: ProcessThrottler::new(Arc::new(|| true)).into(),
+            clock: SteadyClock::new_null().into(),
+            last_throttle_log: None,
         };
 
-        processor_loop.run();
+        processor_loop.process(VecDeque::new());
 
-        assert_eq!(processor_loop.throttler.call_count(), 1);
+        logs_assert(|logs| {
+            if logs.len() != 1 {
+                return Err(format!("len was {}, expected 1", logs.len()));
+            }
+            if !logs[0].contains("Throttling block processing!") {
+                return Err(logs[0].to_owned());
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[traced_test]
+    fn throttle_suppresses_logs_for_15_secs() {
+        let clock =
+            SteadyClock::new_null_with_offsets([Duration::from_secs(14), Duration::from_secs(1)]);
+        let mut processor_loop = BlockProcessorLoop {
+            queue: Arc::new(BlockProcessorQueue::new_null()),
+            process: BlockBatchProcessor::new_null(),
+            throttler: ProcessThrottler::new(Arc::new(|| true)).into(),
+            clock: clock.into(),
+            last_throttle_log: None,
+        };
+
+        processor_loop.process(VecDeque::new());
+        processor_loop.process(VecDeque::new());
+        processor_loop.process(VecDeque::new());
+
+        logs_assert(|logs| {
+            if logs.len() != 2 {
+                Err(format!("Expected 2 log entries, but found: {}", logs.len()))
+            } else {
+                Ok(())
+            }
+        });
     }
 }
