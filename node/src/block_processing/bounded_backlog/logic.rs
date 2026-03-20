@@ -1,4 +1,4 @@
-use std::cmp::min;
+use std::cmp::{max, min};
 
 use rsnano_ledger::ProcessResult;
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
@@ -108,11 +108,27 @@ impl BoundedBacklogLogic {
     }
 
     pub(crate) fn max_backlog(&self) -> u64 {
-        self.config.max_backlog
+        if self.config.max_backlog == 0 {
+            0
+        } else if self.confirmed_count < self.bootstrap_weights_max_blocks {
+            // If the bootstrap weight hasn't been reached, we allow a backlog of up to bootstrap_weight_max_blocks
+            // This should avoid having to rollback too many blocks once the bootstrap weight is reached
+            // Use cemented block count to determine the switch point for backlog
+            max(
+                self.bootstrap_weights_max_blocks - self.confirmed_count,
+                self.config.max_backlog,
+            )
+        } else {
+            self.config.max_backlog
+        }
     }
 
     pub(crate) fn should_throttle_block_processor(&self) -> bool {
-        self.backlog_size() as f64 > self.max_backlog() as f64 * 1.5
+        if self.max_backlog() == 0 {
+            false
+        } else {
+            self.backlog_size() as f64 > self.max_backlog() as f64 * 1.5
+        }
     }
 
     pub(crate) fn rollback_batch_size(&self) -> usize {
@@ -124,14 +140,17 @@ impl BoundedBacklogLogic {
             return false;
         }
 
+        if self.max_backlog() == 0 {
+            return false;
+        }
+
         // Both ledger and tracked backlog must be over the threshold
-        let max_backlog = self.config.max_backlog;
-        self.backlog_size() > max_backlog && self.index.len() > max_backlog as usize
+        self.backlog_size() > self.max_backlog() && self.index.len() > self.max_backlog() as usize
     }
 
     /// The number of rollbacks required in order to reach the max allowed backlog
     pub(crate) fn rollback_target_count(&self) -> u64 {
-        self.backlog_size().saturating_sub(self.config.max_backlog)
+        self.backlog_size().saturating_sub(self.max_backlog())
     }
 
     fn next_rollback_batch_size(&self) -> usize {
@@ -161,7 +180,7 @@ impl BoundedBacklogLogic {
     }
 
     fn bucket_threshold(&self) -> usize {
-        self.config.max_backlog as usize / self.index.bucket_count()
+        self.max_backlog() as usize / self.index.bucket_count()
     }
 
     pub(crate) fn remove_batch(&mut self, accounts: impl IntoIterator<Item = BlockHash>) {
@@ -277,17 +296,54 @@ mod tests {
     }
 
     /*
-     * Config accessors
+     * Max backlog
      */
 
     #[test]
-    fn max_backlog_returns_configured_value() {
+    fn max_backlog_returns_0_when_disabled() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 0,
+            rollback_batch_size: 32,
+        };
+        assert_eq!(BoundedBacklogLogic::new(config).max_backlog(), 0);
+    }
+
+    #[test]
+    fn max_backlog_returns_configured_value_when_not_bootstrapping() {
         let config = BoundedBacklogConfig {
             max_backlog: 12345,
             rollback_batch_size: 32,
         };
         assert_eq!(BoundedBacklogLogic::new(config).max_backlog(), 12345);
     }
+
+    #[test]
+    fn max_backlog_returns_difference_to_bootstrap_max_blocks_when_bootstrapping() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 12345,
+            rollback_batch_size: 32,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        logic.set_bootstrap_weights_max_blocks(1_000_000);
+        logic.set_ledger_info(500_000, 100_000);
+        assert_eq!(logic.max_backlog(), 900_000);
+    }
+
+    #[test]
+    fn max_backlog_returns_configured_value_when_bootstrap_gap_is_lower() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 12345,
+            rollback_batch_size: 32,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
+        logic.set_bootstrap_weights_max_blocks(1_000_000);
+        logic.set_ledger_info(999_999, 999_999);
+        assert_eq!(logic.max_backlog(), 12345);
+    }
+
+    /*
+     * Config accessors
+     */
 
     #[test]
     fn rollback_batch_size_returns_configured_value() {
@@ -339,6 +395,17 @@ mod tests {
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
         logic.set_ledger_info(4, 1);
         assert!(logic.rollback_needed());
+    }
+
+    #[test]
+    fn rollback_not_needed_when_bounded_backlog_disabled() {
+        let mut logic = BoundedBacklogLogic::new(BoundedBacklogConfig {
+            max_backlog: 0,
+            rollback_batch_size: 32,
+        });
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        assert!(!logic.rollback_needed());
     }
 
     /*
