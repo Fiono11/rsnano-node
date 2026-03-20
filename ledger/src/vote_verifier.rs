@@ -51,7 +51,7 @@ impl<'a> VoteVerifier<'a> {
             return false;
         };
         debug_assert!(block.root() == *root);
-        any.dependents_confirmed(&block)
+        any.dependencies_confirmed(&block)
     }
 
     fn should_vote_final(&self, tx: &mut WriteTransaction, root: &Root, hash: &BlockHash) -> bool {
@@ -64,7 +64,7 @@ impl<'a> VoteVerifier<'a> {
             return false;
         };
         debug_assert!(block.root() == *root);
-        any.dependents_confirmed(&block)
+        any.dependencies_confirmed(&block)
             && self.store.final_vote.put(tx, &block.qualified_root(), hash)
     }
 }

@@ -189,10 +189,10 @@ impl HintedScheduler {
 
                 if check_dependents {
                     // Perform a depth-first search of the dependency graph
-                    if !any.dependents_confirmed(&block) {
+                    if !any.dependencies_confirmed(&block) {
                         self.stats
                             .inc(StatType::Hinting, DetailType::DependentUnconfirmed);
-                        let dependents = any.dependent_blocks(&block);
+                        let dependents = any.block_dependencies(&block);
                         for dependent_hash in dependents.iter() {
                             // Avoid visiting the same block twice
                             if !dependent_hash.is_zero() && visited.insert(*dependent_hash) {

@@ -142,7 +142,7 @@ impl VoteGenerator {
                 {
                     // With ledger snapshots enabled, we just stop voting for forks, because
                     // fork rollback will happen when a new snapshot is created
-                    any.dependents_confirmed(block)
+                    any.dependencies_confirmed(block)
                         && (!any.is_forked(&block.qualified_root()) || {
                             // For now allow final votes, until we include final voted fronties in
                             // the preproposals!
@@ -151,7 +151,7 @@ impl VoteGenerator {
                 }
                 #[cfg(not(feature = "ledger_snapshots"))]
                 {
-                    any.dependents_confirmed(block)
+                    any.dependencies_confirmed(block)
                 }
             };
 

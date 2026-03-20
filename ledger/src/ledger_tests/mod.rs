@@ -163,7 +163,7 @@ mod dependents_confirmed {
         assert_eq!(
             ledger
                 .any()
-                .dependents_confirmed_for_unsaved_block(&ledger.genesis()),
+                .dependencies_confirmed_for_unsaved_block(&ledger.genesis()),
             true
         );
     }
@@ -175,7 +175,7 @@ mod dependents_confirmed {
         let send = inserter.genesis().send(Account::from(1), 1000);
 
         assert_eq!(
-            ledger.any().dependents_confirmed_for_unsaved_block(&send),
+            ledger.any().dependencies_confirmed_for_unsaved_block(&send),
             true
         );
     }
@@ -189,7 +189,9 @@ mod dependents_confirmed {
         let send2 = inserter.genesis().send(Account::from(2), 2000);
 
         assert_eq!(
-            ledger.any().dependents_confirmed_for_unsaved_block(&send2),
+            ledger
+                .any()
+                .dependencies_confirmed_for_unsaved_block(&send2),
             false
         );
     }
@@ -204,7 +206,7 @@ mod dependents_confirmed {
         let open = inserter.account(&destination).receive(send.hash());
 
         assert_eq!(
-            ledger.any().dependents_confirmed_for_unsaved_block(&open),
+            ledger.any().dependencies_confirmed_for_unsaved_block(&open),
             false
         );
     }
@@ -221,7 +223,7 @@ mod dependents_confirmed {
         let open = inserter.account(&destination).receive(send.hash());
 
         assert_eq!(
-            ledger.any().dependents_confirmed_for_unsaved_block(&open),
+            ledger.any().dependencies_confirmed_for_unsaved_block(&open),
             true
         );
     }
@@ -244,7 +246,7 @@ mod dependents_confirmed {
         assert_eq!(
             ledger
                 .any()
-                .dependents_confirmed_for_unsaved_block(&receive),
+                .dependencies_confirmed_for_unsaved_block(&receive),
             false
         );
     }
@@ -267,7 +269,7 @@ mod dependents_confirmed {
         assert_eq!(
             ledger
                 .any()
-                .dependents_confirmed_for_unsaved_block(&receive),
+                .dependencies_confirmed_for_unsaved_block(&receive),
             false
         );
     }
@@ -292,7 +294,7 @@ mod dependents_confirmed {
         assert_eq!(
             ledger
                 .any()
-                .dependents_confirmed_for_unsaved_block(&receive),
+                .dependencies_confirmed_for_unsaved_block(&receive),
             true
         );
     }

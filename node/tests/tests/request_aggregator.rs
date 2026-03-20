@@ -544,7 +544,7 @@ fn cannot_vote() {
 
     node.insert_into_wallet(&DEV_GENESIS_KEY);
 
-    assert_eq!(node.ledger.any().dependents_confirmed(&send2), false);
+    assert_eq!(node.ledger.any().dependencies_confirmed(&send2), false);
 
     let dummy_channel = make_fake_channel(&node);
     // correct + incorrect

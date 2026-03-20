@@ -8,7 +8,7 @@ use rsnano_types::{
 };
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
-use crate::{DependentBlocksFinder, LedgerConstants, RepresentativeBlockFinder};
+use crate::{BlockDependenciesFinder, LedgerConstants, RepresentativeBlockFinder};
 
 pub trait AnySet: LedgerSet {
     fn should_refresh(&self) -> bool;
@@ -24,9 +24,9 @@ pub trait AnySet: LedgerSet {
         self.get_block(hash).map(|b| b.balance())
     }
 
-    fn dependent_blocks(&self, block: &SavedBlock) -> DependentBlocks;
-    fn dependents_confirmed(&self, block: &SavedBlock) -> bool;
-    fn dependents_confirmed_for_unsaved_block(&self, block: &Block) -> bool;
+    fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks;
+    fn dependencies_confirmed(&self, block: &SavedBlock) -> bool;
+    fn dependencies_confirmed_for_unsaved_block(&self, block: &Block) -> bool;
     fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash>;
     fn block_successor_by_qualified_root(&self, root: &QualifiedRoot) -> Option<BlockHash>;
 
@@ -207,17 +207,17 @@ impl<'a> AnySet for OwningAnySet<'a> {
         BorrowingConfirmedSet::new(self.store, &self.txn)
     }
 
-    fn dependent_blocks(&self, block: &SavedBlock) -> DependentBlocks {
-        self.borrowing_set().dependent_blocks(block)
+    fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks {
+        self.borrowing_set().block_dependencies(block)
     }
 
-    fn dependents_confirmed(&self, block: &SavedBlock) -> bool {
-        self.borrowing_set().dependents_confirmed(block)
+    fn dependencies_confirmed(&self, block: &SavedBlock) -> bool {
+        self.borrowing_set().dependencies_confirmed(block)
     }
 
-    fn dependents_confirmed_for_unsaved_block(&self, block: &Block) -> bool {
+    fn dependencies_confirmed_for_unsaved_block(&self, block: &Block) -> bool {
         self.borrowing_set()
-            .dependents_confirmed_for_unsaved_block(block)
+            .dependencies_confirmed_for_unsaved_block(block)
     }
 
     fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash> {
@@ -342,7 +342,7 @@ pub(crate) struct BorrowingAnySet<'a> {
 
 impl<'a> BorrowingAnySet<'a> {
     fn dependent_blocks_for_unsaved_block(&self, block: &Block) -> DependentBlocks {
-        DependentBlocksFinder::new(self, self.constants)
+        BlockDependenciesFinder::new(self, self.constants)
             .find_dependent_blocks_for_unsaved_block(block)
     }
 }
@@ -398,20 +398,20 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
         BorrowingConfirmedSet::new(self.store, self.tx)
     }
 
-    fn dependents_confirmed_for_unsaved_block(&self, block: &Block) -> bool {
+    fn dependencies_confirmed_for_unsaved_block(&self, block: &Block) -> bool {
         self.dependent_blocks_for_unsaved_block(block)
             .iter()
             .all(|hash| self.confirmed().block_exists(hash))
     }
 
-    fn dependents_confirmed(&self, block: &SavedBlock) -> bool {
-        self.dependent_blocks(block)
+    fn dependencies_confirmed(&self, block: &SavedBlock) -> bool {
+        self.block_dependencies(block)
             .iter()
             .all(|hash| self.confirmed().block_exists(hash))
     }
 
-    fn dependent_blocks(&self, block: &SavedBlock) -> DependentBlocks {
-        DependentBlocksFinder::new(self, self.constants).find_dependent_blocks(block)
+    fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks {
+        BlockDependenciesFinder::new(self, self.constants).find_dependent_blocks(block)
     }
 
     fn should_refresh(&self) -> bool {

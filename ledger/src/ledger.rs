@@ -429,7 +429,9 @@ impl Ledger {
             );
             debug!("Ledger balance consistency verified");
         } else {
-            warn!("Ledger consistency check skipped; ensure your environment provides data-integrity safeguards");
+            warn!(
+                "Ledger consistency check skipped; ensure your environment provides data-integrity safeguards"
+            );
         }
 
         Ok(())

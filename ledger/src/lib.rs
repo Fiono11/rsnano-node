@@ -5,9 +5,9 @@ extern crate anyhow;
 extern crate strum_macros;
 
 mod block_cementer;
+mod block_dependencies_finder;
 mod block_insertion;
 mod block_rollback;
-mod dependent_blocks_finder;
 mod ledger;
 mod ledger_builder;
 mod ledger_constants;
@@ -22,9 +22,9 @@ mod vote_verifier;
 #[cfg(test)]
 mod ledger_tests;
 
+pub use block_dependencies_finder::*;
 pub(crate) use block_rollback::BlockRollbackPerformer;
 pub use block_rollback::RollbackError;
-pub use dependent_blocks_finder::*;
 pub use ledger::*;
 pub use ledger_builder::*;
 pub use ledger_constants::{

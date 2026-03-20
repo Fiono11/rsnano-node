@@ -12,14 +12,14 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 - [x] 9d3092c74fa702e1af5a36f2b93f4689b448eb7a
 - [x] a952ae220da94b11946e78137475d2bfa2fef222
 - [x] 5762914fbb063fcb36c27beeb040ac0e5978b623
-- [ ] b2d2578b3afc89e1616b21da56a906f3bf27fe4e
-- [ ] a9955990535543f537b5d5bfc13b074c694ef6d3
-- [ ] 2232aafa09b1606b7eb580ae2c7628564f018b61
-- [ ] d9a94b996476f60175d9d1768cc4b0ddc3d1715d
-- [ ] 579b78e0ff9fb28abf72786940f1353fa62b64fd
-- [ ] 0274cf73f56989c294b2c2fa83a67a000530b508
-- [ ] 6b31e5fdb5ab838d2c9609f549e63db745ee4821
-- [ ] 11dfcf537862ac3c471e1842c7a256dc752925d8
+- [x] b2d2578b3afc89e1616b21da56a906f3bf27fe4e
+- [x] a9955990535543f537b5d5bfc13b074c694ef6d3
+- [x] 2232aafa09b1606b7eb580ae2c7628564f018b61
+- [x] d9a94b996476f60175d9d1768cc4b0ddc3d1715d
+- [x] 579b78e0ff9fb28abf72786940f1353fa62b64fd
+- [x] 0274cf73f56989c294b2c2fa83a67a000530b508
+- [x] 6b31e5fdb5ab838d2c9609f549e63db745ee4821
+- [x] 11dfcf537862ac3c471e1842c7a256dc752925d8
 - [ ] b5cefa605d33a499d9fa3ce9fd9b37827f511dee
 - [ ] 806ceb9b82198dd2e7dec11ebddddb3e05f16db0
 - [ ] 733f43f6b13be2dd7e24ccd7c803484e38d0ddce
@@ -55,3 +55,4 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 |Log when peered stake below quorum              |3cfae9c17e318f3eefbc8530a28892d4aaafc77d|https://github.com/nanocurrency/nano-node/pull/4991/ ||
 |Rate-limit low online weight warning            |cc4008185c99fccf59e007c0a79ec799be18751d|https://github.com/nanocurrency/nano-node/pull/4999/ ||
 |Priority Scheduler Stress Test                  |3681e28a60f0556e6df002ce80cbf54400b1b0b6|https://github.com/nanocurrency/nano-node/pull/5007/ ||
+|Disable RequestAggregator if not voting         |0274cf73f56989c294b2c2fa83a67a000530b508|https://github.com/nanocurrency/nano-node/pull/5022/ ||

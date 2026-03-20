@@ -130,7 +130,7 @@ impl PriorityScheduler {
             return;
         };
 
-        if !any.dependents_confirmed(&block) {
+        if !any.dependencies_confirmed(&block) {
             self.stats
                 .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);
             return;
