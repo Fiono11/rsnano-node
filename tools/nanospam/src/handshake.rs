@@ -28,7 +28,7 @@ pub(crate) async fn perform_handshake(
     let mut handshake = HandshakeProcess::new(genesis_hash, node_id_key, syn_cookies);
 
     let handshake_payload = handshake.initiate_handshake(peer_addr)?;
-    let buffer = serializer.serialize(&Message::NodeIdHandshake(handshake_payload));
+    let buffer = serializer.serialize(&Message::Handshake(handshake_payload));
     tcp_stream.write_all(buffer).await?;
 
     let mut recv_buffer = vec![0; 1024];
@@ -42,7 +42,7 @@ pub(crate) async fn perform_handshake(
         }
     }
 
-    let Message::NodeIdHandshake(handshake_response) = response else {
+    let Message::Handshake(handshake_response) = response else {
         bail!("no handshake response received");
     };
 
@@ -51,7 +51,7 @@ pub(crate) async fn perform_handshake(
         .unwrap()
     {
         (Some(_node_id), Some(response)) => {
-            let buffer = serializer.serialize(&Message::NodeIdHandshake(response));
+            let buffer = serializer.serialize(&Message::Handshake(response));
             tcp_stream.write_all(buffer).await?;
         }
         _ => unreachable!(),

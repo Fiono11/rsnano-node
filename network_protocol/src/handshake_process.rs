@@ -2,7 +2,7 @@ use std::{net::SocketAddrV6, sync::Arc};
 
 use tracing::{debug, warn};
 
-use rsnano_messages::{NodeIdHandshake, NodeIdHandshakeQuery, NodeIdHandshakeResponse};
+use rsnano_messages::{Handshake, HandshakeQuery, HandshakeResponse};
 use rsnano_types::{BlockHash, NodeId, PrivateKey};
 
 use crate::SynCookies;
@@ -11,7 +11,8 @@ pub enum HandshakeStatus {
     Abort,
     AbortOwnNodeId,
     Handshake,
-    Realtime(NodeId),
+    /// Contains the node id of the remote node
+    Completed(NodeId),
 }
 
 /// Responsible for performing a correct handshake when connecting to another node
@@ -36,13 +37,13 @@ impl HandshakeProcess {
         }
     }
 
-    pub fn initiate_handshake(&mut self, peer: SocketAddrV6) -> anyhow::Result<NodeIdHandshake> {
+    pub fn initiate_handshake(&mut self, peer: SocketAddrV6) -> anyhow::Result<Handshake> {
         let query = self.prepare_query(peer);
         if query.is_none() {
             return Err(anyhow!("Could not create cookie for {:?}", peer));
         }
 
-        Ok(NodeIdHandshake {
+        Ok(Handshake {
             query,
             response: None,
             is_v2: true,
@@ -51,9 +52,9 @@ impl HandshakeProcess {
 
     pub fn process_handshake(
         &mut self,
-        message: &NodeIdHandshake,
+        message: &Handshake,
         peer: SocketAddrV6,
-    ) -> Result<(Option<NodeId>, Option<NodeIdHandshake>), HandshakeResponseError> {
+    ) -> Result<(Option<NodeId>, Option<Handshake>), HandshakeResponseError> {
         if message.query.is_none() && message.response.is_none() {
             // There must be a query or a response or both!
             return Err(HandshakeResponseError::EmptyResponse);
@@ -101,16 +102,11 @@ impl HandshakeProcess {
         Ok((None, our_response))
     }
 
-    fn create_response(
-        &self,
-        query: &NodeIdHandshakeQuery,
-        v2: bool,
-        peer: SocketAddrV6,
-    ) -> NodeIdHandshake {
+    fn create_response(&self, query: &HandshakeQuery, v2: bool, peer: SocketAddrV6) -> Handshake {
         let response = self.prepare_response(query, v2);
         let own_query = self.prepare_query(peer);
 
-        NodeIdHandshake {
+        Handshake {
             is_v2: own_query.is_some() || response.v2.is_some(),
             query: own_query,
             response: Some(response),
@@ -119,7 +115,7 @@ impl HandshakeProcess {
 
     fn verify_response(
         &self,
-        response: &NodeIdHandshakeResponse,
+        response: &HandshakeResponse,
         peer_addr: SocketAddrV6,
     ) -> Result<(), HandshakeResponseError> {
         // Prevent connection with ourselves
@@ -145,22 +141,18 @@ impl HandshakeProcess {
         Ok(())
     }
 
-    pub(crate) fn prepare_response(
-        &self,
-        query: &NodeIdHandshakeQuery,
-        v2: bool,
-    ) -> NodeIdHandshakeResponse {
+    pub(crate) fn prepare_response(&self, query: &HandshakeQuery, v2: bool) -> HandshakeResponse {
         if v2 {
-            NodeIdHandshakeResponse::new_v2(&query.cookie, &self.node_id_key, self.genesis_hash)
+            HandshakeResponse::new_v2(&query.cookie, &self.node_id_key, self.genesis_hash)
         } else {
-            NodeIdHandshakeResponse::new_v1(&query.cookie, &self.node_id_key)
+            HandshakeResponse::new_v1(&query.cookie, &self.node_id_key)
         }
     }
 
-    pub(crate) fn prepare_query(&self, peer_addr: SocketAddrV6) -> Option<NodeIdHandshakeQuery> {
+    pub(crate) fn prepare_query(&self, peer_addr: SocketAddrV6) -> Option<HandshakeQuery> {
         self.syn_cookies
             .assign(&peer_addr)
-            .map(|cookie| NodeIdHandshakeQuery { cookie })
+            .map(|cookie| HandshakeQuery { cookie })
     }
 }
 

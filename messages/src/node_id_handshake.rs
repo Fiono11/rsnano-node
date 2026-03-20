@@ -16,16 +16,16 @@ use super::MessageVariant;
 use crate::Cookie;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct NodeIdHandshakeQuery {
+pub struct HandshakeQuery {
     pub cookie: [u8; 32],
 }
 
-impl serde::Serialize for NodeIdHandshakeQuery {
+impl serde::Serialize for HandshakeQuery {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("NodeIdHandshakeQuery", 1)?;
+        let mut state = serializer.serialize_struct("HandshakeQuery", 1)?;
 
         let mut short_cookie = String::with_capacity(32 * 2);
         for b in &self.cookie {
@@ -37,13 +37,13 @@ impl serde::Serialize for NodeIdHandshakeQuery {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize)]
-pub struct NodeIdHandshakeResponse {
+pub struct HandshakeResponse {
     pub node_id: NodeId,
     pub signature: Signature,
     pub v2: Option<V2Payload>,
 }
 
-impl NodeIdHandshakeResponse {
+impl HandshakeResponse {
     pub fn new_v1(cookie: &Cookie, node_id: &PrivateKey) -> Self {
         let mut response = Self {
             node_id: node_id.public_key().into(),
@@ -98,7 +98,7 @@ impl NodeIdHandshakeResponse {
     }
 
     pub fn serialized_size(extensions: BitArray<u16>) -> usize {
-        if NodeIdHandshake::has_v2_flag(extensions) {
+        if Handshake::has_v2_flag(extensions) {
             Account::SERIALIZED_SIZE
                 + 32 // salt
                 + BlockHash::SERIALIZED_SIZE
@@ -130,7 +130,7 @@ impl NodeIdHandshakeResponse {
         mut bytes: &[u8],
         extensions: BitArray<u16>,
     ) -> Result<Self, DeserializationError> {
-        if NodeIdHandshake::has_v2_flag(extensions) {
+        if Handshake::has_v2_flag(extensions) {
             let node_id = NodeId::deserialize(&mut bytes)?;
             let mut salt = [0u8; 32];
             bytes.read_exact(&mut salt)?;
@@ -177,31 +177,31 @@ impl serde::Serialize for V2Payload {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize)]
-pub struct NodeIdHandshake {
-    pub query: Option<NodeIdHandshakeQuery>,
-    pub response: Option<NodeIdHandshakeResponse>,
+pub struct Handshake {
+    pub query: Option<HandshakeQuery>,
+    pub response: Option<HandshakeResponse>,
     pub is_v2: bool,
 }
 
-impl NodeIdHandshake {
+impl Handshake {
     pub const QUERY_FLAG: usize = 0;
     pub const RESPONSE_FLAG: usize = 1;
     pub const V2_FLAG: usize = 2;
 
     pub fn is_query(extensions: BitArray<u16>) -> bool {
-        extensions[NodeIdHandshake::QUERY_FLAG]
+        extensions[Handshake::QUERY_FLAG]
     }
 
     pub fn is_response(extensions: BitArray<u16>) -> bool {
-        extensions[NodeIdHandshake::RESPONSE_FLAG]
+        extensions[Handshake::RESPONSE_FLAG]
     }
 
     pub fn has_v2_flag(extensions: BitArray<u16>) -> bool {
-        extensions[NodeIdHandshake::V2_FLAG]
+        extensions[Handshake::V2_FLAG]
     }
 
     pub fn new_test_query() -> Self {
-        let query = NodeIdHandshakeQuery { cookie: [42; 32] };
+        let query = HandshakeQuery { cookie: [42; 32] };
         Self {
             query: Some(query),
             response: None,
@@ -210,7 +210,7 @@ impl NodeIdHandshake {
     }
 
     pub fn new_test_response_v1() -> Self {
-        let response = NodeIdHandshakeResponse {
+        let response = HandshakeResponse {
             node_id: NodeId::from(1),
             signature: Signature::from_bytes([42; 64]),
             v2: None,
@@ -223,7 +223,7 @@ impl NodeIdHandshake {
     }
 
     pub fn new_test_response_v2() -> Self {
-        let response = NodeIdHandshakeResponse {
+        let response = HandshakeResponse {
             node_id: NodeId::from(1),
             signature: Signature::from_bytes([42; 64]),
             v2: Some(V2Payload {
@@ -244,7 +244,7 @@ impl NodeIdHandshake {
             size += 32
         }
         if Self::is_response(extensions) {
-            size += NodeIdHandshakeResponse::serialized_size(extensions);
+            size += HandshakeResponse::serialized_size(extensions);
         }
         size
     }
@@ -266,15 +266,15 @@ impl NodeIdHandshake {
         mut bytes: &[u8],
         extensions: BitArray<u16>,
     ) -> Result<Self, DeserializationError> {
-        let query = if NodeIdHandshake::is_query(extensions) {
+        let query = if Handshake::is_query(extensions) {
             let mut cookie = [0u8; 32];
             bytes.read_exact(&mut cookie)?;
-            Some(NodeIdHandshakeQuery { cookie })
+            Some(HandshakeQuery { cookie })
         } else {
             None
         };
-        let response = if NodeIdHandshake::is_response(extensions) {
-            Some(NodeIdHandshakeResponse::deserialize(bytes, extensions)?)
+        let response = if Handshake::is_response(extensions) {
+            Some(HandshakeResponse::deserialize(bytes, extensions)?)
         } else {
             None
         };
@@ -286,17 +286,17 @@ impl NodeIdHandshake {
     }
 }
 
-impl MessageVariant for NodeIdHandshake {
+impl MessageVariant for Handshake {
     fn header_extensions(&self, _payload_len: u16) -> BitArray<u16> {
         let mut extensions = BitArray::default();
-        extensions.set(NodeIdHandshake::QUERY_FLAG, self.query.is_some());
-        extensions.set(NodeIdHandshake::RESPONSE_FLAG, self.response.is_some());
+        extensions.set(Handshake::QUERY_FLAG, self.query.is_some());
+        extensions.set(Handshake::RESPONSE_FLAG, self.response.is_some());
         extensions.set(Self::V2_FLAG, self.is_v2);
         extensions
     }
 }
 
-impl Display for NodeIdHandshake {
+impl Display for Handshake {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(query) = &self.query {
             write!(f, "\ncookie=")?;
@@ -323,26 +323,26 @@ mod tests {
 
     #[test]
     fn serialize_query() {
-        let message = Message::NodeIdHandshake(NodeIdHandshake::new_test_query());
+        let message = Message::Handshake(Handshake::new_test_query());
         assert_deserializable(&message);
     }
 
     #[test]
     fn serialize_response_v1() {
-        let message = Message::NodeIdHandshake(NodeIdHandshake::new_test_response_v1());
+        let message = Message::Handshake(Handshake::new_test_response_v1());
         assert_deserializable(&message);
     }
 
     #[test]
     fn serialize_response_v2() {
-        let message = Message::NodeIdHandshake(NodeIdHandshake::new_test_response_v2());
+        let message = Message::Handshake(Handshake::new_test_response_v2());
         assert_deserializable(&message);
     }
 
     #[test]
     fn valid_v1_signature() {
         let key = PrivateKey::new();
-        let mut response = NodeIdHandshakeResponse {
+        let mut response = HandshakeResponse {
             node_id: key.public_key().into(),
             signature: Signature::default(),
             v2: None,
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn valid_v2_signature() {
         let key = PrivateKey::new();
-        let mut response = NodeIdHandshakeResponse {
+        let mut response = HandshakeResponse {
             node_id: key.public_key().into(),
             signature: Signature::default(),
             v2: Some(V2Payload {

@@ -2,7 +2,7 @@
 
 ## Current Merge Status
 
-These commits have been reviewed and merged into RsNano or put into the unmerged table below:
+These are the most recent commits that have been reviewed and merged into RsNano or put into the unmerged table below:
 
 - [x] 54a8196e4dbe8c328500ac3d7dd130764544be5c
 - [x] 765fbef0ea133b048eb62305458fd5871f9e7451

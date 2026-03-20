@@ -176,7 +176,7 @@ impl NetworkMessageProcessor {
                         .inc_dir(StatType::Drop, DetailType::ConfirmAck, Direction::In);
                 }
             }
-            Message::NodeIdHandshake(_) => {
+            Message::Handshake(_) => {
                 self.stats.inc_dir(
                     StatType::Message,
                     DetailType::NodeIdHandshake,

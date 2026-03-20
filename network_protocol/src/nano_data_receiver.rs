@@ -66,9 +66,7 @@ impl NanoDataReceiver {
 
         match result {
             Ok(handshake) => {
-                let data = self
-                    .serializer
-                    .serialize(&Message::NodeIdHandshake(handshake));
+                let data = self.serializer.serialize(&Message::Handshake(handshake));
 
                 debug!("Initiating handshake query ({})", peer);
                 let enqueued = self.channel.send(data, TrafficType::Generic);
@@ -189,7 +187,7 @@ impl NanoDataReceiver {
          */
         if self.channel.mode() == ChannelMode::Undefined {
             let (mut status, response) = match &message {
-                Message::NodeIdHandshake(payload) => {
+                Message::Handshake(payload) => {
                     self.handshake_stats
                         .handshakes_received
                         .fetch_add(1, Ordering::Relaxed);
@@ -204,7 +202,7 @@ impl NanoDataReceiver {
                                 .fetch_add(1, Ordering::Relaxed);
 
                             match their_node_id {
-                                Some(node_id) => (HandshakeStatus::Realtime(node_id), response),
+                                Some(node_id) => (HandshakeStatus::Completed(node_id), response),
                                 None => (HandshakeStatus::Handshake, response),
                             }
                         }
@@ -228,9 +226,7 @@ impl NanoDataReceiver {
 
             if let Some(response) = response {
                 debug!("Responding to handshake ({})", self.channel.peer_addr());
-                let buffer = self
-                    .serializer
-                    .serialize(&Message::NodeIdHandshake(response));
+                let buffer = self.serializer.serialize(&Message::Handshake(response));
 
                 let enqueued = self.channel.send(buffer, TrafficType::Generic);
                 if enqueued {
@@ -272,7 +268,7 @@ impl NanoDataReceiver {
                 HandshakeStatus::Handshake => {
                     return ReceiveResult::Continue; // Continue handshake
                 }
-                HandshakeStatus::Realtime(node_id) => {
+                HandshakeStatus::Completed(node_id) => {
                     self.node_id = node_id;
                     // Wait until send queue is empty for the handshake to complete
                     return ReceiveResult::Pause;

@@ -15,7 +15,7 @@ pub enum Message {
     ConfirmAck(ConfirmAck),
     ConfirmReq(ConfirmReq),
     FrontierReq(FrontierReq),
-    NodeIdHandshake(NodeIdHandshake),
+    Handshake(Handshake),
     TelemetryAck(TelemetryAck),
     TelemetryReq,
     #[cfg(feature = "ledger_snapshots")]
@@ -68,7 +68,7 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ConfirmAck) => {
                 Self::InvalidConfirmAckMessage
             }
-            ParseMessageError::InvalidMessage(MessageType::NodeIdHandshake) => {
+            ParseMessageError::InvalidMessage(MessageType::Handshake) => {
                 Self::InvalidNodeIdHandshakeMessage
             }
             ParseMessageError::InvalidMessage(MessageType::TelemetryReq) => {
@@ -139,7 +139,7 @@ impl Message {
             Message::ConfirmAck(_) => MessageType::ConfirmAck,
             Message::ConfirmReq(_) => MessageType::ConfirmReq,
             Message::FrontierReq(_) => MessageType::FrontierReq,
-            Message::NodeIdHandshake(_) => MessageType::NodeIdHandshake,
+            Message::Handshake(_) => MessageType::Handshake,
             Message::TelemetryAck(_) => MessageType::TelemetryAck,
             Message::TelemetryReq => MessageType::TelemetryReq,
             #[cfg(feature = "ledger_snapshots")]
@@ -162,7 +162,7 @@ impl Message {
             Message::ConfirmAck(x) => Some(x),
             Message::ConfirmReq(x) => Some(x),
             Message::FrontierReq(x) => Some(x),
-            Message::NodeIdHandshake(x) => Some(x),
+            Message::Handshake(x) => Some(x),
             Message::TelemetryAck(x) => Some(x),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(x) => Some(x),
@@ -195,7 +195,7 @@ impl Message {
             Message::ConfirmAck(m) => m.serialize(writer),
             Message::ConfirmReq(m) => m.serialize(writer),
             Message::FrontierReq(m) => m.serialize(writer),
-            Message::NodeIdHandshake(m) => m.serialize(writer),
+            Message::Handshake(m) => m.serialize(writer),
             Message::TelemetryAck(m) => m.serialize(writer),
             Message::BulkPush | Message::TelemetryReq => Ok(()),
             #[cfg(feature = "ledger_snapshots")]
@@ -235,8 +235,8 @@ impl Message {
             MessageType::FrontierReq => {
                 Message::FrontierReq(FrontierReq::deserialize(payload, header.extensions)?)
             }
-            MessageType::NodeIdHandshake => {
-                Message::NodeIdHandshake(NodeIdHandshake::deserialize(payload, header.extensions)?)
+            MessageType::Handshake => {
+                Message::Handshake(Handshake::deserialize(payload, header.extensions)?)
             }
             MessageType::TelemetryAck => {
                 Message::TelemetryAck(TelemetryAck::deserialize(payload, header.extensions)?)
@@ -354,8 +354,8 @@ mod tests {
 
     #[test]
     fn exact_node_id_handshake() {
-        let message = Message::NodeIdHandshake(NodeIdHandshake {
-            query: Some(NodeIdHandshakeQuery { cookie: [1; 32] }),
+        let message = Message::Handshake(Handshake {
+            query: Some(HandshakeQuery { cookie: [1; 32] }),
             response: None,
             is_v2: true,
         });
