@@ -4,41 +4,14 @@
 
 These commits have been reviewed and merged into RsNano or put into the unmerged table below:
 
-- [x] 14bdb05f8f7e3633e1207a5d6b9b6f3402a1ed27
-- [x] 04a288dfa4259a15239e507461c5f17821a71f7d
-- [x] 963570e8e19da751ffe17860540864878f1c0b12
-- [x] 34c76330c520035ce296f435d193da2a96713456
-- [x] 83432e3fa290727e3b459d12a51d09e0f672c5ca
-- [x] ff8bfc9692ac89a9804f79855357534ccd38af7a
-- [x] 6d53b5f89f5feec87c111153ee5e86b36d4f9502
-- [x] 772038ed1fccd3e42cda7d049ebc1d718cb0c24e
-- [x] 1a8f1bb228fbd944a1f5b4a49d3f2c1e436f9b0f
-- [x] 1aa9388cc7a06d3235de51855f878097f2fb7eab
-- [x] 6827411563c1408f7c06230d0a649184f1656305
-- [ ] eb21bb320720e1022b3b87531a731101d03ad473
-- [ ] 3cfae9c17e318f3eefbc8530a28892d4aaafc77d
-- [ ] 1a13bbe398272574f28de42ac7907a874bab92d5
-- [ ] 8be693ec3240e9a78a888a1f012b7e4c14b94e5a
-- [ ] 5495aba7ef812a86abda8e2228907a7dc1478a4e
-- [ ] 364c09894f272ca5933bc90524471a3e4a8dd5c6
-- [ ] 754585d7939aa8c8f68ef6f10fd5700824ab2cab
-- [ ] c74014aa32f07b63ff53c74fed81f592abbe6516
-- [ ] cc4008185c99fccf59e007c0a79ec799be18751d
-- [ ] 74fb09d401465ec23dad343188f4283b91b138ae
-- [ ] d5d3465fc256b9b236f8285817ea58348d1257ad
-- [ ] b4bd3967f60a517af8a9ff18612105ae30ef87d1
-- [ ] 5dca3d9e8c05a24a074e52e09eca8cac35c843ad
-- [ ] 2586877120267acc5a07aca1ce4c73a5c40d034f
-- [ ] 8e642618621d1325fa783b2ddff7bd5d3530c976
-- [ ] c9e7c75db04c074181477605cf08523e3b00c3c9
-- [ ] 3681e28a60f0556e6df002ce80cbf54400b1b0b6
-- [ ] 1a35d48337e2c782f862f53658ae41e9a77cbb5c
-- [ ] ea3fb2ac2f2b4d277c6f71083c4100f7c94dd35c
-- [ ] 39254bf800608e916599d78e149722c022575735
-- [ ] c71134a57f4d048190967ea4a85f8b53191652c6
-- [ ] 9d3092c74fa702e1af5a36f2b93f4689b448eb7a
-- [ ] a952ae220da94b11946e78137475d2bfa2fef222
-- [ ] 5762914fbb063fcb36c27beeb040ac0e5978b623
+- [x] 3681e28a60f0556e6df002ce80cbf54400b1b0b6
+- [x] 1a35d48337e2c782f862f53658ae41e9a77cbb5c
+- [x] ea3fb2ac2f2b4d277c6f71083c4100f7c94dd35c
+- [x] 39254bf800608e916599d78e149722c022575735
+- [x] c71134a57f4d048190967ea4a85f8b53191652c6
+- [x] 9d3092c74fa702e1af5a36f2b93f4689b448eb7a
+- [x] a952ae220da94b11946e78137475d2bfa2fef222
+- [x] 5762914fbb063fcb36c27beeb040ac0e5978b623
 - [ ] b2d2578b3afc89e1616b21da56a906f3bf27fe4e
 - [ ] a9955990535543f537b5d5bfc13b074c694ef6d3
 - [ ] 2232aafa09b1606b7eb580ae2c7628564f018b61
@@ -79,4 +52,6 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 |Don't sample weights if below threshold         |997b26279e4d5e20ef510e3ab507594977ed46a0|https://github.com/nanocurrency/nano-node/pull/4969/ ||
 |TXN tracking                                    |34c76330c520035ce296f435d193da2a96713456|https://github.com/nanocurrency/nano-node/pull/4982/ ||
 |Super Rebroadcaster                             |6d53b5f89f5feec87c111153ee5e86b36d4f9502|https://github.com/nanocurrency/nano-node/pull/4985/ ||
-
+|Log when peered stake below quorum              |3cfae9c17e318f3eefbc8530a28892d4aaafc77d|https://github.com/nanocurrency/nano-node/pull/4991/ ||
+|Rate-limit low online weight warning            |cc4008185c99fccf59e007c0a79ec799be18751d|https://github.com/nanocurrency/nano-node/pull/4999/ ||
+|Priority Scheduler Stress Test                  |3681e28a60f0556e6df002ce80cbf54400b1b0b6|https://github.com/nanocurrency/nano-node/pull/5007/ ||
