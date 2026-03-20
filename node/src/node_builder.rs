@@ -6,7 +6,7 @@ use std::{
 use rsnano_messages::Message;
 use rsnano_network::ChannelId;
 use rsnano_network_protocol::MessageCallback;
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_utils::get_cpu_count;
 
 use crate::{
@@ -67,7 +67,7 @@ impl NodeCallbacksBuilder {
 }
 
 pub struct NodeBuilder {
-    network: Networks,
+    network: NetworkType,
     data_path: Option<PathBuf>,
     config: Option<NodeConfig>,
     network_params: Option<NetworkParams>,
@@ -77,7 +77,7 @@ pub struct NodeBuilder {
 }
 
 impl NodeBuilder {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         Self {
             network,
             data_path: None,

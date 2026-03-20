@@ -2,7 +2,7 @@ use num::FromPrimitive;
 use num_derive::FromPrimitive;
 use rsnano_daemon::DaemonBuilder;
 use rsnano_node::{Node, working_path_for};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use std::{
     path::PathBuf,
     sync::{
@@ -24,7 +24,7 @@ pub enum NodeState {
 
 pub(crate) struct NodeRunner {
     pub data_path: String,
-    network: Networks,
+    network: NetworkType,
     node: Arc<Mutex<Option<Arc<Node>>>>,
     state: Arc<AtomicU8>,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
@@ -34,14 +34,14 @@ pub(crate) struct NodeRunner {
 impl NodeRunner {
     pub(crate) fn new(callback_factory: NodeCallbackFactory) -> Self {
         let mut runner = Self {
-            network: Networks::Invalid,
+            network: NetworkType::Invalid,
             data_path: String::new(),
             node: Arc::new(Mutex::new(None)),
             state: Arc::new(AtomicU8::new(NodeState::Stopped as u8)),
             stop: None,
             callback_factory,
         };
-        runner.set_network(Networks::NanoLiveNetwork);
+        runner.set_network(NetworkType::NanoLiveNetwork);
         runner
     }
 
@@ -126,11 +126,11 @@ impl NodeRunner {
         self.node.lock().unwrap().clone()
     }
 
-    pub fn network(&self) -> Networks {
+    pub fn network(&self) -> NetworkType {
         self.network
     }
 
-    pub(crate) fn set_network(&mut self, network: Networks) {
+    pub(crate) fn set_network(&mut self, network: NetworkType) {
         self.network = network;
         self.data_path = working_path_for(network)
             .unwrap()

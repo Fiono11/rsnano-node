@@ -9,7 +9,7 @@ use rsnano_node::config::{
     get_rpc_toml_config_path,
 };
 use rsnano_rpc_server::{RpcServerConfig, RpcServerToml};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_utils::get_cpu_count;
 
 #[derive(Parser, PartialEq, Debug)]
@@ -28,7 +28,7 @@ pub(crate) struct CurrentArgs {
 impl CurrentArgs {
     pub(crate) fn current(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
         let path = global_args.data_path.clone();
-        let network = Networks::NanoBetaNetwork;
+        let network = NetworkType::NanoBetaNetwork;
         let network_params = NetworkParams::new(network);
         let parallelism = get_cpu_count();
 

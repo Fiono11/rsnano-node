@@ -3,7 +3,7 @@ mod http_callbacks;
 use http_callbacks::HttpCallbacks;
 use rsnano_node::{
     CompositeNodeEventHandler, Node, NodeBuilder, NodeCallbacks,
-    config::{DaemonConfig, Networks, NodeFlags},
+    config::{DaemonConfig, NetworkType, NodeFlags},
 };
 use rsnano_rpc_server::{RpcServerConfig, run_rpc_server};
 use rsnano_utils::get_cpu_count;
@@ -18,13 +18,13 @@ use tokio::{net::TcpListener, sync::oneshot};
 use tracing::info;
 
 pub struct DaemonBuilder {
-    network: Networks,
+    network: NetworkType,
     node_builder: NodeBuilder,
     node_started: Option<Box<dyn FnMut(Arc<Node>) + Send>>,
 }
 
 impl DaemonBuilder {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         Self {
             network,
             node_builder: NodeBuilder::new(network),

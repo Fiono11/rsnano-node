@@ -19,7 +19,7 @@ use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
 use rsnano_store_lmdb::SyncStrategy;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, Networks, PrivateKey, PublicKey,
+    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, NetworkType, PrivateKey, PublicKey,
     SavedBlock, StateBlockArgs, WalletId,
 };
 
@@ -33,7 +33,7 @@ pub struct System {
 impl System {
     pub fn new() -> Self {
         init_tracing();
-        let network_params = NetworkParams::new(Networks::NanoDevNetwork);
+        let network_params = NetworkParams::new(NetworkType::NanoDevNetwork);
 
         Self {
             network_params,
@@ -44,7 +44,7 @@ impl System {
     }
 
     pub fn default_config() -> NodeConfig {
-        let network_params = NetworkParams::new(Networks::NanoDevNetwork);
+        let network_params = NetworkParams::new(NetworkType::NanoDevNetwork);
         let port = get_available_port();
         let mut config = NodeConfig::new(Some(port), &network_params, 1);
         config.representative_vote_weight_minimum = Amount::ZERO;

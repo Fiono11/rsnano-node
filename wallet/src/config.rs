@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rsnano_ledger::DEV_GENESIS_PUB_KEY;
 use rsnano_types::{
-    Account, Amount, Networks, PublicKey,
+    Account, Amount, NetworkType, PublicKey,
     currency_constants::{PRECONFIGURED_REPRESENTATIVES_BETA, PRECONFIGURED_REPRESENTATIVES_LIVE},
 };
 
@@ -19,13 +19,13 @@ pub struct WalletsConfig {
 }
 
 impl WalletsConfig {
-    pub fn default_for(network: Networks) -> Self {
+    pub fn default_for(network: NetworkType) -> Self {
         match network {
-            Networks::Invalid => unreachable!(),
-            Networks::NanoDevNetwork => Self::defaults_dev(),
-            Networks::NanoBetaNetwork => Self::defaults_beta(),
-            Networks::NanoLiveNetwork => Self::defaults_live(),
-            Networks::NanoTestNetwork => Self::defaults_test(),
+            NetworkType::Invalid => unreachable!(),
+            NetworkType::NanoDevNetwork => Self::defaults_dev(),
+            NetworkType::NanoBetaNetwork => Self::defaults_beta(),
+            NetworkType::NanoLiveNetwork => Self::defaults_live(),
+            NetworkType::NanoTestNetwork => Self::defaults_test(),
         }
     }
 

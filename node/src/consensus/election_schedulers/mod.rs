@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, Networks, SavedBlock};
+use rsnano_types::{
+    Account, AccountInfo, BlockHash, ConfirmationHeightInfo, NetworkType, SavedBlock,
+};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{Stats, StatsCollection, StatsSource},
@@ -100,7 +102,7 @@ impl ElectionSchedulers {
 
     pub fn new_null() -> Self {
         let config = NodeConfig::new_test_instance();
-        let network_constants = NetworkConstants::for_network(Networks::NanoLiveNetwork);
+        let network_constants = NetworkConstants::for_network(NetworkType::NanoLiveNetwork);
         let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());

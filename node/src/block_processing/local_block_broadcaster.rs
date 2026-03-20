@@ -14,7 +14,7 @@ use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Block, BlockHash, Networks};
+use rsnano_types::{Block, BlockHash, NetworkType};
 use rsnano_utils::{
     EventHandlerMut,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -34,9 +34,9 @@ pub struct LocalBlockBroadcasterConfig {
 }
 
 impl LocalBlockBroadcasterConfig {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         match network {
-            Networks::NanoDevNetwork => Self::default_for_dev_network(),
+            NetworkType::NanoDevNetwork => Self::default_for_dev_network(),
             _ => Default::default(),
         }
     }

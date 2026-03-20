@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_types::{BlockHash, Networks, Root, Vote};
+use rsnano_types::{BlockHash, NetworkType, Root, Vote};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub struct LocalVoteHistory {
@@ -31,13 +31,13 @@ struct LocalVote {
 }
 
 impl LocalVoteHistory {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         Self::with_max_cache(Self::max_cache_for(network))
     }
 
-    fn max_cache_for(network: Networks) -> usize {
+    fn max_cache_for(network: NetworkType) -> usize {
         match network {
-            Networks::NanoDevNetwork => 256,
+            NetworkType::NanoDevNetwork => 256,
             _ => 128 * 1024,
         }
     }

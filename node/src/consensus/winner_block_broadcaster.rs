@@ -8,7 +8,7 @@ use std::{
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Block, BlockHash, Networks, PublicKey};
+use rsnano_types::{Block, BlockHash, NetworkType, PublicKey};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{bounded_hash_map::BoundedHashMap, election::VoteSummary};
@@ -29,7 +29,7 @@ pub(crate) struct WinnerBlockBroadcaster {
 impl WinnerBlockBroadcaster {
     pub(crate) fn new(
         clock: Arc<SteadyClock>,
-        networks: Networks,
+        networks: NetworkType,
         message_flooder: MessageFlooder,
         online_reps: Arc<Mutex<OnlineReps>>,
         network: Arc<RwLock<Network>>,
@@ -49,7 +49,7 @@ impl WinnerBlockBroadcaster {
     #[allow(dead_code)]
     pub(crate) fn new_null() -> Self {
         let clock = Arc::new(SteadyClock::new_null());
-        let networks = Networks::NanoLiveNetwork;
+        let networks = NetworkType::NanoLiveNetwork;
         let online_reps = Mutex::new(OnlineReps::default());
         let network = RwLock::new(Network::new_test_instance());
         Self::new(
@@ -132,11 +132,11 @@ struct BroadcastTracker {
 }
 
 impl BroadcastTracker {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         Self {
             last_broadcasts: BoundedHashMap::new(1024 * 32),
             broadcast_interval: match network {
-                Networks::NanoDevNetwork => Duration::from_millis(500),
+                NetworkType::NanoDevNetwork => Duration::from_millis(500),
                 _ => Duration::from_secs(150),
             },
             broadcast_initial: 0,
@@ -168,7 +168,7 @@ impl BroadcastTracker {
 
 impl Default for BroadcastTracker {
     fn default() -> Self {
-        Self::new(Networks::NanoLiveNetwork)
+        Self::new(NetworkType::NanoLiveNetwork)
     }
 }
 

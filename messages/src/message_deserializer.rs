@@ -206,7 +206,7 @@ mod tests {
     mod unhappy_path {
         use super::*;
         use crate::{ConfirmAck, Publish};
-        use rsnano_types::Networks;
+        use rsnano_types::NetworkType;
 
         #[test]
         fn push_incomplete_header() {
@@ -231,7 +231,7 @@ mod tests {
             let mut deserializer = create_deserializer();
 
             let mut serializer =
-                MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoBetaNetwork));
+                MessageSerializer::new(ProtocolInfo::default_for(NetworkType::NanoBetaNetwork));
             let message = serializer.serialize(&Message::TelemetryReq);
 
             deserializer.push(&message);

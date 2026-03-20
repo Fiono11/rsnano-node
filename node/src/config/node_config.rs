@@ -12,7 +12,7 @@ use rsnano_types::{
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
 
-use super::{DEV_NETWORK_PARAMS, NetworkParams, Networks, websocket_config::WebsocketConfig};
+use super::{DEV_NETWORK_PARAMS, NetworkParams, NetworkType, websocket_config::WebsocketConfig};
 use crate::{
     block_processing::{
         BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
@@ -115,7 +115,7 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
-    pub fn default_for(network: Networks, parallelism: usize) -> Self {
+    pub fn default_for(network: NetworkType, parallelism: usize) -> Self {
         let net_params = NetworkParams::new(network);
         Self::new(
             Some(net_params.network.default_node_port),
@@ -145,11 +145,11 @@ impl NodeConfig {
         let default_port = network_params.network.default_node_port;
         let network = network_params.network.current_network;
         match network {
-            Networks::NanoDevNetwork => {
+            NetworkType::NanoDevNetwork => {
                 enable_voting = true;
                 preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
-            Networks::NanoBetaNetwork => {
+            NetworkType::NanoBetaNetwork => {
                 preconfigured_peers.extend(
                     PRECONFIGURED_PEERS_BETA
                         .iter()
@@ -163,7 +163,7 @@ impl NodeConfig {
                     .into(),
                 );
             }
-            Networks::NanoLiveNetwork => {
+            NetworkType::NanoLiveNetwork => {
                 preconfigured_peers.extend(
                     PRECONFIGURED_PEERS_LIVE
                         .iter()
@@ -172,7 +172,7 @@ impl NodeConfig {
 
                 preconfigured_representatives = default_preconfigured_representatives_for_live();
             }
-            Networks::NanoTestNetwork => {
+            NetworkType::NanoTestNetwork => {
                 preconfigured_peers.extend(
                     PRECONFIGURED_PEERS_TEST
                         .iter()
@@ -180,7 +180,7 @@ impl NodeConfig {
                 );
                 preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
-            Networks::Invalid => panic!("invalid network"),
+            NetworkType::Invalid => panic!("invalid network"),
         }
 
         let block_processor_cfg = ProcessQueueConfig::default();
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn default_values() {
-        let config = NodeConfig::default_for(Networks::NanoLiveNetwork, 2);
+        let config = NodeConfig::default_for(NetworkType::NanoLiveNetwork, 2);
         assert_eq!(config.fork_cache_max_size, ForkCache::DEFAULT_MAX_LEN);
         assert_eq!(
             config.fork_cache_max_forks_per_root,

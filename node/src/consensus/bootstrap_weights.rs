@@ -1,14 +1,14 @@
 use rsnano_ledger::{BootstrapWeights, RepWeightCache, RepWeights};
-use rsnano_types::{Account, Amount, Networks};
+use rsnano_types::{Account, Amount, NetworkType};
 use tracing::info;
 
-pub(crate) fn get_bootstrap_weights(network: Networks) -> BootstrapWeights {
+pub(crate) fn get_bootstrap_weights(network: NetworkType) -> BootstrapWeights {
     let buffer = get_bootstrap_weights_text(network);
     deserialize_bootstrap_weights(buffer)
 }
 
-fn get_bootstrap_weights_text(network: Networks) -> &'static str {
-    if network == Networks::NanoLiveNetwork {
+fn get_bootstrap_weights_text(network: NetworkType) -> &'static str {
+    if network == NetworkType::NanoLiveNetwork {
         #[cfg(not(feature = "banano"))]
         {
             include_str!("../../rep_weights/Nano/live.txt")
@@ -94,12 +94,12 @@ mod tests {
     #[test]
     fn bootstrap_weights_text() {
         assert_eq!(
-            get_bootstrap_weights_text(Networks::NanoLiveNetwork).len(),
+            get_bootstrap_weights_text(NetworkType::NanoLiveNetwork).len(),
             14126,
             "expected live weights don't match'"
         );
         assert_eq!(
-            get_bootstrap_weights_text(Networks::NanoBetaNetwork).len(),
+            get_bootstrap_weights_text(NetworkType::NanoBetaNetwork).len(),
             1161,
             "expected beta weights don't match'"
         );
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn bootstrap_weights() {
-        let result = get_bootstrap_weights(Networks::NanoLiveNetwork);
+        let result = get_bootstrap_weights(NetworkType::NanoLiveNetwork);
         assert_eq!(result.weights.len(), 137);
         assert_eq!(result.max_blocks, 207_494_994);
     }

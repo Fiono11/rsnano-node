@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, DEV_GENESIS_KEY, Epoch, Epochs,
-    Networks, PublicKey, SavedBlock, UnixMillisTimestamp,
+    NetworkType, PublicKey, SavedBlock, UnixMillisTimestamp,
     currency_constants::{
         BETA_GENESIS_JSON, BETA_PUBLIC_KEY_HEX, DEV_GENESIS_JSON, LIVE_EPOCH_V2_SIGNER,
         LIVE_GENESIS_JSON, TEST_GENESIS_JSON, TEST_PUBLIC_KEY_HEX,
@@ -19,7 +19,7 @@ static TEST_GENESIS_DATA: LazyLock<String> =
     LazyLock::new(|| get_env_or_default_string("NANO_TEST_GENESIS_BLOCK", TEST_GENESIS_JSON));
 
 pub static LEDGER_CONSTANTS_STUB: LazyLock<LedgerConstants> =
-    LazyLock::new(|| LedgerConstants::new(WorkThresholds::none(), Networks::NanoDevNetwork));
+    LazyLock::new(|| LedgerConstants::new(WorkThresholds::none(), NetworkType::NanoDevNetwork));
 
 #[cfg(test)]
 pub static IMPOSSIBLE_WORK: LazyLock<WorkThresholds> =
@@ -76,18 +76,18 @@ pub fn genesis_sideband(genesis_account: Account) -> BlockSideband {
 }
 
 impl LedgerConstants {
-    pub fn new(work: WorkThresholds, network: Networks) -> Self {
+    pub fn new(work: WorkThresholds, network: NetworkType) -> Self {
         let dev_genesis_block = parse_block_from_genesis_data(DEV_GENESIS_JSON).unwrap();
         let beta_genesis_block = parse_block_from_genesis_data(BETA_GENESIS_JSON).unwrap();
         let live_genesis_block = parse_block_from_genesis_data(LIVE_GENESIS_JSON).unwrap();
         let test_genesis_block = parse_block_from_genesis_data(TEST_GENESIS_DATA.as_str()).unwrap();
 
         let genesis_block = match network {
-            Networks::NanoDevNetwork => dev_genesis_block,
-            Networks::NanoBetaNetwork => beta_genesis_block,
-            Networks::NanoTestNetwork => test_genesis_block,
-            Networks::NanoLiveNetwork => live_genesis_block,
-            Networks::Invalid => panic!("invalid network"),
+            NetworkType::NanoDevNetwork => dev_genesis_block,
+            NetworkType::NanoBetaNetwork => beta_genesis_block,
+            NetworkType::NanoTestNetwork => test_genesis_block,
+            NetworkType::NanoLiveNetwork => live_genesis_block,
+            NetworkType::Invalid => panic!("invalid network"),
         };
         let genesis_account = genesis_block.account_field().unwrap();
 
@@ -101,10 +101,10 @@ impl LedgerConstants {
 
         let nano_live_epoch_v2_signer = Account::parse(LIVE_EPOCH_V2_SIGNER).unwrap();
         let epoch_2_signer = match network {
-            Networks::NanoDevNetwork => DEV_GENESIS_KEY.public_key(),
-            Networks::NanoBetaNetwork => nano_beta_account.into(),
-            Networks::NanoLiveNetwork => nano_live_epoch_v2_signer.into(),
-            Networks::NanoTestNetwork => nano_test_account.into(),
+            NetworkType::NanoDevNetwork => DEV_GENESIS_KEY.public_key(),
+            NetworkType::NanoBetaNetwork => nano_beta_account.into(),
+            NetworkType::NanoLiveNetwork => nano_live_epoch_v2_signer.into(),
+            NetworkType::NanoTestNetwork => nano_test_account.into(),
             _ => panic!("invalid network"),
         };
         let epoch_link_v2 = epoch_v2_link();
@@ -127,32 +127,32 @@ impl LedgerConstants {
     pub fn live() -> Self {
         Self::new(
             WorkThresholds::publish_full().clone(),
-            Networks::NanoLiveNetwork,
+            NetworkType::NanoLiveNetwork,
         )
     }
 
     pub fn beta() -> Self {
         Self::new(
             WorkThresholds::publish_beta().clone(),
-            Networks::NanoBetaNetwork,
+            NetworkType::NanoBetaNetwork,
         )
     }
 
     pub fn test() -> Self {
         Self::new(
             WorkThresholds::publish_test().clone(),
-            Networks::NanoTestNetwork,
+            NetworkType::NanoTestNetwork,
         )
     }
 
     pub fn dev() -> Self {
         Self::new(
             WorkThresholds::publish_dev().clone(),
-            Networks::NanoDevNetwork,
+            NetworkType::NanoDevNetwork,
         )
     }
 
     pub fn unit_test() -> Self {
-        Self::new(WORK_THRESHOLDS_STUB.clone(), Networks::NanoDevNetwork)
+        Self::new(WORK_THRESHOLDS_STUB.clone(), NetworkType::NanoDevNetwork)
     }
 }

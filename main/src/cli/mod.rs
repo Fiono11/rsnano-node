@@ -9,7 +9,7 @@ use commands::{
 };
 use rsnano_node::{Node, NodeBuilder, working_path_for};
 use rsnano_nullable_console::Console;
-use rsnano_types::{Networks, PrivateKeyFactory};
+use rsnano_types::{NetworkType, PrivateKeyFactory};
 use std::{path::PathBuf, str::FromStr};
 
 mod commands;
@@ -69,12 +69,12 @@ impl Cli {
         Ok(GlobalArgs { network, data_path })
     }
 
-    fn get_network(&self, args: &CommandLineArgs) -> anyhow::Result<Networks> {
+    fn get_network(&self, args: &CommandLineArgs) -> anyhow::Result<NetworkType> {
         args.network
             .as_ref()
-            .map(|str| Networks::from_str(str).map_err(|e| anyhow!(e)))
+            .map(|str| NetworkType::from_str(str).map_err(|e| anyhow!(e)))
             .transpose()
-            .map(|net| net.unwrap_or(Networks::NanoLiveNetwork))
+            .map(|net| net.unwrap_or(NetworkType::NanoLiveNetwork))
     }
 
     fn get_data_path(&self, args: &CommandLineArgs) -> anyhow::Result<PathBuf> {
@@ -86,7 +86,7 @@ impl Cli {
 }
 
 pub(crate) struct GlobalArgs {
-    pub network: Networks,
+    pub network: NetworkType,
     pub data_path: PathBuf,
 }
 

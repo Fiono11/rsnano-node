@@ -12,7 +12,7 @@ pub use network_constants::*;
 pub use network_params::*;
 pub use node_config::*;
 pub use node_flags::*;
-pub use rsnano_types::Networks;
+pub use rsnano_types::NetworkType;
 use rsnano_wallet::WalletsConfig;
 use serde::de::DeserializeOwned;
 use std::{

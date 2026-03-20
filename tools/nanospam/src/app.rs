@@ -23,7 +23,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_types::{BlockHash, Networks, PrivateKey, ProtocolInfo, RawKey, WalletId};
+use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
@@ -67,7 +67,7 @@ impl NanoSpamApp {
     pub async fn run(mut self) -> anyhow::Result<()> {
         self.tracing_init.init();
 
-        let protocol = ProtocolInfo::default_for(Networks::NanoTestNetwork);
+        let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
         let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;

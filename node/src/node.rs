@@ -33,7 +33,7 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, Networks, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
+    Account, Amount, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
@@ -180,7 +180,7 @@ pub(crate) struct NodeArgs {
 
 impl NodeArgs {
     pub fn create_test_instance() -> Self {
-        let network_params = NetworkParams::new(Networks::NanoLiveNetwork);
+        let network_params = NetworkParams::new(NetworkType::NanoLiveNetwork);
         let config = NodeConfig::new(None, &network_params, 2);
         Self {
             data_path: "/home/nulled-node".into(),
@@ -616,7 +616,7 @@ impl Node {
         ));
 
         let base_latency = match current_network {
-            Networks::NanoDevNetwork => Duration::from_millis(25),
+            NetworkType::NanoDevNetwork => Duration::from_millis(25),
             _ => Duration::from_millis(1000),
         };
 
@@ -648,7 +648,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
-            current_network == Networks::NanoDevNetwork,
+            current_network == NetworkType::NanoDevNetwork,
         );
 
         let vote_processor = Arc::new(VoteProcessor::new(
@@ -1546,7 +1546,7 @@ impl Node {
     pub fn force_confirm(&self, hash: &BlockHash) {
         assert_eq!(
             self.network_params.network.current_network,
-            Networks::NanoDevNetwork
+            NetworkType::NanoDevNetwork
         );
         self.active
             .write()

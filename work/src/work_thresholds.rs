@@ -4,7 +4,7 @@ use std::{
 };
 
 use rsnano_types::{
-    Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
+    Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, NetworkType, Root,
     StubDifficulty, WorkNonce,
     currency_constants::{
         WORK_THRESHOLD_EPOCH1, WORK_THRESHOLD_EPOCH2, WORK_THRESHOLD_EPOCH2_RECEIVE,
@@ -136,13 +136,13 @@ impl WorkThresholds {
         )
     }
 
-    pub fn default_for(network: Networks) -> Self {
+    pub fn default_for(network: NetworkType) -> Self {
         match network {
-            Networks::NanoDevNetwork => Self::publish_dev().clone(),
-            Networks::NanoBetaNetwork => Self::publish_beta().clone(),
-            Networks::NanoLiveNetwork => Self::publish_full().clone(),
-            Networks::NanoTestNetwork => Self::none().clone(),
-            Networks::Invalid => {
+            NetworkType::NanoDevNetwork => Self::publish_dev().clone(),
+            NetworkType::NanoBetaNetwork => Self::publish_beta().clone(),
+            NetworkType::NanoLiveNetwork => Self::publish_full().clone(),
+            NetworkType::NanoTestNetwork => Self::none().clone(),
+            NetworkType::Invalid => {
                 panic!("no default network set")
             }
         }

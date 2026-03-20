@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, Networks, Root, SavedBlock};
+use rsnano_types::{BlockHash, NetworkType, Root, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -38,9 +38,9 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
-    fn voting_delay_for(network: Networks) -> Duration {
+    fn voting_delay_for(network: NetworkType) -> Duration {
         match network {
-            Networks::NanoDevNetwork => Duration::from_secs(1),
+            NetworkType::NanoDevNetwork => Duration::from_secs(1),
             _ => Duration::from_secs(15),
         }
     }
@@ -97,10 +97,10 @@ impl VoteGenerators {
     pub fn new_null() -> Self {
         let ledger = Arc::new(Ledger::new_null());
         let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new_null()));
-        let history = Arc::new(LocalVoteHistory::new(Networks::NanoLiveNetwork));
+        let history = Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork));
         let stats = Arc::new(Stats::default());
         let config = NodeConfig::new_test_instance();
-        let network_params = NetworkParams::new(Networks::NanoLiveNetwork);
+        let network_params = NetworkParams::new(NetworkType::NanoLiveNetwork);
         let vote_broadcaster = Arc::new(VoteBroadcaster::new_null());
         let message_sender = MessageSender::new_null();
         let clock = Arc::new(SteadyClock::new_null());

@@ -17,9 +17,9 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_store_lmdb::{KeyType, LmdbIterator, LmdbWalletStore};
 use rsnano_types::{
-    Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
-    PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
-    WorkNonce, WorkRequest,
+    Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link,
+    NetworkType, PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs,
+    WalletId, WorkNonce, WorkRequest,
 };
 use rsnano_utils::{
     CancellationToken,
@@ -89,7 +89,7 @@ impl Wallets {
     }
 
     pub fn new_null() -> Self {
-        let network = Networks::NanoLiveNetwork;
+        let network = NetworkType::NanoLiveNetwork;
         let env = Arc::new(LmdbEnvironment::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let wallets_config = WalletsConfig::default();
@@ -1693,7 +1693,7 @@ mod tests {
 
     impl Fixture {
         fn new(args: FixtureArgs) -> Self {
-            let network = Networks::NanoLiveNetwork;
+            let network = NetworkType::NanoLiveNetwork;
             let env = Arc::new(LmdbEnvironment::new_null());
             let wallets_config = WalletsConfig::default();
             let work = WorkThresholds::default_for(network);

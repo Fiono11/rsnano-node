@@ -12,7 +12,7 @@ use tracing::debug;
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Amount, Networks, PublicKey};
+use rsnano_types::{Amount, NetworkType, PublicKey};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -42,9 +42,9 @@ pub struct OnlineReps {
 impl OnlineReps {
     pub const DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
 
-    pub const fn default_interval_for(network: Networks) -> Duration {
+    pub const fn default_interval_for(network: NetworkType) -> Duration {
         match network {
-            Networks::NanoDevNetwork => Duration::from_secs(1),
+            NetworkType::NanoDevNetwork => Duration::from_secs(1),
             _ => Duration::from_secs(20),
         }
     }

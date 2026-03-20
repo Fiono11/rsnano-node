@@ -7,7 +7,7 @@ use rsnano_messages::{ConfirmAck, Keepalive, Message, MessageHeader, MessageSeri
 use rsnano_network::{ChannelMode, TrafficType};
 use rsnano_node::{config::NodeConfig, consensus::VoteProcessorConfig};
 use rsnano_types::{
-    Account, Amount, Block, DEV_GENESIS_KEY, Networks, PrivateKey, ProtocolInfo, Root,
+    Account, Amount, Block, DEV_GENESIS_KEY, NetworkType, PrivateKey, ProtocolInfo, Root,
     StateBlockArgs, UnixMillisTimestamp, Vote,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
@@ -471,7 +471,7 @@ fn duplicate_revert_vote() {
     sleep(Duration::from_millis(500)); // Give the node time to process the vote
 
     let mut serializer =
-        MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
+        MessageSerializer::new(ProtocolInfo::default_for(NetworkType::NanoDevNetwork));
     let msg2_bytes = serializer.serialize(&message2);
     let payload_bytes = &msg2_bytes[MessageHeader::SERIALIZED_SIZE..];
     assert_eq!(node1.network_filter.check_message(payload_bytes), false);
@@ -551,7 +551,7 @@ fn expire_duplicate_filter() {
 
     // The filter should expire the vote after some time
     let mut serializer =
-        MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
+        MessageSerializer::new(ProtocolInfo::default_for(NetworkType::NanoDevNetwork));
     let msg_bytes = serializer.serialize(&message);
     let payload_bytes = &msg_bytes[MessageHeader::SERIALIZED_SIZE..];
     assert!(node1.network_filter.check_message(&payload_bytes));

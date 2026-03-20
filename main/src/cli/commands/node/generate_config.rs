@@ -5,7 +5,7 @@ use clap::{ArgGroup, Parser};
 
 use rsnano_node::config::{DaemonConfig, DaemonToml, NetworkParams};
 use rsnano_rpc_server::{RpcServerConfig, RpcServerToml};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_utils::get_cpu_count;
 
 #[derive(Parser, PartialEq, Debug)]
@@ -28,14 +28,14 @@ impl GenerateConfigArgs {
     pub(crate) fn generate_config(&self) -> Result<()> {
         let (toml_str, config_type) = if self.node {
             let daemon_toml: DaemonToml = (&DaemonConfig::new(
-                &NetworkParams::new(Networks::NanoBetaNetwork),
+                &NetworkParams::new(NetworkType::NanoBetaNetwork),
                 get_cpu_count(),
             ))
                 .into();
             (toml::to_string(&daemon_toml)?, "node")
         } else {
             let rpc_server_toml: RpcServerToml =
-                (&RpcServerConfig::default_for(Networks::NanoBetaNetwork)).into();
+                (&RpcServerConfig::default_for(NetworkType::NanoBetaNetwork)).into();
             (toml::to_string(&rpc_server_toml)?, "rpc")
         };
 

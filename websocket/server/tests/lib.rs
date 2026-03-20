@@ -15,7 +15,8 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Amount, DEV_GENESIS_KEY, JsonBlock, Networks, PrivateKey, UnixMillisTimestamp, Vote, VoteError,
+    Amount, DEV_GENESIS_KEY, JsonBlock, NetworkType, PrivateKey, UnixMillisTimestamp, Vote,
+    VoteError,
 };
 use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,
@@ -630,7 +631,7 @@ fn create_node_with_websocket(system: &mut System) -> (Arc<Node>, Arc<WebsocketL
         websocket_config: WebsocketConfig {
             enabled: true,
             port: websocket_port,
-            ..WebsocketConfig::new(&NetworkConstants::default_for(Networks::NanoDevNetwork))
+            ..WebsocketConfig::new(&NetworkConstants::default_for(NetworkType::NanoDevNetwork))
         },
         ..System::default_config()
     };

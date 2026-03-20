@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_ledger::Ledger;
 use rsnano_nullable_lmdb::WriteTransaction;
-use rsnano_types::{Amount, Networks};
+use rsnano_types::{Amount, NetworkType};
 
 pub struct TrendResult {
     pub trended: Amount,
@@ -20,16 +20,16 @@ pub struct OnlineWeightSampler {
 }
 
 impl OnlineWeightSampler {
-    pub fn new(ledger: Arc<Ledger>, network: Networks) -> Self {
+    pub fn new(ledger: Arc<Ledger>, network: NetworkType) -> Self {
         Self {
             ledger,
             cutoff: Self::cutoff_for(network),
         }
     }
 
-    fn cutoff_for(network: Networks) -> Duration {
+    fn cutoff_for(network: NetworkType) -> Duration {
         match network {
-            Networks::NanoLiveNetwork | Networks::NanoTestNetwork => {
+            NetworkType::NanoLiveNetwork | NetworkType::NanoTestNetwork => {
                 // Two weeks
                 Duration::from_secs(60 * 60 * 24 * 7 * 2)
             }

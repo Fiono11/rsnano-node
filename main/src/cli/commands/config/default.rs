@@ -5,7 +5,7 @@ use clap::{ArgGroup, Parser};
 
 use rsnano_node::config::{DaemonConfig, DaemonToml, NetworkConstants, NetworkParams};
 use rsnano_rpc_server::{RpcServerConfig, RpcServerToml};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_utils::get_cpu_count;
 
 #[derive(Parser, PartialEq, Debug)]
@@ -26,7 +26,7 @@ pub(crate) struct DefaultArgs {
 
 impl DefaultArgs {
     pub(crate) fn default(&self) -> Result<()> {
-        let network = Networks::NanoBetaNetwork;
+        let network = NetworkType::NanoBetaNetwork;
         let network_constants = NetworkParams::new(network);
         let parallelism = get_cpu_count();
 

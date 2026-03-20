@@ -1,5 +1,5 @@
 use super::{DaemonToml, NetworkParams, NodeConfig, get_node_toml_config_path, read_toml_file};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use std::path::Path;
 
 #[derive(Debug, PartialEq)]
@@ -20,7 +20,7 @@ impl DaemonConfig {
         }
     }
 
-    pub fn new2(network: Networks, parallelism: usize) -> Self {
+    pub fn new2(network: NetworkType, parallelism: usize) -> Self {
         Self {
             rpc_enable: false,
             node: NodeConfig::default_for(network, parallelism),
@@ -28,7 +28,7 @@ impl DaemonConfig {
     }
 
     pub fn load_from_data_path(
-        network: Networks,
+        network: NetworkType,
         parallelism: usize,
         data_path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {

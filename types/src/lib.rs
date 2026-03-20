@@ -255,7 +255,7 @@ pub fn deterministic_key(seed: &RawKey, index: u32) -> RawKey {
  */
 #[repr(u16)]
 #[derive(Clone, Copy, FromPrimitive, PartialEq, Eq, Debug)]
-pub enum Networks {
+pub enum NetworkType {
     Invalid = 0x0,
     // Low work parameters, publicly known genesis key, dev IP ports
     NanoDevNetwork = NETWORK_IDENTIFIER_DEV,
@@ -267,14 +267,14 @@ pub enum Networks {
     NanoTestNetwork = NETWORK_IDENTIFIER_TEST,
 }
 
-impl Networks {
+impl NetworkType {
     pub fn as_str(&self) -> &str {
         match self {
-            Networks::Invalid => "invalid",
-            Networks::NanoDevNetwork => "dev",
-            Networks::NanoBetaNetwork => "beta",
-            Networks::NanoLiveNetwork => "live",
-            Networks::NanoTestNetwork => "test",
+            NetworkType::Invalid => "invalid",
+            NetworkType::NanoDevNetwork => "dev",
+            NetworkType::NanoBetaNetwork => "beta",
+            NetworkType::NanoLiveNetwork => "live",
+            NetworkType::NanoTestNetwork => "test",
         }
     }
 }
@@ -284,7 +284,7 @@ pub struct ProtocolInfo {
     pub version_using: u8,
     pub version_max: u8,
     pub version_min: u8,
-    pub network: Networks,
+    pub network: NetworkType,
 }
 
 impl Default for ProtocolInfo {
@@ -293,13 +293,13 @@ impl Default for ProtocolInfo {
             version_using: 0x15,
             version_max: 0x15,
             version_min: 0x14,
-            network: Networks::NanoLiveNetwork,
+            network: NetworkType::NanoLiveNetwork,
         }
     }
 }
 
 impl ProtocolInfo {
-    pub fn default_for(network: Networks) -> Self {
+    pub fn default_for(network: NetworkType) -> Self {
         Self {
             network,
             ..Default::default()
@@ -307,15 +307,15 @@ impl ProtocolInfo {
     }
 }
 
-impl FromStr for Networks {
+impl FromStr for NetworkType {
     type Err = &'static str;
 
-    fn from_str(s: &str) -> Result<Networks, Self::Err> {
+    fn from_str(s: &str) -> Result<NetworkType, Self::Err> {
         match s {
-            "dev" => Ok(Networks::NanoDevNetwork),
-            "beta" => Ok(Networks::NanoBetaNetwork),
-            "live" => Ok(Networks::NanoLiveNetwork),
-            "test" => Ok(Networks::NanoTestNetwork),
+            "dev" => Ok(NetworkType::NanoDevNetwork),
+            "beta" => Ok(NetworkType::NanoBetaNetwork),
+            "live" => Ok(NetworkType::NanoLiveNetwork),
+            "test" => Ok(NetworkType::NanoTestNetwork),
             _ => Err("Invalid network"),
         }
     }

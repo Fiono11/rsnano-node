@@ -4,7 +4,7 @@ use clap::{ArgGroup, Parser};
 use rsnano_ledger::LedgerConstants;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 use rsnano_store_lmdb::{LmdbConfirmationHeightStore, default_ledger_lmdb_options};
-use rsnano_types::{Account, ConfirmationHeightInfo, Networks};
+use rsnano_types::{Account, ConfirmationHeightInfo, NetworkType};
 
 use crate::cli::GlobalArgs;
 
@@ -26,11 +26,11 @@ impl ConfirmationHeightArgs {
         let path = global_args.data_path.join("data.ldb");
 
         let genesis_block = match global_args.network {
-            Networks::NanoDevNetwork => LedgerConstants::dev().genesis_block,
-            Networks::NanoBetaNetwork => LedgerConstants::beta().genesis_block,
-            Networks::NanoLiveNetwork => LedgerConstants::live().genesis_block,
-            Networks::NanoTestNetwork => LedgerConstants::test().genesis_block,
-            Networks::Invalid => unreachable!(),
+            NetworkType::NanoDevNetwork => LedgerConstants::dev().genesis_block,
+            NetworkType::NanoBetaNetwork => LedgerConstants::beta().genesis_block,
+            NetworkType::NanoLiveNetwork => LedgerConstants::live().genesis_block,
+            NetworkType::NanoTestNetwork => LedgerConstants::test().genesis_block,
+            NetworkType::Invalid => unreachable!(),
         };
 
         let genesis_account = genesis_block.account();

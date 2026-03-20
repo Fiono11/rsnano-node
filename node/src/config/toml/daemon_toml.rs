@@ -68,7 +68,7 @@ impl From<&DaemonConfig> for OpenclToml {
 #[cfg(test)]
 mod tests {
     use crate::config::{DaemonConfig, DaemonToml};
-    use rsnano_types::Networks;
+    use rsnano_types::NetworkType;
 
     static CUSTOM_TOML_STR: &str = r#"[node]
         allow_local_peers = false
@@ -828,6 +828,6 @@ mod tests {
     }
 
     fn create_default_daemon_config() -> DaemonConfig {
-        DaemonConfig::new2(Networks::NanoBetaNetwork, 8)
+        DaemonConfig::new2(NetworkType::NanoBetaNetwork, 8)
     }
 }

@@ -11,7 +11,7 @@ use rand::seq::SliceRandom;
 use tracing::{debug, warn};
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Networks, NodeId, ProtocolInfo};
+use rsnano_types::{NetworkType, NodeId, ProtocolInfo};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
@@ -53,8 +53,8 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn default_for(network: Networks) -> Self {
-        let is_dev = network == Networks::NanoDevNetwork;
+    pub fn default_for(network: NetworkType) -> Self {
+        let is_dev = network == NetworkType::NanoDevNetwork;
         Self {
             peer_reachout: if is_dev {
                 Duration::from_millis(10)
@@ -66,19 +66,19 @@ impl NetworkConfig {
             max_outbound_connections: if is_dev { 128 } else { 2048 },
             allow_local_peers: true,
             max_peers_per_ip: match network {
-                Networks::NanoDevNetwork | Networks::NanoBetaNetwork => 256,
+                NetworkType::NanoDevNetwork | NetworkType::NanoBetaNetwork => 256,
                 _ => 4,
             },
             max_peers_per_subnetwork: match network {
-                Networks::NanoDevNetwork | Networks::NanoBetaNetwork => 256,
+                NetworkType::NanoDevNetwork | NetworkType::NanoBetaNetwork => 256,
                 _ => 16,
             },
             max_attempts_per_ip: if is_dev { 128 } else { 1 },
             protocol_info: ProtocolInfo::default_for(network),
             listening_port: match network {
-                Networks::NanoDevNetwork => 44000,
-                Networks::NanoBetaNetwork => 54000,
-                Networks::NanoTestNetwork => 17076,
+                NetworkType::NanoDevNetwork => 44000,
+                NetworkType::NanoBetaNetwork => 54000,
+                NetworkType::NanoTestNetwork => 17076,
                 _ => 7075,
             },
             limiter: BandwidthLimiterConfig::default(),
@@ -152,7 +152,7 @@ impl Network {
 
     #[allow(dead_code)]
     pub fn new_test_instance() -> Self {
-        Self::new(NetworkConfig::default_for(Networks::NanoDevNetwork))
+        Self::new(NetworkConfig::default_for(NetworkType::NanoDevNetwork))
     }
 
     pub fn protocol_info(&self) -> ProtocolInfo {

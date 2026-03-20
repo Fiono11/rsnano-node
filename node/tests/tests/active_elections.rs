@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_ledger::{
-    test_helpers::UnsavedBlockLatticeBuilder, BlockError, LedgerSet, DEV_GENESIS_ACCOUNT,
-    DEV_GENESIS_PUB_KEY,
+    BlockError, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet,
+    test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_node::{
     bootstrap::BootstrapConfig,
@@ -11,13 +11,13 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource, DEV_GENESIS_KEY,
+    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    assert_always_eq, assert_never, assert_timely2, assert_timely_eq, assert_timely_eq2,
+    System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections, System,
+    start_elections,
 };
 
 /// What this test is doing:
@@ -117,13 +117,15 @@ fn fork_replacement_tally() {
     // it is only 9, because the intital block of the election does not get replaced
     assert_timely_eq2(|| count_rep_votes_in_election(), 9);
 
-    assert!(node1
-        .active
-        .read()
-        .unwrap()
-        .election_for_root(&send_last.qualified_root())
-        .unwrap()
-        .has_max_blocks());
+    assert!(
+        node1
+            .active
+            .read()
+            .unwrap()
+            .election_for_root(&send_last.qualified_root())
+            .unwrap()
+            .has_max_blocks()
+    );
 
     // Process correct block
     let node2 = system
@@ -205,13 +207,15 @@ fn fork_replacement_tally() {
             .contains_block(&send_last.hash())
     };
     assert_timely2(|| find_send_last_block());
-    assert!(node1
-        .active
-        .read()
-        .unwrap()
-        .election_for_root(&send_last.qualified_root())
-        .unwrap()
-        .has_max_blocks());
+    assert!(
+        node1
+            .active
+            .read()
+            .unwrap()
+            .election_for_root(&send_last.qualified_root())
+            .unwrap()
+            .has_max_blocks()
+    );
 
     assert_timely2(|| {
         node1

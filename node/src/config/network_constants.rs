@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rsnano_types::{
-    Networks, ProtocolInfo,
+    NetworkType, ProtocolInfo,
     currency_constants::{DEFAULT_PORT_NODE, DEFAULT_PORT_RPC, DEFAULT_PORT_WEBSOCKET},
 };
 use rsnano_work::WorkThresholds;
@@ -28,7 +28,7 @@ pub struct NetworkConstants {
     pub max_peers_per_subnetwork: usize,
     pub peer_dump_interval: Duration,
 
-    pub current_network: Networks,
+    pub current_network: NetworkType,
     /** Current protocol version */
     pub protocol_version: u8,
     /** Minimum accepted protocol version */
@@ -55,19 +55,19 @@ pub struct NetworkConstants {
 
 impl NetworkConstants {
     pub fn empty() -> Self {
-        Self::new(WorkThresholds::publish_dev().clone(), Networks::Invalid)
+        Self::new(WorkThresholds::publish_dev().clone(), NetworkType::Invalid)
     }
 
-    pub fn new(work: WorkThresholds, network: Networks) -> Self {
+    pub fn new(work: WorkThresholds, network: NetworkType) -> Self {
         match network {
-            Networks::NanoDevNetwork => Self::dev(work),
-            Networks::NanoBetaNetwork => Self::beta(work),
-            Networks::NanoLiveNetwork | Networks::Invalid => Self::live(work),
-            Networks::NanoTestNetwork => Self::test(work),
+            NetworkType::NanoDevNetwork => Self::dev(work),
+            NetworkType::NanoBetaNetwork => Self::beta(work),
+            NetworkType::NanoLiveNetwork | NetworkType::Invalid => Self::live(work),
+            NetworkType::NanoTestNetwork => Self::test(work),
         }
     }
 
-    pub fn for_network(network: Networks) -> Self {
+    pub fn for_network(network: NetworkType) -> Self {
         Self::new(WorkThresholds::default_for(network), network)
     }
 
@@ -85,7 +85,7 @@ impl NetworkConstants {
         let protocol_info = ProtocolInfo::default();
         Self {
             work,
-            current_network: Networks::NanoLiveNetwork,
+            current_network: NetworkType::NanoLiveNetwork,
             protocol_version: protocol_info.version_using,
             protocol_version_min: protocol_info.version_min,
             bootstrap_protocol_version_min: BootstrapConfig::default().min_protocol_version,
@@ -116,7 +116,7 @@ impl NetworkConstants {
 
     pub fn for_beta() -> Self {
         Self {
-            current_network: Networks::NanoBetaNetwork,
+            current_network: NetworkType::NanoBetaNetwork,
             default_node_port: 54000,
             default_rpc_port: 55000,
             default_websocket_port: 57000,
@@ -128,7 +128,7 @@ impl NetworkConstants {
 
     fn beta(work: WorkThresholds) -> Self {
         Self {
-            current_network: Networks::NanoBetaNetwork,
+            current_network: NetworkType::NanoBetaNetwork,
             default_node_port: 54000,
             default_rpc_port: 55000,
             default_websocket_port: 57000,
@@ -140,7 +140,7 @@ impl NetworkConstants {
 
     fn test(work: WorkThresholds) -> Self {
         Self {
-            current_network: Networks::NanoTestNetwork,
+            current_network: NetworkType::NanoTestNetwork,
             default_node_port: test_node_port(),
             default_rpc_port: test_rpc_port(),
             default_websocket_port: test_websocket_port(),
@@ -151,7 +151,7 @@ impl NetworkConstants {
     fn dev(work: WorkThresholds) -> Self {
         let cleanup_period = Duration::from_secs(1);
         Self {
-            current_network: Networks::NanoDevNetwork,
+            current_network: NetworkType::NanoDevNetwork,
             default_node_port: 44000,
             default_rpc_port: 45000,
             default_websocket_port: 47000,
@@ -175,19 +175,19 @@ impl NetworkConstants {
     }
 
     pub fn is_live_network(&self) -> bool {
-        self.current_network == Networks::NanoLiveNetwork
+        self.current_network == NetworkType::NanoLiveNetwork
     }
 
     pub fn is_beta_network(&self) -> bool {
-        self.current_network == Networks::NanoBetaNetwork
+        self.current_network == NetworkType::NanoBetaNetwork
     }
 
     pub fn is_dev_network(&self) -> bool {
-        self.current_network == Networks::NanoDevNetwork
+        self.current_network == NetworkType::NanoDevNetwork
     }
 
     pub fn is_test_network(&self) -> bool {
-        self.current_network == Networks::NanoTestNetwork
+        self.current_network == NetworkType::NanoTestNetwork
     }
 
     pub fn cleanup_cutoff(&self) -> Duration {
@@ -196,32 +196,32 @@ impl NetworkConstants {
 
     pub fn get_current_network_as_string(&self) -> &str {
         match self.current_network {
-            Networks::NanoDevNetwork => "dev",
-            Networks::NanoBetaNetwork => "beta",
-            Networks::NanoLiveNetwork => "live",
-            Networks::NanoTestNetwork => "test",
-            Networks::Invalid => panic!("invalid network"),
+            NetworkType::NanoDevNetwork => "dev",
+            NetworkType::NanoBetaNetwork => "beta",
+            NetworkType::NanoLiveNetwork => "live",
+            NetworkType::NanoTestNetwork => "test",
+            NetworkType::Invalid => panic!("invalid network"),
         }
     }
 
-    pub fn default_for(network: Networks) -> Self {
+    pub fn default_for(network: NetworkType) -> Self {
         match network {
-            Networks::Invalid => Self::empty(),
-            Networks::NanoBetaNetwork => Self::new(
+            NetworkType::Invalid => Self::empty(),
+            NetworkType::NanoBetaNetwork => Self::new(
                 WorkThresholds::publish_beta().clone(),
-                Networks::NanoBetaNetwork,
+                NetworkType::NanoBetaNetwork,
             ),
-            Networks::NanoDevNetwork => Self::new(
+            NetworkType::NanoDevNetwork => Self::new(
                 WorkThresholds::publish_dev().clone(),
-                Networks::NanoDevNetwork,
+                NetworkType::NanoDevNetwork,
             ),
-            Networks::NanoLiveNetwork => Self::new(
+            NetworkType::NanoLiveNetwork => Self::new(
                 WorkThresholds::publish_full().clone(),
-                Networks::NanoLiveNetwork,
+                NetworkType::NanoLiveNetwork,
             ),
-            Networks::NanoTestNetwork => Self::new(
+            NetworkType::NanoTestNetwork => Self::new(
                 WorkThresholds::publish_test().clone(),
-                Networks::NanoTestNetwork,
+                NetworkType::NanoTestNetwork,
             ),
         }
     }

@@ -1,6 +1,6 @@
 use crate::node_runner::NodeRunner;
 use eframe::egui::{Button, RadioButton, TextEdit, Ui};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 
 pub(crate) fn view_node_runner(ui: &mut Ui, runner: &mut NodeRunner) {
     NodeRunnerView::new(runner).show(ui);
@@ -17,9 +17,9 @@ impl<'a> NodeRunnerView<'a> {
 
     pub fn show(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            self.network_radio_button(ui, Networks::NanoLiveNetwork);
-            self.network_radio_button(ui, Networks::NanoBetaNetwork);
-            self.network_radio_button(ui, Networks::NanoTestNetwork);
+            self.network_radio_button(ui, NetworkType::NanoLiveNetwork);
+            self.network_radio_button(ui, NetworkType::NanoBetaNetwork);
+            self.network_radio_button(ui, NetworkType::NanoTestNetwork);
             ui.add_enabled(
                 self.runner.can_start_node(),
                 TextEdit::singleline(&mut self.runner.data_path),
@@ -48,7 +48,7 @@ impl<'a> NodeRunnerView<'a> {
         }
     }
 
-    fn network_radio_button(&mut self, ui: &mut Ui, network: Networks) {
+    fn network_radio_button(&mut self, ui: &mut Ui, network: NetworkType) {
         if ui
             .add_enabled(
                 self.runner.can_start_node(),

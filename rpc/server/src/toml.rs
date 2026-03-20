@@ -81,7 +81,7 @@ impl From<&RpcServerLoggingToml> for RpcServerLoggingConfig {
 mod tests {
     use crate::{RpcServerConfig, RpcServerToml};
     use rsnano_node::config::NetworkConstants;
-    use rsnano_types::Networks;
+    use rsnano_types::NetworkType;
     use toml::{from_str, to_string};
 
     static DEFAULT_TOML_STR: &str = r#"
@@ -154,17 +154,18 @@ mod tests {
 
         let rpc_toml: RpcServerToml = from_str(&toml_str).expect("Failed to deserialize TOML");
 
-        let mut deserialized_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
+        let mut deserialized_rpc_config =
+            RpcServerConfig::default_for(NetworkType::NanoBetaNetwork);
         deserialized_rpc_config.merge_toml(&rpc_toml);
 
-        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
+        let default_rpc_config = RpcServerConfig::default_for(NetworkType::NanoBetaNetwork);
 
         assert_eq!(&deserialized_rpc_config, &default_rpc_config);
     }
 
     #[test]
     fn serialize_defaults() {
-        let default_rpc_config = RpcServerConfig::default_for(Networks::NanoBetaNetwork);
+        let default_rpc_config = RpcServerConfig::default_for(NetworkType::NanoBetaNetwork);
 
         let default_rpc_toml: RpcServerToml = (&default_rpc_config).into();
 

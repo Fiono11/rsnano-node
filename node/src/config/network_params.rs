@@ -1,11 +1,11 @@
 use crate::config::NetworkConstants;
 use once_cell::sync::Lazy;
 use rsnano_ledger::LedgerConstants;
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_work::WorkThresholds;
 
 pub static DEV_NETWORK_PARAMS: Lazy<NetworkParams> =
-    Lazy::new(|| NetworkParams::new(Networks::NanoDevNetwork));
+    Lazy::new(|| NetworkParams::new(NetworkType::NanoDevNetwork));
 
 #[derive(Clone)]
 pub struct NetworkParams {
@@ -15,7 +15,7 @@ pub struct NetworkParams {
 }
 
 impl NetworkParams {
-    pub fn new(network: Networks) -> Self {
+    pub fn new(network: NetworkType) -> Self {
         let work = WorkThresholds::default_for(network);
         let network_constants = NetworkConstants::new(work.clone(), network);
         Self {

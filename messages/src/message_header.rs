@@ -6,7 +6,7 @@ use std::{
 use bitvec::prelude::*;
 use num_traits::FromPrimitive;
 
-use rsnano_types::{DeserializationError, Networks, ProtocolInfo, read_u8};
+use rsnano_types::{DeserializationError, NetworkType, ProtocolInfo, read_u8};
 use rsnano_utils::stats::DetailType;
 
 use super::*;
@@ -156,7 +156,7 @@ impl MessageHeader {
         let mut buffer = [0; 2];
 
         reader.read_exact(&mut buffer)?;
-        header.protocol.network = Networks::from_u16(u16::from_be_bytes(buffer))
+        header.protocol.network = NetworkType::from_u16(u16::from_be_bytes(buffer))
             .ok_or(DeserializationError::InvalidData)?;
 
         header.protocol.version_max = read_u8(reader)?;
@@ -293,7 +293,7 @@ mod tests {
             version_using: 2,
             version_max: 3,
             version_min: 1,
-            network: Networks::NanoDevNetwork,
+            network: NetworkType::NanoDevNetwork,
         };
         MessageHeader {
             message_type: MessageType::Keepalive,
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn serialize_header() {
-        let protocol_info = ProtocolInfo::default_for(Networks::NanoDevNetwork);
+        let protocol_info = ProtocolInfo::default_for(NetworkType::NanoDevNetwork);
         let mut header = MessageHeader::new(MessageType::Publish, protocol_info);
         header.extensions = 0xABCD.into();
 

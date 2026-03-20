@@ -4,7 +4,7 @@ use std::{fmt::Write, str::FromStr};
 use clap::Parser;
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_messages::{RepresentativesArgs, RepresentativesResponse};
-use rsnano_types::{Amount, Networks};
+use rsnano_types::{Amount, NetworkType};
 
 const CUTOFF: u64 = 250_000;
 const PERCENTAGE_LIMIT: u128 = 99;
@@ -24,7 +24,7 @@ struct Args {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let network = Networks::from_str(&args.network).unwrap();
+    let network = NetworkType::from_str(&args.network).unwrap();
     let rpc_addr = args
         .rpc
         .unwrap_or_else(|| rpc_addr_for(network).to_string());
@@ -36,9 +36,9 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn rpc_addr_for(network: Networks) -> &'static str {
+fn rpc_addr_for(network: NetworkType) -> &'static str {
     match network {
-        Networks::NanoBetaNetwork => "http://[::1]:55000",
+        NetworkType::NanoBetaNetwork => "http://[::1]:55000",
         _ => "http://[::1]:7076",
     }
 }
@@ -84,7 +84,7 @@ fn create_rep_file(reps: &RepresentativesResponse, confirmed: u64) -> RepsFile {
     }
 }
 
-fn write_file(network: Networks, rep_file: RepsFile) -> std::io::Result<()> {
+fn write_file(network: NetworkType, rep_file: RepsFile) -> std::io::Result<()> {
     let output_path = output_path(network)?;
     std::fs::write(output_path.clone(), rep_file.content)?;
     println!("wrote {} rep weights", rep_file.rep_count);
@@ -104,7 +104,7 @@ fn get_supply_max(reps: &RepresentativesResponse, percentage_limit: u128) -> Amo
     (supply_max / 100) * percentage_limit
 }
 
-fn output_path(network: Networks) -> std::io::Result<PathBuf> {
+fn output_path(network: NetworkType) -> std::io::Result<PathBuf> {
     let mut path = std::env::current_exe()?;
     path.pop();
     path.pop();

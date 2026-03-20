@@ -4,7 +4,7 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, Networks, Root};
+use rsnano_types::{BlockHash, NetworkType, Root};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{CpsLimiter, VoteGenerators};
@@ -27,7 +27,7 @@ impl AecVoter {
         aec: Arc<RwLock<ActiveElectionsContainer>>,
         vote_generators: Arc<VoteGenerators>,
         clock: Arc<SteadyClock>,
-        network: Networks,
+        network: NetworkType,
         cps_limiter: CpsLimiter,
     ) -> Self {
         Self {
@@ -37,7 +37,7 @@ impl AecVoter {
             cps_limiter,
             current_bucket: bucket_count() - 1,
             vote_broadcast_interval: match network {
-                Networks::NanoDevNetwork => Duration::from_millis(500),
+                NetworkType::NanoDevNetwork => Duration::from_millis(500),
                 _ => Duration::from_secs(15),
             },
         }

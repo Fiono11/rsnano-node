@@ -4,12 +4,12 @@ use tokio::{select, time::sleep};
 use rsnano_messages::MessageDeserializer;
 use rsnano_network::Channel;
 use rsnano_network_protocol::InboundMessageQueue;
-use rsnano_types::{Networks, NodeId, ProtocolInfo};
+use rsnano_types::{NetworkType, NodeId, ProtocolInfo};
 
 pub(crate) async fn run_loopback_channel_adapter(
     loopback: Arc<Channel>,
     node_id: NodeId,
-    network: Networks,
+    network: NetworkType,
     inbound: Arc<InboundMessageQueue>,
 ) {
     loopback.set_node_id(node_id);

@@ -1,5 +1,5 @@
 use rsnano_node::config::{NetworkConstants, get_rpc_toml_config_path, read_toml_file};
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use std::{
     net::{AddrParseError, IpAddr, Ipv6Addr, SocketAddr},
     path::Path,
@@ -34,12 +34,12 @@ impl RpcServerConfig {
         }
     }
 
-    pub fn default_for(network: Networks) -> Self {
+    pub fn default_for(network: NetworkType) -> Self {
         Self::new(&NetworkConstants::for_network(network))
     }
 
     pub fn load_from_data_path(
-        network: Networks,
+        network: NetworkType,
         data_path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         let file_path = get_rpc_toml_config_path(data_path.as_ref());

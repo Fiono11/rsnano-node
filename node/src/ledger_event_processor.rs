@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, mpsc::SyncSender};
 
-use rsnano_types::Networks;
+use rsnano_types::NetworkType;
 use rsnano_utils::{
     BackpressureHandlerRegistry, EventHandlerRegistry,
     stats::{DetailType, StatType, Stats},
@@ -44,7 +44,7 @@ impl LedgerEventProcessor {
             stats: Arc::new(Stats::default()),
             dependent_elections_confirmer: DependentElectionsConfirmer::new_null(),
             bootstrapper: Arc::new(Bootstrapper::new_null()),
-            vote_history: Arc::new(LocalVoteHistory::new(Networks::NanoLiveNetwork)),
+            vote_history: Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork)),
             active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
