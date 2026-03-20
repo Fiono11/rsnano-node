@@ -17,7 +17,8 @@ use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
-    ConfiguredPendingDatabaseBuilder, ConfiguredRepWeightDatabaseBuilder, LmdbStore, MemoryStats,
+    ConfiguredPendingDatabaseBuilder, ConfiguredRepWeightDatabaseBuilder, LedgerCache, LmdbStore,
+    MemoryStats,
 };
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
@@ -32,9 +33,9 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BlockSource, BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants,
-    LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, ProcessResult,
-    RepWeightCache, RepWeightsUpdater, RollbackError,
+    BlockRollbackPerformer, BlockSource, BootstrapWeights, BorrowingAnySet, BorrowingConfirmedSet,
+    LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
+    OwningUnconfirmedSet, ProcessResult, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -138,6 +139,7 @@ pub struct NullLedgerBuilder {
     forks: ConfiguredForksDatabaseBuilder,
     confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder,
     min_rep_weight: Amount,
+    bootstrap_weights_max_blocks: u64,
 }
 
 impl NullLedgerBuilder {
@@ -152,6 +154,7 @@ impl NullLedgerBuilder {
             forks: ConfiguredForksDatabaseBuilder::new(),
             confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder::new(),
             min_rep_weight: Amount::ZERO,
+            bootstrap_weights_max_blocks: 0,
         }
     }
 
@@ -231,6 +234,11 @@ impl NullLedgerBuilder {
         builder
     }
 
+    pub fn bootstrap_weights_max_blocks(mut self, max_blocks: u64) -> Self {
+        self.bootstrap_weights_max_blocks = max_blocks;
+        self
+    }
+
     pub fn finish(self) -> Ledger {
         let (block_index, block_data) = self.blocks.build();
         let env_builder = LmdbEnvironment::null_builder()
@@ -253,12 +261,18 @@ impl NullLedgerBuilder {
             }
         };
         let env = env_builder.build();
-
+        let ledger_cache = Arc::new(LedgerCache::new());
+        let weights = BootstrapWeights {
+            weights: Default::default(),
+            max_blocks: self.bootstrap_weights_max_blocks,
+        };
+        let rep_weights_cache =
+            RepWeightCache::with_bootstrap_weights(weights, ledger_cache, self.min_rep_weight);
         Ledger::new(
             env,
             LedgerConstants::unit_test(),
-            Arc::new(RepWeightCache::new(self.min_rep_weight)),
-            Arc::new(Stats::default()),
+            rep_weights_cache.into(),
+            Stats::default().into(),
             1,
             false,
         )
@@ -462,8 +476,8 @@ impl Ledger {
         OwningUnconfirmedSet::new(&self.store, tx)
     }
 
-    pub fn bootstrap_weight_max_blocks(&self) -> u64 {
-        self.rep_weights.bootstrap_weight_max_blocks()
+    pub fn bootstrap_weights_max_blocks(&self) -> u64 {
+        self.rep_weights.bootstrap_weights_max_blocks()
     }
 
     /// Returns the cached vote weight for the given representative.
@@ -1128,5 +1142,14 @@ mod tests {
     fn error_variant_to_static_str() {
         let s: &'static str = BlockError::GapSource.into();
         assert_eq!(s, "gap_source");
+    }
+
+    #[test]
+    fn builds_nulled_ledger() {
+        let ledger = Ledger::new_null_builder()
+            .bootstrap_weights_max_blocks(123)
+            .finish();
+
+        assert_eq!(ledger.bootstrap_weights_max_blocks(), 123);
     }
 }

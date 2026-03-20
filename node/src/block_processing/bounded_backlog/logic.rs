@@ -38,7 +38,9 @@ pub(crate) struct BoundedBacklogLogic {
     cool_down: bool,
     index: BacklogIndex,
     config: BoundedBacklogConfig,
-    current_backlog_size: u64,
+    block_count: u64,
+    confirmed_count: u64,
+    bootstrap_weights_max_blocks: u64,
 
     // stats
     pub rollback_iterations: u64,
@@ -52,7 +54,9 @@ impl BoundedBacklogLogic {
             cool_down: false,
             index: BacklogIndex::new(prio_bucket_count()),
             config,
-            current_backlog_size: 0,
+            block_count: 0,
+            confirmed_count: 0,
+            bootstrap_weights_max_blocks: 0,
             rollback_iterations: 0,
             total_gathered: 0,
         }
@@ -75,13 +79,32 @@ impl BoundedBacklogLogic {
         self.cool_down
     }
 
-    #[cfg(test)]
-    pub(crate) fn current_backlog_size(&self) -> u64 {
-        self.current_backlog_size
+    pub(crate) fn backlog_size(&self) -> u64 {
+        self.block_count.saturating_sub(self.confirmed_count)
     }
 
-    pub(crate) fn set_current_backlog_size(&mut self, size: u64) {
-        self.current_backlog_size = size;
+    #[cfg(test)]
+    pub(crate) fn block_count(&self) -> u64 {
+        self.block_count
+    }
+
+    #[cfg(test)]
+    pub(crate) fn confirmed_count(&self) -> u64 {
+        self.confirmed_count
+    }
+
+    pub(crate) fn set_ledger_info(&mut self, block_count: u64, confirmed_count: u64) {
+        self.block_count = block_count;
+        self.confirmed_count = confirmed_count;
+    }
+
+    pub(crate) fn set_bootstrap_weights_max_blocks(&mut self, max_blocks: u64) {
+        self.bootstrap_weights_max_blocks = max_blocks;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn bootstrap_weights_max_blocks(&self) -> u64 {
+        self.bootstrap_weights_max_blocks
     }
 
     pub(crate) fn max_backlog(&self) -> u64 {
@@ -89,7 +112,7 @@ impl BoundedBacklogLogic {
     }
 
     pub(crate) fn should_throttle_block_processor(&self) -> bool {
-        self.current_backlog_size as f64 > self.max_backlog() as f64 * 1.5
+        self.backlog_size() as f64 > self.max_backlog() as f64 * 1.5
     }
 
     pub(crate) fn rollback_batch_size(&self) -> usize {
@@ -103,13 +126,12 @@ impl BoundedBacklogLogic {
 
         // Both ledger and tracked backlog must be over the threshold
         let max_backlog = self.config.max_backlog;
-        self.current_backlog_size > max_backlog && self.index.len() > max_backlog as usize
+        self.backlog_size() > max_backlog && self.index.len() > max_backlog as usize
     }
 
     /// The number of rollbacks required in order to reach the max allowed backlog
     pub(crate) fn rollback_target_count(&self) -> u64 {
-        self.current_backlog_size
-            .saturating_sub(self.config.max_backlog)
+        self.backlog_size().saturating_sub(self.config.max_backlog)
     }
 
     fn next_rollback_batch_size(&self) -> usize {
@@ -242,14 +264,16 @@ mod tests {
 
     #[test]
     fn current_backlog_size_initially_zero() {
-        assert_eq!(BoundedBacklogLogic::default().current_backlog_size(), 0);
+        assert_eq!(BoundedBacklogLogic::default().backlog_size(), 0);
     }
 
     #[test]
-    fn set_current_backlog_size() {
+    fn set_ledger_info() {
         let mut logic = BoundedBacklogLogic::default();
-        logic.set_current_backlog_size(42);
-        assert_eq!(logic.current_backlog_size(), 42);
+        logic.set_ledger_info(43, 1);
+        assert_eq!(logic.block_count(), 43);
+        assert_eq!(logic.confirmed_count(), 1);
+        assert_eq!(logic.backlog_size(), 42);
     }
 
     /*
@@ -288,7 +312,7 @@ mod tests {
         let mut logic = BoundedBacklogLogic::new(small_config());
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
-        logic.set_current_backlog_size(3);
+        logic.set_ledger_info(4, 1);
         logic.set_cooldown(true);
         assert!(!logic.rollback_needed());
     }
@@ -296,7 +320,7 @@ mod tests {
     #[test]
     fn rollback_not_needed_when_only_backlog_size_is_over() {
         let mut logic = BoundedBacklogLogic::new(small_config());
-        logic.set_current_backlog_size(3);
+        logic.set_ledger_info(4, 1);
         assert!(!logic.rollback_needed());
     }
 
@@ -313,7 +337,7 @@ mod tests {
         let mut logic = BoundedBacklogLogic::new(small_config());
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
-        logic.set_current_backlog_size(3);
+        logic.set_ledger_info(4, 1);
         assert!(logic.rollback_needed());
     }
 
@@ -328,7 +352,7 @@ mod tests {
             rollback_batch_size: 10,
         };
         let mut logic = BoundedBacklogLogic::new(config);
-        logic.set_current_backlog_size(5);
+        logic.set_ledger_info(6, 1);
         assert_eq!(logic.rollback_target_count(), 0);
     }
 
@@ -339,7 +363,7 @@ mod tests {
             rollback_batch_size: 10,
         };
         let mut logic = BoundedBacklogLogic::new(config);
-        logic.set_current_backlog_size(5);
+        logic.set_ledger_info(6, 1);
         assert_eq!(logic.rollback_target_count(), 2);
     }
 
@@ -438,7 +462,7 @@ mod tests {
         let mut logic = BoundedBacklogLogic::new(small_config());
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
-        logic.set_current_backlog_size(3);
+        logic.set_ledger_info(4, 1);
         let mut targets = Vec::new();
         logic.gather_targets(&mut targets);
         assert_eq!(logic.total_gathered, 2);
@@ -456,7 +480,7 @@ mod tests {
     #[test]
     fn gather_targets_empty_when_no_blocks_in_index() {
         let mut logic = BoundedBacklogLogic::new(small_config());
-        logic.set_current_backlog_size(10);
+        logic.set_ledger_info(11, 1);
         let mut targets = Vec::new();
         logic.gather_targets(&mut targets);
         assert!(targets.is_empty());
@@ -472,7 +496,7 @@ mod tests {
         for i in 1..=5 {
             logic.insert(&make_block(i), BlockPriority::new_test_instance());
         }
-        logic.set_current_backlog_size(10);
+        logic.set_ledger_info(11, 1);
         let mut targets = Vec::new();
         logic.gather_targets(&mut targets);
         assert_eq!(targets.len(), 2);
@@ -488,7 +512,7 @@ mod tests {
         };
         let mut logic = BoundedBacklogLogic::new(config);
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
-        logic.set_current_backlog_size(1_000_001);
+        logic.set_ledger_info(1_000_002, 1);
         let mut targets = Vec::new();
         logic.gather_targets(&mut targets);
         assert!(targets.is_empty());
@@ -533,11 +557,11 @@ mod tests {
             rollback_batch_size: 1,
         });
         assert!(!logic.should_throttle_block_processor());
-        logic.set_current_backlog_size(150);
+        logic.set_ledger_info(151, 1);
         assert!(!logic.should_throttle_block_processor());
-        logic.set_current_backlog_size(151);
+        logic.set_ledger_info(152, 1);
         assert!(logic.should_throttle_block_processor());
-        logic.set_current_backlog_size(100);
+        logic.set_ledger_info(101, 1);
         assert!(!logic.should_throttle_block_processor());
     }
 

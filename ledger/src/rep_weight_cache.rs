@@ -125,7 +125,7 @@ impl RepWeightCache {
             .unwrap_or_default()
     }
 
-    pub fn bootstrap_weight_max_blocks(&self) -> u64 {
+    pub fn bootstrap_weights_max_blocks(&self) -> u64 {
         self.max_blocks
     }
 

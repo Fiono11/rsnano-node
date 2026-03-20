@@ -57,7 +57,7 @@ pub(crate) fn log_bootstrap_weights(weight_cache: &RepWeightCache) {
     if !bootstrap_weights.is_empty() {
         info!(
             "Initial bootstrap height: {}",
-            weight_cache.bootstrap_weight_max_blocks()
+            weight_cache.bootstrap_weights_max_blocks()
         );
         info!("Current ledger height:    {}", weight_cache.block_count());
 

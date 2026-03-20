@@ -80,8 +80,8 @@ impl BoundedBacklog {
                 return;
             }
 
-            let backlog_size = self.ledger.backlog_size();
-            logic.set_current_backlog_size(backlog_size);
+            logic.set_bootstrap_weights_max_blocks(self.ledger.bootstrap_weights_max_blocks());
+            logic.set_ledger_info(self.ledger.block_count(), self.ledger.confirmed_count());
             self.should_throttle
                 .store(logic.should_throttle_block_processor(), Ordering::Relaxed);
 
@@ -216,8 +216,30 @@ mod tests {
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
-        assert_eq!(logic.current_backlog_size(), 1);
+        assert_eq!(logic.block_count(), 2);
+        assert_eq!(logic.confirmed_count(), 1);
         assert_eq!(logic.rollback_iterations, 0);
+    }
+
+    #[test]
+    fn set_bootstrap_weights_max_blocks() {
+        let logic = NullableCondvarMutex::null_builder(BoundedBacklogLogic::default())
+            .wait(|_| {})
+            .wait(|l| l.stop())
+            .finish();
+
+        const MAX_BLOCKS: u64 = 123;
+        let ledger = Arc::new(
+            Ledger::new_null_builder()
+                .bootstrap_weights_max_blocks(MAX_BLOCKS)
+                .finish(),
+        );
+        let backlog = create_backlog(logic, ledger);
+
+        backlog.run_loop();
+
+        let logic = backlog.logic.lock();
+        assert_eq!(logic.bootstrap_weights_max_blocks(), MAX_BLOCKS);
     }
 
     #[test]
@@ -249,7 +271,8 @@ mod tests {
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
-        assert_eq!(logic.current_backlog_size(), 2);
+        assert_eq!(logic.backlog_size(), 2);
+        assert_eq!(logic.block_count(), 3);
         assert_eq!(logic.rollback_iterations, 1);
         assert_ne!(ledger.backlog_size(), 2);
     }
