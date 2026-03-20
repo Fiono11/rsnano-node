@@ -805,6 +805,11 @@ impl Node {
         let should_throttle_block_processor: Arc<dyn Fn() -> bool + Send + Sync>;
         let bounded_backlog =
             if config.enable_bounded_backlog && config.bounded_backlog.max_backlog > 0 {
+                info!(
+                    "Bounded backlog enabled: max backlog={}, batch_size={}",
+                    config.bounded_backlog.max_backlog, config.bounded_backlog.rollback_batch_size,
+                );
+
                 let backlog = Arc::new(BoundedBacklog::new(
                     config.bounded_backlog.clone(),
                     ledger.clone(),

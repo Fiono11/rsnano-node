@@ -6,8 +6,6 @@ use std::{
     time::Duration,
 };
 
-use tracing::info;
-
 use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_utils::{
@@ -60,12 +58,6 @@ impl BoundedBacklog {
 
     pub(crate) fn run_loop(&self) {
         let mut logic = self.logic.lock();
-        info!(
-            "Bounded backlog enabled: max backlog={}, batch_size={}",
-            logic.max_backlog(),
-            logic.rollback_batch_size(),
-        );
-
         let mut targets = Vec::with_capacity(logic.rollback_batch_size());
 
         while !logic.stopped() {
@@ -173,18 +165,6 @@ mod tests {
         AccountInfo, Block, BlockHash, BlockPriority, ConfirmationHeightInfo, PrivateKey,
         QualifiedRoot, SavedBlock,
     };
-    use tracing_test::traced_test;
-
-    #[test]
-    #[traced_test]
-    fn run_loop_logs_current_configuration() {
-        let backlog = BoundedBacklog::new_null();
-        backlog.stop();
-        backlog.run_loop();
-        assert!(logs_contain(
-            "Bounded backlog enabled: max backlog=100000, batch_size=32"
-        ));
-    }
 
     #[test]
     fn stop_immediately() {
@@ -243,6 +223,32 @@ mod tests {
     }
 
     #[test]
+    fn updates_throttle_flag() {
+        let logic =
+            NullableCondvarMutex::null_builder(BoundedBacklogLogic::new(BoundedBacklogConfig {
+                max_backlog: 1,
+                rollback_batch_size: 1,
+            }))
+            .wait(|_| {})
+            .wait(|l| l.stop())
+            .finish();
+
+        let ledger = Arc::new(Ledger::new_null());
+        let mut builder = UnsavedBlockLatticeBuilder::new();
+        let block1 = builder.genesis().send(1, 1);
+        let block2 = builder.genesis().send(1, 1);
+        let block3 = builder.genesis().send(1, 1);
+        ledger.process_one(&block1).unwrap();
+        ledger.process_one(&block2).unwrap();
+        ledger.process_one(&block3).unwrap();
+        let backlog = create_backlog(logic, ledger);
+
+        backlog.run_loop();
+
+        assert!(backlog.should_throttle_block_processor());
+    }
+
+    #[test]
     fn gather_and_roll_back() {
         let config = BoundedBacklogConfig {
             max_backlog: 1,
@@ -287,11 +293,23 @@ mod tests {
     }
 
     #[test]
-    fn set_cooldown_sets_flag() {
+    fn cool_down_sets_flag() {
         let backlog = BoundedBacklog::new_null();
         let tracker = backlog.logic.track_notifications();
         backlog.cool_down();
         assert!(backlog.logic.lock().cool_down());
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    #[test]
+    fn recovered_sets_flag() {
+        let backlog = BoundedBacklog::new_null();
+        backlog.cool_down();
+        let tracker = backlog.logic.track_notifications();
+
+        backlog.recovered();
+
+        assert!(!backlog.logic.lock().cool_down());
         assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
     }
 
