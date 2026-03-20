@@ -10,10 +10,10 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 - [x] 53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d
 - [x] 8b5fefde32582d0f30fe3f7db46603f69f4eaa80
 - [x] 8ceff83b55fed3703059d9ba3a872c4716481966
-- [ ] e73d3d6087bdd7549745bc1457ad045d925f06be
-- [ ] cdad2f65e8f807ab430538cb24ba814b85766532
-- [ ] 8be760b1bb7032220ce5e13d3607baa2487e1c85
-- [ ] 964ed6e759fabfb5edb872aeea7896f06c5e5542
+- [x] e73d3d6087bdd7549745bc1457ad045d925f06be
+- [x] cdad2f65e8f807ab430538cb24ba814b85766532
+- [x] 8be760b1bb7032220ce5e13d3607baa2487e1c85
+- [x] 964ed6e759fabfb5edb872aeea7896f06c5e5542
 - [ ] fe8fb955eb9dec17c182a1f068df824bc94dc542
 - [ ] 8de5920578fc82129467f21e286dddbcf8a16de3
 - [ ] 997b26279e4d5e20ef510e3ab507594977ed46a0
@@ -94,3 +94,4 @@ These commits have been reviewed and merged into RsNano or put into the unmerged
 |AEC Rework                                      |18506b3d1ba4250216d4868157e31d4fd8271751|https://github.com/nanocurrency/nano-node/pull/4943/ ||
 |AEC Races (needs AEC Rework first!)             |285ae0ef10421383ac69504a61d9e981f4e7d734|https://github.com/nanocurrency/nano-node/pull/4945/ ||
 |CLI Benchmarks                                  |53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d|https://github.com/nanocurrency/nano-node/pull/4953/ ||
+|Shared Priority Pool                            |964ed6e759fabfb5edb872aeea7896f06c5e5542|https://github.com/nanocurrency/nano-node/pull/4954/ ||

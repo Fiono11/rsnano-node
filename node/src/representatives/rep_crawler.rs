@@ -163,6 +163,7 @@ impl RepCrawler {
 
         for channel in target_channels {
             guard.track_rep_request(hash_root, channel.channel_id(), self.steady_clock.now());
+            drop(guard);
             debug!(
                 "Sending query for block: {} to: {}",
                 hash_root.0,
@@ -177,6 +178,7 @@ impl RepCrawler {
                 .lock()
                 .unwrap()
                 .try_send(&channel, &req, TrafficType::RepCrawler);
+            guard = self.rep_crawler_impl.lock().unwrap();
         }
     }
 
