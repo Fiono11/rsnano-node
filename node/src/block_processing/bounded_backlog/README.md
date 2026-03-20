@@ -25,10 +25,12 @@ A single background thread wakes up whenever both of the following conditions ar
 
 Both conditions must hold to avoid reacting to transient spikes. When triggered, the thread:
 
-1. Computes how many blocks to remove: `ledger_backlog - max_backlog`.
-2. Scans buckets from lowest index (lowest balance) upward; a bucket is a rollback candidate only if it individually exceeds `max_backlog / bucket_count`.
-3. Drains rollback targets from qualifying buckets via `drain_lowest_priority()`, which removes blocks with the highest `TimePriority` value first (= oldest receive time = lowest timestamp priority).
-4. Passes the gathered targets to `Ledger::roll_back_batch()`, which rolls back each target and its dependents.
+1. Reads the current ledger backlog size and updates `current_backlog_size` in the logic.
+2. Updates the block-processor throttle flag (see [Block Processor Throttling](#block-processor-throttling) below).
+3. Computes how many blocks to remove: `ledger_backlog - max_backlog`.
+4. Scans buckets from lowest index (lowest balance) upward; a bucket is a rollback candidate only if it individually exceeds `max_backlog / bucket_count`.
+5. Drains rollback targets from qualifying buckets via `drain_lowest_priority()`, which removes blocks with the highest `TimePriority` value first (= oldest receive time = lowest timestamp priority).
+6. Passes the gathered targets to `Ledger::roll_back_batch()`, which rolls back each target and its dependents.
 
 ## Ledger Integration
 
@@ -50,9 +52,18 @@ Because `BoundedBacklog` handles all relevant events, the index stays consistent
 | `max_backlog` | 100 000 | Maximum number of unconfirmed blocks before rollbacks begin |
 | `rollback_batch_size` | 32 | Maximum blocks rolled back per loop iteration |
 
+## Block Processor Throttling
+
+In addition to rolling back blocks, `BoundedBacklog` signals the block processor to slow ingestion when the backlog grows severely. On each run-loop iteration the `should_throttle_block_processor` flag is updated:
+
+- **Throttle on** when `current_backlog_size > max_backlog × 1.5`
+- **Throttle off** when the backlog drops back to or below that threshold
+
+Callers read this flag via `BoundedBacklog::should_throttle_block_processor()`. The flag is stored as an `AtomicBool` so it can be read without taking the logic lock.
+
 ## Cooldown
 
-The `set_cooldown(true)` method pauses rollbacks without stopping the thread. This is used if there are too many `LedgerPipelineEvent`s. The rollback thread checks the cooldown flag before each rollback decision.
+`BoundedBacklog` implements the `BackpressureHandler` trait. When the upstream pipeline signals back-pressure, `cool_down()` is called, which sets the internal cooldown flag and wakes the run-loop thread; `recovered()` clears the flag. While the cooldown flag is set, `rollback_needed()` returns `false`, so the rollback thread skips rollback decisions without stopping.
 
 ## Design
 
@@ -61,8 +72,10 @@ classDiagram
     class BoundedBacklog {
         +run_loop()
         +stop()
-        +set_cooldown()
+        +should_throttle_block_processor() bool
         +handle(LedgerPipelineEvent)
+        +cool_down()
+        +recovered()
     }
 
     class BoundedBacklogLogic {
@@ -70,7 +83,8 @@ classDiagram
         +rollback_target_count() u64
         +gather_targets()
         +set_current_backlog_size()
-        +set_cool_down()
+        +should_throttle_block_processor() bool
+        +set_cooldown()
         +stopped() bool
         +insert(block, priority) bool
         +insert_processed(batch)
@@ -102,6 +116,7 @@ classDiagram
     BoundedBacklog --> Ledger : calls roll_back_batch
     BoundedBacklogLogic --> BacklogIndex : owns
     BoundedBacklog ..|> EventHandler : implements
+    BoundedBacklog ..|> BackpressureHandler : implements
 ```
 
 ## Files
