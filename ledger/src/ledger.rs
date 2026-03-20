@@ -9,7 +9,7 @@ use std::{
     time::SystemTime,
 };
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 #[cfg(feature = "ledger_snapshots")]
@@ -428,6 +428,8 @@ impl Ledger {
                 "account balances and pending balances don't add up to max supply!"
             );
             debug!("Ledger balance consistency verified");
+        } else {
+            warn!("Ledger consistency check skipped; ensure your environment provides data-integrity safeguards");
         }
 
         Ok(())
