@@ -24,8 +24,8 @@ pub use message_serializer::*;
 mod message_header;
 pub use message_header::*;
 
-mod node_id_handshake;
-pub use node_id_handshake::*;
+mod handshake;
+pub use handshake::{Handshake, HandshakeQuery, HandshakeResponse};
 
 mod keepalive;
 pub use keepalive::*;
