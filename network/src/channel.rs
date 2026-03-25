@@ -80,7 +80,7 @@ impl Channel {
             last_bootstrap_attempt: AtomicI64::new(0),
             timeout_seconds: AtomicU64::new(DEFAULT_TIMEOUT),
             timed_out: AtomicBool::new(false),
-            socket_type: AtomicU8::new(ChannelMode::Undefined as u8),
+            socket_type: AtomicU8::new(ChannelMode::Handshake as u8),
             closed: AtomicBool::new(false),
             data: Mutex::new(PeerInfo {
                 node_id: None,

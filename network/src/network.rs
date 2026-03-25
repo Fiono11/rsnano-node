@@ -123,7 +123,7 @@ pub struct Network {
     channel_stats: Arc<ChannelStats>,
     network_stats: NetworkStats,
     stopped: bool,
-    new_realtime_channel_observers: Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>>,
+    new_established_channel_observers: Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>>,
     attempts: AttemptContainer,
     config: NetworkConfig,
     excluded_peers: PeerExclusion,
@@ -140,7 +140,7 @@ impl Network {
             channel_stats: Arc::new(ChannelStats::default()),
             network_stats: Default::default(),
             stopped: false,
-            new_realtime_channel_observers: Vec::new(),
+            new_established_channel_observers: Vec::new(),
             attempts: Default::default(),
             excluded_peers: PeerExclusion::new(),
             bandwidth_limiter: Arc::new(BandwidthLimiter::new(config.limiter.clone())),
@@ -150,7 +150,6 @@ impl Network {
         }
     }
 
-    #[allow(dead_code)]
     pub fn new_test_instance() -> Self {
         Self::new(NetworkConfig::default_for(NetworkType::NanoDevNetwork))
     }
@@ -170,12 +169,17 @@ impl Network {
         self.data_receiver_factory = factory;
     }
 
-    pub fn on_new_realtime_channel(&mut self, callback: Arc<dyn Fn(Arc<Channel>) + Send + Sync>) {
-        self.new_realtime_channel_observers.push(callback);
+    pub fn on_new_established_channel(
+        &mut self,
+        callback: Arc<dyn Fn(Arc<Channel>) + Send + Sync>,
+    ) {
+        self.new_established_channel_observers.push(callback);
     }
 
-    pub fn new_realtime_channel_observers(&self) -> Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>> {
-        self.new_realtime_channel_observers.clone()
+    pub fn new_established_channel_observers(
+        &self,
+    ) -> Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>> {
+        self.new_established_channel_observers.clone()
     }
 
     pub fn is_inbound_slot_available(&self) -> bool {
@@ -229,7 +233,7 @@ impl Network {
                 Timestamp::new_test_instance(),
             )
             .unwrap();
-        channel.set_mode(ChannelMode::Realtime);
+        channel.set_mode(ChannelMode::Established);
         channel
     }
 
@@ -341,21 +345,21 @@ impl Network {
             .find(|c| c.node_id() == Some(*node_id) && c.is_alive())
     }
 
-    pub fn find_realtime_channel_by_remote_addr(
+    pub fn find_established_channel_by_remote_addr(
         &self,
         endpoint: &SocketAddrV6,
     ) -> Option<&Arc<Channel>> {
         self.channels.values().find(|c| {
-            c.mode() == ChannelMode::Realtime && c.is_alive() && c.peer_addr() == *endpoint
+            c.mode() == ChannelMode::Established && c.is_alive() && c.peer_addr() == *endpoint
         })
     }
 
-    pub fn find_realtime_channel_by_peering_addr(
+    pub fn find_established_channel_by_peering_addr(
         &self,
         peering_addr: &SocketAddrV6,
     ) -> Option<&Arc<Channel>> {
         self.channels.values().find(|c| {
-            c.mode() == ChannelMode::Realtime
+            c.mode() == ChannelMode::Established
                 && c.is_alive()
                 && c.peering_addr() == Some(*peering_addr)
         })
@@ -385,7 +389,7 @@ impl Network {
     pub fn channels(&self) -> impl Iterator<Item = &Arc<Channel>> {
         self.channels
             .values()
-            .filter(|c| c.is_alive() && c.mode() == ChannelMode::Realtime)
+            .filter(|c| c.is_alive() && c.mode() == ChannelMode::Established)
     }
 
     pub fn not_a_peer(&self, endpoint: &SocketAddrV6, allow_local_peers: bool) -> bool {
@@ -448,7 +452,7 @@ impl Network {
 
     fn size_ln(&self) -> f32 {
         // Clamp size to domain of std::log
-        let size = max(1, self.count_by_mode(ChannelMode::Realtime));
+        let size = max(1, self.count_by_mode(ChannelMode::Established));
         (size as f32).ln()
     }
 
@@ -502,7 +506,7 @@ impl Network {
         let mut peering_endpoint = None;
         let mut channel = None;
         for i in self.iter_by_last_bootstrap_attempt() {
-            if i.mode() == ChannelMode::Realtime
+            if i.mode() == ChannelMode::Established
                 && i.protocol_version() >= self.config.protocol_info.version_min
                 && let Some(peering) = i.peering_addr()
             {
@@ -521,7 +525,7 @@ impl Network {
         }
     }
 
-    pub fn iter_by_last_bootstrap_attempt(&self) -> Vec<Arc<Channel>> {
+    fn iter_by_last_bootstrap_attempt(&self) -> Vec<Arc<Channel>> {
         let mut channels: Vec<_> = self
             .channels
             .values()
@@ -579,11 +583,6 @@ impl Network {
 
         if self.excluded_peers.is_excluded(peer, now) {
             return Err(NetworkError::PeerExcluded);
-        }
-
-        let count = self.count_by_ip(peer.ip());
-        if count >= self.config.max_peers_per_ip as usize {
-            return Err(NetworkError::MaxConnectionsPerIp);
         }
 
         // Don't overload single IP
@@ -645,8 +644,6 @@ impl Network {
         warn!(?peer_addr, ?mode, ?direction, "Peer misbehaved!");
     }
 
-    pub fn close(&mut self) {}
-
     pub fn stop(&mut self) -> bool {
         if self.stopped {
             false
@@ -661,7 +658,7 @@ impl Network {
         }
     }
 
-    pub fn random_fill_realtime(&self, endpoints: &mut [SocketAddrV6]) {
+    pub fn random_fill_established(&self, endpoints: &mut [SocketAddrV6]) {
         // Don't include channels with ephemeral remote ports
         let mut peers: Vec<_> = self
             .channels()
@@ -675,17 +672,12 @@ impl Network {
 
         let null_endpoint = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0);
 
-        for (i, target) in endpoints.iter_mut().enumerate() {
-            let endpoint = if i < peers.len() {
-                peers[i].peering_addr().unwrap_or(null_endpoint)
-            } else {
-                null_endpoint
-            };
-            *target = endpoint;
+        for (target, peer) in endpoints.iter_mut().zip(peers.iter()) {
+            *target = peer.peering_addr().unwrap_or(null_endpoint);
         }
     }
 
-    pub fn upgrade_to_realtime_connection(
+    pub fn upgrade_to_established_connection(
         &self,
         channel_id: ChannelId,
         node_id: NodeId,
@@ -705,9 +697,9 @@ impl Network {
         }
 
         channel.set_node_id(node_id);
-        channel.set_mode(ChannelMode::Realtime);
+        channel.set_mode(ChannelMode::Established);
 
-        let observers = self.new_realtime_channel_observers();
+        let observers = self.new_established_channel_observers();
         let channel = channel.clone();
         Some((channel, observers))
     }
@@ -715,7 +707,7 @@ impl Network {
     pub fn idle_channels(&self, min_idle_time: Duration, now: Timestamp) -> Vec<Arc<Channel>> {
         let mut result = Vec::new();
         for channel in self.channels.values() {
-            if channel.mode() == ChannelMode::Realtime
+            if channel.mode() == ChannelMode::Established
                 && now - channel.last_activity() >= min_idle_time
             {
                 result.push(channel.clone());
@@ -729,8 +721,8 @@ impl Network {
         let mut info = ChannelsInfo::default();
         for channel in self.channels.values() {
             info.total += 1;
-            if channel.mode() == ChannelMode::Realtime {
-                info.realtime += 1;
+            if channel.mode() == ChannelMode::Established {
+                info.established += 1;
             }
             match channel.direction() {
                 ChannelDirection::Inbound => info.inbound += 1,
@@ -764,7 +756,7 @@ fn create_loopback_channel(config: &NetworkConfig) -> Arc<Channel> {
         Arc::new(BandwidthLimiter::default()),
         Arc::new(ChannelStats::default()),
     ));
-    channel.set_mode(ChannelMode::Realtime);
+    channel.set_mode(ChannelMode::Established);
     channel
 }
 
@@ -799,7 +791,7 @@ impl StatsSource for Network {
 #[derive(Default)]
 pub struct ChannelsInfo {
     pub total: usize,
-    pub realtime: usize,
+    pub established: usize,
     pub inbound: usize,
     pub outbound: usize,
 }
@@ -812,7 +804,7 @@ mod tests {
     use crate::{NULL_ENDPOINT, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3};
 
     #[test]
-    fn newly_added_channel_is_not_a_realtime_channel() {
+    fn newly_added_channel_is_not_an_established_channel() {
         let mut network = Network::new_test_instance();
         network
             .add(
@@ -850,7 +842,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_channel_to_realtime_channel() {
+    fn upgrade_channel_to_established_channel() {
         let mut network = Network::new_test_instance();
         let (channel, _receiver) = network
             .add(
@@ -863,7 +855,7 @@ mod tests {
 
         assert!(
             network
-                .upgrade_to_realtime_connection(channel.channel_id(), NodeId::from(456))
+                .upgrade_to_established_connection(channel.channel_id(), NodeId::from(456))
                 .is_some()
         );
         assert_eq!(network.channels().count(), 1);
@@ -873,17 +865,17 @@ mod tests {
     fn random_fill_peering_endpoints_empty() {
         let network = Network::new_test_instance();
         let mut endpoints = [NULL_ENDPOINT; 3];
-        network.random_fill_realtime(&mut endpoints);
+        network.random_fill_established(&mut endpoints);
         assert_eq!(endpoints, [NULL_ENDPOINT; 3]);
     }
 
     #[test]
     fn random_fill_peering_endpoints_part() {
         let mut network = Network::new_test_instance();
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
         let mut endpoints = [NULL_ENDPOINT; 3];
-        network.random_fill_realtime(&mut endpoints);
+        network.random_fill_established(&mut endpoints);
         assert!(endpoints.contains(&TEST_ENDPOINT_1));
         assert!(endpoints.contains(&TEST_ENDPOINT_2));
         assert_eq!(endpoints[2], NULL_ENDPOINT);
@@ -892,11 +884,11 @@ mod tests {
     #[test]
     fn random_fill_peering_endpoints() {
         let mut network = Network::new_test_instance();
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
         let mut endpoints = [NULL_ENDPOINT; 3];
-        network.random_fill_realtime(&mut endpoints);
+        network.random_fill_established(&mut endpoints);
         assert!(endpoints.contains(&TEST_ENDPOINT_1));
         assert!(endpoints.contains(&TEST_ENDPOINT_2));
         assert!(endpoints.contains(&TEST_ENDPOINT_3));
@@ -905,12 +897,12 @@ mod tests {
     #[test]
     fn available_channels() {
         let mut network = Network::new_test_instance();
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
-        add_realtime_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
+        add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
 
         let full_channel = network
-            .find_realtime_channel_by_remote_addr(&TEST_ENDPOINT_2)
+            .find_established_channel_by_remote_addr(&TEST_ENDPOINT_2)
             .unwrap();
 
         let traffic_type = TrafficType::Telemetry;
@@ -922,7 +914,10 @@ mod tests {
         assert_eq!(network.available_channels(TrafficType::Vote).count(), 3);
     }
 
-    fn add_realtime_channel_with_peering_addr(network: &mut Network, peering_addr: SocketAddrV6) {
+    fn add_established_channel_with_peering_addr(
+        network: &mut Network,
+        peering_addr: SocketAddrV6,
+    ) {
         let (channel, _receiver) = network
             .add(
                 TEST_ENDPOINT_1,
@@ -932,7 +927,7 @@ mod tests {
             )
             .unwrap();
         channel.set_peering_addr(peering_addr);
-        network.upgrade_to_realtime_connection(
+        network.upgrade_to_established_connection(
             channel.channel_id(),
             NodeId::from(peering_addr.ip().to_bits()),
         );
@@ -1014,7 +1009,7 @@ mod tests {
                 loopback.local_addr(),
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0)
             );
-            assert_eq!(loopback.mode(), ChannelMode::Realtime);
+            assert_eq!(loopback.mode(), ChannelMode::Established);
             assert!(loopback.is_alive());
             // Loopback isn't part of the channels list
             assert_eq!(network.len(), 0);

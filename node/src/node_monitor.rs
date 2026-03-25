@@ -49,8 +49,8 @@ impl NodeMonitor {
 
         let channels = self.network.read().unwrap().channels_info();
         info!(
-            "Peers: {} (realtime: {} | inbound: {} | outbound: {})",
-            channels.total, channels.realtime, channels.inbound, channels.outbound
+            "Peers: {} (established: {} | inbound: {} | outbound: {})",
+            channels.total, channels.established, channels.inbound, channels.outbound
         );
 
         {

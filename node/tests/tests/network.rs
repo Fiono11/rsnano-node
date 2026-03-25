@@ -39,7 +39,7 @@ fn last_contacted() {
                 .network
                 .read()
                 .unwrap()
-                .count_by_mode(ChannelMode::Realtime)
+                .count_by_mode(ChannelMode::Established)
         },
         1,
     );
@@ -94,7 +94,7 @@ fn last_contacted() {
             .network
             .read()
             .unwrap()
-            .count_by_mode(ChannelMode::Realtime),
+            .count_by_mode(ChannelMode::Established),
         1
     );
     let timestamp_after_keepalive = channel0.last_activity();

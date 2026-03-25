@@ -69,7 +69,7 @@ impl KeepalivePublisher {
             .network
             .read()
             .unwrap()
-            .find_realtime_channel_by_peering_addr(&peer_v6)
+            .find_established_channel_by_peering_addr(&peer_v6)
             .cloned();
 
         match channel {

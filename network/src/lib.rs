@@ -103,19 +103,10 @@ pub enum TrafficType {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, FromPrimitive)]
 pub enum ChannelMode {
-    /// No messages have been exchanged yet, so the mode is undefined
-    Undefined,
-    /// serve realtime traffic (votes, new blocks,...)
-    Realtime,
-}
-
-impl ChannelMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ChannelMode::Undefined => "undefined",
-            ChannelMode::Realtime => "realtime",
-        }
-    }
+    /// Handshake is in progress, no other messages are allowed
+    Handshake,
+    /// Handshake was successfull => connection is established
+    Established,
 }
 
 #[async_trait]

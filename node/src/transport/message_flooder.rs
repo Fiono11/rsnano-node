@@ -52,7 +52,7 @@ impl MessageFlooder {
                 Timestamp::new_test_instance(),
             )
             .unwrap();
-        channel.set_mode(rsnano_network::ChannelMode::Realtime);
+        channel.set_mode(rsnano_network::ChannelMode::Established);
 
         Self::new(
             Arc::new(Mutex::new(OnlineReps::default())),

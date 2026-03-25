@@ -298,7 +298,7 @@ mod tests {
                     Timestamp::new_test_instance(),
                 )
                 .unwrap();
-            channel.set_mode(ChannelMode::Realtime);
+            channel.set_mode(ChannelMode::Established);
         }
         let ledger = Arc::new(Ledger::new_null_builder().peers(already_stored).finish());
         let time_factory = SystemTimeFactory::new_null_with(now);

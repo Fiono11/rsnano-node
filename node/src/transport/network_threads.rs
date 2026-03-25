@@ -240,7 +240,7 @@ impl KeepaliveLoop {
         self.network
             .read()
             .unwrap()
-            .random_fill_realtime(&mut keepalive.peers);
+            .random_fill_established(&mut keepalive.peers);
         self.message_flooder.flood(
             &Message::Keepalive(keepalive),
             TrafficType::Keepalive,

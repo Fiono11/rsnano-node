@@ -41,7 +41,7 @@ impl TelemetryFactory {
         let bandwidth_cap;
         {
             let network = self.network.read().unwrap();
-            peer_count = network.count_by_mode(ChannelMode::Realtime) as u32;
+            peer_count = network.count_by_mode(ChannelMode::Established) as u32;
             protocol_version = network.protocol_info().version_using;
             bandwidth_cap = network.bandwidth_limit() as u64;
         }

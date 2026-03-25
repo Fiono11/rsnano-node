@@ -1005,7 +1005,7 @@ impl Node {
             network
                 .write()
                 .unwrap()
-                .on_new_realtime_channel(Arc::new(move |channel| {
+                .on_new_established_channel(Arc::new(move |channel| {
                     if let Some(crawler) = rep_crawler_w.upgrade() {
                         crawler.query_with_priority(channel);
                     }
@@ -1033,7 +1033,7 @@ impl Node {
         network
             .write()
             .unwrap()
-            .on_new_realtime_channel(Arc::new(move |channel| {
+            .on_new_established_channel(Arc::new(move |channel| {
                 // Send a keepalive message to the new channel
                 let Some(factory) = keepalive_factory_w.upgrade() else {
                     return;

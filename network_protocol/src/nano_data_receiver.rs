@@ -92,7 +92,7 @@ impl NanoDataReceiver {
         }
     }
 
-    fn queue_realtime(&mut self, message: Message) -> ReceiveResult {
+    fn queue_established(&mut self, message: Message) -> ReceiveResult {
         let enqueued = self.try_enqueue(message.clone());
         if enqueued {
             ReceiveResult::Continue
@@ -114,7 +114,7 @@ impl NanoDataReceiver {
             .insert(self.channel.channel_id(), keepalive);
     }
 
-    fn process_realtime(&mut self, message: Message) -> ReceiveResult {
+    fn process_established(&mut self, message: Message) -> ReceiveResult {
         if message.is_obsolete() {
             // TODO: Ban the peer?
             debug!(message_type = ?message.message_type(), "Received an obsolete message");
@@ -125,11 +125,11 @@ impl NanoDataReceiver {
             self.set_last_keepalive(keepalive.clone());
         }
 
-        self.queue_realtime(message)
+        self.queue_established(message)
     }
 
-    fn to_realtime_connection(&self, node_id: &NodeId) -> bool {
-        if self.channel.mode() != ChannelMode::Undefined {
+    fn to_established_connection(&self, node_id: &NodeId) -> bool {
+        if self.channel.mode() != ChannelMode::Handshake {
             return false;
         }
 
@@ -140,7 +140,7 @@ impl NanoDataReceiver {
         let result = network
             .read()
             .unwrap()
-            .upgrade_to_realtime_connection(self.channel.channel_id(), *node_id);
+            .upgrade_to_established_connection(self.channel.channel_id(), *node_id);
 
         if let Some((channel, observers)) = result {
             for observer in observers {
@@ -151,7 +151,7 @@ impl NanoDataReceiver {
                 .inc(StatType::TcpChannels, DetailType::ChannelAccepted);
 
             debug!(
-                "Switched to realtime mode (addr: {}, node_id: {})",
+                "Switched to established mode (addr: {}, node_id: {})",
                 self.channel.peer_addr(),
                 node_id
             );
@@ -161,7 +161,7 @@ impl NanoDataReceiver {
                 channel_id = ?self.channel.channel_id(),
                 peer = %self.channel.peer_addr(),
                 %node_id,
-                "Could not upgrade channel to realtime connection, because another channel for the same node ID was found",
+                "Could not upgrade channel to established connection, because another channel for the same node ID was found",
             );
             false
         }
@@ -175,17 +175,12 @@ impl NanoDataReceiver {
         );
 
         /*
-         * Server initially starts in undefined state, where it waits for either a handshake or booststrap request message
-         * If the server receives a handshake (and it is successfully validated) it will switch to a realtime mode.
-         * In realtime mode messages are deserialized and queued to `tcp_message_manager` for further processing.
-         * In realtime mode any bootstrap requests are ignored.
-         *
-         * If the server receives a bootstrap request before receiving a handshake, it will switch to a bootstrap mode.
-         * In bootstrap mode once a valid bootstrap request message is received, the server will start a corresponding bootstrap server and pass control to that server.
-         * Once that server finishes its task, control is passed back to this server to read and process any subsequent messages.
-         * In bootstrap mode any realtime messages are ignored
+         * The channel initially starts in handshake state, where it waits for either a handshake message.
+         * If the server receives a handshake (and it is successfully validated) it will switch to an established mode.
+         * In established mode messages are deserialized and queued for further processing.
+         * In established mode any legacy bootstrap requests are ignored.
          */
-        if self.channel.mode() == ChannelMode::Undefined {
+        if self.channel.mode() == ChannelMode::Handshake {
             let (mut status, response) = match &message {
                 Message::Handshake(payload) => {
                     self.handshake_stats
@@ -274,8 +269,8 @@ impl NanoDataReceiver {
                     return ReceiveResult::Pause;
                 }
             }
-        } else if self.channel.mode() == ChannelMode::Realtime {
-            return self.process_realtime(message);
+        } else if self.channel.mode() == ChannelMode::Established {
+            return self.process_established(message);
         }
 
         debug_assert!(false);
@@ -338,24 +333,24 @@ impl DataReceiver for NanoDataReceiver {
     fn try_unpause(&self) -> ReceiveResult {
         let mode = self.channel.mode();
         match mode {
-            ChannelMode::Undefined => {
+            ChannelMode::Handshake => {
                 // Paused during handshake
 
                 // Wait until all outbound messages are processed.
                 // This is needed for the handshake because the channel can't be upgraded to
-                // a realtime channel unless the handshake response is actually sent out
+                // an established channel unless the handshake response is actually sent out
                 if self.channel.queue_len() > 0 {
                     return ReceiveResult::Pause;
                 }
 
-                if !self.to_realtime_connection(&self.node_id) {
+                if !self.to_established_connection(&self.node_id) {
                     self.stats.inc_dir(
                         StatType::TcpServer,
                         DetailType::HandshakeError,
                         Direction::In,
                     );
                     debug!(
-                        "Error switching to realtime mode ({})",
+                        "Error switching to established mode ({})",
                         self.channel.peer_addr()
                     );
                     return ReceiveResult::Abort;
@@ -363,7 +358,7 @@ impl DataReceiver for NanoDataReceiver {
 
                 ReceiveResult::Continue
             }
-            ChannelMode::Realtime => {
+            ChannelMode::Established => {
                 let message = self.retry_enqueue.clone();
                 match message {
                     Some(message) => {

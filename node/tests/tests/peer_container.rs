@@ -14,7 +14,7 @@ fn no_self_incoming() {
         node.network
             .read()
             .unwrap()
-            .count_by_mode(ChannelMode::Realtime)
+            .count_by_mode(ChannelMode::Established)
             > 0
     })
 }

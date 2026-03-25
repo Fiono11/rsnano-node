@@ -96,7 +96,7 @@ fn rep_weight() {
             node.network
                 .read()
                 .unwrap()
-                .count_by_mode(ChannelMode::Realtime)
+                .count_by_mode(ChannelMode::Established)
         },
         3,
     );

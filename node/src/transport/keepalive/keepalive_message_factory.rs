@@ -24,7 +24,7 @@ impl KeepaliveMessageFactory {
     pub fn create_keepalive_self(&self) -> Message {
         let mut result = Keepalive::default();
         let network = self.network.read().unwrap();
-        network.random_fill_realtime(&mut result.peers);
+        network.random_fill_established(&mut result.peers);
         // We will clobber values in index 0 and 1 and if there are only 2 nodes in the system, these are the only positions occupied
         // Move these items to index 2 and 3 so they propagate
         result.peers[2] = result.peers[0];
@@ -61,7 +61,7 @@ impl KeepaliveMessageFactory {
         self.network
             .read()
             .unwrap()
-            .random_fill_realtime(&mut peers);
+            .random_fill_established(&mut peers);
 
         Message::Keepalive(Keepalive { peers })
     }
