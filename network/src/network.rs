@@ -51,6 +51,7 @@ pub struct NetworkConfig {
     pub limiter: BandwidthLimiterConfig,
     pub minimum_fanout: usize,
     pub idle_timeout: Duration,
+    pub handshake_timeout: Duration,
 }
 
 impl NetworkConfig {
@@ -88,6 +89,11 @@ impl NetworkConfig {
                 Duration::from_secs(5)
             } else {
                 Duration::from_secs(120)
+            },
+            handshake_timeout: if is_dev {
+                Duration::from_secs(5)
+            } else {
+                Duration::from_secs(30)
             },
         }
     }
@@ -406,10 +412,12 @@ impl Network {
 
     /// Returns channel IDs of removed channels
     pub fn purge(&mut self, now: Timestamp) -> Vec<Arc<Channel>> {
-        self.close_idle_channels(now);
-
-        // Check if any tcp channels belonging to old protocol versions which may still be alive due to async operations
-        self.close_old_protocol_versions(self.config.protocol_info.version_min);
+        for channel in self.channels.values() {
+            if self.should_close(now, &channel) {
+                self.channel_stats.timed_out.fetch_add(1, Ordering::Relaxed);
+                channel.close();
+            }
+        }
 
         // Remove channels with dead underlying sockets
         let purged_channels = self.remove_dead_channels();
@@ -419,26 +427,9 @@ impl Network {
         purged_channels
     }
 
-    fn close_idle_channels(&mut self, now: Timestamp) {
-        let cutoff = self.config.idle_timeout;
-        for channel in self.channels.values() {
-            if now - channel.last_activity() >= cutoff {
-                debug!(remote_addr = ?channel.peer_addr(), channel_id = %channel.channel_id(), mode = ?channel.mode(), "Closing idle channel");
-                self.channel_stats.timed_out.fetch_add(1, Ordering::Relaxed);
-                channel.close();
-            }
-        }
-    }
-
-    fn close_old_protocol_versions(&mut self, min_version: u8) {
-        for channel in self.channels.values() {
-            if channel.protocol_version() < min_version {
-                debug!(channel_id = %channel.channel_id(), peer_addr = ?channel.peer_addr(), version = channel.protocol_version(), min_version,
-                    "Closing channel with old protocol version",
-                );
-                channel.close();
-            }
-        }
+    fn should_close(&self, now: Timestamp, channel: &Channel) -> bool {
+        channel.has_timed_out(now, self.config.handshake_timeout, self.config.idle_timeout)
+            || channel.protocol_version() < self.config.protocol_info.version_min
     }
 
     /// Removes dead channels and returns their channel ids
@@ -907,107 +898,183 @@ mod tests {
         );
     }
 
-    mod purging {
-        use super::*;
+    /*
+     * Purging
+     */
 
-        fn network_with_cutoff(cutoff: Duration) -> Network {
-            let mut config = NetworkConfig::default_for(NetworkType::NanoDevNetwork);
-            config.idle_timeout = cutoff;
-            Network::new(config)
-        }
-
-        #[test]
-        fn purge_empty() {
-            let mut network = network_with_cutoff(Duration::from_secs(1));
-            network.purge(Timestamp::new_test_instance());
-            assert_eq!(network.len(), 0);
-        }
-
-        #[test]
-        fn dont_purge_new_channel() {
-            let mut network = network_with_cutoff(Duration::from_secs(1));
-            let now = Timestamp::new_test_instance();
-            network
-                .add(
-                    TEST_ENDPOINT_1,
-                    TEST_ENDPOINT_2,
-                    ChannelDirection::Outbound,
-                    now,
-                )
-                .unwrap();
-            network.purge(now);
-            assert_eq!(network.len(), 1);
-        }
-
-        #[test]
-        fn purge_if_last_activitiy_is_above_timeout() {
-            let mut network = network_with_cutoff(Duration::from_secs(1));
-            let now = Timestamp::new_test_instance();
-            let (channel, _) = network
-                .add(
-                    TEST_ENDPOINT_1,
-                    TEST_ENDPOINT_2,
-                    ChannelDirection::Outbound,
-                    now,
-                )
-                .unwrap();
-            channel.set_last_activity(now - Duration::from_secs(300));
-            network.purge(now);
-            assert_eq!(network.len(), 0);
-        }
-
-        #[test]
-        fn dont_purge_if_packet_sent_within_timeout() {
-            let mut network = network_with_cutoff(Duration::from_secs(1));
-            let now = Timestamp::new_test_instance();
-            let (channel, _) = network
-                .add(
-                    TEST_ENDPOINT_1,
-                    TEST_ENDPOINT_2,
-                    ChannelDirection::Outbound,
-                    now,
-                )
-                .unwrap();
-            channel.set_last_activity(now);
-            network.purge(now);
-            assert_eq!(network.len(), 1);
-        }
+    #[test]
+    fn purge_empty() {
+        let mut network = network_with_cutoff(Duration::from_secs(1));
+        network.purge(Timestamp::new_test_instance());
+        assert_eq!(network.len(), 0);
     }
 
-    mod loopback {
-        use super::*;
+    #[test]
+    fn dont_purge_new_channel() {
+        let mut network = network_with_cutoff(Duration::from_secs(1));
+        let now = Timestamp::new_test_instance();
+        network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                now,
+            )
+            .unwrap();
+        network.purge(now);
+        assert_eq!(network.len(), 1);
+    }
 
-        #[test]
-        fn has_loopback_channel() {
-            let network = Network::new_test_instance();
-            let loopback = network.loopback();
-            assert_eq!(
-                loopback.peer_addr(),
-                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0)
-            );
-            assert_eq!(
-                loopback.local_addr(),
-                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0)
-            );
-            assert_eq!(loopback.mode(), ChannelMode::Established);
-            assert!(loopback.is_alive());
-            // Loopback isn't part of the channels list
-            assert_eq!(network.len(), 0);
-        }
+    #[test]
+    fn purge_if_last_activitiy_is_above_timeout() {
+        let mut network = network_with_cutoff(Duration::from_secs(1));
+        let now = Timestamp::new_test_instance();
+        let (channel, _) = network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                now,
+            )
+            .unwrap();
+        network.upgrade_to_established_connection(channel.channel_id(), NodeId::from(123));
+        channel.set_last_activity(now - Duration::from_secs(300));
+        network.purge(now);
+        assert_eq!(network.len(), 0);
+    }
 
-        #[test]
-        fn can_be_retrieved_by_channel_id() {
-            let network = Network::new_test_instance();
-            let loopback = network.get(ChannelId::LOOPBACK).unwrap();
-            assert!(Arc::ptr_eq(loopback, network.loopback()));
-        }
+    #[test]
+    fn dont_purge_if_packet_sent_within_timeout() {
+        let mut network = network_with_cutoff(Duration::from_secs(1));
+        let now = Timestamp::new_test_instance();
+        let (channel, _) = network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                now,
+            )
+            .unwrap();
+        channel.set_last_activity(now);
+        network.purge(now);
+        assert_eq!(network.len(), 1);
+    }
 
-        #[test]
-        fn loopback_gets_stopped() {
-            let mut network = Network::new_test_instance();
-            network.stop();
-            let loopback = network.loopback();
-            assert_eq!(loopback.is_alive(), false);
-        }
+    fn network_with_handshake_timeout(timeout: Duration) -> Network {
+        let mut config = NetworkConfig::default_for(NetworkType::NanoDevNetwork);
+        config.handshake_timeout = timeout;
+        config.idle_timeout = Duration::from_secs(3600);
+        Network::new(config)
+    }
+
+    #[test]
+    fn dont_purge_handshake_channel_within_timeout() {
+        let mut network = network_with_handshake_timeout(Duration::from_secs(30));
+        let now = Timestamp::new_test_instance();
+        network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                now,
+            )
+            .unwrap();
+        network.purge(now);
+        assert_eq!(network.len(), 1);
+    }
+
+    #[test]
+    fn purge_handshake_channel_past_timeout() {
+        let mut network = network_with_handshake_timeout(Duration::from_secs(30));
+        let created_at = Timestamp::new_test_instance();
+        network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                created_at,
+            )
+            .unwrap();
+        let now = created_at + Duration::from_secs(31);
+        network.purge(now);
+        assert_eq!(network.len(), 0);
+    }
+
+    #[test]
+    fn handshake_timeout_increments_timed_out_stat() {
+        let mut network = network_with_handshake_timeout(Duration::from_secs(30));
+        let created_at = Timestamp::new_test_instance();
+        network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                created_at,
+            )
+            .unwrap();
+        let now = created_at + Duration::from_secs(31);
+        network.purge(now);
+        assert_eq!(network.channel_stats.timed_out.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn dont_purge_established_channel_on_handshake_timeout() {
+        let mut network = network_with_handshake_timeout(Duration::from_secs(30));
+        let created_at = Timestamp::new_test_instance();
+        let (channel, _) = network
+            .add(
+                TEST_ENDPOINT_1,
+                TEST_ENDPOINT_2,
+                ChannelDirection::Outbound,
+                created_at,
+            )
+            .unwrap();
+        channel.set_mode(ChannelMode::Established);
+        let now = created_at + Duration::from_secs(31);
+        network.purge(now);
+        assert_eq!(network.len(), 1);
+    }
+
+    /*
+     * Loopback
+     */
+
+    #[test]
+    fn has_loopback_channel() {
+        let network = Network::new_test_instance();
+        let loopback = network.loopback();
+        assert_eq!(
+            loopback.peer_addr(),
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0)
+        );
+        assert_eq!(
+            loopback.local_addr(),
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0)
+        );
+        assert_eq!(loopback.mode(), ChannelMode::Established);
+        assert!(loopback.is_alive());
+        // Loopback isn't part of the channels list
+        assert_eq!(network.len(), 0);
+    }
+
+    #[test]
+    fn can_be_retrieved_by_channel_id() {
+        let network = Network::new_test_instance();
+        let loopback = network.get(ChannelId::LOOPBACK).unwrap();
+        assert!(Arc::ptr_eq(loopback, network.loopback()));
+    }
+
+    #[test]
+    fn loopback_gets_stopped() {
+        let mut network = Network::new_test_instance();
+        network.stop();
+        let loopback = network.loopback();
+        assert_eq!(loopback.is_alive(), false);
+    }
+
+    fn network_with_cutoff(cutoff: Duration) -> Network {
+        let mut config = NetworkConfig::default_for(NetworkType::NanoDevNetwork);
+        config.idle_timeout = cutoff;
+        Network::new(config)
     }
 }

@@ -4,6 +4,7 @@ use std::{
     ops::Deref,
     sync::{Arc, RwLock},
 };
+use tracing::debug;
 
 pub trait DeadChannelCleanupStep: Send {
     fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]);
@@ -31,6 +32,14 @@ impl DeadChannelCleanup {
 
     pub fn clean_up(&self) {
         let removed_channels = self.network.write().unwrap().purge(self.clock.now());
+        for channel in &removed_channels {
+            debug!(
+                remote_addr = ?channel.peer_addr(),
+                channel_id = %channel.channel_id(),
+                mode = ?channel.mode(),
+                version = channel.protocol_version(),
+                "Idle/dead channel closed");
+        }
 
         let channel_ids: Vec<_> = removed_channels.iter().map(|c| c.channel_id()).collect();
 

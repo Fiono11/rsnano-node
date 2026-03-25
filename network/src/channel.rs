@@ -4,6 +4,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering},
     },
+    time::Duration,
 };
 
 use num_traits::FromPrimitive;
@@ -189,6 +190,18 @@ impl Channel {
 
     pub fn set_peering_addr(&self, peering_addr: SocketAddrV6) {
         self.data.lock().unwrap().peering_addr = Some(peering_addr);
+    }
+
+    pub fn has_timed_out(
+        &self,
+        now: Timestamp,
+        handshake_timeout: Duration,
+        idle_timeout: Duration,
+    ) -> bool {
+        match self.mode() {
+            ChannelMode::Handshake => now - self.created_at >= handshake_timeout,
+            ChannelMode::Established => now - self.last_activity() >= idle_timeout,
+        }
     }
 
     pub fn mode(&self) -> ChannelMode {
