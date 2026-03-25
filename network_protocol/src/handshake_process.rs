@@ -164,6 +164,265 @@ impl HandshakeProcess {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{HandshakeStats, SynCookies};
+    use rsnano_types::PrivateKey;
+    use std::sync::atomic::Ordering::Relaxed;
+
+    /*
+     * initiate_handshake
+     */
+
+    #[test]
+    fn initiate_creates_query() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let msg = process.initiate_handshake(bob_addr()).unwrap();
+        assert!(msg.query.is_some());
+        assert!(msg.response.is_none());
+    }
+
+    #[test]
+    fn initiate_is_v2() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let msg = process.initiate_handshake(bob_addr()).unwrap();
+        assert!(msg.is_v2);
+    }
+
+    #[test]
+    fn initiate_fails_for_same_peer_twice() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        process.initiate_handshake(bob_addr()).unwrap();
+        let result = process.initiate_handshake(bob_addr());
+        assert!(matches!(result, Err(HandshakeError::CookieCreationFailed)));
+    }
+
+    #[test]
+    fn initiate_increments_stat() {
+        let (mut process, stats) = make_process(PrivateKey::from(1));
+        process.initiate_handshake(bob_addr()).unwrap();
+        assert_eq!(stats.initiate.load(Relaxed), 1);
+    }
+
+    /*
+     * process_handshake: invalid messages
+     */
+
+    #[test]
+    fn empty_message_returns_error() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let result = process.process_handshake(&empty_handshake(), alice_addr());
+        assert!(matches!(result, Err(HandshakeError::EmptyResponse)));
+    }
+
+    #[test]
+    fn second_query_returns_error() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        let result = process.process_handshake(&query_handshake(), alice_addr());
+        assert!(matches!(result, Err(HandshakeError::MultipleQueries)));
+    }
+
+    #[test]
+    fn error_increments_handshake_error_stat() {
+        let (mut process, stats) = make_process(PrivateKey::from(1));
+        process
+            .process_handshake(&empty_handshake(), alice_addr())
+            .unwrap_err();
+        assert_eq!(stats.handshake_error.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn error_increments_per_error_stat() {
+        let (mut process, stats) = make_process(PrivateKey::from(1));
+        process
+            .process_handshake(&empty_handshake(), alice_addr())
+            .unwrap_err();
+        assert_eq!(
+            stats.errors[HandshakeError::EmptyResponse as usize].load(Relaxed),
+            1
+        );
+    }
+
+    /*
+     * process_handshake: responding to a query
+     */
+
+    #[test]
+    fn query_received_creates_response() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let (_, msg) = process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        assert!(msg.unwrap().response.is_some());
+    }
+
+    #[test]
+    fn query_received_creates_own_query() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let (_, msg) = process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        assert!(msg.unwrap().query.is_some());
+    }
+
+    #[test]
+    fn query_received_node_id_is_none() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let (node_id, _) = process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        assert!(node_id.is_none());
+    }
+
+    #[test]
+    fn query_increments_handshakes_received() {
+        let (mut process, stats) = make_process(PrivateKey::from(1));
+        process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        assert_eq!(stats.handshakes_received.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn query_increments_response_sent() {
+        let (mut process, stats) = make_process(PrivateKey::from(1));
+        process
+            .process_handshake(&query_handshake(), alice_addr())
+            .unwrap();
+        assert_eq!(stats.response_sent.load(Relaxed), 1);
+    }
+
+    /*
+     * process_handshake: completing the handshake
+     */
+
+    #[test]
+    fn successful_response_returns_remote_node_id() {
+        let bob_key = PrivateKey::from(2);
+        let (mut alice, _) = make_process(PrivateKey::from(1));
+        let (mut bob, _) = make_process(bob_key.clone());
+
+        let msg1 = alice.initiate_handshake(bob_addr()).unwrap();
+        let (_, msg2) = bob.process_handshake(&msg1, alice_addr()).unwrap();
+        let (node_id, _) = alice.process_handshake(&msg2.unwrap(), bob_addr()).unwrap();
+
+        assert_eq!(node_id, Some(bob_key.public_key().into()));
+    }
+
+    #[test]
+    fn successful_response_increments_response_ok() {
+        let (mut alice, alice_stats) = make_process(PrivateKey::from(1));
+        let (mut bob, _) = make_process(PrivateKey::from(2));
+
+        let msg1 = alice.initiate_handshake(bob_addr()).unwrap();
+        let (_, msg2) = bob.process_handshake(&msg1, alice_addr()).unwrap();
+        alice.process_handshake(&msg2.unwrap(), bob_addr()).unwrap();
+
+        assert_eq!(alice_stats.response_ok.load(Relaxed), 1);
+    }
+
+    /*
+     * process_handshake: response validation errors
+     */
+
+    #[test]
+    fn own_node_id_returns_error() {
+        let my_key = PrivateKey::from(1);
+        let (mut process, _) = make_process(my_key.clone());
+        let response = HandshakeResponse::new_v2(&[0; 32], &my_key, BlockHash::default());
+        let result = process.process_handshake(&response_handshake(response), bob_addr());
+        assert!(matches!(result, Err(HandshakeError::OwnNodeId)));
+    }
+
+    #[test]
+    fn invalid_genesis_returns_error() {
+        let genesis = BlockHash::from(1);
+        let stats = Arc::new(HandshakeStats::default());
+        let mut process = HandshakeProcess::new(
+            genesis,
+            PrivateKey::from(1),
+            Arc::new(SynCookies::new(10)),
+            stats,
+        );
+        let response =
+            HandshakeResponse::new_v2(&[0; 32], &PrivateKey::from(2), BlockHash::from(99));
+        let result = process.process_handshake(&response_handshake(response), bob_addr());
+        assert!(matches!(result, Err(HandshakeError::InvalidGenesis)));
+    }
+
+    #[test]
+    fn missing_cookie_returns_error() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        let response =
+            HandshakeResponse::new_v2(&[0; 32], &PrivateKey::from(2), BlockHash::default());
+        let result = process.process_handshake(&response_handshake(response), bob_addr());
+        assert!(matches!(result, Err(HandshakeError::MissingCookie)));
+    }
+
+    #[test]
+    fn invalid_signature_returns_error() {
+        let (mut process, _) = make_process(PrivateKey::from(1));
+        process.initiate_handshake(bob_addr()).unwrap();
+        // Sign with a different cookie than the one stored in syn_cookies
+        let wrong_cookie = [0u8; 32];
+        let response =
+            HandshakeResponse::new_v2(&wrong_cookie, &PrivateKey::from(2), BlockHash::default());
+        let result = process.process_handshake(&response_handshake(response), bob_addr());
+        assert!(matches!(result, Err(HandshakeError::InvalidSignature)));
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn make_process(key: PrivateKey) -> (HandshakeProcess, Arc<HandshakeStats>) {
+        let stats = Arc::new(HandshakeStats::default());
+        let process = HandshakeProcess::new(
+            BlockHash::default(),
+            key,
+            Arc::new(SynCookies::new(10)),
+            stats.clone(),
+        );
+        (process, stats)
+    }
+
+    fn alice_addr() -> SocketAddrV6 {
+        "[::1]:1000".parse().unwrap()
+    }
+
+    fn bob_addr() -> SocketAddrV6 {
+        "[::2]:2000".parse().unwrap()
+    }
+
+    fn empty_handshake() -> Handshake {
+        Handshake {
+            query: None,
+            response: None,
+            is_v2: true,
+        }
+    }
+
+    fn query_handshake() -> Handshake {
+        Handshake {
+            query: Some(HandshakeQuery { cookie: [42; 32] }),
+            response: None,
+            is_v2: true,
+        }
+    }
+
+    fn response_handshake(response: HandshakeResponse) -> Handshake {
+        Handshake {
+            query: None,
+            response: Some(response),
+            is_v2: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Error)]
 pub enum HandshakeError {
     #[error("cookie creation failed")]
