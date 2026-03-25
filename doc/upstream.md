@@ -12,6 +12,11 @@ These are the most recent commits that have been reviewed and merged into RsNano
 - [x] a04a2496e36d2c90f004ebbdeb39ce7d6b1e4bc9
 - [x] 6f405e005fc79c4d25af031c2b2854e25d95d060
 - [x] f43442ddd361cc4c31288d64d31b4c63b7493769
+- [x] d212a697bb83492a7a10d2c57367e22ee07d87ba
+- [x] 09a22d45b0cc76bfb65e4c7f947c027b74b2c18f
+- [x] 6ef4b550ca24f56083a0e8779ba7021e809347cf
+- [ ] cc768f39965084d99e043f9c779a44e0ec440b15
+- [ ] 77e49c5d878f3a2c33f7802bc1d66259027d0999
 
 ## Unmerged Upstream Changes
 
