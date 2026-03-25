@@ -509,40 +509,6 @@ impl Network {
         candidates >= target_count / 2
     }
 
-    pub fn bootstrap_peer(&mut self, now: Timestamp) -> SocketAddrV6 {
-        let mut peering_endpoint = None;
-        let mut channel = None;
-        for i in self.iter_by_last_bootstrap_attempt() {
-            if i.mode() == ChannelMode::Established
-                && i.protocol_version() >= self.config.protocol_info.version_min
-                && let Some(peering) = i.peering_addr()
-            {
-                channel = Some(i);
-                peering_endpoint = Some(peering);
-                break;
-            }
-        }
-
-        match (channel, peering_endpoint) {
-            (Some(c), Some(peering)) => {
-                c.set_last_bootstrap_attempt(now);
-                peering
-            }
-            _ => SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0),
-        }
-    }
-
-    fn iter_by_last_bootstrap_attempt(&self) -> Vec<Arc<Channel>> {
-        let mut channels: Vec<_> = self
-            .channels
-            .values()
-            .filter(|c| c.is_alive())
-            .cloned()
-            .collect();
-        channels.sort_by_key(|a| a.last_bootstrap_attempt());
-        channels
-    }
-
     pub fn find_channels_by_remote_addr(&self, remote_addr: &SocketAddrV6) -> Vec<Arc<Channel>> {
         self.channels
             .values()

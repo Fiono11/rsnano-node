@@ -33,9 +33,10 @@ pub struct Channel {
     protocol_version: AtomicU8,
     direction: ChannelDirection,
 
+    created_at: Timestamp,
+
     /// the timestamp (in seconds since epoch) of the last time there was successful activity on the socket
     last_activity: AtomicI64,
-    last_bootstrap_attempt: AtomicI64,
 
     /// Duration in seconds of inactivity that causes a socket timeout
     /// activity is any successful connect, send or receive event
@@ -76,8 +77,8 @@ impl Channel {
             // TODO set protocol version to 0
             protocol_version: AtomicU8::new(protocol_version),
             direction,
+            created_at: now,
             last_activity: AtomicI64::new(now.millis()),
-            last_bootstrap_attempt: AtomicI64::new(0),
             timeout_seconds: AtomicU64::new(DEFAULT_TIMEOUT),
             timed_out: AtomicBool::new(false),
             socket_type: AtomicU8::new(ChannelMode::Handshake as u8),
@@ -166,6 +167,10 @@ impl Channel {
         self.protocol_version.store(version, Ordering::Relaxed);
     }
 
+    pub fn created_at(&self) -> Timestamp {
+        self.created_at
+    }
+
     pub fn last_activity(&self) -> Timestamp {
         Timestamp::new(self.last_activity.load(Ordering::Relaxed) as i128 * 1_000_000)
     }
@@ -227,15 +232,6 @@ impl Channel {
 
     pub fn set_mode(&self, mode: ChannelMode) {
         self.socket_type.store(mode as u8, Ordering::SeqCst);
-    }
-
-    pub fn last_bootstrap_attempt(&self) -> Timestamp {
-        Timestamp::new(self.last_bootstrap_attempt.load(Ordering::Relaxed) as i128 * 1_000_000)
-    }
-
-    pub fn set_last_bootstrap_attempt(&self, now: Timestamp) {
-        self.last_bootstrap_attempt
-            .store(now.millis(), Ordering::Relaxed);
     }
 
     pub fn should_drop(&self, traffic_type: TrafficType) -> bool {
