@@ -113,7 +113,6 @@ mod election_scheduler {
     #[test]
     fn transition_optimistic_to_priority() {
         let mut system = System::new();
-        system.network_params.network.vote_broadcast_interval = Duration::from_secs(15);
 
         let node = system
             .build_node()

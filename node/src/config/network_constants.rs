@@ -15,18 +15,13 @@ pub struct NetworkConstants {
     pub default_rpc_port: u16,
     pub default_websocket_port: u16,
     pub aec_loop_interval: Duration,
-    pub cleanup_period: Duration,
     /** How often to send keepalive messages */
     pub keepalive_period: Duration,
-    /** Default maximum idle time for a socket before it's automatically closed */
-    pub idle_timeout: Duration,
     pub sync_cookie_cutoff: Duration,
-    pub bootstrap_interval_s: i64,
     /** Maximum number of peers per IP. It is also the max number of connections per IP*/
     pub max_peers_per_ip: usize,
     /** Maximum number of peers per subnetwork */
     pub max_peers_per_subnetwork: usize,
-    pub peer_dump_interval: Duration,
 
     pub current_network: NetworkType,
     /** Current protocol version */
@@ -35,11 +30,6 @@ pub struct NetworkConstants {
     pub protocol_version_min: u8,
     /** Minimum accepted protocol version used when bootstrapping */
     pub bootstrap_protocol_version_min: u8,
-    pub ipv6_subnetwork_prefix_for_limiting: usize,
-    pub silent_connection_tolerance_time_s: i64,
-    /// Time to wait before vote rebroadcasts for active elections (milliseconds)
-    pub vote_broadcast_interval: Duration,
-    pub block_broadcast_interval: Duration,
 
     /** How often to request telemetry from peers */
     pub telemetry_request_interval_ms: i64,
@@ -81,7 +71,6 @@ impl NetworkConstants {
     }
 
     fn live(work: WorkThresholds) -> Self {
-        let cleanup_period = Duration::from_secs(60);
         let protocol_info = ProtocolInfo::default();
         Self {
             work,
@@ -93,18 +82,10 @@ impl NetworkConstants {
             default_rpc_port: DEFAULT_PORT_RPC,
             default_websocket_port: DEFAULT_PORT_WEBSOCKET,
             aec_loop_interval: Duration::from_millis(300),
-            cleanup_period,
             keepalive_period: Duration::from_secs(15),
-            idle_timeout: cleanup_period * 2,
             sync_cookie_cutoff: Duration::from_secs(5),
-            bootstrap_interval_s: 15 * 60,
             max_peers_per_ip: 4,
             max_peers_per_subnetwork: 16,
-            peer_dump_interval: Duration::from_secs(5 * 60),
-            ipv6_subnetwork_prefix_for_limiting: 64,
-            silent_connection_tolerance_time_s: 120,
-            vote_broadcast_interval: Duration::from_secs(15),
-            block_broadcast_interval: Duration::from_secs(150),
             telemetry_request_interval_ms: 1000 * 60,
             telemetry_broadcast_interval_ms: 1000 * 60,
             telemetry_cache_cutoff_ms: 1000 * 130, //  2 * `telemetry_broadcast_interval` + some margin
@@ -149,21 +130,15 @@ impl NetworkConstants {
     }
 
     fn dev(work: WorkThresholds) -> Self {
-        let cleanup_period = Duration::from_secs(1);
         Self {
             current_network: NetworkType::NanoDevNetwork,
             default_node_port: 44000,
             default_rpc_port: 45000,
             default_websocket_port: 47000,
             aec_loop_interval: Duration::from_millis(20),
-            cleanup_period,
             keepalive_period: Duration::from_secs(1),
-            idle_timeout: cleanup_period * 15,
             max_peers_per_ip: 256, // During tests, all peers are on localhost
             max_peers_per_subnetwork: 256,
-            peer_dump_interval: Duration::from_secs(1),
-            vote_broadcast_interval: Duration::from_millis(500),
-            block_broadcast_interval: Duration::from_millis(500),
             telemetry_cache_cutoff_ms: 2000,
             telemetry_request_interval_ms: 500,
             telemetry_broadcast_interval_ms: 500,
@@ -189,7 +164,6 @@ impl NetworkConstants {
     pub fn is_test_network(&self) -> bool {
         self.current_network == NetworkType::NanoTestNetwork
     }
-
 
     pub fn get_current_network_as_string(&self) -> &str {
         match self.current_network {
