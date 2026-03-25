@@ -1,7 +1,5 @@
 use std::{net::SocketAddrV6, sync::Arc};
 
-use tracing::{debug, warn};
-
 use rsnano_messages::{Handshake, HandshakeQuery, HandshakeResponse};
 use rsnano_types::{BlockHash, NodeId, PrivateKey};
 
@@ -68,14 +66,6 @@ impl HandshakeProcess {
 
         self.handshake_received = true;
 
-        let log_type = match (message.query.is_some(), message.response.is_some()) {
-            (true, true) => "query + response",
-            (true, false) => "query",
-            (false, true) => "response",
-            (false, false) => "none",
-        };
-        debug!("Handshake message received: {} ({})", log_type, peer);
-
         // Send response + our own query
         let our_response = message
             .query
@@ -88,10 +78,6 @@ impl HandshakeProcess {
                     return Ok((Some(their_response.node_id), our_response));
                 }
                 Err(HandshakeError::OwnNodeId) => {
-                    warn!(
-                        "This node tried to connect to itself. Closing channel ({})",
-                        peer
-                    );
                     return Err(HandshakeError::OwnNodeId);
                 }
                 Err(e) => {

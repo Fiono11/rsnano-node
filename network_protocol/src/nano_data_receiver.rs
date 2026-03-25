@@ -9,7 +9,7 @@ use rsnano_network::{
 use rsnano_types::{NodeId, ProtocolInfo};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use crate::{HandshakeProcess, HandshakeStats, HandshakeStatus, LatestKeepalives};
+use crate::{HandshakeError, HandshakeProcess, HandshakeStats, HandshakeStatus, LatestKeepalives};
 
 pub struct NanoDataReceiver {
     channel: Arc<Channel>,
@@ -187,6 +187,18 @@ impl NanoDataReceiver {
                         .handshakes_received
                         .fetch_add(1, Ordering::Relaxed);
 
+                    let log_type = match (payload.query.is_some(), payload.response.is_some()) {
+                        (true, true) => "query + response",
+                        (true, false) => "query",
+                        (false, true) => "response",
+                        (false, false) => "none",
+                    };
+                    debug!(
+                        "Handshake message received: {} ({})",
+                        log_type,
+                        self.channel.peer_addr()
+                    );
+
                     match self
                         .handshake_process
                         .process_handshake(payload, self.channel.peer_addr())
@@ -206,6 +218,12 @@ impl NanoDataReceiver {
                             self.handshake_stats
                                 .handshake_error
                                 .fetch_add(1, Ordering::Relaxed);
+                            if matches!(e, HandshakeError::OwnNodeId) {
+                                warn!(
+                                    "This node tried to connect to itself. Closing channel ({})",
+                                    self.channel.peer_addr()
+                                );
+                            }
                             debug!(
                                 peer = %self.channel.peer_addr(),
                                 error = ?e,
