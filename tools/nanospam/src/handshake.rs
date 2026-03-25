@@ -7,7 +7,7 @@ use anyhow::bail;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use rsnano_messages::{Message, MessageDeserializer, MessageSerializer};
-use rsnano_network_protocol::{HandshakeProcess, SynCookies};
+use rsnano_network_protocol::{HandshakeProcess, HandshakeStats, SynCookies};
 use rsnano_nullable_tcp::TcpStream;
 use rsnano_types::{BlockHash, PrivateKey, ProtocolInfo};
 
@@ -25,7 +25,12 @@ pub(crate) async fn perform_handshake(
     let mut deserializer = MessageDeserializer::new(protocol);
 
     let syn_cookies = Arc::new(SynCookies::default());
-    let mut handshake = HandshakeProcess::new(genesis_hash, node_id_key, syn_cookies);
+    let mut handshake = HandshakeProcess::new(
+        genesis_hash,
+        node_id_key,
+        syn_cookies,
+        Arc::new(HandshakeStats::default()),
+    );
 
     let handshake_payload = handshake.initiate_handshake(peer_addr)?;
     let buffer = serializer.serialize(&Message::Handshake(handshake_payload));

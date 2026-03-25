@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock, Weak, atomic::Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use tracing::{debug, warn};
 
@@ -9,7 +9,7 @@ use rsnano_network::{
 use rsnano_types::{NodeId, ProtocolInfo};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use crate::{HandshakeError, HandshakeProcess, HandshakeStats, HandshakeStatus, LatestKeepalives};
+use crate::{HandshakeProcess, HandshakeStatus, LatestKeepalives};
 
 pub struct NanoDataReceiver {
     channel: Arc<Channel>,
@@ -22,7 +22,6 @@ pub struct NanoDataReceiver {
     network: Weak<RwLock<Network>>,
     first_message: bool,
     node_id: NodeId,
-    handshake_stats: Arc<HandshakeStats>,
     retry_enqueue: Option<Message>,
 }
 
@@ -35,7 +34,6 @@ impl NanoDataReceiver {
         latest_keepalives: Arc<Mutex<LatestKeepalives>>,
         stats: Arc<Stats>,
         network: Weak<RwLock<Network>>,
-        handshake_stats: Arc<HandshakeStats>,
         protocol: ProtocolInfo,
     ) -> Self {
         Self {
@@ -49,7 +47,6 @@ impl NanoDataReceiver {
             network,
             first_message: true,
             node_id: NodeId::ZERO,
-            handshake_stats,
             retry_enqueue: None,
         }
     }
@@ -70,17 +67,7 @@ impl NanoDataReceiver {
 
                 debug!("Initiating handshake query ({})", peer);
                 let enqueued = self.channel.send(data, TrafficType::Generic);
-                if enqueued {
-                    self.handshake_stats
-                        .handshakes_sent
-                        .fetch_add(1, Ordering::Relaxed);
-                    self.handshake_stats
-                        .initiate
-                        .fetch_add(1, Ordering::Relaxed);
-                } else {
-                    self.handshake_stats
-                        .network_error
-                        .fetch_add(1, Ordering::Relaxed);
+                if !(enqueued) {
                     warn!(%peer, "Could not send handshake");
                     self.channel.close();
                 }
@@ -183,10 +170,6 @@ impl NanoDataReceiver {
         if self.channel.mode() == ChannelMode::Handshake {
             let (mut status, response) = match &message {
                 Message::Handshake(payload) => {
-                    self.handshake_stats
-                        .handshakes_received
-                        .fetch_add(1, Ordering::Relaxed);
-
                     let log_type = match (payload.query.is_some(), payload.response.is_some()) {
                         (true, true) => "query + response",
                         (true, false) => "query",
@@ -203,22 +186,12 @@ impl NanoDataReceiver {
                         .handshake_process
                         .process_handshake(payload, self.channel.peer_addr())
                     {
-                        Ok((their_node_id, response)) => {
-                            self.handshake_stats
-                                .response_ok
-                                .fetch_add(1, Ordering::Relaxed);
-
-                            match their_node_id {
-                                Some(node_id) => (HandshakeStatus::Completed(node_id), response),
-                                None => (HandshakeStatus::Handshake, response),
-                            }
-                        }
+                        Ok((their_node_id, response)) => match their_node_id {
+                            Some(node_id) => (HandshakeStatus::Completed(node_id), response),
+                            None => (HandshakeStatus::Handshake, response),
+                        },
                         Err(e) => {
-                            self.handshake_stats.errors[e as usize].fetch_add(1, Ordering::Relaxed);
-                            self.handshake_stats
-                                .handshake_error
-                                .fetch_add(1, Ordering::Relaxed);
-                            if matches!(e, HandshakeError::OwnNodeId) {
+                            if matches!(e, crate::HandshakeError::OwnNodeId) {
                                 warn!(
                                     "This node tried to connect to itself. Closing channel ({})",
                                     self.channel.peer_addr()
@@ -242,17 +215,7 @@ impl NanoDataReceiver {
                 let buffer = self.serializer.serialize(&Message::Handshake(response));
 
                 let enqueued = self.channel.send(buffer, TrafficType::Generic);
-                if enqueued {
-                    self.handshake_stats
-                        .handshakes_sent
-                        .fetch_add(1, Ordering::Relaxed);
-                    self.handshake_stats
-                        .response_sent
-                        .fetch_add(1, Ordering::Relaxed);
-                } else {
-                    self.handshake_stats
-                        .network_error
-                        .fetch_add(1, Ordering::Relaxed);
+                if !enqueued {
                     warn!(peer = %self.channel.peer_addr(), "Error sending handshake response");
                     status = HandshakeStatus::Abort;
                 }

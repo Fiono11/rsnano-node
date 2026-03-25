@@ -1,12 +1,16 @@
-use std::{net::SocketAddrV6, sync::Arc};
+use std::{
+    net::SocketAddrV6,
+    sync::{Arc, atomic::Ordering::Relaxed},
+};
 
 use rsnano_messages::{Handshake, HandshakeQuery, HandshakeResponse};
 use rsnano_types::{BlockHash, NodeId, PrivateKey};
 
-use crate::SynCookies;
+use crate::{HandshakeStats, SynCookies};
 use thiserror::Error;
 
 pub enum HandshakeStatus {
+    /// Something went wrong. Abort the connection.
     Abort,
     AbortOwnNodeId,
     Handshake,
@@ -20,6 +24,7 @@ pub struct HandshakeProcess {
     node_id_key: PrivateKey,
     syn_cookies: Arc<SynCookies>,
     handshake_received: bool,
+    stats: Arc<HandshakeStats>,
 }
 
 impl HandshakeProcess {
@@ -27,16 +32,19 @@ impl HandshakeProcess {
         genesis_hash: BlockHash,
         node_id_key: PrivateKey,
         syn_cookies: Arc<SynCookies>,
+        stats: Arc<HandshakeStats>,
     ) -> Self {
         Self {
             genesis_hash,
             node_id_key,
             syn_cookies,
             handshake_received: false,
+            stats,
         }
     }
 
     pub fn initiate_handshake(&mut self, peer: SocketAddrV6) -> Result<Handshake, HandshakeError> {
+        self.stats.initiate.fetch_add(1, Relaxed);
         let query = self.prepare_query(peer);
         if query.is_none() {
             return Err(HandshakeError::CookieCreationFailed);
@@ -54,14 +62,22 @@ impl HandshakeProcess {
         message: &Handshake,
         peer: SocketAddrV6,
     ) -> Result<(Option<NodeId>, Option<Handshake>), HandshakeError> {
+        self.stats.handshakes_received.fetch_add(1, Relaxed);
+
         if message.query.is_none() && message.response.is_none() {
             // There must be a query or a response or both!
-            return Err(HandshakeError::EmptyResponse);
+            let e = HandshakeError::EmptyResponse;
+            self.stats.errors[e as usize].fetch_add(1, Relaxed);
+            self.stats.handshake_error.fetch_add(1, Relaxed);
+            return Err(e);
         }
 
         if message.query.is_some() && self.handshake_received {
             // Second handshake message should be a response only
-            return Err(HandshakeError::MultipleQueries);
+            let e = HandshakeError::MultipleQueries;
+            self.stats.errors[e as usize].fetch_add(1, Relaxed);
+            self.stats.handshake_error.fetch_add(1, Relaxed);
+            return Err(e);
         }
 
         self.handshake_received = true;
@@ -75,16 +91,21 @@ impl HandshakeProcess {
         if let Some(their_response) = &message.response {
             match self.verify_response(their_response, peer) {
                 Ok(()) => {
+                    self.stats.response_ok.fetch_add(1, Relaxed);
                     return Ok((Some(their_response.node_id), our_response));
                 }
-                Err(HandshakeError::OwnNodeId) => {
-                    return Err(HandshakeError::OwnNodeId);
-                }
                 Err(e) => {
+                    self.stats.errors[e as usize].fetch_add(1, Relaxed);
+                    self.stats.handshake_error.fetch_add(1, Relaxed);
                     return Err(e);
                 }
             }
         }
+
+        if our_response.is_some() {
+            self.stats.response_sent.fetch_add(1, Relaxed);
+        }
+
         // Handshake is in progress
         Ok((None, our_response))
     }

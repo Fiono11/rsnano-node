@@ -54,6 +54,7 @@ impl DataReceiverFactory for NanoDataReceiverFactory {
             self.genesis_hash,
             self.node_id.clone(),
             self.syn_cookies.clone(),
+            self.handshake_stats.clone(),
         );
 
         let message_deserializer =
@@ -67,7 +68,6 @@ impl DataReceiverFactory for NanoDataReceiverFactory {
             self.latest_keepalives.clone(),
             self.stats.clone(),
             self.network.clone(),
-            self.handshake_stats.clone(),
             self.protocol,
         );
 
