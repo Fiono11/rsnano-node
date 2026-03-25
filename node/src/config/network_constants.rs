@@ -190,9 +190,6 @@ impl NetworkConstants {
         self.current_network == NetworkType::NanoTestNetwork
     }
 
-    pub fn cleanup_cutoff(&self) -> Duration {
-        self.cleanup_period * 5
-    }
 
     pub fn get_current_network_as_string(&self) -> &str {
         match self.current_network {

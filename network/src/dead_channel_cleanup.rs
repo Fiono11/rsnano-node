@@ -3,31 +3,24 @@ use rsnano_nullable_clock::SteadyClock;
 use std::{
     ops::Deref,
     sync::{Arc, RwLock},
-    time::Duration,
 };
 
 pub trait DeadChannelCleanupStep: Send {
     fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]);
 }
 
-// Removes dead channels and all their related queue entries
+/// Removes dead channels and all their related queue entries
 pub struct DeadChannelCleanup {
     clock: Arc<SteadyClock>,
     network: Arc<RwLock<Network>>,
-    cleanup_cutoff: Duration,
     cleanup_steps: Vec<Box<dyn DeadChannelCleanupStep>>,
 }
 
 impl DeadChannelCleanup {
-    pub fn new(
-        clock: Arc<SteadyClock>,
-        network: Arc<RwLock<Network>>,
-        cleanup_cutoff: Duration,
-    ) -> Self {
+    pub fn new(clock: Arc<SteadyClock>, network: Arc<RwLock<Network>>) -> Self {
         Self {
             clock,
             network,
-            cleanup_cutoff,
             cleanup_steps: Vec::new(),
         }
     }
@@ -37,11 +30,7 @@ impl DeadChannelCleanup {
     }
 
     pub fn clean_up(&self) {
-        let removed_channels = self
-            .network
-            .write()
-            .unwrap()
-            .purge(self.clock.now(), self.cleanup_cutoff);
+        let removed_channels = self.network.write().unwrap().purge(self.clock.now());
 
         let channel_ids: Vec<_> = removed_channels.iter().map(|c| c.channel_id()).collect();
 

@@ -921,11 +921,8 @@ impl Node {
         ));
         block_processor.set_should_throttle(should_throttle_block_processor);
 
-        let mut dead_channel_cleanup = DeadChannelCleanup::new(
-            steady_clock.clone(),
-            network.clone(),
-            network_params.network.cleanup_cutoff(),
-        );
+        let mut dead_channel_cleanup =
+            DeadChannelCleanup::new(steady_clock.clone(), network.clone());
         dead_channel_cleanup.add_step(InboundMessageQueueCleanup::new(
             inbound_message_queue.clone(),
         ));

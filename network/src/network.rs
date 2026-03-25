@@ -50,6 +50,7 @@ pub struct NetworkConfig {
     pub listening_port: u16,
     pub limiter: BandwidthLimiterConfig,
     pub minimum_fanout: usize,
+    pub idle_timeout: Duration,
 }
 
 impl NetworkConfig {
@@ -83,6 +84,11 @@ impl NetworkConfig {
             },
             limiter: BandwidthLimiterConfig::default(),
             minimum_fanout: 2,
+            idle_timeout: if is_dev {
+                Duration::from_secs(5)
+            } else {
+                Duration::from_secs(300)
+            },
         }
     }
 }
@@ -399,8 +405,8 @@ impl Network {
     }
 
     /// Returns channel IDs of removed channels
-    pub fn purge(&mut self, now: Timestamp, cutoff_period: Duration) -> Vec<Arc<Channel>> {
-        self.close_idle_channels(now, cutoff_period);
+    pub fn purge(&mut self, now: Timestamp) -> Vec<Arc<Channel>> {
+        self.close_idle_channels(now);
 
         // Check if any tcp channels belonging to old protocol versions which may still be alive due to async operations
         self.close_old_protocol_versions(self.config.protocol_info.version_min);
@@ -409,13 +415,14 @@ impl Network {
         let purged_channels = self.remove_dead_channels();
 
         // Remove keepalive attempt tracking for attempts older than cutoff
-        self.attempts.purge(now, cutoff_period);
+        self.attempts.purge(now, self.config.idle_timeout);
         purged_channels
     }
 
-    fn close_idle_channels(&mut self, now: Timestamp, cutoff_period: Duration) {
+    fn close_idle_channels(&mut self, now: Timestamp) {
+        let cutoff = self.config.idle_timeout;
         for entry in self.channels.values() {
-            if now - entry.last_activity() >= cutoff_period {
+            if now - entry.last_activity() >= cutoff {
                 debug!(remote_addr = ?entry.peer_addr(), channel_id = %entry.channel_id(), mode = ?entry.mode(), "Closing idle channel");
                 entry.close();
             }
@@ -936,16 +943,22 @@ mod tests {
     mod purging {
         use super::*;
 
+        fn network_with_cutoff(cutoff: Duration) -> Network {
+            let mut config = NetworkConfig::default_for(NetworkType::NanoDevNetwork);
+            config.idle_timeout = cutoff;
+            Network::new(config)
+        }
+
         #[test]
         fn purge_empty() {
-            let mut network = Network::new_test_instance();
-            network.purge(Timestamp::new_test_instance(), Duration::from_secs(1));
+            let mut network = network_with_cutoff(Duration::from_secs(1));
+            network.purge(Timestamp::new_test_instance());
             assert_eq!(network.len(), 0);
         }
 
         #[test]
         fn dont_purge_new_channel() {
-            let mut network = Network::new_test_instance();
+            let mut network = network_with_cutoff(Duration::from_secs(1));
             let now = Timestamp::new_test_instance();
             network
                 .add(
@@ -955,13 +968,13 @@ mod tests {
                     now,
                 )
                 .unwrap();
-            network.purge(now, Duration::from_secs(1));
+            network.purge(now);
             assert_eq!(network.len(), 1);
         }
 
         #[test]
         fn purge_if_last_activitiy_is_above_timeout() {
-            let mut network = Network::new_test_instance();
+            let mut network = network_with_cutoff(Duration::from_secs(1));
             let now = Timestamp::new_test_instance();
             let (channel, _) = network
                 .add(
@@ -972,13 +985,13 @@ mod tests {
                 )
                 .unwrap();
             channel.set_last_activity(now - Duration::from_secs(300));
-            network.purge(now, Duration::from_secs(1));
+            network.purge(now);
             assert_eq!(network.len(), 0);
         }
 
         #[test]
         fn dont_purge_if_packet_sent_within_timeout() {
-            let mut network = Network::new_test_instance();
+            let mut network = network_with_cutoff(Duration::from_secs(1));
             let now = Timestamp::new_test_instance();
             let (channel, _) = network
                 .add(
@@ -989,7 +1002,7 @@ mod tests {
                 )
                 .unwrap();
             channel.set_last_activity(now);
-            network.purge(now, Duration::from_secs(1));
+            network.purge(now);
             assert_eq!(network.len(), 1);
         }
     }
