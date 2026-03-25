@@ -10,7 +10,7 @@ This adds a timeout for connections that are established but do not complete nec
 * [ ] Create `HandshakeStatus` within `HandshakeProcess`
 * [ ] HandshakeProcess is logic, but logs! => move logging
 * [ ] Move handshake stats from `NanoDataReceiver` to `HandshakeProcess`
-* [ ] Add handshake_timeout config
+* [x] Add handshake_timeout config
 
 ## Backlog
 

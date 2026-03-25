@@ -1,18 +1,16 @@
-use test_helpers::{System, assert_timely2};
+use test_helpers::{assert_timely2, System};
 
 mod election_scheduler {
-    use std::time::Duration;
-
     use super::*;
     use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
     use rsnano_node::{
         config::NodeConfig,
         consensus::{
-            AecInsertRequest, election::ElectionBehavior,
-            election_schedulers::OptimisticSchedulerConfig,
+            election::ElectionBehavior, election_schedulers::OptimisticSchedulerConfig,
+            AecInsertRequest,
         },
     };
-    use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
+    use rsnano_types::{Amount, BlockPriority, PrivateKey, DEV_GENESIS_KEY};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]

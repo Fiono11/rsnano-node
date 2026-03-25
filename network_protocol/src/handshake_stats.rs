@@ -1,4 +1,4 @@
-use crate::HandshakeResponseError;
+use crate::HandshakeError;
 use rsnano_utils::stats::{Direction, StatsCollection, StatsSource};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use strum::{EnumCount, IntoEnumIterator};
@@ -12,7 +12,7 @@ pub struct HandshakeStats {
     pub network_error: AtomicUsize,
     pub handshake_error: AtomicUsize,
     pub response_ok: AtomicUsize,
-    pub errors: [AtomicUsize; HandshakeResponseError::COUNT],
+    pub errors: [AtomicUsize; HandshakeError::COUNT],
 }
 
 impl StatsSource for HandshakeStats {
@@ -54,14 +54,15 @@ impl StatsSource for HandshakeStats {
 
         result.insert("handshake", "ok", self.response_ok.load(Relaxed));
 
-        for e in HandshakeResponseError::iter() {
+        for e in HandshakeError::iter() {
             let detail = match e {
-                HandshakeResponseError::OwnNodeId => "invalid_node_id",
-                HandshakeResponseError::InvalidGenesis => "invalid_genesis",
-                HandshakeResponseError::MissingCookie => "missing_cookie",
-                HandshakeResponseError::InvalidSignature => "invalid_signature",
-                HandshakeResponseError::EmptyResponse => "empty_response",
-                HandshakeResponseError::MultipleQueries => "multiple_queries",
+                HandshakeError::OwnNodeId => "invalid_node_id",
+                HandshakeError::InvalidGenesis => "invalid_genesis",
+                HandshakeError::MissingCookie => "missing_cookie",
+                HandshakeError::InvalidSignature => "invalid_signature",
+                HandshakeError::EmptyResponse => "empty_response",
+                HandshakeError::MultipleQueries => "multiple_queries",
+                HandshakeError::CookieCreationFailed => "cookie_creation_failed",
             };
             result.insert("handshake", detail, self.handshake_error.load(Relaxed));
         }

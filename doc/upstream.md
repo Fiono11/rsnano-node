@@ -22,7 +22,6 @@ These are the most recent commits that have been reviewed and merged into RsNano
 
 |Title                                           |Commit                                  |Pull Request                                         |Notes|
 |------------------------------------------------|----------------------------------------|-----------------------------------------------------|-----|
-|Handshake Timeout                               |a7610bd0844aaf4cd8cd8b110119d6b242a67bc3|https://github.com/nanocurrency/nano-node/pull/4919/ |Discard the connection if the handshake doesn't complete within 2s|
 |Activate largest-gap optimistic elections first |aa4ca10ba22fa79b6109932ecbea74d246753319|https://github.com/nanocurrency/nano-node/pull/4939/ |There is a follow up bugfix commit 46b4aa14d8a526491273cbdd2a9d6d119a9b4cdf|
 |AEC Rework                                      |18506b3d1ba4250216d4868157e31d4fd8271751|https://github.com/nanocurrency/nano-node/pull/4943/ ||
 |AEC Races (needs AEC Rework first!)             |285ae0ef10421383ac69504a61d9e981f4e7d734|https://github.com/nanocurrency/nano-node/pull/4945/ ||

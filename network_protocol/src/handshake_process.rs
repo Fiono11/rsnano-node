@@ -6,6 +6,7 @@ use rsnano_messages::{Handshake, HandshakeQuery, HandshakeResponse};
 use rsnano_types::{BlockHash, NodeId, PrivateKey};
 
 use crate::SynCookies;
+use thiserror::Error;
 
 pub enum HandshakeStatus {
     Abort,
@@ -37,10 +38,10 @@ impl HandshakeProcess {
         }
     }
 
-    pub fn initiate_handshake(&mut self, peer: SocketAddrV6) -> anyhow::Result<Handshake> {
+    pub fn initiate_handshake(&mut self, peer: SocketAddrV6) -> Result<Handshake, HandshakeError> {
         let query = self.prepare_query(peer);
         if query.is_none() {
-            return Err(anyhow!("Could not create cookie for {:?}", peer));
+            return Err(HandshakeError::CookieCreationFailed);
         }
 
         Ok(Handshake {
@@ -54,15 +55,15 @@ impl HandshakeProcess {
         &mut self,
         message: &Handshake,
         peer: SocketAddrV6,
-    ) -> Result<(Option<NodeId>, Option<Handshake>), HandshakeResponseError> {
+    ) -> Result<(Option<NodeId>, Option<Handshake>), HandshakeError> {
         if message.query.is_none() && message.response.is_none() {
             // There must be a query or a response or both!
-            return Err(HandshakeResponseError::EmptyResponse);
+            return Err(HandshakeError::EmptyResponse);
         }
 
         if message.query.is_some() && self.handshake_received {
             // Second handshake message should be a response only
-            return Err(HandshakeResponseError::MultipleQueries);
+            return Err(HandshakeError::MultipleQueries);
         }
 
         self.handshake_received = true;
@@ -86,12 +87,12 @@ impl HandshakeProcess {
                 Ok(()) => {
                     return Ok((Some(their_response.node_id), our_response));
                 }
-                Err(HandshakeResponseError::OwnNodeId) => {
+                Err(HandshakeError::OwnNodeId) => {
                     warn!(
                         "This node tried to connect to itself. Closing channel ({})",
                         peer
                     );
-                    return Err(HandshakeResponseError::OwnNodeId);
+                    return Err(HandshakeError::OwnNodeId);
                 }
                 Err(e) => {
                     return Err(e);
@@ -117,31 +118,31 @@ impl HandshakeProcess {
         &self,
         response: &HandshakeResponse,
         peer_addr: SocketAddrV6,
-    ) -> Result<(), HandshakeResponseError> {
+    ) -> Result<(), HandshakeError> {
         // Prevent connection with ourselves
         if response.node_id == self.node_id_key.public_key().into() {
-            return Err(HandshakeResponseError::OwnNodeId);
+            return Err(HandshakeError::OwnNodeId);
         }
 
         // Prevent mismatched genesis
         if let Some(v2) = &response.v2
             && v2.genesis != self.genesis_hash
         {
-            return Err(HandshakeResponseError::InvalidGenesis);
+            return Err(HandshakeError::InvalidGenesis);
         }
 
         let Some(cookie) = self.syn_cookies.cookie(&peer_addr) else {
-            return Err(HandshakeResponseError::MissingCookie);
+            return Err(HandshakeError::MissingCookie);
         };
 
         if response.validate(&cookie).is_err() {
-            return Err(HandshakeResponseError::InvalidSignature);
+            return Err(HandshakeError::InvalidSignature);
         }
 
         Ok(())
     }
 
-    pub(crate) fn prepare_response(&self, query: &HandshakeQuery, v2: bool) -> HandshakeResponse {
+    fn prepare_response(&self, query: &HandshakeQuery, v2: bool) -> HandshakeResponse {
         if v2 {
             HandshakeResponse::new_v2(&query.cookie, &self.node_id_key, self.genesis_hash)
         } else {
@@ -149,20 +150,27 @@ impl HandshakeProcess {
         }
     }
 
-    pub(crate) fn prepare_query(&self, peer_addr: SocketAddrV6) -> Option<HandshakeQuery> {
+    fn prepare_query(&self, peer_addr: SocketAddrV6) -> Option<HandshakeQuery> {
         self.syn_cookies
             .assign(&peer_addr)
             .map(|cookie| HandshakeQuery { cookie })
     }
 }
 
-#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
-pub enum HandshakeResponseError {
-    /// The node tried to connect to itself
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter, Error)]
+pub enum HandshakeError {
+    #[error("cookie creation failed")]
+    CookieCreationFailed,
+    #[error("the node tried to connect to itself")]
     OwnNodeId,
+    #[error("invalid genesis hash")]
     InvalidGenesis,
+    #[error("missing cookie")]
     MissingCookie,
+    #[error("invalid signature")]
     InvalidSignature,
+    #[error("empty response")]
     EmptyResponse,
+    #[error("multiple queries")]
     MultipleQueries,
 }
