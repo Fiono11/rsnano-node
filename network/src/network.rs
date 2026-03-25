@@ -87,7 +87,7 @@ impl NetworkConfig {
             idle_timeout: if is_dev {
                 Duration::from_secs(5)
             } else {
-                Duration::from_secs(300)
+                Duration::from_secs(120)
             },
         }
     }
@@ -421,10 +421,11 @@ impl Network {
 
     fn close_idle_channels(&mut self, now: Timestamp) {
         let cutoff = self.config.idle_timeout;
-        for entry in self.channels.values() {
-            if now - entry.last_activity() >= cutoff {
-                debug!(remote_addr = ?entry.peer_addr(), channel_id = %entry.channel_id(), mode = ?entry.mode(), "Closing idle channel");
-                entry.close();
+        for channel in self.channels.values() {
+            if now - channel.last_activity() >= cutoff {
+                debug!(remote_addr = ?channel.peer_addr(), channel_id = %channel.channel_id(), mode = ?channel.mode(), "Closing idle channel");
+                self.channel_stats.timed_out.fetch_add(1, Ordering::Relaxed);
+                channel.close();
             }
         }
     }

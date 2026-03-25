@@ -1,9 +1,8 @@
 use std::{
     fmt::Display,
     sync::{Arc, Weak},
-    time::Duration,
 };
-use tokio::{select, time::sleep};
+use tokio::select;
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::TcpStream;
@@ -113,10 +112,7 @@ impl TcpChannelAdapter {
             channel.close();
         });
 
-        let channel = Arc::new(channel_adapter);
-        let channel_l = channel.clone();
-        runtime.spawn(async move { channel_l.ongoing_checkup().await });
-        channel
+        Arc::new(channel_adapter)
     }
 
     pub async fn readable(&self) -> anyhow::Result<()> {
@@ -166,16 +162,6 @@ impl TcpChannelAdapter {
         }
     }
 
-    async fn ongoing_checkup(&self) {
-        loop {
-            sleep(Duration::from_secs(2)).await;
-            let now = self.clock.now();
-            let timed_out = self.channel.check_timeout(now);
-            if timed_out {
-                break;
-            }
-        }
-    }
 }
 
 impl Display for TcpChannelAdapter {

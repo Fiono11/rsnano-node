@@ -2,15 +2,12 @@ use std::{
     net::{Ipv6Addr, SocketAddrV6},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicI64, AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering},
     },
-    time::Duration,
 };
 
 use num_traits::FromPrimitive;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
-use tracing::debug;
-
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::NodeId;
 
@@ -21,9 +18,6 @@ use crate::{
     utils::{ipv4_address_or_ipv6_subnet, map_address_to_subnetwork},
     write_queue::{Entry, WriteQueue},
 };
-
-/// Default timeout in seconds
-const DEFAULT_TIMEOUT: u64 = 120;
 
 pub struct Channel {
     channel_id: ChannelId,
@@ -37,14 +31,6 @@ pub struct Channel {
 
     /// the timestamp (in seconds since epoch) of the last time there was successful activity on the socket
     last_activity: AtomicI64,
-
-    /// Duration in seconds of inactivity that causes a socket timeout
-    /// activity is any successful connect, send or receive event
-    timeout_seconds: AtomicU64,
-
-    /// Flag that is set when cleanup decides to close the socket due to timeout.
-    /// NOTE: Currently used by tcp_server::timeout() but I suspect that this and tcp_server::timeout() are not needed.
-    timed_out: AtomicBool,
 
     /// Set by close() - completion handlers must check this. This is more reliable than checking
     /// error codes as the OS may have already completed the async operation.
@@ -79,8 +65,6 @@ impl Channel {
             direction,
             created_at: now,
             last_activity: AtomicI64::new(now.millis()),
-            timeout_seconds: AtomicU64::new(DEFAULT_TIMEOUT),
-            timed_out: AtomicBool::new(false),
             socket_type: AtomicU8::new(ChannelMode::Handshake as u8),
             closed: AtomicBool::new(false),
             data: Mutex::new(PeerInfo {
@@ -179,23 +163,6 @@ impl Channel {
         self.last_activity.store(now.millis(), Ordering::Relaxed);
     }
 
-    pub fn timeout(&self) -> Duration {
-        Duration::from_secs(self.timeout_seconds.load(Ordering::Relaxed))
-    }
-
-    pub fn set_timeout(&self, value: Duration) {
-        self.timeout_seconds
-            .store(value.as_secs(), Ordering::Relaxed)
-    }
-
-    pub fn timed_out(&self) -> bool {
-        self.timed_out.load(Ordering::Relaxed)
-    }
-
-    pub fn set_timed_out(&self, value: bool) {
-        self.timed_out.store(value, Ordering::Relaxed)
-    }
-
     pub fn is_alive(&self) -> bool {
         !self.is_closed()
     }
@@ -213,7 +180,6 @@ impl Channel {
         if already_closed {
             return;
         }
-        self.set_timeout(Duration::ZERO);
         self.write_queue.close();
         self.cancel_token.cancel();
     }
@@ -275,30 +241,6 @@ impl Channel {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancel_token.is_cancelled()
-    }
-
-    pub fn check_timeout(&self, now: Timestamp) -> bool {
-        // If the socket is already dead, stop doing checkups
-        if !self.is_alive() {
-            return true;
-        }
-
-        // if there is no activity for timeout seconds then disconnect
-        let has_timed_out = (now - self.last_activity()) > self.timeout();
-        if has_timed_out {
-            self.stats.timed_out.fetch_add(1, Ordering::Relaxed);
-
-            debug!(
-            channel_id = %self.channel_id(),
-            remote_addr = ?self.peer_addr(),
-            mode = ?self.mode(),
-            direction = ?self.direction(),
-            "Closing channel due to timeout");
-
-            self.set_timed_out(true);
-            self.close();
-        }
-        has_timed_out
     }
 
     pub fn read_succeeded(&self, count: usize, now: Timestamp) {
