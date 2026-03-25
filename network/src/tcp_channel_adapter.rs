@@ -161,7 +161,6 @@ impl TcpChannelAdapter {
             }
         }
     }
-
 }
 
 impl Display for TcpChannelAdapter {

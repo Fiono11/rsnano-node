@@ -7,9 +7,9 @@ use std::{
 };
 
 use num_traits::FromPrimitive;
-use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::NodeId;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
 use crate::{
     ChannelDirection, ChannelId, ChannelMode, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TrafficType,
@@ -29,14 +29,14 @@ pub struct Channel {
 
     created_at: Timestamp,
 
-    /// the timestamp (in seconds since epoch) of the last time there was successful activity on the socket
+    /// the timestamp of the last time there was successful activity on the socket
     last_activity: AtomicI64,
 
     /// Set by close() - completion handlers must check this. This is more reliable than checking
     /// error codes as the OS may have already completed the async operation.
     closed: AtomicBool,
 
-    socket_type: AtomicU8,
+    mode: AtomicU8,
     write_queue: WriteQueue,
     cancel_token: CancellationToken,
     limiter: Arc<BandwidthLimiter>,
@@ -60,12 +60,11 @@ impl Channel {
             channel_id,
             local_addr,
             peer_addr,
-            // TODO set protocol version to 0
             protocol_version: AtomicU8::new(protocol_version),
             direction,
             created_at: now,
             last_activity: AtomicI64::new(now.millis()),
-            socket_type: AtomicU8::new(ChannelMode::Handshake as u8),
+            mode: AtomicU8::new(ChannelMode::Handshake as u8),
             closed: AtomicBool::new(false),
             data: Mutex::new(PeerInfo {
                 node_id: None,
@@ -193,11 +192,11 @@ impl Channel {
     }
 
     pub fn mode(&self) -> ChannelMode {
-        FromPrimitive::from_u8(self.socket_type.load(Ordering::SeqCst)).unwrap()
+        FromPrimitive::from_u8(self.mode.load(Ordering::SeqCst)).unwrap()
     }
 
     pub fn set_mode(&self, mode: ChannelMode) {
-        self.socket_type.store(mode as u8, Ordering::SeqCst);
+        self.mode.store(mode as u8, Ordering::SeqCst);
     }
 
     pub fn should_drop(&self, traffic_type: TrafficType) -> bool {
