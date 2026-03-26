@@ -3,7 +3,8 @@
 ## PR #4939: Activate largest-gap optimistic elections first
 
 * [x] Draw diagram
-* [ ] Wait for activation delay before scheduling
+* [ ] Finish converting integration tests to unit test for optimistic scheduler
+* [ ] Schedule highest gap first
 * [ ] Reduce gap threshold and max size
 * [ ] Add config option `optimistic_activation_delay`
 * [ ] Add unit tests

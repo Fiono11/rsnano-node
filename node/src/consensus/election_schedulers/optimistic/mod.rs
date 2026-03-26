@@ -163,6 +163,11 @@ impl OptimisticScheduler {
         }
         logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
     }
+
+    #[cfg(test)]
+    pub fn candidate_count(&self) -> usize {
+        self.logic.lock().candidate_count()
+    }
 }
 
 impl StatsSource for OptimisticScheduler {
@@ -233,7 +238,18 @@ mod tests {
             .unwrap()
             .count_by_behavior(ElectionBehavior::Optimistic);
 
-        assert_eq!(optimistic_count, 1);
+        assert_eq!(optimistic_count, 1, "should schedule the election");
+        assert_eq!(
+            scheduler.candidate_count(),
+            0,
+            "should remove the candidate"
+        );
+    }
+
+    #[test]
+    #[ignore = "TODO"]
+    fn schedules_election_when_account_is_unconfirmed() {
+        // This should replace the test activate_one_zero_conf
     }
 
     /* Test helpers */
