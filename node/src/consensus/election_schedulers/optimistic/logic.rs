@@ -1,7 +1,4 @@
-use std::{
-    cmp::min,
-    time::{Duration, Instant},
-};
+use std::{cmp::min, time::Instant};
 
 use rsnano_types::Account;
 
@@ -55,12 +52,7 @@ impl OptimisticSchedulerLogic {
     /// `optimistic_count` — current number of active optimistic elections.
     /// `aec_vacancy`      — total vacancy reported by the AEC.
     /// `activation_delay` — minimum time a candidate must wait before being scheduled.
-    pub fn can_schedule(
-        &self,
-        optimistic_count: usize,
-        aec_vacancy: i64,
-        activation_delay: Duration,
-    ) -> bool {
+    pub fn can_schedule(&self, optimistic_count: usize, aec_vacancy: i64) -> bool {
         let vacancy = min(
             self.params.max_elections as i64 - optimistic_count as i64,
             aec_vacancy,
@@ -69,7 +61,7 @@ impl OptimisticSchedulerLogic {
             return false;
         }
         if let Some((_account, time)) = self.candidates.front() {
-            time.elapsed() >= activation_delay
+            time.elapsed() >= self.params.activation_delay
         } else {
             false
         }
@@ -98,6 +90,7 @@ impl ContainerInfoProvider for OptimisticSchedulerLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn eligible_gap_when_gap_large_enough() {
@@ -152,7 +145,7 @@ mod tests {
     #[test]
     fn can_schedule_no_candidates() {
         let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.can_schedule(0, 10, Duration::ZERO));
+        assert!(!logic.can_schedule(0, 10));
     }
 
     #[test]
@@ -160,14 +153,14 @@ mod tests {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(&Account::from(1), 100, 0);
         // max_elections = 10, optimistic_count = 10 → vacancy = 0
-        assert!(!logic.can_schedule(10, 10, Duration::ZERO));
+        assert!(!logic.can_schedule(10, 10));
     }
 
     #[test]
     fn can_schedule_with_vacancy_and_zero_delay() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(&Account::from(1), 100, 0);
-        assert!(logic.can_schedule(0, 10, Duration::ZERO));
+        assert!(logic.can_schedule(0, 10));
     }
 
     #[test]
@@ -175,7 +168,7 @@ mod tests {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(&Account::from(1), 100, 0);
         // max_elections = 10, optimistic_count = 0 → 10 slots, but aec_vacancy = 0
-        assert!(!logic.can_schedule(0, 0, Duration::ZERO));
+        assert!(!logic.can_schedule(0, 0));
     }
 
     #[test]

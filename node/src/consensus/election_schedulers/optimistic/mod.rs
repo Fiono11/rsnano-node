@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
-    time::Instant,
+    time::Duration,
 };
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
@@ -38,7 +38,7 @@ pub struct OptimisticScheduler {
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
     max_elections: usize,
-    activation_delay: std::time::Duration,
+    activation_delay: Duration,
 }
 
 impl OptimisticScheduler {
@@ -106,11 +106,14 @@ impl OptimisticScheduler {
     }
 
     fn predicate(&self, logic: &OptimisticSchedulerLogic) -> bool {
-        let active = self.active_elections.read().unwrap();
-        let optimistic_count = active.count_by_behavior(ElectionBehavior::Optimistic);
-        let aec_vacancy = active.vacancy();
-        drop(active);
-        logic.can_schedule(optimistic_count, aec_vacancy, self.activation_delay)
+        let optimistic_count;
+        let aec_vacancy;
+        {
+            let aec = self.active_elections.read().unwrap();
+            optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
+            aec_vacancy = aec.vacancy();
+        }
+        logic.can_schedule(optimistic_count, aec_vacancy)
     }
 
     fn run(&self) {

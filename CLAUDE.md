@@ -45,6 +45,10 @@ After finishing editing source files:
 1. Run `cargo fmt --all` to format the code.
 2. Run `cargo test --lib -q` to verify all unit tests pass.
 
+## Code Style
+
+- Prefer `use` statements at the top of a file over inline fully-qualified paths (e.g. `use std::time::Duration` rather than `std::time::Duration` inline).
+
 ## Architecture
 
 ### Design Philosophy
