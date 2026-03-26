@@ -27,7 +27,7 @@ mod config;
 mod logic;
 
 pub use config::OptimisticSchedulerParams;
-pub use logic::OptimisticSchedulerLogic;
+use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -40,7 +40,7 @@ pub struct OptimisticScheduler {
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
-    pub max_elections: usize,
+    max_elections: usize,
 }
 
 impl OptimisticScheduler {
@@ -68,6 +68,10 @@ impl OptimisticScheduler {
         }
     }
 
+    pub fn max_elections(&self) -> usize {
+        self.max_elections
+    }
+
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.notify();
@@ -92,11 +96,11 @@ impl OptimisticScheduler {
         if self.stopped.load(Ordering::Relaxed) {
             return false;
         }
-        let activated = self
-            .logic
-            .lock()
-            .unwrap()
-            .try_activate(account, account_info.block_count, conf_info.height);
+        let activated = self.logic.lock().unwrap().try_activate(
+            account,
+            account_info.block_count,
+            conf_info.height,
+        );
         if activated {
             self.stats
                 .inc(StatType::OptimisticScheduler, DetailType::Activated);
