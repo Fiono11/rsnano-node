@@ -1,0 +1,229 @@
+use std::{
+    mem::size_of,
+    sync::{
+        Arc, Condvar, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::Instant,
+};
+
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
+use rsnano_utils::{
+    container_info::ContainerInfo,
+    stats::{DetailType, StatType, Stats},
+};
+
+use crate::{
+    cementation::ConfirmingSet,
+    config::NetworkConstants,
+    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+};
+
+mod config;
+mod logic;
+
+pub use config::OptimisticSchedulerConfig;
+pub use logic::OptimisticSchedulerLogic;
+
+pub struct OptimisticScheduler {
+    thread: Mutex<Option<JoinHandle<()>>>,
+    stopped: AtomicBool,
+    condition: Condvar,
+    logic: Mutex<OptimisticSchedulerLogic>,
+    stats: Arc<Stats>,
+    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    network_constants: NetworkConstants,
+    ledger: Arc<Ledger>,
+    confirming_set: Arc<ConfirmingSet>,
+    clock: Arc<SteadyClock>,
+    pub max_elections: usize,
+}
+
+impl OptimisticScheduler {
+    pub fn new(
+        config: OptimisticSchedulerConfig,
+        stats: Arc<Stats>,
+        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        network_constants: NetworkConstants,
+        ledger: Arc<Ledger>,
+        confirming_set: Arc<ConfirmingSet>,
+        clock: Arc<SteadyClock>,
+    ) -> Self {
+        let max_elections =
+            active_elections.read().unwrap().max_len() * config.optimistic_limit_percentage / 100;
+
+        Self {
+            thread: Mutex::new(None),
+            stopped: AtomicBool::new(true),
+            condition: Condvar::new(),
+            logic: Mutex::new(OptimisticSchedulerLogic::new(config, max_elections)),
+            stats,
+            active_elections,
+            network_constants,
+            ledger,
+            confirming_set,
+            clock,
+            max_elections,
+        }
+    }
+
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.notify();
+        let handle = self.thread.lock().unwrap().take();
+        if let Some(handle) = handle {
+            handle.join().unwrap();
+        }
+    }
+
+    /// Notify about changes in AEC vacancy
+    pub fn notify(&self) {
+        self.condition.notify_all();
+    }
+
+    /// Called from backlog population to process accounts with unconfirmed blocks
+    pub fn activate(
+        &self,
+        account: &Account,
+        account_info: &AccountInfo,
+        conf_info: &ConfirmationHeightInfo,
+    ) -> bool {
+        if self.stopped.load(Ordering::Relaxed) {
+            return false;
+        }
+        let activated = self
+            .logic
+            .lock()
+            .unwrap()
+            .try_activate(account, account_info, conf_info);
+        if activated {
+            self.stats
+                .inc(StatType::OptimisticScheduler, DetailType::Activated);
+        }
+        activated
+    }
+
+    pub fn container_info(&self) -> ContainerInfo {
+        let guard = self.logic.lock().unwrap();
+        [(
+            "candidates",
+            guard.candidate_count(),
+            size_of::<Account>() * 2 + size_of::<Instant>(),
+        )]
+        .into()
+    }
+
+    fn predicate(&self, logic: &OptimisticSchedulerLogic) -> bool {
+        let active = self.active_elections.read().unwrap();
+        let optimistic_count = active.count_by_behavior(ElectionBehavior::Optimistic);
+        let aec_vacancy = active.vacancy();
+        drop(active);
+        logic.can_schedule(
+            optimistic_count,
+            aec_vacancy,
+            self.network_constants.optimistic_activation_delay,
+        )
+    }
+
+    fn run(&self) {
+        let mut guard = self.logic.lock().unwrap();
+        while !self.stopped.load(Ordering::SeqCst) {
+            self.stats
+                .inc(StatType::OptimisticScheduler, DetailType::Loop);
+
+            if self.predicate(&guard) {
+                let any = self.ledger.any();
+
+                while self.predicate(&guard) {
+                    let (account, time) = guard.pop_candidate().unwrap();
+                    drop(guard);
+                    self.run_one(&any, account, time);
+                    guard = self.logic.lock().unwrap();
+                }
+            }
+
+            guard = self
+                .condition
+                .wait_timeout_while(
+                    guard,
+                    self.network_constants.optimistic_activation_delay / 2,
+                    |g| !self.stopped.load(Ordering::SeqCst) && !self.predicate(g),
+                )
+                .unwrap()
+                .0;
+        }
+    }
+
+    fn run_one(&self, any: &impl AnySet, account: Account, _time: Instant) {
+        let Some(head) = any.account_head(&account) else {
+            return;
+        };
+        if let Some(block) = any.get_block(&head) {
+            let forked = {
+                #[cfg(not(feature = "ledger_snapshots"))]
+                {
+                    false
+                }
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    any.is_forked(&block.qualified_root())
+                }
+            };
+
+            // Ensure block is not already confirmed
+            let is_confirmed = self.confirming_set.contains(&block.hash())
+                || any.confirmed().block_exists(&block.hash());
+
+            if !is_confirmed && !forked {
+                // Try to insert it into AEC
+                // We check for AEC vacancy inside our predicate
+                let now = self.clock.now();
+                let priority = any.block_priority(&block);
+                let inserted = self
+                    .active_elections
+                    .write()
+                    .unwrap()
+                    .insert(AecInsertRequest::new_optimistic(block, priority), now)
+                    .is_ok();
+
+                if inserted {
+                    self.stats
+                        .inc(StatType::OptimisticScheduler, DetailType::Insert);
+                } else {
+                    self.stats
+                        .inc(StatType::OptimisticScheduler, DetailType::InsertFailed);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for OptimisticScheduler {
+    fn drop(&mut self) {
+        // Thread must be stopped before destruction
+        debug_assert!(self.thread.lock().unwrap().is_none())
+    }
+}
+
+pub trait OptimisticSchedulerExt {
+    fn start(&self);
+}
+
+impl OptimisticSchedulerExt for Arc<OptimisticScheduler> {
+    fn start(&self) {
+        debug_assert!(self.thread.lock().unwrap().is_none());
+        self.stopped.store(false, Ordering::SeqCst);
+        let self_l = Arc::clone(self);
+        *self.thread.lock().unwrap() = Some(
+            std::thread::Builder::new()
+                .name("Sched Opt".to_string())
+                .spawn(Box::new(move || {
+                    self_l.run();
+                }))
+                .unwrap(),
+        );
+    }
+}
