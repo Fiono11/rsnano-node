@@ -9,7 +9,10 @@ pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    sync::{Arc, Mutex, RwLock},
+    thread::JoinHandle,
+};
 
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
@@ -33,6 +36,7 @@ pub struct ElectionSchedulers {
     config: NodeConfig,
     ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
+    optimistic_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ElectionSchedulers {
@@ -74,7 +78,6 @@ impl ElectionSchedulers {
         };
         let optimistic = Arc::new(OptimisticScheduler::new(
             optimistic_params,
-            stats.clone(),
             active_elections.clone(),
             ledger.clone(),
             confirming_set.clone(),
@@ -97,6 +100,7 @@ impl ElectionSchedulers {
             config,
             ledger,
             activate_successors_listener: Default::default(),
+            optimistic_thread: Mutex::new(None),
         }
     }
 
@@ -184,7 +188,12 @@ impl ElectionSchedulers {
         }
         self.manual.start();
         if self.config.enable_optimistic_scheduler {
-            self.optimistic.start();
+            let optimistic = self.optimistic.clone();
+            let handle = std::thread::Builder::new()
+                .name("Sched Opt".to_string())
+                .spawn(move || optimistic.run_loop())
+                .unwrap();
+            *self.optimistic_thread.lock().unwrap() = Some(handle);
         }
         if self.config.enable_priority_scheduler {
             self.priority.start();
@@ -199,6 +208,9 @@ impl ElectionSchedulers {
         self.hinted.stop();
         self.manual.stop();
         self.optimistic.stop();
+        if let Some(handle) = self.optimistic_thread.lock().unwrap().take() {
+            handle.join().unwrap();
+        }
         self.priority.stop();
     }
 }
@@ -217,6 +229,7 @@ impl ContainerInfoProvider for ElectionSchedulers {
 impl StatsSource for ElectionSchedulers {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.priority.collect_stats(result);
+        self.optimistic.collect_stats(result);
     }
 }
 

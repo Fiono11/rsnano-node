@@ -1,6 +1,6 @@
 use std::{
-    sync::{Arc, Mutex, RwLock},
-    thread::JoinHandle,
+    sync::atomic::{AtomicU64, Ordering},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -10,7 +10,7 @@ use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{DetailType, StatType, Stats},
+    stats::{StatsCollection, StatsSource},
 };
 
 use crate::{
@@ -26,36 +26,40 @@ pub use config::OptimisticSchedulerParams;
 use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {
-    thread: Mutex<Option<JoinHandle<()>>>,
     logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
-    stats: Arc<Stats>,
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
     max_elections: usize,
     activation_delay: Duration,
+    // stats
+    loop_count: AtomicU64,
+    activated_count: AtomicU64,
+    insert_count: AtomicU64,
+    insert_failed_count: AtomicU64,
 }
 
 impl OptimisticScheduler {
     pub fn new(
         params: OptimisticSchedulerParams,
-        stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
-            thread: Mutex::new(None),
             max_elections: params.max_elections,
             activation_delay: params.activation_delay,
             logic: NullableCondvarMutex::new(OptimisticSchedulerLogic::new(params)),
-            stats,
             active_elections,
             ledger,
             confirming_set,
             clock,
+            loop_count: AtomicU64::new(0),
+            activated_count: AtomicU64::new(0),
+            insert_count: AtomicU64::new(0),
+            insert_failed_count: AtomicU64::new(0),
         }
     }
 
@@ -66,10 +70,6 @@ impl OptimisticScheduler {
     pub fn stop(&self) {
         self.logic.lock().stop();
         self.logic.notify_all();
-        let handle = self.thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().unwrap();
-        }
     }
 
     /// Notify about changes in AEC vacancy
@@ -95,8 +95,7 @@ impl OptimisticScheduler {
             self.clock.now(),
         );
         if activated {
-            self.stats
-                .inc(StatType::OptimisticScheduler, DetailType::Activated);
+            self.activated_count.fetch_add(1, Ordering::Relaxed);
         }
         activated
     }
@@ -104,8 +103,7 @@ impl OptimisticScheduler {
     pub fn run_loop(&self) {
         let mut logic = self.logic.lock();
         while !logic.stopped() {
-            self.stats
-                .inc(StatType::OptimisticScheduler, DetailType::Loop);
+            self.loop_count.fetch_add(1, Ordering::Relaxed);
 
             if self.can_schedule(&logic) {
                 let any = self.ledger.any();
@@ -113,6 +111,7 @@ impl OptimisticScheduler {
                 while self.can_schedule(&logic) {
                     let (account, _) = logic.pop_candidate().unwrap();
                     drop(logic);
+                    let mut scheduled = None;
                     if let Some(head) = any.account_head(&account) {
                         if let Some(block) = any.get_block(&head) {
                             let forked = {
@@ -141,17 +140,15 @@ impl OptimisticScheduler {
                                     .unwrap()
                                     .insert(AecInsertRequest::new_optimistic(block, priority), now)
                                     .is_ok();
-
-                                if inserted {
-                                    self.stats
-                                        .inc(StatType::OptimisticScheduler, DetailType::Insert);
-                                } else {
-                                    self.stats.inc(
-                                        StatType::OptimisticScheduler,
-                                        DetailType::InsertFailed,
-                                    );
-                                }
+                                scheduled = Some(inserted);
                             }
+                        }
+                    }
+                    if let Some(inserted) = scheduled {
+                        if inserted {
+                            self.insert_count.fetch_add(1, Ordering::Relaxed);
+                        } else {
+                            self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     logic = self.logic.lock();
@@ -179,10 +176,28 @@ impl OptimisticScheduler {
     }
 }
 
-impl Drop for OptimisticScheduler {
-    fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none())
+impl StatsSource for OptimisticScheduler {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert(
+            "optimistic_scheduler",
+            "loop",
+            self.loop_count.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "optimistic_scheduler",
+            "activated",
+            self.activated_count.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "optimistic_scheduler",
+            "insert",
+            self.insert_count.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "optimistic_scheduler",
+            "insert_failed",
+            self.insert_failed_count.load(Ordering::Relaxed),
+        );
     }
 }
 
@@ -190,10 +205,6 @@ impl ContainerInfoProvider for OptimisticScheduler {
     fn container_info(&self) -> ContainerInfo {
         self.logic.lock().container_info()
     }
-}
-
-pub trait OptimisticSchedulerExt {
-    fn start(&self);
 }
 
 #[cfg(test)]
@@ -232,26 +243,10 @@ mod tests {
                 max_elections: 10,
                 activation_delay: Duration::ZERO,
             },
-            Arc::new(Stats::default()),
             Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             Ledger::new_null().into(),
             ConfirmingSet::new_null().into(),
             SteadyClock::new_null().into(),
         )
-    }
-}
-
-impl OptimisticSchedulerExt for Arc<OptimisticScheduler> {
-    fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-        let self_l = Arc::clone(self);
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Sched Opt".to_string())
-                .spawn(Box::new(move || {
-                    self_l.run_loop();
-                }))
-                .unwrap(),
-        );
     }
 }
