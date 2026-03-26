@@ -28,7 +28,7 @@ use stats::OptimisticSchedulerStats;
 
 pub struct OptimisticScheduler {
     logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    aec: Arc<RwLock<ActiveElectionsContainer>>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
@@ -40,7 +40,7 @@ pub struct OptimisticScheduler {
 impl OptimisticScheduler {
     pub fn new(
         params: OptimisticSchedulerParams,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        aec: Arc<RwLock<ActiveElectionsContainer>>,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
@@ -49,7 +49,7 @@ impl OptimisticScheduler {
             max_elections: params.max_elections,
             activation_delay: params.activation_delay,
             logic: NullableCondvarMutex::new(OptimisticSchedulerLogic::new(params)),
-            active_elections,
+            aec,
             ledger,
             confirming_set,
             clock,
@@ -140,7 +140,7 @@ impl OptimisticScheduler {
         let now = self.clock.now();
         let priority = any.block_priority(&block);
         let inserted = self
-            .active_elections
+            .aec
             .write()
             .unwrap()
             .insert(AecInsertRequest::new_optimistic(block, priority), now)
@@ -157,7 +157,7 @@ impl OptimisticScheduler {
         let optimistic_count;
         let aec_vacancy;
         {
-            let aec = self.active_elections.read().unwrap();
+            let aec = self.aec.read().unwrap();
             optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
             aec_vacancy = aec.vacancy();
         }
@@ -180,6 +180,7 @@ impl ContainerInfoProvider for OptimisticScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_ledger::{ConfirmedSet, test_helpers::UnsavedBlockLatticeBuilder};
     use rsnano_nullable_condvar::NotifyEvent;
 
     #[test]
@@ -203,20 +204,75 @@ mod tests {
         assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
     }
 
+    #[test]
+    fn schedules_election_when_over_gap_threshold() {
+        let logic =
+            NullableCondvarMutex::null_builder(OptimisticSchedulerLogic::new(test_params()))
+                .wait(|l| l.stop()) // stop after one wait call
+                .finish();
+
+        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let ledger = Arc::new(Ledger::new_null());
+        let scheduler = make_scheduler_with(logic, aec.clone(), ledger.clone());
+
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        for _ in 0..TEST_GAP_THRESHOLD {
+            let block = builder.genesis().send(1, 1);
+            ledger.process_one(&block).unwrap();
+        }
+
+        let account = ledger.genesis().account();
+        let block_count = ledger.any().get_account(&account).unwrap().block_count;
+        let conf_height = ledger.confirmed().get_conf_info(&account).unwrap().height;
+        assert!(scheduler.activate(&account, block_count, conf_height));
+
+        scheduler.run_loop();
+
+        let optimistic_count = aec
+            .read()
+            .unwrap()
+            .count_by_behavior(ElectionBehavior::Optimistic);
+
+        assert_eq!(optimistic_count, 1);
+    }
+
     /* Test helpers */
 
     fn make_scheduler() -> OptimisticScheduler {
         OptimisticScheduler::new(
-            OptimisticSchedulerParams {
-                gap_threshold: 32,
-                max_candidates: 1024,
-                max_elections: 10,
-                activation_delay: Duration::ZERO,
-            },
+            test_params(),
             Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             Ledger::new_null().into(),
             ConfirmingSet::new_null().into(),
             SteadyClock::new_null().into(),
         )
     }
+
+    fn make_scheduler_with(
+        logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
+        aec: Arc<RwLock<ActiveElectionsContainer>>,
+        ledger: Arc<Ledger>,
+    ) -> OptimisticScheduler {
+        OptimisticScheduler {
+            logic,
+            aec,
+            ledger,
+            confirming_set: ConfirmingSet::new_null().into(),
+            clock: SteadyClock::new_null().into(),
+            stats: Default::default(),
+            max_elections: 10,
+            activation_delay: Duration::ZERO,
+        }
+    }
+
+    fn test_params() -> OptimisticSchedulerParams {
+        OptimisticSchedulerParams {
+            gap_threshold: TEST_GAP_THRESHOLD,
+            max_candidates: 1024,
+            max_elections: 10,
+            activation_delay: Duration::ZERO,
+        }
+    }
+
+    const TEST_GAP_THRESHOLD: u64 = 32;
 }

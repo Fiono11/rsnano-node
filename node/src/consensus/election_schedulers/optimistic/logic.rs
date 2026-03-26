@@ -33,7 +33,7 @@ impl OptimisticSchedulerLogic {
 
     /// Returns true if the account's unconfirmed gap meets the threshold for optimistic scheduling.
     pub fn has_eligible_gap(&self, block_count: u64, confirmation_height: u64) -> bool {
-        let big_enough_gap = block_count - confirmation_height > self.params.gap_threshold;
+        let big_enough_gap = block_count - confirmation_height >= self.params.gap_threshold;
         let nothing_confirmed_yet = confirmation_height == 0;
         big_enough_gap | nothing_confirmed_yet
     }
