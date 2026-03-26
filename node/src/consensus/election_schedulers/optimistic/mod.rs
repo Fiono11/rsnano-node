@@ -1,6 +1,5 @@
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -21,9 +20,11 @@ use crate::{
 mod candidate_queue;
 mod config;
 mod logic;
+mod stats;
 
 pub use config::OptimisticSchedulerParams;
 use logic::OptimisticSchedulerLogic;
+use stats::OptimisticSchedulerStats;
 
 pub struct OptimisticScheduler {
     logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
@@ -33,11 +34,7 @@ pub struct OptimisticScheduler {
     clock: Arc<SteadyClock>,
     max_elections: usize,
     activation_delay: Duration,
-    // stats
-    loop_count: AtomicU64,
-    activated_count: AtomicU64,
-    insert_count: AtomicU64,
-    insert_failed_count: AtomicU64,
+    stats: OptimisticSchedulerStats,
 }
 
 impl OptimisticScheduler {
@@ -56,10 +53,7 @@ impl OptimisticScheduler {
             ledger,
             confirming_set,
             clock,
-            loop_count: AtomicU64::new(0),
-            activated_count: AtomicU64::new(0),
-            insert_count: AtomicU64::new(0),
-            insert_failed_count: AtomicU64::new(0),
+            stats: OptimisticSchedulerStats::default(),
         }
     }
 
@@ -95,7 +89,7 @@ impl OptimisticScheduler {
             self.clock.now(),
         );
         if activated {
-            self.activated_count.fetch_add(1, Ordering::Relaxed);
+            self.stats.activated_count.fetch_add(1, Relaxed);
         }
         activated
     }
@@ -103,7 +97,7 @@ impl OptimisticScheduler {
     pub fn run_loop(&self) {
         let mut logic = self.logic.lock();
         while !logic.stopped() {
-            self.loop_count.fetch_add(1, Ordering::Relaxed);
+            self.stats.loop_count.fetch_add(1, Relaxed);
 
             if self.can_schedule(&logic) {
                 let any = self.ledger.any();
@@ -165,9 +159,9 @@ impl OptimisticScheduler {
             .is_ok();
 
         if inserted {
-            self.insert_count.fetch_add(1, Ordering::Relaxed);
+            self.stats.insert_count.fetch_add(1, Relaxed);
         } else {
-            self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
+            self.stats.insert_failed_count.fetch_add(1, Relaxed);
         }
     }
 
@@ -185,26 +179,7 @@ impl OptimisticScheduler {
 
 impl StatsSource for OptimisticScheduler {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert(
-            "optimistic_scheduler",
-            "loop",
-            self.loop_count.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "optimistic_scheduler",
-            "activated",
-            self.activated_count.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "optimistic_scheduler",
-            "insert",
-            self.insert_count.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "optimistic_scheduler",
-            "insert_failed",
-            self.insert_failed_count.load(Ordering::Relaxed),
-        );
+        self.stats.collect_stats(result);
     }
 }
 
