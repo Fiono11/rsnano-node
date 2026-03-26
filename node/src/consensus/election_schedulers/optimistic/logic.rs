@@ -12,14 +12,14 @@ use super::config::OptimisticSchedulerParams;
 /// Manages the candidate queue and decides when activation is appropriate.
 pub struct OptimisticSchedulerLogic {
     params: OptimisticSchedulerParams,
-    candidates: OrderedCandidates,
+    candidates: CandidateQueue,
 }
 
 impl OptimisticSchedulerLogic {
     pub fn new(params: OptimisticSchedulerParams) -> Self {
         Self {
             params,
-            candidates: OrderedCandidates::default(),
+            candidates: CandidateQueue::default(),
         }
     }
 
@@ -90,12 +90,12 @@ impl OptimisticSchedulerLogic {
 }
 
 #[derive(Default)]
-struct OrderedCandidates {
+struct CandidateQueue {
     by_account: HashMap<Account, Instant>,
     sequenced: VecDeque<Account>,
 }
 
-impl OrderedCandidates {
+impl CandidateQueue {
     fn insert(&mut self, account: Account, time: Instant) {
         if self.by_account.insert(account, time).is_some() {
             self.sequenced.retain(|i| *i != account);
