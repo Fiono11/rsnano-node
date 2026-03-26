@@ -101,26 +101,66 @@ impl OptimisticScheduler {
         activated
     }
 
-    fn run(&self) {
-        let mut guard = self.logic.lock();
-        while !guard.stopped() {
+    pub fn run_loop(&self) {
+        let mut logic = self.logic.lock();
+        while !logic.stopped() {
             self.stats
                 .inc(StatType::OptimisticScheduler, DetailType::Loop);
 
-            if self.can_schedule(&guard) {
+            if self.can_schedule(&logic) {
                 let any = self.ledger.any();
 
-                while self.can_schedule(&guard) {
-                    let (account, _) = guard.pop_candidate().unwrap();
-                    drop(guard);
-                    self.run_one(&any, account);
-                    guard = self.logic.lock();
+                while self.can_schedule(&logic) {
+                    let (account, _) = logic.pop_candidate().unwrap();
+                    drop(logic);
+                    if let Some(head) = any.account_head(&account) {
+                        if let Some(block) = any.get_block(&head) {
+                            let forked = {
+                                #[cfg(not(feature = "ledger_snapshots"))]
+                                {
+                                    false
+                                }
+                                #[cfg(feature = "ledger_snapshots")]
+                                {
+                                    any.is_forked(&block.qualified_root())
+                                }
+                            };
+
+                            // Ensure block is not already confirmed
+                            let is_confirmed = self.confirming_set.contains(&block.hash())
+                                || any.confirmed().block_exists(&block.hash());
+
+                            if !is_confirmed && !forked {
+                                // Try to insert it into AEC
+                                // We check for AEC vacancy inside our predicate
+                                let now = self.clock.now();
+                                let priority = any.block_priority(&block);
+                                let inserted = self
+                                    .active_elections
+                                    .write()
+                                    .unwrap()
+                                    .insert(AecInsertRequest::new_optimistic(block, priority), now)
+                                    .is_ok();
+
+                                if inserted {
+                                    self.stats
+                                        .inc(StatType::OptimisticScheduler, DetailType::Insert);
+                                } else {
+                                    self.stats.inc(
+                                        StatType::OptimisticScheduler,
+                                        DetailType::InsertFailed,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    logic = self.logic.lock();
                 }
             }
 
-            guard = self
+            logic = self
                 .logic
-                .wait_timeout_while(guard, self.activation_delay / 2, |g| {
+                .wait_timeout_while(logic, self.activation_delay / 2, |g| {
                     !g.stopped() && !self.can_schedule(g)
                 })
                 .0;
@@ -136,49 +176,6 @@ impl OptimisticScheduler {
             aec_vacancy = aec.vacancy();
         }
         logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
-    }
-
-    fn run_one(&self, any: &impl AnySet, account: Account) {
-        let Some(head) = any.account_head(&account) else {
-            return;
-        };
-        if let Some(block) = any.get_block(&head) {
-            let forked = {
-                #[cfg(not(feature = "ledger_snapshots"))]
-                {
-                    false
-                }
-                #[cfg(feature = "ledger_snapshots")]
-                {
-                    any.is_forked(&block.qualified_root())
-                }
-            };
-
-            // Ensure block is not already confirmed
-            let is_confirmed = self.confirming_set.contains(&block.hash())
-                || any.confirmed().block_exists(&block.hash());
-
-            if !is_confirmed && !forked {
-                // Try to insert it into AEC
-                // We check for AEC vacancy inside our predicate
-                let now = self.clock.now();
-                let priority = any.block_priority(&block);
-                let inserted = self
-                    .active_elections
-                    .write()
-                    .unwrap()
-                    .insert(AecInsertRequest::new_optimistic(block, priority), now)
-                    .is_ok();
-
-                if inserted {
-                    self.stats
-                        .inc(StatType::OptimisticScheduler, DetailType::Insert);
-                } else {
-                    self.stats
-                        .inc(StatType::OptimisticScheduler, DetailType::InsertFailed);
-                }
-            }
-        }
     }
 }
 
@@ -252,7 +249,7 @@ impl OptimisticSchedulerExt for Arc<OptimisticScheduler> {
             std::thread::Builder::new()
                 .name("Sched Opt".to_string())
                 .spawn(Box::new(move || {
-                    self_l.run();
+                    self_l.run_loop();
                 }))
                 .unwrap(),
         );
