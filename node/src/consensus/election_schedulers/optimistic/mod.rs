@@ -1,11 +1,12 @@
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -26,8 +27,7 @@ use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
-    condition: Condvar,
-    logic: Mutex<OptimisticSchedulerLogic>,
+    logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
     stats: Arc<Stats>,
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     ledger: Arc<Ledger>,
@@ -48,10 +48,9 @@ impl OptimisticScheduler {
     ) -> Self {
         Self {
             thread: Mutex::new(None),
-            condition: Condvar::new(),
             max_elections: params.max_elections,
             activation_delay: params.activation_delay,
-            logic: Mutex::new(OptimisticSchedulerLogic::new(params)),
+            logic: NullableCondvarMutex::new(OptimisticSchedulerLogic::new(params)),
             stats,
             active_elections,
             ledger,
@@ -65,8 +64,8 @@ impl OptimisticScheduler {
     }
 
     pub fn stop(&self) {
-        self.logic.lock().unwrap().stop();
-        self.notify();
+        self.logic.lock().stop();
+        self.logic.notify_all();
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap();
@@ -75,7 +74,7 @@ impl OptimisticScheduler {
 
     /// Notify about changes in AEC vacancy
     pub fn notify(&self) {
-        self.condition.notify_all();
+        self.logic.notify_all();
     }
 
     /// Called from backlog population to process accounts with unconfirmed blocks
@@ -85,7 +84,7 @@ impl OptimisticScheduler {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) -> bool {
-        let mut logic = self.logic.lock().unwrap();
+        let mut logic = self.logic.lock();
         if logic.stopped() {
             return false;
         }
@@ -103,7 +102,7 @@ impl OptimisticScheduler {
     }
 
     fn run(&self) {
-        let mut guard = self.logic.lock().unwrap();
+        let mut guard = self.logic.lock();
         while !guard.stopped() {
             self.stats
                 .inc(StatType::OptimisticScheduler, DetailType::Loop);
@@ -115,16 +114,15 @@ impl OptimisticScheduler {
                     let (account, _) = guard.pop_candidate().unwrap();
                     drop(guard);
                     self.run_one(&any, account);
-                    guard = self.logic.lock().unwrap();
+                    guard = self.logic.lock();
                 }
             }
 
             guard = self
-                .condition
+                .logic
                 .wait_timeout_while(guard, self.activation_delay / 2, |g| {
                     !g.stopped() && !self.can_schedule(g)
                 })
-                .unwrap()
                 .0;
         }
     }
@@ -193,12 +191,57 @@ impl Drop for OptimisticScheduler {
 
 impl ContainerInfoProvider for OptimisticScheduler {
     fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().unwrap().container_info()
+        self.logic.lock().container_info()
     }
 }
 
 pub trait OptimisticSchedulerExt {
     fn start(&self);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_nullable_condvar::NotifyEvent;
+
+    #[test]
+    fn stop_sets_stopped_flag_and_notifies() {
+        let scheduler = make_scheduler();
+        let tracker = scheduler.logic.track_notifications();
+
+        scheduler.stop();
+
+        assert!(scheduler.logic.lock().stopped());
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    #[test]
+    fn notify_sends_notify_all() {
+        let scheduler = make_scheduler();
+        let tracker = scheduler.logic.track_notifications();
+
+        scheduler.notify();
+
+        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
+    }
+
+    /* Test helpers */
+
+    fn make_scheduler() -> OptimisticScheduler {
+        OptimisticScheduler::new(
+            OptimisticSchedulerParams {
+                gap_threshold: 32,
+                max_candidates: 1024,
+                max_elections: 10,
+                activation_delay: Duration::ZERO,
+            },
+            Arc::new(Stats::default()),
+            Arc::new(RwLock::new(ActiveElectionsContainer::default())),
+            Ledger::new_null().into(),
+            ConfirmingSet::new_null().into(),
+            SteadyClock::new_null().into(),
+        )
+    }
 }
 
 impl OptimisticSchedulerExt for Arc<OptimisticScheduler> {
