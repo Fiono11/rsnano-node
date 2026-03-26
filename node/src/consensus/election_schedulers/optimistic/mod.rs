@@ -18,7 +18,6 @@ use rsnano_utils::{
 
 use crate::{
     cementation::ConfirmingSet,
-    config::NetworkConstants,
     consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
 };
 
@@ -36,11 +35,11 @@ pub struct OptimisticScheduler {
     logic: Mutex<OptimisticSchedulerLogic>,
     stats: Arc<Stats>,
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
-    network_constants: NetworkConstants,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
     max_elections: usize,
+    activation_delay: std::time::Duration,
 }
 
 impl OptimisticScheduler {
@@ -48,7 +47,6 @@ impl OptimisticScheduler {
         params: OptimisticSchedulerParams,
         stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
-        network_constants: NetworkConstants,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
@@ -58,10 +56,10 @@ impl OptimisticScheduler {
             stopped: AtomicBool::new(true),
             condition: Condvar::new(),
             max_elections: params.max_elections,
+            activation_delay: params.activation_delay,
             logic: Mutex::new(OptimisticSchedulerLogic::new(params)),
             stats,
             active_elections,
-            network_constants,
             ledger,
             confirming_set,
             clock,
@@ -123,11 +121,7 @@ impl OptimisticScheduler {
         let optimistic_count = active.count_by_behavior(ElectionBehavior::Optimistic);
         let aec_vacancy = active.vacancy();
         drop(active);
-        logic.can_schedule(
-            optimistic_count,
-            aec_vacancy,
-            self.network_constants.optimistic_activation_delay,
-        )
+        logic.can_schedule(optimistic_count, aec_vacancy, self.activation_delay)
     }
 
     fn run(&self) {
@@ -149,11 +143,9 @@ impl OptimisticScheduler {
 
             guard = self
                 .condition
-                .wait_timeout_while(
-                    guard,
-                    self.network_constants.optimistic_activation_delay / 2,
-                    |g| !self.stopped.load(Ordering::SeqCst) && !self.predicate(g),
-                )
+                .wait_timeout_while(guard, self.activation_delay / 2, |g| {
+                    !self.stopped.load(Ordering::SeqCst) && !self.predicate(g)
+                })
                 .unwrap()
                 .0;
         }

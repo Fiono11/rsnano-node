@@ -187,6 +187,7 @@ mod tests {
             gap_threshold,
             max_candidates,
             max_elections: 10,
+            activation_delay: Duration::ZERO,
         }
     }
 }

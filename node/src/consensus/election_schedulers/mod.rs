@@ -14,20 +14,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{
-    Account, AccountInfo, BlockHash, ConfirmationHeightInfo, NetworkType, SavedBlock,
-};
+use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{Stats, StatsCollection, StatsSource},
 };
 
 use super::{ActiveElectionsContainer, VoteCache};
-use crate::{
-    cementation::ConfirmingSet,
-    config::{NetworkConstants, NodeConfig},
-    representatives::OnlineReps,
-};
+use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
 pub struct ElectionSchedulers {
@@ -44,7 +38,6 @@ pub struct ElectionSchedulers {
 impl ElectionSchedulers {
     pub fn new(
         config: NodeConfig,
-        network_constants: NetworkConstants,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
@@ -77,12 +70,12 @@ impl ElectionSchedulers {
             max_elections: config.active_elections.max_elections
                 * config.optimistic_scheduler.optimistic_limit_percentage
                 / 100,
+            activation_delay: config.optimistic_scheduler.activation_delay,
         };
         let optimistic = Arc::new(OptimisticScheduler::new(
             optimistic_params,
             stats.clone(),
             active_elections.clone(),
-            network_constants,
             ledger.clone(),
             confirming_set.clone(),
             clock.clone(),
@@ -109,7 +102,6 @@ impl ElectionSchedulers {
 
     pub fn new_null() -> Self {
         let config = NodeConfig::new_test_instance();
-        let network_constants = NetworkConstants::for_network(NetworkType::NanoLiveNetwork);
         let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
@@ -123,7 +115,6 @@ impl ElectionSchedulers {
 
         Self::new(
             config,
-            network_constants,
             active_elections,
             ledger,
             stats,

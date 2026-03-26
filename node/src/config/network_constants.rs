@@ -37,8 +37,6 @@ pub struct NetworkConstants {
     pub telemetry_broadcast_interval_ms: i64,
     /** Telemetry data older than this value is considered stale */
     pub telemetry_cache_cutoff_ms: i64, // 2 * `telemetry_broadcast_interval` + some margin
-    /// How much to delay activation of optimistic elections to avoid interfering with election scheduler
-    pub optimistic_activation_delay: Duration,
     pub rep_crawler_normal_interval: Duration,
     pub rep_crawler_warmup_interval: Duration,
 }
@@ -89,7 +87,6 @@ impl NetworkConstants {
             telemetry_request_interval_ms: 1000 * 60,
             telemetry_broadcast_interval_ms: 1000 * 60,
             telemetry_cache_cutoff_ms: 1000 * 130, //  2 * `telemetry_broadcast_interval` + some margin
-            optimistic_activation_delay: Duration::from_secs(30),
             rep_crawler_normal_interval: Duration::from_secs(7),
             rep_crawler_warmup_interval: Duration::from_secs(3),
         }
@@ -142,7 +139,6 @@ impl NetworkConstants {
             telemetry_cache_cutoff_ms: 2000,
             telemetry_request_interval_ms: 500,
             telemetry_broadcast_interval_ms: 500,
-            optimistic_activation_delay: Duration::from_secs(2),
             rep_crawler_normal_interval: Duration::from_millis(500),
             rep_crawler_warmup_interval: Duration::from_millis(500),
             ..Self::live(work)

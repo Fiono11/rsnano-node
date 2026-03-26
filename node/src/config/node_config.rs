@@ -241,7 +241,11 @@ impl NodeConfig {
             callback_target: String::new(),
             websocket_config: WebsocketConfig::new(&network_params.network),
             lmdb_config: LmdbConfig::new(),
-            optimistic_scheduler: OptimisticSchedulerConfig::new(),
+            optimistic_scheduler: if network_params.network.is_dev_network() {
+                OptimisticSchedulerConfig::new_for_dev_network()
+            } else {
+                OptimisticSchedulerConfig::new()
+            },
             hinted_scheduler: if network_params.network.is_dev_network() {
                 HintedSchedulerConfig::default_for_dev_network()
             } else {

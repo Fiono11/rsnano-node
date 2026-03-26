@@ -680,7 +680,6 @@ impl Node {
 
         let election_schedulers = Arc::new(ElectionSchedulers::new(
             config.clone(),
-            network_params.network.clone(),
             active_elections.clone(),
             ledger.clone(),
             stats.clone(),

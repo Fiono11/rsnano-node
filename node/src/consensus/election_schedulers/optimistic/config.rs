@@ -5,4 +5,6 @@ pub struct OptimisticSchedulerParams {
     pub max_candidates: usize,
     /// Maximum number of simultaneous optimistic elections (absolute value)
     pub max_elections: usize,
+    /// Minimum time a candidate must wait before being scheduled
+    pub activation_delay: std::time::Duration,
 }
