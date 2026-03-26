@@ -1,5 +1,6 @@
-use std::{cmp::min, time::Instant};
+use std::cmp::min;
 
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
 use super::{candidate_queue::CandidateQueue, config::OptimisticSchedulerParams};
@@ -34,6 +35,7 @@ impl OptimisticSchedulerLogic {
         account: &Account,
         block_count: u64,
         confirmation_height: u64,
+        now: Timestamp,
     ) -> bool {
         if !self.has_eligible_gap(block_count, confirmation_height) {
             return false;
@@ -44,7 +46,7 @@ impl OptimisticSchedulerLogic {
         if self.candidates.len() >= self.params.max_candidates {
             return false;
         }
-        self.candidates.insert(*account, Instant::now());
+        self.candidates.insert(*account, now);
         true
     }
 
@@ -52,7 +54,7 @@ impl OptimisticSchedulerLogic {
     /// `optimistic_count` — current number of active optimistic elections.
     /// `aec_vacancy`      — total vacancy reported by the AEC.
     /// `activation_delay` — minimum time a candidate must wait before being scheduled.
-    pub fn can_schedule(&self, optimistic_count: usize, aec_vacancy: i64) -> bool {
+    pub fn can_schedule(&self, optimistic_count: usize, aec_vacancy: i64, now: Timestamp) -> bool {
         let vacancy = min(
             self.params.max_elections as i64 - optimistic_count as i64,
             aec_vacancy,
@@ -61,13 +63,13 @@ impl OptimisticSchedulerLogic {
             return false;
         }
         if let Some((_account, time)) = self.candidates.front() {
-            time.elapsed() >= self.params.activation_delay
+            time.elapsed(now) >= self.params.activation_delay
         } else {
             false
         }
     }
 
-    pub fn pop_candidate(&mut self) -> Option<(Account, Instant)> {
+    pub fn pop_candidate(&mut self) -> Option<(Account, Timestamp)> {
         self.candidates.pop_front()
     }
 
@@ -81,7 +83,7 @@ impl ContainerInfoProvider for OptimisticSchedulerLogic {
         [(
             "candidates",
             self.candidate_count(),
-            size_of::<Account>() * 2 + size_of::<Instant>(),
+            size_of::<Account>() * 2 + size_of::<Timestamp>(),
         )]
         .into()
     }
@@ -113,7 +115,7 @@ mod tests {
     #[test]
     fn try_activate_adds_candidate() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.try_activate(&Account::from(1), 100, 0));
+        assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
         assert_eq!(logic.candidate_count(), 1);
     }
 
@@ -121,54 +123,54 @@ mod tests {
     fn try_activate_rejects_duplicate() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account = Account::from(1);
-        assert!(logic.try_activate(&account, 100, 0));
-        assert!(!logic.try_activate(&account, 100, 0));
+        assert!(logic.try_activate(&account, 100, 0, now()));
+        assert!(!logic.try_activate(&account, 100, 0, now()));
         assert_eq!(logic.candidate_count(), 1);
     }
 
     #[test]
     fn try_activate_rejects_when_full() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
-        assert!(logic.try_activate(&Account::from(1), 100, 0));
-        assert!(logic.try_activate(&Account::from(2), 100, 0));
-        assert!(!logic.try_activate(&Account::from(3), 100, 0));
+        assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
+        assert!(logic.try_activate(&Account::from(2), 100, 0, now()));
+        assert!(!logic.try_activate(&Account::from(3), 100, 0, now()));
         assert_eq!(logic.candidate_count(), 2);
     }
 
     #[test]
     fn try_activate_rejects_when_gap_too_small() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.try_activate(&Account::from(1), 100, 80)); // gap = 20, below threshold
+        assert!(!logic.try_activate(&Account::from(1), 100, 80, now())); // gap = 20, below threshold
         assert_eq!(logic.candidate_count(), 0);
     }
 
     #[test]
     fn can_schedule_no_candidates() {
         let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.can_schedule(0, 10));
+        assert!(!logic.can_schedule(0, 10, now()));
     }
 
     #[test]
     fn can_schedule_no_vacancy() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0);
+        logic.try_activate(&Account::from(1), 100, 0, now());
         // max_elections = 10, optimistic_count = 10 → vacancy = 0
-        assert!(!logic.can_schedule(10, 10));
+        assert!(!logic.can_schedule(10, 10, now()));
     }
 
     #[test]
     fn can_schedule_with_vacancy_and_zero_delay() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0);
-        assert!(logic.can_schedule(0, 10));
+        logic.try_activate(&Account::from(1), 100, 0, now());
+        assert!(logic.can_schedule(0, 10, now()));
     }
 
     #[test]
     fn can_schedule_aec_vacancy_is_limiting_factor() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0);
+        logic.try_activate(&Account::from(1), 100, 0, now());
         // max_elections = 10, optimistic_count = 0 → 10 slots, but aec_vacancy = 0
-        assert!(!logic.can_schedule(0, 0));
+        assert!(!logic.can_schedule(0, 0, now()));
     }
 
     #[test]
@@ -176,8 +178,8 @@ mod tests {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let a = Account::from(1);
         let b = Account::from(2);
-        logic.try_activate(&a, 100, 0);
-        logic.try_activate(&b, 100, 0);
+        logic.try_activate(&a, 100, 0, now());
+        logic.try_activate(&b, 100, 0, now());
 
         let (first, _) = logic.pop_candidate().unwrap();
         assert_eq!(first, a);
@@ -186,6 +188,10 @@ mod tests {
     }
 
     /* Test helpers */
+
+    fn now() -> Timestamp {
+        Timestamp::new_test_instance()
+    }
 
     fn make_params(gap_threshold: u64, max_candidates: usize) -> OptimisticSchedulerParams {
         OptimisticSchedulerParams {

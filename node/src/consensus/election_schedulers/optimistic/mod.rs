@@ -97,6 +97,7 @@ impl OptimisticScheduler {
             account,
             account_info.block_count,
             conf_info.height,
+            self.clock.now(),
         );
         if activated {
             self.stats
@@ -113,7 +114,7 @@ impl OptimisticScheduler {
             optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
             aec_vacancy = aec.vacancy();
         }
-        logic.can_schedule(optimistic_count, aec_vacancy)
+        logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
     }
 
     fn run(&self) {

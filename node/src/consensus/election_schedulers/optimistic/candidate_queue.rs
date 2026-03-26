@@ -1,18 +1,16 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    time::Instant,
-};
+use std::collections::{HashMap, VecDeque};
 
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
 #[derive(Default)]
 pub(super) struct CandidateQueue {
-    by_account: HashMap<Account, Instant>,
+    by_account: HashMap<Account, Timestamp>,
     sequenced: VecDeque<Account>,
 }
 
 impl CandidateQueue {
-    pub fn insert(&mut self, account: Account, time: Instant) {
+    pub fn insert(&mut self, account: Account, time: Timestamp) {
         if self.by_account.insert(account, time).is_some() {
             self.sequenced.retain(|i| *i != account);
         }
@@ -27,13 +25,13 @@ impl CandidateQueue {
         self.by_account.contains_key(account)
     }
 
-    pub fn front(&self) -> Option<(Account, Instant)> {
+    pub fn front(&self) -> Option<(Account, Timestamp)> {
         self.sequenced
             .front()
             .and_then(|account| self.by_account.get(account).map(|time| (*account, *time)))
     }
 
-    pub fn pop_front(&mut self) -> Option<(Account, Instant)> {
+    pub fn pop_front(&mut self) -> Option<(Account, Timestamp)> {
         self.sequenced.pop_front().map(|account| {
             let time = self.by_account.remove(&account).unwrap();
             (account, time)
@@ -54,7 +52,7 @@ mod tests {
     #[test]
     fn insert_increases_len() {
         let mut q = CandidateQueue::default();
-        q.insert(Account::from(1), Instant::now());
+        q.insert(Account::from(1), Timestamp::new_test_instance());
         assert_eq!(q.len(), 1);
     }
 
@@ -62,7 +60,7 @@ mod tests {
     fn contains_returns_true_after_insert() {
         let mut q = CandidateQueue::default();
         let account = Account::from(1);
-        q.insert(account, Instant::now());
+        q.insert(account, Timestamp::new_test_instance());
         assert!(q.contains(&account));
     }
 
@@ -83,8 +81,8 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Instant::now());
-        q.insert(b, Instant::now());
+        q.insert(a, Timestamp::new_test_instance());
+        q.insert(b, Timestamp::new_test_instance());
         let (account, _) = q.front().unwrap();
         assert_eq!(account, a);
     }
@@ -94,8 +92,8 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Instant::now());
-        q.insert(b, Instant::now());
+        q.insert(a, Timestamp::new_test_instance());
+        q.insert(b, Timestamp::new_test_instance());
 
         let (first, _) = q.pop_front().unwrap();
         let (second, _) = q.pop_front().unwrap();
@@ -107,7 +105,7 @@ mod tests {
     fn pop_front_removes_entry() {
         let mut q = CandidateQueue::default();
         let account = Account::from(1);
-        q.insert(account, Instant::now());
+        q.insert(account, Timestamp::new_test_instance());
         q.pop_front();
         assert!(!q.contains(&account));
         assert_eq!(q.len(), 0);
@@ -118,9 +116,9 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Instant::now());
-        q.insert(b, Instant::now());
-        q.insert(a, Instant::now()); // re-insert a — should move to back
+        q.insert(a, Timestamp::new_test_instance());
+        q.insert(b, Timestamp::new_test_instance());
+        q.insert(a, Timestamp::new_test_instance()); // re-insert a — should move to back
 
         let (first, _) = q.pop_front().unwrap();
         assert_eq!(first, b);
