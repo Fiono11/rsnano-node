@@ -113,6 +113,8 @@ impl OptimisticScheduler {
                         drop(logic);
                         self.run_one(&any, account);
                         logic = self.logic.lock();
+                    } else {
+                        break;
                     }
                 }
             }
