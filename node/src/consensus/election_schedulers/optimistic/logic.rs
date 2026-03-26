@@ -47,6 +47,9 @@ impl OptimisticSchedulerLogic {
         confirmation_height: u64,
         now: Timestamp,
     ) -> bool {
+        if self.stopped() {
+            return false;
+        }
         if !self.has_eligible_gap(block_count, confirmation_height) {
             return false;
         }
@@ -72,15 +75,15 @@ impl OptimisticSchedulerLogic {
         if vacancy <= 0 {
             return false;
         }
-        if let Some((_account, time)) = self.candidates.front() {
+        if let Some((_, time)) = self.candidates.front() {
             time.elapsed(now) >= self.params.activation_delay
         } else {
             false
         }
     }
 
-    pub fn pop_candidate(&mut self) -> Option<(Account, Timestamp)> {
-        self.candidates.pop_front()
+    pub fn pop_candidate(&mut self) -> Option<Account> {
+        self.candidates.pop_front().map(|(account, _)| account)
     }
 
     pub fn candidate_count(&self) -> usize {
@@ -203,9 +206,9 @@ mod tests {
         logic.try_activate(&a, 100, 0, now());
         logic.try_activate(&b, 100, 0, now());
 
-        let (first, _) = logic.pop_candidate().unwrap();
+        let first = logic.pop_candidate().unwrap();
         assert_eq!(first, a);
-        let (second, _) = logic.pop_candidate().unwrap();
+        let second = logic.pop_candidate().unwrap();
         assert_eq!(second, b);
     }
 

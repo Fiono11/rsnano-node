@@ -145,7 +145,8 @@ impl ElectionSchedulers {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) {
-        self.optimistic.activate(account, account_info, conf_info);
+        self.optimistic
+            .activate(account, account_info.block_count, conf_info.height);
         self.priority
             .activate_with_info(any, account_info, conf_info);
     }

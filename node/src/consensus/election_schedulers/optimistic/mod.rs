@@ -6,7 +6,7 @@ use std::{
 use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
+use rsnano_types::Account;
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -72,22 +72,10 @@ impl OptimisticScheduler {
     }
 
     /// Called from backlog population to process accounts with unconfirmed blocks
-    pub fn activate(
-        &self,
-        account: &Account,
-        account_info: &AccountInfo,
-        conf_info: &ConfirmationHeightInfo,
-    ) -> bool {
+    pub fn activate(&self, account: &Account, block_count: u64, confirmation_height: u64) -> bool {
+        let now = self.clock.now();
         let mut logic = self.logic.lock();
-        if logic.stopped() {
-            return false;
-        }
-        let activated = logic.try_activate(
-            account,
-            account_info.block_count,
-            conf_info.height,
-            self.clock.now(),
-        );
+        let activated = logic.try_activate(account, block_count, confirmation_height, now);
         if activated {
             self.stats.activated_count.fetch_add(1, Relaxed);
         }
@@ -103,7 +91,7 @@ impl OptimisticScheduler {
                 let any = self.ledger.any();
 
                 while self.can_schedule(&logic) {
-                    if let Some((account, _)) = logic.pop_candidate() {
+                    if let Some(account) = logic.pop_candidate() {
                         drop(logic);
                         self.run_one(&any, account);
                         logic = self.logic.lock();

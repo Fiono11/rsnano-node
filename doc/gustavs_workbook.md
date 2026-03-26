@@ -3,10 +3,11 @@
 ## PR #4939: Activate largest-gap optimistic elections first
 
 * [x] Draw diagram
-* [ ] Wait for activation dealy before scheduling
+* [ ] Wait for activation delay before scheduling
 * [ ] Reduce gap threshold and max size
 * [ ] Add config option `optimistic_activation_delay`
 * [ ] Add unit tests
+* [ ] Remove/convert legacy tests
 * [ ] Add documentation
 
 
@@ -21,3 +22,4 @@
 
 * [ ] Why does bootstrap stall?
 * [ ] Run a bootstrap with nano_node and compare
+* [ ] Do vacancy calculation for schedulers inside AEC? Only wake up schedulers if AEC has vacancy?
