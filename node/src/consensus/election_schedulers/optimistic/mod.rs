@@ -96,7 +96,7 @@ impl OptimisticScheduler {
             .logic
             .lock()
             .unwrap()
-            .try_activate(account, account_info, conf_info);
+            .try_activate(account, account_info.block_count, conf_info.height);
         if activated {
             self.stats
                 .inc(StatType::OptimisticScheduler, DetailType::Activated);
