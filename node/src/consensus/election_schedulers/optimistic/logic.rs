@@ -6,21 +6,19 @@ use std::{
 
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 
-use super::config::OptimisticSchedulerConfig;
+use super::config::OptimisticSchedulerParams;
 
 /// Pure scheduling logic — no infrastructure dependencies.
 /// Manages the candidate queue and decides when activation is appropriate.
 pub struct OptimisticSchedulerLogic {
-    config: OptimisticSchedulerConfig,
-    max_elections: usize,
+    params: OptimisticSchedulerParams,
     candidates: OrderedCandidates,
 }
 
 impl OptimisticSchedulerLogic {
-    pub fn new(config: OptimisticSchedulerConfig, max_elections: usize) -> Self {
+    pub fn new(params: OptimisticSchedulerParams) -> Self {
         Self {
-            config,
-            max_elections,
+            params,
             candidates: OrderedCandidates::default(),
         }
     }
@@ -32,7 +30,7 @@ impl OptimisticSchedulerLogic {
         conf_info: &ConfirmationHeightInfo,
     ) -> bool {
         let big_enough_gap =
-            account_info.block_count - conf_info.height > self.config.gap_threshold;
+            account_info.block_count - conf_info.height > self.params.gap_threshold;
         let nothing_confirmed_yet = conf_info.height == 0;
         big_enough_gap | nothing_confirmed_yet
     }
@@ -51,7 +49,7 @@ impl OptimisticSchedulerLogic {
         if self.candidates.contains(account) {
             return false;
         }
-        if self.candidates.len() >= self.config.max_size {
+        if self.candidates.len() >= self.params.max_size {
             return false;
         }
         self.candidates.insert(*account, Instant::now());
@@ -69,7 +67,7 @@ impl OptimisticSchedulerLogic {
         activation_delay: Duration,
     ) -> bool {
         let vacancy = min(
-            self.max_elections as i64 - optimistic_count as i64,
+            self.params.max_elections as i64 - optimistic_count as i64,
             aec_vacancy,
         );
         if vacancy <= 0 {
@@ -133,7 +131,7 @@ mod tests {
 
     #[test]
     fn activate_predicate_gap_large_enough() {
-        let logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(60); // gap = 40 > 32
         assert!(logic.activate_predicate(&account_info, &conf_info));
@@ -141,7 +139,7 @@ mod tests {
 
     #[test]
     fn activate_predicate_gap_too_small() {
-        let logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(80); // gap = 20 < 32
         assert!(!logic.activate_predicate(&account_info, &conf_info));
@@ -149,7 +147,7 @@ mod tests {
 
     #[test]
     fn activate_predicate_nothing_confirmed_yet() {
-        let logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(5); // gap = 5, below threshold
         let conf_info = make_conf_info(0); // nothing confirmed
         assert!(logic.activate_predicate(&account_info, &conf_info));
@@ -157,7 +155,7 @@ mod tests {
 
     #[test]
     fn try_activate_adds_candidate() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account = Account::from(1);
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(0);
@@ -168,7 +166,7 @@ mod tests {
 
     #[test]
     fn try_activate_rejects_duplicate() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account = Account::from(1);
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(0);
@@ -180,7 +178,7 @@ mod tests {
 
     #[test]
     fn try_activate_rejects_when_full() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 2), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(0);
 
@@ -192,7 +190,7 @@ mod tests {
 
     #[test]
     fn try_activate_rejects_when_predicate_fails() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(80); // gap = 20, below threshold
         assert!(!logic.try_activate(&Account::from(1), &account_info, &conf_info));
@@ -201,13 +199,13 @@ mod tests {
 
     #[test]
     fn can_schedule_no_candidates() {
-        let logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         assert!(!logic.can_schedule(0, 10, Duration::ZERO));
     }
 
     #[test]
     fn can_schedule_no_vacancy() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(
             &Account::from(1),
             &make_account_info(100),
@@ -219,7 +217,7 @@ mod tests {
 
     #[test]
     fn can_schedule_with_vacancy_and_zero_delay() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(
             &Account::from(1),
             &make_account_info(100),
@@ -230,7 +228,7 @@ mod tests {
 
     #[test]
     fn can_schedule_aec_vacancy_is_limiting_factor() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         logic.try_activate(
             &Account::from(1),
             &make_account_info(100),
@@ -242,7 +240,7 @@ mod tests {
 
     #[test]
     fn pop_candidate_returns_in_insertion_order() {
-        let mut logic = OptimisticSchedulerLogic::new(make_config(32, 1024), 10);
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let a = Account::from(1);
         let b = Account::from(2);
         logic.try_activate(&a, &make_account_info(100), &make_conf_info(0));
@@ -256,11 +254,11 @@ mod tests {
 
     /* Test helpers */
 
-    fn make_config(gap_threshold: u64, max_size: usize) -> OptimisticSchedulerConfig {
-        OptimisticSchedulerConfig {
+    fn make_params(gap_threshold: u64, max_size: usize) -> OptimisticSchedulerParams {
+        OptimisticSchedulerParams {
             gap_threshold,
             max_size,
-            optimistic_limit_percentage: 10,
+            max_elections: 10,
         }
     }
 

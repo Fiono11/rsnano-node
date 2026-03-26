@@ -71,8 +71,15 @@ impl ElectionSchedulers {
             ledger.clone(),
         ));
 
+        let optimistic_params = OptimisticSchedulerParams {
+            gap_threshold: config.optimistic_scheduler.gap_threshold,
+            max_size: config.optimistic_scheduler.max_size,
+            max_elections: config.active_elections.max_elections
+                * config.optimistic_scheduler.optimistic_limit_percentage
+                / 100,
+        };
         let optimistic = Arc::new(OptimisticScheduler::new(
-            config.optimistic_scheduler.clone(),
+            optimistic_params,
             stats.clone(),
             active_elections.clone(),
             network_constants,

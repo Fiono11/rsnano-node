@@ -25,7 +25,7 @@ use crate::{
 mod config;
 mod logic;
 
-pub use config::OptimisticSchedulerConfig;
+pub use config::{OptimisticSchedulerConfig, OptimisticSchedulerParams};
 pub use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {
@@ -44,7 +44,7 @@ pub struct OptimisticScheduler {
 
 impl OptimisticScheduler {
     pub fn new(
-        config: OptimisticSchedulerConfig,
+        params: OptimisticSchedulerParams,
         stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         network_constants: NetworkConstants,
@@ -52,21 +52,18 @@ impl OptimisticScheduler {
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let max_elections =
-            active_elections.read().unwrap().max_len() * config.optimistic_limit_percentage / 100;
-
         Self {
             thread: Mutex::new(None),
             stopped: AtomicBool::new(true),
             condition: Condvar::new(),
-            logic: Mutex::new(OptimisticSchedulerLogic::new(config, max_elections)),
+            max_elections: params.max_elections,
+            logic: Mutex::new(OptimisticSchedulerLogic::new(params)),
             stats,
             active_elections,
             network_constants,
             ledger,
             confirming_set,
             clock,
-            max_elections,
         }
     }
 
