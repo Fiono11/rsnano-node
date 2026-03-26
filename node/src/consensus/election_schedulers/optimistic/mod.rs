@@ -15,7 +15,7 @@ use rsnano_utils::{
 
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{election::ElectionBehavior, ActiveElectionsContainer, AecInsertRequest},
 };
 
 mod candidate_queue;
@@ -111,7 +111,6 @@ impl OptimisticScheduler {
                 while self.can_schedule(&logic) {
                     let (account, _) = logic.pop_candidate().unwrap();
                     drop(logic);
-                    let mut scheduled = None;
                     if let Some(head) = any.account_head(&account) {
                         if let Some(block) = any.get_block(&head) {
                             let forked = {
@@ -140,15 +139,13 @@ impl OptimisticScheduler {
                                     .unwrap()
                                     .insert(AecInsertRequest::new_optimistic(block, priority), now)
                                     .is_ok();
-                                scheduled = Some(inserted);
+
+                                if inserted {
+                                    self.insert_count.fetch_add(1, Ordering::Relaxed);
+                                } else {
+                                    self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
+                                }
                             }
-                        }
-                    }
-                    if let Some(inserted) = scheduled {
-                        if inserted {
-                            self.insert_count.fetch_add(1, Ordering::Relaxed);
-                        } else {
-                            self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     logic = self.logic.lock();
