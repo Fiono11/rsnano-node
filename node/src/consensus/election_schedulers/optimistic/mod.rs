@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        Arc, Condvar, Mutex, RwLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
@@ -29,7 +26,6 @@ use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
-    stopped: AtomicBool,
     condition: Condvar,
     logic: Mutex<OptimisticSchedulerLogic>,
     stats: Arc<Stats>,
@@ -52,7 +48,6 @@ impl OptimisticScheduler {
     ) -> Self {
         Self {
             thread: Mutex::new(None),
-            stopped: AtomicBool::new(true),
             condition: Condvar::new(),
             max_elections: params.max_elections,
             activation_delay: params.activation_delay,
@@ -70,7 +65,7 @@ impl OptimisticScheduler {
     }
 
     pub fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
+        self.logic.lock().unwrap().stop();
         self.notify();
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
@@ -90,10 +85,11 @@ impl OptimisticScheduler {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) -> bool {
-        if self.stopped.load(Ordering::Relaxed) {
+        let mut logic = self.logic.lock().unwrap();
+        if logic.stopped() {
             return false;
         }
-        let activated = self.logic.lock().unwrap().try_activate(
+        let activated = logic.try_activate(
             account,
             account_info.block_count,
             conf_info.height,
@@ -106,27 +102,16 @@ impl OptimisticScheduler {
         activated
     }
 
-    fn predicate(&self, logic: &OptimisticSchedulerLogic) -> bool {
-        let optimistic_count;
-        let aec_vacancy;
-        {
-            let aec = self.active_elections.read().unwrap();
-            optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
-            aec_vacancy = aec.vacancy();
-        }
-        logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
-    }
-
     fn run(&self) {
         let mut guard = self.logic.lock().unwrap();
-        while !self.stopped.load(Ordering::SeqCst) {
+        while !guard.stopped() {
             self.stats
                 .inc(StatType::OptimisticScheduler, DetailType::Loop);
 
-            if self.predicate(&guard) {
+            if self.can_schedule(&guard) {
                 let any = self.ledger.any();
 
-                while self.predicate(&guard) {
+                while self.can_schedule(&guard) {
                     let (account, _) = guard.pop_candidate().unwrap();
                     drop(guard);
                     self.run_one(&any, account);
@@ -137,11 +122,22 @@ impl OptimisticScheduler {
             guard = self
                 .condition
                 .wait_timeout_while(guard, self.activation_delay / 2, |g| {
-                    !self.stopped.load(Ordering::SeqCst) && !self.predicate(g)
+                    !g.stopped() && !self.can_schedule(g)
                 })
                 .unwrap()
                 .0;
         }
+    }
+
+    fn can_schedule(&self, logic: &OptimisticSchedulerLogic) -> bool {
+        let optimistic_count;
+        let aec_vacancy;
+        {
+            let aec = self.active_elections.read().unwrap();
+            optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
+            aec_vacancy = aec.vacancy();
+        }
+        logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
     }
 
     fn run_one(&self, any: &impl AnySet, account: Account) {
@@ -208,7 +204,6 @@ pub trait OptimisticSchedulerExt {
 impl OptimisticSchedulerExt for Arc<OptimisticScheduler> {
     fn start(&self) {
         debug_assert!(self.thread.lock().unwrap().is_none());
-        self.stopped.store(false, Ordering::SeqCst);
         let self_l = Arc::clone(self);
         *self.thread.lock().unwrap() = Some(
             std::thread::Builder::new()

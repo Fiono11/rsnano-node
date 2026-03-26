@@ -9,6 +9,7 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 /// Pure scheduling logic — no infrastructure dependencies.
 /// Manages the candidate queue and decides when activation is appropriate.
 pub struct OptimisticSchedulerLogic {
+    stopped: bool,
     params: OptimisticSchedulerParams,
     candidates: CandidateQueue,
 }
@@ -16,9 +17,18 @@ pub struct OptimisticSchedulerLogic {
 impl OptimisticSchedulerLogic {
     pub fn new(params: OptimisticSchedulerParams) -> Self {
         Self {
+            stopped: false,
             params,
             candidates: CandidateQueue::default(),
         }
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.stopped
+    }
+
+    pub fn stop(&mut self) {
+        self.stopped = true;
     }
 
     /// Returns true if the account's unconfirmed gap meets the threshold for optimistic scheduling.
@@ -93,6 +103,18 @@ impl ContainerInfoProvider for OptimisticSchedulerLogic {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn stopped_initially_false() {
+        assert!(!OptimisticSchedulerLogic::new(make_params(32, 1024)).stopped());
+    }
+
+    #[test]
+    fn stop_sets_flag() {
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        logic.stop();
+        assert!(logic.stopped());
+    }
 
     #[test]
     fn eligible_gap_when_gap_large_enough() {
