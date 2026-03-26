@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -26,6 +26,9 @@ pub struct BoundedBacklog {
     logic: NullableCondvarMutex<BoundedBacklogLogic>,
     ledger: Arc<Ledger>,
     should_throttle: AtomicBool,
+    // stats
+    rollback_iterations: AtomicU64,
+    total_gathered: AtomicU64,
 }
 
 impl BoundedBacklog {
@@ -35,6 +38,8 @@ impl BoundedBacklog {
             logic,
             ledger,
             should_throttle: AtomicBool::new(false),
+            rollback_iterations: AtomicU64::new(0),
+            total_gathered: AtomicU64::new(0),
         }
     }
 
@@ -82,6 +87,9 @@ impl BoundedBacklog {
             }
 
             logic.gather_targets(&mut targets);
+            self.rollback_iterations.fetch_add(1, Ordering::Relaxed);
+            self.total_gathered
+                .fetch_add(targets.len() as u64, Ordering::Relaxed);
 
             if !targets.is_empty() {
                 let target_count = logic.rollback_target_count();
@@ -109,7 +117,16 @@ impl BoundedBacklog {
 
 impl StatsSource for BoundedBacklog {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.logic.lock().collect_stats(result);
+        result.insert(
+            "bounded_backlog",
+            "rollback_iterations",
+            self.rollback_iterations.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "bounded_backlog",
+            "gathered_targets",
+            self.total_gathered.load(Ordering::Relaxed),
+        );
     }
 }
 
@@ -198,7 +215,7 @@ mod tests {
         let logic = backlog.logic.lock();
         assert_eq!(logic.block_count(), 2);
         assert_eq!(logic.confirmed_count(), 1);
-        assert_eq!(logic.rollback_iterations, 0);
+        assert_eq!(backlog.rollback_iterations.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -279,7 +296,7 @@ mod tests {
         let logic = backlog.logic.lock();
         assert_eq!(logic.backlog_size(), 2);
         assert_eq!(logic.block_count(), 3);
-        assert_eq!(logic.rollback_iterations, 1);
+        assert_eq!(backlog.rollback_iterations.load(Ordering::Relaxed), 1);
         assert_ne!(ledger.backlog_size(), 2);
     }
 
@@ -316,14 +333,14 @@ mod tests {
     #[test]
     fn collects_stats() {
         let backlog = BoundedBacklog::new_null();
-
-        let mut expected = StatsCollection::new();
-        backlog.logic.lock().collect_stats(&mut expected);
+        backlog.rollback_iterations.store(10, Ordering::Relaxed);
+        backlog.total_gathered.store(11, Ordering::Relaxed);
 
         let mut result = StatsCollection::new();
         backlog.collect_stats(&mut result);
 
-        assert_eq!(result, expected);
+        assert_eq!(result.get("bounded_backlog", "rollback_iterations"), 10);
+        assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
     }
 
     #[test]
@@ -445,6 +462,8 @@ mod tests {
             logic,
             ledger,
             should_throttle: AtomicBool::new(false),
+            rollback_iterations: AtomicU64::new(0),
+            total_gathered: AtomicU64::new(0),
         }
     }
 }

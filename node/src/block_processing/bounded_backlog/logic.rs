@@ -2,10 +2,7 @@ use std::cmp::{max, min};
 
 use rsnano_ledger::ProcessResult;
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::{
     block_processing::bounded_backlog::index::BacklogEntry,
@@ -41,10 +38,6 @@ pub(crate) struct BoundedBacklogLogic {
     block_count: u64,
     confirmed_count: u64,
     bootstrap_weights_max_blocks: u64,
-
-    // stats
-    pub rollback_iterations: u64,
-    total_gathered: u64,
 }
 
 impl BoundedBacklogLogic {
@@ -57,8 +50,6 @@ impl BoundedBacklogLogic {
             block_count: 0,
             confirmed_count: 0,
             bootstrap_weights_max_blocks: 0,
-            rollback_iterations: 0,
-            total_gathered: 0,
         }
     }
 
@@ -161,7 +152,6 @@ impl BoundedBacklogLogic {
     }
 
     pub(crate) fn gather_targets(&mut self, targets: &mut Vec<BlockHash>) {
-        self.rollback_iterations += 1;
         targets.clear();
         let batch_size = self.next_rollback_batch_size();
 
@@ -176,7 +166,6 @@ impl BoundedBacklogLogic {
                 }
             }
         }
-        self.total_gathered += targets.len() as u64;
     }
 
     fn bucket_threshold(&self) -> usize {
@@ -213,17 +202,6 @@ impl BoundedBacklogLogic {
     #[cfg(test)]
     pub(crate) fn contains(&self, hash: &BlockHash) -> bool {
         self.index.contains(hash)
-    }
-}
-
-impl StatsSource for BoundedBacklogLogic {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert(
-            "bounded_backlog",
-            "rollback_iterations",
-            self.rollback_iterations,
-        );
-        result.insert("bounded_backlog", "gathered_targets", self.total_gathered);
     }
 }
 
@@ -517,25 +495,6 @@ mod tests {
      */
 
     #[test]
-    fn gather_targets_increments_gather_called() {
-        let mut logic = BoundedBacklogLogic::new(small_config());
-        let mut targets = Vec::new();
-        logic.gather_targets(&mut targets);
-        assert_eq!(logic.rollback_iterations, 1);
-    }
-
-    #[test]
-    fn gather_targets_increments_total_gathered() {
-        let mut logic = BoundedBacklogLogic::new(small_config());
-        logic.insert(&make_block(1), BlockPriority::new_test_instance());
-        logic.insert(&make_block(2), BlockPriority::new_test_instance());
-        logic.set_ledger_info(4, 1);
-        let mut targets = Vec::new();
-        logic.gather_targets(&mut targets);
-        assert_eq!(logic.total_gathered, 2);
-    }
-
-    #[test]
     fn gather_targets_clears_existing_targets() {
         let mut logic = BoundedBacklogLogic::new(small_config());
         let mut targets = vec![BlockHash::from(1), BlockHash::from(2)];
@@ -598,19 +557,6 @@ mod tests {
             panic!("expected leaf");
         };
         assert_eq!(leaf.info.count, 2);
-    }
-
-    #[test]
-    fn collects_stats() {
-        let mut logic = BoundedBacklogLogic::new(Default::default());
-        logic.rollback_iterations = 10;
-        logic.total_gathered = 11;
-
-        let mut result = StatsCollection::new();
-        logic.collect_stats(&mut result);
-
-        assert_eq!(result.get("bounded_backlog", "rollback_iterations"), 10);
-        assert_eq!(result.get("bounded_backlog", "gathered_targets"), 11);
     }
 
     /*
