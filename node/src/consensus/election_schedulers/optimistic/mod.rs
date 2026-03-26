@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
@@ -15,7 +15,7 @@ use rsnano_utils::{
 
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{election::ElectionBehavior, ActiveElectionsContainer, AecInsertRequest},
+    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
 };
 
 mod candidate_queue;
@@ -109,46 +109,11 @@ impl OptimisticScheduler {
                 let any = self.ledger.any();
 
                 while self.can_schedule(&logic) {
-                    let (account, _) = logic.pop_candidate().unwrap();
-                    drop(logic);
-                    if let Some(head) = any.account_head(&account) {
-                        if let Some(block) = any.get_block(&head) {
-                            let forked = {
-                                #[cfg(not(feature = "ledger_snapshots"))]
-                                {
-                                    false
-                                }
-                                #[cfg(feature = "ledger_snapshots")]
-                                {
-                                    any.is_forked(&block.qualified_root())
-                                }
-                            };
-
-                            // Ensure block is not already confirmed
-                            let is_confirmed = self.confirming_set.contains(&block.hash())
-                                || any.confirmed().block_exists(&block.hash());
-
-                            if !is_confirmed && !forked {
-                                // Try to insert it into AEC
-                                // We check for AEC vacancy inside our predicate
-                                let now = self.clock.now();
-                                let priority = any.block_priority(&block);
-                                let inserted = self
-                                    .active_elections
-                                    .write()
-                                    .unwrap()
-                                    .insert(AecInsertRequest::new_optimistic(block, priority), now)
-                                    .is_ok();
-
-                                if inserted {
-                                    self.insert_count.fetch_add(1, Ordering::Relaxed);
-                                } else {
-                                    self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
-                                }
-                            }
-                        }
+                    if let Some((account, _)) = logic.pop_candidate() {
+                        drop(logic);
+                        self.run_one(&any, account);
+                        logic = self.logic.lock();
                     }
-                    logic = self.logic.lock();
                 }
             }
 
@@ -158,6 +123,49 @@ impl OptimisticScheduler {
                     !g.stopped() && !self.can_schedule(g)
                 })
                 .0;
+        }
+    }
+
+    fn run_one(&self, any: &OwningAnySet, account: Account) {
+        let Some(head) = any.account_head(&account) else {
+            return;
+        };
+        let Some(block) = any.get_block(&head) else {
+            return;
+        };
+
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            if any.is_forked(&block.qualified_root()) {
+                // Needed for new consensus algorithm in ledger snapshot.
+                // We never vote for forked blocks.
+                return;
+            }
+        }
+
+        // Ensure block is not already confirmed
+        let is_confirmed = self.confirming_set.contains(&block.hash())
+            || any.confirmed().block_exists(&block.hash());
+
+        if is_confirmed {
+            // No need to schedule an election if already confirmed.
+            return;
+        }
+        // Try to insert it into AEC
+        // We check for AEC vacancy inside our predicate
+        let now = self.clock.now();
+        let priority = any.block_priority(&block);
+        let inserted = self
+            .active_elections
+            .write()
+            .unwrap()
+            .insert(AecInsertRequest::new_optimistic(block, priority), now)
+            .is_ok();
+
+        if inserted {
+            self.insert_count.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.insert_failed_count.fetch_add(1, Ordering::Relaxed);
         }
     }
 
