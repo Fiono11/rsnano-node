@@ -24,7 +24,7 @@ impl OptimisticSchedulerLogic {
     }
 
     /// Returns true if the account's unconfirmed gap meets the threshold for optimistic scheduling.
-    pub fn activate_predicate(
+    pub fn has_eligible_gap(
         &self,
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
@@ -43,13 +43,13 @@ impl OptimisticSchedulerLogic {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) -> bool {
-        if !self.activate_predicate(account_info, conf_info) {
+        if !self.has_eligible_gap(account_info, conf_info) {
             return false;
         }
         if self.candidates.contains(account) {
             return false;
         }
-        if self.candidates.len() >= self.params.max_size {
+        if self.candidates.len() >= self.params.max_candidates {
             return false;
         }
         self.candidates.insert(*account, Instant::now());
@@ -130,27 +130,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn activate_predicate_gap_large_enough() {
+    fn eligible_gap_when_gap_large_enough() {
         let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(60); // gap = 40 > 32
-        assert!(logic.activate_predicate(&account_info, &conf_info));
+        assert!(logic.has_eligible_gap(&account_info, &conf_info));
     }
 
     #[test]
-    fn activate_predicate_gap_too_small() {
+    fn not_eligible_when_gap_too_small() {
         let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(100);
         let conf_info = make_conf_info(80); // gap = 20 < 32
-        assert!(!logic.activate_predicate(&account_info, &conf_info));
+        assert!(!logic.has_eligible_gap(&account_info, &conf_info));
     }
 
     #[test]
-    fn activate_predicate_nothing_confirmed_yet() {
+    fn eligible_gap_when_nothing_confirmed_yet() {
         let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account_info = make_account_info(5); // gap = 5, below threshold
         let conf_info = make_conf_info(0); // nothing confirmed
-        assert!(logic.activate_predicate(&account_info, &conf_info));
+        assert!(logic.has_eligible_gap(&account_info, &conf_info));
     }
 
     #[test]
@@ -254,10 +254,10 @@ mod tests {
 
     /* Test helpers */
 
-    fn make_params(gap_threshold: u64, max_size: usize) -> OptimisticSchedulerParams {
+    fn make_params(gap_threshold: u64, max_candidates: usize) -> OptimisticSchedulerParams {
         OptimisticSchedulerParams {
             gap_threshold,
-            max_size,
+            max_candidates,
             max_elections: 10,
         }
     }

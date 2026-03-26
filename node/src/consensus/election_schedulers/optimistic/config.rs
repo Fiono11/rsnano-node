@@ -2,7 +2,7 @@
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptimisticSchedulerParams {
     pub gap_threshold: u64,
-    pub max_size: usize,
+    pub max_candidates: usize,
     /// Maximum number of simultaneous optimistic elections (absolute value)
     pub max_elections: usize,
 }
