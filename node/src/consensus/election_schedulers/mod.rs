@@ -1,13 +1,13 @@
 mod election_schedulers_plugin;
 mod hinted_scheduler;
 mod manual_scheduler;
-mod optimistic_scheduler;
+mod optimistic;
 pub mod priority;
 
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
-pub use optimistic_scheduler::*;
+pub use optimistic::*;
 
 use std::sync::{Arc, Mutex, RwLock};
 
