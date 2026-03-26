@@ -22,6 +22,7 @@ use crate::{
     consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
 };
 
+mod candidate_queue;
 mod config;
 mod logic;
 

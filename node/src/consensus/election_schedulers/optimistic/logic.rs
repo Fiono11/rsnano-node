@@ -1,12 +1,11 @@
 use std::{
     cmp::min,
-    collections::{HashMap, VecDeque},
     time::{Duration, Instant},
 };
 
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 
-use super::config::OptimisticSchedulerParams;
+use super::{candidate_queue::CandidateQueue, config::OptimisticSchedulerParams};
 
 /// Pure scheduling logic — no infrastructure dependencies.
 /// Manages the candidate queue and decides when activation is appropriate.
@@ -86,42 +85,6 @@ impl OptimisticSchedulerLogic {
 
     pub fn candidate_count(&self) -> usize {
         self.candidates.len()
-    }
-}
-
-#[derive(Default)]
-struct CandidateQueue {
-    by_account: HashMap<Account, Instant>,
-    sequenced: VecDeque<Account>,
-}
-
-impl CandidateQueue {
-    fn insert(&mut self, account: Account, time: Instant) {
-        if self.by_account.insert(account, time).is_some() {
-            self.sequenced.retain(|i| *i != account);
-        }
-        self.sequenced.push_back(account);
-    }
-
-    fn len(&self) -> usize {
-        self.sequenced.len()
-    }
-
-    fn contains(&self, account: &Account) -> bool {
-        self.by_account.contains_key(account)
-    }
-
-    fn front(&self) -> Option<(Account, Instant)> {
-        self.sequenced
-            .front()
-            .and_then(|account| self.by_account.get(account).map(|time| (*account, *time)))
-    }
-
-    fn pop_front(&mut self) -> Option<(Account, Instant)> {
-        self.sequenced.pop_front().map(|account| {
-            let time = self.by_account.remove(&account).unwrap();
-            (account, time)
-        })
     }
 }
 
