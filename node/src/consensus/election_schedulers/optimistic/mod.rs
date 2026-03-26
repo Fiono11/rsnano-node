@@ -25,7 +25,7 @@ use crate::{
 mod config;
 mod logic;
 
-pub use config::{OptimisticSchedulerConfig, OptimisticSchedulerParams};
+pub use config::OptimisticSchedulerParams;
 pub use logic::OptimisticSchedulerLogic;
 
 pub struct OptimisticScheduler {

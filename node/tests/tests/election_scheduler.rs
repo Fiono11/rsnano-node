@@ -4,11 +4,8 @@ mod election_scheduler {
     use super::*;
     use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
     use rsnano_node::{
-        config::NodeConfig,
-        consensus::{
-            AecInsertRequest, election::ElectionBehavior,
-            election_schedulers::OptimisticSchedulerConfig,
-        },
+        config::{NodeConfig, OptimisticSchedulerConfig},
+        consensus::{AecInsertRequest, election::ElectionBehavior},
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
     use test_helpers::{setup_chains, setup_rep};

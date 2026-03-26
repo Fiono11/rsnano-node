@@ -12,7 +12,10 @@ use rsnano_types::{
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
 
-use super::{DEV_NETWORK_PARAMS, NetworkParams, NetworkType, websocket_config::WebsocketConfig};
+use super::{
+    DEV_NETWORK_PARAMS, NetworkParams, NetworkType, OptimisticSchedulerConfig,
+    websocket_config::WebsocketConfig,
+};
 use crate::{
     block_processing::{
         BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
@@ -23,9 +26,7 @@ use crate::{
     consensus::{
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
         RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, VoteRebroadcastQueue,
-        election_schedulers::{
-            HintedSchedulerConfig, OptimisticSchedulerConfig, priority::PriorityBucketConfig,
-        },
+        election_schedulers::{HintedSchedulerConfig, priority::PriorityBucketConfig},
     },
     transport::MessageProcessorConfig,
 };

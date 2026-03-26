@@ -4,6 +4,7 @@ mod network_constants;
 mod network_params;
 mod node_config;
 mod node_flags;
+mod optimistic_scheduler_config;
 mod toml;
 mod websocket_config;
 
@@ -12,6 +13,7 @@ pub use network_constants::*;
 pub use network_params::*;
 pub use node_config::*;
 pub use node_flags::*;
+pub use optimistic_scheduler_config::*;
 pub use rsnano_types::NetworkType;
 use rsnano_wallet::WalletsConfig;
 use serde::de::DeserializeOwned;
