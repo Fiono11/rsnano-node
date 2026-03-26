@@ -1,5 +1,4 @@
 use std::{
-    mem::size_of,
     sync::{
         Arc, Condvar, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
@@ -12,7 +11,7 @@ use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
-    container_info::ContainerInfo,
+    container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
 
@@ -106,16 +105,6 @@ impl OptimisticScheduler {
         activated
     }
 
-    pub fn container_info(&self) -> ContainerInfo {
-        let guard = self.logic.lock().unwrap();
-        [(
-            "candidates",
-            guard.candidate_count(),
-            size_of::<Account>() * 2 + size_of::<Instant>(),
-        )]
-        .into()
-    }
-
     fn predicate(&self, logic: &OptimisticSchedulerLogic) -> bool {
         let active = self.active_elections.read().unwrap();
         let optimistic_count = active.count_by_behavior(ElectionBehavior::Optimistic);
@@ -134,9 +123,9 @@ impl OptimisticScheduler {
                 let any = self.ledger.any();
 
                 while self.predicate(&guard) {
-                    let (account, time) = guard.pop_candidate().unwrap();
+                    let (account, _) = guard.pop_candidate().unwrap();
                     drop(guard);
-                    self.run_one(&any, account, time);
+                    self.run_one(&any, account);
                     guard = self.logic.lock().unwrap();
                 }
             }
@@ -151,7 +140,7 @@ impl OptimisticScheduler {
         }
     }
 
-    fn run_one(&self, any: &impl AnySet, account: Account, _time: Instant) {
+    fn run_one(&self, any: &impl AnySet, account: Account) {
         let Some(head) = any.account_head(&account) else {
             return;
         };
@@ -199,6 +188,12 @@ impl Drop for OptimisticScheduler {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
         debug_assert!(self.thread.lock().unwrap().is_none())
+    }
+}
+
+impl ContainerInfoProvider for OptimisticScheduler {
+    fn container_info(&self) -> ContainerInfo {
+        self.logic.lock().unwrap().container_info()
     }
 }
 

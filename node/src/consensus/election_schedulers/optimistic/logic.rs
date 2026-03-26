@@ -6,6 +6,7 @@ use std::{
 use rsnano_types::Account;
 
 use super::{candidate_queue::CandidateQueue, config::OptimisticSchedulerParams};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 /// Pure scheduling logic — no infrastructure dependencies.
 /// Manages the candidate queue and decides when activation is appropriate.
@@ -80,6 +81,17 @@ impl OptimisticSchedulerLogic {
 
     pub fn candidate_count(&self) -> usize {
         self.candidates.len()
+    }
+}
+
+impl ContainerInfoProvider for OptimisticSchedulerLogic {
+    fn container_info(&self) -> ContainerInfo {
+        [(
+            "candidates",
+            self.candidate_count(),
+            size_of::<Account>() * 2 + size_of::<Instant>(),
+        )]
+        .into()
     }
 }
 

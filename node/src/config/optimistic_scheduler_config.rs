@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// High-level user-facing config stored in `NodeConfig`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptimisticSchedulerConfig {
@@ -20,13 +22,13 @@ impl OptimisticSchedulerConfig {
             gap_threshold: 32,
             max_size: 1024 * 64,
             optimistic_limit_percentage: 10,
-            activation_delay: std::time::Duration::from_secs(30),
+            activation_delay: Duration::from_secs(30),
         }
     }
 
     pub fn new_for_dev_network() -> Self {
         Self {
-            activation_delay: std::time::Duration::from_secs(2),
+            activation_delay: Duration::from_secs(2),
             ..Self::new()
         }
     }

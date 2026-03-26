@@ -114,7 +114,7 @@ mod election_scheduler {
             .config(NodeConfig {
                 optimistic_scheduler: OptimisticSchedulerConfig {
                     gap_threshold: 1,
-                    ..Default::default()
+                    ..OptimisticSchedulerConfig::new_for_dev_network()
                 },
                 enable_voting: true,
                 enable_hinted_scheduler: false,
