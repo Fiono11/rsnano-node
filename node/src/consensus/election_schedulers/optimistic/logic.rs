@@ -31,13 +31,6 @@ impl OptimisticSchedulerLogic {
         self.stopped = true;
     }
 
-    /// Returns true if the account's unconfirmed gap meets the threshold for optimistic scheduling.
-    pub fn has_eligible_gap(&self, block_count: u64, confirmation_height: u64) -> bool {
-        let big_enough_gap = block_count - confirmation_height >= self.params.gap_threshold;
-        let nothing_confirmed_yet = confirmation_height == 0;
-        big_enough_gap | nothing_confirmed_yet
-    }
-
     /// Attempts to enqueue the account as an optimistic candidate.
     /// Returns true if the account was newly added.
     pub fn try_activate(
@@ -50,17 +43,33 @@ impl OptimisticSchedulerLogic {
         if self.stopped() {
             return false;
         }
-        if !self.has_eligible_gap(block_count, confirmation_height) {
+
+        let gap = self.get_gap(block_count, confirmation_height);
+        if gap < self.params.gap_threshold {
             return false;
         }
+
         if self.candidates.contains(account) {
             return false;
         }
+
+        // TODO: try to replace lowest GAP entry
         if self.candidates.len() >= self.params.max_candidates {
             return false;
         }
-        self.candidates.insert(*account, now);
+
+        self.candidates.insert(*account, now, gap);
         true
+    }
+
+    fn get_gap(&self, block_count: u64, confirmation_height: u64) -> u64 {
+        if confirmation_height == 0 {
+            // Assume gap_threshold for accounts with nothing confirmed so that they
+            // get activated => TODO: Is this really needed??
+            self.params.gap_threshold
+        } else {
+            block_count - confirmation_height
+        }
     }
 
     /// Returns true if there is AEC vacancy and the front candidate has waited long enough.
@@ -119,30 +128,27 @@ mod tests {
         assert!(logic.stopped());
     }
 
+    /*
+     * try_activate accepts
+     */
+
     #[test]
-    fn eligible_gap_when_gap_large_enough() {
-        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.has_eligible_gap(100, 60)); // gap = 40 > 32
+    fn try_activate_adds_candidate_when_gap_above_threshold() {
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        assert!(logic.try_activate(&Account::from(1), 100, 10, now()));
+        assert_eq!(logic.candidate_count(), 1);
     }
 
     #[test]
-    fn not_eligible_when_gap_too_small() {
-        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.has_eligible_gap(100, 80)); // gap = 20 < 32
-    }
-
-    #[test]
-    fn eligible_gap_when_nothing_confirmed_yet() {
-        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.has_eligible_gap(5, 0)); // gap = 5, below threshold but nothing confirmed
-    }
-
-    #[test]
-    fn try_activate_adds_candidate() {
+    fn try_activate_adds_when_account_fully_unconfirmed() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
         assert_eq!(logic.candidate_count(), 1);
     }
+
+    /*
+     * try_activate rejects
+     */
 
     #[test]
     fn try_activate_rejects_duplicate() {
@@ -168,6 +174,10 @@ mod tests {
         assert!(!logic.try_activate(&Account::from(1), 100, 80, now())); // gap = 20, below threshold
         assert_eq!(logic.candidate_count(), 0);
     }
+
+    /*
+     * Misc
+     */
 
     #[test]
     fn can_schedule_no_candidates() {

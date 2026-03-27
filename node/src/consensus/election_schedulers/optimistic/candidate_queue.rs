@@ -10,7 +10,7 @@ pub(super) struct CandidateQueue {
 }
 
 impl CandidateQueue {
-    pub fn insert(&mut self, account: Account, time: Timestamp) {
+    pub fn insert(&mut self, account: Account, time: Timestamp, gap: u64) {
         if self.by_account.insert(account, time).is_some() {
             self.sequenced.retain(|i| *i != account);
         }
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn insert_increases_len() {
         let mut q = CandidateQueue::default();
-        q.insert(Account::from(1), Timestamp::new_test_instance());
+        q.insert(Account::from(1), Timestamp::new_test_instance(), 1);
         assert_eq!(q.len(), 1);
     }
 
@@ -60,7 +60,7 @@ mod tests {
     fn contains_returns_true_after_insert() {
         let mut q = CandidateQueue::default();
         let account = Account::from(1);
-        q.insert(account, Timestamp::new_test_instance());
+        q.insert(account, Timestamp::new_test_instance(), 1);
         assert!(q.contains(&account));
     }
 
@@ -81,8 +81,8 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance());
-        q.insert(b, Timestamp::new_test_instance());
+        q.insert(a, Timestamp::new_test_instance(), 1);
+        q.insert(b, Timestamp::new_test_instance(), 1);
         let (account, _) = q.front().unwrap();
         assert_eq!(account, a);
     }
@@ -92,8 +92,8 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance());
-        q.insert(b, Timestamp::new_test_instance());
+        q.insert(a, Timestamp::new_test_instance(), 1);
+        q.insert(b, Timestamp::new_test_instance(), 1);
 
         let (first, _) = q.pop_front().unwrap();
         let (second, _) = q.pop_front().unwrap();
@@ -105,7 +105,7 @@ mod tests {
     fn pop_front_removes_entry() {
         let mut q = CandidateQueue::default();
         let account = Account::from(1);
-        q.insert(account, Timestamp::new_test_instance());
+        q.insert(account, Timestamp::new_test_instance(), 1);
         q.pop_front();
         assert!(!q.contains(&account));
         assert_eq!(q.len(), 0);
@@ -116,9 +116,9 @@ mod tests {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance());
-        q.insert(b, Timestamp::new_test_instance());
-        q.insert(a, Timestamp::new_test_instance()); // re-insert a — should move to back
+        q.insert(a, Timestamp::new_test_instance(), 1);
+        q.insert(b, Timestamp::new_test_instance(), 1);
+        q.insert(a, Timestamp::new_test_instance(), 1); // re-insert a — should move to back
 
         let (first, _) = q.pop_front().unwrap();
         assert_eq!(first, b);

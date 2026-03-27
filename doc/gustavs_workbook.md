@@ -3,12 +3,12 @@
 ## PR #4939: Activate largest-gap optimistic elections first
 
 * [x] Draw diagram
-* [ ] Finish converting integration tests to unit test for optimistic scheduler
+* [x] Add unit tests
+* [x] Remove/convert legacy tests
+* [ ] Evict lowest gap entry when candidates full
 * [ ] Schedule highest gap first
 * [ ] Reduce gap threshold and max size
-* [ ] Add config option `optimistic_activation_delay`
-* [ ] Add unit tests
-* [ ] Remove/convert legacy tests
+* [ ] Add config option `optimistic_activation_delay` to TOML
 * [ ] Add documentation
 
 
@@ -24,3 +24,4 @@
 * [ ] Why does bootstrap stall?
 * [ ] Run a bootstrap with nano_node and compare
 * [ ] Do vacancy calculation for schedulers inside AEC? Only wake up schedulers if AEC has vacancy?
+* [ ] Optimistic scheduler: only activate unconfirmed accounts if they are actually above threshold
