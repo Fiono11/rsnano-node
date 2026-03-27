@@ -49,18 +49,15 @@ impl OptimisticSchedulerLogic {
             return false;
         }
 
-        // TODO: try to replace lowest GAP entry
-        if self.candidates.contains(account) {
-            return false;
-        }
+        let already_queued = self.candidates.contains(account);
 
         // TODO: try to replace lowest GAP entry
-        if self.candidates.len() >= self.params.max_candidates {
+        if !already_queued && self.candidates.len() >= self.params.max_candidates {
             return false;
         }
 
         self.candidates.insert(*account, now, gap);
-        true
+        !already_queued
     }
 
     fn get_gap(&self, block_count: u64, confirmation_height: u64) -> u64 {
@@ -147,11 +144,11 @@ mod tests {
      */
 
     #[test]
-    fn try_activate_rejects_duplicate() {
+    fn try_activate_updates_gap_on_duplicate() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let account = Account::from(1);
-        assert!(logic.try_activate(&account, 100, 0, now()));
-        assert!(!logic.try_activate(&account, 100, 0, now()));
+        assert!(logic.try_activate(&account, 100, 0, now())); // newly added
+        assert!(!logic.try_activate(&account, 200, 0, now())); // gap updated, not newly added
         assert_eq!(logic.candidate_count(), 1);
     }
 
