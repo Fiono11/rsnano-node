@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// Low-level config consumed by `OptimisticScheduler` with all values resolved to absolute numbers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptimisticSchedulerParams {
@@ -6,5 +8,5 @@ pub struct OptimisticSchedulerParams {
     /// Maximum number of simultaneous optimistic elections (absolute value)
     pub max_elections: usize,
     /// Minimum time a candidate must wait before being scheduled
-    pub activation_delay: std::time::Duration,
+    pub activation_delay: Duration,
 }

@@ -5,9 +5,9 @@
 * [x] Draw diagram
 * [x] Add unit tests
 * [x] Remove/convert legacy tests
-* [ ] Evict lowest gap entry when candidates full
-* [ ] Schedule highest gap first
-* [ ] Reduce gap threshold and max size
+* [x] Evict lowest gap entry when candidates full
+* [x] Schedule highest gap first
+* [x] Reduce gap threshold and max size
 * [ ] Add config option `optimistic_activation_delay` to TOML
 * [ ] Add documentation
 

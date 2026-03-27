@@ -242,7 +242,7 @@ impl NodeConfig {
             websocket_config: WebsocketConfig::new(&network_params.network),
             lmdb_config: LmdbConfig::new(),
             optimistic_scheduler: if network_params.network.is_dev_network() {
-                OptimisticSchedulerConfig::new_for_dev_network()
+                OptimisticSchedulerConfig::default()
             } else {
                 OptimisticSchedulerConfig::new()
             },

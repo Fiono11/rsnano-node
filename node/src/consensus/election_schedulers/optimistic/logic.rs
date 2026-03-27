@@ -67,13 +67,7 @@ impl OptimisticSchedulerLogic {
     }
 
     fn get_gap(&self, block_count: u64, confirmation_height: u64) -> u64 {
-        if confirmation_height == 0 {
-            // Assume gap_threshold for accounts with nothing confirmed so that they
-            // get activated => TODO: Is this really needed??
-            self.params.gap_threshold
-        } else {
-            block_count.saturating_sub(confirmation_height)
-        }
+        block_count.saturating_sub(confirmation_height)
     }
 
     pub fn has_vacancy(&self, optimistic_count: usize, aec_vacancy: i64) -> bool {

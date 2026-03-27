@@ -19,17 +19,10 @@ pub struct OptimisticSchedulerConfig {
 impl OptimisticSchedulerConfig {
     pub fn new() -> Self {
         Self {
-            gap_threshold: 32,
-            max_size: 1024 * 64,
+            gap_threshold: 16,
+            max_size: 1024 * 4,
             optimistic_limit_percentage: 10,
-            activation_delay: Duration::from_secs(30),
-        }
-    }
-
-    pub fn new_for_dev_network() -> Self {
-        Self {
-            activation_delay: Duration::from_secs(2),
-            ..Self::new()
+            activation_delay: Duration::from_secs(1),
         }
     }
 }

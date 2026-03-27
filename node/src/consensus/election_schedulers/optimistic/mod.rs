@@ -253,15 +253,23 @@ mod tests {
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let unconf_account = PrivateKey::from(42);
-        let send1 = builder.genesis().send(&unconf_account, 1);
-        let send2 = builder.genesis().send(&unconf_account, 1);
-        let open = builder.account(&unconf_account).receive(&send1);
-        let receive = builder.account(&unconf_account).receive(&send2);
-        ledger.process_one(&send1).unwrap();
-        ledger.process_one(&send2).unwrap();
-        ledger.process_one(&open).unwrap();
-        ledger.process_one(&receive).unwrap();
-        ledger.confirm(send2.hash());
+
+        // Build enough blocks to exceed TEST_GAP_THRESHOLD, all unconfirmed
+        let count = TEST_GAP_THRESHOLD as usize + 1;
+        let sends: Vec<_> = (0..count)
+            .map(|_| builder.genesis().send(&unconf_account, 1))
+            .collect();
+        let receives: Vec<_> = sends
+            .iter()
+            .map(|s| builder.account(&unconf_account).receive(s))
+            .collect();
+        for s in &sends {
+            ledger.process_one(s).unwrap();
+        }
+        for r in &receives {
+            ledger.process_one(r).unwrap();
+        }
+        let head = receives.last().unwrap();
 
         assert!(activate(&scheduler, unconf_account.account()));
 
@@ -273,7 +281,7 @@ mod tests {
             .count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
-        assert!(aec.read().unwrap().is_active_hash(&receive.hash()));
+        assert!(aec.read().unwrap().is_active_hash(&head.hash()));
     }
 
     #[test]
@@ -319,15 +327,36 @@ mod tests {
         let account1 = PrivateKey::from(1);
         let account2 = PrivateKey::from(2);
 
-        let send1 = builder.genesis().send(&account1, 1);
-        let open1 = builder.account(&account1).receive(&send1);
-        ledger.process_one(&send1).unwrap();
-        ledger.process_one(&open1).unwrap();
-
-        let send2 = builder.genesis().send(&account2, 1);
-        let open2 = builder.account(&account2).receive(&send2);
-        ledger.process_one(&send2).unwrap();
-        ledger.process_one(&open2).unwrap();
+        // Build enough blocks per account to exceed TEST_GAP_THRESHOLD, all unconfirmed
+        let count = TEST_GAP_THRESHOLD as usize + 1;
+        let mut last1 = None;
+        let mut last2 = None;
+        let sends1: Vec<_> = (0..count)
+            .map(|_| builder.genesis().send(&account1, 1))
+            .collect();
+        let receives1: Vec<_> = sends1
+            .iter()
+            .map(|s| builder.account(&account1).receive(s))
+            .collect();
+        let sends2: Vec<_> = (0..count)
+            .map(|_| builder.genesis().send(&account2, 1))
+            .collect();
+        let receives2: Vec<_> = sends2
+            .iter()
+            .map(|s| builder.account(&account2).receive(s))
+            .collect();
+        for s in &sends1 {
+            ledger.process_one(s).unwrap();
+        }
+        for r in &receives1 {
+            last1 = Some(ledger.process_one(r).unwrap());
+        }
+        for s in &sends2 {
+            ledger.process_one(s).unwrap();
+        }
+        for r in &receives2 {
+            last2 = Some(ledger.process_one(r).unwrap());
+        }
 
         assert!(activate(&scheduler, account1.account()));
         assert!(activate(&scheduler, account2.account()));
@@ -343,8 +372,8 @@ mod tests {
             optimistic_count, 2,
             "should schedule elections for both accounts"
         );
-        assert!(aec.read().unwrap().is_active_hash(&open1.hash()));
-        assert!(aec.read().unwrap().is_active_hash(&open2.hash()));
+        assert!(aec.read().unwrap().is_active_hash(&last1.unwrap().hash()));
+        assert!(aec.read().unwrap().is_active_hash(&last2.unwrap().hash()));
     }
 
     /* Test helpers */
@@ -400,5 +429,5 @@ mod tests {
         scheduler.activate(&account, block_count, conf_height)
     }
 
-    const TEST_GAP_THRESHOLD: u64 = 32;
+    const TEST_GAP_THRESHOLD: u64 = 16;
 }
