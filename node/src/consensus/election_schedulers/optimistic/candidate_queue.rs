@@ -61,6 +61,7 @@ impl CandidateQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn empty() {
@@ -130,6 +131,53 @@ mod tests {
         let second = q.pop_first(now()).unwrap();
         assert_eq!(second, b);
         assert_eq!(q.len(), 0);
+    }
+
+    #[test]
+    fn has_candidate_true_when_entry_old_enough() {
+        let mut q = CandidateQueue::default();
+        q.insert(Account::from(1), now(), 1);
+        assert!(q.has_candidate(now()));
+    }
+
+    #[test]
+    fn has_candidate_false_when_all_entries_too_new() {
+        let mut q = CandidateQueue::default();
+        let future = now() + Duration::from_secs(10);
+        q.insert(Account::from(1), future, 1);
+        assert!(!q.has_candidate(now()));
+    }
+
+    #[test]
+    fn pop_first_returns_none_when_entry_too_new() {
+        let mut q = CandidateQueue::default();
+        let future = now() + Duration::from_secs(10);
+        q.insert(Account::from(1), future, 1);
+        assert!(q.pop_first(now()).is_none());
+        assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn pop_first_skips_highest_gap_if_too_new_falls_back_to_lower_gap() {
+        let mut q = CandidateQueue::default();
+        let a = Account::from(1);
+        let b = Account::from(2);
+        let future = now() + Duration::from_secs(10);
+        q.insert(a, future, 2); // high gap but too new
+        q.insert(b, now(), 1);  // low gap but old enough
+
+        let result = q.pop_first(now()).unwrap();
+        assert_eq!(result, b);
+        assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn contains_returns_false_after_pop() {
+        let mut q = CandidateQueue::default();
+        let account = Account::from(1);
+        q.insert(account, now(), 1);
+        q.pop_first(now());
+        assert!(!q.contains(&account));
     }
 
     fn now() -> Timestamp {
