@@ -222,7 +222,7 @@ mod tests {
             ledger.process_one(&block).unwrap();
         }
 
-        activate(&scheduler, ledger.genesis().account());
+        assert!(activate(&scheduler, ledger.genesis().account()));
 
         scheduler.run_loop();
 
@@ -257,7 +257,7 @@ mod tests {
         ledger.process_one(&receive).unwrap();
         ledger.confirm(send2.hash());
 
-        activate(&scheduler, unconf_account.account());
+        assert!(activate(&scheduler, unconf_account.account()));
 
         scheduler.run_loop();
 
@@ -268,6 +268,39 @@ mod tests {
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
         assert!(aec.read().unwrap().is_active_hash(&receive.hash()));
+    }
+
+    #[test]
+    fn does_not_schedule_when_gap_is_under_threshold() {
+        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let ledger = Arc::new(Ledger::new_null());
+        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        let account = PrivateKey::from(42);
+
+        // Two blocks in account chain: open + receive
+        let send1 = builder.genesis().send(&account, 1);
+        let send2 = builder.genesis().send(&account, 1);
+        let open = builder.account(&account).receive(&send1);
+        let receive = builder.account(&account).receive(&send2);
+        ledger.process_one(&send1).unwrap();
+        ledger.process_one(&send2).unwrap();
+        ledger.process_one(&open).unwrap();
+        ledger.process_one(&receive).unwrap();
+        // Confirm up to open, leaving gap of 1 (well below TEST_GAP_THRESHOLD)
+        ledger.confirm(open.hash());
+
+        // activate should reject: gap = 2 - 1 = 1 < TEST_GAP_THRESHOLD and conf_height > 0
+        assert!(!activate(&scheduler, account.account()));
+
+        scheduler.run_loop();
+
+        let optimistic_count = aec
+            .read()
+            .unwrap()
+            .count_by_behavior(ElectionBehavior::Optimistic);
+        assert_eq!(optimistic_count, 0, "should not schedule any election");
     }
 
     #[test]
@@ -290,8 +323,8 @@ mod tests {
         ledger.process_one(&send2).unwrap();
         ledger.process_one(&open2).unwrap();
 
-        activate(&scheduler, account1.account());
-        activate(&scheduler, account2.account());
+        assert!(activate(&scheduler, account1.account()));
+        assert!(activate(&scheduler, account2.account()));
 
         scheduler.run_loop();
 
@@ -347,7 +380,7 @@ mod tests {
         }
     }
 
-    fn activate(scheduler: &OptimisticScheduler, account: Account) {
+    fn activate(scheduler: &OptimisticScheduler, account: Account) -> bool {
         let ledger = &scheduler.ledger;
         let block_count = ledger.any().get_account(&account).unwrap().block_count;
         let conf_height = ledger
@@ -355,7 +388,7 @@ mod tests {
             .get_conf_info(&account)
             .map(|i| i.height)
             .unwrap_or(0);
-        assert!(scheduler.activate(&account, block_count, conf_height));
+        scheduler.activate(&account, block_count, conf_height)
     }
 
     const TEST_GAP_THRESHOLD: u64 = 32;
