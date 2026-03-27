@@ -40,6 +40,21 @@ impl CandidateQueue {
             .any(|i| i.iter().any(|(_, inserted)| *inserted <= cutoff))
     }
 
+    pub fn min_gap(&self) -> Option<u64> {
+        self.by_gap.keys().next().copied()
+    }
+
+    pub fn pop_lowest_gap_entry(&mut self) -> Option<Account> {
+        let gap = *self.by_gap.keys().next()?;
+        let v = self.by_gap.get_mut(&gap).unwrap();
+        let (account, _) = v.pop().unwrap();
+        if v.is_empty() {
+            self.by_gap.remove(&gap);
+        }
+        self.by_account.remove(&account);
+        Some(account)
+    }
+
     pub fn pop_first(&mut self, cutoff: Timestamp) -> Option<Account> {
         let mut to_remove: Option<u64> = None;
         let mut result = None;

@@ -51,9 +51,15 @@ impl OptimisticSchedulerLogic {
 
         let already_queued = self.candidates.contains(account);
 
-        // TODO: try to replace lowest GAP entry
         if !already_queued && self.candidates.len() >= self.params.max_candidates {
-            return false;
+            // Evict the lowest gap entry if the new one has a strictly higher gap
+            let Some(min_gap) = self.candidates.min_gap() else {
+                return false;
+            };
+            if gap <= min_gap {
+                return false;
+            }
+            self.candidates.pop_lowest_gap_entry();
         }
 
         self.candidates.insert(*account, now, gap);
@@ -148,12 +154,27 @@ mod tests {
     }
 
     #[test]
-    fn try_activate_rejects_when_full() {
+    fn try_activate_rejects_when_full_and_gap_not_higher() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
-        assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
-        assert!(logic.try_activate(&Account::from(2), 100, 0, now()));
-        assert!(!logic.try_activate(&Account::from(3), 100, 0, now()));
+        assert!(logic.try_activate(&Account::from(1), 100, 0, now())); // gap = 32
+        assert!(logic.try_activate(&Account::from(2), 100, 0, now())); // gap = 32
+        assert!(!logic.try_activate(&Account::from(3), 100, 0, now())); // gap = 32, not higher
         assert_eq!(logic.candidate_count(), 2);
+    }
+
+    #[test]
+    fn try_activate_evicts_lowest_gap_when_full_and_new_gap_is_higher() {
+        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
+        let low = Account::from(1);
+        let mid = Account::from(2);
+        let high = Account::from(3);
+        logic.try_activate(&low, 132, 100, now()); // gap = 32 (threshold, lowest)
+        logic.try_activate(&mid, 164, 100, now()); // gap = 64
+        logic.try_activate(&high, 200, 100, now()); // gap = 100, evicts low
+
+        assert_eq!(logic.candidate_count(), 2);
+        assert_eq!(logic.pop_candidate(now()), Some(high));
+        assert_eq!(logic.pop_candidate(now()), Some(mid));
     }
 
     #[test]
