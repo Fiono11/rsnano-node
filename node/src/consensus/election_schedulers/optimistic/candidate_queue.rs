@@ -14,11 +14,18 @@ pub(super) struct CandidateQueue {
 impl CandidateQueue {
     pub fn insert(&mut self, account: Account, now: Timestamp, gap: u64) {
         if let Some(old_gap) = self.by_account.insert(account, gap) {
-            // Remove from old gap bucket before re-inserting with updated gap
+            // Move to new gap bucket, preserving the original insertion timestamp
             if let Some(v) = self.by_gap.get_mut(&old_gap) {
-                v.retain(|(a, _)| *a != account);
-                if v.is_empty() {
-                    self.by_gap.remove(&old_gap);
+                if let Some(pos) = v.iter().position(|(a, _)| *a == account) {
+                    let (_, original_timestamp) = v.remove(pos);
+                    if v.is_empty() {
+                        self.by_gap.remove(&old_gap);
+                    }
+                    self.by_gap
+                        .entry(gap)
+                        .or_default()
+                        .push((account, original_timestamp));
+                    return;
                 }
             }
         }
@@ -190,6 +197,22 @@ mod tests {
         let result = q.pop_first(now()).unwrap();
         assert_eq!(result, b);
         assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn insert_duplicate_preserves_original_timestamp() {
+        // Regression: updating the gap on a duplicate must not reset the insertion
+        // timestamp, or the entry will never age past `activation_delay`.
+        let mut q = CandidateQueue::default();
+        let account = Account::from(1);
+        q.insert(account, now(), 1);
+
+        // Re-insert with a higher gap at a future time
+        let future = now() + Duration::from_secs(10);
+        q.insert(account, future, 2);
+
+        // Entry should still be eligible at the original cutoff (now), not future
+        assert!(q.pop_first(now()).is_some());
     }
 
     #[test]
