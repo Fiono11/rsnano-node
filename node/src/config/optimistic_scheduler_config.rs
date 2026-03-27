@@ -13,7 +13,7 @@ pub struct OptimisticSchedulerConfig {
     pub optimistic_limit_percentage: usize,
 
     /// Minimum time a candidate must wait before being scheduled
-    pub activation_delay: std::time::Duration,
+    pub activation_delay: Duration,
 }
 
 impl OptimisticSchedulerConfig {

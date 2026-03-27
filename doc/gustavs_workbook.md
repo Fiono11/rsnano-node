@@ -1,17 +1,5 @@
 # Gustav's Workbook
 
-## PR #4939: Activate largest-gap optimistic elections first
-
-* [x] Draw diagram
-* [x] Add unit tests
-* [x] Remove/convert legacy tests
-* [x] Evict lowest gap entry when candidates full
-* [x] Schedule highest gap first
-* [x] Reduce gap threshold and max size
-* [ ] Add config option `optimistic_activation_delay` to TOML
-* [ ] Add documentation
-
-
 ## PR #4991: Log when peered stake is below quorum
 
 * [ ] Add stale threshold to aec config

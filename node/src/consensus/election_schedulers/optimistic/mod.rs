@@ -107,11 +107,7 @@ impl OptimisticScheduler {
 
             logic = self
                 .logic
-                .wait_timeout_while(logic, self.activation_delay / 2, |i| {
-                    let now = self.clock.now();
-                    let can_schedule = self.has_vacancy(i) && i.has_candidate(now);
-                    !i.stopped() && !can_schedule
-                })
+                .wait_timeout_while(logic, self.activation_delay, |i| !i.stopped())
                 .0;
         }
     }

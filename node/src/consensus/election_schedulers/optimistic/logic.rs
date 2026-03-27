@@ -78,11 +78,6 @@ impl OptimisticSchedulerLogic {
         vacancy > 0
     }
 
-    pub fn has_candidate(&self, now: Timestamp) -> bool {
-        self.candidates
-            .has_candidate(now - self.params.activation_delay)
-    }
-
     pub fn pop_candidate(&mut self, now: Timestamp) -> Option<Account> {
         self.candidates
             .pop_first(now - self.params.activation_delay)

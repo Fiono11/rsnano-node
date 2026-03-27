@@ -40,13 +40,6 @@ impl CandidateQueue {
         self.by_account.contains_key(account)
     }
 
-    pub fn has_candidate(&self, cutoff: Timestamp) -> bool {
-        self.by_gap
-            .values()
-            .rev()
-            .any(|i| i.iter().any(|(_, inserted)| *inserted <= cutoff))
-    }
-
     pub fn min_gap(&self) -> Option<u64> {
         self.by_gap.keys().next().copied()
     }
@@ -94,7 +87,6 @@ mod tests {
     fn empty() {
         let mut q = CandidateQueue::default();
         assert_eq!(q.len(), 0);
-        assert!(!q.has_candidate(now()));
         assert!(q.pop_first(now()).is_none());
     }
 
@@ -159,21 +151,6 @@ mod tests {
         let second = q.pop_first(now()).unwrap();
         assert_eq!(second, b);
         assert_eq!(q.len(), 0);
-    }
-
-    #[test]
-    fn has_candidate_true_when_entry_old_enough() {
-        let mut q = CandidateQueue::default();
-        q.insert(Account::from(1), now(), 1);
-        assert!(q.has_candidate(now()));
-    }
-
-    #[test]
-    fn has_candidate_false_when_all_entries_too_new() {
-        let mut q = CandidateQueue::default();
-        let future = now() + Duration::from_secs(10);
-        q.insert(Account::from(1), future, 1);
-        assert!(!q.has_candidate(now()));
     }
 
     #[test]
