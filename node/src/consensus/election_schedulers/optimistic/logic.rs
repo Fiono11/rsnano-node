@@ -176,17 +176,17 @@ mod tests {
      */
 
     #[test]
-    fn pop_candidate_returns_in_insertion_order() {
+    fn pop_candidate_returns_highest_gap_first() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let a = Account::from(1);
         let b = Account::from(2);
-        logic.try_activate(&a, 100, 0, now());
-        logic.try_activate(&b, 100, 0, now());
+        logic.try_activate(&a, 100, 0, now()); // gap = 100
+        logic.try_activate(&b, 200, 0, now()); // gap = 200
 
         let first = logic.pop_candidate(now()).unwrap();
-        assert_eq!(first, a);
+        assert_eq!(first, b);
         let second = logic.pop_candidate(now()).unwrap();
-        assert_eq!(second, b);
+        assert_eq!(second, a);
     }
 
     /* Test helpers */

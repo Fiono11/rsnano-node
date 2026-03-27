@@ -13,9 +13,14 @@ pub(super) struct CandidateQueue {
 
 impl CandidateQueue {
     pub fn insert(&mut self, account: Account, now: Timestamp, gap: u64) {
-        if self.by_account.insert(account, gap).is_some() {
-            // Skip, because it is already in the queue
-            return;
+        if let Some(old_gap) = self.by_account.insert(account, gap) {
+            // Remove from old gap bucket before re-inserting with updated gap
+            if let Some(v) = self.by_gap.get_mut(&old_gap) {
+                v.retain(|(a, _)| *a != account);
+                if v.is_empty() {
+                    self.by_gap.remove(&old_gap);
+                }
+            }
         }
         self.by_gap.entry(gap).or_default().push((account, now));
     }
@@ -118,16 +123,17 @@ mod tests {
     }
 
     #[test]
-    fn insert_duplicate_changes_nothing() {
+    fn insert_duplicate_updates_gap() {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, now(), 2);
-        q.insert(b, now(), 1);
-        q.insert(a, now(), 2); // re-insert
+        q.insert(a, now(), 1); // a starts with low gap
+        q.insert(b, now(), 2);
+        q.insert(a, now(), 3); // re-insert a with higher gap
 
+        assert_eq!(q.len(), 2);
         let first = q.pop_first(now()).unwrap();
-        assert_eq!(first, a);
+        assert_eq!(first, a); // a now has the highest gap
         let second = q.pop_first(now()).unwrap();
         assert_eq!(second, b);
         assert_eq!(q.len(), 0);
