@@ -13,14 +13,14 @@ The word *optimistic* reflects the strategy: the scheduler bets that accounts wi
 The module follows the **A-frame architecture** used throughout the codebase:
 
 - **Logic** (`OptimisticSchedulerLogic`) — pure computation, no I/O. Decides which accounts qualify, manages the candidate queue, and enforces capacity limits.
-- **Infrastructure** (`OptimisticScheduler`) — owns the background run loop, reads from the `Ledger`, writes to the `ActiveElectionsContainer`, and consults the `ConfirmingSet`.
-- The infrastructure layer calls into the logic layer to make all scheduling decisions (the "Logic Sandwich" pattern).
+- **Application** (`OptimisticScheduler`) — owns the background run loop, reads from the `Ledger`, writes to the `ActiveElectionsContainer`, and consults the `ConfirmingSet`.
+- The application layer calls into the logic layer to make all scheduling decisions (the "Logic Sandwich" pattern).
 
 ### Components
 
 | Component | Role |
 |-----------|------|
-| `OptimisticScheduler` | Infrastructure. Run loop, ledger access, AEC insertion. |
+| `OptimisticScheduler` | Application. Run loop, ledger access, AEC insertion. |
 | `OptimisticSchedulerLogic` | Pure logic. Gate-keeps activation, manages the candidate queue. |
 | `CandidateQueue` | Dual-indexed data structure. Supports O(log n) pop-by-highest-gap and O(1) account lookup. |
 | `OptimisticSchedulerParams` | Configuration (gap threshold, capacity, election cap, activation delay). |
@@ -54,14 +54,7 @@ When an account is re-activated with a new gap its entry is moved to the correct
 ```mermaid
 classDiagram
     class OptimisticScheduler {
-        -logic: NullableCondvarMutex~OptimisticSchedulerLogic~
-        -aec: Arc~RwLock~ActiveElectionsContainer~~
-        -ledger: Arc~Ledger~
-        -confirming_set: Arc~ConfirmingSet~
         -clock: Arc~SteadyClock~
-        -max_elections: usize
-        -activation_delay: Duration
-        -stats: OptimisticSchedulerStats
         +activate(account, block_count, conf_height) bool
         +run_loop()
         +notify()
@@ -71,9 +64,6 @@ classDiagram
     }
 
     class OptimisticSchedulerLogic {
-        -stopped: bool
-        -params: OptimisticSchedulerParams
-        -candidates: CandidateQueue
         +try_activate(account, block_count, conf_height, now) bool
         +pop_candidate(now) Option~Account~
         +has_candidate(now) bool
@@ -83,8 +73,6 @@ classDiagram
     }
 
     class CandidateQueue {
-        -by_account: HashMap~Account, u64~
-        -by_gap: BTreeMap~u64, Vec~(Account, Timestamp)~~
         +insert(account, now, gap)
         +pop_first(cutoff) Option~Account~
         +pop_lowest_gap_entry() Option~Account~
@@ -115,11 +103,9 @@ classDiagram
     }
 
     class Ledger {
-        +any() OwningAnySet
     }
 
     class ConfirmingSet {
-        +contains(hash) bool
     }
 
     OptimisticScheduler *-- OptimisticSchedulerLogic : owns via condvar mutex
