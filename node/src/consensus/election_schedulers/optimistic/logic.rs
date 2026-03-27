@@ -66,7 +66,7 @@ impl OptimisticSchedulerLogic {
             // get activated => TODO: Is this really needed??
             self.params.gap_threshold
         } else {
-            block_count - confirmation_height
+            block_count.saturating_sub(confirmation_height)
         }
     }
 
@@ -95,12 +95,7 @@ impl OptimisticSchedulerLogic {
 
 impl ContainerInfoProvider for OptimisticSchedulerLogic {
     fn container_info(&self) -> ContainerInfo {
-        [(
-            "candidates",
-            self.candidate_count(),
-            size_of::<Account>() * 2 + size_of::<Timestamp>(),
-        )]
-        .into()
+        [("candidates", self.candidate_count(), 1)].into()
     }
 }
 

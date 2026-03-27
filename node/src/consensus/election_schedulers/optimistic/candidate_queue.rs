@@ -170,7 +170,7 @@ mod tests {
         let b = Account::from(2);
         let future = now() + Duration::from_secs(10);
         q.insert(a, future, 2); // high gap but too new
-        q.insert(b, now(), 1);  // low gap but old enough
+        q.insert(b, now(), 1); // low gap but old enough
 
         let result = q.pop_first(now()).unwrap();
         assert_eq!(result, b);
