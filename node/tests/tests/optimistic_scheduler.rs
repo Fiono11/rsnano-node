@@ -44,50 +44,6 @@ pub fn activate_one() {
 }
 
 /*
- * Ensure account gets activated for a single unconfirmed account chain with nothing yet confirmed
- */
-#[test]
-pub fn activate_one_zero_conf() {
-    let mut system = System::new();
-    let node = system
-        .build_node()
-        .config(NodeConfig {
-            enable_priority_scheduler: false,
-            enable_hinted_scheduler: false,
-            ..System::default_config()
-        })
-        .finish();
-
-    // Can be smaller than optimistic scheduler `gap_threshold`
-    // This is meant to activate short account chains (eg. binary tree spam leaf accounts)
-    let howmany_blocks = 6;
-
-    let chains = setup_chains(
-        &node,
-        /* single chain */ 1,
-        howmany_blocks,
-        &DEV_GENESIS_KEY,
-        /* do not confirm */ false,
-    );
-    let (_, blocks) = chains.first().unwrap();
-
-    // Ensure unconfirmed account head block gets activated
-    let block = blocks.last().unwrap();
-
-    assert_timely2(|| node.is_active_root(&block.qualified_root()));
-
-    assert_eq!(
-        node.active
-            .read()
-            .unwrap()
-            .election_for_root(&block.qualified_root())
-            .unwrap()
-            .behavior(),
-        ElectionBehavior::Optimistic
-    );
-}
-
-/*
  * Ensure account gets activated for a multiple unconfirmed account chains
  */
 #[test]
