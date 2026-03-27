@@ -84,27 +84,33 @@ impl OptimisticScheduler {
 
     pub fn run_loop(&self) {
         let mut logic = self.logic.lock();
+        let mut any: Option<OwningAnySet<'_>> = None;
         while !logic.stopped() {
             self.stats.loop_count.fetch_add(1, Relaxed);
 
-            if self.can_schedule(&logic) {
-                let any = self.ledger.any();
+            while !logic.stopped() && self.has_vacancy(&logic) {
+                let now = self.clock.now();
+                let Some(account) = logic.pop_candidate(now) else {
+                    break;
+                };
+                drop(logic);
 
-                while self.can_schedule(&logic) {
-                    if let Some(account) = logic.pop_candidate() {
-                        drop(logic);
-                        self.run_one(&any, account);
-                        logic = self.logic.lock();
-                    } else {
-                        break;
-                    }
+                if any.is_none() {
+                    any = Some(self.ledger.any());
                 }
+
+                self.run_one(any.as_ref().unwrap(), account);
+                logic = self.logic.lock();
             }
+
+            any = None;
 
             logic = self
                 .logic
-                .wait_timeout_while(logic, self.activation_delay / 2, |g| {
-                    !g.stopped() && !self.can_schedule(g)
+                .wait_timeout_while(logic, self.activation_delay / 2, |i| {
+                    let now = self.clock.now();
+                    let can_schedule = self.has_vacancy(i) && i.has_candidate(now);
+                    !i.stopped() && !can_schedule
                 })
                 .0;
         }
@@ -153,7 +159,7 @@ impl OptimisticScheduler {
         }
     }
 
-    fn can_schedule(&self, logic: &OptimisticSchedulerLogic) -> bool {
+    fn has_vacancy(&self, logic: &OptimisticSchedulerLogic) -> bool {
         let optimistic_count;
         let aec_vacancy;
         {
@@ -161,7 +167,7 @@ impl OptimisticScheduler {
             optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
             aec_vacancy = aec.vacancy();
         }
-        logic.can_schedule(optimistic_count, aec_vacancy, self.clock.now())
+        logic.has_vacancy(optimistic_count, aec_vacancy)
     }
 
     #[cfg(test)]

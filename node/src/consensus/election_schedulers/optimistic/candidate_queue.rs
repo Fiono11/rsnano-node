@@ -1,41 +1,60 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
 #[derive(Default)]
 pub(super) struct CandidateQueue {
-    by_account: HashMap<Account, Timestamp>,
-    sequenced: VecDeque<Account>,
+    /// account => gap
+    by_account: HashMap<Account, u64>,
+    /// gap => (account, insertion timestamp)
+    by_gap: BTreeMap<u64, Vec<(Account, Timestamp)>>,
 }
 
 impl CandidateQueue {
-    pub fn insert(&mut self, account: Account, time: Timestamp, gap: u64) {
-        if self.by_account.insert(account, time).is_some() {
-            self.sequenced.retain(|i| *i != account);
+    pub fn insert(&mut self, account: Account, now: Timestamp, gap: u64) {
+        if self.by_account.insert(account, gap).is_some() {
+            // Skip, because it is already in the queue
+            return;
         }
-        self.sequenced.push_back(account);
+        self.by_gap.entry(gap).or_default().push((account, now));
     }
 
     pub fn len(&self) -> usize {
-        self.sequenced.len()
+        self.by_account.len()
     }
 
     pub fn contains(&self, account: &Account) -> bool {
         self.by_account.contains_key(account)
     }
 
-    pub fn front(&self) -> Option<(Account, Timestamp)> {
-        self.sequenced
-            .front()
-            .and_then(|account| self.by_account.get(account).map(|time| (*account, *time)))
+    pub fn has_candidate(&self, cutoff: Timestamp) -> bool {
+        self.by_gap
+            .values()
+            .rev()
+            .any(|i| i.iter().any(|(_, inserted)| *inserted <= cutoff))
     }
 
-    pub fn pop_front(&mut self) -> Option<(Account, Timestamp)> {
-        self.sequenced.pop_front().map(|account| {
-            let time = self.by_account.remove(&account).unwrap();
-            (account, time)
-        })
+    pub fn pop_first(&mut self, cutoff: Timestamp) -> Option<Account> {
+        let mut to_remove: Option<u64> = None;
+        let mut result = None;
+        for (gap, v) in self.by_gap.iter_mut().rev() {
+            if let Some((account, _)) = v.pop_if(|(_, inserted)| *inserted <= cutoff) {
+                if v.is_empty() {
+                    to_remove = Some(*gap);
+                }
+                result = Some(account);
+                break;
+            }
+        }
+
+        if let Some(gap) = to_remove {
+            self.by_gap.remove(&gap);
+        }
+        if let Some(account) = &result {
+            self.by_account.remove(account);
+        }
+        result
     }
 }
 
@@ -44,92 +63,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_queue_has_zero_len() {
-        let q = CandidateQueue::default();
-        assert_eq!(q.len(), 0);
-    }
-
-    #[test]
-    fn insert_increases_len() {
+    fn empty() {
         let mut q = CandidateQueue::default();
-        q.insert(Account::from(1), Timestamp::new_test_instance(), 1);
-        assert_eq!(q.len(), 1);
+        assert_eq!(q.len(), 0);
+        assert!(!q.has_candidate(now()));
+        assert!(q.pop_first(now()).is_none());
     }
 
     #[test]
-    fn contains_returns_true_after_insert() {
+    fn insert() {
+        let mut q = CandidateQueue::default();
+        q.insert(Account::from(1), now(), 1);
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.by_account.len(), 1);
+        assert_eq!(q.by_gap.len(), 1);
+    }
+
+    #[test]
+    fn contains() {
         let mut q = CandidateQueue::default();
         let account = Account::from(1);
-        q.insert(account, Timestamp::new_test_instance(), 1);
+
+        assert!(!q.contains(&account));
+
+        q.insert(account, now(), 1);
         assert!(q.contains(&account));
     }
 
     #[test]
-    fn contains_returns_false_for_unknown_account() {
-        let q = CandidateQueue::default();
-        assert!(!q.contains(&Account::from(1)));
-    }
-
-    #[test]
-    fn front_returns_none_when_empty() {
-        let q = CandidateQueue::default();
-        assert!(q.front().is_none());
-    }
-
-    #[test]
-    fn front_returns_oldest_entry() {
+    fn pop_first_returns_highest_gap_first() {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance(), 1);
-        q.insert(b, Timestamp::new_test_instance(), 1);
-        let (account, _) = q.front().unwrap();
+        q.insert(a, now(), 2);
+        q.insert(b, now(), 1);
+        let account = q.pop_first(now()).unwrap();
         assert_eq!(account, a);
+        assert_eq!(q.len(), 1);
     }
 
     #[test]
-    fn pop_front_returns_in_insertion_order() {
+    fn pop_first_orders_by_gap_descending() {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance(), 1);
-        q.insert(b, Timestamp::new_test_instance(), 1);
+        q.insert(a, now(), 2);
+        q.insert(b, now(), 1);
 
-        let (first, _) = q.pop_front().unwrap();
-        let (second, _) = q.pop_front().unwrap();
+        let first = q.pop_first(now()).unwrap();
+        let second = q.pop_first(now()).unwrap();
         assert_eq!(first, a);
         assert_eq!(second, b);
     }
 
     #[test]
-    fn pop_front_removes_entry() {
-        let mut q = CandidateQueue::default();
-        let account = Account::from(1);
-        q.insert(account, Timestamp::new_test_instance(), 1);
-        q.pop_front();
-        assert!(!q.contains(&account));
-        assert_eq!(q.len(), 0);
-    }
-
-    #[test]
-    fn insert_duplicate_moves_to_back() {
+    fn insert_duplicate_changes_nothing() {
         let mut q = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        q.insert(a, Timestamp::new_test_instance(), 1);
-        q.insert(b, Timestamp::new_test_instance(), 1);
-        q.insert(a, Timestamp::new_test_instance(), 1); // re-insert a — should move to back
+        q.insert(a, now(), 2);
+        q.insert(b, now(), 1);
+        q.insert(a, now(), 2); // re-insert
 
-        let (first, _) = q.pop_front().unwrap();
-        assert_eq!(first, b);
-        let (second, _) = q.pop_front().unwrap();
-        assert_eq!(second, a);
+        let first = q.pop_first(now()).unwrap();
+        assert_eq!(first, a);
+        let second = q.pop_first(now()).unwrap();
+        assert_eq!(second, b);
         assert_eq!(q.len(), 0);
     }
 
-    #[test]
-    fn pop_front_returns_none_when_empty() {
-        let mut q = CandidateQueue::default();
-        assert!(q.pop_front().is_none());
+    fn now() -> Timestamp {
+        Timestamp::new_test_instance()
     }
 }

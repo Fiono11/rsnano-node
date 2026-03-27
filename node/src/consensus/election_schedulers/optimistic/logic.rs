@@ -49,6 +49,7 @@ impl OptimisticSchedulerLogic {
             return false;
         }
 
+        // TODO: try to replace lowest GAP entry
         if self.candidates.contains(account) {
             return false;
         }
@@ -72,27 +73,22 @@ impl OptimisticSchedulerLogic {
         }
     }
 
-    /// Returns true if there is AEC vacancy and the front candidate has waited long enough.
-    /// `optimistic_count` — current number of active optimistic elections.
-    /// `aec_vacancy`      — total vacancy reported by the AEC.
-    /// `activation_delay` — minimum time a candidate must wait before being scheduled.
-    pub fn can_schedule(&self, optimistic_count: usize, aec_vacancy: i64, now: Timestamp) -> bool {
+    pub fn has_vacancy(&self, optimistic_count: usize, aec_vacancy: i64) -> bool {
         let vacancy = min(
             self.params.max_elections as i64 - optimistic_count as i64,
             aec_vacancy,
         );
-        if vacancy <= 0 {
-            return false;
-        }
-        if let Some((_, time)) = self.candidates.front() {
-            time.elapsed(now) >= self.params.activation_delay
-        } else {
-            false
-        }
+        vacancy > 0
     }
 
-    pub fn pop_candidate(&mut self) -> Option<Account> {
-        self.candidates.pop_front().map(|(account, _)| account)
+    pub fn has_candidate(&self, now: Timestamp) -> bool {
+        self.candidates
+            .has_candidate(now - self.params.activation_delay)
+    }
+
+    pub fn pop_candidate(&mut self, now: Timestamp) -> Option<Account> {
+        self.candidates
+            .pop_first(now - self.params.activation_delay)
     }
 
     pub fn candidate_count(&self) -> usize {
@@ -180,35 +176,6 @@ mod tests {
      */
 
     #[test]
-    fn can_schedule_no_candidates() {
-        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.can_schedule(0, 10, now()));
-    }
-
-    #[test]
-    fn can_schedule_no_vacancy() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0, now());
-        // max_elections = 10, optimistic_count = 10 → vacancy = 0
-        assert!(!logic.can_schedule(10, 10, now()));
-    }
-
-    #[test]
-    fn can_schedule_with_vacancy_and_zero_delay() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0, now());
-        assert!(logic.can_schedule(0, 10, now()));
-    }
-
-    #[test]
-    fn can_schedule_aec_vacancy_is_limiting_factor() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.try_activate(&Account::from(1), 100, 0, now());
-        // max_elections = 10, optimistic_count = 0 → 10 slots, but aec_vacancy = 0
-        assert!(!logic.can_schedule(0, 0, now()));
-    }
-
-    #[test]
     fn pop_candidate_returns_in_insertion_order() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
         let a = Account::from(1);
@@ -216,9 +183,9 @@ mod tests {
         logic.try_activate(&a, 100, 0, now());
         logic.try_activate(&b, 100, 0, now());
 
-        let first = logic.pop_candidate().unwrap();
+        let first = logic.pop_candidate(now()).unwrap();
         assert_eq!(first, a);
-        let second = logic.pop_candidate().unwrap();
+        let second = logic.pop_candidate(now()).unwrap();
         assert_eq!(second, b);
     }
 
