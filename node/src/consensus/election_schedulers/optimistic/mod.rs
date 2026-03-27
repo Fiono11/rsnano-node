@@ -270,6 +270,41 @@ mod tests {
         assert!(aec.read().unwrap().is_active_hash(&receive.hash()));
     }
 
+    #[test]
+    fn schedules_elections_for_multiple_unconfirmed_accounts() {
+        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let ledger = Arc::new(Ledger::new_null());
+        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        let account1 = PrivateKey::from(1);
+        let account2 = PrivateKey::from(2);
+
+        let send1 = builder.genesis().send(&account1, 1);
+        let open1 = builder.account(&account1).receive(&send1);
+        ledger.process_one(&send1).unwrap();
+        ledger.process_one(&open1).unwrap();
+
+        let send2 = builder.genesis().send(&account2, 1);
+        let open2 = builder.account(&account2).receive(&send2);
+        ledger.process_one(&send2).unwrap();
+        ledger.process_one(&open2).unwrap();
+
+        activate(&scheduler, account1.account());
+        activate(&scheduler, account2.account());
+
+        scheduler.run_loop();
+
+        let optimistic_count = aec
+            .read()
+            .unwrap()
+            .count_by_behavior(ElectionBehavior::Optimistic);
+
+        assert_eq!(optimistic_count, 2, "should schedule elections for both accounts");
+        assert!(aec.read().unwrap().is_active_hash(&open1.hash()));
+        assert!(aec.read().unwrap().is_active_hash(&open2.hash()));
+    }
+
     /* Test helpers */
 
     fn make_scheduler() -> OptimisticScheduler {

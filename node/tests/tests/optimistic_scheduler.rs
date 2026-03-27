@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rsnano_node::{config::NodeConfig, consensus::election::ElectionBehavior};
 use rsnano_types::DEV_GENESIS_KEY;
-use test_helpers::{System, assert_never, assert_timely, assert_timely2, setup_chains};
+use test_helpers::{assert_never, assert_timely, assert_timely2, setup_chains, System};
 
 /*
  * Ensure account gets activated for a single unconfirmed account chain
@@ -41,48 +41,6 @@ pub fn activate_one() {
             .behavior(),
         ElectionBehavior::Optimistic
     );
-}
-
-/*
- * Ensure account gets activated for a multiple unconfirmed account chains
- */
-#[test]
-pub fn activate_many() {
-    let mut system = System::new();
-    let node = system
-        .build_node()
-        .config(NodeConfig {
-            enable_priority_scheduler: false,
-            enable_hinted_scheduler: false,
-            ..System::default_config()
-        })
-        .finish();
-
-    // Needs to be greater than optimistic scheduler `gap_threshold`
-    let howmany_blocks = 64;
-    let howmany_chains = 16;
-
-    let chains = setup_chains(
-        &node,
-        howmany_chains,
-        howmany_blocks,
-        &DEV_GENESIS_KEY,
-        /* do not confirm */ false,
-    );
-
-    // Ensure all unconfirmed accounts head block gets activated
-    assert_timely(Duration::from_secs(20), || {
-        chains.iter().all(|(_, blocks)| {
-            let block = blocks.last().unwrap();
-            let active = node.active.read().unwrap();
-            let Some(election) = active.election_for_root(&block.qualified_root()) else {
-                return false;
-            };
-
-            let behavior = election.behavior();
-            behavior == ElectionBehavior::Optimistic
-        })
-    });
 }
 
 /*
