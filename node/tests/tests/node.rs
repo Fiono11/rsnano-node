@@ -14,7 +14,10 @@ use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
+    consensus::{
+        AecEvent, FilteredVote, ReceivedVote,
+        election::{ElectionBehavior, VoteType},
+    },
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
@@ -2491,4 +2494,43 @@ fn backlog_scan_election_activation() {
     std::thread::sleep(Duration::from_secs(1));
 
     assert_timely2(|| node.is_active_hash(&send.hash()));
+}
+
+/*
+ * Ensure account gets activated for a single unconfirmed account chain
+ */
+#[test]
+pub fn optimistic_scheduler_activate_one() {
+    let mut system = System::new();
+    let node = system.make_node();
+
+    // Needs to be greater than optimistic scheduler `gap_threshold`
+    let howmany_blocks = 64;
+
+    let chains = setup_chains(
+        &node,
+        /* single chain */ 1,
+        howmany_blocks,
+        &DEV_GENESIS_KEY,
+        /* do not confirm */ false,
+    );
+    let (_, blocks) = chains.first().unwrap();
+
+    // Confirm block towards at the beginning the chain, so gap between confirmation
+    // and account frontier is larger than `gap_threshold`
+    node.confirm(blocks[11].hash());
+
+    // Ensure unconfirmed account head block gets activated
+    let block = blocks.last().unwrap();
+    assert_timely2(|| node.is_active_root(&block.qualified_root()));
+
+    assert_eq!(
+        node.active
+            .read()
+            .unwrap()
+            .election_for_root(&block.qualified_root())
+            .unwrap()
+            .behavior(),
+        ElectionBehavior::Optimistic
+    );
 }

@@ -333,7 +333,10 @@ mod tests {
             .unwrap()
             .count_by_behavior(ElectionBehavior::Optimistic);
 
-        assert_eq!(optimistic_count, 2, "should schedule elections for both accounts");
+        assert_eq!(
+            optimistic_count, 2,
+            "should schedule elections for both accounts"
+        );
         assert!(aec.read().unwrap().is_active_hash(&open1.hash()));
         assert!(aec.read().unwrap().is_active_hash(&open2.hash()));
     }
