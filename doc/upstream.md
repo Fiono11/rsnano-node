@@ -17,12 +17,12 @@ These are the most recent commits that have been reviewed and merged into RsNano
 - [x] 6ef4b550ca24f56083a0e8779ba7021e809347cf
 - [ ] cc768f39965084d99e043f9c779a44e0ec440b15
 - [ ] 77e49c5d878f3a2c33f7802bc1d66259027d0999
+- [ ] ff4f744ce6ebe3b3e47a2cee13b272051fb32623
 
 ## Unmerged Upstream Changes
 
 |Title                                           |Commit                                  |Pull Request                                         |Notes|
 |------------------------------------------------|----------------------------------------|-----------------------------------------------------|-----|
-|Activate largest-gap optimistic elections first |aa4ca10ba22fa79b6109932ecbea74d246753319|https://github.com/nanocurrency/nano-node/pull/4939/ |There is a follow up bugfix commit 46b4aa14d8a526491273cbdd2a9d6d119a9b4cdf|
 |AEC Rework                                      |18506b3d1ba4250216d4868157e31d4fd8271751|https://github.com/nanocurrency/nano-node/pull/4943/ ||
 |AEC Races (needs AEC Rework first!)             |285ae0ef10421383ac69504a61d9e981f4e7d734|https://github.com/nanocurrency/nano-node/pull/4945/ ||
 |CLI Benchmarks                                  |53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d|https://github.com/nanocurrency/nano-node/pull/4953/ ||
