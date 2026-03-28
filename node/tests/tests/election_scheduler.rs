@@ -143,7 +143,6 @@ mod election_scheduler {
         assert_timely2(|| node.is_active_hash(&block.hash()));
         assert_eq!(
             node.aec
-                .read()
                 .election_for_block(&block.hash())
                 .unwrap()
                 .behavior(),
@@ -162,7 +161,6 @@ mod election_scheduler {
         // Verify priority transition
         assert_eq!(
             node.aec
-                .read()
                 .election_for_block(&block.hash())
                 .unwrap()
                 .behavior(),

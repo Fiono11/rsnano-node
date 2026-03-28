@@ -345,7 +345,6 @@ fn inactive_votes_cache_existing_vote() {
     assert_timely_eq2(
         || {
             node.aec
-                .read()
                 .election_for_block(&send.hash())
                 .unwrap()
                 .vote_count()
@@ -357,7 +356,6 @@ fn inactive_votes_cache_existing_vote() {
 
     let last_vote1 = node
         .aec
-        .read()
         .election_for_block(&send.hash())
         .unwrap()
         .votes()
@@ -380,8 +378,7 @@ fn inactive_votes_cache_existing_vote() {
         .vote_blocking(&ReceivedVote::new(cached[0].clone(), VoteSource::Live, None).into());
 
     // Check that election data is not changed
-    let active = node.aec.read();
-    let election = active.election_for_block(&send.hash()).unwrap();
+    let election = node.aec.election_for_block(&send.hash()).unwrap();
     assert_eq!(election.vote_count(), 1);
     let last_vote2 = election.votes().get(&key.public_key()).unwrap().clone();
     assert_eq!(send.hash(), last_vote2.hash);
@@ -437,7 +434,6 @@ fn inactive_votes_cache_multiple_votes() {
     assert_timely_eq2(
         || {
             node.aec
-                .read()
                 .election_for_block(&send1.hash())
                 .unwrap()
                 .vote_count()

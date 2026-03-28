@@ -165,8 +165,7 @@ mod tests {
 
         vote_applier.vote(&vote.into());
 
-        let aec_guard = aec.read();
-        let election = aec_guard.election_for_block(&block_hash).unwrap();
+        let election = aec.election_for_block(&block_hash).unwrap();
         assert_eq!(election.winner_tally(), Amount::nano(50_000_000));
 
         // No quorum, because the vote of our rep has to be added to the online

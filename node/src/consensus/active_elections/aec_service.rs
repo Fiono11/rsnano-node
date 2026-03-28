@@ -51,6 +51,14 @@ impl AecService {
         self.aec.read().unwrap().election_for_root(root).cloned()
     }
 
+    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
+        self.aec
+            .read()
+            .unwrap()
+            .election_for_block(block_hash)
+            .cloned()
+    }
+
     pub fn max_len(&self) -> usize {
         self.aec.read().unwrap().max_len()
     }

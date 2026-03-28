@@ -98,7 +98,6 @@ fn invalid_signature() {
         Duration::from_millis(500),
         || {
             node.aec
-                .read()
                 .election_for_block(&chain[0].hash())
                 .unwrap()
                 .vote_count()

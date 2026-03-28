@@ -60,7 +60,6 @@ mod votes {
         assert_eq!(
             node1
                 .aec
-                .read()
                 .election_for_block(&send1.hash())
                 .unwrap()
                 .vote_count(),
@@ -69,7 +68,6 @@ mod votes {
         assert_eq!(
             node1
                 .aec
-                .read()
                 .election_for_block(&send1.hash())
                 .unwrap()
                 .votes()
