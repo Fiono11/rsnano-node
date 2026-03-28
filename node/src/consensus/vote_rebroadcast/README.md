@@ -6,7 +6,7 @@ After the node has processed a vote, that vote may be rebroadcasted to more node
 
 The procedure is as follows:
 
-1. The AEC event processer gets notified that a vote was processed and calls `try_enqueue` on the `VoteRebroadcastQueue` 
+1. The AEC fact processer gets notified that a vote was processed and calls `try_enqueue` on the `VoteRebroadcastQueue` 
 2. The `VoteRebroadcaster` dequeues the vote and passes it into the `RebroadcastProcessor`
 3. The `RebroadcastProcessor` decides whether to republish the vote. It uses the `WalletRepsCache` for this. This cache knowns whether the node hosts a representative.
 

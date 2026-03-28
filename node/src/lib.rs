@@ -4,7 +4,7 @@
 extern crate anyhow;
 extern crate core;
 
-mod aec_event_processor;
+mod aec_fact_processor;
 pub mod block_processing;
 pub mod block_rate_calculator;
 pub mod bootstrap;
