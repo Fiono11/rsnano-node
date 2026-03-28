@@ -153,15 +153,8 @@ fn block_hash_account_conflict() {
         false,
     );
 
-    let winner_for = |root: &QualifiedRoot| {
-        node1
-            .aec
-            .read()
-            .election_for_root(root)
-            .unwrap()
-            .winner()
-            .hash()
-    };
+    let winner_for =
+        |root: &QualifiedRoot| node1.aec.election_for_root(root).unwrap().winner().hash();
 
     assert_eq!(winner_for(&send1.qualified_root()), send1.hash());
     assert_eq!(winner_for(&receive1.qualified_root()), receive1.hash());

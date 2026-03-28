@@ -72,7 +72,6 @@ fn fork_replacement_tally() {
     assert_timely2(|| {
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .has_max_blocks()
@@ -99,8 +98,8 @@ fn fork_replacement_tally() {
     // it also checks that there are 10 votes in the election
     let count_rep_votes_in_election = || {
         // Check that only max weight blocks remains (and start winner)
-        let active = node1.aec.read();
-        let election = active
+        let election = node1
+            .aec
             .election_for_root(&send_last.qualified_root())
             .unwrap();
         let mut vote_count = 0;
@@ -119,7 +118,6 @@ fn fork_replacement_tally() {
     assert!(
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .has_max_blocks()
@@ -144,7 +142,6 @@ fn fork_replacement_tally() {
     assert_timely2(|| {
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .has_max_blocks()
@@ -152,7 +149,6 @@ fn fork_replacement_tally() {
 
     let blocks1 = node1
         .aec
-        .read()
         .election_for_root(&send_last.qualified_root())
         .unwrap()
         .candidate_blocks()
@@ -196,7 +192,6 @@ fn fork_replacement_tally() {
     let find_send_last_block = || {
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .contains_block(&send_last.hash())
@@ -205,7 +200,6 @@ fn fork_replacement_tally() {
     assert!(
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .has_max_blocks()
@@ -214,7 +208,6 @@ fn fork_replacement_tally() {
     assert_timely2(|| {
         node1
             .aec
-            .read()
             .election_for_root(&send_last.qualified_root())
             .unwrap()
             .votes()
@@ -265,20 +258,14 @@ fn non_final() {
 
     node.process_active(send.clone());
 
-    assert_timely2(|| {
-        node.aec
-            .read()
-            .election_for_root(&send.qualified_root())
-            .is_some()
-    });
+    assert_timely2(|| node.aec.election_for_root(&send.qualified_root()).is_some());
 
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
 
     let _quorum_delta = node.online_reps.lock().unwrap().quorum_delta();
     assert_timely_eq2(
         || {
-            let active = node.aec.read();
-            let election = active.election_for_root(&send.qualified_root()).unwrap();
+            let election = node.aec.election_for_root(&send.qualified_root()).unwrap();
             //election.update_tallies(&node.ledger.rep_weights.read(), quorum_delta);
             election.tallies().winner().unwrap().1
         },
@@ -286,7 +273,6 @@ fn non_final() {
     );
     assert_eq!(
         node.aec
-            .read()
             .election_for_root(&send.qualified_root())
             .unwrap()
             .is_confirmed(),
@@ -662,7 +648,6 @@ fn confirm_election_by_request() {
     assert_eq!(
         node2
             .aec
-            .read()
             .election_for_root(&send1.qualified_root())
             .unwrap()
             .is_confirmed(),
@@ -950,7 +935,6 @@ fn fork_filter_cleanup() {
         || {
             node1
                 .aec
-                .read()
                 .election_for_root(&send1.qualified_root())
                 .unwrap()
                 .block_count()

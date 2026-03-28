@@ -18,7 +18,7 @@ use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
-use crate::consensus::election::{ConfirmedElection, ElectionBehavior, VoteType};
+use crate::consensus::election::{ConfirmedElection, Election, ElectionBehavior, VoteType};
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
@@ -46,6 +46,10 @@ impl AecService {
     }
 
     // --- Read forwarding ---
+
+    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
+        self.aec.read().unwrap().election_for_root(root).cloned()
+    }
 
     pub fn max_len(&self) -> usize {
         self.aec.read().unwrap().max_len()

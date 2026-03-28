@@ -199,7 +199,6 @@ fn confirm_quorum() {
 
     let votes = node1
         .aec
-        .read()
         .election_for_root(&send1.qualified_root())
         .unwrap()
         .vote_count();
@@ -511,8 +510,7 @@ fn fork_multi_flip() {
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
 
     assert_timely2(|| {
-        let aec = node2.aec.read();
-        if let Some(election) = aec.election_for_root(&send2.qualified_root()) {
+        if let Some(election) = node2.aec.election_for_root(&send2.qualified_root()) {
             election.contains_block(&send1.hash())
         } else {
             false
@@ -545,8 +543,7 @@ fn fork_publish() {
     // Wait until the genesis rep activated & makes vote
     assert_timely_eq2(
         || {
-            let aec = node1.aec.read();
-            if let Some(e) = aec.election_for_root(&send1.qualified_root()) {
+            if let Some(e) = node1.aec.election_for_root(&send1.qualified_root()) {
                 e.vote_count()
             } else {
                 0
@@ -556,7 +553,6 @@ fn fork_publish() {
     );
     let votes1 = node1
         .aec
-        .read()
         .election_for_root(&send1.qualified_root())
         .unwrap()
         .votes()
@@ -596,7 +592,6 @@ fn fork_publish_inactive() {
     assert_timely_eq2(
         || {
             node.aec
-                .read()
                 .election_for_root(&send1.qualified_root())
                 .unwrap()
                 .block_count()
@@ -606,7 +601,6 @@ fn fork_publish_inactive() {
 
     assert_eq!(
         node.aec
-            .read()
             .election_for_root(&send1.qualified_root())
             .unwrap()
             .winner()
@@ -1372,7 +1366,6 @@ fn fork_open() {
     assert_timely_eq2(
         || {
             node.aec
-                .read()
                 .election_for_root(&open2.qualified_root())
                 .unwrap()
                 .block_count()
@@ -1382,7 +1375,6 @@ fn fork_open() {
     assert_eq!(
         open1.hash(),
         node.aec
-            .read()
             .election_for_root(&open2.qualified_root())
             .unwrap()
             .winner()
@@ -1600,7 +1592,6 @@ fn fork_election_invalid_block_signature() {
     assert_timely2(|| {
         node1
             .aec
-            .read()
             .election_for_root(&send1.qualified_root())
             .unwrap()
             .block_count()
@@ -1609,7 +1600,6 @@ fn fork_election_invalid_block_signature() {
     assert_eq!(
         node1
             .aec
-            .read()
             .election_for_root(&send1.qualified_root())
             .unwrap()
             .candidate_blocks()
@@ -2502,7 +2492,6 @@ pub fn optimistic_scheduler_activate_one() {
 
     assert_eq!(
         node.aec
-            .read()
             .election_for_root(&block.qualified_root())
             .unwrap()
             .behavior(),
