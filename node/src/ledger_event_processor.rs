@@ -12,8 +12,8 @@ use crate::{
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
-        ForkCacheUpdater, LocalVoteHistory, election_schedulers::ElectionSchedulers,
+        AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        LocalVoteHistory, election_schedulers::ElectionSchedulers,
     },
     utils::BackpressureEventProcessor,
 };
@@ -26,7 +26,7 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) dependent_elections_confirmer: DependentElectionsConfirmer,
     pub(crate) bootstrapper: Arc<Bootstrapper>,
     pub(crate) vote_history: Arc<LocalVoteHistory>,
-    pub(crate) active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    pub(crate) active_elections: Arc<AecService>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
     pub(crate) election_schedulers: Arc<ElectionSchedulers>,
@@ -45,7 +45,7 @@ impl LedgerEventProcessor {
             dependent_elections_confirmer: DependentElectionsConfirmer::new_null(),
             bootstrapper: Arc::new(Bootstrapper::new_null()),
             vote_history: Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork)),
-            active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
+            active_elections: Arc::new(AecService::new_null()),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
             election_schedulers: ElectionSchedulers::new_null().into(),
@@ -92,12 +92,11 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     {
-                        let mut aec = self.active_elections.write().unwrap();
                         for result in rolled_back.iter() {
                             for block in &result.rolled_back {
                                 // Stop all rolled back elections except initial
                                 if block.qualified_root() != result.target_root {
-                                    aec.erase(&block.qualified_root());
+                                    self.active_elections.erase(&block.qualified_root());
                                 }
                             }
                         }
@@ -113,21 +112,14 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 ConfirmingSetEvent::ConfirmationFailed(hash) => {
                     // The block never got confirmed! Clean up the election, so
                     // that a new election for this block can be started
-                    self.active_elections
-                        .write()
-                        .unwrap()
-                        .remove_recently_confirmed(&hash);
+                    self.active_elections.remove_recently_confirmed(&hash);
                 }
                 ConfirmingSetEvent::NearFull => {
                     self.active_elections
-                        .write()
-                        .unwrap()
                         .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
                 }
                 ConfirmingSetEvent::Recovered => {
                     self.active_elections
-                        .write()
-                        .unwrap()
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
                 }
             },

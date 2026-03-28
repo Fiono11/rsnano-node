@@ -149,9 +149,8 @@ fn receivable_processor_confirm_insufficient_pos() {
     assert_eq!(
         0,
         node1
-            .active
+            .aec
             .read()
-            .unwrap()
             .election_for_block(&send1.hash())
             .unwrap()
             .vote_count()
@@ -162,9 +161,8 @@ fn receivable_processor_confirm_insufficient_pos() {
     assert_timely_eq2(
         || {
             node1
-                .active
+                .aec
                 .read()
-                .unwrap()
                 .election_for_block(&send1.hash())
                 .unwrap()
                 .vote_count()
@@ -190,9 +188,8 @@ fn receivable_processor_confirm_sufficient_pos() {
     assert_eq!(
         0,
         node1
-            .active
+            .aec
             .read()
-            .unwrap()
             .election_for_block(&send1.hash())
             .unwrap()
             .vote_count()

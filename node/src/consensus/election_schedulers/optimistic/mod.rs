@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -14,7 +14,7 @@ use rsnano_utils::{
 
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
 };
 
 mod candidate_queue;
@@ -28,7 +28,7 @@ use stats::OptimisticSchedulerStats;
 
 pub struct OptimisticScheduler {
     logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
-    aec: Arc<RwLock<ActiveElectionsContainer>>,
+    aec: Arc<AecService>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
@@ -40,7 +40,7 @@ pub struct OptimisticScheduler {
 impl OptimisticScheduler {
     pub fn new(
         params: OptimisticSchedulerParams,
-        aec: Arc<RwLock<ActiveElectionsContainer>>,
+        aec: Arc<AecService>,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
@@ -143,8 +143,6 @@ impl OptimisticScheduler {
         let priority = any.block_priority(&block);
         let inserted = self
             .aec
-            .write()
-            .unwrap()
             .insert(AecInsertRequest::new_optimistic(block, priority), now)
             .is_ok();
 
@@ -156,13 +154,8 @@ impl OptimisticScheduler {
     }
 
     fn has_vacancy(&self, logic: &OptimisticSchedulerLogic) -> bool {
-        let optimistic_count;
-        let aec_vacancy;
-        {
-            let aec = self.aec.read().unwrap();
-            optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
-            aec_vacancy = aec.vacancy();
-        }
+        let optimistic_count = self.aec.count_by_behavior(ElectionBehavior::Optimistic);
+        let aec_vacancy = self.aec.vacancy();
         logic.has_vacancy(optimistic_count, aec_vacancy)
     }
 
@@ -214,7 +207,7 @@ mod tests {
 
     #[test]
     fn schedules_election_when_over_gap_threshold() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -228,10 +221,7 @@ mod tests {
 
         scheduler.run_loop();
 
-        let optimistic_count = aec
-            .read()
-            .unwrap()
-            .count_by_behavior(ElectionBehavior::Optimistic);
+        let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
         assert_eq!(
@@ -243,7 +233,7 @@ mod tests {
 
     #[test]
     fn schedules_election_when_account_is_unconfirmed() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -271,18 +261,15 @@ mod tests {
 
         scheduler.run_loop();
 
-        let optimistic_count = aec
-            .read()
-            .unwrap()
-            .count_by_behavior(ElectionBehavior::Optimistic);
+        let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
-        assert!(aec.read().unwrap().is_active_hash(&head.hash()));
+        assert!(aec.is_active_hash(&head.hash()));
     }
 
     #[test]
     fn does_not_schedule_when_gap_is_under_threshold() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -306,16 +293,13 @@ mod tests {
 
         scheduler.run_loop();
 
-        let optimistic_count = aec
-            .read()
-            .unwrap()
-            .count_by_behavior(ElectionBehavior::Optimistic);
+        let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
         assert_eq!(optimistic_count, 0, "should not schedule any election");
     }
 
     #[test]
     fn schedules_elections_for_multiple_unconfirmed_accounts() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -359,17 +343,14 @@ mod tests {
 
         scheduler.run_loop();
 
-        let optimistic_count = aec
-            .read()
-            .unwrap()
-            .count_by_behavior(ElectionBehavior::Optimistic);
+        let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(
             optimistic_count, 2,
             "should schedule elections for both accounts"
         );
-        assert!(aec.read().unwrap().is_active_hash(&last1.unwrap().hash()));
-        assert!(aec.read().unwrap().is_active_hash(&last2.unwrap().hash()));
+        assert!(aec.is_active_hash(&last1.unwrap().hash()));
+        assert!(aec.is_active_hash(&last2.unwrap().hash()));
     }
 
     /* Test helpers */
@@ -377,17 +358,14 @@ mod tests {
     fn make_scheduler() -> OptimisticScheduler {
         OptimisticScheduler::new(
             test_params(),
-            Arc::new(RwLock::new(ActiveElectionsContainer::default())),
+            Arc::new(AecService::new_null()),
             Ledger::new_null().into(),
             ConfirmingSet::new_null().into(),
             SteadyClock::new_null().into(),
         )
     }
 
-    fn make_scheduler_with(
-        aec: Arc<RwLock<ActiveElectionsContainer>>,
-        ledger: Arc<Ledger>,
-    ) -> OptimisticScheduler {
+    fn make_scheduler_with(aec: Arc<AecService>, ledger: Arc<Ledger>) -> OptimisticScheduler {
         let logic =
             NullableCondvarMutex::null_builder(OptimisticSchedulerLogic::new(test_params()))
                 .wait(|l| l.stop()) // stop after one wait call

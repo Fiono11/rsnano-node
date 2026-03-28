@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        Arc, Condvar, LazyLock, Mutex, RwLock,
+        Arc, Condvar, LazyLock, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     thread::JoinHandle,
@@ -20,7 +20,7 @@ use super::{
     prio_bucket_index,
 };
 use crate::consensus::{
-    ActiveElectionsContainer,
+    AecService,
     election_schedulers::priority::{BucketInsertError, Eviction},
 };
 
@@ -32,7 +32,7 @@ pub struct PriorityScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     bucket_stats: BucketStats,
     clock: Arc<SteadyClock>,
-    aec: Arc<RwLock<ActiveElectionsContainer>>,
+    aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
     activations_per_bucket: Vec<AtomicU64>,
 }
@@ -41,7 +41,7 @@ impl PriorityScheduler {
     pub(crate) fn new(
         config: PriorityBucketConfig,
         stats: Arc<Stats>,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let mut buckets = Vec::with_capacity(prio_bucket_count());
@@ -210,7 +210,7 @@ impl PriorityScheduler {
 
     fn predicate(&self) -> bool {
         let buckets = self.buckets.lock().unwrap();
-        let aec = self.aec.read().unwrap();
+        let aec = self.aec.read();
         buckets.iter().any(|b| b.available(&aec))
     }
 
@@ -220,7 +220,7 @@ impl PriorityScheduler {
 
         let now = self.clock.now();
         let mut buckets = self.buckets.lock().unwrap();
-        let mut aec = self.aec.write().unwrap();
+        let mut aec = self.aec.write();
         let mut inserted = true;
 
         while inserted {
@@ -345,15 +345,14 @@ mod tests {
         scheduler.activate_successors(&ledger.any(), &send1);
         scheduler.run_one();
 
-        let aec = scheduler.aec.read().unwrap();
-        assert!(aec.is_active_hash(&send2.hash()));
-        assert!(aec.is_active_hash(&open.hash()));
+        assert!(scheduler.aec.is_active_hash(&send2.hash()));
+        assert!(scheduler.aec.is_active_hash(&open.hash()));
     }
 
     fn create_test_scheduler() -> PriorityScheduler {
         let config = PriorityBucketConfig::default();
         let stats = Arc::new(Stats::default());
-        let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let active_elections = Arc::new(AecService::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         PriorityScheduler::new(config, stats, active_elections, clock)
     }

@@ -70,12 +70,7 @@ fn codes() {
     );
 
     // Once the election is removed (confirmed / dropped) the vote is again indeterminate
-    assert!(
-        node.active
-            .write()
-            .unwrap()
-            .erase(&blocks[0].qualified_root())
-    );
+    assert!(node.aec.erase(&blocks[0].qualified_root()));
 
     assert_eq!(
         Err(VoteError::Indeterminate),
@@ -102,9 +97,8 @@ fn invalid_signature() {
     assert_always_eq(
         Duration::from_millis(500),
         || {
-            node.active
+            node.aec
                 .read()
-                .unwrap()
                 .election_for_block(&chain[0].hash())
                 .unwrap()
                 .vote_count()

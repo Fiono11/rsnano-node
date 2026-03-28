@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     mem::size_of,
     sync::{
-        Arc, Condvar, Mutex, RwLock,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -21,7 +21,7 @@ use rsnano_utils::{
 use super::VoteCache;
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
     representatives::OnlineReps,
 };
 
@@ -61,7 +61,7 @@ impl Default for HintedSchedulerConfig {
 pub struct HintedScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     config: HintedSchedulerConfig,
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    active_elections: Arc<AecService>,
     condition: Condvar,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
@@ -79,7 +79,7 @@ pub struct HintedScheduler {
 impl HintedScheduler {
     pub fn new(
         config: HintedSchedulerConfig,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
@@ -87,8 +87,7 @@ impl HintedScheduler {
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let max_elections =
-            active_elections.read().unwrap().max_len() * config.hinted_limit_percentage / 100;
+        let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
 
         let notification_threshold =
             max_elections * config.vacancy_threshold_percent as usize / 100;
@@ -130,10 +129,11 @@ impl HintedScheduler {
     }
 
     fn aec_vacancy(&self) -> i64 {
-        let active = self.active_elections.read().unwrap();
-        let vacancy =
-            self.max_elections as i64 - active.count_by_behavior(ElectionBehavior::Hinted) as i64;
-        min(vacancy, active.vacancy())
+        let vacancy = self.max_elections as i64
+            - self
+                .active_elections
+                .count_by_behavior(ElectionBehavior::Hinted) as i64;
+        min(vacancy, self.active_elections.vacancy())
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -208,8 +208,6 @@ impl HintedScheduler {
                 let priority = any.block_priority(&block);
                 let inserted = self
                     .active_elections
-                    .write()
-                    .unwrap()
                     .insert(AecInsertRequest::new_hinted(block, priority), now)
                     .is_ok();
 

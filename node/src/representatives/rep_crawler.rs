@@ -23,7 +23,7 @@ use rsnano_utils::{
 use super::{InsertResult, OnlineReps};
 use crate::{
     config::{NetworkParams, NodeConfig},
-    consensus::{ActiveElectionsContainer, ReceivedVote},
+    consensus::{AecService, ReceivedVote},
     transport::{
         MessageSender,
         keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
@@ -45,7 +45,7 @@ pub struct RepCrawler {
     steady_clock: Arc<SteadyClock>,
     message_sender: Mutex<MessageSender>,
     preconfigured_peers: Arc<PreconfiguredPeersKeepalive>,
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    active_elections: Arc<AecService>,
     tokio: tokio::runtime::Handle,
 }
 
@@ -63,7 +63,7 @@ impl RepCrawler {
         steady_clock: Arc<SteadyClock>,
         message_sender: MessageSender,
         keepalive_publisher: Arc<KeepalivePublisher>,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         tokio: tokio::runtime::Handle,
     ) -> Self {
         let is_dev_network = network_params.network.is_dev_network();
@@ -372,12 +372,7 @@ impl RepCrawler {
             }
 
             // Avoid blocks that could still have live votes coming in
-            if self
-                .active_elections
-                .read()
-                .unwrap()
-                .was_recently_confirmed(&block.hash())
-            {
+            if self.active_elections.was_recently_confirmed(&block.hash()) {
                 continue;
             }
 

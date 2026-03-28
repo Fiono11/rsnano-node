@@ -11,8 +11,7 @@ use rsnano_network::Network;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use crate::{
-    block_rate_calculator::CurrentBlockRates, consensus::ActiveElectionsContainer,
-    representatives::OnlineReps,
+    block_rate_calculator::CurrentBlockRates, consensus::AecService, representatives::OnlineReps,
 };
 
 /// Periodically prints info about BPS, CPS, elections, peers,...
@@ -20,7 +19,7 @@ pub struct NodeMonitor {
     ledger: Arc<Ledger>,
     network: Arc<RwLock<Network>>,
     online_reps: Arc<Mutex<OnlineReps>>,
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    active_elections: Arc<AecService>,
     block_rates: Arc<CurrentBlockRates>,
     last_time: Option<Instant>,
 }
@@ -30,7 +29,7 @@ impl NodeMonitor {
         ledger: Arc<Ledger>,
         network: Arc<RwLock<Network>>,
         online_reps: Arc<Mutex<OnlineReps>>,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         block_rates: Arc<CurrentBlockRates>,
     ) -> Self {
         Self {
@@ -70,7 +69,7 @@ impl NodeMonitor {
             );
         }
 
-        let elections = self.active_elections.read().unwrap().info();
+        let elections = self.active_elections.info();
         info!(
             "Elections active: {} (priority: {} | hinted: {} | optimistic: {})",
             elections.total, elections.priority, elections.hinted, elections.optimistic
