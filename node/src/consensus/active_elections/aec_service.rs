@@ -107,6 +107,14 @@ impl AecService {
         self.aec.read().unwrap().info()
     }
 
+    pub fn with_elections<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut dyn Iterator<Item = &Election>) -> T,
+    {
+        let guard = self.aec.read().unwrap();
+        f(&mut guard.iter_round_robin())
+    }
+
     // --- Write forwarding ---
 
     pub fn set_observer(&self, observer: Sender<AecFact>) {

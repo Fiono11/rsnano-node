@@ -65,13 +65,14 @@ impl AecTickerPlugin for BootstrapStaleElections {
         let is_stale = |election: &&Election| election.start().elapsed(now) >= self.stale_threshold;
 
         self.stale_accounts.clear();
-        self.stale_accounts.extend(
-            aec.read()
-                .iter_round_robin()
-                .filter(is_stale)
-                .map(|e| e.account())
-                .take(128),
-        );
+        aec.with_elections(|elections_iter| {
+            self.stale_accounts.extend(
+                elections_iter
+                    .filter(is_stale)
+                    .map(|e| e.account())
+                    .take(128),
+            );
+        });
 
         self.bootstrap_stale_accounts();
     }
