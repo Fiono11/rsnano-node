@@ -45,12 +45,12 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
          * Flushed elections are later re-activated via frontier confirmation
          */
-        let elections: Vec<_> = aec
-            .read()
-            .iter_round_robin()
-            .filter(|e| e.state() == ElectionState::Active)
-            .cloned()
-            .collect();
+        let elections: Vec<_> = aec.with_elections(|elections_iter| {
+            elections_iter
+                .filter(|e| e.state() == ElectionState::Active)
+                .cloned()
+                .collect()
+        });
 
         for election in &elections {
             self.winner_block_broadcaster
