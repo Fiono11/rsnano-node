@@ -20,7 +20,7 @@ pub struct ManualScheduler {
     condition: Condvar,
     mutex: Mutex<ManualSchedulerImpl>,
     stats: Arc<Stats>,
-    active_elections: Arc<AecService>,
+    aec: Arc<AecService>,
     clock: Arc<SteadyClock>,
     ledger: Arc<Ledger>,
 }
@@ -36,7 +36,7 @@ impl ManualScheduler {
             thread: Mutex::new(None),
             condition: Condvar::new(),
             stats,
-            active_elections,
+            aec: active_elections,
             clock,
             ledger,
             mutex: Mutex::new(ManualSchedulerImpl {
@@ -99,12 +99,12 @@ impl ManualScheduler {
 
                     let now = self.clock.now();
 
-                    let mut aec = self.active_elections.write();
-                    if aec
+                    if self
+                        .aec
                         .insert(AecInsertRequest::new_manual(block, priority), now)
                         .is_ok()
                     {
-                        aec.transition_active(&hash);
+                        self.aec.transition_active(&hash);
                     }
                 } else {
                     drop(guard);
