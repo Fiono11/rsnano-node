@@ -6,15 +6,13 @@ use std::{
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use super::{
-    Bucket, PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count, prio_bucket_index,
-};
+use super::{PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count};
 use crate::consensus::{
     AecService,
     election_schedulers::priority::{
@@ -132,13 +130,7 @@ impl PriorityScheduler {
 
         let priority = any.block_priority(&block);
 
-        let insert_result = {
-            let mut buckets = self.buckets.lock().unwrap();
-            let (bucket, bucket_index) = self.find_bucket(&mut buckets, priority.balance);
-            let result = bucket.insert(priority, block);
-            buckets.activations_per_bucket[bucket_index] += 1;
-            result
-        };
+        let insert_result = self.buckets.lock().unwrap().insert(priority, block);
 
         match insert_result {
             Ok(Eviction::None) => {}
@@ -161,15 +153,6 @@ impl PriorityScheduler {
                 .inc(StatType::ElectionScheduler, DetailType::Activated);
             self.condition.notify_all();
         }
-    }
-
-    fn find_bucket<'a>(
-        &self,
-        buckets: &'a mut [Bucket],
-        priority: Amount,
-    ) -> (&'a mut Bucket, usize) {
-        let index = prio_bucket_index(priority);
-        (&mut buckets[index], index)
     }
 
     pub fn len(&self) -> usize {

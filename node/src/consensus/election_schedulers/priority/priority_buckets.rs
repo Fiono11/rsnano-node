@@ -3,13 +3,15 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::consensus::election_schedulers::priority::{Bucket, Bucketing, PriorityBucketConfig};
-use rsnano_types::BlockHash;
+use crate::consensus::election_schedulers::priority::{
+    Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig, prio_bucket_index,
+};
+use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 pub(super) struct PriorityBuckets {
     buckets: Vec<Bucket>,
-    pub activations_per_bucket: Vec<u64>,
+    activations_per_bucket: Vec<u64>,
 }
 
 impl PriorityBuckets {
@@ -27,6 +29,16 @@ impl PriorityBuckets {
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.buckets.iter().any(|b| b.contains(hash))
+    }
+
+    pub fn insert(
+        &mut self,
+        priority: BlockPriority,
+        block: SavedBlock,
+    ) -> Result<Eviction, BucketInsertError> {
+        let index = prio_bucket_index(priority.balance);
+        self.activations_per_bucket[index] += 1;
+        self.buckets[index].insert(priority, block)
     }
 }
 
