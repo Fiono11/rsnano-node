@@ -50,7 +50,7 @@ impl AecService {
 
     // --- Read forwarding ---
 
-    pub fn check_vacancy<T>(&self, source: T) -> bool
+    pub fn check_vacancy<T>(&self, source: &T) -> bool
     where
         T: ElectionCandidateSource,
     {

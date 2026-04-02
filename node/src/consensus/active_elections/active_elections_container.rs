@@ -97,7 +97,7 @@ impl ActiveElectionsContainer {
         self.roots.iter_bucket(bucket_id).map(|i| &i.election)
     }
 
-    pub fn check_vacancy<T>(&self, source: T) -> bool
+    pub fn check_vacancy<T>(&self, source: &T) -> bool
     where
         T: ElectionCandidateSource,
     {

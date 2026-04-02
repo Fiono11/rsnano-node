@@ -181,15 +181,7 @@ impl PriorityScheduler {
 
     fn predicate(&self) -> bool {
         let buckets = self.buckets.lock().unwrap();
-        // --------------------------------------------------
-        // idea:
-        // self.aec.check_vacancy(&buckets)
-        // buckets implements ElectionCandidateSource with:
-        // fn has_candidate(&self, requests: &[(lowest_prio: u64, vacancy: usize)]) -> bool
-        // --------------------------------------------------
-
-        let aec = self.aec.read();
-        buckets.iter().any(|b| b.available_legacy(&aec))
+        self.aec.check_vacancy(&*buckets)
     }
 
     fn run_one(&self) {
