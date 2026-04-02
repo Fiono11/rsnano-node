@@ -8,6 +8,9 @@ edition = "2024"
 [features]
 output_tracking = []
 ledger_snapshots = []
+banano = [
+	"rsnano_types/banano", 
+]
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = ".", features = ["output_tracking"] }
