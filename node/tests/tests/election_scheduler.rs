@@ -1,4 +1,4 @@
-use test_helpers::{assert_timely2, System};
+use test_helpers::{System, assert_timely2};
 
 mod election_scheduler {
     use super::*;
@@ -6,11 +6,11 @@ mod election_scheduler {
     use rsnano_node::{
         config::{NodeConfig, OptimisticSchedulerConfig},
         consensus::{
-            election::ElectionBehavior, election_schedulers::priority::bucket_count,
-            AecInsertRequest,
+            AecInsertRequest, election::ElectionBehavior,
+            election_schedulers::priority::bucket_count,
         },
     };
-    use rsnano_types::{Amount, BlockPriority, PrivateKey, DEV_GENESIS_KEY};
+    use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]

@@ -3,11 +3,11 @@ use std::{cmp::Ordering, collections::BTreeSet};
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
-use super::{vote_router::VoteRouter, AecInsertRequest};
+use super::{AecInsertRequest, vote_router::VoteRouter};
 use crate::consensus::{
+    BucketInfo,
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
-    BucketInfo,
 };
 
 pub(crate) struct Entry {

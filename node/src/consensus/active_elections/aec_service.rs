@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLock, RwLockWriteGuard},
     time::Duration,
 };
 

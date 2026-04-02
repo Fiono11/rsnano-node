@@ -12,8 +12,8 @@ use std::{collections::HashMap, isize};
 use rsnano_types::{Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, VoteError};
 
 use super::{
-    election::{ConfirmedElection, Election, ElectionBehavior},
     ReceivedVote,
+    election::{ConfirmedElection, Election, ElectionBehavior},
 };
 pub use active_elections_container::*;
 pub use aec_service::AecService;

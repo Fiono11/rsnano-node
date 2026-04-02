@@ -1,15 +1,7 @@
-use std::sync::atomic::Ordering;
-
-use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 
-use super::{
-    bucket_stats::BucketStats,
-    ordered_blocks::{BlockEntry, OrderedBlocks},
-};
-use crate::consensus::{
-    ActiveElectionsContainer, AecInsertError, AecInsertRequest, BucketInfo, ElectionCandidate,
-};
+use super::ordered_blocks::{BlockEntry, OrderedBlocks};
+use crate::consensus::{BucketInfo, ElectionCandidate};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -88,32 +80,6 @@ impl Bucket {
         }
     }
 
-    #[deprecated]
-    pub fn available_legacy(&self, aec: &ActiveElectionsContainer) -> bool {
-        let Some(highest_block) = self.block_queue.highest_prio() else {
-            // No blocks enqueued
-            return false;
-        };
-
-        let candidate_prio = highest_block.priority.time;
-        let bucket_len = aec.bucket_len(self.bucket_id);
-        let lowest_prio = aec.lowest_priority(self.bucket_id);
-
-        let can_reprioritize = lowest_prio
-            .map(|(_, lowest)| candidate_prio > lowest)
-            .unwrap_or(false);
-
-        if can_reprioritize {
-            return true;
-        }
-
-        if bucket_len >= self.config.reserved_elections {
-            return false;
-        }
-
-        aec.vacancy() > 0 // cooldown check. TODO: check for cooldown explicitly
-    }
-
     pub fn available(&self, buckets: &[BucketInfo]) -> bool {
         let Some(highest_block) = self.block_queue.highest_prio() else {
             // No blocks enqueued
@@ -127,56 +93,6 @@ impl Bucket {
         }
 
         bucket_info.vacancy() > 0
-    }
-
-    #[deprecated]
-    pub fn activate_legacy(
-        &mut self,
-        aec: &mut ActiveElectionsContainer,
-        now: Timestamp,
-        stats: &BucketStats,
-    ) {
-        if !self.available_legacy(aec) {
-            return;
-        }
-
-        let Some(top) = self.block_queue.pop_highest_prio() else {
-            return; // Not activated;
-        };
-
-        let block = top.block;
-        let priority = top.priority;
-        let root = block.qualified_root();
-
-        if aec.find_bucket(&root) == Some(self.bucket_id) {
-            stats
-                .activate_failed_duplicate
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-
-        if aec.bucket_len(self.bucket_id) >= self.config.reserved_elections {
-            // TODO aec.replace(old, new);
-            aec.erase_lowest_prio_election(self.bucket_id);
-            stats.replaced.fetch_add(1, Ordering::Relaxed);
-        }
-
-        match aec.insert(AecInsertRequest::new_priority(block, priority), now) {
-            Ok(_) => {
-                stats.activate_success.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(AecInsertError::RecentlyConfirmed) => {
-                stats
-                    .activate_failed_confirmed
-                    .fetch_add(1, Ordering::Relaxed);
-            }
-            Err(AecInsertError::Duplicate) => {
-                stats
-                    .activate_failed_duplicate
-                    .fetch_add(1, Ordering::Relaxed);
-            }
-            Err(AecInsertError::Stopped) => {}
-        }
     }
 
     pub fn activate(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>) {
@@ -229,8 +145,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 0);
         assert_eq!(bucket.contains(&BlockHash::from(1)), false);
-        let aec = ActiveElectionsContainer::default();
-        assert_eq!(bucket.available_legacy(&aec), false);
+        assert!(!bucket.available(&[BucketInfo::new(1), BucketInfo::new(1)]));
     }
 
     #[test]
@@ -246,8 +161,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket.contains(&block.hash()), true);
-        let aec = ActiveElectionsContainer::default();
-        assert_eq!(bucket.available_legacy(&aec), true);
+        assert!(bucket.available(&[BucketInfo::new(1), BucketInfo::new(1)]));
     }
 
     #[test]

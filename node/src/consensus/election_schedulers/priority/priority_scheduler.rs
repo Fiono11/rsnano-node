@@ -188,22 +188,7 @@ impl PriorityScheduler {
 
         let now = self.clock.now();
         let mut buckets = self.buckets.lock().unwrap();
-        // --------------------------------------------------
-        // idea:
-        // self.aec.refill(&buckets)
-        // buckets implements ElectionCandidateSource with:
-        // fn next_candidates(&mut self, requests: &[(lowest_prio: u64, vacancy: usize), result: &mut Vec<...>])
-        // --------------------------------------------------
         self.aec.refill(&mut *buckets, now);
-        //let mut aec = self.aec.write();
-        //let mut inserted = true;
-
-        //while inserted {
-        //    inserted = false;
-        //    for bucket in buckets.iter_mut().rev() {
-        //        bucket.activate_legacy(&mut aec, now, &buckets.bucket_stats);
-        //    }
-        //}
     }
 
     pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
