@@ -7,13 +7,13 @@ mod root_container;
 mod stats;
 mod vote_router;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, isize};
 
 use rsnano_types::{Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, VoteError};
 
 use super::{
-    ReceivedVote,
     election::{ConfirmedElection, Election, ElectionBehavior},
+    ReceivedVote,
 };
 pub use active_elections_container::*;
 pub use aec_service::AecService;
@@ -122,18 +122,37 @@ const AEC_STAT_KEY: &str = "active_elections";
 pub trait ElectionCandidateSource {
     fn should_schedule(&self, buckets: &[BucketInfo]) -> bool;
 
-    // plan:
-    //fn next_candidates(
-    //    &mut self,
-    //    buckets: &[BucketInfo],
-    //) -> Vec<(usize, SavedBlock, BlockPriority)>;
+    fn gather_candidates(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>);
 }
 
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BucketInfo {
     /// The lowest priority of all the elections which are currently in the bucket
     pub lowest_priority: BlockPriority,
 
     /// Number of elections which are currently in this bucket
     pub election_count: usize,
+
+    /// Maximum number of elections in that bucket
+    pub max_elections: usize,
+}
+
+impl BucketInfo {
+    pub fn new(max_elections: usize) -> Self {
+        Self {
+            lowest_priority: BlockPriority::MIN,
+            election_count: 0,
+            max_elections,
+        }
+    }
+
+    pub fn vacancy(&self) -> isize {
+        self.max_elections as isize - self.election_count as isize
+    }
+}
+
+pub struct ElectionCandidate {
+    pub bucket_id: usize,
+    pub block: SavedBlock,
+    pub priority: BlockPriority,
 }

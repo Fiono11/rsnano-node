@@ -137,6 +137,13 @@ impl AecService {
         self.aec.write().unwrap().transition_active(block_hash)
     }
 
+    pub fn refill<T>(&self, source: &mut T, now: Timestamp)
+    where
+        T: ElectionCandidateSource,
+    {
+        self.aec.write().unwrap().refill(source, now);
+    }
+
     pub fn remove_votes<'a>(
         &self,
         root: &QualifiedRoot,

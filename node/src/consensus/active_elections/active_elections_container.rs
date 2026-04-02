@@ -20,6 +20,7 @@ use crate::{
             AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
             VoteType,
         },
+        election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
     },
     representatives::QuorumSpecs,
@@ -43,13 +44,14 @@ pub struct ActiveElectionsContainer {
     recently_confirmed: RecentlyConfirmedCache,
     cooldown: CooldownController,
     max_elections: usize,
+    max_elections_per_bucket: usize,
     stats: AecStats,
 }
 
 impl ActiveElectionsContainer {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
-            roots: RootContainer::default(),
+            roots: RootContainer::new(config.max_elections),
             observer: None,
             stopped: false,
             count_by_behavior: Default::default(),
@@ -57,6 +59,7 @@ impl ActiveElectionsContainer {
             recently_confirmed: RecentlyConfirmedCache::new(config.confirmation_cache),
             cooldown: CooldownController::default(),
             max_elections: config.max_elections,
+            max_elections_per_bucket: config.max_elections / bucket_count(),
             stats: Default::default(),
         }
     }
@@ -283,6 +286,65 @@ impl ActiveElectionsContainer {
         };
         election.transition_active();
         true
+    }
+
+    pub fn refill<T>(&mut self, source: &mut T, now: Timestamp)
+    where
+        T: ElectionCandidateSource,
+    {
+        if self.cooldown.is_cooling_down() {
+            return;
+        }
+
+        // TODO: reuse a buffer!
+        let mut candidates = Vec::new();
+        loop {
+            source.gather_candidates(self.roots.bucket_infos(), &mut candidates);
+            if candidates.is_empty() {
+                break;
+            }
+            for candidate in candidates.drain(..) {
+                let root = candidate.block.qualified_root();
+                // TODO what if root found in another bucket??
+                if self.find_bucket(&root) == Some(candidate.bucket_id) {
+                    // TODO log!
+                    //stats
+                    //    .activate_failed_duplicate
+                    //    .fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+
+                if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
+                    self.erase_lowest_prio_election(candidate.bucket_id);
+                    // TODO stats
+                    //stats.replaced.fetch_add(1, Ordering::Relaxed);
+                }
+
+                // TODO: Don't hard code priority election!
+                match self.insert(
+                    AecInsertRequest::new_priority(candidate.block, candidate.priority),
+                    now,
+                ) {
+                    Ok(_) => {
+                        //TODO
+                        //stats.activate_success.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(AecInsertError::RecentlyConfirmed) => {
+                        //TODO
+                        //stats
+                        //    .activate_failed_confirmed
+                        //    .fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(AecInsertError::Duplicate) => {
+                        //TODO
+                        //stats
+                        //    .activate_failed_duplicate
+                        //    .fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(AecInsertError::Stopped) => {}
+                }
+            }
+        }
     }
 
     pub fn remove_votes<'a>(

@@ -784,10 +784,12 @@ fn broadcast_block_on_activation() {
     // Deactivates elections on both nodes.
     config1.active_elections.max_elections = 0;
     config1.bootstrap.enable = false;
+    config1.enable_priority_scheduler = false;
 
     let mut config2 = System::default_config();
     config2.active_elections.max_elections = 0;
     config2.bootstrap.enable = false;
+    config1.enable_priority_scheduler = false;
 
     let node1 = system.build_node().config(config1).finish();
     let node2 = system.build_node().config(config2).finish();

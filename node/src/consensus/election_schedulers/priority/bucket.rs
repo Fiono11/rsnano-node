@@ -7,7 +7,9 @@ use super::{
     bucket_stats::BucketStats,
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
-use crate::consensus::{ActiveElectionsContainer, AecInsertError, AecInsertRequest, BucketInfo};
+use crate::consensus::{
+    ActiveElectionsContainer, AecInsertError, AecInsertRequest, BucketInfo, ElectionCandidate,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -118,20 +120,17 @@ impl Bucket {
             return false;
         };
 
-        let candidate_prio = highest_block.priority.time;
         let bucket_info = &buckets[self.bucket_id];
-        let bucket_len = bucket_info.election_count;
-        let lowest_prio = bucket_info.lowest_priority;
-
-        let can_reprioritize = candidate_prio > lowest_prio.time;
+        let can_reprioritize = highest_block.priority.time > bucket_info.lowest_priority.time;
         if can_reprioritize {
             return true;
         }
 
-        bucket_len < self.config.reserved_elections
+        bucket_info.vacancy() > 0
     }
 
-    pub fn activate(
+    #[deprecated]
+    pub fn activate_legacy(
         &mut self,
         aec: &mut ActiveElectionsContainer,
         now: Timestamp,
@@ -178,6 +177,27 @@ impl Bucket {
             }
             Err(AecInsertError::Stopped) => {}
         }
+    }
+
+    pub fn activate(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>) {
+        if !self.available(buckets) {
+            return;
+        }
+
+        // TODO: Push more than just one block!
+
+        let Some(top) = self.block_queue.pop_highest_prio() else {
+            return; // Not activated;
+        };
+
+        let block = top.block;
+        let priority = top.priority;
+
+        result.push(ElectionCandidate {
+            bucket_id: self.bucket_id,
+            block,
+            priority,
+        })
     }
 }
 

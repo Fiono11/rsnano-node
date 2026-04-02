@@ -12,7 +12,7 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use super::{PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count};
+use super::{PriorityBucketConfig, prio_bucket_count};
 use crate::consensus::{
     AecService,
     election_schedulers::priority::{
@@ -26,7 +26,6 @@ pub struct PriorityScheduler {
     stats: Arc<Stats>,
     buckets: Mutex<PriorityBuckets>,
     thread: Mutex<Option<JoinHandle<()>>>,
-    bucket_stats: BucketStats,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
@@ -47,7 +46,6 @@ impl PriorityScheduler {
             condition: Condvar::new(),
             buckets: Mutex::new(buckets),
             stats,
-            bucket_stats: BucketStats::default(),
             clock,
             aec: active_elections,
             activate_successors_listener: Default::default(),
@@ -196,15 +194,16 @@ impl PriorityScheduler {
         // buckets implements ElectionCandidateSource with:
         // fn next_candidates(&mut self, requests: &[(lowest_prio: u64, vacancy: usize), result: &mut Vec<...>])
         // --------------------------------------------------
-        let mut aec = self.aec.write();
-        let mut inserted = true;
+        self.aec.refill(&mut *buckets, now);
+        //let mut aec = self.aec.write();
+        //let mut inserted = true;
 
-        while inserted {
-            inserted = false;
-            for bucket in buckets.iter_mut().rev() {
-                bucket.activate(&mut aec, now, &self.bucket_stats);
-            }
-        }
+        //while inserted {
+        //    inserted = false;
+        //    for bucket in buckets.iter_mut().rev() {
+        //        bucket.activate_legacy(&mut aec, now, &buckets.bucket_stats);
+        //    }
+        //}
     }
 
     pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
@@ -267,8 +266,9 @@ impl PrioritySchedulerExt for Arc<PriorityScheduler> {
 
 impl StatsSource for PriorityScheduler {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.bucket_stats.collect_stats(result);
-        self.buckets.lock().unwrap().collect_stats(result);
+        let guard = self.buckets.lock().unwrap();
+        guard.bucket_stats.collect_stats(result);
+        guard.collect_stats(result);
     }
 }
 

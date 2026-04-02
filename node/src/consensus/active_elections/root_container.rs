@@ -3,11 +3,11 @@ use std::{cmp::Ordering, collections::BTreeSet};
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
-use super::{AecInsertRequest, vote_router::VoteRouter};
+use super::{vote_router::VoteRouter, AecInsertRequest};
 use crate::consensus::{
-    BucketInfo,
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
+    BucketInfo,
 };
 
 pub(crate) struct Entry {
@@ -23,6 +23,7 @@ impl Entry {
 }
 
 /// Ordered by descending time priority
+/// => So highest priority entries are first!
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct BucketEntry {
     root: QualifiedRoot,
@@ -53,21 +54,31 @@ pub(crate) struct RootContainer {
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
+    max_elections: usize,
+    max_elections_per_bucket: usize,
 }
 
 impl Default for RootContainer {
     fn default() -> Self {
-        Self {
-            by_root: Default::default(),
-            vote_router: Default::default(),
-            buckets: vec![BTreeSet::new(); bucket_count()],
-            bucket_infos: vec![BucketInfo::default(); bucket_count()],
-        }
+        Self::new(5000)
     }
 }
 
 impl RootContainer {
     pub const ELEMENT_SIZE: usize = size_of::<QualifiedRoot>() * 2 + size_of::<Election>();
+
+    pub fn new(max_elections: usize) -> Self {
+        let bucket_count = bucket_count();
+        let max_elections_per_bucket = max_elections / bucket_count;
+        Self {
+            by_root: Default::default(),
+            vote_router: Default::default(),
+            buckets: vec![BTreeSet::new(); bucket_count],
+            bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
+            max_elections,
+            max_elections_per_bucket,
+        }
+    }
 
     pub fn insert(&mut self, entry: Entry) {
         let root = entry.root.clone();
@@ -190,10 +201,15 @@ impl RootContainer {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
             self.vote_router.disconnect_election(&entry.election);
-            self.buckets[entry.bucket()].remove(&BucketEntry {
+            let bucket = &mut self.buckets[entry.bucket()];
+            bucket.remove(&BucketEntry {
                 root: entry.root.clone(),
                 priority: entry.priority,
             });
+
+            let bucket_info = &mut self.bucket_infos[entry.bucket()];
+            bucket_info.election_count = bucket.len();
+            bucket_info.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
         }
         erased
     }
@@ -204,7 +220,7 @@ impl RootContainer {
             bucket.clear();
         }
         for i in &mut self.bucket_infos {
-            *i = Default::default();
+            *i = BucketInfo::new(self.max_elections_per_bucket);
         }
     }
 
