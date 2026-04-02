@@ -3,8 +3,11 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::consensus::election_schedulers::priority::{
-    Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig, prio_bucket_index,
+use crate::consensus::{
+    BucketInfo, ElectionCandidateSource,
+    election_schedulers::priority::{
+        Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig, prio_bucket_index,
+    },
 };
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
@@ -27,6 +30,10 @@ impl PriorityBuckets {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.buckets.iter().map(|b| b.len()).sum()
+    }
+
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.buckets.iter().any(|b| b.contains(hash))
     }
@@ -39,6 +46,12 @@ impl PriorityBuckets {
         let index = prio_bucket_index(priority.balance);
         self.activations_per_bucket[index] += 1;
         self.buckets[index].insert(priority, block)
+    }
+}
+
+impl ElectionCandidateSource for PriorityBuckets {
+    fn should_schedule(&self, buckets: &[BucketInfo]) -> bool {
+        self.buckets.iter().any(|b| b.available(buckets))
     }
 }
 

@@ -117,3 +117,23 @@ impl AecInsertRequest {
 }
 
 const AEC_STAT_KEY: &str = "active_elections";
+
+/// Provides blocks for which an election should be scheduled
+pub trait ElectionCandidateSource {
+    fn should_schedule(&self, buckets: &[BucketInfo]) -> bool;
+
+    // plan:
+    //fn next_candidates(
+    //    &mut self,
+    //    buckets: &[BucketInfo],
+    //) -> Vec<(usize, SavedBlock, BlockPriority)>;
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct BucketInfo {
+    /// The lowest priority of all the elections which are currently in the bucket
+    pub lowest_priority: BlockPriority,
+
+    /// Number of elections which are currently in this bucket
+    pub election_count: usize,
+}

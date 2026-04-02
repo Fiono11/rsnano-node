@@ -16,7 +16,10 @@ use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
-use crate::consensus::election::{ConfirmedElection, Election, ElectionBehavior};
+use crate::consensus::{
+    ElectionCandidateSource,
+    election::{ConfirmedElection, Election, ElectionBehavior},
+};
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
@@ -46,6 +49,13 @@ impl AecService {
     }
 
     // --- Read forwarding ---
+
+    pub fn check_vacancy<T>(&self, source: T) -> bool
+    where
+        T: ElectionCandidateSource,
+    {
+        self.aec.read().unwrap().check_vacancy(source)
+    }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.aec.read().unwrap().election_for_root(root).cloned()

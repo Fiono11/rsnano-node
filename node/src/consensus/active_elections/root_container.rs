@@ -5,6 +5,7 @@ use rustc_hash::FxHashMap;
 
 use super::{AecInsertRequest, vote_router::VoteRouter};
 use crate::consensus::{
+    BucketInfo,
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
 };
@@ -50,6 +51,7 @@ impl PartialOrd for BucketEntry {
 pub(crate) struct RootContainer {
     by_root: FxHashMap<QualifiedRoot, Entry>,
     buckets: Vec<BTreeSet<BucketEntry>>,
+    bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
 }
 
@@ -59,6 +61,7 @@ impl Default for RootContainer {
             by_root: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count()],
+            bucket_infos: vec![BucketInfo::default(); bucket_count()],
         }
     }
 }
@@ -73,7 +76,14 @@ impl RootContainer {
             root: entry.root.clone(),
             priority: entry.priority,
         };
-        self.buckets[entry.bucket()].insert(bucket_entry);
+
+        let bucket = &mut self.buckets[entry.bucket()];
+        bucket.insert(bucket_entry);
+
+        let infos = &mut self.bucket_infos[entry.bucket()];
+        infos.election_count = bucket.len();
+        infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
+
         self.by_root.insert(root.clone(), entry);
         self.vote_router.connect(hash, root.clone());
     }
@@ -104,6 +114,10 @@ impl RootContainer {
         self.get_mut(&root).map(|i| &mut i.election)
     }
 
+    pub fn bucket_infos(&self) -> &[BucketInfo] {
+        &self.bucket_infos
+    }
+
     pub fn try_upgrade_to_priority_election(
         &mut self,
         request: &AecInsertRequest,
@@ -125,17 +139,27 @@ impl RootContainer {
             return (false, Some(previous_behavior));
         }
 
-        self.buckets[bucket_index(previous_behavior, priority.balance)].remove(&BucketEntry {
+        let old_bucket_index = bucket_index(previous_behavior, priority.balance);
+        let old_bucket = &mut self.buckets[old_bucket_index];
+        old_bucket.remove(&BucketEntry {
+            root: root.clone(),
+            priority,
+        });
+        let old_infos = &mut self.bucket_infos[old_bucket_index];
+        old_infos.election_count = old_bucket.len();
+        old_infos.lowest_priority = old_bucket.last().map(|i| i.priority).unwrap_or_default();
+
+        let new_bucket_index = bucket_index(ElectionBehavior::Priority, priority.balance);
+        let new_bucket = &mut self.buckets[new_bucket_index];
+        new_bucket.insert(BucketEntry {
             root: root.clone(),
             priority,
         });
 
-        self.buckets[bucket_index(ElectionBehavior::Priority, priority.balance)].insert(
-            BucketEntry {
-                root: root.clone(),
-                priority,
-            },
-        );
+        let new_infos = &mut self.bucket_infos[new_bucket_index];
+        new_infos.election_count = new_bucket.len();
+        new_infos.lowest_priority = new_bucket.last().map(|i| i.priority).unwrap_or_default();
+
         (true, Some(previous_behavior))
     }
 
@@ -178,6 +202,9 @@ impl RootContainer {
         self.by_root.clear();
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
+        }
+        for i in &mut self.bucket_infos {
+            *i = Default::default();
         }
     }
 

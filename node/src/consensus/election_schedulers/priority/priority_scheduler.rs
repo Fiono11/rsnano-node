@@ -156,7 +156,7 @@ impl PriorityScheduler {
     }
 
     pub fn len(&self) -> usize {
-        self.buckets.lock().unwrap().iter().map(|b| b.len()).sum()
+        self.buckets.lock().unwrap().len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -189,7 +189,7 @@ impl PriorityScheduler {
         // --------------------------------------------------
 
         let aec = self.aec.read();
-        buckets.iter().any(|b| b.available(&aec))
+        buckets.iter().any(|b| b.available_legacy(&aec))
     }
 
     fn run_one(&self) {

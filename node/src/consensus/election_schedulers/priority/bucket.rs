@@ -7,7 +7,7 @@ use super::{
     bucket_stats::BucketStats,
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
-use crate::consensus::{ActiveElectionsContainer, AecInsertError, AecInsertRequest};
+use crate::consensus::{ActiveElectionsContainer, AecInsertError, AecInsertRequest, BucketInfo};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -86,7 +86,8 @@ impl Bucket {
         }
     }
 
-    pub fn available(&self, aec: &ActiveElectionsContainer) -> bool {
+    #[deprecated]
+    pub fn available_legacy(&self, aec: &ActiveElectionsContainer) -> bool {
         let Some(highest_block) = self.block_queue.highest_prio() else {
             // No blocks enqueued
             return false;
@@ -111,13 +112,32 @@ impl Bucket {
         aec.vacancy() > 0 // cooldown check. TODO: check for cooldown explicitly
     }
 
+    pub fn available(&self, buckets: &[BucketInfo]) -> bool {
+        let Some(highest_block) = self.block_queue.highest_prio() else {
+            // No blocks enqueued
+            return false;
+        };
+
+        let candidate_prio = highest_block.priority.time;
+        let bucket_info = &buckets[self.bucket_id];
+        let bucket_len = bucket_info.election_count;
+        let lowest_prio = bucket_info.lowest_priority;
+
+        let can_reprioritize = candidate_prio > lowest_prio.time;
+        if can_reprioritize {
+            return true;
+        }
+
+        bucket_len < self.config.reserved_elections
+    }
+
     pub fn activate(
         &mut self,
         aec: &mut ActiveElectionsContainer,
         now: Timestamp,
         stats: &BucketStats,
     ) {
-        if !self.available(aec) {
+        if !self.available_legacy(aec) {
             return;
         }
 
@@ -190,7 +210,7 @@ mod tests {
         assert_eq!(bucket.len(), 0);
         assert_eq!(bucket.contains(&BlockHash::from(1)), false);
         let aec = ActiveElectionsContainer::default();
-        assert_eq!(bucket.available(&aec), false);
+        assert_eq!(bucket.available_legacy(&aec), false);
     }
 
     #[test]
@@ -207,7 +227,7 @@ mod tests {
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket.contains(&block.hash()), true);
         let aec = ActiveElectionsContainer::default();
-        assert_eq!(bucket.available(&aec), true);
+        assert_eq!(bucket.available_legacy(&aec), true);
     }
 
     #[test]

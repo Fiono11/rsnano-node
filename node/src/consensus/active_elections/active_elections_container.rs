@@ -15,6 +15,7 @@ use rsnano_utils::{
 
 use crate::{
     consensus::{
+        ElectionCandidateSource,
         election::{
             AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
             VoteType,
@@ -94,6 +95,14 @@ impl ActiveElectionsContainer {
 
     pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Election> {
         self.roots.iter_bucket(bucket_id).map(|i| &i.election)
+    }
+
+    pub fn check_vacancy<T>(&self, source: T) -> bool
+    where
+        T: ElectionCandidateSource,
+    {
+        let bucket_infos = self.roots.bucket_infos();
+        source.should_schedule(&bucket_infos)
     }
 
     pub fn insert(
