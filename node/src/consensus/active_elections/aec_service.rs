@@ -35,10 +35,12 @@ impl AecService {
         }
     }
 
+    #[deprecated]
     pub fn read(&self) -> RwLockReadGuard<'_, ActiveElectionsContainer> {
         self.aec.read().unwrap()
     }
 
+    #[deprecated]
     pub fn write(&self) -> RwLockWriteGuard<'_, ActiveElectionsContainer> {
         self.aec.write().unwrap()
     }
