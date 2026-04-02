@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        Arc, Condvar, LazyLock, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
 
@@ -16,25 +13,25 @@ use rsnano_utils::{
 };
 
 use super::{
-    Bucket, Bucketing, PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count,
-    prio_bucket_index,
+    Bucket, PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count, prio_bucket_index,
 };
 use crate::consensus::{
     AecService,
-    election_schedulers::priority::{BucketInsertError, Eviction},
+    election_schedulers::priority::{
+        BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
+    },
 };
 
 pub struct PriorityScheduler {
     stopped: Mutex<bool>,
     condition: Condvar,
     stats: Arc<Stats>,
-    buckets: Mutex<Vec<Bucket>>,
+    buckets: Mutex<PriorityBuckets>,
     thread: Mutex<Option<JoinHandle<()>>>,
     bucket_stats: BucketStats,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
-    activations_per_bucket: Vec<AtomicU64>,
 }
 
 impl PriorityScheduler {
@@ -44,12 +41,7 @@ impl PriorityScheduler {
         active_elections: Arc<AecService>,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let mut buckets = Vec::with_capacity(prio_bucket_count());
-        let mut activations_per_bucket = Vec::with_capacity(prio_bucket_count());
-        for bucket_id in 0..prio_bucket_count() {
-            buckets.push(Bucket::new(config.clone(), bucket_id));
-            activations_per_bucket.push(AtomicU64::new(0));
-        }
+        let buckets = PriorityBuckets::new(prio_bucket_count(), config);
 
         Self {
             thread: Mutex::new(None),
@@ -61,7 +53,6 @@ impl PriorityScheduler {
             clock,
             aec: active_elections,
             activate_successors_listener: Default::default(),
-            activations_per_bucket,
         }
     }
 
@@ -83,11 +74,7 @@ impl PriorityScheduler {
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.buckets
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|b| b.contains(hash))
+        self.buckets.lock().unwrap().contains(hash)
     }
 
     pub fn activate(&self, any: &impl AnySet, account: &Account) {
@@ -148,8 +135,9 @@ impl PriorityScheduler {
         let insert_result = {
             let mut buckets = self.buckets.lock().unwrap();
             let (bucket, bucket_index) = self.find_bucket(&mut buckets, priority.balance);
-            self.activations_per_bucket[bucket_index].fetch_add(1, Ordering::Relaxed);
-            bucket.insert(priority, block)
+            let result = bucket.insert(priority, block);
+            buckets.activations_per_bucket[bucket_index] += 1;
+            result
         };
 
         match insert_result {
@@ -210,6 +198,13 @@ impl PriorityScheduler {
 
     fn predicate(&self) -> bool {
         let buckets = self.buckets.lock().unwrap();
+        // --------------------------------------------------
+        // idea:
+        // self.aec.check_vacancy(&buckets)
+        // buckets implements ElectionCandidateSource with:
+        // fn has_candidate(&self, requests: &[(lowest_prio: u64, vacancy: usize)]) -> bool
+        // --------------------------------------------------
+
         let aec = self.aec.read();
         buckets.iter().any(|b| b.available(&aec))
     }
@@ -220,6 +215,12 @@ impl PriorityScheduler {
 
         let now = self.clock.now();
         let mut buckets = self.buckets.lock().unwrap();
+        // --------------------------------------------------
+        // idea:
+        // self.aec.refill(&buckets)
+        // buckets implements ElectionCandidateSource with:
+        // fn next_candidates(&mut self, requests: &[(lowest_prio: u64, vacancy: usize), result: &mut Vec<...>])
+        // --------------------------------------------------
         let mut aec = self.aec.write();
         let mut inserted = true;
 
@@ -292,24 +293,9 @@ impl PrioritySchedulerExt for Arc<PriorityScheduler> {
 impl StatsSource for PriorityScheduler {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.bucket_stats.collect_stats(result);
-        for (i, activations) in self.activations_per_bucket.iter().enumerate() {
-            result.insert(
-                "election_bucket_activation",
-                &BUCKET_NAMES[i],
-                activations.load(Ordering::Relaxed),
-            );
-        }
+        self.buckets.lock().unwrap().collect_stats(result);
     }
 }
-
-static BUCKET_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
-    let bucket_count = Bucketing::new().bucket_count();
-    let mut names = Vec::with_capacity(bucket_count);
-    for i in 0..bucket_count {
-        names.push(i.to_string())
-    }
-    names
-});
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,62 @@
+use std::{
+    ops::{Deref, DerefMut},
+    sync::LazyLock,
+};
+
+use crate::consensus::election_schedulers::priority::{Bucket, Bucketing, PriorityBucketConfig};
+use rsnano_types::BlockHash;
+use rsnano_utils::stats::{StatsCollection, StatsSource};
+
+pub(super) struct PriorityBuckets {
+    buckets: Vec<Bucket>,
+    pub activations_per_bucket: Vec<u64>,
+}
+
+impl PriorityBuckets {
+    pub fn new(bucket_count: usize, config: PriorityBucketConfig) -> Self {
+        let mut buckets = Vec::with_capacity(bucket_count);
+        for bucket_id in 0..bucket_count {
+            buckets.push(Bucket::new(config.clone(), bucket_id));
+        }
+
+        Self {
+            buckets,
+            activations_per_bucket: vec![0; bucket_count],
+        }
+    }
+
+    pub fn contains(&self, hash: &BlockHash) -> bool {
+        self.buckets.iter().any(|b| b.contains(hash))
+    }
+}
+
+impl Deref for PriorityBuckets {
+    type Target = Vec<Bucket>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buckets
+    }
+}
+
+impl DerefMut for PriorityBuckets {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buckets
+    }
+}
+
+impl StatsSource for PriorityBuckets {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        for (i, activations) in self.activations_per_bucket.iter().enumerate() {
+            result.insert("election_bucket_activation", &BUCKET_NAMES[i], *activations);
+        }
+    }
+}
+
+static BUCKET_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let bucket_count = Bucketing::new().bucket_count();
+    let mut names = Vec::with_capacity(bucket_count);
+    for i in 0..bucket_count {
+        names.push(i.to_string())
+    }
+    names
+});

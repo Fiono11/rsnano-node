@@ -2,6 +2,7 @@ mod bucket;
 mod bucket_stats;
 mod bucketing;
 mod ordered_blocks;
+mod priority_buckets;
 mod priority_scheduler;
 
 pub use bucket::*;
