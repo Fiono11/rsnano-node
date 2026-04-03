@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{RwLock, RwLockWriteGuard},
-    time::Duration,
-};
+use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError};
@@ -36,11 +32,6 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
         }
-    }
-
-    #[deprecated]
-    pub fn write(&self) -> RwLockWriteGuard<'_, ActiveElectionsContainer> {
-        self.aec.write().unwrap()
     }
 
     // --- Read forwarding ---
@@ -106,6 +97,14 @@ impl AecService {
     {
         let guard = self.aec.read().unwrap();
         f(&mut guard.iter_round_robin())
+    }
+
+    pub fn with_elections_starting_from_bucket<F, T>(&self, starting_bucket: usize, f: F) -> T
+    where
+        F: FnOnce(&mut dyn Iterator<Item = (usize, &Election)>) -> T,
+    {
+        let guard = self.aec.read().unwrap();
+        f(&mut guard.iter_from_bucket(starting_bucket))
     }
 
     // --- Write forwarding ---

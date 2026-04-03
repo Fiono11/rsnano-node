@@ -4,7 +4,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{BlockHash, NetworkType, Root};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
-use super::{CpsLimiter, VoteGenerators};
+use super::{CpsLimiter, VoteGenerators, voting_scheduler::VotingScheduler};
 use crate::consensus::{
     AecService, election::VoteType, election_schedulers::priority::bucket_count,
 };
@@ -17,6 +17,7 @@ pub(crate) struct AecVoter {
     cps_limiter: CpsLimiter,
     current_bucket: usize,
     vote_broadcast_interval: Duration,
+    scheduler: VotingScheduler,
 }
 
 impl AecVoter {
@@ -37,6 +38,7 @@ impl AecVoter {
                 NetworkType::NanoDevNetwork => Duration::from_millis(500),
                 _ => Duration::from_secs(15),
             },
+            scheduler: VotingScheduler::new(),
         }
     }
 
@@ -51,50 +53,54 @@ impl AecVoter {
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
-        let mut aec = self.aec.write();
-        let mut voted = true;
         let mut vote_queue = Vec::new();
-        while voted {
-            voted = false;
-            loop {
-                let vote_target = aec.iter_bucket(self.current_bucket).find_map(|election| {
-                    if election.can_vote(self.vote_broadcast_interval, now) {
-                        Some((
-                            election.qualified_root().clone(),
-                            election.vote_type(),
-                            election.winner().hash(),
-                        ))
-                    } else {
-                        None
-                    }
-                });
 
-                if let Some((root, vote_type, winner_hash)) = vote_target {
-                    if vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
-                        drop(aec);
-                        self.flush(&mut vote_queue);
-                        return;
-                    }
+        loop {
+            let scheduler = &self.scheduler;
+            let interval = self.vote_broadcast_interval;
+            let vote_target =
+                self.aec
+                    .with_elections_starting_from_bucket(self.current_bucket, |elections| {
+                        let mut found = None;
+                        for (bucket, e) in elections {
+                            let root = e.qualified_root();
+                            let winner = e.winner().hash();
+                            if scheduler.can_vote(root, interval, now, winner, e.vote_type()) {
+                                found = Some((bucket, root.clone(), winner, e.vote_type()));
+                                break;
+                            }
+                        }
+                        found
+                    });
 
-                    vote_queue.push((root.root, winner_hash, vote_type));
+            let Some((bucket, root, winner_hash, vote_type)) = vote_target else {
+                self.current_bucket = bucket_count() - 1;
+                break;
+            };
 
-                    aec.set_last_voted(&root, vote_type, now);
-                    voted = true;
-                }
+            if vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
+                self.current_bucket = bucket;
+                self.flush(&mut vote_queue);
+                return;
+            }
 
-                if cancel_token.is_cancelled() {
-                    return;
-                }
+            self.current_bucket = if bucket == 0 {
+                bucket_count() - 1
+            } else {
+                bucket - 1
+            };
 
-                if self.current_bucket == 0 {
-                    self.current_bucket = bucket_count() - 1;
-                    break;
-                } else {
-                    self.current_bucket -= 1;
-                }
+            vote_queue.push((root.root, winner_hash, vote_type));
+            self.scheduler
+                .mark_voted(&root, vote_type, now, winner_hash);
+
+            if cancel_token.is_cancelled() {
+                self.flush(&mut vote_queue);
+                return;
             }
         }
-        drop(aec);
+
+        self.scheduler.cleanup(now, self.vote_broadcast_interval);
         self.flush(&mut vote_queue);
     }
 }

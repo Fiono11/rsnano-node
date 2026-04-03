@@ -18,7 +18,6 @@ use crate::{
         ElectionCandidateSource,
         election::{
             AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
-            VoteType,
         },
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
@@ -100,6 +99,23 @@ impl ActiveElectionsContainer {
         self.roots.iter_bucket(bucket_id).map(|i| &i.election)
     }
 
+    pub fn iter_from_bucket(
+        &self,
+        starting_bucket: usize,
+    ) -> impl Iterator<Item = (usize, &Election)> {
+        let total = bucket_count();
+        (0..total).flat_map(move |i| {
+            let bucket_id = if i <= starting_bucket {
+                starting_bucket - i
+            } else {
+                total - 1 - (i - starting_bucket - 1)
+            };
+            self.roots
+                .iter_bucket(bucket_id)
+                .map(move |entry| (bucket_id, &entry.election))
+        })
+    }
+
     pub fn check_vacancy<T>(&self, source: &T) -> bool
     where
         T: ElectionCandidateSource,
@@ -122,18 +138,6 @@ impl ActiveElectionsContainer {
 
         self.insert_new_election(request, now);
         Ok(())
-    }
-
-    pub fn set_last_voted(
-        &mut self,
-        root: &QualifiedRoot,
-        vote_type: VoteType,
-        timestamp: Timestamp,
-    ) {
-        let Some(entry) = self.roots.get_mut(root) else {
-            return;
-        };
-        entry.election.voted(vote_type, timestamp);
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
