@@ -13,6 +13,7 @@ pub(crate) struct VoteTarget {
 
 pub(crate) struct VotingScheduler {
     records: HashMap<QualifiedRoot, VoteRecord>,
+    interval: Duration,
 }
 
 struct VoteRecord {
@@ -22,15 +23,16 @@ struct VoteRecord {
 }
 
 impl VotingScheduler {
-    pub fn new() -> Self {
+    pub fn new(interval: Duration) -> Self {
         Self {
             records: HashMap::new(),
+            interval,
         }
     }
 
     /// Returns true if enough time has passed since the last vote for this election,
     /// or if the winner has changed since the last vote.
-    pub fn can_vote(&self, target: &VoteTarget, interval: Duration, now: Timestamp) -> bool {
+    pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
         let Some(record) = self.records.get(&target.root) else {
             return true;
         };
@@ -46,7 +48,7 @@ impl VotingScheduler {
 
         match last {
             None => true,
-            Some(ts) => now >= ts + interval,
+            Some(ts) => now >= ts + self.interval,
         }
     }
 
@@ -67,14 +69,14 @@ impl VotingScheduler {
         record.last_voted_winner = target.winner;
     }
 
-    /// Remove entries whose most recent vote is older than `interval`.
+    /// Remove entries whose most recent vote is older than the interval.
     /// Called once per tick to bound memory usage.
-    pub fn cleanup(&mut self, now: Timestamp, interval: Duration) {
+    pub fn cleanup(&mut self, now: Timestamp) {
         self.records.retain(|_, record| {
             let last = record.last_non_final.max(record.last_final);
             match last {
                 None => false,
-                Some(ts) => now < ts + interval,
+                Some(ts) => now < ts + self.interval,
             }
         });
     }
@@ -88,6 +90,10 @@ mod tests {
     use std::time::Duration;
 
     const INTERVAL: Duration = Duration::from_secs(15);
+
+    fn scheduler() -> VotingScheduler {
+        VotingScheduler::new(INTERVAL)
+    }
 
     fn target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
@@ -113,53 +119,52 @@ mod tests {
 
     #[test]
     fn can_vote_without_prior_vote() {
-        let scheduler = VotingScheduler::new();
-        assert!(scheduler.can_vote(&target(VoteType::NonFinal), INTERVAL, t(0)));
+        assert!(scheduler().can_vote(&target(VoteType::NonFinal), t(0)));
     }
 
     #[test]
     fn cannot_vote_before_interval_elapses() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
-        assert!(!scheduler.can_vote(&target(VoteType::NonFinal), INTERVAL, t(5)));
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
     }
 
     #[test]
     fn can_vote_after_interval_elapses() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
-        assert!(scheduler.can_vote(&target(VoteType::NonFinal), INTERVAL, t(15)));
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        assert!(s.can_vote(&target(VoteType::NonFinal), t(15)));
     }
 
     #[test]
     fn can_vote_immediately_if_winner_changed() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
-        assert!(scheduler.can_vote(&other_winner_target(VoteType::NonFinal), INTERVAL, t(1)));
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        assert!(s.can_vote(&other_winner_target(VoteType::NonFinal), t(1)));
     }
 
     #[test]
     fn can_vote_final_immediately_after_nonfinal() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
         // Final vote type not recorded yet, so can vote immediately
-        assert!(scheduler.can_vote(&target(VoteType::Final), INTERVAL, t(1)));
+        assert!(s.can_vote(&target(VoteType::Final), t(1)));
     }
 
     #[test]
     fn cleanup_removes_stale_entries() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
-        scheduler.cleanup(t(15), INTERVAL);
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        s.cleanup(t(15));
         // After cleanup the entry is gone, so can_vote returns true
-        assert!(scheduler.can_vote(&target(VoteType::NonFinal), INTERVAL, t(15)));
+        assert!(s.can_vote(&target(VoteType::NonFinal), t(15)));
     }
 
     #[test]
     fn cleanup_retains_fresh_entries() {
-        let mut scheduler = VotingScheduler::new();
-        scheduler.mark_voted(&target(VoteType::NonFinal), t(0));
-        scheduler.cleanup(t(5), INTERVAL);
-        assert!(!scheduler.can_vote(&target(VoteType::NonFinal), INTERVAL, t(5)));
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        s.cleanup(t(5));
+        assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
     }
 }

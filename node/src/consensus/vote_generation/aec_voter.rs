@@ -19,7 +19,6 @@ pub(crate) struct AecVoter {
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
     current_bucket: usize,
-    vote_broadcast_interval: Duration,
     scheduler: VotingScheduler,
 }
 
@@ -31,17 +30,17 @@ impl AecVoter {
         network: NetworkType,
         cps_limiter: CpsLimiter,
     ) -> Self {
+        let vote_broadcast_interval = match network {
+            NetworkType::NanoDevNetwork => Duration::from_millis(500),
+            _ => Duration::from_secs(15),
+        };
         Self {
             aec,
             vote_generators,
             clock,
             cps_limiter,
             current_bucket: bucket_count() - 1,
-            vote_broadcast_interval: match network {
-                NetworkType::NanoDevNetwork => Duration::from_millis(500),
-                _ => Duration::from_secs(15),
-            },
-            scheduler: VotingScheduler::new(),
+            scheduler: VotingScheduler::new(vote_broadcast_interval),
         }
     }
 
@@ -58,7 +57,6 @@ impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
         let scheduler = &self.scheduler;
-        let interval = self.vote_broadcast_interval;
 
         // Collect all vote targets in a single lock acquisition
         let targets: Vec<(usize, VoteTarget)> =
@@ -71,7 +69,7 @@ impl Tickable for AecVoter {
                                 winner: e.winner().hash(),
                                 vote_type: e.vote_type(),
                             };
-                            if scheduler.can_vote(&target, interval, now) {
+                            if scheduler.can_vote(&target, now) {
                                 Some((bucket, target))
                             } else {
                                 None
@@ -104,7 +102,7 @@ impl Tickable for AecVoter {
         }
 
         self.current_bucket = bucket_count() - 1;
-        self.scheduler.cleanup(now, self.vote_broadcast_interval);
+        self.scheduler.cleanup(now);
         self.flush(&mut vote_queue);
     }
 }
