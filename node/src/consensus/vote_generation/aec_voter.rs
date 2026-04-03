@@ -1,10 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, NetworkType, QualifiedRoot, Root};
+use rsnano_types::NetworkType;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
-use super::{CpsLimiter, VoteGenerators, voting_scheduler::VotingScheduler};
+use super::{
+    CpsLimiter, VoteGenerators,
+    voting_scheduler::{VoteTarget, VotingScheduler},
+};
 use crate::consensus::{
     AecService, election::VoteType, election_schedulers::priority::bucket_count,
 };
@@ -42,10 +45,11 @@ impl AecVoter {
         }
     }
 
-    fn flush(&self, queue: &mut Vec<(Root, BlockHash, VoteType)>) {
+    fn flush(&self, queue: &mut Vec<VoteTarget>) {
         // TODO: enqueue with one call
-        for (root, hash, vote_type) in queue.drain(..) {
-            self.vote_generators.generate_vote(&root, &hash, vote_type);
+        for target in queue.drain(..) {
+            self.vote_generators
+                .generate_vote(&target.root.root, &target.winner, target.vote_type);
         }
     }
 }
@@ -57,25 +61,28 @@ impl Tickable for AecVoter {
         let interval = self.vote_broadcast_interval;
 
         // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, QualifiedRoot, BlockHash, VoteType)> = self
-            .aec
-            .with_elections_starting_from_bucket(self.current_bucket, |elections| {
-                elections
-                    .filter_map(|(bucket, e)| {
-                        let root = e.qualified_root();
-                        let winner = e.winner().hash();
-                        if scheduler.can_vote(root, interval, now, winner, e.vote_type()) {
-                            Some((bucket, root.clone(), winner, e.vote_type()))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            });
+        let targets: Vec<(usize, VoteTarget)> =
+            self.aec
+                .with_elections_starting_from_bucket(self.current_bucket, |elections| {
+                    elections
+                        .filter_map(|(bucket, e)| {
+                            let target = VoteTarget {
+                                root: e.qualified_root().clone(),
+                                winner: e.winner().hash(),
+                                vote_type: e.vote_type(),
+                            };
+                            if scheduler.can_vote(&target, interval, now) {
+                                Some((bucket, target))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                });
 
         let mut vote_queue = Vec::new();
-        for (bucket, root, winner_hash, vote_type) in targets {
-            if vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
+        for (bucket, target) in targets {
+            if target.vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
                 self.current_bucket = bucket;
                 self.flush(&mut vote_queue);
                 return;
@@ -87,9 +94,8 @@ impl Tickable for AecVoter {
                 bucket - 1
             };
 
-            vote_queue.push((root.root, winner_hash, vote_type));
-            self.scheduler
-                .mark_voted(&root, vote_type, now, winner_hash);
+            self.scheduler.mark_voted(&target, now);
+            vote_queue.push(target);
 
             if cancel_token.is_cancelled() {
                 self.flush(&mut vote_queue);
