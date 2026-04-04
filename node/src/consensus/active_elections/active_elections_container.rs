@@ -108,6 +108,7 @@ impl ActiveElectionsContainer {
             let bucket_id = if i <= starting_bucket {
                 starting_bucket - i
             } else {
+                // wrapping around
                 starting_bucket + total - i
             };
             self.roots
@@ -672,11 +673,16 @@ mod tests {
     fn iter_from_bucket_yields_at_most_one_per_bucket() {
         let block_a = SavedBlock::new_test_instance_with_key(1);
         let block_b = SavedBlock::new_test_instance_with_key(2);
+        let block_c = SavedBlock::new_test_instance_with_key(3);
+        let block_d = SavedBlock::new_test_instance_with_key(4);
 
         // Same amount → same bucket; different TimePriority to get two distinct elections
-        let prio_a = BlockPriority::new(Amount::nano(100), TimePriority::new(100));
-        let prio_b = BlockPriority::new(Amount::nano(100), TimePriority::new(99));
+        let prio_a = BlockPriority::new(Amount::nano(10), TimePriority::new(100));
+        let prio_b = BlockPriority::new(Amount::nano(10), TimePriority::new(99));
 
+        let prio_c = BlockPriority::new(Amount::nano(1000), TimePriority::new(99));
+        let prio_d = BlockPriority::new(Amount::nano(100000), TimePriority::new(99));
+        
         let mut container = ActiveElectionsContainer::default();
         container
             .insert(
@@ -690,23 +696,39 @@ mod tests {
                 Timestamp::new_test_instance(),
             )
             .unwrap();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block_c.clone(), prio_c),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block_d.clone(), prio_d),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
 
-        // Verify test setup: both blocks must share a bucket
         let bucket_a = container.find_bucket(&block_a.qualified_root()).unwrap();
         let bucket_b = container.find_bucket(&block_b.qualified_root()).unwrap();
-        assert_eq!(
-            bucket_a, bucket_b,
-            "test setup: both blocks must be in the same bucket"
-        );
+        let bucket_c = container.find_bucket(&block_c.qualified_root()).unwrap();
+        let bucket_d = container.find_bucket(&block_d.qualified_root()).unwrap();
+
+        assert_eq!(bucket_a, bucket_b);
 
         // iter_from_bucket must yield at most one election per bucket
         let results: Vec<(usize, BlockHash)> = container
-            .iter_from_bucket(bucket_count() - 1)
+            .iter_from_bucket(bucket_c)
             .map(|(bucket, e)| (bucket, e.winner().hash()))
             .collect();
 
-        assert_eq!(results.len(), 1, "only one election expected across the shared bucket");
-        assert_eq!(results[0].0, bucket_a);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, bucket_c);
+        assert_eq!(results[0].1, block_c.hash());
+        assert_eq!(results[1].0, bucket_a);
+        assert_eq!(results[1].1, block_b.hash());
+        assert_eq!(results[2].0, bucket_d);
+        assert_eq!(results[2].1, block_d.hash());
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
