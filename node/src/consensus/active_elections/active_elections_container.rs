@@ -91,15 +91,17 @@ impl ActiveElectionsContainer {
         self.roots.lowest_priority(bucket_id)
     }
 
+    /// Iterates over all elections in round robin fashion starting at the highest bucket
     pub fn iter_round_robin(&self) -> impl Iterator<Item = &Election> {
         self.roots.iter().map(|i| &i.election)
     }
 
+    /// Iterates over all elections in a bucket
     pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Election> {
         self.roots.iter_bucket(bucket_id).map(|i| &i.election)
     }
 
-    pub fn iter_round_robin_from_bucket<F>(
+    pub fn pick_one_per_bucket_from<F>(
         &self,
         starting_bucket: usize,
         filter: F,
@@ -677,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn iter_from_bucket_yields_at_most_one_per_bucket() {
+    fn pick_one_per_bucket() {
         let block_a1 = SavedBlock::new_test_instance_with_key(1);
         let block_a2 = SavedBlock::new_test_instance_with_key(2);
         let block_a3 = SavedBlock::new_test_instance_with_key(3);
@@ -733,7 +735,7 @@ mod tests {
 
         // iter_from_bucket must yield at most one election per bucket
         let results: Vec<(usize, BlockHash)> = container
-            .iter_round_robin_from_bucket(bucket_b, |e| e.winner().hash() != block_a3.hash())
+            .pick_one_per_bucket_from(bucket_b, |e| e.winner().hash() != block_a3.hash())
             .map(|(bucket, e)| (bucket, e.winner().hash()))
             .collect();
 

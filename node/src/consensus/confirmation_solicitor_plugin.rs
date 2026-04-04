@@ -4,8 +4,9 @@ use std::{
 };
 
 use super::{
-    AecService, AecTickerPlugin, ConfirmationSolicitor, confirm_req_sender::ConfirmReqSender,
-    election::ElectionState, winner_block_broadcaster::WinnerBlockBroadcaster,
+    confirm_req_sender::ConfirmReqSender, election::ElectionState,
+    winner_block_broadcaster::WinnerBlockBroadcaster, AecService, AecTickerPlugin,
+    ConfirmationSolicitor,
 };
 use crate::{representatives::OnlineReps, transport::MessageFlooder};
 
@@ -45,7 +46,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
          * Flushed elections are later re-activated via frontier confirmation
          */
-        let elections: Vec<_> = aec.with_elections(|elections_iter| {
+        let elections: Vec<_> = aec.round_robin(|elections_iter| {
             elections_iter
                 .filter(|e| e.state() == ElectionState::Active)
                 .cloned()
