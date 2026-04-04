@@ -3,12 +3,20 @@ use std::{collections::HashMap, time::Duration};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, QualifiedRoot};
 
-use crate::consensus::election::VoteType;
+use crate::consensus::election::{Election, VoteType};
 
 pub(crate) struct VoteTarget {
     pub root: QualifiedRoot,
     pub winner: BlockHash,
     pub vote_type: VoteType,
+}
+
+pub(crate) fn vote_target(election: &Election) -> VoteTarget {
+    VoteTarget {
+        root: e.qualified_root().clone(),
+        winner: e.winner().hash(),
+        vote_type: e.vote_type(),
+    }
 }
 
 pub(crate) struct VotingScheduler {

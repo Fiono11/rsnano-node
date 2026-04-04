@@ -9,7 +9,10 @@ use super::{
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    AecService, election::VoteType, election_schedulers::priority::bucket_count,
+    AecService,
+    election::VoteType,
+    election_schedulers::priority::bucket_count,
+    vote_generation::voting_scheduler::{get_vote_target, vote_target},
 };
 
 /// Creates votes for blocks within the AEC
@@ -61,27 +64,8 @@ impl Tickable for AecVoter {
         // Collect all vote targets in a single lock acquisition
         let targets: Vec<(usize, VoteTarget)> = self.aec.with_elections_starting_from_bucket(
             self.current_bucket,
-            |e| {
-                let target = VoteTarget {
-                    root: e.qualified_root().clone(),
-                    winner: e.winner().hash(),
-                    vote_type: e.vote_type(),
-                };
-                scheduler.can_vote(&target, now)
-            },
-            |elections| {
-                elections
-                    .map(|(bucket, e)| {
-                        let target = VoteTarget {
-                            root: e.qualified_root().clone(),
-                            winner: e.winner().hash(),
-                            vote_type: e.vote_type(),
-                        };
-
-                        (bucket, target)
-                    })
-                    .collect()
-            },
+            |e| scheduler.can_vote(&vote_target(e), now),
+            |iter| iter.map(|(bucket, e)| (bucket, vote_target(e))).collect(),
         );
 
         let mut vote_queue = Vec::new();
