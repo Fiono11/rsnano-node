@@ -25,7 +25,7 @@ impl PeerScoring {
 
     pub fn received_message(&mut self, channel_id: ChannelId) {
         self.scoring.modify(channel_id, |i| {
-            if i.running_queries > 1 {
+            if i.running_queries > 0 {
                 i.running_queries -= 1;
                 i.response_count_total += 1;
             }
@@ -78,5 +78,26 @@ impl PeerScoring {
 
     pub fn container_info(&self) -> ContainerInfo {
         [("scores", self.len(), 0)].into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn received_message_decrements_running_queries_to_zero() {
+        let channel_id = ChannelId::from(1);
+        let mut scoring = PeerScoring::new();
+
+        // Send one query — running_queries becomes 1
+        scoring.channel(vec![channel_id]);
+
+        // Receive the response — running_queries should drop to 0
+        scoring.received_message(channel_id);
+
+        let score = scoring.scoring.get(channel_id).unwrap();
+        assert_eq!(score.running_queries, 0);
+        assert_eq!(score.response_count_total, 1);
     }
 }
