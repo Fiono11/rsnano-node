@@ -9,10 +9,8 @@ use super::{
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    AecService,
-    election::VoteType,
-    election_schedulers::priority::bucket_count,
-    vote_generation::voting_scheduler::{get_vote_target, vote_target},
+    AecService, election::VoteType, election_schedulers::priority::bucket_count,
+    vote_generation::voting_scheduler::vote_target,
 };
 
 /// Creates votes for blocks within the AEC
@@ -69,18 +67,21 @@ impl Tickable for AecVoter {
         );
 
         let mut vote_queue = Vec::new();
+        let mut skip_non_final = false;
         for (bucket, target) in targets {
-            if target.vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
-                self.current_bucket = bucket;
-                self.flush(&mut vote_queue);
-                return;
+            if target.vote_type == VoteType::NonFinal {
+                if skip_non_final {
+                    continue;
+                }
+                // we limit non final votes to reduce CPS
+                if !self.cps_limiter.try_vote(now) {
+                    // remember the bucket where we left, so that we
+                    // can continue from it on the next tick
+                    self.current_bucket = bucket;
+                    skip_non_final = true;
+                    continue;
+                }
             }
-
-            self.current_bucket = if bucket == 0 {
-                bucket_count() - 1
-            } else {
-                bucket - 1
-            };
 
             self.scheduler.mark_voted(&target, now);
             vote_queue.push(target);
@@ -91,7 +92,9 @@ impl Tickable for AecVoter {
             }
         }
 
-        self.current_bucket = bucket_count() - 1;
+        if !skip_non_final {
+            self.current_bucket = bucket_count() - 1;
+        }
         self.scheduler.cleanup(now);
         self.flush(&mut vote_queue);
     }

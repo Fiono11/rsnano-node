@@ -11,7 +11,7 @@ pub(crate) struct VoteTarget {
     pub vote_type: VoteType,
 }
 
-pub(crate) fn vote_target(election: &Election) -> VoteTarget {
+pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
         root: e.qualified_root().clone(),
         winner: e.winner().hash(),
