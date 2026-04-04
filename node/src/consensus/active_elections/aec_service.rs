@@ -13,8 +13,8 @@ use super::{
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
 use crate::consensus::{
-    ElectionCandidateSource,
     election::{ConfirmedElection, Election, ElectionBehavior},
+    ElectionCandidateSource,
 };
 
 pub struct AecService {
@@ -91,7 +91,7 @@ impl AecService {
         self.aec.read().unwrap().info()
     }
 
-    pub fn with_elections<F, T>(&self, f: F) -> T
+    pub fn round_robin<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut dyn Iterator<Item = &Election>) -> T,
     {
@@ -99,7 +99,7 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
-    pub fn with_one_election_per_bucket<P, F, T>(
+    pub fn pick_one_election_per_bucket<P, F, T>(
         &self,
         starting_bucket: usize,
         filter: F,

@@ -2,15 +2,15 @@ use std::{sync::Arc, time::Duration};
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::NetworkType;
-use rsnano_utils::{CancellationToken, ticker::Tickable};
+use rsnano_utils::{ticker::Tickable, CancellationToken};
 
 use super::{
-    CpsLimiter, VoteGenerators,
     voting_scheduler::{VoteTarget, VotingScheduler},
+    CpsLimiter, VoteGenerators,
 };
 use crate::consensus::{
-    AecService, election::VoteType, election_schedulers::priority::bucket_count,
-    vote_generation::voting_scheduler::vote_target,
+    election::VoteType, election_schedulers::priority::bucket_count,
+    vote_generation::voting_scheduler::vote_target, AecService,
 };
 
 /// Creates votes for blocks within the AEC
@@ -60,7 +60,7 @@ impl Tickable for AecVoter {
         let scheduler = &self.scheduler;
 
         // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, VoteTarget)> = self.aec.with_one_election_per_bucket(
+        let targets: Vec<(usize, VoteTarget)> = self.aec.pick_one_election_per_bucket(
             self.current_bucket,
             |e| scheduler.can_vote(&vote_target(e), now),
             |iter| iter.map(|(bucket, e)| (bucket, vote_target(e))).collect(),
