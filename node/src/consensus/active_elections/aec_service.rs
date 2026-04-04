@@ -99,12 +99,18 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
-    pub fn with_elections_starting_from_bucket<F, T>(&self, starting_bucket: usize, f: F) -> T
+    pub fn with_elections_starting_from_bucket<P, F, T>(
+        &self,
+        starting_bucket: usize,
+        filter: F,
+        process: P,
+    ) -> T
     where
-        F: FnOnce(&mut dyn Iterator<Item = (usize, &Election)>) -> T,
+        F: Fn(&Election) -> bool,
+        P: FnOnce(&mut dyn Iterator<Item = (usize, &Election)>) -> T,
     {
         let guard = self.aec.read().unwrap();
-        f(&mut guard.iter_from_bucket(starting_bucket))
+        process(&mut guard.iter_round_robin_from_bucket(starting_bucket, filter))
     }
 
     // --- Write forwarding ---

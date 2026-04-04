@@ -59,24 +59,30 @@ impl Tickable for AecVoter {
         let scheduler = &self.scheduler;
 
         // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, VoteTarget)> =
-            self.aec
-                .with_elections_starting_from_bucket(self.current_bucket, |elections| {
-                    elections
-                        .filter_map(|(bucket, e)| {
-                            let target = VoteTarget {
-                                root: e.qualified_root().clone(),
-                                winner: e.winner().hash(),
-                                vote_type: e.vote_type(),
-                            };
-                            if scheduler.can_vote(&target, now) {
-                                Some((bucket, target))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                });
+        let targets: Vec<(usize, VoteTarget)> = self.aec.with_elections_starting_from_bucket(
+            self.current_bucket,
+            |e| {
+                let target = VoteTarget {
+                    root: e.qualified_root().clone(),
+                    winner: e.winner().hash(),
+                    vote_type: e.vote_type(),
+                };
+                scheduler.can_vote(&target, now)
+            },
+            |elections| {
+                elections
+                    .map(|(bucket, e)| {
+                        let target = VoteTarget {
+                            root: e.qualified_root().clone(),
+                            winner: e.winner().hash(),
+                            vote_type: e.vote_type(),
+                        };
+
+                        (bucket, target)
+                    })
+                    .collect()
+            },
+        );
 
         let mut vote_queue = Vec::new();
         for (bucket, target) in targets {
