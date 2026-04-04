@@ -248,6 +248,7 @@ impl Bootstrapper {
                     info.response_time.as_millis() as i64,
                     (0, self.config.request_timeout.as_millis() as i64),
                 );
+                self.state_changed.notify_all();
             }
             Err(error) => {
                 trace!(query_id, ?channel_id, ?error, "Response processing failed");
