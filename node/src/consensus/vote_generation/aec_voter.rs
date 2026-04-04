@@ -60,7 +60,7 @@ impl Tickable for AecVoter {
         let scheduler = &self.scheduler;
 
         // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, VoteTarget)> = self.aec.with_elections_starting_from_bucket(
+        let targets: Vec<(usize, VoteTarget)> = self.aec.with_one_election_per_bucket(
             self.current_bucket,
             |e| scheduler.can_vote(&vote_target(e), now),
             |iter| iter.map(|(bucket, e)| (bucket, vote_target(e))).collect(),

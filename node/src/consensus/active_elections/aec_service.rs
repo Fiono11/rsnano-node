@@ -99,7 +99,7 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
-    pub fn with_elections_starting_from_bucket<P, F, T>(
+    pub fn with_one_election_per_bucket<P, F, T>(
         &self,
         starting_bucket: usize,
         filter: F,
@@ -110,7 +110,7 @@ impl AecService {
         P: FnOnce(&mut dyn Iterator<Item = (usize, &Election)>) -> T,
     {
         let guard = self.aec.read().unwrap();
-        process(&mut guard.iter_round_robin_from_bucket(starting_bucket, filter))
+        process(&mut guard.pick_one_per_bucket_from(starting_bucket, filter))
     }
 
     // --- Write forwarding ---
