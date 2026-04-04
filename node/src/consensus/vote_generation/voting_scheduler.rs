@@ -89,34 +89,6 @@ mod tests {
     use rsnano_types::QualifiedRoot;
     use std::time::Duration;
 
-    const INTERVAL: Duration = Duration::from_secs(15);
-
-    fn scheduler() -> VotingScheduler {
-        VotingScheduler::new(INTERVAL)
-    }
-
-    fn target(vote_type: VoteType) -> VoteTarget {
-        VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
-            winner: BlockHash::from(1),
-            vote_type,
-        }
-    }
-
-    fn other_winner_target(vote_type: VoteType) -> VoteTarget {
-        VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
-            winner: BlockHash::from(2),
-            vote_type,
-        }
-    }
-
-    fn t(secs: u64) -> Timestamp {
-        Timestamp::new_test_instance() + Duration::from_secs(secs)
-    }
-
-    /* Tests */
-
     #[test]
     fn can_vote_without_prior_vote() {
         assert!(scheduler().can_vote(&target(VoteType::NonFinal), t(0)));
@@ -166,5 +138,35 @@ mod tests {
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         s.cleanup(t(5));
         assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
+    }
+
+    /*
+     * Test helpers
+     */
+
+    const INTERVAL: Duration = Duration::from_secs(15);
+
+    fn scheduler() -> VotingScheduler {
+        VotingScheduler::new(INTERVAL)
+    }
+
+    fn target(vote_type: VoteType) -> VoteTarget {
+        VoteTarget {
+            root: QualifiedRoot::new_test_instance(),
+            winner: BlockHash::from(1),
+            vote_type,
+        }
+    }
+
+    fn other_winner_target(vote_type: VoteType) -> VoteTarget {
+        VoteTarget {
+            root: QualifiedRoot::new_test_instance(),
+            winner: BlockHash::from(2),
+            vote_type,
+        }
+    }
+
+    fn t(secs: u64) -> Timestamp {
+        Timestamp::new_test_instance() + Duration::from_secs(secs)
     }
 }
