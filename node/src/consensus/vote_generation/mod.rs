@@ -6,6 +6,7 @@ mod request_aggregator_impl;
 mod vote_generator;
 mod vote_generators;
 mod vote_spacing;
+mod voting_scheduler;
 
 pub(crate) use aec_voter::*;
 pub(crate) use cps_limiter::*;
