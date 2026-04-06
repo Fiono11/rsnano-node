@@ -13,8 +13,8 @@ use super::{
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
 use crate::consensus::{
-    election::{ConfirmedElection, Election, ElectionBehavior},
     ElectionCandidateSource,
+    election::{ConfirmedElection, Election, ElectionBehavior},
 };
 
 pub struct AecService {

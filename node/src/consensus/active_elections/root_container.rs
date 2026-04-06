@@ -228,7 +228,7 @@ impl RootContainer {
         self.by_root.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Entry> {
+    pub fn round_robin(&self) -> impl Iterator<Item = &Entry> {
         RoundRobinIterator::new(self)
     }
 

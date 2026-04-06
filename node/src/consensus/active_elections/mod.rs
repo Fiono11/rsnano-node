@@ -9,7 +9,9 @@ mod vote_router;
 
 use std::{collections::HashMap, isize};
 
-use rsnano_types::{Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, VoteError};
+use rsnano_types::{
+    Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+};
 
 use super::{
     ReceivedVote,
@@ -122,7 +124,12 @@ const AEC_STAT_KEY: &str = "active_elections";
 pub trait ElectionCandidateSource {
     fn should_schedule(&self, buckets: &[BucketInfo]) -> bool;
 
-    fn gather_candidates(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>);
+    fn next_candidate(
+        &mut self,
+        bucket_id: usize,
+        vacancy: isize,
+        lowest_priority: TimePriority,
+    ) -> Option<ElectionCandidate>;
 }
 
 #[derive(Clone, PartialEq, Eq)]

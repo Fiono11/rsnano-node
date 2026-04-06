@@ -93,7 +93,7 @@ impl ActiveElectionsContainer {
 
     /// Iterates over all elections in round robin fashion starting at the highest bucket
     pub fn iter_round_robin(&self) -> impl Iterator<Item = &Election> {
-        self.roots.iter().map(|i| &i.election)
+        self.roots.round_robin().map(|i| &i.election)
     }
 
     /// Iterates over all elections in a bucket
@@ -311,10 +311,22 @@ impl ActiveElectionsContainer {
             return;
         }
 
-        // TODO: reuse a buffer!
         let mut candidates = Vec::new();
         loop {
-            source.gather_candidates(self.roots.bucket_infos(), &mut candidates);
+            for (i, bucket) in self.roots.bucket_infos().iter().enumerate().rev() {
+                if self.len() >= self.max_elections {
+                    break;
+                }
+
+                let bucket_vacancy =
+                    self.max_elections_per_bucket as isize - bucket.election_count as isize;
+                if let Some(candidate) =
+                    source.next_candidate(i, bucket_vacancy, bucket.lowest_priority.time)
+                {
+                    candidates.push(candidate);
+                }
+            }
+
             if candidates.is_empty() {
                 break;
             }

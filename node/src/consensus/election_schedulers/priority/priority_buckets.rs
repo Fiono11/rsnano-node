@@ -5,9 +5,12 @@ use std::{
 
 use crate::consensus::{
     BucketInfo, ElectionCandidate, ElectionCandidateSource,
-    election_schedulers::priority::{
-        Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig,
-        bucket_stats::BucketStats, prio_bucket_index,
+    election_schedulers::{
+        self,
+        priority::{
+            Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig,
+            bucket_stats::BucketStats, prio_bucket_index,
+        },
     },
 };
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
@@ -55,13 +58,20 @@ impl PriorityBuckets {
 
 impl ElectionCandidateSource for PriorityBuckets {
     fn should_schedule(&self, buckets: &[BucketInfo]) -> bool {
-        self.buckets.iter().any(|b| b.available(buckets))
+        buckets
+            .iter()
+            .zip(self.buckets.iter())
+            .any(|(i, b)| b.available(i.vacancy(), i.lowest_priority.time))
     }
 
-    fn gather_candidates(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>) {
-        for bucket in self.buckets.iter_mut().rev() {
-            bucket.activate(buckets, result);
-        }
+    fn next_candidate(
+        &mut self,
+        bucket_id: usize,
+        vacancy: isize,
+        lowest_priority: rsnano_types::TimePriority,
+    ) -> Option<ElectionCandidate> {
+        let bucket = self.buckets.get_mut(bucket_id)?;
+        bucket.activate(vacancy, lowest_priority)
     }
 }
 

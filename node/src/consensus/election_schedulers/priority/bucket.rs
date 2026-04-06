@@ -1,4 +1,4 @@
-use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
+use rsnano_types::{BlockHash, BlockPriority, SavedBlock, TimePriority};
 
 use super::ordered_blocks::{BlockEntry, OrderedBlocks};
 use crate::consensus::{BucketInfo, ElectionCandidate};
@@ -80,39 +80,35 @@ impl Bucket {
         }
     }
 
-    pub fn available(&self, buckets: &[BucketInfo]) -> bool {
+    pub fn available(&self, vacancy: isize, lowest_priority: TimePriority) -> bool {
         let Some(highest_block) = self.block_queue.highest_prio() else {
             // No blocks enqueued
             return false;
         };
 
-        let bucket_info = &buckets[self.bucket_id];
-        let can_reprioritize = highest_block.priority.time > bucket_info.lowest_priority.time;
+        let can_reprioritize = highest_block.priority.time > lowest_priority;
         if can_reprioritize {
             return true;
         }
 
-        bucket_info.vacancy() > 0
+        vacancy > 0
     }
 
-    pub fn activate(&mut self, buckets: &[BucketInfo], result: &mut Vec<ElectionCandidate>) {
-        if !self.available(buckets) {
-            return;
+    pub fn activate(
+        &mut self,
+        vacancy: isize,
+        lowest_priority: TimePriority,
+    ) -> Option<ElectionCandidate> {
+        if !self.available(vacancy, lowest_priority) {
+            return None;
         }
 
-        // TODO: Push more than just one block!
+        let top = self.block_queue.pop_highest_prio()?;
 
-        let Some(top) = self.block_queue.pop_highest_prio() else {
-            return; // Not activated;
-        };
-
-        let block = top.block;
-        let priority = top.priority;
-
-        result.push(ElectionCandidate {
+        Some(ElectionCandidate {
             bucket_id: self.bucket_id,
-            block,
-            priority,
+            block: top.block,
+            priority: top.priority,
         })
     }
 }
@@ -145,7 +141,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 0);
         assert_eq!(bucket.contains(&BlockHash::from(1)), false);
-        assert!(!bucket.available(&[BucketInfo::new(1), BucketInfo::new(1)]));
+        assert!(!bucket.available(100, TimePriority::new(123)));
     }
 
     #[test]
@@ -161,7 +157,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket.contains(&block.hash()), true);
-        assert!(bucket.available(&[BucketInfo::new(1), BucketInfo::new(1)]));
+        assert!(bucket.available(100, TimePriority::new(123)));
     }
 
     #[test]
