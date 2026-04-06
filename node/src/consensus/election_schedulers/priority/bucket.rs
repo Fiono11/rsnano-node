@@ -7,21 +7,12 @@ use crate::consensus::ElectionCandidate;
 pub struct PriorityBucketConfig {
     /// Maximum number of blocks to sort by priority per bucket.
     pub max_blocks: usize,
-
-    /// Number of guaranteed slots per bucket available for election activation.
-    pub reserved_elections: usize,
-
-    // TODO remove
-    /// Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. (node.active_elections.size)
-    pub max_elections: usize,
 }
 
 impl Default for PriorityBucketConfig {
     fn default() -> Self {
         Self {
             max_blocks: 1024 * 8,
-            reserved_elections: 100,
-            max_elections: 150,
         }
     }
 }

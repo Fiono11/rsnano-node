@@ -505,14 +505,6 @@ mod tests {
             deserialized.node.priority_bucket.max_blocks,
             default_cfg.node.priority_bucket.max_blocks
         );
-        assert_ne!(
-            deserialized.node.priority_bucket.max_elections,
-            default_cfg.node.priority_bucket.max_elections
-        );
-        assert_ne!(
-            deserialized.node.priority_bucket.reserved_elections,
-            default_cfg.node.priority_bucket.reserved_elections
-        );
 
         // Rep Crawler section
         assert_ne!(
