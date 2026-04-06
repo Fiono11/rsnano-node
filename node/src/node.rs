@@ -162,7 +162,7 @@ pub struct Node {
     container_info_factory: ContainerInfoFactory,
     winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub block_rates: Arc<CurrentBlockRates>,
-    aec_voter: TimerThread<AecVoter>,
+    aec_voter: TimerThread<Arc<Mutex<AecVoter>>>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     ticker_pool: TickerPool,
     #[cfg(feature = "ledger_snapshots")]
@@ -1211,13 +1211,13 @@ impl Node {
             vote_cache: vote_cache.clone(),
         });
 
-        let aec_voter = AecVoter::new(
+        let aec_voter = Arc::new(Mutex::new(AecVoter::new(
             active_elections.clone(),
             vote_generators.clone(),
             steady_clock.clone(),
             current_network,
             cps_limiter,
-        );
+        )));
 
         // With ledger_snapshots we never vote for forked blocks!
         #[cfg(not(feature = "ledger_snapshots"))]
@@ -1333,6 +1333,7 @@ impl Node {
         container_info.add("vote_rebroadcaster", vote_rebroadcast_queue.clone());
         container_info.add("fork_cache", fork_cache.clone());
         container_info.add("event_queues", event_queues_info);
+        container_info.add("aec_voter", aec_voter.clone());
 
         Self {
             is_nulled,
@@ -1392,7 +1393,7 @@ impl Node {
             container_info_factory: container_info,
             winner_block_broadcaster,
             block_rates,
-            aec_voter: TimerThread::new("AEC voter", aec_voter),
+            aec_voter: TimerThread::new("AEC voter", Arc::clone(&aec_voter)),
             wallet_reps,
             ticker_pool,
             #[cfg(feature = "ledger_snapshots")]

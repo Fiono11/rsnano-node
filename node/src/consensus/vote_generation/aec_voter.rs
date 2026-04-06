@@ -2,7 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::NetworkType;
-use rsnano_utils::{CancellationToken, ticker::Tickable};
+use rsnano_utils::{
+    CancellationToken,
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    ticker::Tickable,
+};
 
 use super::{
     CpsLimiter, VoteGenerators,
@@ -48,6 +52,14 @@ impl AecVoter {
             self.vote_generators
                 .generate_vote(&target.root.root, &target.winner, target.vote_type);
         }
+    }
+}
+
+impl ContainerInfoProvider for AecVoter {
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .node("scheduler", self.scheduler.container_info())
+            .finish()
     }
 }
 
