@@ -311,26 +311,26 @@ impl ActiveElectionsContainer {
             return;
         }
 
-        let mut candidates = Vec::new();
-        loop {
-            for (i, bucket) in self.roots.bucket_infos().iter().enumerate().rev() {
-                if self.len() >= self.max_elections {
-                    break;
-                }
+        let mut any_inserted = true;
+        while any_inserted {
+            any_inserted = false;
+            for bucket_index in (0..self.roots.bucket_count()).rev() {
+                let bucket = &self.roots.bucket_infos()[bucket_index];
+                let bucket_vacancy = if self.len() >= self.max_elections {
+                    0
+                } else {
+                    self.max_elections_per_bucket as isize - bucket.election_count as isize
+                };
 
-                let bucket_vacancy =
-                    self.max_elections_per_bucket as isize - bucket.election_count as isize;
-                if let Some(candidate) =
-                    source.next_candidate(i, bucket_vacancy, bucket.lowest_priority.time)
-                {
-                    candidates.push(candidate);
-                }
-            }
+                let Some(candidate) = source.next_candidate(
+                    bucket_index,
+                    bucket_vacancy,
+                    bucket.lowest_priority.time,
+                ) else {
+                    continue;
+                };
 
-            if candidates.is_empty() {
-                break;
-            }
-            for candidate in candidates.drain(..) {
+                any_inserted = true;
                 let root = candidate.block.qualified_root();
                 // TODO what if root found in another bucket??
                 if self.find_bucket(&root) == Some(candidate.bucket_id) {
