@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{cmp::max, collections::HashMap, time::Duration};
 
 use strum::EnumCount;
 
@@ -58,7 +58,7 @@ impl ActiveElectionsContainer {
             recently_confirmed: RecentlyConfirmedCache::new(config.confirmation_cache),
             cooldown: CooldownController::default(),
             max_elections: config.max_elections,
-            max_elections_per_bucket: config.max_elections / bucket_count(),
+            max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
         }
     }
