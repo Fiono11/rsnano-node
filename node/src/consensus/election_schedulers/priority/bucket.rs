@@ -1,7 +1,7 @@
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock, TimePriority};
 
 use super::ordered_blocks::{BlockEntry, OrderedBlocks};
-use crate::consensus::{BucketInfo, ElectionCandidate};
+use crate::consensus::ElectionCandidate;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -86,12 +86,7 @@ impl Bucket {
             return false;
         };
 
-        let can_reprioritize = highest_block.priority.time > lowest_priority;
-        if can_reprioritize {
-            return true;
-        }
-
-        vacancy > 0
+        vacancy > 0 || highest_block.priority.time > lowest_priority
     }
 
     pub fn activate(

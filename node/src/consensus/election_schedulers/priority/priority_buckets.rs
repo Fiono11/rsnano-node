@@ -5,12 +5,9 @@ use std::{
 
 use crate::consensus::{
     BucketInfo, ElectionCandidate, ElectionCandidateSource,
-    election_schedulers::{
-        self,
-        priority::{
-            Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig,
-            bucket_stats::BucketStats, prio_bucket_index,
-        },
+    election_schedulers::priority::{
+        Bucket, BucketInsertError, Bucketing, Eviction, PriorityBucketConfig,
+        bucket_stats::BucketStats, prio_bucket_index,
     },
 };
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};

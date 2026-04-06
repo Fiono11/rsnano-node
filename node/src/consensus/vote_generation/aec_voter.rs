@@ -9,8 +9,7 @@ use super::{
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    AecService, election::VoteType, election_schedulers::priority::bucket_count,
-    vote_generation::voting_scheduler::vote_target,
+    AecService, election::VoteType, vote_generation::voting_scheduler::vote_target,
 };
 
 /// Creates votes for blocks within the AEC
@@ -19,7 +18,6 @@ pub(crate) struct AecVoter {
     vote_generators: Arc<VoteGenerators>,
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
-    current_bucket: usize,
     scheduler: VotingScheduler,
 }
 
@@ -40,7 +38,6 @@ impl AecVoter {
             vote_generators,
             clock,
             cps_limiter,
-            current_bucket: bucket_count() - 1,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
         }
     }
@@ -59,25 +56,29 @@ impl Tickable for AecVoter {
         let now = self.clock.now();
         let scheduler = &self.scheduler;
 
-        // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, VoteTarget)> = self.aec.pick_one_election_per_bucket(
-            self.current_bucket,
-            |e| scheduler.can_vote(&vote_target(e), now),
-            |iter| iter.map(|(bucket, e)| (bucket, vote_target(e))).collect(),
-        );
+        // Collect all vote targets in a single lock acquisition, iterating all
+        // elections in round-robin order across buckets
+        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
+            iter.filter_map(|e| {
+                let target = vote_target(e);
+                if scheduler.can_vote(&target, now) {
+                    Some(target)
+                } else {
+                    None
+                }
+            })
+            .collect()
+        });
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
-        for (bucket, target) in targets {
+        for target in targets {
             if target.vote_type == VoteType::NonFinal {
                 if skip_non_final {
                     continue;
                 }
                 // we limit non final votes to reduce CPS
                 if !self.cps_limiter.try_vote(now) {
-                    // remember the bucket where we left, so that we
-                    // can continue from it on the next tick
-                    self.current_bucket = bucket;
                     skip_non_final = true;
                     continue;
                 }
@@ -92,9 +93,6 @@ impl Tickable for AecVoter {
             }
         }
 
-        if !skip_non_final {
-            self.current_bucket = bucket_count() - 1;
-        }
         self.scheduler.cleanup(now);
         self.flush(&mut vote_queue);
     }
