@@ -9,7 +9,7 @@ use std::{
     time::SystemTime,
 };
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 #[cfg(feature = "ledger_snapshots")]
@@ -340,7 +340,7 @@ impl Ledger {
             }
         }
 
-        debug!("Generating representative weights cache...");
+        info!("Generating representative weights cache...");
         let mut total_committed_rep_weight = Amount::ZERO;
         {
             let txn = self.store.begin_read();
@@ -353,9 +353,9 @@ impl Ledger {
                     .expect("total rep weight should never overflow");
             }
         }
-        debug!("Representative weights cache generated");
+        info!("Representative weights cache generated");
 
-        debug!("Generating block and account count cache...");
+        info!("Generating block and account count cache...");
         let total_account_balances = Mutex::new(Amount::ZERO);
         self.store
             .account
@@ -387,9 +387,9 @@ impl Ledger {
                     .checked_add(total.into())
                     .expect("total account balances should never overflow");
             });
-        debug!("Block and account count cache generated");
+        info!("Block and account count cache generated");
 
-        debug!("Generating cemented count cache...");
+        info!("Generating cemented count cache...");
         self.store
             .confirmation_height
             .for_each_par(&self.store.env, thread_count, |iter| {
@@ -402,11 +402,11 @@ impl Ledger {
                     .confirmed_count
                     .fetch_add(confirmed_count, Ordering::SeqCst);
             });
-        debug!("Cemented count cache generated");
+        info!("Cemented count cache generated");
 
         // Count pending balances
         if consistency_check {
-            debug!("Verifying ledger balance consistency...");
+            info!("Verifying ledger balance consistency...");
             let mut total_pending = Amount::ZERO;
             let txn = self.store.begin_read();
             for (_, info) in self.store.pending.iter(&txn) {
@@ -427,7 +427,7 @@ impl Ledger {
                 Amount::MAX,
                 "account balances and pending balances don't add up to max supply!"
             );
-            debug!("Ledger balance consistency verified");
+            info!("Ledger balance consistency verified");
         } else {
             warn!(
                 "Ledger consistency check skipped; ensure your environment provides data-integrity safeguards"
