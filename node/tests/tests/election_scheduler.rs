@@ -5,10 +5,7 @@ mod election_scheduler {
     use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
     use rsnano_node::{
         config::{NodeConfig, OptimisticSchedulerConfig},
-        consensus::{
-            AecInsertRequest, election::ElectionBehavior,
-            election_schedulers::priority::bucket_count,
-        },
+        consensus::{AecInsertRequest, election::ElectionBehavior},
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
     use test_helpers::{setup_chains, setup_rep};
@@ -44,7 +41,6 @@ mod election_scheduler {
      * As soon as the test code manually confirms E1 (and thus evicts it out of the AEC),
      * it is expected that E2 begins and the scheduler's queue becomes empty again.
      */
-    #[ignore = "investigate why it fails"]
     fn no_vacancy() {
         let mut system = System::new();
         let node = system
@@ -86,18 +82,18 @@ mod election_scheduler {
 
         assert_timely2(|| node.is_active_root(&block1.qualified_root()));
 
-        let block2 = lattice.account(&key).send(&key, Amount::nano(1000));
+        let block2 = lattice.account(&key).send(&key, Amount::nano(1));
         node.process(block2.clone());
 
         // There is no vacancy so it should stay queued
-        //node.election_schedulers
-        //    .priority
-        //    .activate(&node.ledger.any(), &key.account());
-        //assert_eq!(node.is_active_root(&block2.qualified_root()), false);
+        node.election_schedulers
+            .priority
+            .activate(&node.ledger.any(), &key.account());
+        assert_eq!(node.is_active_root(&block2.qualified_root()), false);
 
-        //// Election confirmed, next in queue should begin
-        //node.force_confirm(&block1.hash());
-        //assert_timely2(|| node.is_active_root(&block2.qualified_root()));
+        // Election confirmed, next in queue should begin
+        node.force_confirm(&block1.hash());
+        assert_timely2(|| node.is_active_root(&block2.qualified_root()));
     }
 
     /*

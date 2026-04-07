@@ -15,6 +15,12 @@ pub(crate) struct AecStats {
     pub started: u64,
     pub started_by_behavor: [u64; ElectionBehavior::COUNT],
     pub block_confirmations: [usize; ConfirmationType::COUNT],
+    pub activate_failed_duplicate: u64,
+    /// A low-prio election got replaced by one with a higher priority
+    pub replaced: u64,
+    pub activate_success: u64,
+    /// Activation of a block failed, because it was recently confirmed
+    pub activate_failed_confirmed: u64,
 }
 
 impl AecStats {
@@ -50,7 +56,22 @@ impl StatsSource for AecStats {
             );
         }
 
+        result.insert(
+            BUCKET_KEY,
+            "activate_failed_duplicate",
+            self.activate_failed_duplicate,
+        );
+        result.insert(BUCKET_KEY, "replaced", self.replaced);
+        result.insert(BUCKET_KEY, "activate_success", self.activate_success);
+        result.insert(
+            BUCKET_KEY,
+            "activate_failed_confirmed",
+            self.activate_failed_confirmed,
+        );
+
         self.vote_counter.collect_stats(result);
         self.stopped_counter.collect_stats(result);
     }
 }
+
+const BUCKET_KEY: &str = "election_bucket";

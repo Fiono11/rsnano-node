@@ -332,19 +332,14 @@ impl ActiveElectionsContainer {
 
                 any_inserted = true;
                 let root = candidate.block.qualified_root();
-                // TODO what if root found in another bucket??
                 if self.find_bucket(&root) == Some(candidate.bucket_id) {
-                    // TODO log!
-                    //stats
-                    //    .activate_failed_duplicate
-                    //    .fetch_add(1, Ordering::Relaxed);
+                    self.stats.activate_failed_duplicate += 1;
                     continue;
                 }
 
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
                     self.erase_lowest_prio_election(candidate.bucket_id);
-                    // TODO stats
-                    //stats.replaced.fetch_add(1, Ordering::Relaxed);
+                    self.stats.replaced += 1;
                 }
 
                 // TODO: Don't hard code priority election!
@@ -353,20 +348,13 @@ impl ActiveElectionsContainer {
                     now,
                 ) {
                     Ok(_) => {
-                        //TODO
-                        //stats.activate_success.fetch_add(1, Ordering::Relaxed);
+                        self.stats.activate_success += 1;
                     }
                     Err(AecInsertError::RecentlyConfirmed) => {
-                        //TODO
-                        //stats
-                        //    .activate_failed_confirmed
-                        //    .fetch_add(1, Ordering::Relaxed);
+                        self.stats.activate_failed_confirmed += 1;
                     }
                     Err(AecInsertError::Duplicate) => {
-                        //TODO
-                        //stats
-                        //    .activate_failed_duplicate
-                        //    .fetch_add(1, Ordering::Relaxed);
+                        self.stats.activate_failed_duplicate += 1;
                     }
                     Err(AecInsertError::Stopped) => {}
                 }
