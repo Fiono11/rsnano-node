@@ -8,8 +8,8 @@ mod blocked_accounts;
 mod priority;
 mod priority_container;
 
-pub use blocked_accounts::BlockedAccount;
 use blocked_accounts::BlockedAccounts;
+pub use blocked_accounts::BlockedBlock;
 pub use priority::Priority;
 use priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry};
 
@@ -176,7 +176,7 @@ impl CandidateAccounts {
         let removed = self.priorities.remove(&account);
 
         if removed.is_some() {
-            self.blocked.insert(BlockedAccount {
+            self.blocked.insert(BlockedBlock {
                 account,
                 dependency_block: dependency,
                 dependency_account: Account::ZERO,
@@ -361,7 +361,7 @@ impl CandidateAccounts {
         self.priorities.iter()
     }
 
-    pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockedAccount> {
+    pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockedBlock> {
         self.blocked.iter_by_insertion_order()
     }
 
