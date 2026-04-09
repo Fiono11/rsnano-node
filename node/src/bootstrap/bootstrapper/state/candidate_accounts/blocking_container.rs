@@ -6,7 +6,7 @@ use std::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlockingEntry {
+pub struct BlockedAccount {
     pub account: Account,
     pub dependency: BlockHash,
     /// Account that contains the dependency block, fetched via a background dependency walker
@@ -14,7 +14,7 @@ pub struct BlockingEntry {
     pub added: Timestamp,
 }
 
-impl BlockingEntry {
+impl BlockedAccount {
     #[allow(dead_code)]
     pub fn new_test_instance() -> Self {
         Self {
@@ -29,17 +29,17 @@ impl BlockingEntry {
 /// A blocked account is an account that has failed to insert a new block because the source block is not currently present in the ledger
 /// An account is unblocked once it has a block successfully inserted
 #[derive(Default)]
-pub(super) struct BlockingContainer {
-    by_account: BTreeMap<Account, BlockingEntry>,
+pub(super) struct BlockedAccounts {
+    by_account: BTreeMap<Account, BlockedAccount>,
     sequenced: VecDeque<Account>,
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, Vec<Account>>,
     by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
 }
 
-impl BlockingContainer {
+impl BlockedAccounts {
     pub const ELEMENT_SIZE: usize =
-        size_of::<BlockingEntry>() + size_of::<Account>() * 3 + size_of::<f32>();
+        size_of::<BlockedAccount>() + size_of::<Account>() * 3 + size_of::<f32>();
 
     pub fn len(&self) -> usize {
         self.sequenced.len()
@@ -52,7 +52,7 @@ impl BlockingContainer {
             .sum()
     }
 
-    pub(crate) fn unique_blocking_accounts(&self) -> usize {
+    pub(crate) fn unique_blocked_accounts(&self) -> usize {
         let mut known = self.by_dependency_account.len();
         if self.by_dependency_account.contains_key(&Account::ZERO) {
             known -= 1;
@@ -65,7 +65,7 @@ impl BlockingContainer {
         self.len() == 0
     }
 
-    pub fn insert(&mut self, entry: BlockingEntry) -> bool {
+    pub fn insert(&mut self, entry: BlockedAccount) -> bool {
         let account = entry.account;
         let dependency = entry.dependency;
         let dependency_account = entry.dependency_account;
@@ -112,20 +112,20 @@ impl BlockingContainer {
             .map(|e| e.dependency)
     }
 
-    pub fn iter_start_dep_account(&self, start: Account) -> impl Iterator<Item = &BlockingEntry> {
+    pub fn iter_start_dep_account(&self, start: Account) -> impl Iterator<Item = &BlockedAccount> {
         self.by_dependency_account
             .range(start..)
             .flat_map(|(_, accs)| accs)
             .map(|acc| self.by_account.get(acc).unwrap())
     }
 
-    pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &BlockingEntry> {
+    pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &BlockedAccount> {
         self.sequenced
             .iter()
             .map(|account| self.by_account.get(account).unwrap())
     }
 
-    pub fn get(&self, account: &Account) -> Option<&BlockingEntry> {
+    pub fn get(&self, account: &Account) -> Option<&BlockedAccount> {
         self.by_account.get(account)
     }
 
@@ -174,7 +174,7 @@ impl BlockingContainer {
         removed
     }
 
-    pub fn remove_account(&mut self, account: &Account) -> Option<BlockingEntry> {
+    pub fn remove_account(&mut self, account: &Account) -> Option<BlockedAccount> {
         let entry = self.by_account.remove(account)?;
         self.remove_indexes(&entry);
         Some(entry)
@@ -217,7 +217,7 @@ impl BlockingContainer {
         updated
     }
 
-    fn remove_indexes(&mut self, entry: &BlockingEntry) {
+    fn remove_indexes(&mut self, entry: &BlockedAccount) {
         self.sequenced.retain(|i| *i != entry.account);
         let accounts = self.by_dependency.get_mut(&entry.dependency).unwrap();
         if accounts.len() > 1 {
@@ -260,17 +260,15 @@ mod tests {
 
     #[test]
     fn empty() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
         assert_eq!(blocking.len(), 0);
         assert_eq!(blocking.is_empty(), true);
         assert_eq!(blocking.contains(&Account::from(1)), false);
         assert_eq!(blocking.count_by_dependency_account(&Account::from(1)), 0);
-        assert!(
-            blocking
-                .iter_start_dep_account(Account::from(1))
-                .next()
-                .is_none()
-        );
+        assert!(blocking
+            .iter_start_dep_account(Account::from(1))
+            .next()
+            .is_none());
         assert!(blocking.next(|_| true).is_none());
         assert!(blocking.get(&Account::from(1)).is_none());
         assert_eq!(blocking.remove_account_and_dependents(&Account::from(1)), 0);
@@ -279,9 +277,9 @@ mod tests {
 
     #[test]
     fn insert_one() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        let entry = BlockingEntry::new_test_instance();
+        let entry = BlockedAccount::new_test_instance();
         let inserted = blocking.insert(entry.clone());
 
         assert_eq!(inserted, true);
@@ -297,9 +295,9 @@ mod tests {
 
     #[test]
     fn dont_insert_if_account_already_present() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        let entry = BlockingEntry::new_test_instance();
+        let entry = BlockedAccount::new_test_instance();
         blocking.insert(entry.clone());
 
         let inserted = blocking.insert(entry.clone());
@@ -310,9 +308,9 @@ mod tests {
 
     #[test]
     fn clear() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        let entry = BlockingEntry::new_test_instance();
+        let entry = BlockedAccount::new_test_instance();
         blocking.insert(entry.clone());
         blocking.clear();
         assert_eq!(blocking.by_timestamp.len(), 0);
@@ -323,11 +321,11 @@ mod tests {
 
     #[test]
     fn next() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        let entry = BlockingEntry {
+        let entry = BlockedAccount {
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
         blocking.insert(entry);
 
@@ -336,11 +334,11 @@ mod tests {
 
     #[test]
     fn next_returns_none_when_all_dependency_accounts_are_known() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        let entry = BlockingEntry {
+        let entry = BlockedAccount {
             dependency_account: Account::from(13),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
         blocking.insert(entry.clone());
 
@@ -349,27 +347,27 @@ mod tests {
 
     #[test]
     fn next_with_filter() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: Account::from(1000),
             dependency: BlockHash::from(100),
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: Account::from(2000),
             dependency: BlockHash::from(200),
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: Account::from(3000),
             dependency: BlockHash::from(300),
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
         assert_eq!(
@@ -380,23 +378,23 @@ mod tests {
 
     #[test]
     fn pop_front() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
         let account_a = Account::from(1000);
         let account_b = Account::from(2000);
 
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: account_a,
             dependency: BlockHash::from(100),
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: account_b,
             dependency: BlockHash::from(200),
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
         assert_eq!(blocking.remove_oldest(), 1);
@@ -408,14 +406,14 @@ mod tests {
 
     #[test]
     fn modify_dependency_account() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
         let dependency = BlockHash::from(100);
-        blocking.insert(BlockingEntry {
+        blocking.insert(BlockedAccount {
             account: Account::from(1000),
             dependency,
             dependency_account: Account::ZERO,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         });
 
         let new_dep_account = Account::from(5000);
@@ -433,28 +431,28 @@ mod tests {
 
     #[test]
     fn modify_unknown_dependency_account() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
         let updated = blocking.modify_dependency_account(&1.into(), 2.into());
         assert_eq!(updated, 0);
     }
 
     #[test]
     fn modify_dependency_account_with_multiple_entries() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
         let dependency_account = Account::from(42);
 
-        let entry1 = BlockingEntry {
+        let entry1 = BlockedAccount {
             account: 1000.into(),
             dependency: 100.into(),
             dependency_account,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry2 = BlockingEntry {
+        let entry2 = BlockedAccount {
             account: 2000.into(),
             dependency: 200.into(),
             dependency_account,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
         blocking.insert(entry1.clone());
         blocking.insert(entry2.clone());
@@ -476,15 +474,15 @@ mod tests {
 
     #[test]
     fn modify_dependency_account_to_current_value() {
-        let mut blocking = BlockingContainer::default();
+        let mut blocking = BlockedAccounts::default();
 
         let dependency_account = Account::from(42);
 
-        let entry = BlockingEntry {
+        let entry = BlockedAccount {
             account: 1000.into(),
             dependency: 100.into(),
             dependency_account,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
         blocking.insert(entry.clone());
 
@@ -499,25 +497,25 @@ mod tests {
 
     #[test]
     fn iter_start_dependency_account() {
-        let mut container = BlockingContainer::default();
+        let mut container = BlockedAccounts::default();
 
-        let entry1 = BlockingEntry {
+        let entry1 = BlockedAccount {
             account: 1.into(),
             dependency: 100.into(),
             dependency_account: 10.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry2 = BlockingEntry {
+        let entry2 = BlockedAccount {
             account: 2.into(),
             dependency: 200.into(),
             dependency_account: 20.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry3 = BlockingEntry {
+        let entry3 = BlockedAccount {
             account: 3.into(),
             dependency: 300.into(),
             dependency_account: 30.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
         container.insert(entry1);
@@ -531,27 +529,27 @@ mod tests {
 
     #[test]
     fn remove_one_of_multiple_with_same_dependency() {
-        let mut container = BlockingContainer::default();
+        let mut container = BlockedAccounts::default();
 
         let same_dependency = BlockHash::from(9999);
 
-        let entry1 = BlockingEntry {
+        let entry1 = BlockedAccount {
             account: 1.into(),
             dependency: same_dependency,
             dependency_account: 10.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry2 = BlockingEntry {
+        let entry2 = BlockedAccount {
             account: 2.into(),
             dependency: same_dependency,
             dependency_account: 20.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry3 = BlockingEntry {
+        let entry3 = BlockedAccount {
             account: 3.into(),
             dependency: 300.into(),
             dependency_account: 30.into(),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
         container.insert(entry1.clone());
@@ -568,30 +566,30 @@ mod tests {
 
     #[test]
     fn remove_account_with_all_dependents() {
-        let mut container = BlockingContainer::default();
+        let mut container = BlockedAccounts::default();
 
         let account_to_remove = Account::from(1000);
 
-        let entry_to_remove = BlockingEntry {
+        let entry_to_remove = BlockedAccount {
             account: account_to_remove,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let dependent1 = BlockingEntry {
+        let dependent1 = BlockedAccount {
             account: 2000.into(),
             dependency: 2000.into(),
             dependency_account: account_to_remove,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let dependent2 = BlockingEntry {
+        let dependent2 = BlockedAccount {
             account: 3000.into(),
             dependency: 3000.into(),
             dependency_account: account_to_remove,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let unrelated = BlockingEntry::new_test_instance();
+        let unrelated = BlockedAccount::new_test_instance();
 
         container.insert(entry_to_remove);
         container.insert(dependent1);
@@ -607,30 +605,30 @@ mod tests {
 
     #[test]
     fn remove_multiple_levels_of_dependents() {
-        let mut container = BlockingContainer::default();
+        let mut container = BlockedAccounts::default();
 
         let account_to_remove = Account::from(1000);
 
-        let entry_to_remove = BlockingEntry {
+        let entry_to_remove = BlockedAccount {
             account: account_to_remove,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let dependent1 = BlockingEntry {
+        let dependent1 = BlockedAccount {
             account: 2000.into(),
             dependency: 2000.into(),
             dependency_account: account_to_remove,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let dependent2 = BlockingEntry {
+        let dependent2 = BlockedAccount {
             account: 3000.into(),
             dependency: 3000.into(),
             dependency_account: dependent1.account,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
 
-        let unrelated = BlockingEntry::new_test_instance();
+        let unrelated = BlockedAccount::new_test_instance();
 
         container.insert(entry_to_remove);
         container.insert(dependent1);
@@ -646,28 +644,28 @@ mod tests {
 
     #[test]
     fn remove_old_entries() {
-        let mut container = BlockingContainer::default();
+        let mut container = BlockedAccounts::default();
         let ts = Timestamp::new_test_instance();
 
-        let entry1 = BlockingEntry {
+        let entry1 = BlockedAccount {
             account: 1.into(),
             added: ts,
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry2 = BlockingEntry {
+        let entry2 = BlockedAccount {
             account: 2.into(),
             added: ts + Duration::from_secs(1),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry3 = BlockingEntry {
+        let entry3 = BlockedAccount {
             account: 3.into(),
             added: ts + Duration::from_secs(2),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
-        let entry4 = BlockingEntry {
+        let entry4 = BlockedAccount {
             account: 4.into(),
             added: ts + Duration::from_secs(3),
-            ..BlockingEntry::new_test_instance()
+            ..BlockedAccount::new_test_instance()
         };
         container.insert(entry1.clone());
         container.insert(entry2.clone());

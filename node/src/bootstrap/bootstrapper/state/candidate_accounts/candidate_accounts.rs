@@ -5,7 +5,7 @@ use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use super::{
-    blocking_container::{BlockingContainer, BlockingEntry},
+    blocking_container::{BlockedAccounts, BlockedAccount},
     priority::Priority,
     priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry},
 };
@@ -56,7 +56,7 @@ pub enum PriorityDownResult {
 pub struct CandidateAccounts {
     config: CandidateAccountsConfig,
     priorities: PriorityContainer,
-    blocking: BlockingContainer,
+    blocked: BlockedAccounts,
 }
 
 impl CandidateAccounts {
@@ -71,7 +71,7 @@ impl CandidateAccounts {
         Self {
             config,
             priorities: Default::default(),
-            blocking: Default::default(),
+            blocked: Default::default(),
         }
     }
 
@@ -140,7 +140,7 @@ impl CandidateAccounts {
 
     fn priority_set(&mut self, account: &Account, priority: Priority) -> bool {
         let inserted =
-            Self::priority_set_impl(account, priority, &self.blocking, &mut self.priorities);
+            Self::priority_set_impl(account, priority, &self.blocked, &mut self.priorities);
         self.trim_overflow();
         inserted
     }
@@ -148,7 +148,7 @@ impl CandidateAccounts {
     fn priority_set_impl(
         account: &Account,
         priority: Priority,
-        blocking: &BlockingContainer,
+        blocking: &BlockedAccounts,
         priorities: &mut PriorityContainer,
     ) -> bool {
         if account.is_zero() || blocking.contains(account) || priorities.contains(account) {
@@ -173,7 +173,7 @@ impl CandidateAccounts {
         let removed = self.priorities.remove(&account);
 
         if removed.is_some() {
-            self.blocking.insert(BlockingEntry {
+            self.blocked.insert(BlockedAccount {
                 account,
                 dependency,
                 dependency_account: Account::ZERO,
@@ -193,7 +193,7 @@ impl CandidateAccounts {
         }
 
         // Unblock only if the dependency is fulfilled
-        if let Some(existing) = self.blocking.get(&account) {
+        if let Some(existing) = self.blocked.get(&account) {
             let hash_matches = if let Some(hash) = hash {
                 hash == existing.dependency
             } else {
@@ -204,7 +204,7 @@ impl CandidateAccounts {
                 debug_assert!(!self.priorities.contains(&account));
                 self.priorities
                     .insert(PriorityEntry::new(account, Self::PRIORITY_INITIAL));
-                self.blocking.remove_account(&account);
+                self.blocked.remove_account(&account);
                 self.trim_overflow();
                 return true;
             }
@@ -216,7 +216,7 @@ impl CandidateAccounts {
     /// Should be called periodically to remove old entries from the blocking set
     pub fn decay_blocking(&mut self, now: Timestamp) -> usize {
         let cutoff = now - self.config.blocked_decay;
-        self.blocking.remove_older_than(cutoff)
+        self.blocked.remove_older_than(cutoff)
     }
 
     #[allow(dead_code)]
@@ -243,7 +243,7 @@ impl CandidateAccounts {
     ) -> usize {
         debug_assert!(!dependency_account.is_zero());
         let updated = self
-            .blocking
+            .blocked
             .modify_dependency_account(dependency, dependency_account);
 
         if updated > 0
@@ -251,7 +251,7 @@ impl CandidateAccounts {
             && Self::priority_set_impl(
                 &dependency_account,
                 Self::PRIORITY_INITIAL,
-                &self.blocking,
+                &self.blocked,
                 &mut self.priorities,
             )
         {
@@ -268,8 +268,8 @@ impl CandidateAccounts {
         {
             self.priorities.pop_lowest_prio();
         }
-        while self.blocking.len() > self.config.max_blocked_accounts {
-            self.blocking.remove_oldest();
+        while self.blocked.len() > self.config.max_blocked_accounts {
+            self.blocked.remove_oldest();
         }
     }
 
@@ -297,11 +297,11 @@ impl CandidateAccounts {
     }
 
     pub fn next_blocking(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
-        if self.blocking.is_empty() {
+        if self.blocked.is_empty() {
             return BlockHash::ZERO;
         }
 
-        self.blocking.next(filter).unwrap_or_default()
+        self.blocked.next(filter).unwrap_or_default()
     }
 
     /// Sets information about the account chain that contains the block hash
@@ -311,7 +311,7 @@ impl CandidateAccounts {
 
         // Sample all accounts with a known dependency account (> account 0)
         let begin = Account::from(1);
-        for entry in self.blocking.iter_start_dep_account(begin) {
+        for entry in self.blocked.iter_start_dep_account(begin) {
             if self.priority_full() {
                 break;
             }
@@ -319,7 +319,7 @@ impl CandidateAccounts {
             if Self::priority_set_impl(
                 &entry.dependency_account,
                 Self::PRIORITY_INITIAL,
-                &self.blocking,
+                &self.blocked,
                 &mut self.priorities,
             ) {
                 inserted += 1;
@@ -331,7 +331,7 @@ impl CandidateAccounts {
     }
 
     pub fn blocked(&self, account: &Account) -> bool {
-        self.blocking.contains(account)
+        self.blocked.contains(account)
     }
 
     pub fn prioritized(&self, account: &Account) -> bool {
@@ -343,23 +343,23 @@ impl CandidateAccounts {
     }
 
     pub fn blocked_len(&self) -> usize {
-        self.blocking.len()
+        self.blocked.len()
     }
 
     pub fn unique_blocking_accounts(&self) -> usize {
-        self.blocking.unique_blocking_accounts()
+        self.blocked.unique_blocked_accounts()
     }
 
     pub fn known_dependencies(&self) -> usize {
-        self.blocking.known_dependencies()
+        self.blocked.known_dependencies()
     }
 
     pub fn iter_priorities(&self) -> impl Iterator<Item = (Priority, &Account)> {
         self.priorities.iter()
     }
 
-    pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockingEntry> {
-        self.blocking.iter_by_insertion_order()
+    pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockedAccount> {
+        self.blocked.iter_by_insertion_order()
     }
 
     pub fn priority_full(&self) -> bool {
@@ -371,7 +371,7 @@ impl CandidateAccounts {
     }
 
     pub fn blocked_half_full(&self) -> bool {
-        self.blocking.len() > self.config.max_blocked_accounts / 2
+        self.blocked.len() > self.config.max_blocked_accounts / 2
     }
 
     /// Accounts in the ledger but not in priority list are assumed priority 1.0f
@@ -389,12 +389,12 @@ impl CandidateAccounts {
     #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.priorities.clear();
-        self.blocking.clear();
+        self.blocked.clear();
     }
 
     pub fn container_info(&self) -> ContainerInfo {
         // Count blocking entries with their dependency account unknown
-        let blocking_unknown = self.blocking.count_by_dependency_account(&Account::ZERO);
+        let blocking_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
         [
             (
                 "priorities",
@@ -403,8 +403,8 @@ impl CandidateAccounts {
             ),
             (
                 "blocking",
-                self.blocking.len(),
-                BlockingContainer::ELEMENT_SIZE,
+                self.blocked.len(),
+                BlockedAccounts::ELEMENT_SIZE,
             ),
             ("blocking_unknown", blocking_unknown, 0),
         ]
@@ -969,7 +969,7 @@ mod tests {
             info,
             [
                 ("priorities", 2, PriorityContainer::ELEMENT_SIZE),
-                ("blocking", 2, BlockingContainer::ELEMENT_SIZE),
+                ("blocking", 2, BlockedAccounts::ELEMENT_SIZE),
                 ("blocking_unknown", 1, 0)
             ]
             .into()

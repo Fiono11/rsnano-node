@@ -1,4 +1,4 @@
-use rsnano_node::bootstrap::bootstrapper::state::{BlockingEntry, BootstrapLogic, Priority};
+use rsnano_node::bootstrap::bootstrapper::state::{BlockedAccount, BootstrapLogic, Priority};
 use rsnano_types::Account;
 
 #[derive(Default)]
@@ -8,7 +8,7 @@ pub(crate) struct BootstrapInfo {
     pub unique_blocking_accounts: usize,
     pub known_dependencies: usize,
     pub priorities: Vec<(Priority, Account)>,
-    pub blocked: Vec<BlockingEntry>,
+    pub blocked: Vec<BlockedAccount>,
     pub search: String,
     pub add_account: String,
 }
