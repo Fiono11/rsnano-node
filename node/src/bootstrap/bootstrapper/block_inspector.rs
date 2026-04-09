@@ -194,7 +194,7 @@ impl BlockInspector {
                     BlockError::GapPrevious => {
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
-                            && !state.bootstrap_queue.priority_half_full()
+                            && !state.bootstrap_queue.queue_half_full()
                             && !state.bootstrap_queue.blocked_half_full()
                             && result.block.block_type() == BlockType::State
                         {

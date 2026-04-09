@@ -252,7 +252,7 @@ impl BootstrapQueue {
             .modify_dependency_account(dependency, dependency_account);
 
         if updated > 0
-            && !self.priority_full()
+            && !self.queue_full()
             && Self::priority_set_impl(
                 &dependency_account,
                 Self::PRIORITY_INITIAL,
@@ -316,7 +316,7 @@ impl BootstrapQueue {
         // Sample all accounts with a known dependency account (> account 0)
         let begin = Account::from(1);
         for entry in self.blocked.iter_start_dep_account(begin) {
-            if self.priority_full() {
+            if self.queue_full() {
                 break;
             }
 
@@ -366,11 +366,11 @@ impl BootstrapQueue {
         self.blocked.iter_by_insertion_order()
     }
 
-    pub fn priority_full(&self) -> bool {
+    pub fn queue_full(&self) -> bool {
         self.priorities.len() >= self.config.max_prioritized_accounts
     }
 
-    pub fn priority_half_full(&self) -> bool {
+    pub fn queue_half_full(&self) -> bool {
         self.priorities.len() > self.config.max_prioritized_accounts / 2
     }
 

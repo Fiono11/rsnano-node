@@ -381,6 +381,7 @@ impl Bootstrapper {
 
     pub fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
+
         self.state_changed.notify_all();
     }
 

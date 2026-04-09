@@ -79,7 +79,7 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
                 return PollResult::Progress;
             }
             FrontierState::WaitBootstrapQueue => {
-                if !context.logic.bootstrap_queue.priority_half_full() {
+                if !context.logic.bootstrap_queue.queue_half_full() {
                     self.state = FrontierState::WaitLimiter;
                     return PollResult::Progress;
                 }
