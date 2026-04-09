@@ -64,7 +64,7 @@ impl ProcessQueue {
             BlockSource::Live | BlockSource::LiveOriginator => config.priority_live,
             BlockSource::Bootstrap | BlockSource::Unchecked => config_l.priority_bootstrap,
             BlockSource::Local => config_l.priority_local,
-            BlockSource::Election | BlockSource::Forced => config.priority_system,
+            BlockSource::Forced => config.priority_system,
         };
 
         Self {

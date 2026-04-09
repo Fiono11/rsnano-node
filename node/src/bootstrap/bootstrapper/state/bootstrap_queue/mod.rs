@@ -278,12 +278,11 @@ impl BootstrapQueue {
         }
     }
 
-    /// Sampling
-    pub fn next_priority(
+    pub fn next_target(
         &self,
         now: Timestamp,
         filter: impl Fn(&Account) -> bool,
-    ) -> PriorityResult {
+    ) -> BootstrapTarget {
         if self.priorities.is_empty() {
             return Default::default();
         }
@@ -294,7 +293,7 @@ impl BootstrapQueue {
             return Default::default();
         };
 
-        PriorityResult {
+        BootstrapTarget {
             account: entry.account,
             priority: entry.priority,
             fails: entry.fails,
@@ -420,7 +419,7 @@ impl Default for BootstrapQueue {
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
-pub struct PriorityResult {
+pub struct BootstrapTarget {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,
@@ -732,8 +731,8 @@ mod tests {
     #[test]
     fn next_priority_empty() {
         let queue = BootstrapQueue::default();
-        let next = queue.next_priority(Timestamp::new_test_instance(), |_| true);
-        assert_eq!(next, PriorityResult::default());
+        let next = queue.next_target(Timestamp::new_test_instance(), |_| true);
+        assert_eq!(next, BootstrapTarget::default());
     }
 
     #[test]
@@ -742,10 +741,10 @@ mod tests {
         let account = Account::from(1);
         queue.priority_set_initial(&account);
         let now = Timestamp::new_test_instance();
-        let next = queue.next_priority(now, |_| true);
+        let next = queue.next_target(now, |_| true);
         assert_eq!(
             next,
-            PriorityResult {
+            BootstrapTarget {
                 account,
                 priority: BootstrapQueue::PRIORITY_INITIAL,
                 fails: 0
@@ -760,8 +759,8 @@ mod tests {
         let account = Account::from(1);
         queue.priority_up(&account);
         queue.set_last_request(&account, now);
-        let next = queue.next_priority(now, |_| true);
-        assert_eq!(next, PriorityResult::default());
+        let next = queue.next_target(now, |_| true);
+        assert_eq!(next, BootstrapTarget::default());
     }
 
     #[test]
@@ -778,10 +777,10 @@ mod tests {
             now - config.account_cooldown + Duration::from_millis(1),
         );
         queue.set_last_request(&account2, now - config.account_cooldown);
-        let next = queue.next_priority(now, |_| true);
+        let next = queue.next_target(now, |_| true);
         assert_eq!(
             next,
-            PriorityResult {
+            BootstrapTarget {
                 account: account2,
                 priority: Priority::new(1.0),
                 fails: 0
@@ -800,10 +799,10 @@ mod tests {
         queue.priority_set_initial(&account2);
         queue.priority_set_initial(&account3);
         let now = Timestamp::new_test_instance();
-        let next = queue.next_priority(now, |a| *a == account2);
+        let next = queue.next_target(now, |a| *a == account2);
         assert_eq!(
             next,
-            PriorityResult {
+            BootstrapTarget {
                 account: account2,
                 priority: BootstrapQueue::PRIORITY_INITIAL,
                 fails: 0

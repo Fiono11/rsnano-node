@@ -96,7 +96,7 @@ impl BlockInspector {
         match result.status {
             Ok(()) => {
                 // Progress blocks from live traffic don't need further bootstrapping
-                if result.source != BlockSource::Live {
+                if result.source == BlockSource::Bootstrap {
                     let saved_block = result.saved_block.clone().unwrap();
                     let account = saved_block.account();
                     // If we've inserted any block in to an account, unmark it as blocked

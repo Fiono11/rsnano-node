@@ -108,8 +108,8 @@ impl StatsSource for BlockAckStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
         result.insert("bootstrap_verify_blocks", "invalid", self.invalid);
         result.insert("bootstrap_verify_blocks", "ok", self.verified);
-        result.insert("bootstrap", "blocks", self.blocks);
         result.insert("bootstrap_verify_blocks", "nothing_new", self.nothing_new);
+        result.insert("bootstrap", "blocks", self.blocks);
         result.insert("bootstrap_account_sets", "deprioritize", self.deprioritize);
         result.insert(
             "bootstrap_account_sets",

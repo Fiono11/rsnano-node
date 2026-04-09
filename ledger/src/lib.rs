@@ -65,5 +65,4 @@ pub enum BlockSource {
     Unchecked,
     Local,
     Forced,
-    Election,
 }

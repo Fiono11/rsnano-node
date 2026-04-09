@@ -37,7 +37,7 @@ impl QueryFactory {
         context: &mut PromiseContext,
         channel: Arc<Channel>,
     ) -> Option<AscPullQuerySpec> {
-        let next = context.logic.next_priority(context.now);
+        let next = context.logic.next_target(context.now);
 
         if next.account.is_zero() {
             return None;

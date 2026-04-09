@@ -10,7 +10,7 @@ use rsnano_utils::{
 };
 
 use super::{
-    BootstrapQueue, PeerScoring, PriorityResult, RunningQueryContainer, running_query::QuerySource,
+    BootstrapQueue, BootstrapTarget, PeerScoring, RunningQueryContainer, running_query::QuerySource,
 };
 use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
@@ -55,8 +55,8 @@ impl BootstrapLogic {
         }
     }
 
-    pub fn next_priority(&mut self, now: Timestamp) -> PriorityResult {
-        let next = self.bootstrap_queue.next_priority(now, |account| {
+    pub fn next_target(&mut self, now: Timestamp) -> BootstrapTarget {
+        let next = self.bootstrap_queue.next_target(now, |account| {
             !self
                 .block_ack_processor
                 .block_queue
