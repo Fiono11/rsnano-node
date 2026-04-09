@@ -60,8 +60,8 @@ use crate::{
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
-        BootstrapExt, Bootstrapper, BootstrapperCleanup, responder::BootstrapResponder,
-        responder::BootstrapResponderCleanup,
+        bootstrapper::{BootstrapExt, Bootstrapper, BootstrapperCleanup},
+        responder::{BootstrapResponder, BootstrapResponderCleanup},
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},

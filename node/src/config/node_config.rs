@@ -21,7 +21,7 @@ use crate::{
         BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
         bounded_backlog::BoundedBacklogConfig,
     },
-    bootstrap::{BootstrapConfig, responder::BootstrapResponderConfig},
+    bootstrap::{bootstrapper::BootstrapConfig, responder::BootstrapResponderConfig},
     cementation::ConfirmingSetConfig,
     consensus::{
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,

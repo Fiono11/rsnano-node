@@ -7,7 +7,9 @@ use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::channel_waiter::ChannelWaiter;
-use crate::bootstrap::{AscPullQuerySpec, BootstrapPromise, PollResult, PromiseContext};
+use crate::bootstrap::bootstrapper::{
+    AscPullQuerySpec, BootstrapPromise, PollResult, PromiseContext,
+};
 
 /// Creates frontier requests as specified by the frontier scanner
 pub(crate) struct FrontierRequester {
@@ -128,7 +130,7 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::{
+    use crate::bootstrap::bootstrapper::{
         BootstrapConfig, progress, progress_state,
         state::{BootstrapLogic, CandidateAccountsConfig, FrontierScan},
     };

@@ -5,7 +5,9 @@ use rsnano_types::Frontier;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::frontier_checker::FrontierChecker;
-use crate::bootstrap::state::{BootstrapLogic, frontiers_processor::OutdatedAccounts};
+use crate::bootstrap::bootstrapper::state::{
+    BootstrapLogic, frontiers_processor::OutdatedAccounts,
+};
 
 /// Handles received frontiers
 pub(crate) struct FrontierWorker<'a> {
@@ -60,7 +62,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::state::CandidateAccounts;
+    use crate::bootstrap::bootstrapper::state::CandidateAccounts;
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
 

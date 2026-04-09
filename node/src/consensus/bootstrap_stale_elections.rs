@@ -12,7 +12,7 @@ use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{AecService, AecTickerPlugin, election::Election};
-use crate::bootstrap::Bootstrapper;
+use crate::bootstrap::bootstrapper::Bootstrapper;
 
 /// If an election isn't confirmed within "stale_threshold", then try to bootstrap
 /// the election account, so that missing dependencies will be pulled

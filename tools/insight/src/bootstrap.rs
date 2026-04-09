@@ -1,4 +1,4 @@
-use rsnano_node::bootstrap::state::{BlockingEntry, BootstrapLogic, Priority};
+use rsnano_node::bootstrap::bootstrapper::state::{BlockingEntry, BootstrapLogic, Priority};
 use rsnano_types::Account;
 
 #[derive(Default)]

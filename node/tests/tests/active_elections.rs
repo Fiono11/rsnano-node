@@ -5,7 +5,7 @@ use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_node::{
-    bootstrap::BootstrapConfig,
+    bootstrap::bootstrapper::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
     consensus::{FilteredVote, ReceivedVote},
 };

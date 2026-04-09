@@ -13,7 +13,7 @@ use super::{
     CandidateAccounts, PeerScoring, PriorityResult, RunningQueryContainer,
     running_query::QuerySource,
 };
-use crate::bootstrap::{
+use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
     state::{
         QueryType, RunningQuery,

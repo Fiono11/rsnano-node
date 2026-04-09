@@ -9,7 +9,7 @@ use super::{
     pull_count_decider::PullCountDecider,
     pull_type_decider::{PullType, PullTypeDecider},
 };
-use crate::bootstrap::{AscPullQuerySpec, PromiseContext};
+use crate::bootstrap::bootstrapper::{AscPullQuerySpec, PromiseContext};
 use tracing::trace;
 
 /// Creates a query for the next priority account
@@ -136,7 +136,7 @@ impl PullStart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::state::BootstrapLogic;
+    use crate::bootstrap::bootstrapper::state::BootstrapLogic;
     use rsnano_types::{AccountInfo, ConfirmationHeightInfo};
 
     #[test]

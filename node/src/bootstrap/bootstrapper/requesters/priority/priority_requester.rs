@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     block_processing::BlockProcessorQueue,
-    bootstrap::{
+    bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig, BootstrapPromise, PollResult, PromiseContext,
         requesters::channel_waiter::{ChannelWaiter, ChannelWaiterStats},
     },
@@ -163,7 +163,7 @@ mod tests {
     use super::PriorityRequester;
     use crate::{
         block_processing::BlockProcessorQueue,
-        bootstrap::{
+        bootstrap::bootstrapper::{
             BootstrapConfig, PollResult, progress_state,
             requesters::{
                 channel_waiter::ChannelWaiter, priority::priority_requester::PriorityState,

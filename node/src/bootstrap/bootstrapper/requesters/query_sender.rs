@@ -9,7 +9,7 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use crate::{
-    bootstrap::{
+    bootstrap::bootstrapper::{
         AscPullQuerySpec,
         state::{BootstrapLogic, RunningQuery},
     },

@@ -10,7 +10,7 @@ use rsnano_utils::stats::Stats;
 use super::super::state::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::{
+    bootstrap::bootstrapper::{
         response_processor::frontier_check_pool::FrontierCheckPool,
         state::bootstrap_logic::{ProcessError, ProcessInfo},
     },

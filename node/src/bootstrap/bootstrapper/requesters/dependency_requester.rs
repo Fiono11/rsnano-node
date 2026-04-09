@@ -7,7 +7,7 @@ use rsnano_network::Channel;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::channel_waiter::ChannelWaiter;
-use crate::bootstrap::{
+use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapPromise, PollResult, PromiseContext,
     requesters::channel_waiter::ChannelWaiterStats,
 };
@@ -106,7 +106,9 @@ impl StatsSource for DependencyRequesterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::{PromiseContext, progress, progress_state, state::BootstrapLogic};
+    use crate::bootstrap::bootstrapper::{
+        PromiseContext, progress, progress_state, state::BootstrapLogic,
+    };
     use rsnano_network::{Network, token_bucket::TokenBucket};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Account, BlockHash};

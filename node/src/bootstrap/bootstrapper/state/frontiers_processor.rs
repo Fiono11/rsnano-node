@@ -1,4 +1,4 @@
-use crate::bootstrap::{
+use crate::bootstrap::bootstrapper::{
     FrontierHeadInfo, FrontierScanConfig,
     state::{CandidateAccounts, FrontierScan, RunningQuery, VerifyResult},
 };
@@ -148,7 +148,7 @@ impl StatsSource for FrontiersStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::state::{QuerySource, QueryType};
+    use crate::bootstrap::bootstrapper::state::{QuerySource, QueryType};
 
     #[test]
     fn empty_frontiers() {

@@ -6,7 +6,7 @@ use std::sync::{
 use rsnano_network::{Channel, ChannelId, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_utils::stats::StatsCollection;
 
-use crate::bootstrap::{BootstrapPromise, PollResult, PromiseContext};
+use crate::bootstrap::bootstrapper::{BootstrapPromise, PollResult, PromiseContext};
 
 /// Waits until a channel becomes available
 #[derive(Clone)]
@@ -125,7 +125,7 @@ impl ChannelWaiterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::{
+    use crate::bootstrap::bootstrapper::{
         PromiseContext,
         state::{BootstrapLogic, RunningQuery},
     };

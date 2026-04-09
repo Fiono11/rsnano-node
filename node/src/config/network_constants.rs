@@ -6,7 +6,7 @@ use rsnano_types::{
 };
 use rsnano_work::WorkThresholds;
 
-use crate::bootstrap::BootstrapConfig;
+use crate::bootstrap::bootstrapper::BootstrapConfig;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkConstants {

@@ -1,5 +1,7 @@
 use super::query_sender::QuerySender;
-use crate::bootstrap::{AscPullQuerySpec, BootstrapPromise, PollResult, PromiseContext};
+use crate::bootstrap::bootstrapper::{
+    AscPullQuerySpec, BootstrapPromise, PollResult, PromiseContext,
+};
 
 /// Promise for sending AscPullReq queries
 pub(crate) struct SendQueriesPromise<T>
@@ -41,7 +43,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::state::BootstrapLogic;
+    use crate::bootstrap::bootstrapper::state::BootstrapLogic;
 
     #[test]
     fn progress() {

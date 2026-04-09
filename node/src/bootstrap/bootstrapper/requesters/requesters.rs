@@ -17,7 +17,9 @@ use super::{
 };
 use crate::{
     block_processing::BlockProcessorQueue,
-    bootstrap::{AscPullQuerySpec, BootstrapConfig, BootstrapPromise, state::BootstrapLogic},
+    bootstrap::bootstrapper::{
+        AscPullQuerySpec, BootstrapConfig, BootstrapPromise, state::BootstrapLogic,
+    },
     transport::MessageSender,
 };
 use rsnano_nullable_random::NullableRngFactory;

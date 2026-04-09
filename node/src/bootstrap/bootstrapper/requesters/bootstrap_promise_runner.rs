@@ -1,11 +1,16 @@
-use crate::bootstrap::{BootstrapPromise, PollResult, PromiseContext, state::BootstrapLogic};
-use rand::RngCore;
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_nullable_random::NullableRngFactory;
 use std::{
     cmp::min,
     sync::{Arc, Condvar, Mutex},
     time::Duration,
+};
+
+use rand::RngCore;
+
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_nullable_random::NullableRngFactory;
+
+use crate::bootstrap::bootstrapper::{
+    BootstrapPromise, PollResult, PromiseContext, state::BootstrapLogic,
 };
 
 /// Calls a requester to create a bootstrap request and then sends it to

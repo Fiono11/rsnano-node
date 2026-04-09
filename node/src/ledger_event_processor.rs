@@ -9,7 +9,7 @@ use rsnano_utils::{
 use crate::{
     NodeEvent,
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::Bootstrapper,
+    bootstrap::bootstrapper::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
         AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,

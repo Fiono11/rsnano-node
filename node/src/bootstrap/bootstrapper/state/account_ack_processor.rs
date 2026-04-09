@@ -2,7 +2,7 @@ use rsnano_messages::AccountInfoAckPayload;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::state::{CandidateAccounts, PriorityUpResult, RunningQuery};
+use crate::bootstrap::bootstrapper::state::{CandidateAccounts, PriorityUpResult, RunningQuery};
 
 #[derive(Default)]
 pub(super) struct AccountAckProcessor {

@@ -135,7 +135,7 @@ mod tests {
     use rsnano_utils::stats::DetailType;
 
     use super::*;
-    use crate::bootstrap::state::QueryType;
+    use crate::bootstrap::bootstrapper::state::QueryType;
 
     #[test]
     fn empty() {
