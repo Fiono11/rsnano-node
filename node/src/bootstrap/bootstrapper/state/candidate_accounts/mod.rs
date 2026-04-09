@@ -11,7 +11,7 @@ mod priority_container;
 use blocked_accounts::BlockedAccounts;
 pub use blocked_accounts::BlockedBlock;
 pub use priority::Priority;
-use priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry};
+use priority_container::{ChangePriorityResult, PrioritizedAccount, PrioritizedAccounts};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CandidateAccountsConfig {
@@ -58,7 +58,7 @@ pub enum PriorityDownResult {
 /// blocked
 pub struct CandidateAccounts {
     config: CandidateAccountsConfig,
-    priorities: PriorityContainer,
+    priorities: PrioritizedAccounts,
     blocked: BlockedAccounts,
 }
 
@@ -96,7 +96,7 @@ impl CandidateAccounts {
                 }
                 ChangePriorityResult::NotFound => {
                     self.priorities
-                        .insert(PriorityEntry::new(*account, Self::PRIORITY_INITIAL));
+                        .insert(PrioritizedAccount::new(*account, Self::PRIORITY_INITIAL));
 
                     self.trim_overflow();
                     PriorityUpResult::Inserted
@@ -152,12 +152,12 @@ impl CandidateAccounts {
         account: &Account,
         priority: Priority,
         blocked: &BlockedAccounts,
-        priorities: &mut PriorityContainer,
+        priorities: &mut PrioritizedAccounts,
     ) -> bool {
         if account.is_zero() || blocked.contains(account) || priorities.contains(account) {
             false
         } else {
-            priorities.insert(PriorityEntry::new(*account, priority));
+            priorities.insert(PrioritizedAccount::new(*account, priority));
             true
         }
     }
@@ -206,7 +206,7 @@ impl CandidateAccounts {
             if hash_matches {
                 debug_assert!(!self.priorities.contains(&account));
                 self.priorities
-                    .insert(PriorityEntry::new(account, Self::PRIORITY_INITIAL));
+                    .insert(PrioritizedAccount::new(account, Self::PRIORITY_INITIAL));
                 self.blocked.remove_account(&account);
                 self.trim_overflow();
                 return true;
@@ -402,7 +402,7 @@ impl CandidateAccounts {
             (
                 "priorities",
                 self.priorities.len(),
-                PriorityContainer::ELEMENT_SIZE,
+                PrioritizedAccounts::ELEMENT_SIZE,
             ),
             ("blocked", self.blocked.len(), BlockedAccounts::ELEMENT_SIZE),
             ("blocked_unknown", blocked_unknown, 0),
@@ -967,7 +967,7 @@ mod tests {
         assert_eq!(
             info,
             [
-                ("priorities", 2, PriorityContainer::ELEMENT_SIZE),
+                ("priorities", 2, PrioritizedAccounts::ELEMENT_SIZE),
                 ("blocked", 2, BlockedAccounts::ELEMENT_SIZE),
                 ("blocked_unknown", 1, 0)
             ]

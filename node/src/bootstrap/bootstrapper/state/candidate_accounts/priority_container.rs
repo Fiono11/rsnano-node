@@ -7,14 +7,14 @@ use super::priority::{Priority, PriorityKeyDesc};
 use rustc_hash::FxHashSet;
 
 #[derive(Clone, Default)]
-pub(super) struct PriorityEntry {
+pub(super) struct PrioritizedAccount {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,
     pub last_request: Option<Timestamp>,
 }
 
-impl PriorityEntry {
+impl PrioritizedAccount {
     pub fn new(account: Account, priority: Priority) -> Self {
         Self {
             account,
@@ -38,8 +38,8 @@ impl PriorityEntry {
 /// Tracks the ongoing account priorities
 /// This only stores account priorities > 1.0f.
 #[derive(Default)]
-pub(super) struct PriorityContainer {
-    by_account: BTreeMap<Account, PriorityEntry>,
+pub(super) struct PrioritizedAccounts {
+    by_account: BTreeMap<Account, PrioritizedAccount>,
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
 }
 
@@ -49,9 +49,11 @@ pub(crate) enum ChangePriorityResult {
     NotFound,
 }
 
-impl PriorityContainer {
-    pub const ELEMENT_SIZE: usize =
-        size_of::<PriorityEntry>() + size_of::<Account>() + size_of::<f32>() + size_of::<u64>() * 4;
+impl PrioritizedAccounts {
+    pub const ELEMENT_SIZE: usize = size_of::<PrioritizedAccount>()
+        + size_of::<Account>()
+        + size_of::<f32>()
+        + size_of::<u64>() * 4;
 
     pub fn len(&self) -> usize {
         self.by_account.len()
@@ -61,7 +63,7 @@ impl PriorityContainer {
         self.by_account.is_empty()
     }
 
-    pub fn get(&self, account: &Account) -> Option<&PriorityEntry> {
+    pub fn get(&self, account: &Account) -> Option<&PrioritizedAccount> {
         self.by_account.get(account)
     }
 
@@ -69,7 +71,7 @@ impl PriorityContainer {
         self.by_account.contains_key(account)
     }
 
-    pub fn insert(&mut self, entry: PriorityEntry) -> bool {
+    pub fn insert(&mut self, entry: PrioritizedAccount) -> bool {
         let account = entry.account;
         let priority = entry.priority;
 
@@ -85,7 +87,7 @@ impl PriorityContainer {
         true
     }
 
-    pub fn pop_lowest_prio(&mut self) -> Option<PriorityEntry> {
+    pub fn pop_lowest_prio(&mut self) -> Option<PrioritizedAccount> {
         let lowest_prio_account = {
             let (_, v) = self.by_priority.last_key_value()?;
             *v.iter().next().unwrap()
@@ -102,7 +104,7 @@ impl PriorityContainer {
     pub fn modify(
         &mut self,
         account: &Account,
-        mut f: impl FnMut(&mut PriorityEntry) -> bool,
+        mut f: impl FnMut(&mut PrioritizedAccount) -> bool,
     ) -> ChangePriorityResult {
         if let Some(entry) = self.by_account.get_mut(account) {
             let old_prio = entry.priority;
@@ -131,7 +133,7 @@ impl PriorityContainer {
         &self,
         cutoff: Timestamp,
         filter: impl Fn(&Account) -> bool,
-    ) -> Option<&PriorityEntry> {
+    ) -> Option<&PrioritizedAccount> {
         self.by_priority
             .values()
             .flatten()
@@ -146,7 +148,7 @@ impl PriorityContainer {
             })
     }
 
-    pub fn remove(&mut self, account: &Account) -> Option<PriorityEntry> {
+    pub fn remove(&mut self, account: &Account) -> Option<PrioritizedAccount> {
         if let Some(entry) = self.by_account.remove(account) {
             self.remove_priority(account, entry.priority);
             Some(entry)
@@ -168,7 +170,7 @@ impl PriorityContainer {
             .insert(*account);
     }
 
-    fn remove_account(&mut self, account: &Account) -> PriorityEntry {
+    fn remove_account(&mut self, account: &Account) -> PrioritizedAccount {
         let entry = self.by_account.remove(account).unwrap();
         self.remove_priority(account, entry.priority);
         entry
@@ -196,7 +198,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let mut priorities = PriorityContainer::default();
+        let mut priorities = PrioritizedAccounts::default();
         assert_eq!(priorities.len(), 0);
         assert!(priorities.is_empty());
         assert!(priorities.get(&Account::from(1)).is_none());
@@ -207,8 +209,8 @@ mod tests {
 
     #[test]
     fn insert_one() {
-        let mut priorities = PriorityContainer::default();
-        let entry = PriorityEntry::new_test_instance();
+        let mut priorities = PrioritizedAccounts::default();
+        let entry = PrioritizedAccount::new_test_instance();
         assert!(priorities.insert(entry.clone()));
         assert_eq!(priorities.len(), 1);
         assert_eq!(priorities.is_empty(), false);
@@ -218,9 +220,15 @@ mod tests {
 
     #[test]
     fn insert_two() {
-        let mut priorities = PriorityContainer::default();
-        assert!(priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5))));
-        assert!(priorities.insert(PriorityEntry::new(Account::from(2), Priority::new(3.5))));
+        let mut priorities = PrioritizedAccounts::default();
+        assert!(priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(2.5)
+        )));
+        assert!(priorities.insert(PrioritizedAccount::new(
+            Account::from(2),
+            Priority::new(3.5)
+        )));
         assert_eq!(priorities.len(), 2);
         assert_eq!(priorities.is_empty(), false);
         assert_eq!(priorities.contains(&Account::from(1)), true);
@@ -229,19 +237,34 @@ mod tests {
 
     #[test]
     fn dont_insert_when_account_already_present() {
-        let mut priorities = PriorityContainer::default();
-        priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5)));
-        let inserted = priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(3.5)));
+        let mut priorities = PrioritizedAccounts::default();
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(2.5),
+        ));
+        let inserted = priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(3.5),
+        ));
         assert_eq!(inserted, false);
         assert_eq!(priorities.len(), 1);
     }
 
     #[test]
     fn pop_front() {
-        let mut priorities = PriorityContainer::default();
-        priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5)));
-        priorities.insert(PriorityEntry::new(Account::from(2), Priority::new(2.5)));
-        priorities.insert(PriorityEntry::new(Account::from(3), Priority::new(2.5)));
+        let mut priorities = PrioritizedAccounts::default();
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(2.5),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(2),
+            Priority::new(2.5),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(3),
+            Priority::new(2.5),
+        ));
 
         assert_eq!(
             priorities.pop_lowest_prio().unwrap().account,
@@ -261,8 +284,8 @@ mod tests {
     #[test]
     fn change_timestamp() {
         let account = Account::from(1);
-        let mut priorities = PriorityContainer::default();
-        priorities.insert(PriorityEntry::new(account, Priority::new(2.5)));
+        let mut priorities = PrioritizedAccounts::default();
+        priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
         let now = Timestamp::new_test_instance();
 
         priorities.set_last_request(&account, Some(now));
@@ -276,16 +299,16 @@ mod tests {
 
         #[test]
         fn empty() {
-            let priorities = PriorityContainer::default();
+            let priorities = PrioritizedAccounts::default();
             let next = priorities.next_priority(Timestamp::new_test_instance(), |_account| true);
             assert!(next.is_none());
         }
 
         #[test]
         fn one_item() {
-            let mut priorities = PriorityContainer::default();
+            let mut priorities = PrioritizedAccounts::default();
             let account = Account::from(1);
-            priorities.insert(PriorityEntry::new(account, Priority::new(2.5)));
+            priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
 
             let next = priorities
                 .next_priority(Timestamp::new_test_instance(), |_account| true)
@@ -296,10 +319,19 @@ mod tests {
 
         #[test]
         fn ordered_by_priority_desc() {
-            let mut priorities = PriorityContainer::default();
-            priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5)));
-            priorities.insert(PriorityEntry::new(Account::from(2), Priority::new(10.0)));
-            priorities.insert(PriorityEntry::new(Account::from(3), Priority::new(3.5)));
+            let mut priorities = PrioritizedAccounts::default();
+            priorities.insert(PrioritizedAccount::new(
+                Account::from(1),
+                Priority::new(2.5),
+            ));
+            priorities.insert(PrioritizedAccount::new(
+                Account::from(2),
+                Priority::new(10.0),
+            ));
+            priorities.insert(PrioritizedAccount::new(
+                Account::from(3),
+                Priority::new(3.5),
+            ));
 
             let next = priorities
                 .next_priority(Timestamp::new_test_instance(), |_account| true)
@@ -311,12 +343,12 @@ mod tests {
         #[test]
         fn cutoff() {
             let now = Timestamp::new_test_instance();
-            let a = PriorityEntry::new(Account::from(1), Priority::new(2.5));
-            let mut b = PriorityEntry::new(Account::from(2), Priority::new(10.0));
+            let a = PrioritizedAccount::new(Account::from(1), Priority::new(2.5));
+            let mut b = PrioritizedAccount::new(Account::from(2), Priority::new(10.0));
             b.last_request = Some(now);
-            let mut c = PriorityEntry::new(Account::from(3), Priority::new(3.5));
+            let mut c = PrioritizedAccount::new(Account::from(3), Priority::new(3.5));
             c.last_request = Some(now - Duration::from_secs(60));
-            let mut priorities = PriorityContainer::default();
+            let mut priorities = PrioritizedAccounts::default();
             priorities.insert(a);
             priorities.insert(b);
             priorities.insert(c);
@@ -330,10 +362,10 @@ mod tests {
 
         #[test]
         fn filter() {
-            let a = PriorityEntry::new(Account::from(1), Priority::new(2.5));
-            let b = PriorityEntry::new(Account::from(2), Priority::new(10.0));
-            let c = PriorityEntry::new(Account::from(3), Priority::new(3.5));
-            let mut priorities = PriorityContainer::default();
+            let a = PrioritizedAccount::new(Account::from(1), Priority::new(2.5));
+            let b = PrioritizedAccount::new(Account::from(2), Priority::new(10.0));
+            let c = PrioritizedAccount::new(Account::from(3), Priority::new(3.5));
+            let mut priorities = PrioritizedAccounts::default();
             priorities.insert(a);
             priorities.insert(b);
             priorities.insert(c);
@@ -350,10 +382,19 @@ mod tests {
 
     #[test]
     fn change_priority() {
-        let mut priorities = PriorityContainer::default();
-        priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5)));
-        priorities.insert(PriorityEntry::new(Account::from(2), Priority::new(3.0)));
-        priorities.insert(PriorityEntry::new(Account::from(3), Priority::new(3.5)));
+        let mut priorities = PrioritizedAccounts::default();
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(2.5),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(2),
+            Priority::new(3.0),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(3),
+            Priority::new(3.5),
+        ));
 
         let mut old_priority = Priority::ZERO;
         let new_priority = Priority::new(10.0);
@@ -378,9 +419,9 @@ mod tests {
 
     #[test]
     fn remove_by_priority_change() {
-        let mut priorities = PriorityContainer::default();
+        let mut priorities = PrioritizedAccounts::default();
         let account = Account::from(1);
-        priorities.insert(PriorityEntry::new(account, Priority::new(2.5)));
+        priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
 
         priorities.modify(&account, |_| false);
 
@@ -389,10 +430,19 @@ mod tests {
 
     #[test]
     fn remove() {
-        let mut priorities = PriorityContainer::default();
-        priorities.insert(PriorityEntry::new(Account::from(1), Priority::new(2.5)));
-        priorities.insert(PriorityEntry::new(Account::from(2), Priority::new(3.0)));
-        priorities.insert(PriorityEntry::new(Account::from(3), Priority::new(3.5)));
+        let mut priorities = PrioritizedAccounts::default();
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(1),
+            Priority::new(2.5),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(2),
+            Priority::new(3.0),
+        ));
+        priorities.insert(PrioritizedAccount::new(
+            Account::from(3),
+            Priority::new(3.5),
+        ));
 
         let removed = priorities.remove(&Account::from(2)).unwrap();
 
