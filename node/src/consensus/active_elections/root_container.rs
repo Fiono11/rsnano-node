@@ -234,12 +234,6 @@ impl RootContainer {
         self.by_root.values_mut()
     }
 
-    pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Entry> {
-        self.buckets[bucket_id]
-            .iter()
-            .map(|i| self.by_root.get(&i.root).unwrap())
-    }
-
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
         self.buckets[bucket_id].len()
     }

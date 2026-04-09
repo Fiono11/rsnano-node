@@ -21,7 +21,7 @@ use crate::{
         BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
         bounded_backlog::BoundedBacklogConfig,
     },
-    bootstrap::{BootstrapConfig, server::BootstrapServerConfig},
+    bootstrap::{BootstrapConfig, responder::BootstrapResponderConfig},
     cementation::ConfirmingSetConfig,
     consensus::{
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
@@ -71,7 +71,7 @@ pub struct NodeConfig {
     pub external_port: u16,
     pub use_memory_pools: bool,
     pub bootstrap: BootstrapConfig,
-    pub bootstrap_server: BootstrapServerConfig,
+    pub bootstrap_server: BootstrapResponderConfig,
     pub confirming_set_batch_time: Duration,
     pub max_work_generate_multiplier: f64,
     pub max_queued_requests: u32,

@@ -2,8 +2,8 @@ mod block_inspector;
 mod bootstrapper;
 mod cleanup;
 mod requesters;
+pub mod responder;
 mod response_processor;
-pub mod server;
 
 pub mod state;
 use state::QueryType;

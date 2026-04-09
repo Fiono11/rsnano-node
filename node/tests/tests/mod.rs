@@ -1,6 +1,6 @@
 mod active_elections;
 mod bootstrap;
-mod bootstrap_server;
+mod bootstrap_responder;
 mod confirmation_solicitor;
 mod confirming_set;
 mod conflicts;

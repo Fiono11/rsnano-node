@@ -27,14 +27,14 @@ use rsnano_utils::{
 use crate::transport::MessageSender;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct BootstrapServerConfig {
+pub struct BootstrapResponderConfig {
     pub max_queue: usize,
     pub threads: usize,
     pub batch_size: usize,
     pub limiter: usize,
 }
 
-impl Default for BootstrapServerConfig {
+impl Default for BootstrapResponderConfig {
     fn default() -> Self {
         Self {
             max_queue: 16,
@@ -48,21 +48,21 @@ impl Default for BootstrapServerConfig {
 /**
  * Processes bootstrap requests (`asc_pull_req` messages) and replies with bootstrap responses (`asc_pull_ack`)
  */
-pub struct BootstrapServer {
-    config: BootstrapServerConfig,
+pub struct BootstrapResponder {
+    config: BootstrapResponderConfig,
     stats: Arc<Stats>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     pub(crate) server_impl: Arc<BootstrapResponderImpl>,
     running: AtomicBool,
 }
 
-impl BootstrapServer {
+impl BootstrapResponder {
     /** Maximum number of blocks to send in a single response, cannot be higher than capacity of a single `asc_pull_ack` message */
     pub const MAX_BLOCKS: u8 = BlocksAckPayload::MAX_BLOCKS;
     pub const MAX_FRONTIERS: usize = AscPullAck::MAX_FRONTIERS;
 
     pub(crate) fn new(
-        config: BootstrapServerConfig,
+        config: BootstrapResponderConfig,
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
         clock: Arc<SteadyClock>,
@@ -92,8 +92,8 @@ impl BootstrapServer {
     }
 
     pub fn new_null() -> Self {
-        BootstrapServer::new(
-            BootstrapServerConfig::default(),
+        BootstrapResponder::new(
+            BootstrapResponderConfig::default(),
             Stats::default().into(),
             Ledger::new_null().into(),
             SteadyClock::new_null().into(),
@@ -187,7 +187,7 @@ impl BootstrapServer {
     }
 }
 
-impl Drop for BootstrapServer {
+impl Drop for BootstrapResponder {
     fn drop(&mut self) {
         debug_assert!(self.threads.lock().unwrap().is_empty());
     }
@@ -284,7 +284,7 @@ impl BootstrapResponderImpl {
     }
 
     fn process_blocks(&self, any: &dyn AnySet, id: u64, request: BlocksReqPayload) -> AscPullAck {
-        let count = min(request.count, BootstrapServer::MAX_BLOCKS);
+        let count = min(request.count, BootstrapResponder::MAX_BLOCKS);
 
         match request.start_type {
             HashType::Account => {

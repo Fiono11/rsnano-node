@@ -15,7 +15,7 @@ use rsnano_work::WorkThresholds;
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::{Bootstrapper, server::BootstrapServer},
+    bootstrap::{Bootstrapper, responder::BootstrapResponder},
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
     telemetry::Telemetry,
     wallets::WalletRepresentatives,
@@ -32,7 +32,7 @@ pub struct NetworkMessageProcessor {
     request_aggregator: Arc<RequestAggregator>,
     vote_processor_queue: Arc<VoteProcessorQueue>,
     telemetry: Arc<Telemetry>,
-    bootstrap_server: Arc<BootstrapServer>,
+    bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
     work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
@@ -49,7 +49,7 @@ impl NetworkMessageProcessor {
         request_aggregator: Arc<RequestAggregator>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         telemetry: Arc<Telemetry>,
-        bootstrap_server: Arc<BootstrapServer>,
+        bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
@@ -63,7 +63,7 @@ impl NetworkMessageProcessor {
             request_aggregator,
             vote_processor_queue,
             telemetry,
-            bootstrap_server,
+            bootstrap_responder,
             bootstrapper,
             work_thresholds,
             #[cfg(feature = "ledger_snapshots")]
@@ -188,7 +188,7 @@ impl NetworkMessageProcessor {
             }
             Message::TelemetryAck(ack) => self.telemetry.process(&ack, channel),
             Message::AscPullReq(req) => {
-                self.bootstrap_server.enqueue(req, channel.clone());
+                self.bootstrap_responder.enqueue(req, channel.clone());
             }
             Message::AscPullAck(ack) => self.bootstrapper.process(ack, channel.channel_id()),
             Message::FrontierReq(_)
@@ -281,7 +281,7 @@ mod tests {
             RequestAggregator::new_null().into(),
             VoteProcessorQueue::new_null().into(),
             Telemetry::new_null().into(),
-            BootstrapServer::new_null().into(),
+            BootstrapResponder::new_null().into(),
             Bootstrapper::new_null().into(),
             WorkThresholds::new_stub(),
             ledger_snapshots.into(),

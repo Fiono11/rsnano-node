@@ -60,8 +60,8 @@ use crate::{
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
-        BootstrapExt, Bootstrapper, BootstrapperCleanup, server::BootstrapResponderCleanup,
-        server::BootstrapServer,
+        BootstrapExt, Bootstrapper, BootstrapperCleanup, responder::BootstrapResponder,
+        responder::BootstrapResponderCleanup,
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
@@ -122,7 +122,7 @@ pub struct Node {
     pub ledger: Arc<Ledger>,
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
-    pub bootstrap_server: Arc<BootstrapServer>,
+    pub bootstrap_responder: Arc<BootstrapResponder>,
     pub online_reps: Arc<Mutex<OnlineReps>>,
     pub rep_tiers: Arc<CurrentRepTiers>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
@@ -479,7 +479,7 @@ impl Node {
             steady_clock.clone(),
         ));
 
-        let bootstrap_server = Arc::new(BootstrapServer::new(
+        let bootstrap_responder = Arc::new(BootstrapResponder::new(
             config.bootstrap_server.clone(),
             stats.clone(),
             ledger.clone(),
@@ -929,7 +929,7 @@ impl Node {
 
         dead_channel_cleanup.add_step(OnlineRepsCleanup::new(online_reps.clone()));
         dead_channel_cleanup.add_step(BootstrapResponderCleanup::new(
-            bootstrap_server.server_impl.clone(),
+            bootstrap_responder.server_impl.clone(),
         ));
         dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(vote_processor_queue.clone()));
         dead_channel_cleanup.add_step(block_processor_queue.clone());
@@ -968,7 +968,7 @@ impl Node {
             request_aggregator.clone(),
             vote_processor_queue.clone(),
             telemetry.clone(),
-            bootstrap_server.clone(),
+            bootstrap_responder.clone(),
             bootstrapper.clone(),
             network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
@@ -1354,7 +1354,7 @@ impl Node {
             config,
             flags,
             runtime,
-            bootstrap_server,
+            bootstrap_responder,
             online_reps,
             rep_tiers,
             vote_processor_queue,
@@ -1616,7 +1616,7 @@ impl Node {
             self.bounded_backlog_thread = Some(handle);
         }
         if self.config.enable_bootstrap_responder {
-            self.bootstrap_server.start();
+            self.bootstrap_responder.start();
         }
         self.bootstrapper.start();
         self.telemetry.start();
@@ -1668,7 +1668,7 @@ impl Node {
         self.vote_generators.stop();
         self.confirming_set.stop();
         self.telemetry.stop();
-        self.bootstrap_server.stop();
+        self.bootstrap_responder.stop();
         self.wallets.stop();
         self.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
