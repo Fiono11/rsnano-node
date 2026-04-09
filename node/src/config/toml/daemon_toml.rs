@@ -661,12 +661,12 @@ mod tests {
             deserialized
                 .node
                 .bootstrap
-                .candidate_accounts
+                .bootstrap_queue
                 .max_blocked_accounts,
             default_cfg
                 .node
                 .bootstrap
-                .candidate_accounts
+                .bootstrap_queue
                 .max_blocked_accounts
         );
         assert_ne!(
@@ -678,32 +678,24 @@ mod tests {
             default_cfg.node.bootstrap.frontier_scan.consideration_count
         );
         assert_ne!(
-            deserialized
-                .node
-                .bootstrap
-                .candidate_accounts
-                .account_cooldown,
-            default_cfg
-                .node
-                .bootstrap
-                .candidate_accounts
-                .account_cooldown
+            deserialized.node.bootstrap.bootstrap_queue.account_cooldown,
+            default_cfg.node.bootstrap.bootstrap_queue.account_cooldown
         );
         assert_ne!(
             deserialized
                 .node
                 .bootstrap
-                .candidate_accounts
+                .bootstrap_queue
                 .max_prioritized_accounts,
             default_cfg
                 .node
                 .bootstrap
-                .candidate_accounts
+                .bootstrap_queue
                 .max_prioritized_accounts
         );
         assert_ne!(
-            deserialized.node.bootstrap.candidate_accounts.blocked_decay,
-            default_cfg.node.bootstrap.candidate_accounts.blocked_decay
+            deserialized.node.bootstrap.bootstrap_queue.blocked_decay,
+            default_cfg.node.bootstrap.bootstrap_queue.blocked_decay
         );
 
         // Bootstrap Server section

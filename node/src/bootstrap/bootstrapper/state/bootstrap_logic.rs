@@ -10,20 +10,20 @@ use rsnano_utils::{
 };
 
 use super::{
-    running_query::QuerySource, BootstrapQueue, PeerScoring, PriorityResult, RunningQueryContainer,
+    BootstrapQueue, PeerScoring, PriorityResult, RunningQueryContainer, running_query::QuerySource,
 };
 use crate::bootstrap::bootstrapper::{
+    AscPullQuerySpec, BootstrapConfig,
     state::{
+        QueryType, RunningQuery,
         account_ack_processor::AccountAckProcessor,
         block_ack_processor::BlockAckProcessor,
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
-        QueryType, RunningQuery,
     },
-    AscPullQuerySpec, BootstrapConfig,
 };
 
 pub struct BootstrapLogic {
-    pub candidate_accounts: BootstrapQueue,
+    pub bootstrap_queue: BootstrapQueue,
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -42,7 +42,7 @@ impl BootstrapLogic {
         scoring.set_channel_limit(config.channel_limit);
 
         Self {
-            candidate_accounts: BootstrapQueue::new(config.candidate_accounts.clone()),
+            bootstrap_queue: BootstrapQueue::new(config.bootstrap_queue.clone()),
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,
@@ -56,7 +56,7 @@ impl BootstrapLogic {
     }
 
     pub fn next_priority(&mut self, now: Timestamp) -> PriorityResult {
-        let next = self.candidate_accounts.next_priority(now, |account| {
+        let next = self.bootstrap_queue.next_priority(now, |account| {
             !self
                 .block_ack_processor
                 .block_queue
@@ -102,7 +102,7 @@ impl BootstrapLogic {
 
     /* Waits for next available blocked block */
     pub fn next_blocked(&self) -> BlockHash {
-        self.candidate_accounts
+        self.bootstrap_queue
             .next_blocked(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
     }
 
@@ -143,12 +143,12 @@ impl BootstrapLogic {
             AscPullAckType::Blocks(blocks) => {
                 self.response_blocks += 1;
                 self.block_ack_processor
-                    .process(&mut self.candidate_accounts, query, blocks)
+                    .process(&mut self.bootstrap_queue, query, blocks)
             }
             AscPullAckType::AccountInfo(info) => {
                 self.response_account += 1;
                 self.account_ack_processor
-                    .process(&mut self.candidate_accounts, query, &info)
+                    .process(&mut self.bootstrap_queue, query, &info)
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers += 1;
@@ -165,7 +165,7 @@ impl BootstrapLogic {
 
     pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {
         self.frontiers_processor
-            .frontiers_processed(outdated, &mut self.candidate_accounts);
+            .frontiers_processed(outdated, &mut self.bootstrap_queue);
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -175,7 +175,7 @@ impl BootstrapLogic {
                 self.running_queries.len(),
                 RunningQueryContainer::ELEMENT_SIZE,
             )
-            .node("accounts", self.candidate_accounts.container_info())
+            .node("accounts", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
             .finish()

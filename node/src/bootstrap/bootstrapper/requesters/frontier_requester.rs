@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload};
-use rsnano_network::{token_bucket::TokenBucket, Channel};
+use rsnano_network::{Channel, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
@@ -22,7 +22,7 @@ pub(crate) struct FrontierRequester {
 
 enum FrontierState {
     Initial,
-    WaitCandidateAccounts,
+    WaitBootstrapQueue,
     WaitLimiter,
     WaitAckProcessor,
     WaitChannel,
@@ -75,11 +75,11 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
             FrontierState::Initial => {
                 self.stats
                     .inc(StatType::Bootstrap, DetailType::LoopFrontiers);
-                self.state = FrontierState::WaitCandidateAccounts;
+                self.state = FrontierState::WaitBootstrapQueue;
                 return PollResult::Progress;
             }
-            FrontierState::WaitCandidateAccounts => {
-                if !context.logic.candidate_accounts.priority_half_full() {
+            FrontierState::WaitBootstrapQueue => {
+                if !context.logic.bootstrap_queue.priority_half_full() {
                     self.state = FrontierState::WaitLimiter;
                     return PollResult::Progress;
                 }
@@ -131,9 +131,8 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
 mod tests {
     use super::*;
     use crate::bootstrap::bootstrapper::{
-        progress, progress_state,
+        BootstrapConfig, progress, progress_state,
         state::{BootstrapLogic, BootstrapQueueConfig, FrontierScan},
-        BootstrapConfig,
     };
     use rsnano_network::Network;
     use std::sync::{Mutex, RwLock};
@@ -154,31 +153,25 @@ mod tests {
     }
 
     #[test]
-    fn wait_candidate_accounts() {
+    fn wait_bootstrap_queue() {
         let (mut requester, _) = create_test_requester();
         let mut state = state_with_max_priorities(1);
         let mut context = PromiseContext::new_test_instance(&mut state);
 
-        // Fill up candidate accounts
-        context
-            .logic
-            .candidate_accounts
-            .priority_up(&Account::from(1));
+        // Fill up bootstrap queue
+        context.logic.bootstrap_queue.priority_up(&Account::from(1));
 
-        // Should wait because candidate accounts are full enough
+        // Should wait because bootstrap queue is not full enough
         let result = progress(&mut requester, &mut context);
         assert!(matches!(result, PollResult::Wait));
-        assert!(matches!(
-            requester.state,
-            FrontierState::WaitCandidateAccounts
-        ));
+        assert!(matches!(requester.state, FrontierState::WaitBootstrapQueue));
 
         // Running again continues waiting
         let result = requester.poll(&mut context);
         assert!(matches!(result, PollResult::Wait));
 
         // If the accounts are cleared, continue
-        context.logic.candidate_accounts.clear();
+        context.logic.bootstrap_queue.clear();
         let result = requester.poll(&mut context);
         assert!(matches!(result, PollResult::Progress));
         assert!(matches!(requester.state, FrontierState::WaitLimiter));
@@ -276,7 +269,7 @@ mod tests {
 
     fn state_with_max_priorities(max: usize) -> BootstrapLogic {
         let config = BootstrapConfig {
-            candidate_accounts: BootstrapQueueConfig {
+            bootstrap_queue: BootstrapQueueConfig {
                 max_prioritized_accounts: max,
                 ..Default::default()
             },

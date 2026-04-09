@@ -271,16 +271,16 @@ impl NodeConfig {
             }
             if let Some(account_sets) = &boot_toml.account_sets {
                 if let Some(blocking_max) = account_sets.blocking_max {
-                    config.candidate_accounts.max_blocked_accounts = blocking_max;
+                    config.bootstrap_queue.max_blocked_accounts = blocking_max;
                 }
                 if let Some(priorities_max) = account_sets.priorities_max {
-                    config.candidate_accounts.max_prioritized_accounts = priorities_max;
+                    config.bootstrap_queue.max_prioritized_accounts = priorities_max;
                 }
                 if let Some(cooldown) = &account_sets.cooldown {
-                    config.candidate_accounts.account_cooldown = Duration::from_millis(*cooldown);
+                    config.bootstrap_queue.account_cooldown = Duration::from_millis(*cooldown);
                 }
                 if let Some(decay) = &account_sets.blocking_decay {
-                    config.candidate_accounts.blocked_decay = Duration::from_secs(*decay as u64);
+                    config.bootstrap_queue.blocked_decay = Duration::from_secs(*decay as u64);
                 }
                 if let Some(i) = account_sets.consideration_count {
                     config.frontier_scan.consideration_count = i;
@@ -581,19 +581,17 @@ impl From<&NodeConfig> for NodeToml {
                 max_requests: Some(config.bootstrap.max_requests),
                 optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
                 account_sets: Some(AccountSetsToml {
-                    priorities_max: Some(
-                        config.bootstrap.candidate_accounts.max_prioritized_accounts,
-                    ),
-                    blocking_max: Some(config.bootstrap.candidate_accounts.max_blocked_accounts),
+                    priorities_max: Some(config.bootstrap.bootstrap_queue.max_prioritized_accounts),
+                    blocking_max: Some(config.bootstrap.bootstrap_queue.max_blocked_accounts),
                     cooldown: Some(
                         config
                             .bootstrap
-                            .candidate_accounts
+                            .bootstrap_queue
                             .account_cooldown
                             .as_millis() as u64,
                     ),
                     blocking_decay: Some(
-                        config.bootstrap.candidate_accounts.blocked_decay.as_secs() as usize,
+                        config.bootstrap.bootstrap_queue.blocked_decay.as_secs() as usize
                     ),
                     consideration_count: Some(config.bootstrap.frontier_scan.consideration_count),
                 }),
@@ -693,7 +691,7 @@ mod tests {
         assert_eq!(ascending.optimistic_request_percentage, 42);
         assert_eq!(ascending.database_warmup_ratio, 108);
 
-        let sets = &cfg.bootstrap.candidate_accounts;
+        let sets = &cfg.bootstrap.bootstrap_queue;
         let frontier_cfg = &cfg.bootstrap.frontier_scan;
         assert_eq!(sets.max_blocked_accounts, 200);
         assert_eq!(frontier_cfg.consideration_count, 201);

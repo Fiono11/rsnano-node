@@ -12,7 +12,7 @@ pub(super) struct AccountAckProcessor {
 impl AccountAckProcessor {
     pub fn process(
         &mut self,
-        candidates: &mut BootstrapQueue,
+        queue: &mut BootstrapQueue,
         query: &RunningQuery,
         response: &AccountInfoAckPayload,
     ) -> bool {
@@ -23,8 +23,8 @@ impl AccountAckProcessor {
         }
 
         // Prioritize account containing the dependency
-        self.update_dependency(candidates, &query.hash, response.account);
-        self.prioritize(candidates, &response.account);
+        self.update_dependency(queue, &query.hash, response.account);
+        self.prioritize(queue, &response.account);
 
         // OK, no way to verify the response
         true
@@ -32,11 +32,11 @@ impl AccountAckProcessor {
 
     fn update_dependency(
         &mut self,
-        candidates: &mut BootstrapQueue,
+        queue: &mut BootstrapQueue,
         dependency: &BlockHash,
         dependency_account: Account,
     ) {
-        let updated = candidates.dependency_update(dependency, dependency_account);
+        let updated = queue.dependency_update(dependency, dependency_account);
 
         if updated > 0 {
             self.stats.dependency_update += updated as u64;
@@ -45,9 +45,9 @@ impl AccountAckProcessor {
         }
     }
 
-    fn prioritize(&mut self, candidates: &mut BootstrapQueue, account: &Account) {
+    fn prioritize(&mut self, queue: &mut BootstrapQueue, account: &Account) {
         if matches!(
-            candidates.priority_up(account),
+            queue.priority_up(account),
             PriorityUpResult::Inserted | PriorityUpResult::Updated
         ) {
             self.stats.priority_insert += 1;
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn empty_response() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
         let query = RunningQuery::new_test_instance();
 
         let response = AccountInfoAckPayload {
@@ -104,22 +104,22 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        assert!(processor.process(&mut candidates, &query, &response));
+        assert!(processor.process(&mut queue, &query, &response));
 
         assert_eq!(processor.stats.empty, 1);
-        assert_eq!(candidates.priority_len(), 0);
+        assert_eq!(queue.priority_len(), 0);
     }
 
     #[test]
     fn when_not_blocked_should_only_prioritize() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
         let query = RunningQuery::new_test_instance();
         let response = AccountInfoAckPayload::new_test_instance();
 
-        assert!(processor.process(&mut candidates, &query, &response));
+        assert!(processor.process(&mut queue, &query, &response));
 
-        assert!(candidates.prioritized(&response.account));
+        assert!(queue.prioritized(&response.account));
         assert_eq!(processor.stats.dependency_update_failed, 1);
         assert_eq!(processor.stats.priority_insert, 1);
     }
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn update_dependency() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
         let source_account = Account::from(200);
@@ -142,19 +142,19 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        candidates.priority_set_initial(&blocked_account);
+        queue.priority_set_initial(&blocked_account);
 
-        candidates.block(
+        queue.block(
             blocked_account,
             unknown_source,
             Timestamp::new_test_instance(),
         );
 
-        assert!(processor.process(&mut candidates, &query, &response));
+        assert!(processor.process(&mut queue, &query, &response));
 
-        assert!(candidates.blocked(&blocked_account));
-        assert!(candidates.prioritized(&source_account));
-        let query = candidates.next_priority(Timestamp::new_test_instance(), |_| true);
+        assert!(queue.blocked(&blocked_account));
+        assert!(queue.prioritized(&source_account));
+        let query = queue.next_priority(Timestamp::new_test_instance(), |_| true);
         assert_eq!(query.account, source_account);
         assert_eq!(processor.stats.dependency_update, 1);
         assert_eq!(processor.stats.priority_insert, 1);
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn dependency_update_fails() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
 
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
@@ -179,16 +179,16 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        candidates.priority_up(&blocked_account);
-        candidates.block(
+        queue.priority_up(&blocked_account);
+        queue.block(
             blocked_account,
             unknown_source,
             Timestamp::new_test_instance(),
         );
-        candidates.dependency_update(&unknown_source, source_account);
-        candidates.priority_up(&source_account);
+        queue.dependency_update(&unknown_source, source_account);
+        queue.priority_up(&source_account);
 
-        assert!(processor.process(&mut candidates, &query, &response));
+        assert!(processor.process(&mut queue, &query, &response));
 
         assert_eq!(processor.stats.dependency_update_failed, 1);
     }

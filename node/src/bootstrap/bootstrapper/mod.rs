@@ -10,7 +10,7 @@ use rsnano_ledger::{Ledger, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{
-    token_bucket::TokenBucket, Channel, ChannelId, DeadChannelCleanupStep, Network,
+    Channel, ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket,
 };
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, BlockHash};
@@ -31,8 +31,8 @@ use block_inspector::BlockInspector;
 use cleanup::BootstrapCleanup;
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
-use state::{bootstrap_logic::ProcessError, PriorityUpResult};
 use state::{BootstrapLogic, BootstrapQueueConfig};
+use state::{PriorityUpResult, bootstrap_logic::ProcessError};
 
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
@@ -150,7 +150,7 @@ pub struct BootstrapConfig {
     pub min_protocol_version: u8,
     pub max_requests: usize,
     pub optimistic_request_percentage: u8,
-    pub candidate_accounts: BootstrapQueueConfig,
+    pub bootstrap_queue: BootstrapQueueConfig,
     pub frontier_scan: FrontierScanConfig,
     /// How many frontier acks can get queued in the processor
     pub max_pending_frontier_responses: usize,
@@ -176,7 +176,7 @@ impl Default for BootstrapConfig {
             min_protocol_version: 0x14, // TODO don't hard code
             max_requests: 1024,
             optimistic_request_percentage: 75,
-            candidate_accounts: Default::default(),
+            bootstrap_queue: Default::default(),
             frontier_scan: Default::default(),
             max_pending_frontier_responses: 16,
         }
@@ -280,7 +280,7 @@ impl Bootstrapper {
             .logic
             .lock()
             .unwrap()
-            .candidate_accounts
+            .bootstrap_queue
             .priority_up(genesis_account);
 
         if inserted == PriorityUpResult::Inserted {
@@ -313,7 +313,7 @@ impl Bootstrapper {
         self.logic
             .lock()
             .unwrap()
-            .candidate_accounts
+            .bootstrap_queue
             .prioritized(account)
     }
 
@@ -387,7 +387,7 @@ impl Bootstrapper {
     pub fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         let mut guard = self.logic.lock().unwrap();
         for account in accounts {
-            guard.candidate_accounts.unblock(account, None);
+            guard.bootstrap_queue.unblock(account, None);
         }
     }
 }

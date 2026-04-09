@@ -324,7 +324,7 @@ mod tests {
         let mut state = BootstrapLogic::default();
 
         if let Some(account) = &input.prioritized_account {
-            state.candidate_accounts.priority_up(account);
+            state.bootstrap_queue.priority_up(account);
         }
 
         let mut context = PromiseContext::new_test_instance(&mut state);

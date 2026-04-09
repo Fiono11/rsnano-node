@@ -16,7 +16,7 @@ pub(crate) struct BootstrapInfo {
 impl BootstrapInfo {
     pub(crate) fn update(&mut self, state: &BootstrapLogic) {
         let target_account = Account::parse(&self.search);
-        let candidates = &state.candidate_accounts;
+        let candidates = &state.bootstrap_queue;
         self.priority_accounts = candidates.priority_len();
         self.blocked_accounts = candidates.blocked_len();
         self.unique_blocking_accounts = candidates.unique_blocked_accounts();

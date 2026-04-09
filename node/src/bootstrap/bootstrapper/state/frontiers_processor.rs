@@ -1,6 +1,6 @@
 use crate::bootstrap::bootstrapper::{
-    state::{BootstrapQueue, FrontierScan, RunningQuery, VerifyResult},
     FrontierHeadInfo, FrontierScanConfig,
+    state::{BootstrapQueue, FrontierScan, RunningQuery, VerifyResult},
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
@@ -75,16 +75,12 @@ impl FrontiersProcessor {
         self.frontiers_to_check.pop_front()
     }
 
-    pub fn frontiers_processed(
-        &mut self,
-        outdated: &OutdatedAccounts,
-        candidates: &mut BootstrapQueue,
-    ) {
+    pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts, queue: &mut BootstrapQueue) {
         self.stats.processed_frontiers += outdated.frontiers_received as u64;
         self.stats.outdated_accounts_found += outdated.accounts.len() as u64;
 
         for account in &outdated.accounts {
-            candidates.priority_up(account);
+            queue.priority_up(account);
 
             self.last_outdated_accounts.push_back(*account);
             if self.last_outdated_accounts.len() > 20 {

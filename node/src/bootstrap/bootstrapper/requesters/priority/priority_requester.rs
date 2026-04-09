@@ -176,7 +176,7 @@ mod tests {
     fn happy_path() {
         let mut state = BootstrapLogic::default();
         let account = Account::from(42);
-        state.candidate_accounts.priority_up(&account);
+        state.bootstrap_queue.priority_up(&account);
 
         let (mut requester, network) = create_requester();
         network.write().unwrap().add_test_channel();

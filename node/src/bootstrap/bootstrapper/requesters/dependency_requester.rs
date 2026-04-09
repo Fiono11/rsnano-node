@@ -123,9 +123,9 @@ mod tests {
 
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
-        state.candidate_accounts.priority_up(&account);
+        state.bootstrap_queue.priority_up(&account);
         state
-            .candidate_accounts
+            .bootstrap_queue
             .block(account, dependency, Timestamp::new_test_instance());
 
         let result = progress_state(&mut requester, &mut state);
@@ -173,9 +173,9 @@ mod tests {
 
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
-        state.candidate_accounts.priority_up(&account);
+        state.bootstrap_queue.priority_up(&account);
         state
-            .candidate_accounts
+            .bootstrap_queue
             .block(account, dependency, Timestamp::new_test_instance());
 
         let mut context = PromiseContext::new_test_instance(&mut state);

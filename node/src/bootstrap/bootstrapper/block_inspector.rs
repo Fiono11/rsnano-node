@@ -100,7 +100,7 @@ impl BlockInspector {
                     let saved_block = result.saved_block.clone().unwrap();
                     let account = saved_block.account();
                     // If we've inserted any block in to an account, unmark it as blocked
-                    if state.candidate_accounts.unblock(account, None) {
+                    if state.bootstrap_queue.unblock(account, None) {
                         self.stats
                             .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
                         self.stats.inc(
@@ -109,7 +109,7 @@ impl BlockInspector {
                         );
                     }
 
-                    match state.candidate_accounts.priority_up(&account) {
+                    match state.bootstrap_queue.priority_up(&account) {
                         PriorityUpResult::Updated => {
                             self.stats
                                 .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
@@ -130,7 +130,7 @@ impl BlockInspector {
                     if saved_block.is_send() {
                         let destination = saved_block.destination().unwrap();
                         // Unblocking automatically inserts account into priority set
-                        if state.candidate_accounts.unblock(destination, Some(hash)) {
+                        if state.bootstrap_queue.unblock(destination, Some(hash)) {
                             self.stats
                                 .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
                             self.stats.inc(
@@ -138,7 +138,7 @@ impl BlockInspector {
                                 DetailType::PriorityUnblocked,
                             );
                         } else if matches!(
-                            state.candidate_accounts.priority_up(&destination),
+                            state.bootstrap_queue.priority_up(&destination),
                             PriorityUpResult::Inserted | PriorityUpResult::Updated
                         ) {
                             self.stats
@@ -154,7 +154,7 @@ impl BlockInspector {
                 if let Some(account) = info.account
                     && info.was_last
                 {
-                    state.candidate_accounts.reset_last_request(&account);
+                    state.bootstrap_queue.reset_last_request(&account);
                 }
             }
             Err(error) => {
@@ -171,11 +171,10 @@ impl BlockInspector {
 
                             if !account.is_zero() && !source.is_zero() {
                                 // Mark account as blocked because it is missing the source block
-                                let blocked = state.candidate_accounts.block(
-                                    *account,
-                                    source,
-                                    self.clock.now(),
-                                );
+                                let blocked =
+                                    state
+                                        .bootstrap_queue
+                                        .block(*account, source, self.clock.now());
                                 if blocked {
                                     self.stats.inc(
                                         StatType::BootstrapAccountSets,
@@ -195,13 +194,13 @@ impl BlockInspector {
                     BlockError::GapPrevious => {
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
-                            && !state.candidate_accounts.priority_half_full()
-                            && !state.candidate_accounts.blocked_half_full()
+                            && !state.bootstrap_queue.priority_half_full()
+                            && !state.bootstrap_queue.blocked_half_full()
                             && result.block.block_type() == BlockType::State
                         {
                             let account = result.block.account_field().unwrap();
                             if matches!(
-                                state.candidate_accounts.priority_up(&account),
+                                state.bootstrap_queue.priority_up(&account),
                                 PriorityUpResult::Updated | PriorityUpResult::Inserted
                             ) {
                                 self.stats.inc(
@@ -218,7 +217,7 @@ impl BlockInspector {
                     }
                     BlockError::GapEpochOpenPending => {
                         // Epoch open blocks for accounts that don't have any pending blocks yet
-                        if state.candidate_accounts.priority_erase(account) {
+                        if state.bootstrap_queue.priority_erase(account) {
                             self.stats
                                 .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
                         }

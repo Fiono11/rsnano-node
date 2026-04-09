@@ -4,8 +4,8 @@ use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::state::{
-    block_queue::{AccountBlocks, BlockQueue},
     BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
+    block_queue::{AccountBlocks, BlockQueue},
 };
 
 #[derive(Default)]
@@ -129,11 +129,11 @@ mod tests {
     #[test]
     fn response_doesnt_match_query() {
         let mut processor = BlockAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
 
         let query = RunningQuery::new_test_instance();
         let response = BlocksAckPayload::new_test_instance();
-        let ok = processor.process(&mut candidates, &query, response);
+        let ok = processor.process(&mut queue, &query, response);
         assert!(!ok);
         assert_eq!(processor.stats.invalid, 1);
     }
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn handle_empty_response() {
         let mut processor = BlockAckProcessor::default();
-        let mut candidates = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::default();
         let account = Account::from(42);
 
         let query = RunningQuery {
@@ -151,7 +151,7 @@ mod tests {
         };
 
         let response = BlocksAckPayload::empty();
-        let ok = processor.process(&mut candidates, &query, response);
+        let ok = processor.process(&mut queue, &query, response);
 
         assert!(ok);
         assert_eq!(processor.stats.nothing_new, 1);

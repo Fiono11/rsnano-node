@@ -125,7 +125,7 @@ impl InsightApp {
             if let Some(node) = self.node_runner.node() {
                 node.bootstrapper
                     .state()
-                    .candidate_accounts
+                    .bootstrap_queue
                     .priority_up(&account);
             }
         }

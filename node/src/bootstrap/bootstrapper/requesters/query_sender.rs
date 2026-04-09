@@ -85,9 +85,7 @@ impl QuerySender {
             state.running_queries.insert(query);
 
             if spec.cooldown_account {
-                state
-                    .candidate_accounts
-                    .set_last_request(&spec.account, now);
+                state.bootstrap_queue.set_last_request(&spec.account, now);
             }
 
             Some(id)
@@ -144,7 +142,7 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let mut state = BootstrapLogic::default();
-        state.candidate_accounts.priority_up(&spec.account);
+        state.bootstrap_queue.priority_up(&spec.account);
 
         let id = fixture.query_sender.send(spec.clone(), &mut state).unwrap();
 
@@ -154,7 +152,7 @@ mod tests {
             state.running_queries.get(id).unwrap().response_cutoff,
             fixture.now + fixture.query_sender.request_timeout
         );
-        assert_eq!(state.candidate_accounts.last_request(&spec.account), None);
+        assert_eq!(state.bootstrap_queue.last_request(&spec.account), None);
     }
 
     #[test]
@@ -164,12 +162,12 @@ mod tests {
         spec.cooldown_account = true;
 
         let mut state = BootstrapLogic::default();
-        state.candidate_accounts.priority_up(&spec.account);
+        state.bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state).unwrap();
 
         assert_eq!(
-            state.candidate_accounts.last_request(&spec.account),
+            state.bootstrap_queue.last_request(&spec.account),
             Some(fixture.now)
         );
     }
@@ -185,8 +183,8 @@ mod tests {
 
         assert_eq!(id, None);
         assert_eq!(state.running_queries.len(), 0);
-        assert_eq!(state.candidate_accounts.priority_len(), 0);
-        assert_eq!(state.candidate_accounts.blocked_len(), 0);
+        assert_eq!(state.bootstrap_queue.priority_len(), 0);
+        assert_eq!(state.bootstrap_queue.blocked_len(), 0);
     }
 
     #[test]
