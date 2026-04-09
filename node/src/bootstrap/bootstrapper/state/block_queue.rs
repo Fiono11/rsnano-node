@@ -23,17 +23,17 @@ impl BlockQueue {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn blocks(&self) -> usize {
         self.blocks
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn accounts(&self) -> usize {
         self.accounts.len()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.accounts() == 0
     }

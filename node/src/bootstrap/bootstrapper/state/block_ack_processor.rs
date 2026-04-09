@@ -10,14 +10,14 @@ use crate::bootstrap::bootstrapper::state::{
 
 #[derive(Default)]
 pub struct BlockAckProcessor {
-    pub(crate) stats: BlockAckStats,
+    stats: BlockAckStats,
     pub(crate) block_queue: BlockQueue,
 }
 
 impl BlockAckProcessor {
     pub(crate) fn process(
         &mut self,
-        candidates: &mut BootstrapQueue,
+        queue: &mut BootstrapQueue,
         query: &RunningQuery,
         response: BlocksAckPayload,
     ) -> bool {
@@ -34,7 +34,7 @@ impl BlockAckProcessor {
                 true
             }
             VerifyResult::NothingNew => {
-                self.process_empty_response(candidates, query);
+                self.process_empty_response(queue, query);
                 true
             }
             VerifyResult::Invalid => {
@@ -51,21 +51,25 @@ impl BlockAckProcessor {
         let mut blocks = response.take_blocks();
 
         // Avoid re-processing the block we already have
-        assert!(!blocks.is_empty());
-        if blocks.front().unwrap().hash() == query.start.into() {
+        if blocks
+            .front()
+            .expect("valid blocks should at least have one entry")
+            .hash()
+            == query.start.into()
+        {
             blocks.pop_front();
         }
 
         self.block_queue.insert(AccountBlocks {
             account: query.account,
             query_id: query.id,
-            blocks: blocks.clone(),
+            blocks,
         });
     }
 
-    fn process_empty_response(&mut self, candidates: &mut BootstrapQueue, query: &RunningQuery) {
+    fn process_empty_response(&mut self, queue: &mut BootstrapQueue, query: &RunningQuery) {
         self.stats.nothing_new += 1;
-        match candidates.priority_down(&query.account) {
+        match queue.priority_down(&query.account) {
             PriorityDownResult::Deprioritized => {
                 self.stats.deprioritize += 1;
             }
@@ -79,7 +83,7 @@ impl BlockAckProcessor {
             PriorityDownResult::InvalidAccount => {}
         }
 
-        candidates.reset_last_request(&query.account);
+        queue.reset_last_request(&query.account);
     }
 }
 

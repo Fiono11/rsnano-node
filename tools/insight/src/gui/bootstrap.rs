@@ -27,7 +27,7 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                 .horizontal(|mut strip| {
                     strip.cell(|ui| {
                         ui.horizontal(|ui| {
-                            ui.heading("Priority accounts: ");
+                            ui.heading("Bootstrap queue: ");
                             ui.heading(model.priority_accounts);
                         });
 
