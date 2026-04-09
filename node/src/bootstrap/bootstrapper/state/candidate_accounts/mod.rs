@@ -4,14 +4,14 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-mod blocked_accounts;
+mod blocked;
+mod prioritized;
 mod priority;
-mod priority_container;
 
-use blocked_accounts::BlockedAccounts;
-pub use blocked_accounts::BlockedBlock;
+use blocked::BlockedAccounts;
+pub use blocked::BlockedBlock;
+use prioritized::{ChangePriorityResult, PrioritizedAccount, PrioritizedAccounts};
 pub use priority::Priority;
-use priority_container::{ChangePriorityResult, PrioritizedAccount, PrioritizedAccounts};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CandidateAccountsConfig {
