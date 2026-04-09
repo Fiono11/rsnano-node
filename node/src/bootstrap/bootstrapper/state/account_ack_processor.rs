@@ -2,7 +2,7 @@ use rsnano_messages::AccountInfoAckPayload;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::state::{CandidateAccounts, PriorityUpResult, RunningQuery};
+use crate::bootstrap::bootstrapper::state::{BootstrapQueue, PriorityUpResult, RunningQuery};
 
 #[derive(Default)]
 pub(super) struct AccountAckProcessor {
@@ -12,7 +12,7 @@ pub(super) struct AccountAckProcessor {
 impl AccountAckProcessor {
     pub fn process(
         &mut self,
-        candidates: &mut CandidateAccounts,
+        candidates: &mut BootstrapQueue,
         query: &RunningQuery,
         response: &AccountInfoAckPayload,
     ) -> bool {
@@ -32,7 +32,7 @@ impl AccountAckProcessor {
 
     fn update_dependency(
         &mut self,
-        candidates: &mut CandidateAccounts,
+        candidates: &mut BootstrapQueue,
         dependency: &BlockHash,
         dependency_account: Account,
     ) {
@@ -45,7 +45,7 @@ impl AccountAckProcessor {
         }
     }
 
-    fn prioritize(&mut self, candidates: &mut CandidateAccounts, account: &Account) {
+    fn prioritize(&mut self, candidates: &mut BootstrapQueue, account: &Account) {
         if matches!(
             candidates.priority_up(account),
             PriorityUpResult::Inserted | PriorityUpResult::Updated
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn empty_response() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let query = RunningQuery::new_test_instance();
 
         let response = AccountInfoAckPayload {
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn when_not_blocked_should_only_prioritize() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let query = RunningQuery::new_test_instance();
         let response = AccountInfoAckPayload::new_test_instance();
 
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn update_dependency() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
         let source_account = Account::from(200);
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn dependency_update_fails() {
         let mut processor = AccountAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
 
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);

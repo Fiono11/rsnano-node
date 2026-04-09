@@ -10,7 +10,7 @@ use rsnano_ledger::{Ledger, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{
-    Channel, ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket,
+    token_bucket::TokenBucket, Channel, ChannelId, DeadChannelCleanupStep, Network,
 };
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, BlockHash};
@@ -31,8 +31,8 @@ use block_inspector::BlockInspector;
 use cleanup::BootstrapCleanup;
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
-use state::{BootstrapLogic, CandidateAccountsConfig};
-use state::{PriorityUpResult, bootstrap_logic::ProcessError};
+use state::{bootstrap_logic::ProcessError, PriorityUpResult};
+use state::{BootstrapLogic, BootstrapQueueConfig};
 
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
@@ -150,7 +150,7 @@ pub struct BootstrapConfig {
     pub min_protocol_version: u8,
     pub max_requests: usize,
     pub optimistic_request_percentage: u8,
-    pub candidate_accounts: CandidateAccountsConfig,
+    pub candidate_accounts: BootstrapQueueConfig,
     pub frontier_scan: FrontierScanConfig,
     /// How many frontier acks can get queued in the processor
     pub max_pending_frontier_responses: usize,

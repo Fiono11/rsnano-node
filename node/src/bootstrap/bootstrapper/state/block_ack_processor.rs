@@ -4,8 +4,8 @@ use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::state::{
-    CandidateAccounts, PriorityDownResult, RunningQuery, VerifyResult,
     block_queue::{AccountBlocks, BlockQueue},
+    BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
 };
 
 #[derive(Default)]
@@ -17,7 +17,7 @@ pub struct BlockAckProcessor {
 impl BlockAckProcessor {
     pub(crate) fn process(
         &mut self,
-        candidates: &mut CandidateAccounts,
+        candidates: &mut BootstrapQueue,
         query: &RunningQuery,
         response: BlocksAckPayload,
     ) -> bool {
@@ -63,7 +63,7 @@ impl BlockAckProcessor {
         });
     }
 
-    fn process_empty_response(&mut self, candidates: &mut CandidateAccounts, query: &RunningQuery) {
+    fn process_empty_response(&mut self, candidates: &mut BootstrapQueue, query: &RunningQuery) {
         self.stats.nothing_new += 1;
         match candidates.priority_down(&query.account) {
             PriorityDownResult::Deprioritized => {
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn response_doesnt_match_query() {
         let mut processor = BlockAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
 
         let query = RunningQuery::new_test_instance();
         let response = BlocksAckPayload::new_test_instance();
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn handle_empty_response() {
         let mut processor = BlockAckProcessor::default();
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(42);
 
         let query = RunningQuery {

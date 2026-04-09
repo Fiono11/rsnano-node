@@ -6,7 +6,7 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::frontier_checker::FrontierChecker;
 use crate::bootstrap::bootstrapper::state::{
-    BootstrapLogic, frontiers_processor::OutdatedAccounts,
+    frontiers_processor::OutdatedAccounts, BootstrapLogic,
 };
 
 /// Handles received frontiers
@@ -62,7 +62,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::state::CandidateAccounts;
+    use crate::bootstrap::bootstrapper::state::BootstrapQueue;
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
 
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(guard.candidate_accounts.priority_len(), 1);
         assert_eq!(
             guard.candidate_accounts.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_INITIAL
         );
         assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
         assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);

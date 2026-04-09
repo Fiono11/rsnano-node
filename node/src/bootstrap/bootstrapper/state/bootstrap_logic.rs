@@ -10,21 +10,20 @@ use rsnano_utils::{
 };
 
 use super::{
-    CandidateAccounts, PeerScoring, PriorityResult, RunningQueryContainer,
-    running_query::QuerySource,
+    running_query::QuerySource, BootstrapQueue, PeerScoring, PriorityResult, RunningQueryContainer,
 };
 use crate::bootstrap::bootstrapper::{
-    AscPullQuerySpec, BootstrapConfig,
     state::{
-        QueryType, RunningQuery,
         account_ack_processor::AccountAckProcessor,
         block_ack_processor::BlockAckProcessor,
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
+        QueryType, RunningQuery,
     },
+    AscPullQuerySpec, BootstrapConfig,
 };
 
 pub struct BootstrapLogic {
-    pub candidate_accounts: CandidateAccounts,
+    pub candidate_accounts: BootstrapQueue,
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -43,7 +42,7 @@ impl BootstrapLogic {
         scoring.set_channel_limit(config.channel_limit);
 
         Self {
-            candidate_accounts: CandidateAccounts::new(config.candidate_accounts.clone()),
+            candidate_accounts: BootstrapQueue::new(config.candidate_accounts.clone()),
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,

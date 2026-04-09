@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload};
-use rsnano_network::{Channel, token_bucket::TokenBucket};
+use rsnano_network::{token_bucket::TokenBucket, Channel};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
@@ -131,8 +131,9 @@ impl BootstrapPromise<AscPullQuerySpec> for FrontierRequester {
 mod tests {
     use super::*;
     use crate::bootstrap::bootstrapper::{
-        BootstrapConfig, progress, progress_state,
-        state::{BootstrapLogic, CandidateAccountsConfig, FrontierScan},
+        progress, progress_state,
+        state::{BootstrapLogic, BootstrapQueueConfig, FrontierScan},
+        BootstrapConfig,
     };
     use rsnano_network::Network;
     use std::sync::{Mutex, RwLock};
@@ -275,7 +276,7 @@ mod tests {
 
     fn state_with_max_priorities(max: usize) -> BootstrapLogic {
         let config = BootstrapConfig {
-            candidate_accounts: CandidateAccountsConfig {
+            candidate_accounts: BootstrapQueueConfig {
                 max_prioritized_accounts: max,
                 ..Default::default()
             },

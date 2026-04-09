@@ -14,7 +14,7 @@ use prioritized::{ChangePriorityResult, PrioritizedAccount, PrioritizedAccounts}
 pub use priority::Priority;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct CandidateAccountsConfig {
+pub struct BootstrapQueueConfig {
     pub max_prioritized_accounts: usize,
     pub max_blocked_accounts: usize,
 
@@ -27,7 +27,7 @@ pub struct CandidateAccountsConfig {
     pub account_cooldown: Duration,
 }
 
-impl Default for CandidateAccountsConfig {
+impl Default for BootstrapQueueConfig {
     fn default() -> Self {
         Self {
             max_prioritized_accounts: 256 * 1024,
@@ -49,20 +49,22 @@ pub enum PriorityUpResult {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PriorityDownResult {
     Deprioritized,
+    /// The priority got too low, so the account got erased
     Erased,
     AccountNotFound,
     InvalidAccount,
 }
 
-/// This struct tracks accounts which are candidates for the next bootstrap request or which are
-/// blocked
-pub struct CandidateAccounts {
-    config: CandidateAccountsConfig,
+/// A queue of accounts which are candidates for the next bootstrap requests. 
+/// Accounts can be blocked, because a dependency block is missing. Blocked accounts
+/// are put on hold.
+pub struct BootstrapQueue {
+    config: BootstrapQueueConfig,
     priorities: PrioritizedAccounts,
     blocked: BlockedAccounts,
 }
 
-impl CandidateAccounts {
+impl BootstrapQueue {
     pub const PRIORITY_INITIAL: Priority = Priority::new(1.0);
     pub const PRIORITY_INCREASE: Priority = Priority::new(2.0);
     pub const PRIORITY_DIVIDE: f64 = 2.0;
@@ -70,7 +72,7 @@ impl CandidateAccounts {
     pub const PRIORITY_CUTOFF: Priority = Priority::new(0.15);
     pub const MAX_FAILS: usize = 3;
 
-    pub fn new(config: CandidateAccountsConfig) -> Self {
+    pub fn new(config: BootstrapQueueConfig) -> Self {
         Self {
             config,
             priorities: Default::default(),
@@ -118,7 +120,7 @@ impl CandidateAccounts {
 
         let change_result = self.priorities.modify(account, |entry| {
             let new_priority = entry.priority / Self::PRIORITY_DIVIDE;
-            if entry.fails >= CandidateAccounts::MAX_FAILS
+            if entry.fails >= BootstrapQueue::MAX_FAILS
                 || entry.fails as f64 >= entry.priority.as_f64()
                 || new_priority <= Self::PRIORITY_CUTOFF
             {
@@ -411,7 +413,7 @@ impl CandidateAccounts {
     }
 }
 
-impl Default for CandidateAccounts {
+impl Default for BootstrapQueue {
     fn default() -> Self {
         Self::new(Default::default())
     }
@@ -430,13 +432,13 @@ mod tests {
 
     #[test]
     fn empty_blocked() {
-        let candidates = CandidateAccounts::default();
+        let candidates = BootstrapQueue::default();
         assert_eq!(candidates.blocked(&Account::from(1)), false);
     }
 
     #[test]
     fn block() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
         candidates.priority_up(&account);
@@ -449,7 +451,7 @@ mod tests {
 
     #[test]
     fn blocking_unknown_account_does_nothing() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let blocked = candidates.block(
             Account::from(1),
             BlockHash::from(2),
@@ -461,7 +463,7 @@ mod tests {
 
     #[test]
     fn unblock() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
         candidates.priority_up(&account);
@@ -474,19 +476,19 @@ mod tests {
 
     #[test]
     fn unblock_zero_account() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         assert!(!candidates.unblock(Account::ZERO, None));
     }
 
     #[test]
     fn unblock_unknown_account() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         assert!(!candidates.unblock(Account::from(1), None));
     }
 
     #[test]
     fn unblock_with_unfulfilled_dependency_does_nothing() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
         candidates.priority_set_initial(&account);
@@ -499,7 +501,7 @@ mod tests {
 
     #[test]
     fn unblock_with_unknown_dependency_does_nothing() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
         let unknown_dependency = BlockHash::from(3);
@@ -513,20 +515,20 @@ mod tests {
 
     #[test]
     fn priority_base() {
-        let candidates = CandidateAccounts::default();
+        let candidates = BootstrapQueue::default();
         assert_eq!(candidates.priority(&Account::from(1)), Priority::ZERO);
     }
 
     #[test]
     fn priority_unblock() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
 
         assert_eq!(candidates.priority_up(&account), PriorityUpResult::Inserted);
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_INITIAL
         );
 
         candidates.block(account, hash, Timestamp::new_test_instance());
@@ -534,31 +536,31 @@ mod tests {
 
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_INITIAL
         );
     }
 
     #[test]
     fn priority_up_down() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
 
         candidates.priority_up(&account);
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_INITIAL
         );
 
         candidates.priority_down(&account);
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL / CandidateAccounts::PRIORITY_DIVIDE
+            BootstrapQueue::PRIORITY_INITIAL / BootstrapQueue::PRIORITY_DIVIDE
         );
     }
 
     #[test]
     fn priority_down_empty() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
 
         candidates.priority_down(&account);
@@ -569,7 +571,7 @@ mod tests {
     // Ensure priority value is bounded
     #[test]
     fn saturate_priority() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
 
         for _ in 0..100 {
@@ -577,18 +579,18 @@ mod tests {
         }
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_MAX
+            BootstrapQueue::PRIORITY_MAX
         );
     }
 
     #[test]
     fn priority_down_saturate() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_up(&account);
         assert_eq!(
             candidates.priority(&account),
-            CandidateAccounts::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_INITIAL
         );
         for _ in 0..10 {
             candidates.priority_down(&account);
@@ -598,7 +600,7 @@ mod tests {
 
     #[test]
     fn priority_set() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let prio = Priority::new(10.0);
         candidates.priority_set(&account, prio);
@@ -607,7 +609,7 @@ mod tests {
 
     #[test]
     fn priority_up_for_zero_account_fails() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let result = candidates.priority_up(&Account::ZERO);
         assert_eq!(result, PriorityUpResult::InvalidAccount);
         assert_eq!(candidates.blocked_len(), 0);
@@ -616,7 +618,7 @@ mod tests {
 
     #[test]
     fn priority_up_for_blocked_account_fails() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_set_initial(&account);
         candidates.block(account, BlockHash::from(2), Timestamp::new_test_instance());
@@ -627,7 +629,7 @@ mod tests {
 
     #[test]
     fn priority_down_for_zero_account_fails() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let result = candidates.priority_down(&Account::ZERO);
         assert_eq!(result, PriorityDownResult::InvalidAccount);
         assert_eq!(candidates.blocked_len(), 0);
@@ -636,7 +638,7 @@ mod tests {
 
     #[test]
     fn priority_set_for_zero_account_fails() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let success = candidates.priority_set_initial(&Account::ZERO);
         assert_eq!(success, false);
         assert_eq!(candidates.blocked_len(), 0);
@@ -645,7 +647,7 @@ mod tests {
 
     #[test]
     fn priority_set_fails_for_blocked_account() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_set_initial(&account);
         candidates.block(account, BlockHash::from(2), Timestamp::new_test_instance());
@@ -658,7 +660,7 @@ mod tests {
 
     #[test]
     fn priority_erase() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         candidates.priority_set_initial(&account1);
@@ -671,20 +673,20 @@ mod tests {
 
     #[test]
     fn priority_erase_zero_account() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         assert!(!candidates.priority_erase(&Account::ZERO));
     }
 
     #[test]
     fn set_last_request_for_unknown_account_does_nothing() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         candidates.set_last_request(&Account::from(1), Timestamp::new_test_instance());
         assert_eq!(candidates.priority_len(), 0);
     }
 
     #[test]
     fn set_last_request() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_set_initial(&account);
         let new_timestamp = Timestamp::new_test_instance() + Duration::from_secs(1000);
@@ -694,7 +696,7 @@ mod tests {
 
     #[test]
     fn timestamp_reset() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_set_initial(&account);
         candidates.reset_last_request(&account);
@@ -706,7 +708,7 @@ mod tests {
 
     #[test]
     fn trim_priorities_on_overflow() {
-        let mut candidates = CandidateAccounts::new(CandidateAccountsConfig {
+        let mut candidates = BootstrapQueue::new(BootstrapQueueConfig {
             max_prioritized_accounts: 2,
             ..Default::default()
         });
@@ -725,7 +727,7 @@ mod tests {
 
     #[test]
     fn trim_bocked_on_overflow() {
-        let mut candidates = CandidateAccounts::new(CandidateAccountsConfig {
+        let mut candidates = BootstrapQueue::new(BootstrapQueueConfig {
             max_blocked_accounts: 2,
             ..Default::default()
         });
@@ -747,14 +749,14 @@ mod tests {
 
     #[test]
     fn next_priority_empty() {
-        let candidates = CandidateAccounts::default();
+        let candidates = BootstrapQueue::default();
         let next = candidates.next_priority(Timestamp::new_test_instance(), |_| true);
         assert_eq!(next, PriorityResult::default());
     }
 
     #[test]
     fn next_priority() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         candidates.priority_set_initial(&account);
         let now = Timestamp::new_test_instance();
@@ -763,7 +765,7 @@ mod tests {
             next,
             PriorityResult {
                 account,
-                priority: CandidateAccounts::PRIORITY_INITIAL,
+                priority: BootstrapQueue::PRIORITY_INITIAL,
                 fails: 0
             }
         )
@@ -771,7 +773,7 @@ mod tests {
 
     #[test]
     fn next_priority_none_above_cutoff() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let now = Timestamp::new_test_instance();
         let account = Account::from(1);
         candidates.priority_up(&account);
@@ -782,8 +784,8 @@ mod tests {
 
     #[test]
     fn next_priority_cutoff() {
-        let config = CandidateAccountsConfig::default();
-        let mut candidates = CandidateAccounts::new(config.clone());
+        let config = BootstrapQueueConfig::default();
+        let mut candidates = BootstrapQueue::new(config.clone());
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         candidates.priority_set(&account1, Priority::new(100.0));
@@ -807,8 +809,8 @@ mod tests {
 
     #[test]
     fn next_priority_filter() {
-        let config = CandidateAccountsConfig::default();
-        let mut candidates = CandidateAccounts::new(config.clone());
+        let config = BootstrapQueueConfig::default();
+        let mut candidates = BootstrapQueue::new(config.clone());
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let account3 = Account::from(2);
@@ -821,7 +823,7 @@ mod tests {
             next,
             PriorityResult {
                 account: account2,
-                priority: CandidateAccounts::PRIORITY_INITIAL,
+                priority: BootstrapQueue::PRIORITY_INITIAL,
                 fails: 0
             }
         );
@@ -829,13 +831,13 @@ mod tests {
 
     #[test]
     fn next_blocked_empty() {
-        let candidates = CandidateAccounts::default();
+        let candidates = BootstrapQueue::default();
         assert_eq!(candidates.next_blocked(|_| true), BlockHash::ZERO);
     }
 
     #[test]
     fn next_blocked() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
         candidates.priority_set_initial(&account);
@@ -845,7 +847,7 @@ mod tests {
 
     #[test]
     fn next_blocked_filter() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let account3 = Account::from(3);
@@ -869,14 +871,14 @@ mod tests {
 
     #[test]
     fn sync_dependencies_empty() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let inserted = candidates.sync_dependencies();
         assert_eq!(inserted, 0);
     }
 
     #[test]
     fn sync_dependencies_insert_one_account() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
@@ -890,7 +892,7 @@ mod tests {
 
     #[test]
     fn sync_dependencies_doesnt_insert_when_dependency_account_already_prioritized() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
@@ -906,11 +908,11 @@ mod tests {
 
     #[test]
     fn sync_dependencies_doesnt_insert_when_max_accounts_prioritized() {
-        let config = CandidateAccountsConfig {
+        let config = BootstrapQueueConfig {
             max_prioritized_accounts: 2,
             ..Default::default()
         };
-        let mut candidates = CandidateAccounts::new(config);
+        let mut candidates = BootstrapQueue::new(config);
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
@@ -927,11 +929,11 @@ mod tests {
 
     #[test]
     fn blocked_half_full() {
-        let config = CandidateAccountsConfig {
+        let config = BootstrapQueueConfig {
             max_blocked_accounts: 3,
             ..Default::default()
         };
-        let mut candidates = CandidateAccounts::new(config);
+        let mut candidates = BootstrapQueue::new(config);
         let account1 = Account::from(1);
         let account2 = Account::from(2);
 
@@ -948,7 +950,7 @@ mod tests {
 
     #[test]
     fn container_info() {
-        let mut candidates = CandidateAccounts::default();
+        let mut candidates = BootstrapQueue::default();
         candidates.priority_set_initial(&Account::from(1));
         candidates.priority_set_initial(&Account::from(2));
         candidates.priority_set_initial(&Account::from(3));
