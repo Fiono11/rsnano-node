@@ -75,12 +75,12 @@ impl BootstrapLogic {
         next
     }
 
-    pub fn next_blocking_query(
+    pub fn next_blocked_query(
         &self,
         query_id: u64,
         channel: &Arc<Channel>,
     ) -> Option<AscPullQuerySpec> {
-        let next = self.next_blocking();
+        let next = self.next_blocked();
         if next.is_zero() {
             return None;
         }
@@ -101,10 +101,10 @@ impl BootstrapLogic {
             .count()
     }
 
-    /* Waits for next available blocking block */
-    pub fn next_blocking(&self) -> BlockHash {
+    /* Waits for next available blocked block */
+    pub fn next_blocked(&self) -> BlockHash {
         self.candidate_accounts
-            .next_blocking(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
+            .next_blocked(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
     }
 
     pub(crate) fn process_response(

@@ -20,8 +20,8 @@ pub(super) struct DependencyRequester {
 
 enum DependencyState {
     Initial,
-    WaitChannel,
-    WaitBlocking(Arc<Channel>),
+    WaitForChannel,
+    WaitForBlockedAccount(Arc<Channel>),
 }
 
 impl DependencyRequester {
@@ -47,25 +47,25 @@ impl BootstrapPromise<AscPullQuerySpec> for DependencyRequester {
         match self.state {
             DependencyState::Initial => {
                 self.stats.loop_count.fetch_add(1, Ordering::Relaxed);
-                self.state = DependencyState::WaitChannel;
+                self.state = DependencyState::WaitForChannel;
                 PollResult::Progress
             }
-            DependencyState::WaitChannel => match self.channel_waiter.poll(context) {
+            DependencyState::WaitForChannel => match self.channel_waiter.poll(context) {
                 PollResult::Wait => PollResult::Wait,
                 PollResult::Progress => PollResult::Progress,
                 PollResult::Finished(channel) => {
-                    self.state = DependencyState::WaitBlocking(channel);
+                    self.state = DependencyState::WaitForBlockedAccount(channel);
                     PollResult::Progress
                 }
             },
-            DependencyState::WaitBlocking(ref channel) => {
-                match context.logic.next_blocking_query(context.id, channel) {
+            DependencyState::WaitForBlockedAccount(ref channel) => {
+                match context.logic.next_blocked_query(context.id, channel) {
                     Some(spec) => {
                         self.state = DependencyState::Initial;
                         PollResult::Finished(spec)
                     }
                     _ => {
-                        self.stats.wait_blocking.fetch_add(1, Ordering::Relaxed);
+                        self.stats.wait_blocked.fetch_add(1, Ordering::Relaxed);
                         PollResult::Wait
                     }
                 }
@@ -77,7 +77,7 @@ impl BootstrapPromise<AscPullQuerySpec> for DependencyRequester {
 #[derive(Default)]
 pub(crate) struct DependencyRequesterStats {
     pub loop_count: AtomicU64,
-    pub wait_blocking: AtomicU64,
+    pub wait_blocked: AtomicU64,
     pub channel_waiter: Arc<ChannelWaiterStats>,
     pub next: AtomicU64,
 }
@@ -89,13 +89,13 @@ impl StatsSource for DependencyRequesterStats {
         result.insert(STAT_NAME, "loop", self.loop_count.load(Ordering::Relaxed));
         result.insert(
             STAT_NAME,
-            "wait_blocking",
-            self.wait_blocking.load(Ordering::Relaxed),
+            "wait_blocked",
+            self.wait_blocked.load(Ordering::Relaxed),
         );
 
         result.insert(
             "bootstrap_next",
-            "next_blocking",
+            "next_blocked",
             self.next.load(Ordering::Relaxed),
         );
 
@@ -146,12 +146,15 @@ mod tests {
 
         let result = progress(&mut requester, &mut context);
         assert!(matches!(result, PollResult::Wait));
-        assert!(matches!(requester.state, DependencyState::WaitChannel));
+        assert!(matches!(requester.state, DependencyState::WaitForChannel));
 
         network.write().unwrap().add_test_channel();
         let result = requester.poll(&mut context);
         assert!(matches!(result, PollResult::Progress));
-        assert!(matches!(requester.state, DependencyState::WaitBlocking(_)));
+        assert!(matches!(
+            requester.state,
+            DependencyState::WaitForBlockedAccount(_)
+        ));
     }
 
     #[test]
@@ -163,7 +166,10 @@ mod tests {
 
         let result = progress_state(&mut requester, &mut state);
         assert!(matches!(result, PollResult::Wait));
-        assert!(matches!(requester.state, DependencyState::WaitBlocking(_)));
+        assert!(matches!(
+            requester.state,
+            DependencyState::WaitForBlockedAccount(_)
+        ));
 
         let account = Account::from(1);
         let dependency = BlockHash::from(2);

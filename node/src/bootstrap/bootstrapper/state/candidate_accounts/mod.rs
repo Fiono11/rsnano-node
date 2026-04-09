@@ -8,8 +8,8 @@ mod blocked_accounts;
 mod priority;
 mod priority_container;
 
-use blocked_accounts::{BlockedAccounts};
 pub use blocked_accounts::BlockedAccount;
+use blocked_accounts::BlockedAccounts;
 pub use priority::Priority;
 use priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry};
 
@@ -151,10 +151,10 @@ impl CandidateAccounts {
     fn priority_set_impl(
         account: &Account,
         priority: Priority,
-        blocking: &BlockedAccounts,
+        blocked: &BlockedAccounts,
         priorities: &mut PriorityContainer,
     ) -> bool {
-        if account.is_zero() || blocking.contains(account) || priorities.contains(account) {
+        if account.is_zero() || blocked.contains(account) || priorities.contains(account) {
             false
         } else {
             priorities.insert(PriorityEntry::new(*account, priority));
@@ -178,7 +178,7 @@ impl CandidateAccounts {
         if removed.is_some() {
             self.blocked.insert(BlockedAccount {
                 account,
-                dependency,
+                dependency_block: dependency,
                 dependency_account: Account::ZERO,
                 added: now,
             });
@@ -198,7 +198,7 @@ impl CandidateAccounts {
         // Unblock only if the dependency is fulfilled
         if let Some(existing) = self.blocked.get(&account) {
             let hash_matches = if let Some(hash) = hash {
-                hash == existing.dependency
+                hash == existing.dependency_block
             } else {
                 true
             };
@@ -216,8 +216,8 @@ impl CandidateAccounts {
         false
     }
 
-    /// Should be called periodically to remove old entries from the blocking set
-    pub fn decay_blocking(&mut self, now: Timestamp) -> usize {
+    /// Should be called periodically to remove old entries from the blocked accounts
+    pub fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
         let cutoff = now - self.config.blocked_decay;
         self.blocked.remove_older_than(cutoff)
     }
@@ -299,7 +299,7 @@ impl CandidateAccounts {
         }
     }
 
-    pub fn next_blocking(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
+    pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
         if self.blocked.is_empty() {
             return BlockHash::ZERO;
         }
@@ -349,8 +349,8 @@ impl CandidateAccounts {
         self.blocked.len()
     }
 
-    pub fn unique_blocking_accounts(&self) -> usize {
-        self.blocked.unique_blocked_accounts()
+    pub fn unique_blocked_accounts(&self) -> usize {
+        self.blocked.unique_dependency_accounts()
     }
 
     pub fn known_dependencies(&self) -> usize {
@@ -396,20 +396,16 @@ impl CandidateAccounts {
     }
 
     pub fn container_info(&self) -> ContainerInfo {
-        // Count blocking entries with their dependency account unknown
-        let blocking_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
+        // Count blocked entries with their dependency account unknown
+        let blocked_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
         [
             (
                 "priorities",
                 self.priorities.len(),
                 PriorityContainer::ELEMENT_SIZE,
             ),
-            (
-                "blocking",
-                self.blocked.len(),
-                BlockedAccounts::ELEMENT_SIZE,
-            ),
-            ("blocking_unknown", blocking_unknown, 0),
+            ("blocked", self.blocked.len(), BlockedAccounts::ELEMENT_SIZE),
+            ("blocked_unknown", blocked_unknown, 0),
         ]
         .into()
     }
@@ -832,23 +828,23 @@ mod tests {
     }
 
     #[test]
-    fn next_blocking_empty() {
+    fn next_blocked_empty() {
         let candidates = CandidateAccounts::default();
-        assert_eq!(candidates.next_blocking(|_| true), BlockHash::ZERO);
+        assert_eq!(candidates.next_blocked(|_| true), BlockHash::ZERO);
     }
 
     #[test]
-    fn next_blocking() {
+    fn next_blocked() {
         let mut candidates = CandidateAccounts::default();
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
         candidates.priority_set_initial(&account);
         candidates.block(account, dependency, Timestamp::new_test_instance());
-        assert_eq!(candidates.next_blocking(|_| true), dependency);
+        assert_eq!(candidates.next_blocked(|_| true), dependency);
     }
 
     #[test]
-    fn next_blocking_filter() {
+    fn next_blocked_filter() {
         let mut candidates = CandidateAccounts::default();
         let account1 = Account::from(1);
         let account2 = Account::from(2);
@@ -868,7 +864,7 @@ mod tests {
             BlockHash::from(2000),
             Timestamp::new_test_instance(),
         );
-        assert_eq!(candidates.next_blocking(|h| *h == dependency), dependency);
+        assert_eq!(candidates.next_blocked(|h| *h == dependency), dependency);
     }
 
     #[test]
@@ -972,8 +968,8 @@ mod tests {
             info,
             [
                 ("priorities", 2, PriorityContainer::ELEMENT_SIZE),
-                ("blocking", 2, BlockedAccounts::ELEMENT_SIZE),
-                ("blocking_unknown", 1, 0)
+                ("blocked", 2, BlockedAccounts::ELEMENT_SIZE),
+                ("blocked_unknown", 1, 0)
             ]
             .into()
         )

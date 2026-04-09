@@ -200,7 +200,7 @@ impl MainViewModel {
             .map(|i| {
                 let mut model = BlockedViewModel {
                     account: i.account.encode_account(),
-                    dependency: i.dependency.to_string(),
+                    dependency: i.dependency_block.to_string(),
                     dependency_account: i.dependency_account.encode_account(),
                     account_val: i.account,
                     dependency_account_val: i.dependency_account,

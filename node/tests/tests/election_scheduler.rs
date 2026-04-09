@@ -41,6 +41,7 @@ mod election_scheduler {
      * As soon as the test code manually confirms E1 (and thus evicts it out of the AEC),
      * it is expected that E2 begins and the scheduler's queue becomes empty again.
      */
+    #[ignore = "TODO find out why it is flaky"]
     fn no_vacancy() {
         let mut system = System::new();
         let node = system

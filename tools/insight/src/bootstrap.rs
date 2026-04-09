@@ -19,7 +19,7 @@ impl BootstrapInfo {
         let candidates = &state.candidate_accounts;
         self.priority_accounts = candidates.priority_len();
         self.blocked_accounts = candidates.blocked_len();
-        self.unique_blocking_accounts = candidates.unique_blocking_accounts();
+        self.unique_blocking_accounts = candidates.unique_blocked_accounts();
         self.known_dependencies = candidates.known_dependencies();
 
         self.priorities = candidates
