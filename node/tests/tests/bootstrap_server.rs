@@ -9,7 +9,7 @@ use rsnano_messages::{
     AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq, AscPullReqType,
     BlocksReqPayload, FrontiersReqPayload, HashType, Message,
 };
-use rsnano_node::{Node, bootstrap::BootstrapServer};
+use rsnano_node::{Node, bootstrap::server::BootstrapServer};
 use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{

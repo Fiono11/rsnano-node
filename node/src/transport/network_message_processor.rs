@@ -15,7 +15,7 @@ use rsnano_work::WorkThresholds;
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::{BootstrapServer, Bootstrapper},
+    bootstrap::{Bootstrapper, server::BootstrapServer},
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
     telemetry::Telemetry,
     wallets::WalletRepresentatives,

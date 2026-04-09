@@ -1,4 +1,4 @@
-use crate::{bootstrap::BootstrapServerConfig, config::NodeConfig};
+use crate::{bootstrap::server::BootstrapServerConfig, config::NodeConfig};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
