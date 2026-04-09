@@ -5,7 +5,7 @@ use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use super::{
-    blocking_container::{BlockedAccounts, BlockedAccount},
+    blocked_accounts::{BlockedAccount, BlockedAccounts},
     priority::Priority,
     priority_container::{ChangePriorityResult, PriorityContainer, PriorityEntry},
 };

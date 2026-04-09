@@ -265,10 +265,12 @@ mod tests {
         assert_eq!(blocking.is_empty(), true);
         assert_eq!(blocking.contains(&Account::from(1)), false);
         assert_eq!(blocking.count_by_dependency_account(&Account::from(1)), 0);
-        assert!(blocking
-            .iter_start_dep_account(Account::from(1))
-            .next()
-            .is_none());
+        assert!(
+            blocking
+                .iter_start_dep_account(Account::from(1))
+                .next()
+                .is_none()
+        );
         assert!(blocking.next(|_| true).is_none());
         assert!(blocking.get(&Account::from(1)).is_none());
         assert_eq!(blocking.remove_account_and_dependents(&Account::from(1)), 0);
