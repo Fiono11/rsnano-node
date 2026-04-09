@@ -28,7 +28,6 @@ impl BootstrapCleanup {
         );
 
         self.erase_timed_out_requests(state, now);
-        self.reinsert_known_dependencies(state);
     }
 
     fn erase_timed_out_requests(&mut self, state: &mut BootstrapLogic, now: Timestamp) {
@@ -46,7 +45,7 @@ impl BootstrapCleanup {
         }
     }
 
-    fn reinsert_known_dependencies(&mut self, state: &mut BootstrapLogic) {
+    pub fn reinsert_known_dependencies(&mut self, state: &mut BootstrapLogic) {
         self.stats
             .inc(StatType::Bootstrap, DetailType::SyncDependencies);
 

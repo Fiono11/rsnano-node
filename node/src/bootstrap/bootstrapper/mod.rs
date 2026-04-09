@@ -320,8 +320,15 @@ impl Bootstrapper {
     fn run_timeouts(&self) {
         let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
         let mut state = self.logic.lock().unwrap();
+        let mut last_sync = self.clock.now();
         while !state.stopped {
             cleanup.cleanup(&mut state);
+
+            if last_sync.elapsed(self.clock.now()) >= Duration::from_secs(60) {
+                cleanup.reinsert_known_dependencies(&mut state);
+                last_sync = self.clock.now();
+            }
+
             self.state_changed.notify_all();
 
             state = self
