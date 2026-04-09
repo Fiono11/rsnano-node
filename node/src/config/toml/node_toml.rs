@@ -70,6 +70,46 @@ pub struct NodeToml {
     pub cps_limit: Option<u32>,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct BootstrapToml {
+    pub enable: Option<bool>,
+    pub enable_priorities: Option<bool>,
+    pub enable_dependency_walker: Option<bool>,
+    pub enable_frontier_scan: Option<bool>,
+    pub block_processor_threshold: Option<usize>,
+    pub database_rate_limit: Option<usize>,
+    pub frontier_rate_limit: Option<usize>,
+    pub database_warmup_ratio: Option<usize>,
+    pub max_pull_count: Option<u8>,
+    pub channel_limit: Option<usize>,
+    pub rate_limit: Option<usize>,
+    pub throttle_coefficient: Option<usize>,
+    pub throttle_wait: Option<u64>,
+    pub request_timeout: Option<u64>,
+    pub max_requests: Option<usize>,
+    pub optimistic_request_percentage: Option<u8>,
+    pub account_sets: Option<AccountSetsToml>,
+    pub frontier_scan: Option<FrontierScanToml>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AccountSetsToml {
+    pub blocking_max: Option<usize>,
+    pub blocking_decay: Option<usize>,
+    pub consideration_count: Option<usize>,
+    pub cooldown: Option<u64>,
+    pub priorities_max: Option<usize>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct FrontierScanToml {
+    pub head_parallelism: Option<usize>,
+    pub consideration_count: Option<usize>,
+    pub candidates: Option<usize>,
+    pub cooldown: Option<u64>,
+    pub max_pending: Option<usize>,
+}
+
 impl NodeConfig {
     pub fn merge_toml(&mut self, toml: &NodeToml) {
         if let Some(allow_local_peers) = toml.allow_local_peers {
@@ -230,10 +270,38 @@ impl NodeConfig {
                 config.enable_frontier_scan = *enable;
             }
             if let Some(account_sets) = &boot_toml.account_sets {
-                config.candidate_accounts = account_sets.into();
+                if let Some(blocking_max) = account_sets.blocking_max {
+                    config.candidate_accounts.max_blocked_accounts = blocking_max;
+                }
+                if let Some(priorities_max) = account_sets.priorities_max {
+                    config.candidate_accounts.max_prioritized_accounts = priorities_max;
+                }
+                if let Some(cooldown) = &account_sets.cooldown {
+                    config.candidate_accounts.account_cooldown = Duration::from_millis(*cooldown);
+                }
+                if let Some(decay) = &account_sets.blocking_decay {
+                    config.candidate_accounts.blocked_decay = Duration::from_secs(*decay as u64);
+                }
+                if let Some(i) = account_sets.consideration_count {
+                    config.frontier_scan.consideration_count = i;
+                }
             }
             if let Some(front) = &boot_toml.frontier_scan {
-                config.merge_toml(front);
+                if let Some(i) = front.head_parallelism {
+                    config.frontier_scan.parallelism = i;
+                }
+                if let Some(i) = front.consideration_count {
+                    config.frontier_scan.consideration_count = i;
+                }
+                if let Some(i) = front.candidates {
+                    config.frontier_scan.candidates = i;
+                }
+                if let Some(i) = front.cooldown {
+                    config.frontier_scan.cooldown = Duration::from_millis(i);
+                }
+                if let Some(i) = front.max_pending {
+                    config.max_pending_frontier_responses = i;
+                }
                 if let Some(i) = front.max_pending {
                     config.max_pending_frontier_responses = i;
                 }
@@ -495,7 +563,48 @@ impl From<&NodeConfig> for NodeToml {
                 vacancy_threshold: Some(config.hinted_scheduler.vacancy_threshold_percent),
             }),
             priority_bucket: Some((&config.priority_bucket).into()),
-            bootstrap: Some((&config.bootstrap).into()),
+            bootstrap: Some(BootstrapToml {
+                enable: Some(config.bootstrap.enable),
+                enable_priorities: Some(config.bootstrap.enable_priorities),
+                enable_dependency_walker: Some(config.bootstrap.enable_dependency_walker),
+                enable_frontier_scan: Some(config.bootstrap.enable_frontier_scan),
+                channel_limit: Some(config.bootstrap.channel_limit),
+                rate_limit: Some(config.bootstrap.rate_limit),
+                database_rate_limit: Some(config.bootstrap.database_rate_limit),
+                frontier_rate_limit: Some(config.bootstrap.frontier_rate_limit),
+                database_warmup_ratio: Some(config.bootstrap.database_warmup_ratio),
+                max_pull_count: Some(config.bootstrap.max_pull_count),
+                request_timeout: Some(config.bootstrap.request_timeout.as_millis() as u64),
+                throttle_coefficient: Some(config.bootstrap.throttle_coefficient),
+                throttle_wait: Some(config.bootstrap.throttle_wait.as_millis() as u64),
+                block_processor_threshold: Some(config.bootstrap.block_processor_theshold),
+                max_requests: Some(config.bootstrap.max_requests),
+                optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
+                account_sets: Some(AccountSetsToml {
+                    priorities_max: Some(
+                        config.bootstrap.candidate_accounts.max_prioritized_accounts,
+                    ),
+                    blocking_max: Some(config.bootstrap.candidate_accounts.max_blocked_accounts),
+                    cooldown: Some(
+                        config
+                            .bootstrap
+                            .candidate_accounts
+                            .account_cooldown
+                            .as_millis() as u64,
+                    ),
+                    blocking_decay: Some(
+                        config.bootstrap.candidate_accounts.blocked_decay.as_secs() as usize,
+                    ),
+                    consideration_count: Some(config.bootstrap.frontier_scan.consideration_count),
+                }),
+                frontier_scan: Some(FrontierScanToml {
+                    head_parallelism: Some(config.bootstrap.frontier_scan.parallelism),
+                    consideration_count: Some(config.bootstrap.frontier_scan.consideration_count),
+                    candidates: Some(config.bootstrap.frontier_scan.candidates),
+                    cooldown: Some(config.bootstrap.frontier_scan.cooldown.as_millis() as u64),
+                    max_pending: Some(config.bootstrap.max_pending_frontier_responses),
+                }),
+            }),
             bootstrap_server: Some(config.into()),
             websocket: Some((&config.websocket_config).into()),
             lmdb: Some((&config.lmdb_config).into()),
@@ -585,10 +694,11 @@ mod tests {
         assert_eq!(ascending.database_warmup_ratio, 108);
 
         let sets = &cfg.bootstrap.candidate_accounts;
-        assert_eq!(sets.blocking_max, 200);
-        assert_eq!(sets.consideration_count, 201);
-        assert_eq!(sets.cooldown, Duration::from_millis(203));
-        assert_eq!(sets.priorities_max, 204);
+        let frontier_cfg = &cfg.bootstrap.frontier_scan;
+        assert_eq!(sets.max_blocked_accounts, 200);
+        assert_eq!(frontier_cfg.consideration_count, 201);
+        assert_eq!(sets.account_cooldown, Duration::from_millis(203));
+        assert_eq!(sets.max_prioritized_accounts, 204);
     }
 
     #[test]

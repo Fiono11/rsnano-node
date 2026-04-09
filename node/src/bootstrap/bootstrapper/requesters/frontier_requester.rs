@@ -276,7 +276,7 @@ mod tests {
     fn state_with_max_priorities(max: usize) -> BootstrapLogic {
         let config = BootstrapConfig {
             candidate_accounts: CandidateAccountsConfig {
-                priorities_max: max,
+                max_prioritized_accounts: max,
                 ..Default::default()
             },
             ..Default::default()

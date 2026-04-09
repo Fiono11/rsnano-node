@@ -12,21 +12,25 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CandidateAccountsConfig {
-    pub consideration_count: usize,
-    pub priorities_max: usize,
-    pub blocking_max: usize,
-    pub blocking_decay: Duration,
-    pub cooldown: Duration,
+    pub max_prioritized_accounts: usize,
+    pub max_blocked_accounts: usize,
+
+    /// A blocked account is removed if it has been blocked for blocked_decay
+    pub blocked_decay: Duration,
+
+    /// After a request was made for an account, the account goes into cooldown,
+    /// so that we don't immediately create more requests for it, because we need
+    /// to wait a bit for the responses to come in
+    pub account_cooldown: Duration,
 }
 
 impl Default for CandidateAccountsConfig {
     fn default() -> Self {
         Self {
-            consideration_count: 4,
-            priorities_max: 256 * 1024,
-            blocking_max: 256 * 1024,
-            blocking_decay: Duration::from_secs(60 * 60),
-            cooldown: Duration::from_secs(3),
+            max_prioritized_accounts: 256 * 1024,
+            max_blocked_accounts: 256 * 1024,
+            blocked_decay: Duration::from_secs(60 * 60),
+            account_cooldown: Duration::from_secs(3),
         }
     }
 }
@@ -211,7 +215,7 @@ impl CandidateAccounts {
 
     /// Should be called periodically to remove old entries from the blocking set
     pub fn decay_blocking(&mut self, now: Timestamp) -> usize {
-        let cutoff = now - self.config.blocking_decay;
+        let cutoff = now - self.config.blocked_decay;
         self.blocking.remove_older_than(cutoff)
     }
 
@@ -259,10 +263,12 @@ impl CandidateAccounts {
 
     /// Erase the oldest entries
     fn trim_overflow(&mut self) {
-        while !self.priorities.is_empty() && self.priorities.len() > self.config.priorities_max {
+        while !self.priorities.is_empty()
+            && self.priorities.len() > self.config.max_prioritized_accounts
+        {
             self.priorities.pop_lowest_prio();
         }
-        while self.blocking.len() > self.config.blocking_max {
+        while self.blocking.len() > self.config.max_blocked_accounts {
             self.blocking.remove_oldest();
         }
     }
@@ -277,7 +283,7 @@ impl CandidateAccounts {
             return Default::default();
         }
 
-        let cutoff = now - self.config.cooldown;
+        let cutoff = now - self.config.account_cooldown;
 
         let Some(entry) = self.priorities.next_priority(cutoff, filter) else {
             return Default::default();
@@ -357,15 +363,15 @@ impl CandidateAccounts {
     }
 
     pub fn priority_full(&self) -> bool {
-        self.priorities.len() >= self.config.priorities_max
+        self.priorities.len() >= self.config.max_prioritized_accounts
     }
 
     pub fn priority_half_full(&self) -> bool {
-        self.priorities.len() > self.config.priorities_max / 2
+        self.priorities.len() > self.config.max_prioritized_accounts / 2
     }
 
     pub fn blocked_half_full(&self) -> bool {
-        self.blocking.len() > self.config.blocking_max / 2
+        self.blocking.len() > self.config.max_blocked_accounts / 2
     }
 
     /// Accounts in the ledger but not in priority list are assumed priority 1.0f
@@ -702,7 +708,7 @@ mod tests {
     #[test]
     fn trim_priorities_on_overflow() {
         let mut candidates = CandidateAccounts::new(CandidateAccountsConfig {
-            priorities_max: 2,
+            max_prioritized_accounts: 2,
             ..Default::default()
         });
         let account1 = Account::from(1);
@@ -721,7 +727,7 @@ mod tests {
     #[test]
     fn trim_bocked_on_overflow() {
         let mut candidates = CandidateAccounts::new(CandidateAccountsConfig {
-            blocking_max: 2,
+            max_blocked_accounts: 2,
             ..Default::default()
         });
         let account1 = Account::from(1);
@@ -784,8 +790,11 @@ mod tests {
         candidates.priority_set(&account1, Priority::new(100.0));
         candidates.priority_set(&account2, Priority::new(1.0));
         let now = Timestamp::new_test_instance();
-        candidates.set_last_request(&account1, now - config.cooldown + Duration::from_millis(1));
-        candidates.set_last_request(&account2, now - config.cooldown);
+        candidates.set_last_request(
+            &account1,
+            now - config.account_cooldown + Duration::from_millis(1),
+        );
+        candidates.set_last_request(&account2, now - config.account_cooldown);
         let next = candidates.next_priority(now, |_| true);
         assert_eq!(
             next,
@@ -899,7 +908,7 @@ mod tests {
     #[test]
     fn sync_dependencies_doesnt_insert_when_max_accounts_prioritized() {
         let config = CandidateAccountsConfig {
-            priorities_max: 2,
+            max_prioritized_accounts: 2,
             ..Default::default()
         };
         let mut candidates = CandidateAccounts::new(config);
@@ -920,7 +929,7 @@ mod tests {
     #[test]
     fn blocked_half_full() {
         let config = CandidateAccountsConfig {
-            blocking_max: 3,
+            max_blocked_accounts: 3,
             ..Default::default()
         };
         let mut candidates = CandidateAccounts::new(config);

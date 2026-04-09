@@ -658,40 +658,52 @@ mod tests {
 
         // Bootstrap Ascending Account Sets section
         assert_ne!(
-            deserialized.node.bootstrap.candidate_accounts.blocking_max,
-            default_cfg.node.bootstrap.candidate_accounts.blocking_max
-        );
-        assert_ne!(
             deserialized
                 .node
                 .bootstrap
                 .candidate_accounts
-                .consideration_count,
+                .max_blocked_accounts,
             default_cfg
                 .node
                 .bootstrap
                 .candidate_accounts
-                .consideration_count
+                .max_blocked_accounts
         );
         assert_ne!(
-            deserialized.node.bootstrap.candidate_accounts.cooldown,
-            default_cfg.node.bootstrap.candidate_accounts.cooldown
+            deserialized
+                .node
+                .bootstrap
+                .frontier_scan
+                .consideration_count,
+            default_cfg.node.bootstrap.frontier_scan.consideration_count
         );
         assert_ne!(
             deserialized
                 .node
                 .bootstrap
                 .candidate_accounts
-                .priorities_max,
-            default_cfg.node.bootstrap.candidate_accounts.priorities_max
+                .account_cooldown,
+            default_cfg
+                .node
+                .bootstrap
+                .candidate_accounts
+                .account_cooldown
         );
         assert_ne!(
             deserialized
                 .node
                 .bootstrap
                 .candidate_accounts
-                .blocking_decay,
-            default_cfg.node.bootstrap.candidate_accounts.blocking_decay
+                .max_prioritized_accounts,
+            default_cfg
+                .node
+                .bootstrap
+                .candidate_accounts
+                .max_prioritized_accounts
+        );
+        assert_ne!(
+            deserialized.node.bootstrap.candidate_accounts.blocked_decay,
+            default_cfg.node.bootstrap.candidate_accounts.blocked_decay
         );
 
         // Bootstrap Server section
