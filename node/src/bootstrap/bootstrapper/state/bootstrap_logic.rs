@@ -167,8 +167,16 @@ impl BootstrapLogic {
         self.frontiers_processor
             .frontiers_processed(outdated, &mut self.bootstrap_queue);
     }
+}
 
-    pub fn container_info(&self) -> ContainerInfo {
+impl Default for BootstrapLogic {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+impl ContainerInfoProvider for BootstrapLogic {
+    fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf(
                 "tags",
@@ -178,13 +186,11 @@ impl BootstrapLogic {
             .node("accounts", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
+            .node(
+                "block_queue",
+                self.block_ack_processor.block_queue.container_info(),
+            )
             .finish()
-    }
-}
-
-impl Default for BootstrapLogic {
-    fn default() -> Self {
-        Self::new(Default::default())
     }
 }
 

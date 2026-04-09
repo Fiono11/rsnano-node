@@ -1,4 +1,5 @@
 use rsnano_types::{Account, Block, BlockHash};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 
@@ -167,6 +168,22 @@ pub(crate) struct AccountBlocks {
 pub(crate) struct BlockInfo {
     pub account: Option<Account>,
     pub was_last: bool,
+}
+
+impl ContainerInfoProvider for BlockQueue {
+    fn container_info(&self) -> ContainerInfo {
+        [
+            ("accounts", self.accounts.len(), 0),
+            (
+                "waiting_insert",
+                self.waiting_to_be_inserted_into_block_processor.len(),
+                0,
+            ),
+            ("in_block_proc", self.in_block_processor.len(), 0),
+            ("blocks", self.blocks, 0),
+        ]
+        .into()
+    }
 }
 
 #[cfg(test)]
