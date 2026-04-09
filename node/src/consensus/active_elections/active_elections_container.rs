@@ -34,7 +34,7 @@ use super::{
     stats::AecStats,
 };
 
-pub struct ActiveElectionsContainer {
+pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -94,37 +94,6 @@ impl ActiveElectionsContainer {
     /// Iterates over all elections in round robin fashion starting at the highest bucket
     pub fn iter_round_robin(&self) -> impl Iterator<Item = &Election> {
         self.roots.round_robin().map(|i| &i.election)
-    }
-
-    /// Iterates over all elections in a bucket
-    pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Election> {
-        self.roots.iter_bucket(bucket_id).map(|i| &i.election)
-    }
-
-    pub fn pick_one_per_bucket_from<F>(
-        &self,
-        starting_bucket: usize,
-        filter: F,
-    ) -> impl Iterator<Item = (usize, &Election)>
-    where
-        F: Fn(&Election) -> bool,
-    {
-        let total = bucket_count();
-        (0..total).filter_map(move |i| {
-            let bucket_id = if i <= starting_bucket {
-                starting_bucket - i
-            } else {
-                // wrapping around
-                starting_bucket + total - i
-            };
-            self.roots.iter_bucket(bucket_id).find_map(|entry| {
-                if filter(&entry.election) {
-                    Some((bucket_id, &entry.election))
-                } else {
-                    None
-                }
-            })
-        })
     }
 
     pub fn check_vacancy<T>(&self, source: &T) -> bool
@@ -676,76 +645,6 @@ mod tests {
             ],
             &[&block_d, &block_c, &block_a, &block_b],
         )
-    }
-
-    #[test]
-    fn pick_one_per_bucket() {
-        let block_a1 = SavedBlock::new_test_instance_with_key(1);
-        let block_a2 = SavedBlock::new_test_instance_with_key(2);
-        let block_a3 = SavedBlock::new_test_instance_with_key(3);
-        let block_b = SavedBlock::new_test_instance_with_key(4);
-        let block_c = SavedBlock::new_test_instance_with_key(5);
-
-        // Same amount → same bucket; different TimePriority to get two distinct elections
-        let prio_a1 = BlockPriority::new(Amount::nano(10), TimePriority::new(100));
-        let prio_a2 = BlockPriority::new(Amount::nano(10), TimePriority::new(99));
-        let prio_a3 = BlockPriority::new(Amount::nano(10), TimePriority::new(98));
-
-        let prio_b = BlockPriority::new(Amount::nano(1000), TimePriority::new(99));
-        let prio_c = BlockPriority::new(Amount::nano(100000), TimePriority::new(99));
-
-        let mut container = ActiveElectionsContainer::default();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_a1.clone(), prio_a1),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_a2.clone(), prio_a2),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_a3.clone(), prio_a3),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_b.clone(), prio_b),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_c.clone(), prio_c),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-
-        let bucket_a = container.find_bucket(&block_a1.qualified_root()).unwrap();
-        let bucket_a2 = container.find_bucket(&block_a2.qualified_root()).unwrap();
-        let bucket_b = container.find_bucket(&block_b.qualified_root()).unwrap();
-        let bucket_c = container.find_bucket(&block_c.qualified_root()).unwrap();
-
-        assert_eq!(bucket_a, bucket_a2);
-
-        // iter_from_bucket must yield at most one election per bucket
-        let results: Vec<(usize, BlockHash)> = container
-            .pick_one_per_bucket_from(bucket_b, |e| e.winner().hash() != block_a3.hash())
-            .map(|(bucket, e)| (bucket, e.winner().hash()))
-            .collect();
-
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0].0, bucket_b);
-        assert_eq!(results[0].1, block_b.hash());
-        assert_eq!(results[1].0, bucket_a);
-        assert_eq!(results[1].1, block_a2.hash());
-        assert_eq!(results[2].0, bucket_c);
-        assert_eq!(results[2].1, block_c.hash());
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

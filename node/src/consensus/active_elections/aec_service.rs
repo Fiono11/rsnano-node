@@ -99,20 +99,6 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
-    pub fn pick_one_election_per_bucket<P, F, T>(
-        &self,
-        starting_bucket: usize,
-        filter: F,
-        process: P,
-    ) -> T
-    where
-        F: Fn(&Election) -> bool,
-        P: FnOnce(&mut dyn Iterator<Item = (usize, &Election)>) -> T,
-    {
-        let guard = self.aec.read().unwrap();
-        process(&mut guard.pick_one_per_bucket_from(starting_bucket, filter))
-    }
-
     // --- Write forwarding ---
 
     pub fn set_observer(&self, observer: Sender<AecFact>) {
