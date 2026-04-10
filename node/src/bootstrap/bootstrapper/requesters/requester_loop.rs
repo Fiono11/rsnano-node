@@ -156,9 +156,17 @@ impl QueryFactory2 {
 
     fn acquire_channel(&self, state: &mut BootstrapLogic, now: Timestamp) -> Option<Arc<Channel>> {
         if state.running_queries.len() >= self.config.max_requests {
+            self.stats2
+                .channel_waiter
+                .queries_overfill
+                .fetch_add(1, Ordering::Relaxed);
             return None;
         }
         if !self.limiter.lock().unwrap().try_consume(1, now) {
+            self.stats2
+                .channel_waiter
+                .rate_limit
+                .fetch_add(1, Ordering::Relaxed);
             return None;
         }
         let network = self.network.read().unwrap();
@@ -167,8 +175,21 @@ impl QueryFactory2 {
             .map(|c| c.channel_id())
             .collect();
         // TODO refactor so that the running queries isn't incremented here
-        let id = state.scoring.channel(candidates)?;
-        network.get(id).cloned()
+        let Some(id) = state.scoring.channel(candidates) else {
+            self.stats2
+                .channel_waiter
+                .no_candidate
+                .fetch_add(1, Ordering::Relaxed);
+            return None;
+        };
+        let channel = network.get(id).cloned();
+        if channel.is_none() {
+            self.stats2
+                .channel_waiter
+                .no_candidate
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        channel
     }
 
     fn block_processor_free(&self) -> bool {
