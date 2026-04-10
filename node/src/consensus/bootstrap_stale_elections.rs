@@ -50,7 +50,7 @@ impl BootstrapStaleElections {
         let mut state = self.bootstrapper.state();
 
         for account in &self.stale_accounts {
-            state.bootstrap_queue.priority_set_initial(account);
+            state.bootstrap_queue.priority_up(account);
         }
         self.stats
             .bootstrap_stale

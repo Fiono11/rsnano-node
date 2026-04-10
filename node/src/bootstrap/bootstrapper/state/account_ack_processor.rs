@@ -142,7 +142,7 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        queue.priority_set_initial(&blocked_account);
+        queue.priority_set(&blocked_account, BootstrapQueue::PRIORITY_INITIAL);
 
         queue.block(
             blocked_account,

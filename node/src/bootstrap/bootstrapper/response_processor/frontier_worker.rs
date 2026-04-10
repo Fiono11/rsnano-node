@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(guard.bootstrap_queue.priority_len(), 1);
         assert_eq!(
             guard.bootstrap_queue.priority(&account),
-            BootstrapQueue::PRIORITY_INITIAL
+            BootstrapQueue::PRIORITY_CUTOFF
         );
         assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
         assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);
