@@ -34,6 +34,7 @@ pub(super) struct RequesterLoop {
     config: BootstrapConfig,
     query_sender: QuerySender,
     query_factory2: QueryFactory2,
+    stats: Arc<PriorityRequesterStats>,
 }
 
 impl RequesterLoop {
@@ -54,11 +55,14 @@ impl RequesterLoop {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
         let query_factory = QueryFactory::new(ledger, pull_type_decider, pull_count_decider);
+        let mut query_sender = QuerySender::new(message_sender, stats.clone());
+        query_sender.set_request_timeout(config.request_timeout);
         Self {
             state: logic,
             state_changed,
             config: config.clone(),
-            query_sender: QuerySender::new(message_sender, stats.clone()),
+            query_sender,
+            stats: stats2.clone(),
             query_factory2: QueryFactory2 {
                 clock: SteadyClock::default(),
                 stats: stats2,
@@ -99,6 +103,7 @@ impl RequesterLoop {
             }
 
             if produced == 0 {
+                self.stats.sleep.fetch_add(1, Ordering::Relaxed);
                 // nothing to do — wait for a state change or fixed throttle
                 state = self
                     .state_changed
@@ -191,7 +196,7 @@ impl QueryFactory2 {
         if !start.is_zero() {
             // TODO stats
             let id = self.rng_factory.rng().next_u64();
-            Some(Self::create_query_spec(&channel, start, id))
+            Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {
             // TODO stats
             None
@@ -231,7 +236,7 @@ impl QueryFactory2 {
             < self.config.block_processor_threshold
     }
 
-    fn create_query_spec(
+    fn create_frontier_query_spec(
         channel: &Arc<Channel>,
         start: Account,
         query_id: u64,
@@ -263,6 +268,7 @@ pub(crate) struct PriorityRequesterStats {
     pub no_candidate: AtomicU64,
     pub queries_overfill: AtomicU64,
     pub rate_limit: AtomicU64,
+    pub sleep: AtomicU64,
 }
 
 impl StatsSource for PriorityRequesterStats {
@@ -303,5 +309,7 @@ impl StatsSource for PriorityRequesterStats {
             "rate_limit",
             self.queries_overfill.load(Ordering::Relaxed),
         );
+
+        result.insert(STAT_NAME, "sleep", self.sleep.load(Ordering::Relaxed));
     }
 }

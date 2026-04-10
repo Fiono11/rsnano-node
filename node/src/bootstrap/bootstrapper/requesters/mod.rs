@@ -64,38 +64,32 @@ impl Requesters {
     }
 
     pub fn start(&self) {
-        let join_handle = if self.config.enable_priorities {
-            let requester_stats = Arc::new(PriorityRequesterStats::default());
-            self.stats_sources
-                .lock()
-                .unwrap()
-                .push(requester_stats.clone());
+        let requester_stats = Arc::new(PriorityRequesterStats::default());
+        self.stats_sources
+            .lock()
+            .unwrap()
+            .push(requester_stats.clone());
 
-            let mut requester_loop = RequesterLoop::new(
-                self.state.clone(),
-                self.state_changed.clone(),
-                self.config.clone(),
-                self.message_sender.clone(),
-                self.stats.clone(),
-                requester_stats,
-                self.network.clone(),
-                self.limiter.clone(),
-                self.ledger.clone(),
-                self.block_processor_queue.clone(),
-            );
-            Some(
-                std::thread::Builder::new()
-                    .name("Bootstrap".to_string())
-                    .spawn(move || {
-                        requester_loop.run_loop();
-                    })
-                    .unwrap(),
-            )
-        } else {
-            None
-        };
+        let mut requester_loop = RequesterLoop::new(
+            self.state.clone(),
+            self.state_changed.clone(),
+            self.config.clone(),
+            self.message_sender.clone(),
+            self.stats.clone(),
+            requester_stats,
+            self.network.clone(),
+            self.limiter.clone(),
+            self.ledger.clone(),
+            self.block_processor_queue.clone(),
+        );
+        let join_handle = std::thread::Builder::new()
+            .name("Bootstrap".to_string())
+            .spawn(move || {
+                requester_loop.run_loop();
+            })
+            .unwrap();
 
-        *self.thread.lock().unwrap() = join_handle;
+        *self.thread.lock().unwrap() = Some(join_handle);
     }
 
     pub fn stop(&self) {

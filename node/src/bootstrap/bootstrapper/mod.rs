@@ -35,16 +35,6 @@ use state::{PriorityUpResult, bootstrap_logic::ProcessError};
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
 
-trait BootstrapPromise<T> {
-    fn poll(&mut self, context: &mut PromiseContext) -> PollResult<T>;
-}
-
-enum PollResult<T> {
-    Progress,
-    Wait,
-    Finished(T),
-}
-
 pub struct PromiseContext<'a> {
     pub logic: &'a mut state::BootstrapLogic,
     pub now: Timestamp,
@@ -95,33 +85,6 @@ impl AscPullQuerySpec {
             },
             AscPullReqType::AccountInfo(_) => QueryType::AccountInfoByHash,
             AscPullReqType::Frontiers(_) => QueryType::Frontiers,
-        }
-    }
-}
-
-#[cfg(test)]
-pub(self) fn progress_state<T>(
-    requester: &mut impl BootstrapPromise<T>,
-    state: &mut state::BootstrapLogic,
-) -> PollResult<T> {
-    let mut context = PromiseContext {
-        logic: state,
-        now: Timestamp::new_test_instance(),
-        id: 123,
-    };
-
-    progress(requester, &mut context)
-}
-
-#[cfg(test)]
-pub(self) fn progress<T>(
-    requester: &mut impl BootstrapPromise<T>,
-    context: &mut PromiseContext,
-) -> PollResult<T> {
-    loop {
-        match requester.poll(context) {
-            PollResult::Progress => {}
-            result => return result,
         }
     }
 }
