@@ -13,8 +13,8 @@ use std::{
 };
 
 use rsnano_ledger::Ledger;
-use rsnano_network::token_bucket::TokenBucket;
 use rsnano_network::Network;
+use rsnano_network::token_bucket::TokenBucket;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
@@ -22,8 +22,9 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        requesters::requester_loop::RequesterLoop, state::BootstrapLogic, AscPullQuerySpec,
-        BootstrapConfig, BootstrapPromise,
+        AscPullQuerySpec, BootstrapConfig, BootstrapPromise,
+        requesters::{priority::PriorityRequesterStats, requester_loop::RequesterLoop},
+        state::BootstrapLogic,
     },
     transport::MessageSender,
 };
@@ -31,8 +32,7 @@ use crate::{
 use {
     bootstrap_promise_runner::BootstrapPromiseRunner, channel_waiter::ChannelWaiter,
     dependency_requester::DependencyRequester, frontier_requester::FrontierRequester,
-    priority::PriorityRequester, query_sender::QuerySender,
-    send_queries_promise::SendQueriesPromise,
+    query_sender::QuerySender, send_queries_promise::SendQueriesPromise,
 };
 
 /// Manages the threads that send out AscPullReqs
@@ -107,39 +107,33 @@ impl Requesters {
             None
         };
 
-        let priorities = if self.config.enable_priorities {
-            let mut requester = PriorityRequester::new(
-                self.block_processor_queue.clone(),
-                channel_waiter.clone(),
-                self.ledger.clone(),
-                &self.config,
-            );
-            requester.block_processor_threshold = self.config.block_processor_threshold;
-            self.stats_sources.lock().unwrap().push(requester.stats());
+        let join_handle = if self.config.enable_priorities {
+            let requester_stats = Arc::new(PriorityRequesterStats::default());
+            self.stats_sources
+                .lock()
+                .unwrap()
+                .push(requester_stats.clone());
 
-            //----------------------------------------
             let mut requester_loop = RequesterLoop::new(
                 self.state.clone(),
                 self.state_changed.clone(),
                 self.config.clone(),
                 self.message_sender.clone(),
                 self.stats.clone(),
-                requester.stats(),
+                requester_stats,
                 self.network.clone(),
                 self.limiter.clone(),
                 self.ledger.clone(),
                 self.block_processor_queue.clone(),
             );
-            std::thread::Builder::new()
-                .name("Bootstrap".to_string())
-                .spawn(move || {
-                    requester_loop.run_loop();
-                })
-                .unwrap();
-            //----------------------------------------
-
-            None
-            //Some(self.spawn_query("Bootstrap", requester, runner.clone()))
+            Some(
+                std::thread::Builder::new()
+                    .name("Bootstrap".to_string())
+                    .spawn(move || {
+                        requester_loop.run_loop();
+                    })
+                    .unwrap(),
+            )
         } else {
             None
         };
@@ -153,9 +147,9 @@ impl Requesters {
         };
 
         let requesters = RequesterThreads {
-            priorities,
             frontiers,
             dependencies,
+            join_handle,
         };
 
         *self.threads.lock().unwrap() = Some(requesters);
@@ -198,14 +192,14 @@ impl Requesters {
 }
 
 pub struct RequesterThreads {
-    pub priorities: Option<JoinHandle<()>>,
+    pub join_handle: Option<JoinHandle<()>>,
     pub dependencies: Option<JoinHandle<()>>,
     pub frontiers: Option<JoinHandle<()>>,
 }
 
 impl RequesterThreads {
     pub fn join(&mut self) {
-        if let Some(handle) = self.priorities.take() {
+        if let Some(handle) = self.join_handle.take() {
             handle.join().unwrap();
         }
         if let Some(dependencies) = self.dependencies.take() {

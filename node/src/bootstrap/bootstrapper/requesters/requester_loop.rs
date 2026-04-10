@@ -124,6 +124,7 @@ struct QueryFactory2 {
 
 impl QueryFactory2 {
     fn try_priority_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
+        self.stats2.loop_count.fetch_add(1, Ordering::Relaxed);
         let now = self.clock.now();
         if !self.block_processor_free() {
             self.stats2
@@ -138,8 +139,15 @@ impl QueryFactory2 {
             now,
             id,
         };
-        self.query_factory
-            .next_priority_query(&mut context, channel)
+        let query = self
+            .query_factory
+            .next_priority_query(&mut context, channel);
+        if query.is_none() {
+            self.stats2.wait_priority.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.stats2.next.fetch_add(1, Ordering::Relaxed);
+        }
+        query
     }
 
     fn acquire_channel(&self, state: &mut BootstrapLogic, now: Timestamp) -> Option<Arc<Channel>> {
