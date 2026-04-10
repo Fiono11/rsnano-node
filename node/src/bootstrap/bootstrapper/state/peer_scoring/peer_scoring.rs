@@ -31,31 +31,12 @@ impl PeerScoring {
         candidates.shuffle(&mut rand::rng());
         candidates
             .iter()
-            .find(|channel_id| {
-                Self::try_send_message(&mut self.scoring, **channel_id, self.channel_limit)
-            })
+            .find(|channel_id| self.scoring.running_queries(**channel_id) < self.channel_limit)
             .cloned()
     }
 
-    fn try_send_message(
-        scoring: &mut PeerScoreContainer,
-        channel_id: ChannelId,
-        channel_limit: usize,
-    ) -> bool {
-        let mut success = true;
-        let modified = scoring.modify(channel_id, |s| {
-            if s.running_queries < channel_limit {
-                s.add_request();
-            } else {
-                success = false;
-            }
-        });
-        if !modified {
-            let mut score = PeerScore::new(channel_id);
-            score.add_request();
-            scoring.insert(score);
-        }
-        success
+    pub fn add_query(&mut self, channel_id: ChannelId) {
+        self.scoring.add_query(channel_id);
     }
 
     pub fn len(&self) -> usize {
@@ -85,6 +66,7 @@ mod tests {
     fn received_message_decrements_running_queries_to_zero() {
         let channel_id = ChannelId::from(1);
         let mut scoring = PeerScoring::new();
+        scoring.add_query(channel_id);
 
         // Send one query — running_queries becomes 1
         scoring.channel(vec![channel_id]);

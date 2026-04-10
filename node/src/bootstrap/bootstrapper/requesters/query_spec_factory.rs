@@ -99,6 +99,7 @@ impl QuerySpecFactory {
         let cooldown_account = next.fails == 0;
 
         let channel = self.acquire_channel(state)?;
+        let channel_id = channel.channel_id();
         let query = AscPullQuerySpec {
             query_id,
             channel: channel,
@@ -110,6 +111,7 @@ impl QuerySpecFactory {
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1, now);
+        state.scoring.add_query(channel_id);
         self.stats.next.fetch_add(1, Relaxed);
         Some(query)
     }
@@ -128,10 +130,12 @@ impl QuerySpecFactory {
 
         let now = self.clock.now();
         let channel = self.acquire_channel(state)?;
-        let id = self.rng_factory.rng().next_u64();
-        match state.next_blocked_query(id, &channel) {
+        let channel_id = channel.channel_id();
+        let query_id = self.rng_factory.rng().next_u64();
+        match state.next_blocked_query(query_id, &channel) {
             Some(spec) => {
                 self.request_limiter.consume(1, now);
+                state.scoring.add_query(channel_id);
                 // TODO stats
                 Some(spec)
             }
@@ -166,6 +170,7 @@ impl QuerySpecFactory {
         if !start.is_zero() {
             // TODO stats
             self.frontiers_limiter.consume(1, now);
+            state.scoring.add_query(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {
@@ -180,12 +185,11 @@ impl QuerySpecFactory {
             .available_channels(TrafficType::BootstrapRequests)
             .map(|c| c.channel_id())
             .collect();
-        // TODO refactor so that the running queries isn't incremented here
-        let Some(id) = state.scoring.channel(candidate_channels) else {
+        let Some(channel_id) = state.scoring.channel(candidate_channels) else {
             self.stats.no_channel.fetch_add(1, Relaxed);
             return None;
         };
-        let channel = network.get(id).cloned();
+        let channel = network.get(channel_id).cloned();
         if channel.is_none() {
             self.stats.no_channel.fetch_add(1, Relaxed);
         }

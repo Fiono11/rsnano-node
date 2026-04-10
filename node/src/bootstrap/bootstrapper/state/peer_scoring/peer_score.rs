@@ -18,7 +18,7 @@ impl PeerScore {
         }
     }
 
-    pub fn add_request(&mut self) {
+    pub fn add_query(&mut self) {
         self.running_queries += 1;
         self.request_count_total += 1;
     }
