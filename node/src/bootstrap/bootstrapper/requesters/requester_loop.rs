@@ -61,7 +61,7 @@ impl RequesterLoop {
             query_factory2: QueryFactory2 {
                 config,
                 clock: SteadyClock::default(),
-                stats2,
+                stats: stats2,
                 network,
                 limiter,
                 block_processor_queue,
@@ -88,11 +88,12 @@ impl RequesterLoop {
                 self.query_sender.send(spec, &mut state);
                 produced += 1;
             }
-            //            if self.config.enable_dependency_walker
-            //                && let Some(spec) = self.try_dependency_query(&mut state, now) {
-            //                self.query_sender.send(spec, &mut state);
-            //                produced += 1;
-            //            }
+            if self.config.enable_dependency_walker
+                && let Some(spec) = self.query_factory2.try_dependency_query(&mut state)
+            {
+                self.query_sender.send(spec, &mut state);
+                produced += 1;
+            }
 
             if produced == 0 {
                 // nothing to do — wait for a state change or fixed throttle
@@ -118,7 +119,7 @@ impl RequesterLoop {
 struct QueryFactory2 {
     config: BootstrapConfig,
     clock: SteadyClock,
-    stats2: Arc<PriorityRequesterStats>,
+    stats: Arc<PriorityRequesterStats>,
     network: Arc<RwLock<Network>>,
     limiter: Arc<Mutex<TokenBucket>>,
     block_processor_queue: Arc<BlockProcessorQueue>,
@@ -128,10 +129,9 @@ struct QueryFactory2 {
 
 impl QueryFactory2 {
     fn try_priority_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
-        self.stats2.loop_count.fetch_add(1, Ordering::Relaxed);
         let now = self.clock.now();
         if !self.block_processor_free() {
-            self.stats2
+            self.stats
                 .wait_block_processor
                 .fetch_add(1, Ordering::Relaxed);
             return None;
@@ -147,23 +147,41 @@ impl QueryFactory2 {
             .query_factory
             .next_priority_query(&mut context, channel);
         if query.is_none() {
-            self.stats2.wait_priority.fetch_add(1, Ordering::Relaxed);
+            self.stats.wait_priority.fetch_add(1, Ordering::Relaxed);
         } else {
-            self.stats2.next.fetch_add(1, Ordering::Relaxed);
+            self.stats.next.fetch_add(1, Ordering::Relaxed);
         }
         query
     }
 
+    fn try_dependency_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
+        let now = self.clock.now();
+        let channel = self.acquire_channel(state, now)?;
+        let id = self.rng_factory.rng().next_u64();
+        match state.next_blocked_query(id, &channel) {
+            Some(spec) => {
+                // TODO stats
+                Some(spec)
+            }
+            None => {
+                // TODO stats
+                None
+            }
+        }
+    }
+
     fn acquire_channel(&self, state: &mut BootstrapLogic, now: Timestamp) -> Option<Arc<Channel>> {
         if state.running_queries.len() >= self.config.max_requests {
-            self.stats2
+            self.stats
                 .channel_waiter
                 .queries_overfill
                 .fetch_add(1, Ordering::Relaxed);
             return None;
         }
+
+        // TODO refactor so that we don't change the rate limiter here
         if !self.limiter.lock().unwrap().try_consume(1, now) {
-            self.stats2
+            self.stats
                 .channel_waiter
                 .rate_limit
                 .fetch_add(1, Ordering::Relaxed);
@@ -176,7 +194,7 @@ impl QueryFactory2 {
             .collect();
         // TODO refactor so that the running queries isn't incremented here
         let Some(id) = state.scoring.channel(candidates) else {
-            self.stats2
+            self.stats
                 .channel_waiter
                 .no_candidate
                 .fetch_add(1, Ordering::Relaxed);
@@ -184,7 +202,7 @@ impl QueryFactory2 {
         };
         let channel = network.get(id).cloned();
         if channel.is_none() {
-            self.stats2
+            self.stats
                 .channel_waiter
                 .no_candidate
                 .fetch_add(1, Ordering::Relaxed);
@@ -200,7 +218,6 @@ impl QueryFactory2 {
 
 #[derive(Default)]
 pub(crate) struct PriorityRequesterStats {
-    pub loop_count: AtomicU64,
     pub wait_block_processor: AtomicU64,
     pub wait_priority: AtomicU64,
     pub channel_waiter: Arc<ChannelWaiterStats>,
@@ -211,7 +228,6 @@ impl StatsSource for PriorityRequesterStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
         const STAT_NAME: &str = "boot_requester_prio";
 
-        result.insert(STAT_NAME, "loop", self.loop_count.load(Ordering::Relaxed));
         result.insert(
             STAT_NAME,
             "wait_block_processor",
