@@ -1,6 +1,5 @@
 mod bootstrap_promise_runner;
 mod channel_waiter;
-mod dependency_requester;
 mod frontier_requester;
 mod priority;
 mod query_sender;
@@ -31,8 +30,8 @@ use crate::{
 
 use {
     bootstrap_promise_runner::BootstrapPromiseRunner, channel_waiter::ChannelWaiter,
-    dependency_requester::DependencyRequester, frontier_requester::FrontierRequester,
-    query_sender::QuerySender, send_queries_promise::SendQueriesPromise,
+    frontier_requester::FrontierRequester, query_sender::QuerySender,
+    send_queries_promise::SendQueriesPromise,
 };
 
 /// Manages the threads that send out AscPullReqs
@@ -138,18 +137,8 @@ impl Requesters {
             None
         };
 
-        let dependencies = if self.config.enable_dependency_walker {
-            //let requester = DependencyRequester::new(channel_waiter);
-            //self.stats_sources.lock().unwrap().push(requester.stats());
-            //Some(self.spawn_query("Bootstrap walkr", requester, runner.clone()))
-            None
-        } else {
-            None
-        };
-
         let requesters = RequesterThreads {
             frontiers,
-            dependencies,
             join_handle,
         };
 
@@ -194,7 +183,6 @@ impl Requesters {
 
 pub struct RequesterThreads {
     pub join_handle: Option<JoinHandle<()>>,
-    pub dependencies: Option<JoinHandle<()>>,
     pub frontiers: Option<JoinHandle<()>>,
 }
 
@@ -202,9 +190,6 @@ impl RequesterThreads {
     pub fn join(&mut self) {
         if let Some(handle) = self.join_handle.take() {
             handle.join().unwrap();
-        }
-        if let Some(dependencies) = self.dependencies.take() {
-            dependencies.join().unwrap();
         }
         if let Some(frontiers) = self.frontiers.take() {
             frontiers.join().unwrap();
