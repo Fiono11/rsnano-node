@@ -48,7 +48,6 @@ impl RequesterLoop {
         stats: Arc<Stats>,
         stats2: Arc<PriorityRequesterStats>,
         network: Arc<RwLock<Network>>,
-        limiter: Arc<Mutex<TokenBucket>>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
     ) -> Self {
@@ -56,6 +55,7 @@ impl RequesterLoop {
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
         let query_factory = QueryFactory::new(ledger, pull_type_decider, pull_count_decider);
         let mut query_sender = QuerySender::new(message_sender, stats.clone());
+        let limiter = TokenBucket::new(config.rate_limit);
         query_sender.set_request_timeout(config.request_timeout);
         Self {
             state: logic,
@@ -129,7 +129,7 @@ struct QueryFactory2 {
     clock: SteadyClock,
     stats: Arc<PriorityRequesterStats>,
     network: Arc<RwLock<Network>>,
-    limiter: Arc<Mutex<TokenBucket>>,
+    limiter: TokenBucket,
     block_processor_queue: Arc<BlockProcessorQueue>,
     query_factory: QueryFactory,
     rng_factory: NullableRngFactory,
@@ -203,14 +203,18 @@ impl QueryFactory2 {
         }
     }
 
-    fn acquire_channel(&self, state: &mut BootstrapLogic, now: Timestamp) -> Option<Arc<Channel>> {
+    fn acquire_channel(
+        &mut self,
+        state: &mut BootstrapLogic,
+        now: Timestamp,
+    ) -> Option<Arc<Channel>> {
         if state.running_queries.len() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Ordering::Relaxed);
             return None;
         }
 
         // TODO refactor so that we don't change the rate limiter here
-        if !self.limiter.lock().unwrap().try_consume(1, now) {
+        if !self.limiter.try_consume(1, now) {
             self.stats.rate_limit.fetch_add(1, Ordering::Relaxed);
             return None;
         }

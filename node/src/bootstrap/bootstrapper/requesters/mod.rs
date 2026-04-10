@@ -9,7 +9,6 @@ use std::{
 
 use rsnano_ledger::Ledger;
 use rsnano_network::Network;
-use rsnano_network::token_bucket::TokenBucket;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
 use crate::{
@@ -24,7 +23,6 @@ use crate::{
 
 /// Manages the threads that send out AscPullReqs
 pub(crate) struct Requesters {
-    limiter: Arc<Mutex<TokenBucket>>,
     config: BootstrapConfig,
     stats: Arc<Stats>,
     message_sender: MessageSender,
@@ -49,7 +47,6 @@ impl Requesters {
         network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
-            limiter: Arc::new(Mutex::new(TokenBucket::new(config.rate_limit))),
             config,
             stats,
             message_sender,
@@ -78,7 +75,6 @@ impl Requesters {
             self.stats.clone(),
             requester_stats,
             self.network.clone(),
-            self.limiter.clone(),
             self.ledger.clone(),
             self.block_processor_queue.clone(),
         );
