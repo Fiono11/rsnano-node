@@ -9,7 +9,11 @@ ledger_snapshots = [
 	"rsnano_ledger/ledger_snapshots",
 	"rsnano_rpc_server/ledger_snapshots",
 ]
-banano = ["rsnano_types/banano", "rsnano_node/banano"]
+banano = [
+	"rsnano_types/banano",
+	"rsnano_ledger/banano",
+	"rsnano_node/banano",
+]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
