@@ -12,7 +12,7 @@ pub(super) enum PullType {
 }
 
 /// Decides whether to make an optimistic of a safe priority pull request
-pub(super) struct PullTypeDecider {
+pub(crate) struct PullTypeDecider {
     optimistic_request_percentage: u8,
     rng: NullableRng,
 }
@@ -32,7 +32,7 @@ impl PullTypeDecider {
         )
     }
 
-    pub(super) fn new(optimistic_request_percentage: u8) -> Self {
+    pub fn new(optimistic_request_percentage: u8) -> Self {
         Self::with(NullableRng::rng(), optimistic_request_percentage)
     }
 

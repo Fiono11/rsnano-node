@@ -13,14 +13,14 @@ use crate::bootstrap::bootstrapper::{AscPullQuerySpec, PromiseContext};
 use tracing::trace;
 
 /// Creates a query for the next priority account
-pub(super) struct QueryFactory {
+pub(crate) struct QueryFactory {
     ledger: Arc<Ledger>,
     pull_type_decider: PullTypeDecider,
     pull_count_decider: PullCountDecider,
 }
 
 impl QueryFactory {
-    pub(super) fn new(
+    pub fn new(
         ledger: Arc<Ledger>,
         pull_type_decider: PullTypeDecider,
         pull_count_decider: PullCountDecider,

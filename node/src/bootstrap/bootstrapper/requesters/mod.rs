@@ -4,6 +4,7 @@ mod dependency_requester;
 mod frontier_requester;
 mod priority;
 mod query_sender;
+mod requester_loop;
 mod send_queries_promise;
 
 use std::{
@@ -12,8 +13,8 @@ use std::{
 };
 
 use rsnano_ledger::Ledger;
-use rsnano_network::Network;
 use rsnano_network::token_bucket::TokenBucket;
+use rsnano_network::Network;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
@@ -21,7 +22,8 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        AscPullQuerySpec, BootstrapConfig, BootstrapPromise, state::BootstrapLogic,
+        requesters::requester_loop::RequesterLoop, state::BootstrapLogic, AscPullQuerySpec,
+        BootstrapConfig, BootstrapPromise,
     },
     transport::MessageSender,
 };
@@ -112,10 +114,32 @@ impl Requesters {
                 self.ledger.clone(),
                 &self.config,
             );
-            requester.block_processor_threshold = self.config.block_processor_theshold;
+            requester.block_processor_threshold = self.config.block_processor_threshold;
             self.stats_sources.lock().unwrap().push(requester.stats());
 
-            Some(self.spawn_query("Bootstrap", requester, runner.clone()))
+            //----------------------------------------
+            let mut requester_loop = RequesterLoop::new(
+                self.state.clone(),
+                self.state_changed.clone(),
+                self.config.clone(),
+                self.message_sender.clone(),
+                self.stats.clone(),
+                requester.stats(),
+                self.network.clone(),
+                self.limiter.clone(),
+                self.ledger.clone(),
+                self.block_processor_queue.clone(),
+            );
+            std::thread::Builder::new()
+                .name("Bootstrap".to_string())
+                .spawn(move || {
+                    requester_loop.run_loop();
+                })
+                .unwrap();
+            //----------------------------------------
+
+            None
+            //Some(self.spawn_query("Bootstrap", requester, runner.clone()))
         } else {
             None
         };
@@ -159,11 +183,7 @@ impl Requesters {
     where
         T: BootstrapPromise<AscPullQuerySpec> + Send + 'static,
     {
-        let mut query_sender = QuerySender::new(
-            self.message_sender.clone(),
-            self.clock.clone(),
-            self.stats.clone(),
-        );
+        let mut query_sender = QuerySender::new(self.message_sender.clone(), self.stats.clone());
         query_sender.set_request_timeout(self.config.request_timeout);
 
         let send_promise = SendQueriesPromise::new(query_factory, query_sender);
