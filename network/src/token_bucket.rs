@@ -16,9 +16,6 @@ pub struct TokenBucket {
     last_refill: Option<Timestamp>,
     current_size: usize,
     max_token_count: usize,
-
-    /** The minimum observed bucket size, from which the largest burst can be derived */
-    smallest_size: usize,
     refill_rate: usize,
 }
 
@@ -44,7 +41,6 @@ impl TokenBucket {
             max_token_count: max_tokens,
             refill_rate,
             current_size: 0,
-            smallest_size: 0,
         };
 
         result.reset_with(max_tokens, refill_rate);
@@ -58,19 +54,26 @@ impl TokenBucket {
      * more tokens to be available.
      */
     pub fn try_consume(&mut self, tokens_required: usize, now: Timestamp) -> bool {
-        debug_assert!(tokens_required <= UNLIMITED);
-        self.refill(now);
-        let possible = self.current_size >= tokens_required;
+        let possible = self.could_consume(tokens_required, now);
         if possible {
-            self.current_size -= tokens_required;
-        } else if tokens_required == UNLIMITED {
-            self.current_size = 0;
+            self.current_size = self.current_size.saturating_sub(tokens_required);
         }
 
-        // Keep track of smallest observed bucket size so burst size can be computed (for tests and stats)
-        self.smallest_size = std::cmp::min(self.smallest_size, self.current_size);
+        possible
+    }
 
-        possible || self.refill_rate == UNLIMITED
+    pub fn could_consume(&mut self, tokens_required: usize, now: Timestamp) -> bool {
+        debug_assert!(tokens_required <= UNLIMITED);
+        self.refill(now);
+
+        self.current_size >= tokens_required
+            || tokens_required == UNLIMITED
+            || self.refill_rate == UNLIMITED
+    }
+
+    pub fn consume(&mut self, tokens: usize, now: Timestamp) {
+        self.refill(now);
+        self.current_size = self.current_size.saturating_sub(tokens);
     }
 
     pub fn set_limit(&mut self, new_limit: usize) {
@@ -90,17 +93,10 @@ impl TokenBucket {
             refill_rate = UNLIMITED;
             max_token_count = UNLIMITED;
         }
-        self.smallest_size = max_token_count;
         self.max_token_count = max_token_count;
         self.current_size = max_token_count;
         self.refill_rate = refill_rate;
         self.last_refill = None;
-    }
-
-    /** Returns the largest burst observed */
-    #[allow(dead_code)]
-    pub fn largest_burst(&self) -> usize {
-        self.max_token_count - self.smallest_size
     }
 
     pub fn size(&self) -> usize {
@@ -159,7 +155,6 @@ mod tests {
         // Allow time for the bucket to completely refill and do a full burst
         now += Duration::from_secs(1);
         assert_eq!(bucket.try_consume(10, now), true);
-        assert_eq!(bucket.largest_burst(), 10);
     }
 
     #[test]
@@ -171,9 +166,7 @@ mod tests {
 
         // Initial burst of 10 mb/s over two calls
         assert_eq!(bucket.try_consume(5, now), true);
-        assert_eq!(bucket.largest_burst(), 5);
         assert_eq!(bucket.try_consume(5, now), true);
-        assert_eq!(bucket.largest_burst(), 10);
         assert_eq!(bucket.try_consume(5, now), false);
 
         // After 200 ms, the 5 mb/s fillrate means we have 1 mb available
@@ -222,13 +215,10 @@ mod tests {
         let mut bucket = TokenBucket::with_refill_rate(0, 0);
         let now = Timestamp::new_test_instance();
         assert_eq!(bucket.try_consume(5, now), true);
-        assert_eq!(bucket.largest_burst(), 5);
         assert_eq!(bucket.try_consume(1_000_000_000, now), true);
-        assert_eq!(bucket.largest_burst(), 1_000_000_000);
 
         // With unlimited tokens, consuming always succeed
         assert_eq!(bucket.try_consume(1_000_000_000, now), true);
-        assert_eq!(bucket.largest_burst(), 1_000_000_000);
     }
 
     #[test]

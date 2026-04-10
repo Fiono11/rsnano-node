@@ -1,6 +1,8 @@
 mod priority;
 mod query_sender;
+mod query_spec_factory;
 mod requester_loop;
+mod stats;
 
 use std::{
     sync::{Arc, Condvar, Mutex, RwLock},
@@ -15,7 +17,7 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig,
-        requesters::requester_loop::{PriorityRequesterStats, RequesterLoop},
+        requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
         state::BootstrapLogic,
     },
     transport::MessageSender,
@@ -61,7 +63,7 @@ impl Requesters {
     }
 
     pub fn start(&self) {
-        let requester_stats = Arc::new(PriorityRequesterStats::default());
+        let requester_stats = Arc::new(BootstrapRequesterStats::default());
         self.stats_sources
             .lock()
             .unwrap()
