@@ -1,18 +1,22 @@
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock, atomic::Ordering},
+    sync::{
+        Arc, Condvar, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
 use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_utils::stats::Stats;
+use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig, PromiseContext,
         requesters::{
-            priority::{PriorityRequesterStats, PullCountDecider, PullTypeDecider, QueryFactory},
+            channel_waiter::ChannelWaiterStats,
+            priority::{PullCountDecider, PullTypeDecider, QueryFactory},
             query_sender::QuerySender,
         },
         state::BootstrapLogic,
@@ -170,5 +174,40 @@ impl QueryFactory2 {
     fn block_processor_free(&self) -> bool {
         self.block_processor_queue.queue_len(BlockSource::Bootstrap)
             < self.config.block_processor_threshold
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PriorityRequesterStats {
+    pub loop_count: AtomicU64,
+    pub wait_block_processor: AtomicU64,
+    pub wait_priority: AtomicU64,
+    pub channel_waiter: Arc<ChannelWaiterStats>,
+    pub next: AtomicU64,
+}
+
+impl StatsSource for PriorityRequesterStats {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        const STAT_NAME: &str = "boot_requester_prio";
+
+        result.insert(STAT_NAME, "loop", self.loop_count.load(Ordering::Relaxed));
+        result.insert(
+            STAT_NAME,
+            "wait_block_processor",
+            self.wait_block_processor.load(Ordering::Relaxed),
+        );
+        result.insert(
+            STAT_NAME,
+            "wait_priority",
+            self.wait_priority.load(Ordering::Relaxed),
+        );
+
+        result.insert(
+            "bootstrap_next",
+            "next_priority",
+            self.next.load(Ordering::Relaxed),
+        );
+
+        self.channel_waiter.collect_stats(STAT_NAME, result);
     }
 }

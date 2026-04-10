@@ -23,7 +23,7 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig, BootstrapPromise,
-        requesters::{priority::PriorityRequesterStats, requester_loop::RequesterLoop},
+        requesters::requester_loop::{PriorityRequesterStats, RequesterLoop},
         state::BootstrapLogic,
     },
     transport::MessageSender,
