@@ -24,12 +24,7 @@ impl PeerScoring {
     }
 
     pub fn received_message(&mut self, channel_id: ChannelId) {
-        self.scoring.modify(channel_id, |i| {
-            if i.running_queries > 0 {
-                i.running_queries -= 1;
-                i.response_count_total += 1;
-            }
-        });
+        self.scoring.modify(channel_id, |i| i.got_response());
     }
 
     pub fn channel(&mut self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
@@ -48,16 +43,17 @@ impl PeerScoring {
         channel_limit: usize,
     ) -> bool {
         let mut success = true;
-        let modified = scoring.modify(channel_id, |i| {
-            if i.running_queries < channel_limit {
-                i.running_queries += 1;
-                i.request_count_total += 1;
+        let modified = scoring.modify(channel_id, |s| {
+            if s.running_queries < channel_limit {
+                s.add_request();
             } else {
                 success = false;
             }
         });
         if !modified {
-            scoring.insert(PeerScore::new(channel_id));
+            let mut score = PeerScore::new(channel_id);
+            score.add_request();
+            scoring.insert(score);
         }
         success
     }

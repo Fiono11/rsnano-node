@@ -35,22 +35,6 @@ use state::{PriorityUpResult, bootstrap_logic::ProcessError};
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
 
-pub struct PromiseContext<'a> {
-    pub logic: &'a mut state::BootstrapLogic,
-    pub now: Timestamp,
-    pub id: u64,
-}
-
-impl<'a> PromiseContext<'a> {
-    pub fn new_test_instance(state: &'a mut state::BootstrapLogic) -> Self {
-        Self {
-            logic: state,
-            now: Timestamp::new_test_instance(),
-            id: 123,
-        }
-    }
-}
-
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AscPullQuerySpec {
     pub query_id: u64,

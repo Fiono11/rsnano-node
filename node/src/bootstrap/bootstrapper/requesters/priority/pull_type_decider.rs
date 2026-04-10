@@ -2,7 +2,7 @@ use rand::Rng;
 use rsnano_nullable_random::NullableRng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PullType {
+pub(crate) enum PullType {
     /// Optimistic requests start from the (possibly unconfirmed) account frontier
     /// and are vulnerable to bootstrap poisoning.
     Optimistic,

@@ -6,7 +6,7 @@ pub(crate) struct BootstrapRequesterStats {
     pub wait_block_processor: AtomicU64,
     pub wait_priority: AtomicU64,
     pub next: AtomicU64,
-    pub no_candidate: AtomicU64,
+    pub no_channel: AtomicU64,
     pub queries_overfill: AtomicU64,
     pub rate_limit: AtomicU64,
     pub sleep: AtomicU64,
@@ -23,7 +23,7 @@ impl StatsSource for BootstrapRequesterStats {
         );
         result.insert(STAT_NAME, "wait_priority", self.wait_priority.load(Relaxed));
         result.insert(STAT_NAME, "next_priority", self.next.load(Relaxed));
-        result.insert(STAT_NAME, "no_candidate", self.no_candidate.load(Relaxed));
+        result.insert(STAT_NAME, "no_channel", self.no_channel.load(Relaxed));
 
         result.insert(
             STAT_NAME,
@@ -31,7 +31,7 @@ impl StatsSource for BootstrapRequesterStats {
             self.queries_overfill.load(Relaxed),
         );
 
-        result.insert(STAT_NAME, "rate_limit", self.queries_overfill.load(Relaxed));
+        result.insert(STAT_NAME, "rate_limit", self.rate_limit.load(Relaxed));
         result.insert(STAT_NAME, "sleep", self.sleep.load(Relaxed));
     }
 }

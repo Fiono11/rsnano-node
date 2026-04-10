@@ -2,19 +2,19 @@ use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
 use rand::RngCore;
 
-use rsnano_ledger::{BlockSource, Ledger};
-use rsnano_messages::{AscPullReqType, FrontiersReqPayload};
+use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
+use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_random::NullableRngFactory;
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::{Account, BlockHash, HashOrAccount};
 
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        AscPullQuerySpec, BootstrapConfig, PromiseContext,
+        AscPullQuerySpec, BootstrapConfig,
         requesters::{
-            priority::{PullCountDecider, PullTypeDecider, QueryFactory},
+            priority::{PullCountDecider, PullType, PullTypeDecider},
             stats::BootstrapRequesterStats,
         },
         state::BootstrapLogic,
@@ -28,9 +28,11 @@ pub(crate) struct QuerySpecFactory {
     network: Arc<RwLock<Network>>,
     request_limiter: TokenBucket,
     block_processor_queue: Arc<BlockProcessorQueue>,
-    query_factory: QueryFactory,
     rng_factory: NullableRngFactory,
     frontiers_limiter: TokenBucket,
+    pull_type_decider: PullTypeDecider,
+    pull_count_decider: PullCountDecider,
+    ledger: Arc<Ledger>,
 }
 
 impl QuerySpecFactory {
@@ -43,7 +45,6 @@ impl QuerySpecFactory {
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
-        let query_factory = QueryFactory::new(ledger, pull_type_decider, pull_count_decider);
         let limiter = TokenBucket::new(config.rate_limit);
         Self {
             clock: SteadyClock::default(),
@@ -51,10 +52,12 @@ impl QuerySpecFactory {
             network,
             request_limiter: limiter,
             block_processor_queue,
-            query_factory,
             rng_factory: NullableRngFactory::default(),
             frontiers_limiter: TokenBucket::new(config.frontier_rate_limit),
             config,
+            pull_count_decider,
+            pull_type_decider,
+            ledger,
         }
     }
 
@@ -65,15 +68,8 @@ impl QuerySpecFactory {
             return None;
         }
         let channel = self.acquire_channel(state, now)?;
-        let id = self.rng_factory.rng().next_u64();
-        let mut context = PromiseContext {
-            logic: state,
-            now,
-            id,
-        };
-        let query = self
-            .query_factory
-            .next_priority_query(&mut context, channel);
+        let query_id = self.rng_factory.rng().next_u64();
+        let query = self.next_priority_query(state, now, query_id, channel);
         if query.is_none() {
             self.stats.wait_priority.fetch_add(1, Relaxed);
         } else {
@@ -140,18 +136,18 @@ impl QuerySpecFactory {
         }
 
         let network = self.network.read().unwrap();
-        let candidates: Vec<_> = network
+        let candidate_channels: Vec<_> = network
             .available_channels(TrafficType::BootstrapRequests)
             .map(|c| c.channel_id())
             .collect();
         // TODO refactor so that the running queries isn't incremented here
-        let Some(id) = state.scoring.channel(candidates) else {
-            self.stats.no_candidate.fetch_add(1, Relaxed);
+        let Some(id) = state.scoring.channel(candidate_channels) else {
+            self.stats.no_channel.fetch_add(1, Relaxed);
             return None;
         };
         let channel = network.get(id).cloned();
         if channel.is_none() {
-            self.stats.no_candidate.fetch_add(1, Relaxed);
+            self.stats.no_channel.fetch_add(1, Relaxed);
         } else {
             self.request_limiter.consume(1, now);
         }
@@ -184,5 +180,107 @@ impl QuerySpecFactory {
             start,
             count: FrontiersReqPayload::MAX_FRONTIERS,
         })
+    }
+
+    fn next_priority_query(
+        &mut self,
+        logic: &mut BootstrapLogic,
+        now: Timestamp,
+        query_id: u64,
+        channel: Arc<Channel>,
+    ) -> Option<AscPullQuerySpec> {
+        let next = logic.next_target(now);
+
+        if next.account.is_zero() {
+            return None;
+        }
+
+        let (head, confirmed_frontier) = self.get_account_info(&next.account);
+        let pull_type = self.pull_type_decider.decide_pull_type();
+
+        let pull_start = PullStart::new(pull_type, next.account, head, confirmed_frontier);
+        let req_type = AscPullReqType::Blocks(BlocksReqPayload {
+            start_type: pull_start.start_type,
+            start: pull_start.start,
+            count: self.pull_count_decider.pull_count(next.priority),
+        });
+
+        // Only cooldown accounts that are likely to have more blocks
+        // This is to avoid requesting blocks from the same frontier multiple times, before the block processor had a chance to process them
+        // Not throttling accounts that are probably up-to-date allows us to evict them from the priority set faster
+        let cooldown_account = next.fails == 0;
+
+        let query_spec = AscPullQuerySpec {
+            query_id,
+            channel,
+            req_type,
+            hash: pull_start.hash,
+            account: next.account,
+            cooldown_account,
+        };
+        tracing::trace!(query_id, ?pull_type, "Created pull query spec");
+
+        Some(query_spec)
+    }
+
+    fn get_account_info(&self, account: &Account) -> (BlockHash, BlockHash) {
+        let any = self.ledger.any();
+        let account_info = any.get_account(account);
+        let head = account_info.map(|i| i.head).unwrap_or_default();
+
+        if let Some(conf_info) = any.confirmed().get_conf_info(account) {
+            (head, conf_info.frontier)
+        } else {
+            (head, BlockHash::ZERO)
+        }
+    }
+}
+
+struct PullStart {
+    start: HashOrAccount,
+    start_type: HashType,
+    hash: BlockHash,
+}
+
+impl PullStart {
+    fn new(
+        pull_type: PullType,
+        account: Account,
+        head: BlockHash,
+        confirmed_frontier: BlockHash,
+    ) -> Self {
+        // Check if the account picked has blocks, if it does, start the pull from the highest block
+        if head.is_zero() {
+            PullStart::account(account)
+        } else {
+            match pull_type {
+                PullType::Optimistic => PullStart::block(head),
+                PullType::Safe => PullStart::safe(account, confirmed_frontier),
+            }
+        }
+    }
+
+    fn safe(account: Account, confirmed_frontier: BlockHash) -> Self {
+        if confirmed_frontier.is_zero() {
+            PullStart::account(account)
+        } else {
+            PullStart::block(confirmed_frontier)
+        }
+    }
+
+    fn account(account: Account) -> Self {
+        Self {
+            start: account.into(),
+            start_type: HashType::Account,
+            hash: BlockHash::ZERO,
+        }
+    }
+
+    fn block(start: BlockHash) -> Self {
+        Self {
+            start: start.into(),
+            start_type: HashType::Block,
+            hash: start,
+        }
     }
 }
