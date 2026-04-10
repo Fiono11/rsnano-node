@@ -9,9 +9,7 @@ use tracing::{trace, warn};
 use rsnano_ledger::{Ledger, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
-use rsnano_network::{
-    Channel, ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket,
-};
+use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
@@ -200,7 +198,26 @@ struct Threads {
 }
 
 impl Bootstrapper {
-    pub(crate) fn new(
+    pub fn new(
+        block_processor_queue: Arc<BlockProcessorQueue>,
+        ledger: Arc<Ledger>,
+        stats: Arc<Stats>,
+        network: Arc<RwLock<Network>>,
+        message_sender: MessageSender,
+        config: BootstrapConfig,
+    ) -> Self {
+        Self::new_impl(
+            block_processor_queue,
+            ledger,
+            stats,
+            network,
+            message_sender,
+            config,
+            Arc::new(SteadyClock::default()),
+        )
+    }
+
+    fn new_impl(
         block_processor_queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
@@ -209,7 +226,6 @@ impl Bootstrapper {
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let limiter = Arc::new(Mutex::new(TokenBucket::new(config.rate_limit)));
         let state = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
         let state_changed = Arc::new(Condvar::new());
 
@@ -230,13 +246,11 @@ impl Bootstrapper {
         );
 
         let requesters = Requesters::new(
-            limiter.clone(),
             config.clone(),
             stats.clone(),
             message_sender.clone(),
             state.clone(),
             state_changed.clone(),
-            clock.clone(),
             ledger.clone(),
             block_processor_queue,
             network,
@@ -264,7 +278,7 @@ impl Bootstrapper {
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
 
-        Self::new(
+        Self::new_impl(
             block_processor_queue,
             ledger,
             stats,

@@ -840,7 +840,6 @@ impl Node {
             network.clone(),
             message_sender.clone(),
             global_config.node_config.bootstrap.clone(),
-            steady_clock.clone(),
         ));
         bootstrapper.initialize(&network_params.ledger.genesis_account);
 
