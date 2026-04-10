@@ -4,7 +4,7 @@ use rsnano_messages::BlocksAckPayload;
 use std::cmp::min;
 
 /// Decides how many blocks to pull
-pub(super) struct PullCountDecider {
+pub(crate) struct PullCountDecider {
     pub max_pull_count: u8,
 }
 

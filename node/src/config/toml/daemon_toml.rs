@@ -624,8 +624,8 @@ mod tests {
 
         // Bootstrap Ascending section
         assert_ne!(
-            deserialized.node.bootstrap.block_processor_theshold,
-            default_cfg.node.bootstrap.block_processor_theshold
+            deserialized.node.bootstrap.block_processor_threshold,
+            default_cfg.node.bootstrap.block_processor_threshold
         );
         assert_ne!(
             deserialized.node.bootstrap.database_rate_limit,

@@ -21,6 +21,20 @@ impl PeerScoreContainer {
         self.by_channel.insert(score.channel_id, score)
     }
 
+    pub fn running_queries(&self, channel_id: ChannelId) -> usize {
+        self.by_channel
+            .get(&channel_id)
+            .map(|p| p.running_queries)
+            .unwrap_or_default()
+    }
+
+    pub fn add_query(&mut self, channel_id: ChannelId) {
+        self.by_channel
+            .entry(channel_id)
+            .or_insert_with(|| PeerScore::new(channel_id))
+            .add_query();
+    }
+
     pub fn modify(&mut self, channel_id: ChannelId, mut f: impl FnMut(&mut PeerScore)) -> bool {
         if let Some(scoring) = self.by_channel.get_mut(&channel_id) {
             f(scoring);

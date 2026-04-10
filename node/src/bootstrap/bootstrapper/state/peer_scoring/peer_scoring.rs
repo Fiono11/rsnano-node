@@ -24,42 +24,19 @@ impl PeerScoring {
     }
 
     pub fn received_message(&mut self, channel_id: ChannelId) {
-        self.scoring.modify(channel_id, |i| {
-            if i.running_queries > 0 {
-                i.running_queries -= 1;
-                i.response_count_total += 1;
-            }
-        });
+        self.scoring.modify(channel_id, |i| i.got_response());
     }
 
     pub fn channel(&mut self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
         candidates.shuffle(&mut rand::rng());
         candidates
             .iter()
-            .find(|channel_id| {
-                Self::try_send_message(&mut self.scoring, **channel_id, self.channel_limit)
-            })
+            .find(|channel_id| self.scoring.running_queries(**channel_id) < self.channel_limit)
             .cloned()
     }
 
-    fn try_send_message(
-        scoring: &mut PeerScoreContainer,
-        channel_id: ChannelId,
-        channel_limit: usize,
-    ) -> bool {
-        let mut success = true;
-        let modified = scoring.modify(channel_id, |i| {
-            if i.running_queries < channel_limit {
-                i.running_queries += 1;
-                i.request_count_total += 1;
-            } else {
-                success = false;
-            }
-        });
-        if !modified {
-            scoring.insert(PeerScore::new(channel_id));
-        }
-        success
+    pub fn add_query(&mut self, channel_id: ChannelId) {
+        self.scoring.add_query(channel_id);
     }
 
     pub fn len(&self) -> usize {
@@ -89,6 +66,7 @@ mod tests {
     fn received_message_decrements_running_queries_to_zero() {
         let channel_id = ChannelId::from(1);
         let mut scoring = PeerScoring::new();
+        scoring.add_query(channel_id);
 
         // Send one query — running_queries becomes 1
         scoring.channel(vec![channel_id]);

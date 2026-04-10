@@ -20,18 +20,17 @@ use tracing::trace;
 /// Sends an AscPullReq message
 pub(crate) struct QuerySender {
     message_sender: MessageSender,
-    clock: Arc<SteadyClock>,
+    clock: SteadyClock,
     request_timeout: Duration,
     stats: Arc<Stats>,
     send_listener: OutputListenerMt<AscPullQuerySpec>,
 }
 
 impl QuerySender {
-    pub(crate) fn new(
-        message_sender: MessageSender,
-        clock: Arc<SteadyClock>,
-        stats: Arc<Stats>,
-    ) -> Self {
+    pub(crate) fn new(message_sender: MessageSender, stats: Arc<Stats>) -> Self {
+        Self::new_impl(message_sender, SteadyClock::default(), stats)
+    }
+    fn new_impl(message_sender: MessageSender, clock: SteadyClock, stats: Arc<Stats>) -> Self {
         Self {
             message_sender,
             clock,
@@ -41,11 +40,11 @@ impl QuerySender {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn new_null() -> Self {
-        Self::new(
+        Self::new_impl(
             MessageSender::new_null(),
-            Arc::new(SteadyClock::new_null()),
+            SteadyClock::new_null(),
             Arc::new(Stats::default()),
         )
     }
@@ -203,9 +202,9 @@ mod tests {
         let message_sender = MessageSender::new_null();
         let send_tracker = message_sender.track();
 
-        let clock = Arc::new(SteadyClock::new_null());
+        let clock = SteadyClock::new_null();
         let now = clock.now();
-        let query_sender = QuerySender::new(message_sender, clock, Arc::new(Stats::default()));
+        let query_sender = QuerySender::new_impl(message_sender, clock, Arc::new(Stats::default()));
 
         Fixture {
             query_sender,

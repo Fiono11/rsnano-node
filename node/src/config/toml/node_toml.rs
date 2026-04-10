@@ -307,7 +307,7 @@ impl NodeConfig {
                 }
             }
             if let Some(threshold) = boot_toml.block_processor_threshold {
-                config.block_processor_theshold = threshold;
+                config.block_processor_threshold = threshold;
             }
             if let Some(limit) = boot_toml.database_rate_limit {
                 config.database_rate_limit = limit;
@@ -577,7 +577,7 @@ impl From<&NodeConfig> for NodeToml {
                 request_timeout: Some(config.bootstrap.request_timeout.as_millis() as u64),
                 throttle_coefficient: Some(config.bootstrap.throttle_coefficient),
                 throttle_wait: Some(config.bootstrap.throttle_wait.as_millis() as u64),
-                block_processor_threshold: Some(config.bootstrap.block_processor_theshold),
+                block_processor_threshold: Some(config.bootstrap.block_processor_threshold),
                 max_requests: Some(config.bootstrap.max_requests),
                 optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
                 account_sets: Some(AccountSetsToml {
@@ -679,7 +679,7 @@ mod tests {
         assert_eq!(ascending.enable, false);
         assert_eq!(ascending.enable_dependency_walker, false);
         assert_eq!(ascending.enable_frontier_scan, false);
-        assert_eq!(ascending.block_processor_theshold, 100);
+        assert_eq!(ascending.block_processor_threshold, 100);
         assert_eq!(ascending.database_rate_limit, 101);
         assert_eq!(ascending.max_pull_count, 102);
         assert_eq!(ascending.channel_limit, 103);

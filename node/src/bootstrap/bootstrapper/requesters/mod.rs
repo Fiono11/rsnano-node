@@ -1,10 +1,8 @@
-mod bootstrap_promise_runner;
-mod channel_waiter;
-mod dependency_requester;
-mod frontier_requester;
 mod priority;
 mod query_sender;
-mod send_queries_promise;
+mod query_spec_factory;
+mod requester_loop;
+mod stats;
 
 use std::{
     sync::{Arc, Condvar, Mutex, RwLock},
@@ -13,36 +11,26 @@ use std::{
 
 use rsnano_ledger::Ledger;
 use rsnano_network::Network;
-use rsnano_network::token_bucket::TokenBucket;
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_nullable_random::NullableRngFactory;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        AscPullQuerySpec, BootstrapConfig, BootstrapPromise, state::BootstrapLogic,
+        BootstrapConfig,
+        requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
+        state::BootstrapLogic,
     },
     transport::MessageSender,
 };
 
-use {
-    bootstrap_promise_runner::BootstrapPromiseRunner, channel_waiter::ChannelWaiter,
-    dependency_requester::DependencyRequester, frontier_requester::FrontierRequester,
-    priority::PriorityRequester, query_sender::QuerySender,
-    send_queries_promise::SendQueriesPromise,
-};
-
 /// Manages the threads that send out AscPullReqs
 pub(crate) struct Requesters {
-    limiter: Arc<Mutex<TokenBucket>>,
     config: BootstrapConfig,
     stats: Arc<Stats>,
     message_sender: MessageSender,
     state: Arc<Mutex<BootstrapLogic>>,
     state_changed: Arc<Condvar>,
-    clock: Arc<SteadyClock>,
-    threads: Mutex<Option<RequesterThreads>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
     ledger: Arc<Ledger>,
     block_processor_queue: Arc<BlockProcessorQueue>,
     network: Arc<RwLock<Network>>,
@@ -61,80 +49,45 @@ impl Requesters {
         network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
-            limiter: Arc::new(Mutex::new(TokenBucket::new(config.rate_limit))),
             config,
             stats,
             message_sender,
             state,
             state_changed,
-            clock: Arc::new(SteadyClock::new_null()),
             ledger,
             block_processor_queue,
             network,
-            threads: Mutex::new(None),
+            thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
         }
     }
 
     pub fn start(&self) {
-        let limiter = self.limiter.clone();
-        let max_requests = self.config.max_requests;
-        let channel_waiter =
-            ChannelWaiter::new(self.network.clone(), limiter.clone(), max_requests);
+        let requester_stats = Arc::new(BootstrapRequesterStats::default());
+        self.stats_sources
+            .lock()
+            .unwrap()
+            .push(requester_stats.clone());
 
-        let runner = Arc::new(BootstrapPromiseRunner {
-            state: self.state.clone(),
-            throttle_wait: self.config.throttle_wait,
-            state_changed: self.state_changed.clone(),
-            clock: self.clock.clone(),
-            rng_factory: NullableRngFactory::default(),
-        });
+        let mut requester_loop = RequesterLoop::new(
+            self.state.clone(),
+            self.state_changed.clone(),
+            self.config.clone(),
+            self.message_sender.clone(),
+            self.stats.clone(),
+            requester_stats,
+            self.network.clone(),
+            self.ledger.clone(),
+            self.block_processor_queue.clone(),
+        );
+        let join_handle = std::thread::Builder::new()
+            .name("Bootstrap".to_string())
+            .spawn(move || {
+                requester_loop.run_loop();
+            })
+            .unwrap();
 
-        let frontiers = if self.config.enable_frontier_scan {
-            Some(self.spawn_query(
-                "Bootstrap front",
-                FrontierRequester::new(
-                    self.stats.clone(),
-                    self.clock.clone(),
-                    self.config.frontier_rate_limit,
-                    channel_waiter.clone(),
-                ),
-                runner.clone(),
-            ))
-        } else {
-            None
-        };
-
-        let priorities = if self.config.enable_priorities {
-            let mut requester = PriorityRequester::new(
-                self.block_processor_queue.clone(),
-                channel_waiter.clone(),
-                self.ledger.clone(),
-                &self.config,
-            );
-            requester.block_processor_threshold = self.config.block_processor_theshold;
-            self.stats_sources.lock().unwrap().push(requester.stats());
-
-            Some(self.spawn_query("Bootstrap", requester, runner.clone()))
-        } else {
-            None
-        };
-
-        let dependencies = if self.config.enable_dependency_walker {
-            let requester = DependencyRequester::new(channel_waiter);
-            self.stats_sources.lock().unwrap().push(requester.stats());
-            Some(self.spawn_query("Bootstrap walkr", requester, runner.clone()))
-        } else {
-            None
-        };
-
-        let requesters = RequesterThreads {
-            priorities,
-            frontiers,
-            dependencies,
-        };
-
-        *self.threads.lock().unwrap() = Some(requesters);
+        *self.thread.lock().unwrap() = Some(join_handle);
     }
 
     pub fn stop(&self) {
@@ -144,55 +97,9 @@ impl Requesters {
         }
         self.state_changed.notify_all();
 
-        let threads = self.threads.lock().unwrap().take();
-        if let Some(mut threads) = threads {
-            threads.join();
-        }
-    }
-
-    fn spawn_query<T>(
-        &self,
-        name: impl Into<String>,
-        query_factory: T,
-        runner: Arc<BootstrapPromiseRunner>,
-    ) -> JoinHandle<()>
-    where
-        T: BootstrapPromise<AscPullQuerySpec> + Send + 'static,
-    {
-        let mut query_sender = QuerySender::new(
-            self.message_sender.clone(),
-            self.clock.clone(),
-            self.stats.clone(),
-        );
-        query_sender.set_request_timeout(self.config.request_timeout);
-
-        let send_promise = SendQueriesPromise::new(query_factory, query_sender);
-
-        std::thread::Builder::new()
-            .name(name.into())
-            .spawn(Box::new(move || {
-                runner.run(send_promise);
-            }))
-            .unwrap()
-    }
-}
-
-pub struct RequesterThreads {
-    pub priorities: Option<JoinHandle<()>>,
-    pub dependencies: Option<JoinHandle<()>>,
-    pub frontiers: Option<JoinHandle<()>>,
-}
-
-impl RequesterThreads {
-    pub fn join(&mut self) {
-        if let Some(handle) = self.priorities.take() {
-            handle.join().unwrap();
-        }
-        if let Some(dependencies) = self.dependencies.take() {
-            dependencies.join().unwrap();
-        }
-        if let Some(frontiers) = self.frontiers.take() {
-            frontiers.join().unwrap();
+        let thread = self.thread.lock().unwrap().take();
+        if let Some(join_handle) = thread {
+            join_handle.join().unwrap();
         }
     }
 }
