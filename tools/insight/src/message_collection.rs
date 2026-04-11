@@ -30,6 +30,8 @@ pub(crate) struct MessageFilter {
     hash: Option<BlockHash>,
     account: Option<Account>,
     types: Vec<MessageType>,
+    inbound: bool,
+    outbound: bool,
 }
 
 impl MessageFilter {
@@ -48,6 +50,7 @@ impl MessageFilter {
 
     pub fn include(&self, message: &RecordedMessage) -> bool {
         self.include_channel(message)
+            && self.include_direction(message)
             && self.include_message_type(message)
             && self.include_message_content(message)
     }
@@ -55,6 +58,14 @@ impl MessageFilter {
     pub fn with_types(&self, types: Vec<MessageType>) -> Self {
         Self {
             types,
+            ..self.clone()
+        }
+    }
+
+    pub fn with_directions(&self, inbound: bool, outbound: bool) -> Self {
+        Self {
+            inbound,
+            outbound,
             ..self.clone()
         }
     }
@@ -99,6 +110,16 @@ impl MessageFilter {
         }
 
         false
+    }
+
+    fn include_direction(&self, message: &RecordedMessage) -> bool {
+        if !self.inbound && !self.outbound {
+            return true;
+        }
+        match message.direction {
+            ChannelDirection::Inbound => self.inbound,
+            ChannelDirection::Outbound => self.outbound,
+        }
     }
 
     fn include_message_content(&self, message: &RecordedMessage) -> bool {
@@ -168,11 +189,18 @@ impl MessageFilter {
 }
 
 #[derive(Default)]
+pub(crate) struct FilterCounts {
+    pub types: HashMap<MessageType, usize>,
+    pub inbound: usize,
+    pub outbound: usize,
+}
+
+#[derive(Default)]
 pub(crate) struct MessageCollection {
     all_messages: Vec<RecordedMessage>,
     filtered: Vec<RecordedMessage>,
     filter: MessageFilter,
-    message_counts: HashMap<MessageType, usize>,
+    counts: FilterCounts,
 }
 
 impl MessageCollection {
@@ -188,11 +216,20 @@ impl MessageCollection {
         if self.filter.include(&message) {
             self.filtered.push(message.clone());
         }
-        if self.filter.include_channel(&message) {
-            *self
-                .message_counts
-                .entry(message.message.message_type())
-                .or_default() += 1;
+        if self.filter.include_channel(&message) && self.filter.include_message_content(&message) {
+            if self.filter.include_direction(&message) {
+                *self
+                    .counts
+                    .types
+                    .entry(message.message.message_type())
+                    .or_default() += 1;
+            }
+            if self.filter.include_message_type(&message) {
+                match message.direction {
+                    ChannelDirection::Inbound => self.counts.inbound += 1,
+                    ChannelDirection::Outbound => self.counts.outbound += 1,
+                }
+            }
         }
         self.all_messages.push(message);
     }
@@ -207,8 +244,8 @@ impl MessageCollection {
         &self.filter
     }
 
-    pub fn message_counts(&self) -> &HashMap<MessageType, usize> {
-        &self.message_counts
+    pub fn counts(&self) -> &FilterCounts {
+        &self.counts
     }
 
     pub fn filter_channel(&mut self, channel_id: Option<ChannelId>) {
@@ -218,6 +255,10 @@ impl MessageCollection {
     pub fn filter_message_types(&mut self, types: impl IntoIterator<Item = MessageType>) {
         let types = types.into_iter().collect();
         self.set_filter(self.filter.with_types(types));
+    }
+
+    pub fn filter_directions(&mut self, inbound: bool, outbound: bool) {
+        self.set_filter(self.filter.with_directions(inbound, outbound));
     }
 
     pub fn filter_hash(&mut self, hash: Option<BlockHash>) {
@@ -236,18 +277,25 @@ impl MessageCollection {
             .filter(|m| self.filter.include(m))
             .cloned()
             .collect();
-        self.message_counts.clear();
+        self.counts = FilterCounts::default();
 
         for m in self
             .all_messages
             .iter()
-            .filter(|m| self.filter.include_channel(m))
+            .filter(|m| self.filter.include_channel(m) && self.filter.include_message_content(m))
         {
-            if self.filter.include_message_content(m) {
+            if self.filter.include_direction(m) {
                 *self
-                    .message_counts
+                    .counts
+                    .types
                     .entry(m.message.message_type())
                     .or_default() += 1;
+            }
+            if self.filter.include_message_type(m) {
+                match m.direction {
+                    ChannelDirection::Inbound => self.counts.inbound += 1,
+                    ChannelDirection::Outbound => self.counts.outbound += 1,
+                }
             }
         }
     }
@@ -318,5 +366,102 @@ mod tests {
         assert!(collection.get(0).is_some());
         assert!(collection.get(1).is_some());
         assert!(collection.get(2).is_none());
+    }
+
+    #[test]
+    fn filter_by_direction() {
+        let mut collection = MessageCollection::default();
+        collection.add(inbound(Message::BulkPush));
+        collection.add(outbound(Message::BulkPush));
+        collection.add(outbound(Message::BulkPush));
+
+        collection.filter_directions(false, false);
+        assert_eq!(collection.len(), 3, "(false, false) shows all");
+
+        collection.filter_directions(true, false);
+        assert_eq!(collection.len(), 1);
+        assert_eq!(
+            collection.get(0).unwrap().direction,
+            ChannelDirection::Inbound
+        );
+
+        collection.filter_directions(false, true);
+        assert_eq!(collection.len(), 2);
+
+        collection.filter_directions(true, true);
+        assert_eq!(collection.len(), 3);
+    }
+
+    #[test]
+    fn counts_are_cross_filtered_between_direction_and_type() {
+        let mut collection = MessageCollection::default();
+        collection.add(inbound(Message::BulkPush));
+        collection.add(inbound(Message::BulkPush));
+        collection.add(inbound(Message::TelemetryReq));
+        collection.add(outbound(Message::BulkPush));
+        collection.add(outbound(Message::TelemetryReq));
+        collection.add(outbound(Message::TelemetryReq));
+
+        let counts = collection.counts();
+        assert_eq!(counts.inbound, 3);
+        assert_eq!(counts.outbound, 3);
+        assert_eq!(counts.types.get(&MessageType::BulkPush).copied(), Some(3));
+        assert_eq!(
+            counts.types.get(&MessageType::TelemetryReq).copied(),
+            Some(3)
+        );
+
+        collection.filter_directions(true, false);
+        let counts = collection.counts();
+        assert_eq!(
+            counts.types.get(&MessageType::BulkPush).copied(),
+            Some(2),
+            "type counts should reflect inbound-only selection",
+        );
+        assert_eq!(
+            counts.types.get(&MessageType::TelemetryReq).copied(),
+            Some(1),
+        );
+        assert_eq!(
+            counts.inbound, 3,
+            "direction counts ignore the direction filter itself"
+        );
+        assert_eq!(counts.outbound, 3);
+
+        collection.filter_directions(false, false);
+        collection.filter_message_types([MessageType::BulkPush]);
+        let counts = collection.counts();
+        assert_eq!(
+            counts.inbound, 2,
+            "direction counts should reflect BulkPush-only selection",
+        );
+        assert_eq!(counts.outbound, 1);
+        assert_eq!(
+            counts.types.get(&MessageType::BulkPush).copied(),
+            Some(3),
+            "type counts ignore the type filter itself",
+        );
+        assert_eq!(
+            counts.types.get(&MessageType::TelemetryReq).copied(),
+            Some(3)
+        );
+    }
+
+    /* Test helpers */
+
+    fn inbound(message: Message) -> RecordedMessage {
+        RecordedMessage {
+            message,
+            direction: ChannelDirection::Inbound,
+            ..RecordedMessage::new_test_instance()
+        }
+    }
+
+    fn outbound(message: Message) -> RecordedMessage {
+        RecordedMessage {
+            message,
+            direction: ChannelDirection::Outbound,
+            ..RecordedMessage::new_test_instance()
+        }
     }
 }
