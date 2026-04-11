@@ -67,7 +67,7 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                             ui.heading(format!("Blocked accounts: {}", model.blocked_accounts));
                         });
                         ui.horizontal(|ui| {
-                            ui.label(format!("known senders: {}", model.known_dependencies));
+                            ui.label(format!("unknown senders: {}", model.unknown_dependencies));
                             ui.add_space(50.0);
                             ui.label(format!(
                                 "unique senders: {}",
@@ -127,7 +127,7 @@ pub(crate) struct BootstrapViewModel {
     pub priority_accounts: String,
     pub blocked_accounts: String,
     pub unique_blocking_accounts: usize,
-    pub known_dependencies: usize,
+    pub unknown_dependencies: usize,
     pub priorities: Vec<PriorityViewModel>,
     pub blocked: Vec<BlockedViewModel>,
 }

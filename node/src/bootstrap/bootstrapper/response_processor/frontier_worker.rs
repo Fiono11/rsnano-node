@@ -76,7 +76,7 @@ mod tests {
 
         worker.process(Vec::new());
 
-        assert_eq!(state.lock().unwrap().bootstrap_queue.priority_len(), 0);
+        assert_eq!(state.lock().unwrap().bootstrap_queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -99,7 +99,7 @@ mod tests {
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
         let guard = state.lock().unwrap();
-        assert_eq!(guard.bootstrap_queue.priority_len(), 1);
+        assert_eq!(guard.bootstrap_queue.prioritized_len(), 1);
         assert_eq!(
             guard.bootstrap_queue.priority(&account),
             BootstrapQueue::PRIORITY_CUTOFF

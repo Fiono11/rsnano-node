@@ -213,10 +213,10 @@ impl MainViewModel {
             .collect();
 
         BootstrapViewModel {
-            priority_accounts: formatted_number(self.app.bootstrap.priority_accounts),
+            priority_accounts: formatted_number(self.app.bootstrap.prioritized_accounts),
             blocked_accounts: formatted_number(self.app.bootstrap.blocked_accounts),
             unique_blocking_accounts: self.app.bootstrap.unique_blocking_accounts,
-            known_dependencies: self.app.bootstrap.known_dependencies,
+            unknown_dependencies: self.app.bootstrap.unknown_dependencies,
             priorities,
             blocked,
         }

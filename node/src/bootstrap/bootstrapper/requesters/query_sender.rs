@@ -182,7 +182,7 @@ mod tests {
 
         assert_eq!(id, None);
         assert_eq!(state.running_queries.len(), 0);
-        assert_eq!(state.bootstrap_queue.priority_len(), 0);
+        assert_eq!(state.bootstrap_queue.prioritized_len(), 0);
         assert_eq!(state.bootstrap_queue.blocked_len(), 0);
     }
 

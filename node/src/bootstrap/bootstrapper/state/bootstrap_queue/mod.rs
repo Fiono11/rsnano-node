@@ -338,7 +338,7 @@ impl BootstrapQueue {
         self.priorities.contains(account)
     }
 
-    pub fn priority_len(&self) -> usize {
+    pub fn prioritized_len(&self) -> usize {
         self.priorities.len()
     }
 
@@ -593,7 +593,7 @@ mod tests {
         let result = queue.priority_up(&Account::ZERO);
         assert_eq!(result, PriorityUpResult::InvalidAccount);
         assert_eq!(queue.blocked_len(), 0);
-        assert_eq!(queue.priority_len(), 0);
+        assert_eq!(queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -613,7 +613,7 @@ mod tests {
         let result = queue.priority_down(&Account::ZERO);
         assert_eq!(result, PriorityDownResult::InvalidAccount);
         assert_eq!(queue.blocked_len(), 0);
-        assert_eq!(queue.priority_len(), 0);
+        assert_eq!(queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -622,7 +622,7 @@ mod tests {
         let success = queue.priority_set(&Account::ZERO, BootstrapQueue::PRIORITY_INITIAL);
         assert_eq!(success, false);
         assert_eq!(queue.blocked_len(), 0);
-        assert_eq!(queue.priority_len(), 0);
+        assert_eq!(queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -635,7 +635,7 @@ mod tests {
 
         assert_eq!(success, false);
         assert_eq!(queue.blocked_len(), 1);
-        assert_eq!(queue.priority_len(), 0);
+        assert_eq!(queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -661,7 +661,7 @@ mod tests {
     fn set_last_request_for_unknown_account_does_nothing() {
         let mut queue = BootstrapQueue::default();
         queue.set_last_request(&Account::from(1), Timestamp::new_test_instance());
-        assert_eq!(queue.priority_len(), 0);
+        assert_eq!(queue.prioritized_len(), 0);
     }
 
     #[test]
@@ -696,7 +696,7 @@ mod tests {
         queue.priority_set(&account2, Priority::new(1.0));
         queue.priority_set(&account3, Priority::new(3.0));
 
-        assert_eq!(queue.priority_len(), 2);
+        assert_eq!(queue.prioritized_len(), 2);
         assert!(queue.prioritized(&account1));
         assert!(queue.prioritized(&account3));
         assert!(!queue.prioritized(&account2));

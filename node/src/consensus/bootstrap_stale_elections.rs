@@ -112,7 +112,7 @@ mod tests {
 
         plugin.run(&aec);
 
-        assert_eq!(bootstrapper.state().bootstrap_queue.priority_len(), 0);
+        assert_eq!(bootstrapper.state().bootstrap_queue.prioritized_len(), 0);
         assert_eq!(plugin.stats.bootstrap_stale.load(Ordering::Relaxed), 0);
     }
 
