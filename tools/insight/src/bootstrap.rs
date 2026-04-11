@@ -5,7 +5,7 @@ use rsnano_types::Account;
 pub(crate) struct BootstrapInfo {
     pub prioritized_accounts: usize,
     pub blocked_accounts: usize,
-    pub unique_blocking_accounts: usize,
+    pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
     pub priorities: Vec<(Priority, Account)>,
     pub blocked: Vec<BlockedBlock>,
@@ -19,7 +19,7 @@ impl BootstrapInfo {
         let queue = &state.bootstrap_queue;
         self.prioritized_accounts = queue.prioritized_len();
         self.blocked_accounts = queue.blocked_len();
-        self.unique_blocking_accounts = queue.unique_blocked_accounts();
+        self.unique_blocked_accounts = queue.unique_blocked_accounts();
         self.unknown_dependencies = self
             .blocked_accounts
             .saturating_sub(queue.known_dependencies());

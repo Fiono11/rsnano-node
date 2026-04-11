@@ -124,7 +124,6 @@ impl BlockInspector {
                             self.stats
                                 .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
                         }
-                        PriorityUpResult::InvalidAccount => {}
                     }
 
                     if saved_block.is_send() {

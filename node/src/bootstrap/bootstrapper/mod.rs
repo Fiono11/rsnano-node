@@ -10,7 +10,7 @@ use rsnano_ledger::{Ledger, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -266,6 +266,7 @@ impl Bootstrapper {
         }
     }
 
+    #[deprecated = "don't access internal state!"]
     pub fn state(&self) -> MutexGuard<'_, BootstrapLogic> {
         self.logic.lock().unwrap()
     }
@@ -276,28 +277,6 @@ impl Bootstrapper {
             .unwrap()
             .bootstrap_queue
             .prioritized(account)
-    }
-
-    fn run_timeouts(&self) {
-        let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
-        let mut state = self.logic.lock().unwrap();
-        let mut last_sync = self.clock.now();
-        while !state.stopped {
-            cleanup.cleanup(&mut state);
-
-            if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
-                cleanup.reinsert_known_dependencies(&mut state);
-                last_sync = self.clock.now();
-            }
-
-            self.state_changed.notify_all();
-
-            state = self
-                .state_changed
-                .wait_timeout_while(state, Duration::from_secs(1), |s| !s.stopped)
-                .unwrap()
-                .0;
-        }
     }
 
     /// Process `asc_pull_ack` message coming from network
@@ -337,16 +316,6 @@ impl Bootstrapper {
         }
     }
 
-    fn priority_inserted(&self) {
-        self.stats
-            .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
-    }
-
-    fn priority_insertion_failed(&self) {
-        self.stats
-            .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
-    }
-
     pub fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
 
@@ -358,6 +327,45 @@ impl Bootstrapper {
         for account in accounts {
             guard.bootstrap_queue.unblock(account, None);
         }
+    }
+
+    pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
+        let mut guard = self.logic.lock().unwrap();
+        for account in accounts {
+            guard.bootstrap_queue.priority_up(&account);
+        }
+    }
+
+    fn run_timeouts(&self) {
+        let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
+        let mut state = self.logic.lock().unwrap();
+        let mut last_sync = self.clock.now();
+        while !state.stopped {
+            cleanup.cleanup(&mut state);
+
+            if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
+                cleanup.reinsert_known_dependencies(&mut state);
+                last_sync = self.clock.now();
+            }
+
+            self.state_changed.notify_all();
+
+            state = self
+                .state_changed
+                .wait_timeout_while(state, Duration::from_secs(1), |s| !s.stopped)
+                .unwrap()
+                .0;
+        }
+    }
+
+    fn priority_inserted(&self) {
+        self.stats
+            .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
+    }
+
+    fn priority_insertion_failed(&self) {
+        self.stats
+            .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
     }
 }
 

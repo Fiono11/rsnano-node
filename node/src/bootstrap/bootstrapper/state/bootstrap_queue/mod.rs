@@ -42,7 +42,6 @@ impl Default for BootstrapQueueConfig {
 pub enum PriorityUpResult {
     Inserted,
     Updated,
-    InvalidAccount,
     AccountBlocked,
 }
 
@@ -82,7 +81,7 @@ impl BootstrapQueue {
 
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         if account.is_zero() {
-            return PriorityUpResult::InvalidAccount;
+            return PriorityUpResult::AccountBlocked;
         }
 
         if !self.blocked(account) {
@@ -591,7 +590,7 @@ mod tests {
     fn priority_up_for_zero_account_fails() {
         let mut queue = BootstrapQueue::default();
         let result = queue.priority_up(&Account::ZERO);
-        assert_eq!(result, PriorityUpResult::InvalidAccount);
+        assert_eq!(result, PriorityUpResult::AccountBlocked);
         assert_eq!(queue.blocked_len(), 0);
         assert_eq!(queue.prioritized_len(), 0);
     }
