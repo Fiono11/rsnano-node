@@ -347,7 +347,7 @@ mod tests {
             let mut b = PrioritizedAccount::new(Account::from(2), Priority::new(10.0));
             b.last_request = Some(now);
             let mut c = PrioritizedAccount::new(Account::from(3), Priority::new(3.5));
-            c.last_request = Some(now - Duration::from_secs(60));
+            c.last_request = Some(now - Duration::from_mins(1));
             let mut priorities = PrioritizedAccounts::default();
             priorities.insert(a);
             priorities.insert(b);

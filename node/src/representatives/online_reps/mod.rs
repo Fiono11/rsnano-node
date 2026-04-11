@@ -231,10 +231,9 @@ impl OnlineReps {
 
     pub fn trim(&mut self, now: Timestamp) {
         self.trim_counter += 1;
-        let trimmed = self.online_reps.trim(
-            now.checked_sub(Duration::from_secs(60 * 10))
-                .unwrap_or_default(),
-        );
+        let trimmed = self
+            .online_reps
+            .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
 
         for (rep_key, time) in &trimmed {
             debug!(

@@ -242,7 +242,7 @@ mod tests {
         let open_channels = Vec::new();
         let endpoint = TEST_ENDPOINT_1;
         let now = new_test_timestamp();
-        let already_stored = vec![(endpoint, now - Duration::from_secs(60 * 61))];
+        let already_stored = vec![(endpoint, now - Duration::from_mins(61))];
 
         let (written, deleted, _) =
             run_peer_history(new_test_timestamp(), open_channels, already_stored).await;
@@ -256,7 +256,7 @@ mod tests {
         let open_channels = Vec::new();
         let endpoint = TEST_ENDPOINT_1;
         let now = new_test_timestamp();
-        let already_stored = vec![(endpoint, now + Duration::from_secs(60 * 61))];
+        let already_stored = vec![(endpoint, now + Duration::from_mins(61))];
 
         let (written, deleted, _) =
             run_peer_history(new_test_timestamp(), open_channels, already_stored).await;
@@ -305,7 +305,7 @@ mod tests {
         let stats = Arc::new(Stats::default());
         let put_tracker = ledger.store.peer.track_puts();
         let delete_tracker = ledger.store.peer.track_deletions();
-        let erase_cutoff = Duration::from_secs(60 * 60);
+        let erase_cutoff = Duration::from_mins(60);
         let mut peer_history = PeerCacheUpdater::new(
             Arc::new(RwLock::new(network)),
             ledger,

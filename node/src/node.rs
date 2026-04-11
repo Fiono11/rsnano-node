@@ -1096,7 +1096,7 @@ impl Node {
             if network_params.network.is_dev_network() {
                 Duration::from_secs(10)
             } else {
-                Duration::from_secs(60 * 60)
+                Duration::from_hours(1)
             },
         );
         ticker_pool.insert(
@@ -1163,7 +1163,7 @@ impl Node {
             wallets: wallets.clone(),
         };
         if !flags.disable_backup {
-            ticker_pool.insert(wallet_backup, Duration::from_secs(60 * 5));
+            ticker_pool.insert(wallet_backup, Duration::from_mins(5));
         }
 
         let receivable_search = ReceivableSearch::new(wallets.clone());

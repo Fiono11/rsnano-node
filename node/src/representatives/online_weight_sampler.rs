@@ -31,11 +31,11 @@ impl OnlineWeightSampler {
         match network {
             NetworkType::NanoLiveNetwork | NetworkType::NanoTestNetwork => {
                 // Two weeks
-                Duration::from_secs(60 * 60 * 24 * 7 * 2)
+                Duration::from_hours(24 * 7 * 2)
             }
             _ => {
                 // One day
-                Duration::from_secs(60 * 60 * 24)
+                Duration::from_hours(24)
             }
         }
     }

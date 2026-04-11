@@ -49,7 +49,7 @@ impl Default for ConfirmingSetConfig {
             max_blocks: 16 * 1024,
             max_queued_notifications: 8,
             max_deferred: 16 * 1024,
-            deferred_age_cutoff: Duration::from_secs(15 * 60),
+            deferred_age_cutoff: Duration::from_mins(15),
         }
     }
 }

@@ -500,7 +500,7 @@ pub enum ElectionBehavior {
 impl ElectionBehavior {
     fn time_to_live(&self) -> Duration {
         match self {
-            ElectionBehavior::Manual | ElectionBehavior::Priority => Duration::from_secs(60 * 5),
+            ElectionBehavior::Manual | ElectionBehavior::Priority => Duration::from_mins(5),
             ElectionBehavior::Hinted | ElectionBehavior::Optimistic => Duration::from_secs(30),
         }
     }

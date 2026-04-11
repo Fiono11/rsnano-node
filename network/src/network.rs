@@ -938,7 +938,7 @@ mod tests {
             )
             .unwrap();
         network.upgrade_to_established_connection(channel.channel_id(), NodeId::from(123));
-        channel.set_last_activity(now - Duration::from_secs(300));
+        channel.set_last_activity(now - Duration::from_mins(5));
         network.purge(now);
         assert_eq!(network.len(), 0);
     }
@@ -963,7 +963,7 @@ mod tests {
     fn network_with_handshake_timeout(timeout: Duration) -> Network {
         let mut config = NetworkConfig::default_for(NetworkType::NanoDevNetwork);
         config.handshake_timeout = timeout;
-        config.idle_timeout = Duration::from_secs(3600);
+        config.idle_timeout = Duration::from_hours(1);
         Network::new(config)
     }
 

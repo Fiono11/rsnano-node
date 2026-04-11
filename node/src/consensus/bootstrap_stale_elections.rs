@@ -25,7 +25,7 @@ pub(crate) struct BootstrapStaleElections {
 }
 
 impl BootstrapStaleElections {
-    pub const DEFAULT_STALE_THRESHOLD: Duration = Duration::from_secs(60);
+    pub const DEFAULT_STALE_THRESHOLD: Duration = Duration::from_mins(1);
 
     pub(crate) fn new(bootstrapper: Arc<Bootstrapper>, clock: Arc<SteadyClock>) -> Self {
         Self {

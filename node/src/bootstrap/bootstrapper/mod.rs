@@ -285,7 +285,7 @@ impl Bootstrapper {
         while !state.stopped {
             cleanup.cleanup(&mut state);
 
-            if last_sync.elapsed(self.clock.now()) >= Duration::from_secs(60) {
+            if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
                 cleanup.reinsert_known_dependencies(&mut state);
                 last_sync = self.clock.now();
             }

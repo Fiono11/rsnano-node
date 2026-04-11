@@ -32,7 +32,7 @@ impl Default for BootstrapQueueConfig {
         Self {
             max_prioritized_accounts: 256 * 1024,
             max_blocked_accounts: 256 * 1024,
-            blocked_decay: Duration::from_secs(60 * 60),
+            blocked_decay: Duration::from_hours(1),
             account_cooldown: Duration::from_secs(3),
         }
     }

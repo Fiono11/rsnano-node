@@ -56,7 +56,7 @@ impl RateSpec {
         }
 
         if let Some(mins) = Self::try_parse_suffix("min", input) {
-            return Ok(Duration::from_secs(60 * mins?));
+            return Ok(Duration::from_mins(mins?));
         }
 
         Err(anyhow!("invalid interval"))

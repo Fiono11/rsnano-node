@@ -141,8 +141,8 @@ struct Peer {
 impl Peer {
     /// When `SCORE_LIMIT` is reached then a peer will be excluded
     const SCORE_LIMIT: u64 = 2;
-    const EXCLUDE_TIME: Duration = Duration::from_secs(60 * 60);
-    const EXCLUDE_REMOVE: Duration = Duration::from_secs(60 * 60 * 24);
+    const EXCLUDE_TIME: Duration = Duration::from_hours(1);
+    const EXCLUDE_REMOVE: Duration = Duration::from_hours(24);
 
     fn new(address: SocketAddrV6, now: Timestamp) -> Self {
         let score = 1;
@@ -321,7 +321,7 @@ mod tests {
             let endpoint = test_endpoint(1);
             peers.perma_ban(endpoint);
             assert!(peers.is_excluded(&endpoint, NOW));
-            assert!(peers.is_excluded(&endpoint, NOW + Duration::from_secs(60 * 60 * 24 * 365)));
+            assert!(peers.is_excluded(&endpoint, NOW + Duration::from_hours(24 * 365)));
             assert_eq!(peers.excluded_until(&endpoint), Some(Timestamp::MAX));
             assert!(peers.contains(&endpoint));
             assert_eq!(peers.len(), 1);

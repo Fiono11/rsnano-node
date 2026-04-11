@@ -32,7 +32,7 @@ impl Default for VoteCacheConfig {
         Self {
             max_size: 1024 * 64,
             max_voters: 64,
-            age_cutoff: Duration::from_secs(15 * 60),
+            age_cutoff: Duration::from_mins(15),
         }
     }
 }
@@ -547,7 +547,7 @@ mod tests {
         VoteCacheConfig {
             max_size: 3,
             max_voters: 80,
-            age_cutoff: Duration::from_secs(5 * 60),
+            age_cutoff: Duration::from_mins(5),
         }
     }
 

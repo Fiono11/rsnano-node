@@ -136,7 +136,7 @@ impl UncheckedBlockReenqueuer {
 
     fn discard_old_entries(&mut self) {
         let now = self.clock.now();
-        let cutoff = now - Duration::from_secs(60 * 15);
+        let cutoff = now - Duration::from_mins(15);
         self.unchecked.lock().unwrap().discard_old_entries(cutoff);
     }
 }
@@ -355,7 +355,7 @@ mod tests {
         unchecked.put(
             dependency_block1.hash(),
             unchecked_block1.clone(),
-            now - Duration::from_secs(60 * 15),
+            now - Duration::from_mins(15),
         );
         unchecked.put(dependency_block2.hash(), unchecked_block2.clone(), now);
         unchecked.put(dependency_block3.hash(), unchecked_block3.clone(), now);

@@ -218,7 +218,7 @@ mod tests {
 
         // Even after time threshold
         let error = history
-            .check_and_record(&vote, TEST_WEIGHT, NOW + Duration::from_secs(60 * 60))
+            .check_and_record(&vote, TEST_WEIGHT, NOW + Duration::from_hours(1))
             .unwrap_err();
         assert_eq!(error, RebroadcastError::AlreadyRebroadcasted);
     }
