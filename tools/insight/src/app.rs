@@ -123,10 +123,7 @@ impl InsightApp {
         if let Some(account) = Account::parse(&self.bootstrap.add_account) {
             self.bootstrap.add_account.clear();
             if let Some(node) = self.node_runner.node() {
-                node.bootstrapper
-                    .state()
-                    .bootstrap_queue
-                    .priority_up(&account);
+                node.bootstrapper.enqueue(account);
             }
         }
     }

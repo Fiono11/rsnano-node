@@ -329,6 +329,11 @@ impl Bootstrapper {
         }
     }
 
+    pub fn enqueue(&self, account: Account) {
+        let mut guard = self.logic.lock().unwrap();
+        guard.bootstrap_queue.priority_up(&account);
+    }
+
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         let mut guard = self.logic.lock().unwrap();
         for account in accounts {
