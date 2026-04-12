@@ -341,6 +341,11 @@ impl Bootstrapper {
         }
     }
 
+    pub fn clear_blocked_accounts(&self) {
+        let mut guard = self.logic.lock().unwrap();
+        guard.bootstrap_queue.clear_blocked_accounts();
+    }
+
     fn run_timeouts(&self) {
         let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
         let mut state = self.logic.lock().unwrap();

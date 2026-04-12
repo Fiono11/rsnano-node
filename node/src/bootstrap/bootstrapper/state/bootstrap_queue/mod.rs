@@ -391,6 +391,10 @@ impl BootstrapQueue {
         self.blocked.clear();
     }
 
+    pub fn clear_blocked_accounts(&mut self) {
+        self.blocked.clear();
+    }
+
     pub fn container_info(&self) -> ContainerInfo {
         // Count blocked entries with their dependency account unknown
         let blocked_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);

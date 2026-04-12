@@ -135,4 +135,10 @@ impl InsightApp {
             let _ = node.ledger.roll_back(&hash);
         }
     }
+
+    pub fn clear_blocked_accounts(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.clear_blocked_accounts();
+        }
+    }
 }
