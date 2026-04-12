@@ -6,7 +6,7 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, ProcessResult};
+use rsnano_ledger::{Ledger, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
@@ -131,6 +131,7 @@ impl Default for BootstrapConfig {
 pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
+    ledger: Arc<Ledger>,
     logic: Arc<Mutex<BootstrapLogic>>,
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
@@ -213,6 +214,7 @@ impl Bootstrapper {
             response_handler,
             block_inspector,
             requesters,
+            ledger,
         }
     }
 
@@ -344,6 +346,18 @@ impl Bootstrapper {
     pub fn clear_blocked_accounts(&self) {
         let mut guard = self.logic.lock().unwrap();
         guard.bootstrap_queue.clear_blocked_accounts();
+    }
+
+    pub fn consistency_check(&self) {
+        tracing::info!("Performing blocked accounts consistency check...");
+        let guard = self.logic.lock().unwrap();
+        let any = self.ledger.any();
+        for i in guard.bootstrap_queue.iter_blocked() {
+            if any.block_exists(&i.dependency_block) {
+                tracing::warn!(account = i.account.encode_account(), dependency = ?i.dependency_block, "Dependency block found, but account still blocked");
+            }
+        }
+        tracing::info!("Blocked accounts consistency check completed");
     }
 
     fn run_timeouts(&self) {

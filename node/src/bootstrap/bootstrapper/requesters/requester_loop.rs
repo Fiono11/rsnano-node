@@ -64,7 +64,7 @@ impl RequesterLoop {
     pub fn run_loop(&mut self) {
         let mut state = self.state.lock().unwrap();
         let mut loop_counter = 0;
-        let mut last_revision = 0;
+        let mut last_revision;
         while !state.stopped {
             let mut produced = 0;
 

@@ -141,4 +141,10 @@ impl InsightApp {
             node.bootstrapper.clear_blocked_accounts();
         }
     }
+
+    pub(crate) fn blocked_consistency_check(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.consistency_check();
+        }
+    }
 }
