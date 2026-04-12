@@ -61,6 +61,7 @@ pub struct BootstrapQueue {
     config: BootstrapQueueConfig,
     priorities: PrioritizedAccounts,
     blocked: BlockedAccounts,
+    revision: u64,
 }
 
 impl BootstrapQueue {
@@ -76,6 +77,7 @@ impl BootstrapQueue {
             config,
             priorities: Default::default(),
             blocked: Default::default(),
+            revision: 0,
         }
     }
 
@@ -90,6 +92,7 @@ impl BootstrapQueue {
                 entry.fails = 0;
                 true // keep this entry
             });
+            self.revision += 1;
 
             match updated {
                 ChangePriorityResult::Updated | ChangePriorityResult::Deleted => {
@@ -131,6 +134,7 @@ impl BootstrapQueue {
             }
         });
 
+        self.revision += 1;
         match change_result {
             ChangePriorityResult::Updated => PriorityDownResult::Deprioritized,
             ChangePriorityResult::Deleted => PriorityDownResult::Erased,
@@ -142,6 +146,7 @@ impl BootstrapQueue {
         let inserted =
             Self::priority_set_impl(account, priority, &self.blocked, &mut self.priorities);
         self.trim_overflow();
+        self.revision += 1;
         inserted
     }
 
@@ -164,6 +169,7 @@ impl BootstrapQueue {
             return false;
         }
 
+        self.revision += 1;
         self.priorities.remove(account).is_some()
     }
 
@@ -181,6 +187,7 @@ impl BootstrapQueue {
             });
 
             self.trim_overflow();
+            self.revision += 1;
             true
         } else {
             false
@@ -206,6 +213,7 @@ impl BootstrapQueue {
                     .insert(PrioritizedAccount::new(account, Self::PRIORITY_INITIAL));
                 self.blocked.remove_account(&account);
                 self.trim_overflow();
+                self.revision += 1;
                 return true;
             }
         }
@@ -216,6 +224,7 @@ impl BootstrapQueue {
     /// Should be called periodically to remove old entries from the blocked accounts
     pub fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
         let cutoff = now - self.config.blocked_decay;
+        self.revision += 1;
         self.blocked.remove_older_than(cutoff)
     }
 
@@ -227,12 +236,14 @@ impl BootstrapQueue {
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
         debug_assert!(!account.is_zero());
         self.priorities.set_last_request(account, Some(now));
+        self.revision += 1;
     }
 
     pub fn reset_last_request(&mut self, account: &Account) {
         debug_assert!(!account.is_zero());
 
         self.priorities.set_last_request(account, None);
+        self.revision += 1;
     }
 
     /// Sets information about the account chain that contains the block hash
@@ -256,6 +267,7 @@ impl BootstrapQueue {
             )
         {
             self.trim_overflow();
+            self.revision += 1;
         }
 
         updated
@@ -326,6 +338,7 @@ impl BootstrapQueue {
         }
 
         self.trim_overflow();
+        self.revision += 1;
         inserted
     }
 
@@ -389,10 +402,16 @@ impl BootstrapQueue {
     pub fn clear(&mut self) {
         self.priorities.clear();
         self.blocked.clear();
+        self.revision += 1;
     }
 
     pub fn clear_blocked_accounts(&mut self) {
         self.blocked.clear();
+        self.revision += 1;
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn container_info(&self) -> ContainerInfo {

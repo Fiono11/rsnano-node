@@ -64,6 +64,7 @@ impl RequesterLoop {
     pub fn run_loop(&mut self) {
         let mut state = self.state.lock().unwrap();
         let mut loop_counter = 0;
+        let mut last_revision = 0;
         while !state.stopped {
             let mut produced = 0;
 
@@ -90,9 +91,12 @@ impl RequesterLoop {
                 self.stats.sleep.fetch_add(1, Relaxed);
                 loop_counter = 0;
                 // nothing to do — wait for a state change or fixed throttle
+                last_revision = state.bootstrap_queue.revision();
                 state = self
                     .state_changed
-                    .wait_timeout_while(state, Self::THROTTLE_WAIT, |s| !s.stopped)
+                    .wait_timeout_while(state, Self::THROTTLE_WAIT, |s| {
+                        s.bootstrap_queue.revision() == last_revision && !s.stopped
+                    })
                     .unwrap()
                     .0;
             } else {
