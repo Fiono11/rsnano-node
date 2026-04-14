@@ -11,26 +11,17 @@ mod priority;
 
 use crate::bootstrap::bootstrapper::state::bootstrap_queue::downloading::DownloadingAccounts;
 use blocked::BlockedAccounts;
-pub use blocked::BlockedBlock;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
 
 /// An account that is currently being bootstrapped
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub(crate) struct BootstrappingAccount {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,
     pub last_request: Option<Timestamp>,
     pub blocked: Option<BlockedInfo>,
-}
-
-#[derive(Clone)]
-pub struct BlockedInfo {
-    pub dependency_block: BlockHash,
-    /// Account that contains the dependency block, fetched via a background dependency walker
-    pub dependency_account: Option<Account>,
-    pub blocked_at: Timestamp,
 }
 
 impl BootstrappingAccount {
@@ -44,7 +35,7 @@ impl BootstrappingAccount {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_test_instance() -> Self {
         Self {
             account: Account::from(7),
@@ -52,6 +43,35 @@ impl BootstrappingAccount {
             fails: 0,
             last_request: None,
             blocked: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_blocked_test_instance() -> Self {
+        Self {
+            account: Account::from(7),
+            priority: Priority::new(3.0),
+            fails: 0,
+            last_request: None,
+            blocked: Some(BlockedInfo::new_test_instance()),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BlockedInfo {
+    pub dependency_block: BlockHash,
+    /// Account that contains the dependency block, fetched via a background dependency walker
+    pub dependency_account: Option<Account>,
+    pub blocked_at: Timestamp,
+}
+
+impl BlockedInfo {
+    pub fn new_test_instance() -> Self {
+        Self {
+            dependency_block: BlockHash::from(456),
+            dependency_account: None,
+            blocked_at: Timestamp::new_test_instance(),
         }
     }
 }
@@ -219,23 +239,22 @@ impl BootstrapQueue {
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
         debug_assert!(!account.is_zero());
 
-        if let Some(removed) = self.download_queue.remove(&account) {
-            self.blocked.insert(BlockedBlock {
-                account,
-                dependency_block: dependency,
-                dependency_account: Account::ZERO,
-                added: now,
-            });
-
-            self.trim_overflow();
-            self.revision += 1;
-            true
+        let mut entry = if let Some(removed) = self.download_queue.remove(&account) {
+            removed
         } else if let Some(removed) = self.downloading.remove(&account) {
-            // TODO: insert into blocked
-            true
+            removed
         } else {
-            false
-        }
+            return false;
+        };
+        entry.blocked = Some(BlockedInfo {
+            dependency_block: dependency,
+            dependency_account: None,
+            blocked_at: now,
+        });
+        self.blocked.insert(entry);
+        self.trim_overflow();
+        self.revision += 1;
+        true
     }
 
     pub fn unblock(&mut self, account: Account, hash: Option<BlockHash>) -> bool {
@@ -246,7 +265,7 @@ impl BootstrapQueue {
         // Unblock only if the dependency is fulfilled
         if let Some(existing) = self.blocked.get(&account) {
             let hash_matches = if let Some(hash) = hash {
-                hash == existing.dependency_block
+                hash == existing.blocked.as_ref().unwrap().dependency_block
             } else {
                 true
             };
@@ -375,8 +394,15 @@ impl BootstrapQueue {
                 break;
             }
 
+            // TODO: keep bootstrapping account instead of recreating it!
+            let dep_account = entry
+                .blocked
+                .as_ref()
+                .unwrap()
+                .dependency_account
+                .unwrap_or_default();
             if Self::priority_set_impl(
-                &entry.dependency_account,
+                &dep_account,
                 Priority::INITIAL,
                 &self.blocked,
                 &mut self.download_queue,
@@ -419,8 +445,15 @@ impl BootstrapQueue {
         self.download_queue.iter()
     }
 
-    pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockedBlock> {
-        self.blocked.iter_by_insertion_order()
+    pub fn iter_blocked(&self) -> impl Iterator<Item = (Account, BlockHash, Account)> {
+        self.blocked.iter_by_insertion_order().map(|i| {
+            let blocked = i.blocked.as_ref().unwrap();
+            (
+                i.account,
+                blocked.dependency_block,
+                blocked.dependency_account.unwrap_or_default(),
+            )
+        })
     }
 
     pub fn queue_full(&self) -> bool {
@@ -467,7 +500,7 @@ impl BootstrapQueue {
                 self.download_queue.len(),
                 DownloadQueue::ELEMENT_SIZE,
             ),
-            ("blocked", self.blocked.len(), BlockedAccounts::ELEMENT_SIZE),
+            ("blocked", self.blocked.len(), 0),
             ("blocked_unknown", blocked_unknown, 0),
         ]
         .into()
@@ -1016,7 +1049,7 @@ mod tests {
             info,
             [
                 ("priorities", 2, DownloadQueue::ELEMENT_SIZE),
-                ("blocked", 2, BlockedAccounts::ELEMENT_SIZE),
+                ("blocked", 2, 0),
                 ("blocked_unknown", 1, 0)
             ]
             .into()

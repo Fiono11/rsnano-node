@@ -1,5 +1,5 @@
-use rsnano_node::bootstrap::bootstrapper::state::{BlockedBlock, BootstrapLogic, Priority};
-use rsnano_types::Account;
+use rsnano_node::bootstrap::bootstrapper::state::{BootstrapLogic, Priority};
+use rsnano_types::{Account, BlockHash};
 
 #[derive(Default)]
 pub(crate) struct BootstrapInfo {
@@ -8,7 +8,7 @@ pub(crate) struct BootstrapInfo {
     pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
     pub priorities: Vec<(Priority, Account)>,
-    pub blocked: Vec<BlockedBlock>,
+    pub blocked: Vec<(Account, BlockHash, Account)>,
     pub search: String,
     pub add_account: String,
 }
@@ -38,13 +38,12 @@ impl BootstrapInfo {
 
         self.blocked = queue
             .iter_blocked()
-            .filter(|i| {
+            .filter(|(account, _, dep_account)| {
                 target_account.is_none()
-                    || target_account == Some(i.account)
-                    || target_account == Some(i.dependency_account)
+                    || target_account == Some(*account)
+                    || target_account == Some(*dep_account)
             })
             .take(50)
-            .cloned()
             .collect();
     }
 }

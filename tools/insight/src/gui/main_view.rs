@@ -197,13 +197,13 @@ impl MainViewModel {
             .bootstrap
             .blocked
             .iter()
-            .map(|i| {
+            .map(|(account, dependency, dependency_account)| {
                 let mut model = BlockedViewModel {
-                    account: i.account.encode_account(),
-                    dependency: i.dependency_block.to_string(),
-                    dependency_account: i.dependency_account.encode_account(),
-                    account_val: i.account,
-                    dependency_account_val: i.dependency_account,
+                    account: account.encode_account(),
+                    dependency: dependency.to_string(),
+                    dependency_account: dependency_account.encode_account(),
+                    account_val: *account,
+                    dependency_account_val: *dependency_account,
                 };
                 truncate_text(&mut model.account, 20);
                 truncate_text(&mut model.dependency, 20);
