@@ -112,7 +112,9 @@ impl QuerySpecFactory {
 
         self.request_limiter.consume(1, now);
         state.scoring.add_query(channel_id);
+        state.bootstrap_queue.set_downloading(&next.account);
         self.stats.next.fetch_add(1, Relaxed);
+
         Some(query)
     }
 

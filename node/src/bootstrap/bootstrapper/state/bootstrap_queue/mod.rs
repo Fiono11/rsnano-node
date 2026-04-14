@@ -374,6 +374,10 @@ impl BootstrapQueue {
         }
     }
 
+    pub fn set_downloading(&mut self, account: &Account) {
+        // TODO move to downloading accounts
+    }
+
     pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
         if self.blocked.is_empty() {
             return BlockHash::ZERO;
