@@ -374,12 +374,29 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn download_started(&mut self, _account: &Account) {
-        // TODO move to downloading accounts
+    pub fn download_started(&mut self, account: &Account, now: Timestamp) {
+        if let Some(entry) = self.download_queue.remove(account){
+            if let Some(old) = self.downloading.insert(entry, now){
+                // TODO
+            } else{
+                // TODO stats?
+            }
+        } else{
+            // TODO
+        }
     }
 
-    pub fn download_finished(&mut self, _account: &Account, _blocks: VecDeque<Block>) {
-        // TODO move to process queue
+    pub fn download_finished(&mut self, account: &Account, _blocks: VecDeque<Block>) {
+        if let Some(entry) = self.downloading.remove(account){
+            // TODO move to process queue!
+            if self.download_queue.insert(entry){
+                // TODO stats?
+            } else{
+                // TODO
+            }
+        } else{
+            // TODO
+        }
     }
 
     pub fn processing_started(&self, _block_hash: &BlockHash) {
@@ -463,8 +480,7 @@ impl BootstrapQueue {
     }
 
     pub fn downloading_count(&self) -> usize {
-        // TODO
-        0
+        self.downloading.len()
     }
 
     pub fn processing_queue_len(&self) -> usize {
@@ -521,6 +537,18 @@ impl BootstrapQueue {
 
     pub fn clear_blocked_accounts(&mut self) {
         self.blocked.clear();
+        self.revision += 1;
+    }
+
+    pub fn timeout(&mut self, now: Timestamp)  {
+        while let Some(entry) = self.downloading.pop_timeout(now){
+            if self.download_queue.insert(entry) {
+                // TODO
+            } else {
+                // TODO
+            }
+        }
+        self.trim_overflow();
         self.revision += 1;
     }
 

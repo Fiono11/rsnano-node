@@ -4,9 +4,10 @@ use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::state::{
-    BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
     block_queue::{AccountBlocks, BlockQueue},
+    BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
 };
+use std::collections::VecDeque;
 
 #[derive(Default)]
 pub struct BlockAckProcessor {
@@ -38,6 +39,7 @@ impl BlockAckProcessor {
                 true
             }
             VerifyResult::Invalid => {
+                queue.download_finished(&query.account, VecDeque::new());
                 self.stats.invalid += 1;
                 false
             }
@@ -78,6 +80,7 @@ impl BlockAckProcessor {
 
     fn process_empty_response(&mut self, queue: &mut BootstrapQueue, query: &RunningQuery) {
         self.stats.nothing_new += 1;
+        queue.download_finished(&query.account, VecDeque::new());
         match queue.priority_down(&query.account) {
             PriorityDownResult::Deprioritized => {
                 self.stats.deprioritize += 1;

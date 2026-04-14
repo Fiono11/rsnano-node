@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     ops::{Add, AddAssign, Sub},
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::{Duration, Instant},
 };
 
@@ -59,10 +59,14 @@ impl SteadyClock {
 impl Default for SteadyClock {
     fn default() -> Self {
         SteadyClock {
-            time_source: TimeSource::System(Instant::now()),
+            time_source: TimeSource::System(*TIME_START),
         }
     }
 }
+
+/// always use the same start time so that multiple instances of SteadyClock
+/// are compatible with each other
+static TIME_START: LazyLock<Instant> = LazyLock::new(|| Instant::now());
 
 #[derive(Clone)]
 enum TimeSource {

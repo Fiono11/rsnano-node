@@ -43,6 +43,7 @@ impl BootstrapCleanup {
                 .inc(StatType::BootstrapTimeout, front.query_type.into());
             state.running_queries.pop_front();
         }
+        state.bootstrap_queue.timeout(now);
     }
 
     pub fn reinsert_known_dependencies(&mut self, state: &mut BootstrapLogic) {
