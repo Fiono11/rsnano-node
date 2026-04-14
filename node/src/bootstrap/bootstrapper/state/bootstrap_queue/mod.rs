@@ -10,8 +10,38 @@ mod priority;
 
 use blocked::BlockedAccounts;
 pub use blocked::BlockedBlock;
-use prioritized::{ChangePriorityResult, PrioritizedAccount, PrioritizedAccounts};
+use prioritized::{ChangePriorityResult, PrioritizedAccounts};
 pub use priority::Priority;
+
+/// An account that is currently being bootstrapped
+#[derive(Clone, Default)]
+pub(crate) struct BootstrappingAccount {
+    pub account: Account,
+    pub priority: Priority,
+    pub fails: usize,
+    pub last_request: Option<Timestamp>,
+}
+
+impl BootstrappingAccount {
+    pub fn new(account: Account, priority: Priority) -> Self {
+        Self {
+            account,
+            priority,
+            fails: 0,
+            last_request: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn new_test_instance() -> Self {
+        Self {
+            account: Account::from(7),
+            priority: Priority::new(3.0),
+            fails: 0,
+            last_request: None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapQueueConfig {
@@ -100,7 +130,7 @@ impl BootstrapQueue {
                 }
                 ChangePriorityResult::NotFound => {
                     self.priorities
-                        .insert(PrioritizedAccount::new(*account, Self::PRIORITY_INITIAL));
+                        .insert(BootstrappingAccount::new(*account, Self::PRIORITY_INITIAL));
 
                     self.trim_overflow();
                     PriorityUpResult::Inserted
@@ -159,7 +189,7 @@ impl BootstrapQueue {
         if account.is_zero() || blocked.contains(account) || priorities.contains(account) {
             false
         } else {
-            priorities.insert(PrioritizedAccount::new(*account, priority));
+            priorities.insert(BootstrappingAccount::new(*account, priority));
             true
         }
     }
@@ -210,7 +240,7 @@ impl BootstrapQueue {
             if hash_matches {
                 debug_assert!(!self.priorities.contains(&account));
                 self.priorities
-                    .insert(PrioritizedAccount::new(account, Self::PRIORITY_INITIAL));
+                    .insert(BootstrappingAccount::new(account, Self::PRIORITY_INITIAL));
                 self.blocked.remove_account(&account);
                 self.trim_overflow();
                 self.revision += 1;

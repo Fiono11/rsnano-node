@@ -3,43 +3,16 @@ use rsnano_types::Account;
 use std::collections::BTreeMap;
 use std::mem::size_of;
 
-use super::priority::{Priority, PriorityKeyDesc};
 use rustc_hash::FxHashSet;
 
-#[derive(Clone, Default)]
-pub(super) struct PrioritizedAccount {
-    pub account: Account,
-    pub priority: Priority,
-    pub fails: usize,
-    pub last_request: Option<Timestamp>,
-}
-
-impl PrioritizedAccount {
-    pub fn new(account: Account, priority: Priority) -> Self {
-        Self {
-            account,
-            priority,
-            fails: 0,
-            last_request: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn new_test_instance() -> Self {
-        Self {
-            account: Account::from(7),
-            priority: Priority::new(3.0),
-            fails: 0,
-            last_request: None,
-        }
-    }
-}
+use super::priority::{Priority, PriorityKeyDesc};
+use crate::bootstrap::bootstrapper::state::BootstrappingAccount;
 
 /// Tracks the ongoing account priorities
 /// This only stores account priorities > 1.0f.
 #[derive(Default)]
 pub(super) struct PrioritizedAccounts {
-    by_account: BTreeMap<Account, PrioritizedAccount>,
+    by_account: BTreeMap<Account, BootstrappingAccount>,
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
 }
 
@@ -50,7 +23,7 @@ pub(crate) enum ChangePriorityResult {
 }
 
 impl PrioritizedAccounts {
-    pub const ELEMENT_SIZE: usize = size_of::<PrioritizedAccount>()
+    pub const ELEMENT_SIZE: usize = size_of::<BootstrappingAccount>()
         + size_of::<Account>()
         + size_of::<f32>()
         + size_of::<u64>() * 4;
@@ -63,7 +36,7 @@ impl PrioritizedAccounts {
         self.by_account.is_empty()
     }
 
-    pub fn get(&self, account: &Account) -> Option<&PrioritizedAccount> {
+    pub fn get(&self, account: &Account) -> Option<&BootstrappingAccount> {
         self.by_account.get(account)
     }
 
@@ -71,7 +44,7 @@ impl PrioritizedAccounts {
         self.by_account.contains_key(account)
     }
 
-    pub fn insert(&mut self, entry: PrioritizedAccount) -> bool {
+    pub fn insert(&mut self, entry: BootstrappingAccount) -> bool {
         let account = entry.account;
         let priority = entry.priority;
 
@@ -87,7 +60,7 @@ impl PrioritizedAccounts {
         true
     }
 
-    pub fn pop_lowest_prio(&mut self) -> Option<PrioritizedAccount> {
+    pub fn pop_lowest_prio(&mut self) -> Option<BootstrappingAccount> {
         let lowest_prio_account = {
             let (_, v) = self.by_priority.last_key_value()?;
             *v.iter().next().unwrap()
@@ -104,7 +77,7 @@ impl PrioritizedAccounts {
     pub fn modify(
         &mut self,
         account: &Account,
-        mut f: impl FnMut(&mut PrioritizedAccount) -> bool,
+        mut f: impl FnMut(&mut BootstrappingAccount) -> bool,
     ) -> ChangePriorityResult {
         if let Some(entry) = self.by_account.get_mut(account) {
             let old_prio = entry.priority;
@@ -133,7 +106,7 @@ impl PrioritizedAccounts {
         &self,
         cutoff: Timestamp,
         filter: impl Fn(&Account) -> bool,
-    ) -> Option<&PrioritizedAccount> {
+    ) -> Option<&BootstrappingAccount> {
         self.by_priority
             .values()
             .flatten()
@@ -148,7 +121,7 @@ impl PrioritizedAccounts {
             })
     }
 
-    pub fn remove(&mut self, account: &Account) -> Option<PrioritizedAccount> {
+    pub fn remove(&mut self, account: &Account) -> Option<BootstrappingAccount> {
         if let Some(entry) = self.by_account.remove(account) {
             self.remove_priority(account, entry.priority);
             Some(entry)
@@ -170,7 +143,7 @@ impl PrioritizedAccounts {
             .insert(*account);
     }
 
-    fn remove_account(&mut self, account: &Account) -> PrioritizedAccount {
+    fn remove_account(&mut self, account: &Account) -> BootstrappingAccount {
         let entry = self.by_account.remove(account).unwrap();
         self.remove_priority(account, entry.priority);
         entry
@@ -210,7 +183,7 @@ mod tests {
     #[test]
     fn insert_one() {
         let mut priorities = PrioritizedAccounts::default();
-        let entry = PrioritizedAccount::new_test_instance();
+        let entry = BootstrappingAccount::new_test_instance();
         assert!(priorities.insert(entry.clone()));
         assert_eq!(priorities.len(), 1);
         assert_eq!(priorities.is_empty(), false);
@@ -221,11 +194,11 @@ mod tests {
     #[test]
     fn insert_two() {
         let mut priorities = PrioritizedAccounts::default();
-        assert!(priorities.insert(PrioritizedAccount::new(
+        assert!(priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(2.5)
         )));
-        assert!(priorities.insert(PrioritizedAccount::new(
+        assert!(priorities.insert(BootstrappingAccount::new(
             Account::from(2),
             Priority::new(3.5)
         )));
@@ -238,11 +211,11 @@ mod tests {
     #[test]
     fn dont_insert_when_account_already_present() {
         let mut priorities = PrioritizedAccounts::default();
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(2.5),
         ));
-        let inserted = priorities.insert(PrioritizedAccount::new(
+        let inserted = priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(3.5),
         ));
@@ -253,15 +226,15 @@ mod tests {
     #[test]
     fn pop_front() {
         let mut priorities = PrioritizedAccounts::default();
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(2.5),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(2),
             Priority::new(2.5),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(3),
             Priority::new(2.5),
         ));
@@ -285,7 +258,7 @@ mod tests {
     fn change_timestamp() {
         let account = Account::from(1);
         let mut priorities = PrioritizedAccounts::default();
-        priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
+        priorities.insert(BootstrappingAccount::new(account, Priority::new(2.5)));
         let now = Timestamp::new_test_instance();
 
         priorities.set_last_request(&account, Some(now));
@@ -308,7 +281,7 @@ mod tests {
         fn one_item() {
             let mut priorities = PrioritizedAccounts::default();
             let account = Account::from(1);
-            priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
+            priorities.insert(BootstrappingAccount::new(account, Priority::new(2.5)));
 
             let next = priorities
                 .next_priority(Timestamp::new_test_instance(), |_account| true)
@@ -320,15 +293,15 @@ mod tests {
         #[test]
         fn ordered_by_priority_desc() {
             let mut priorities = PrioritizedAccounts::default();
-            priorities.insert(PrioritizedAccount::new(
+            priorities.insert(BootstrappingAccount::new(
                 Account::from(1),
                 Priority::new(2.5),
             ));
-            priorities.insert(PrioritizedAccount::new(
+            priorities.insert(BootstrappingAccount::new(
                 Account::from(2),
                 Priority::new(10.0),
             ));
-            priorities.insert(PrioritizedAccount::new(
+            priorities.insert(BootstrappingAccount::new(
                 Account::from(3),
                 Priority::new(3.5),
             ));
@@ -343,10 +316,10 @@ mod tests {
         #[test]
         fn cutoff() {
             let now = Timestamp::new_test_instance();
-            let a = PrioritizedAccount::new(Account::from(1), Priority::new(2.5));
-            let mut b = PrioritizedAccount::new(Account::from(2), Priority::new(10.0));
+            let a = BootstrappingAccount::new(Account::from(1), Priority::new(2.5));
+            let mut b = BootstrappingAccount::new(Account::from(2), Priority::new(10.0));
             b.last_request = Some(now);
-            let mut c = PrioritizedAccount::new(Account::from(3), Priority::new(3.5));
+            let mut c = BootstrappingAccount::new(Account::from(3), Priority::new(3.5));
             c.last_request = Some(now - Duration::from_mins(1));
             let mut priorities = PrioritizedAccounts::default();
             priorities.insert(a);
@@ -362,9 +335,9 @@ mod tests {
 
         #[test]
         fn filter() {
-            let a = PrioritizedAccount::new(Account::from(1), Priority::new(2.5));
-            let b = PrioritizedAccount::new(Account::from(2), Priority::new(10.0));
-            let c = PrioritizedAccount::new(Account::from(3), Priority::new(3.5));
+            let a = BootstrappingAccount::new(Account::from(1), Priority::new(2.5));
+            let b = BootstrappingAccount::new(Account::from(2), Priority::new(10.0));
+            let c = BootstrappingAccount::new(Account::from(3), Priority::new(3.5));
             let mut priorities = PrioritizedAccounts::default();
             priorities.insert(a);
             priorities.insert(b);
@@ -383,15 +356,15 @@ mod tests {
     #[test]
     fn change_priority() {
         let mut priorities = PrioritizedAccounts::default();
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(2.5),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(2),
             Priority::new(3.0),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(3),
             Priority::new(3.5),
         ));
@@ -421,7 +394,7 @@ mod tests {
     fn remove_by_priority_change() {
         let mut priorities = PrioritizedAccounts::default();
         let account = Account::from(1);
-        priorities.insert(PrioritizedAccount::new(account, Priority::new(2.5)));
+        priorities.insert(BootstrappingAccount::new(account, Priority::new(2.5)));
 
         priorities.modify(&account, |_| false);
 
@@ -431,15 +404,15 @@ mod tests {
     #[test]
     fn remove() {
         let mut priorities = PrioritizedAccounts::default();
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(1),
             Priority::new(2.5),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(2),
             Priority::new(3.0),
         ));
-        priorities.insert(PrioritizedAccount::new(
+        priorities.insert(BootstrappingAccount::new(
             Account::from(3),
             Priority::new(3.5),
         ));
