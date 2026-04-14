@@ -17,8 +17,8 @@ impl BootstrapInfo {
     pub(crate) fn update(&mut self, state: &BootstrapLogic) {
         let target_account = Account::parse(&self.search);
         let queue = &state.bootstrap_queue;
-        self.prioritized_accounts = queue.prioritized_len();
-        self.blocked_accounts = queue.blocked_len();
+        self.prioritized_accounts = queue.download_queue_len();
+        self.blocked_accounts = queue.blocked_count();
         self.unique_blocked_accounts = queue.unique_blocked_accounts();
         self.unknown_dependencies = self
             .blocked_accounts

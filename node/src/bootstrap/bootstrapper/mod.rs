@@ -273,12 +273,8 @@ impl Bootstrapper {
         self.logic.lock().unwrap()
     }
 
-    pub fn prioritized(&self, account: &Account) -> bool {
-        self.logic
-            .lock()
-            .unwrap()
-            .bootstrap_queue
-            .prioritized(account)
+    pub fn contains(&self, account: &Account) -> bool {
+        self.logic.lock().unwrap().bootstrap_queue.contains(account)
     }
 
     /// Process `asc_pull_ack` message coming from network

@@ -216,7 +216,7 @@ impl BlockInspector {
                     }
                     BlockError::GapEpochOpenPending => {
                         // Epoch open blocks for accounts that don't have any pending blocks yet
-                        if state.bootstrap_queue.priority_erase(account) {
+                        if state.bootstrap_queue.remove(account) {
                             self.stats
                                 .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
                         }

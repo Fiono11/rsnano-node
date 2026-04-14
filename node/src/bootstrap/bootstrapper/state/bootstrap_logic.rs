@@ -56,7 +56,7 @@ impl BootstrapLogic {
     }
 
     pub fn next_target(&mut self, now: Timestamp) -> BootstrapTarget {
-        let next = self.bootstrap_queue.next_target(now, |account| {
+        let next = self.bootstrap_queue.next_download_target(now, |account| {
             !self
                 .block_ack_processor
                 .block_queue

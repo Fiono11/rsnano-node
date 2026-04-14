@@ -108,7 +108,7 @@ mod tests {
 
         plugin.run(&aec);
 
-        assert_eq!(bootstrapper.state().bootstrap_queue.prioritized_len(), 0);
+        assert_eq!(bootstrapper.state().bootstrap_queue.download_queue_len(), 0);
         assert_eq!(plugin.stats.bootstrap_stale.load(Ordering::Relaxed), 0);
     }
 
@@ -129,7 +129,7 @@ mod tests {
         let mut plugin = BootstrapStaleElections::new(bootstrapper.clone(), clock);
         plugin.run(&aec);
 
-        assert!(bootstrapper.prioritized(&account));
+        assert!(bootstrapper.contains(&account));
         assert_eq!(plugin.stats.bootstrap_stale.load(Ordering::Relaxed), 1);
     }
 

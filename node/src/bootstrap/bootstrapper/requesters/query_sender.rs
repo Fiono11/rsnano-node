@@ -182,8 +182,8 @@ mod tests {
 
         assert_eq!(id, None);
         assert_eq!(state.running_queries.len(), 0);
-        assert_eq!(state.bootstrap_queue.prioritized_len(), 0);
-        assert_eq!(state.bootstrap_queue.blocked_len(), 0);
+        assert_eq!(state.bootstrap_queue.download_queue_len(), 0);
+        assert_eq!(state.bootstrap_queue.blocked_count(), 0);
     }
 
     #[test]

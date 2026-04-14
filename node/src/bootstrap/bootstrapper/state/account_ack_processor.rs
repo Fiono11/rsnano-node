@@ -108,7 +108,7 @@ mod tests {
         assert!(processor.process(&mut queue, &query, &response));
 
         assert_eq!(processor.stats.empty, 1);
-        assert_eq!(queue.prioritized_len(), 0);
+        assert_eq!(queue.download_queue_len(), 0);
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
 
         assert!(processor.process(&mut queue, &query, &response));
 
-        assert!(queue.prioritized(&response.account));
+        assert!(queue.contains(&response.account));
         assert_eq!(processor.stats.dependency_update_failed, 1);
         assert_eq!(processor.stats.priority_insert, 1);
     }
@@ -154,8 +154,8 @@ mod tests {
         assert!(processor.process(&mut queue, &query, &response));
 
         assert!(queue.blocked(&blocked_account));
-        assert!(queue.prioritized(&source_account));
-        let target = queue.next_target(Timestamp::new_test_instance(), |_| true);
+        assert!(queue.contains(&source_account));
+        let target = queue.next_download_target(Timestamp::new_test_instance(), |_| true);
         assert_eq!(target.account, source_account);
         assert_eq!(processor.stats.dependency_update, 1);
         assert_eq!(processor.stats.priority_insert, 1);
