@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use tracing::trace;
 
 use rsnano_messages::BlocksAckPayload;
@@ -5,14 +7,11 @@ use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::state::{
     BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
-    block_queue::{AccountBlocks, BlockQueue},
 };
-use std::collections::VecDeque;
 
 #[derive(Default)]
 pub struct BlockAckProcessor {
     stats: BlockAckStats,
-    pub(crate) block_queue: BlockQueue,
 }
 
 impl BlockAckProcessor {
@@ -67,15 +66,7 @@ impl BlockAckProcessor {
             blocks.pop_front();
         }
 
-        // TODO only insert into bootstrap queue and not into block queue!
-        queue.download_finished(&query.account, blocks.clone());
-
-        // TODO delete this:
-        self.block_queue.insert(AccountBlocks {
-            account: query.account,
-            query_id: query.id,
-            blocks,
-        });
+        queue.download_finished(&query.account, blocks);
     }
 
     fn process_empty_response(&mut self, queue: &mut BootstrapQueue, query: &RunningQuery) {

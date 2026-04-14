@@ -10,9 +10,9 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-use crate::bootstrap::bootstrapper::state::bootstrap_queue::{
+use crate::bootstrap::bootstrapper::state::{block_queue::BlockInfo, bootstrap_queue::{
     downloading::DownloadingAccounts, single_block_account_set::SingleBlockAccountSet,
-};
+}};
 use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
@@ -152,24 +152,39 @@ impl BootstrapQueue {
         }
     }
 
+    pub fn priority_set(&mut self, account: &Account, priority: Priority) -> bool {
+        let updated = self.modify(account, |e| {
+            e.priority = priority;
+            e.fails = 0;
+        }).is_some();
+            self.revision += 1;
+
+            if !updated {
+                    self.download_queue
+                        .insert(BootstrappingAccount::new(*account, priority));
+
+                    self.trim_overflow();
+        }
+
+        self.revision += 1;
+        updated
+    }
+
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         if account.is_zero() {
             return PriorityUpResult::AccountBlocked;
         }
 
-        if !self.blocked(account) {
-            let updated = self.download_queue.modify(account, |entry| {
-                entry.priority = Self::higher_priority(entry.priority);
-                entry.fails = 0;
-                true // keep this entry
-            });
+        let updated = self.modify(account, |e| {
+            e.priority = Self::higher_priority(e.priority);
+            e.fails = 0;
+        }).is_some();
             self.revision += 1;
 
-            match updated {
-                ChangePriorityResult::Updated | ChangePriorityResult::Deleted => {
+            if updated {
                     PriorityUpResult::Updated
                 }
-                ChangePriorityResult::NotFound => {
+                else{
                     self.download_queue
                         .insert(BootstrappingAccount::new(*account, Priority::INITIAL));
 
@@ -177,9 +192,26 @@ impl BootstrapQueue {
                     PriorityUpResult::Inserted
                 }
             }
-        } else {
-            PriorityUpResult::AccountBlocked
+
+    fn modify<F>(&mut self, account: &Account, f: F)->Option<&BootstrappingAccount>
+    where F: Fn(&mut BootstrappingAccount) {
+        let mut res = self.download_queue.modify(f);
+        if res.is_some(){
+            return res;
         }
+        let res = self.downloading.modify(f);
+        if res.is_some(){
+            return res;
+        }
+        let res = self.ready_to_process.modify(f);
+        if res.is_some(){
+            return res;
+        }
+        let res = self.processing.modify(f);
+        if res.is_some(){
+            return res;
+        }
+        self.blocked.modify(f)
     }
 
     fn higher_priority(priority: Priority) -> Priority {
@@ -191,47 +223,31 @@ impl BootstrapQueue {
             return PriorityDownResult::InvalidAccount;
         }
 
-        let change_result = self.download_queue.modify(account, |entry| {
-            let new_priority = entry.priority / Priority::DIVIDE;
+        let updated = self.modify(account, |e| {
+            e.priority = e.priority / Priority::DIVIDE;
+            e.fails += 1;
+        });
+
+        let change_result = match updated{
+            Some(entry) =>{
             if entry.fails >= BootstrapQueue::MAX_FAILS
                 || entry.fails as f64 >= entry.priority.as_f64()
-                || new_priority <= Priority::CUTOFF
+                || entry.priority <= Priority::CUTOFF
             {
-                false // delete entry
-            } else {
-                entry.fails += 1;
-                entry.priority = new_priority;
-                true // keep
+                self.remove(account);
+                ChangePriorityResult::Deleted
+            }  else{
+                ChangePriorityResult::Updated
             }
-        });
+            }
+            None => ChangePriorityResult::NotFound
+        };
 
         self.revision += 1;
         match change_result {
             ChangePriorityResult::Updated => PriorityDownResult::Deprioritized,
             ChangePriorityResult::Deleted => PriorityDownResult::Erased,
             ChangePriorityResult::NotFound => PriorityDownResult::AccountNotFound,
-        }
-    }
-
-    pub fn priority_set(&mut self, account: &Account, priority: Priority) -> bool {
-        let inserted =
-            Self::priority_set_impl(account, priority, &self.blocked, &mut self.download_queue);
-        self.trim_overflow();
-        self.revision += 1;
-        inserted
-    }
-
-    fn priority_set_impl(
-        account: &Account,
-        priority: Priority,
-        blocked: &BlockedAccounts,
-        priorities: &mut DownloadQueue,
-    ) -> bool {
-        if account.is_zero() || blocked.contains(account) || priorities.contains(account) {
-            false
-        } else {
-            priorities.insert(BootstrappingAccount::new(*account, priority));
-            true
         }
     }
 
@@ -351,17 +367,8 @@ impl BootstrapQueue {
             .blocked
             .modify_dependency_account(dependency, dependency_account);
 
-        if updated > 0
-            && !self.queue_full()
-            && Self::priority_set_impl(
-                &dependency_account,
-                Priority::INITIAL,
-                &self.blocked,
-                &mut self.download_queue,
-            )
-        {
-            self.trim_overflow();
-            self.revision += 1;
+        if updated > 0 && !self.queue_full() {
+            self.priority_up(&dependency_account);
         }
 
         updated
@@ -453,25 +460,34 @@ impl BootstrapQueue {
         }
     }
 
-    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) {
+    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) -> BlockInfo {
         if let Some(mut entry) = self.processing.remove_block(block_hash) {
             let first_block = entry.blocks.pop_front().unwrap();
             assert_eq!(first_block.hash(), *block_hash);
             if entry.blocks.is_empty() {
+                let block_info = BlockInfo { account: Some(entry.account), was_last: true };
                 if self.download_queue.insert(entry) {
                     // TODO
                 } else {
                     // TODO
                 }
+                return block_info;
             } else {
+                let block_info = BlockInfo { account: Some(entry.account), was_last: false };
                 if self.ready_to_process.insert(entry).is_none() {
                     // TODO
                 } else {
                     // TODO
                 }
+                return block_info;
             }
         } else {
             // TODO
+        }
+
+        BlockInfo{
+            account: None, 
+            was_last: false
         }
     }
 

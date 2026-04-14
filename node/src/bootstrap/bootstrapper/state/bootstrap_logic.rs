@@ -10,16 +10,16 @@ use rsnano_utils::{
 };
 
 use super::{
-    BootstrapQueue, BootstrapTarget, PeerScoring, RunningQueryContainer, running_query::QuerySource,
+    running_query::QuerySource, BootstrapQueue, BootstrapTarget, PeerScoring, RunningQueryContainer,
 };
 use crate::bootstrap::bootstrapper::{
-    AscPullQuerySpec, BootstrapConfig,
     state::{
-        QueryType, RunningQuery,
         account_ack_processor::AccountAckProcessor,
         block_ack_processor::BlockAckProcessor,
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
+        QueryType, RunningQuery,
     },
+    AscPullQuerySpec, BootstrapConfig,
 };
 
 pub struct BootstrapLogic {
@@ -57,14 +57,9 @@ impl BootstrapLogic {
 
     pub fn next_target(&mut self, now: Timestamp) -> BootstrapTarget {
         let next = self.bootstrap_queue.next_download_target(now, |account| {
-            !self
-                .block_ack_processor
-                .block_queue
-                .contains_account(account)
-                && self
-                    .running_queries
-                    .count_by_account(account, QuerySource::Priority)
-                    < 4
+            self.running_queries
+                .count_by_account(account, QuerySource::Priority)
+                < 4
         });
 
         if next.account.is_zero() {
@@ -190,10 +185,6 @@ impl ContainerInfoProvider for BootstrapLogic {
             .node("accounts", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
-            .node(
-                "block_queue",
-                self.block_ack_processor.block_queue.container_info(),
-            )
             .finish()
     }
 }

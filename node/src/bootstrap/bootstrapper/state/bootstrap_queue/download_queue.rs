@@ -76,23 +76,17 @@ impl DownloadQueue {
     pub fn modify(
         &mut self,
         account: &Account,
-        mut f: impl FnMut(&mut BootstrappingAccount) -> bool,
-    ) -> ChangePriorityResult {
-        if let Some(entry) = self.by_account.get_mut(account) {
+        f: impl Fn(&mut BootstrappingAccount),
+    ) ->  Option<&BootstrappingAccount>{
+        let entry = self.by_account.get_mut(account)?;
             let old_prio = entry.priority;
-            if f(entry) {
-                if entry.priority != old_prio {
-                    let new_prio = entry.priority;
-                    self.change_priority_internal(account, old_prio, new_prio)
-                }
-                ChangePriorityResult::Updated
-            } else {
-                self.remove_account(account);
-                ChangePriorityResult::Deleted
+            f(entry);
+            if entry.priority != old_prio {
+                let new_prio = entry.priority;
+                self.change_priority_internal(account, old_prio, new_prio)
             }
-        } else {
-            ChangePriorityResult::NotFound
-        }
+
+        Some(entry)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Priority, &Account)> {

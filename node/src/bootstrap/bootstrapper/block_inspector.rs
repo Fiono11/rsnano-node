@@ -60,12 +60,6 @@ impl BlockInspector {
             ));
 
             if inserted {
-                // TODO delete this:
-                state
-                    .block_ack_processor
-                    .block_queue
-                    .enqueued_for_processing(&block_hash);
-
                 state.bootstrap_queue.processing_started(&block_hash);
             } else {
                 // block processor queue is full!
@@ -150,60 +144,53 @@ impl BlockInspector {
                     }
                 }
 
-                // TODO delete this
-                let info = state.block_ack_processor.block_queue.processed(&hash);
-                state.bootstrap_queue.processing_finished(&hash);
-                if let Some(account) = info.account
-                    && info.was_last
+                let info = state.bootstrap_queue.processing_finished(&hash);
+                if let Some(account) = info.account && info.was_last
                 {
                     state.bootstrap_queue.reset_last_request(&account);
                 }
             }
             Err(error) => {
-                state
-                    .block_ack_processor
-                    .block_queue
-                    .processing_failed(&hash);
-
                 match error {
+                    BlockError::Old => {
+                        state.bootstrap_queue.processing_finished(&hash);
+                    }
                     BlockError::GapSource => {
-                        // Prevent malicious live traffic from filling up the blocked set
-                        if result.source == BlockSource::Bootstrap {
-                            let source = result.block.source_or_link();
+                        let source = result.block.source_or_link();
 
-                            if !account.is_zero() && !source.is_zero() {
-                                // Mark account as blocked because it is missing the source block
-                                let blocked =
-                                    state
-                                        .bootstrap_queue
-                                        .block(*account, source, self.clock.now());
-                                if blocked {
-                                    self.stats.inc(
-                                        StatType::BootstrapAccountSets,
-                                        DetailType::PriorityEraseBlock,
-                                    );
-                                    self.stats
-                                        .inc(StatType::BootstrapAccountSets, DetailType::Block);
-                                } else {
-                                    self.stats.inc(
-                                        StatType::BootstrapAccountSets,
-                                        DetailType::BlockFailed,
-                                    );
-                                }
+                        if !account.is_zero() && !source.is_zero() {
+                            // Mark account as blocked because it is missing the source block
+                            let blocked =
+                                state
+                                    .bootstrap_queue
+                                    .block(*account, source, self.clock.now());
+                            if blocked {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityEraseBlock,
+                                );
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::Block);
+                            } else {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::BlockFailed,
+                                );
                             }
                         }
                     }
                     BlockError::GapPrevious => {
+                        state.bootstrap_queue.remove(&account);
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
                             && !state.bootstrap_queue.queue_half_full()
                             && !state.bootstrap_queue.blocked_half_full()
                             && result.block.block_type() == BlockType::State
                         {
-                            let account = result.block.account_field().unwrap();
+                            let dep_account = result.block.account_field().unwrap();
                             if state
                                 .bootstrap_queue
-                                .priority_set(&account, Priority::INITIAL)
+                                .priority_set(&dep_account, Priority::INITIAL)
                             {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,
@@ -224,7 +211,9 @@ impl BlockInspector {
                                 .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
                         }
                     }
+                    // TODO handle old
                     _ => {
+                        state.bootstrap_queue.remove(account); 
                         // No need to handle other cases
                         // TODO: If we receive blocks that are invalid (bad signature, fork, etc.),
                         // we should penalize the peer that sent them
