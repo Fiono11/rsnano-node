@@ -5,12 +5,12 @@ use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 mod blocked;
-mod prioritized;
+mod download_queue;
 mod priority;
 
 use blocked::BlockedAccounts;
 pub use blocked::BlockedBlock;
-use prioritized::{ChangePriorityResult, PrioritizedAccounts};
+use download_queue::{ChangePriorityResult, PrioritizedAccounts};
 pub use priority::Priority;
 
 /// An account that is currently being bootstrapped
