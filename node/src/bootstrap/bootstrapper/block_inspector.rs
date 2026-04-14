@@ -48,6 +48,7 @@ impl BlockInspector {
     }
 
     fn enqueue_next_blocks(&self, state: &mut BootstrapLogic) {
+        // TODO use bootstrap queue
         while let Some((block, query_id)) = state.block_ack_processor.block_queue.next_to_process()
         {
             let block_hash = block.hash();
@@ -62,10 +63,13 @@ impl BlockInspector {
             ));
 
             if inserted {
+                // TODO delete this:
                 state
                     .block_ack_processor
                     .block_queue
                     .enqueued_for_processing(&block_hash);
+
+                state.bootstrap_queue.processing_started(&block_hash);
             } else {
                 // block processor queue is full!
                 break;
@@ -149,7 +153,9 @@ impl BlockInspector {
                     }
                 }
 
+                // TODO delete this
                 let info = state.block_ack_processor.block_queue.processed(&hash);
+                state.bootstrap_queue.processing_finished(&hash);
                 if let Some(account) = info.account
                     && info.was_last
                 {

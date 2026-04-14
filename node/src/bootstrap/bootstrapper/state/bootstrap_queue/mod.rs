@@ -1,7 +1,7 @@
-use std::{cmp::min, time::Duration};
+use std::{cmp::min, collections::VecDeque, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 mod blocked;
@@ -374,8 +374,20 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn set_downloading(&mut self, account: &Account) {
+    pub fn download_started(&mut self, _account: &Account) {
         // TODO move to downloading accounts
+    }
+
+    pub fn download_finished(&mut self, _account: &Account, _blocks: VecDeque<Block>) {
+        // TODO move to process queue
+    }
+
+    pub fn processing_started(&self, _block_hash: &BlockHash) {
+        // TODO move to processing accounts
+    }
+
+    pub(crate) fn processing_finished(&self, _block_hash: &BlockHash) {
+        // TODO move to downloading or process queue
     }
 
     pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {

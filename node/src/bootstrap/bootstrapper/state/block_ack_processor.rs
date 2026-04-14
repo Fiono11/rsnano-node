@@ -30,7 +30,7 @@ impl BlockAckProcessor {
         let result = query.verify_blocks(&response);
         match result {
             VerifyResult::Ok => {
-                self.process_valid_blocks(query, response);
+                self.process_valid_blocks(queue, query, response);
                 true
             }
             VerifyResult::NothingNew => {
@@ -44,7 +44,12 @@ impl BlockAckProcessor {
         }
     }
 
-    fn process_valid_blocks(&mut self, query: &RunningQuery, response: BlocksAckPayload) {
+    fn process_valid_blocks(
+        &mut self,
+        queue: &mut BootstrapQueue,
+        query: &RunningQuery,
+        response: BlocksAckPayload,
+    ) {
         self.stats.verified += 1;
         self.stats.blocks += response.blocks().len() as u64;
 
@@ -60,6 +65,10 @@ impl BlockAckProcessor {
             blocks.pop_front();
         }
 
+        // TODO only insert into bootstrap queue and not into block queue!
+        queue.download_finished(&query.account, blocks.clone());
+
+        // TODO delete this:
         self.block_queue.insert(AccountBlocks {
             account: query.account,
             query_id: query.id,

@@ -40,15 +40,6 @@ impl QuerySender {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_null() -> Self {
-        Self::new_impl(
-            MessageSender::new_null(),
-            SteadyClock::new_null(),
-            Arc::new(Stats::default()),
-        )
-    }
-
     pub fn set_request_timeout(&mut self, timeout: Duration) {
         self.request_timeout = timeout;
     }

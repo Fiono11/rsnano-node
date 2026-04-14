@@ -21,19 +21,6 @@ impl FrontierScan {
         }
     }
 
-    /// Creates a test instance that doesn't progress, because max
-    /// request limit reached
-    #[cfg(test)]
-    pub fn new_test_instance_blocked() -> Self {
-        let mut scan = Self::new(FrontierScanConfig {
-            parallelism: 1,
-            consideration_count: 1,
-            ..Default::default()
-        });
-        scan.next(Timestamp::new_test_instance());
-        scan
-    }
-
     pub fn next(&mut self, now: Timestamp) -> Account {
         let (next_account, head_start) = self.next_account(now);
 
