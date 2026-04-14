@@ -1,15 +1,16 @@
+mod blocked;
+mod download_queue;
+mod downloading;
+mod priority;
+mod process_queue;
+
 use std::{cmp::min, collections::VecDeque, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-mod blocked;
-mod download_queue;
-mod downloading;
-mod priority;
-
-use crate::bootstrap::bootstrapper::state::bootstrap_queue::downloading::DownloadingAccounts;
+use crate::bootstrap::bootstrapper::state::bootstrap_queue::{downloading::DownloadingAccounts, process_queue::ProcessQueue};
 use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
@@ -124,6 +125,7 @@ pub struct BootstrapQueue {
     config: BootstrapQueueConfig,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
+    process_queue: ProcessQueue,
     blocked: BlockedAccounts,
     revision: u64,
 }
@@ -137,6 +139,7 @@ impl BootstrapQueue {
             download_queue: Default::default(),
             blocked: Default::default(),
             downloading: Default::default(),
+            process_queue: Default::default(),
             revision: 0,
         }
     }
@@ -229,9 +232,11 @@ impl BootstrapQueue {
             return false;
         }
 
+        // TODO handle all queues here
         let mut removed = false;
         removed |= self.download_queue.remove(account).is_some();
         removed |= self.downloading.remove(account).is_some();
+        removed |= self.process_queue.remove(account).is_some();
         self.revision += 1;
         removed
     }
@@ -239,9 +244,13 @@ impl BootstrapQueue {
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
         debug_assert!(!account.is_zero());
 
+        // TODO handle all queues here!
         let mut entry = if let Some(removed) = self.download_queue.remove(&account) {
             removed
         } else if let Some(removed) = self.downloading.remove(&account) {
+            removed
+        }
+        else if let Some(removed) = self.process_queue.remove(&account){
             removed
         } else {
             return false;
@@ -399,8 +408,8 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn processing_started(&self, _block_hash: &BlockHash) {
-        // TODO move to processing accounts
+    pub fn processing_started(&self, block_hash: &BlockHash) {
+        // TODO
     }
 
     pub(crate) fn processing_finished(&self, _block_hash: &BlockHash) {
