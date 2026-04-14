@@ -381,8 +381,13 @@ impl BootstrapQueue {
     /// Sets information about the account chain that contains the block hash
     /// Returns the number of inserted accounts
     pub fn sync_dependencies(&mut self) -> usize {
+        if self.queue_full() {
+            return 0;
+        }
+
         let mut inserted = 0;
 
+        let mut accounts_to_move = Vec::new();
         // Sample all accounts with a known dependency account (> account 0)
         let begin = Account::from(1);
         for entry in self.blocked.iter_start_dep_account(begin) {
@@ -390,19 +395,27 @@ impl BootstrapQueue {
                 break;
             }
 
-            // TODO: keep bootstrapping account instead of recreating it!
             let dep_account = entry
                 .blocked
                 .as_ref()
                 .unwrap()
                 .dependency_account
                 .unwrap_or_default();
-            if Self::priority_set_impl(
-                &dep_account,
-                Priority::INITIAL,
-                &self.blocked,
-                &mut self.download_queue,
-            ) {
+
+            // TODO check downloading and processig queues too!
+            if !self.blocked.contains(&dep_account) && !self.download_queue.contains(&dep_account) {
+                accounts_to_move.push(dep_account);
+            }
+        }
+
+        for account in accounts_to_move {
+            if self.queue_full() {
+                break;
+            }
+
+            if let Some(entry) = self.blocked.remove_account(&account) {
+                // TODO insert into correct queue!
+                self.download_queue.insert(entry);
                 inserted += 1;
             }
         }
