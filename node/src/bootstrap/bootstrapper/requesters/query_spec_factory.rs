@@ -1,10 +1,10 @@
-use std::sync::{atomic::Ordering::Relaxed, Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
 use rand::RngCore;
 
 use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
-use rsnano_network::{token_bucket::TokenBucket, Channel, Network, TrafficType};
+use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
@@ -12,12 +12,12 @@ use rsnano_types::{Account, BlockHash, HashOrAccount};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        AscPullQuerySpec, BootstrapConfig,
         requesters::{
             priority::{PullCountDecider, PullType, PullTypeDecider},
             stats::BootstrapRequesterStats,
         },
         state::BootstrapLogic,
-        AscPullQuerySpec, BootstrapConfig,
     },
 };
 

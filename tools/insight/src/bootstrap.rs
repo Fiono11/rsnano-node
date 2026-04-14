@@ -5,7 +5,7 @@ use rsnano_types::{Account, BlockHash};
 pub(crate) struct BootstrapInfo {
     pub download_queue_len: usize,
     pub downloading_count: usize,
-    pub processing_queue_len: usize,
+    pub ready_to_process_count: usize,
     pub blocked_accounts: usize,
     pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
@@ -21,7 +21,7 @@ impl BootstrapInfo {
         let queue = &state.bootstrap_queue;
         self.download_queue_len = queue.download_queue_len();
         self.downloading_count = queue.downloading_count();
-        self.processing_queue_len = queue.processing_queue_len();
+        self.ready_to_process_count = queue.ready_to_process_count();
         self.blocked_accounts = queue.blocked_count();
         self.unique_blocked_accounts = queue.unique_blocked_accounts();
         self.unknown_dependencies = self

@@ -2,7 +2,7 @@ mod blocked;
 mod download_queue;
 mod downloading;
 mod priority;
-mod process_queue;
+mod single_block_account_set;
 
 use std::{cmp::min, collections::VecDeque, time::Duration};
 
@@ -10,7 +10,9 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-use crate::bootstrap::bootstrapper::state::bootstrap_queue::{downloading::DownloadingAccounts, process_queue::ProcessQueue};
+use crate::bootstrap::bootstrapper::state::bootstrap_queue::{
+    downloading::DownloadingAccounts, single_block_account_set::SingleBlockAccountSet,
+};
 use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
@@ -23,6 +25,7 @@ pub(crate) struct BootstrappingAccount {
     pub fails: usize,
     pub last_request: Option<Timestamp>,
     pub blocked: Option<BlockedInfo>,
+    pub blocks: VecDeque<Block>,
 }
 
 impl BootstrappingAccount {
@@ -33,6 +36,7 @@ impl BootstrappingAccount {
             fails: 0,
             last_request: None,
             blocked: None,
+            blocks: VecDeque::new(),
         }
     }
 
@@ -44,6 +48,7 @@ impl BootstrappingAccount {
             fails: 0,
             last_request: None,
             blocked: None,
+            blocks: VecDeque::new(),
         }
     }
 
@@ -55,6 +60,7 @@ impl BootstrappingAccount {
             fails: 0,
             last_request: None,
             blocked: Some(BlockedInfo::new_test_instance()),
+            blocks: VecDeque::new(),
         }
     }
 }
@@ -125,7 +131,8 @@ pub struct BootstrapQueue {
     config: BootstrapQueueConfig,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
-    process_queue: ProcessQueue,
+    ready_to_process: SingleBlockAccountSet,
+    processing: SingleBlockAccountSet,
     blocked: BlockedAccounts,
     revision: u64,
 }
@@ -139,7 +146,8 @@ impl BootstrapQueue {
             download_queue: Default::default(),
             blocked: Default::default(),
             downloading: Default::default(),
-            process_queue: Default::default(),
+            ready_to_process: Default::default(),
+            processing: Default::default(),
             revision: 0,
         }
     }
@@ -232,11 +240,13 @@ impl BootstrapQueue {
             return false;
         }
 
-        // TODO handle all queues here
         let mut removed = false;
         removed |= self.download_queue.remove(account).is_some();
         removed |= self.downloading.remove(account).is_some();
-        removed |= self.process_queue.remove(account).is_some();
+        removed |= self.ready_to_process.remove_account(account).is_some();
+        removed |= self.processing.remove_account(account).is_some();
+        //TODO:
+        //removed |= self.blocked.remove(account).is_some();
         self.revision += 1;
         removed
     }
@@ -244,13 +254,13 @@ impl BootstrapQueue {
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
         debug_assert!(!account.is_zero());
 
-        // TODO handle all queues here!
         let mut entry = if let Some(removed) = self.download_queue.remove(&account) {
             removed
         } else if let Some(removed) = self.downloading.remove(&account) {
             removed
-        }
-        else if let Some(removed) = self.process_queue.remove(&account){
+        } else if let Some(removed) = self.ready_to_process.remove_account(&account) {
+            removed
+        } else if let Some(removed) = self.processing.remove_account(&account) {
             removed
         } else {
             return false;
@@ -284,8 +294,19 @@ impl BootstrapQueue {
         };
         entry.blocked = None;
 
-        // TODO: insert into process queue if blocks present!
-        self.download_queue.insert(entry);
+        if !entry.blocks.is_empty() {
+            if self.ready_to_process.insert(entry).is_none() {
+                // TODO
+            } else {
+                //TODO
+            }
+        } else {
+            if self.download_queue.insert(entry) {
+                // TODO
+            } else {
+                // TODO
+            }
+        }
 
         self.trim_overflow();
         self.revision += 1;
@@ -384,36 +405,70 @@ impl BootstrapQueue {
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) {
-        if let Some(entry) = self.download_queue.remove(account){
-            if let Some(old) = self.downloading.insert(entry, now){
+        if let Some(entry) = self.download_queue.remove(account) {
+            if let Some(_old) = self.downloading.insert(entry, now) {
                 // TODO
-            } else{
+            } else {
                 // TODO stats?
             }
-        } else{
+        } else {
             // TODO
         }
     }
 
-    pub fn download_finished(&mut self, account: &Account, _blocks: VecDeque<Block>) {
-        if let Some(entry) = self.downloading.remove(account){
-            // TODO move to process queue!
-            if self.download_queue.insert(entry){
-                // TODO stats?
-            } else{
-                // TODO
+    pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) {
+        if let Some(mut entry) = self.downloading.remove(account) {
+            entry.blocks = blocks;
+            if entry.blocks.is_empty() {
+                if self.download_queue.insert(entry) {
+                    // TODO
+                } else {
+                    // TODO
+                }
+            } else {
+                if self.ready_to_process.insert(entry).is_none() {
+                    // TODO stats?
+                } else {
+                    // TODO
+                }
             }
-        } else{
+        } else {
             // TODO
         }
     }
 
-    pub fn processing_started(&self, block_hash: &BlockHash) {
-        // TODO
+    pub fn processing_started(&mut self, block_hash: &BlockHash) {
+        if let Some(entry) = self.ready_to_process.remove_block(block_hash) {
+            if self.processing.insert(entry).is_some() {
+                // TODO
+            } else {
+                // TODO
+            }
+        } else {
+            // TODO
+        }
     }
 
-    pub(crate) fn processing_finished(&self, _block_hash: &BlockHash) {
-        // TODO move to downloading or process queue
+    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) {
+        if let Some(mut entry) = self.processing.remove_block(block_hash) {
+            let first_block = entry.blocks.pop_front().unwrap();
+            assert_eq!(first_block.hash(), *block_hash);
+            if entry.blocks.is_empty() {
+                if self.download_queue.insert(entry) {
+                    // TODO
+                } else {
+                    // TODO
+                }
+            } else {
+                if self.ready_to_process.insert(entry).is_none() {
+                    // TODO
+                } else {
+                    // TODO
+                }
+            }
+        } else {
+            // TODO
+        }
     }
 
     pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
@@ -471,13 +526,18 @@ impl BootstrapQueue {
     }
 
     pub fn contains(&self, account: &Account) -> bool {
-        // TODO: consider other queues too: process_queue, processing, blocked
-        self.download_queue.contains(account) || self.downloading.contains(account)
+        self.download_queue.contains(account)
+            || self.downloading.contains(account)
+            || self.ready_to_process.contains(account)
+            || self.processing.contains(account)
+            || self.blocked.contains(account)
     }
 
     pub fn unblocked_count(&self) -> usize {
-        // TODO consider process_queue and processing too
-        self.download_queue.len() + self.downloading.len()
+        self.download_queue.len()
+            + self.downloading.len()
+            + self.ready_to_process.len()
+            + self.processing.len()
     }
 
     pub fn download_queue_len(&self) -> usize {
@@ -492,9 +552,8 @@ impl BootstrapQueue {
         self.downloading.len()
     }
 
-    pub fn processing_queue_len(&self) -> usize {
-        // TODO
-        0
+    pub fn ready_to_process_count(&self) -> usize {
+        self.ready_to_process.len()
     }
 
     pub fn unique_blocked_accounts(&self) -> usize {
@@ -549,8 +608,8 @@ impl BootstrapQueue {
         self.revision += 1;
     }
 
-    pub fn timeout(&mut self, now: Timestamp)  {
-        while let Some(entry) = self.downloading.pop_timeout(now){
+    pub fn timeout(&mut self, now: Timestamp) {
+        while let Some(entry) = self.downloading.pop_timeout(now) {
             if self.download_queue.insert(entry) {
                 // TODO
             } else {
