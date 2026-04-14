@@ -10,7 +10,7 @@ mod priority;
 
 use blocked::BlockedAccounts;
 pub use blocked::BlockedBlock;
-use download_queue::{ChangePriorityResult, PrioritizedAccounts};
+use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
 
 /// An account that is currently being bootstrapped
@@ -89,7 +89,7 @@ pub enum PriorityDownResult {
 /// are put on hold.
 pub struct BootstrapQueue {
     config: BootstrapQueueConfig,
-    priorities: PrioritizedAccounts,
+    priorities: DownloadQueue,
     blocked: BlockedAccounts,
     revision: u64,
 }
@@ -184,7 +184,7 @@ impl BootstrapQueue {
         account: &Account,
         priority: Priority,
         blocked: &BlockedAccounts,
-        priorities: &mut PrioritizedAccounts,
+        priorities: &mut DownloadQueue,
     ) -> bool {
         if account.is_zero() || blocked.contains(account) || priorities.contains(account) {
             false
@@ -451,7 +451,7 @@ impl BootstrapQueue {
             (
                 "priorities",
                 self.priorities.len(),
-                PrioritizedAccounts::ELEMENT_SIZE,
+                DownloadQueue::ELEMENT_SIZE,
             ),
             ("blocked", self.blocked.len(), BlockedAccounts::ELEMENT_SIZE),
             ("blocked_unknown", blocked_unknown, 0),
@@ -998,7 +998,7 @@ mod tests {
         assert_eq!(
             info,
             [
-                ("priorities", 2, PrioritizedAccounts::ELEMENT_SIZE),
+                ("priorities", 2, DownloadQueue::ELEMENT_SIZE),
                 ("blocked", 2, BlockedAccounts::ELEMENT_SIZE),
                 ("blocked_unknown", 1, 0)
             ]
