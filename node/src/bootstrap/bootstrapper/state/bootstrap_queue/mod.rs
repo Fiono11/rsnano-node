@@ -257,32 +257,28 @@ impl BootstrapQueue {
         true
     }
 
-    pub fn unblock(&mut self, account: Account, hash: Option<BlockHash>) -> bool {
-        if account.is_zero() {
+    pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) -> bool {
+        // Unblock only if the dependency is fulfilled
+        let Some(entry) = self.blocked.get(&account) else {
+            return false;
+        };
+        if let Some(hash) = dependency
+            && hash != entry.blocked.as_ref().unwrap().dependency_block
+        {
+            // Not the dependency we were looking for...
             return false;
         }
 
-        // Unblock only if the dependency is fulfilled
-        if let Some(existing) = self.blocked.get(&account) {
-            let hash_matches = if let Some(hash) = hash {
-                hash == existing.blocked.as_ref().unwrap().dependency_block
-            } else {
-                true
-            };
-
-            if hash_matches {
-                debug_assert!(!self.download_queue.contains(&account));
-                // TODO: insert into process queue if blocks present
-                self.download_queue
-                    .insert(BootstrappingAccount::new(account, Priority::INITIAL));
-                self.blocked.remove_account(&account);
-                self.trim_overflow();
-                self.revision += 1;
-                return true;
-            }
-        }
-
-        false
+        debug_assert!(!self.download_queue.contains(&account));
+        let Some(mut entry) = self.blocked.remove_account(&account) else {
+            return false;
+        };
+        entry.blocked = None;
+        // TODO: insert into process queue if blocks present!
+        self.download_queue.insert(entry);
+        self.trim_overflow();
+        self.revision += 1;
+        true
     }
 
     /// Should be called periodically to remove old entries from the blocked accounts
