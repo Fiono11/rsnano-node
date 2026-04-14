@@ -258,24 +258,26 @@ impl BootstrapQueue {
     }
 
     pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) -> bool {
-        // Unblock only if the dependency is fulfilled
-        let Some(entry) = self.blocked.get(&account) else {
-            return false;
-        };
-        if let Some(hash) = dependency
-            && hash != entry.blocked.as_ref().unwrap().dependency_block
-        {
-            // Not the dependency we were looking for...
-            return false;
+        if let Some(expected_dependency) = dependency {
+            let Some(entry) = self.blocked.get(&account) else {
+                return false;
+            };
+
+            // Unblock only if the given dependency is fulfilled
+            if expected_dependency != entry.blocked.as_ref().unwrap().dependency_block {
+                // Not the dependency we were looking for...
+                return false;
+            }
         }
 
-        debug_assert!(!self.download_queue.contains(&account));
         let Some(mut entry) = self.blocked.remove_account(&account) else {
             return false;
         };
         entry.blocked = None;
+
         // TODO: insert into process queue if blocks present!
         self.download_queue.insert(entry);
+
         self.trim_overflow();
         self.revision += 1;
         true
@@ -337,15 +339,17 @@ impl BootstrapQueue {
 
     /// Erase the oldest entries
     fn trim_overflow(&mut self) {
-        // TODO consider other queue lens too
-        while !self.download_queue.is_empty()
-            && self.download_queue.len() > self.config.max_unblocked_accounts
-        {
+        while self.needs_trimming() {
             self.download_queue.pop_lowest_prio();
         }
         while self.blocked.len() > self.config.max_blocked_accounts {
             self.blocked.remove_oldest();
         }
+    }
+
+    fn needs_trimming(&self) -> bool {
+        !self.download_queue.is_empty()
+            && self.unblocked_count() > self.config.max_unblocked_accounts
     }
 
     pub fn next_download_target(
@@ -402,8 +406,7 @@ impl BootstrapQueue {
                 .dependency_account
                 .unwrap_or_default();
 
-            // TODO check downloading and processig queues too!
-            if !self.blocked.contains(&dep_account) && !self.download_queue.contains(&dep_account) {
+            if !self.contains(&dep_account) {
                 accounts_to_move.push(dep_account);
             }
         }
@@ -413,15 +416,11 @@ impl BootstrapQueue {
                 break;
             }
 
-            if let Some(entry) = self.blocked.remove_account(&account) {
-                // TODO insert into correct queue!
-                self.download_queue.insert(entry);
+            if self.unblock(account, None) {
                 inserted += 1;
             }
         }
 
-        self.trim_overflow();
-        self.revision += 1;
         inserted
     }
 
@@ -430,8 +429,13 @@ impl BootstrapQueue {
     }
 
     pub fn contains(&self, account: &Account) -> bool {
-        // TODO: consider other queues too
-        self.download_queue.contains(account)
+        // TODO: consider other queues too: process_queue, processing, blocked
+        self.download_queue.contains(account) || self.downloading.contains(account)
+    }
+
+    pub fn unblocked_count(&self) -> usize {
+        // TODO consider process_queue and processing too
+        self.download_queue.len() + self.downloading.len()
     }
 
     pub fn download_queue_len(&self) -> usize {
@@ -466,13 +470,11 @@ impl BootstrapQueue {
     }
 
     pub fn queue_full(&self) -> bool {
-        // TODO consider other queues
-        self.download_queue.len() >= self.config.max_unblocked_accounts
+        self.unblocked_count() >= self.config.max_unblocked_accounts
     }
 
     pub fn queue_half_full(&self) -> bool {
-        // TODO consider other queues
-        self.download_queue.len() > self.config.max_unblocked_accounts / 2
+        self.unblocked_count() > self.config.max_unblocked_accounts / 2
     }
 
     pub fn blocked_half_full(&self) -> bool {

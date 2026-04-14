@@ -8,4 +8,12 @@ impl DownloadingAccounts {
     pub fn remove(&mut self, account: &Account) -> Option<BootstrappingAccount> {
         None
     }
+
+    pub fn len(&self) -> usize {
+        0
+    }
+
+    pub fn contains(&self, account: &Account) -> bool {
+        false
+    }
 }
