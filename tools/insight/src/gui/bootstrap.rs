@@ -30,8 +30,8 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                 .horizontal(|mut strip| {
                     strip.cell(|ui| {
                         ui.horizontal(|ui| {
-                            ui.heading("Download Queue: ");
-                            ui.heading(model.priority_accounts);
+                            ui.heading("Download queue: ");
+                            ui.heading(model.download_queue_len);
                         });
 
                         ui.horizontal(|ui| {
@@ -66,11 +66,11 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                     });
 
                     strip.cell(|ui| {
-                        ui.heading(format!("Downloading: {}", 0));
+                        ui.heading(format!("Downloading: {}", model.downloading_count));
                     });
 
                     strip.cell(|ui| {
-                        ui.heading(format!("Process queue: {}", 0));
+                        ui.heading(format!("Process queue: {}", model.process_queue_len));
                     });
 
                     strip.cell(|ui| {
@@ -143,8 +143,10 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
 }
 
 pub(crate) struct BootstrapViewModel {
-    pub priority_accounts: String,
+    pub download_queue_len: String,
     pub blocked_accounts: String,
+    pub downloading_count: String,
+    pub process_queue_len: String,
     pub unique_blocking_accounts: usize,
     pub unknown_dependencies: usize,
     pub priorities: Vec<PriorityViewModel>,

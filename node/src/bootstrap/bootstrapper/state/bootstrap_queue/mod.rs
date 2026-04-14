@@ -462,6 +462,16 @@ impl BootstrapQueue {
         self.blocked.len()
     }
 
+    pub fn downloading_count(&self) -> usize {
+        // TODO
+        0
+    }
+
+    pub fn processing_queue_len(&self) -> usize {
+        // TODO
+        0
+    }
+
     pub fn unique_blocked_accounts(&self) -> usize {
         self.blocked.unique_dependency_accounts()
     }

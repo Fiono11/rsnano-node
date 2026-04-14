@@ -217,7 +217,9 @@ impl MainViewModel {
             .collect();
 
         BootstrapViewModel {
-            priority_accounts: formatted_number(self.app.bootstrap.prioritized_accounts),
+            download_queue_len: formatted_number(self.app.bootstrap.download_queue_len),
+            downloading_count: formatted_number(self.app.bootstrap.downloading_count),
+            process_queue_len: formatted_number(self.app.bootstrap.processing_queue_len),
             blocked_accounts: formatted_number(self.app.bootstrap.blocked_accounts),
             unique_blocking_accounts: self.app.bootstrap.unique_blocked_accounts,
             unknown_dependencies: self.app.bootstrap.unknown_dependencies,
