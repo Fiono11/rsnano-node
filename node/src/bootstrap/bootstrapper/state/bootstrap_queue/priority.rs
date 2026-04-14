@@ -5,6 +5,12 @@ use std::ops::{Add, Deref, Div, Mul, Sub};
 pub struct Priority(OrderedFloat<f64>);
 
 impl Priority {
+    pub const INITIAL: Priority = Priority::new(2.0);
+    pub const INCREASE: Priority = Priority::new(2.0);
+    pub const DIVIDE: f64 = 2.0;
+    pub const MAX: Priority = Priority::new(128.0);
+    pub const CUTOFF: Priority = Priority::new(0.15);
+
     pub const fn new(value: f64) -> Self {
         Self(OrderedFloat(value))
     }

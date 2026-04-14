@@ -62,7 +62,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::state::BootstrapQueue;
+    use crate::bootstrap::bootstrapper::state::Priority;
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
 
@@ -100,10 +100,7 @@ mod tests {
 
         let guard = state.lock().unwrap();
         assert_eq!(guard.bootstrap_queue.prioritized_len(), 1);
-        assert_eq!(
-            guard.bootstrap_queue.priority(&account),
-            BootstrapQueue::PRIORITY_CUTOFF
-        );
+        assert_eq!(guard.bootstrap_queue.priority(&account), Priority::CUTOFF);
         assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
         assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);
     }

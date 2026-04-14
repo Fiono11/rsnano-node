@@ -3,7 +3,7 @@ use rand::seq::SliceRandom;
 use rsnano_network::ChannelId;
 use rsnano_utils::container_info::ContainerInfo;
 
-use super::{peer_score::PeerScore, peer_score_container::PeerScoreContainer};
+use super::peer_score_container::PeerScoreContainer;
 
 /// Container for tracking and scoring peers with respect to bootstrapping
 pub(crate) struct PeerScoring {

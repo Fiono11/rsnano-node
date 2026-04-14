@@ -686,12 +686,12 @@ mod tests {
                 .node
                 .bootstrap
                 .bootstrap_queue
-                .max_prioritized_accounts,
+                .max_unblocked_accounts,
             default_cfg
                 .node
                 .bootstrap
                 .bootstrap_queue
-                .max_prioritized_accounts
+                .max_unblocked_accounts
         );
         assert_ne!(
             deserialized.node.bootstrap.bootstrap_queue.blocked_decay,

@@ -274,7 +274,7 @@ impl NodeConfig {
                     config.bootstrap_queue.max_blocked_accounts = blocking_max;
                 }
                 if let Some(priorities_max) = account_sets.priorities_max {
-                    config.bootstrap_queue.max_prioritized_accounts = priorities_max;
+                    config.bootstrap_queue.max_unblocked_accounts = priorities_max;
                 }
                 if let Some(cooldown) = &account_sets.cooldown {
                     config.bootstrap_queue.account_cooldown = Duration::from_millis(*cooldown);
@@ -581,7 +581,7 @@ impl From<&NodeConfig> for NodeToml {
                 max_requests: Some(config.bootstrap.max_requests),
                 optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
                 account_sets: Some(AccountSetsToml {
-                    priorities_max: Some(config.bootstrap.bootstrap_queue.max_prioritized_accounts),
+                    priorities_max: Some(config.bootstrap.bootstrap_queue.max_unblocked_accounts),
                     blocking_max: Some(config.bootstrap.bootstrap_queue.max_blocked_accounts),
                     cooldown: Some(
                         config
@@ -696,7 +696,7 @@ mod tests {
         assert_eq!(sets.max_blocked_accounts, 200);
         assert_eq!(frontier_cfg.consideration_count, 201);
         assert_eq!(sets.account_cooldown, Duration::from_millis(203));
-        assert_eq!(sets.max_prioritized_accounts, 204);
+        assert_eq!(sets.max_unblocked_accounts, 204);
     }
 
     #[test]

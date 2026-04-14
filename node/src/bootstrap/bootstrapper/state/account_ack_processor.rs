@@ -91,6 +91,7 @@ impl StatsSource for AccountAckStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrap::bootstrapper::state::Priority;
     use rsnano_nullable_clock::Timestamp;
 
     #[test]
@@ -142,7 +143,7 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        queue.priority_set(&blocked_account, BootstrapQueue::PRIORITY_INITIAL);
+        queue.priority_set(&blocked_account, Priority::INITIAL);
 
         queue.block(
             blocked_account,
