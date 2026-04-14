@@ -186,9 +186,13 @@ impl MainViewModel {
             .bootstrap
             .priorities
             .iter()
-            .map(|(prio, account)| PriorityViewModel {
-                account: account.encode_account(),
-                priority: format!("{:.2}", prio.as_f64()),
+            .map(|(prio, account)| {
+                let mut account_str = account.encode_account();
+                truncate_text(&mut account_str, 30);
+                PriorityViewModel {
+                    account: account_str,
+                    priority: format!("{:.2}", prio.as_f64()),
+                }
             })
             .collect();
 
@@ -205,9 +209,9 @@ impl MainViewModel {
                     account_val: *account,
                     dependency_account_val: *dependency_account,
                 };
-                truncate_text(&mut model.account, 20);
-                truncate_text(&mut model.dependency, 20);
-                truncate_text(&mut model.dependency_account, 20);
+                truncate_text(&mut model.account, 15);
+                truncate_text(&mut model.dependency, 15);
+                truncate_text(&mut model.dependency_account, 15);
                 model
             })
             .collect();

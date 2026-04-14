@@ -9,7 +9,10 @@ use rsnano_types::{Account, Block, BlockType, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::state::{BootstrapLogic, PriorityUpResult};
-use crate::block_processing::{BlockContext, BlockProcessorQueue};
+use crate::{
+    block_processing::{BlockContext, BlockProcessorQueue},
+    bootstrap::bootstrapper::state::Priority,
+};
 
 /// Inspects a processed block and adjusts the bootstrap state accordingly
 pub(super) struct BlockInspector {
@@ -204,10 +207,10 @@ impl BlockInspector {
                             && result.block.block_type() == BlockType::State
                         {
                             let account = result.block.account_field().unwrap();
-                            if matches!(
-                                state.bootstrap_queue.priority_up(&account),
-                                PriorityUpResult::Updated | PriorityUpResult::Inserted
-                            ) {
+                            if state
+                                .bootstrap_queue
+                                .priority_set(&account, Priority::INITIAL)
+                            {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,
                                     DetailType::PriorityInsert,

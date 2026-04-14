@@ -23,11 +23,14 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                 }
             });
             StripBuilder::new(ui)
-                .sizes(Size::remainder(), 2)
+                .size(Size::relative(0.2))
+                .size(Size::relative(0.2))
+                .size(Size::relative(0.2))
+                .size(Size::relative(0.4))
                 .horizontal(|mut strip| {
                     strip.cell(|ui| {
                         ui.horizontal(|ui| {
-                            ui.heading("Bootstrap queue: ");
+                            ui.heading("Download Queue: ");
                             ui.heading(model.priority_accounts);
                         });
 
@@ -63,6 +66,14 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                     });
 
                     strip.cell(|ui| {
+                        ui.heading(format!("Downloading: {}", 0));
+                    });
+
+                    strip.cell(|ui| {
+                        ui.heading(format!("Process queue: {}", 0));
+                    });
+
+                    strip.cell(|ui| {
                         ui.horizontal(|ui| {
                             ui.heading(format!("Blocked accounts: {}", model.blocked_accounts));
                         });
@@ -85,9 +96,9 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
 
                         ui.horizontal(|ui| {
                             StripBuilder::new(ui)
-                                .size(Size::exact(200.0))
-                                .size(Size::exact(200.0))
-                                .size(Size::exact(200.0))
+                                .size(Size::exact(170.0))
+                                .size(Size::exact(170.0))
+                                .size(Size::exact(170.0))
                                 .horizontal(|mut strip| {
                                     strip.cell(|ui| {
                                         ui.strong("Blocked account");
@@ -103,9 +114,9 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                         for item in model.blocked {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
-                                    .size(Size::exact(200.0))
-                                    .size(Size::exact(200.0))
-                                    .size(Size::exact(200.0))
+                                    .size(Size::exact(170.0))
+                                    .size(Size::exact(170.0))
+                                    .size(Size::exact(170.0))
                                     .horizontal(|mut strip| {
                                         strip.cell(|ui| {
                                             if ui.link(item.account).clicked() {
