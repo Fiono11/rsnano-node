@@ -1,5 +1,5 @@
 use crate::bootstrap::bootstrapper::state::BootstrappingAccount;
-use rsnano_types::{Account, Blake2Hash, BlockHash};
+use rsnano_types::{Account, Blake2Hash, Block, BlockHash};
 use rustc_hash::FxHashMap;
 
 /// A set of accounts and one block per account
@@ -18,8 +18,16 @@ impl SingleBlockAccountSet {
         } else {
             None
         };
+
         self.by_hash.insert(first_hash, entry);
         old
+    }
+
+    pub fn next_block(&self) -> Option<&Block> {
+        self.by_hash
+            .values()
+            .next()
+            .map(|i| i.blocks.front().unwrap())
     }
 
     pub fn remove_block(&mut self, block_hash: &Blake2Hash) -> Option<BootstrappingAccount> {

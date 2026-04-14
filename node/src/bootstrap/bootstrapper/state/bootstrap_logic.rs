@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use rsnano_messages::{AscPullAck, AscPullAckType, AscPullReqType};
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -91,6 +91,10 @@ impl BootstrapLogic {
             hash: next,
             cooldown_account: false,
         })
+    }
+
+    pub fn next_block_to_process(&self) -> Option<&Block> {
+        self.bootstrap_queue.next_block_to_process()
     }
 
     fn count_queries_by_hash(&self, hash: &BlockHash, source: QuerySource) -> usize {

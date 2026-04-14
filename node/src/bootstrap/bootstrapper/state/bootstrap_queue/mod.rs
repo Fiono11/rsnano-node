@@ -404,6 +404,10 @@ impl BootstrapQueue {
         }
     }
 
+    pub fn next_block_to_process(&self) -> Option<&Block> {
+        self.ready_to_process.next_block()
+    }
+
     pub fn download_started(&mut self, account: &Account, now: Timestamp) {
         if let Some(entry) = self.download_queue.remove(account) {
             if let Some(_old) = self.downloading.insert(entry, now) {

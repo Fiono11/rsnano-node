@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use tracing::trace;
-
 use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
@@ -51,12 +49,8 @@ impl BlockInspector {
     }
 
     fn enqueue_next_blocks(&self, state: &mut BootstrapLogic) {
-        // TODO use bootstrap queue
-        while let Some((block, query_id)) = state.block_ack_processor.block_queue.next_to_process()
-        {
+        while let Some(block) = state.bootstrap_queue.next_block_to_process() {
             let block_hash = block.hash();
-
-            trace!(%block_hash, query_id, "Process block");
 
             let inserted = self.block_processor_queue.push(BlockContext::new(
                 block.clone(),
