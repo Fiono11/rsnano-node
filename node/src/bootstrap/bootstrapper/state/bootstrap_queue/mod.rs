@@ -22,6 +22,15 @@ pub(crate) struct BootstrappingAccount {
     pub priority: Priority,
     pub fails: usize,
     pub last_request: Option<Timestamp>,
+    pub blocked: Option<BlockedInfo>,
+}
+
+#[derive(Clone)]
+pub struct BlockedInfo {
+    pub dependency_block: BlockHash,
+    /// Account that contains the dependency block, fetched via a background dependency walker
+    pub dependency_account: Option<Account>,
+    pub blocked_at: Timestamp,
 }
 
 impl BootstrappingAccount {
@@ -31,6 +40,7 @@ impl BootstrappingAccount {
             priority,
             fails: 0,
             last_request: None,
+            blocked: None,
         }
     }
 
@@ -41,6 +51,7 @@ impl BootstrappingAccount {
             priority: Priority::new(3.0),
             fails: 0,
             last_request: None,
+            blocked: None,
         }
     }
 }
