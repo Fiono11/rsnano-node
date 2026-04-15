@@ -1,16 +1,14 @@
-use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 
 use super::priority::{Priority, PriorityKeyDesc};
-use crate::bootstrap::bootstrapper::state::BootstrappingAccount;
 use rustc_hash::FxHashSet;
 
 /// Queue of bootstrapping accounts that are ready to download blocks
 #[derive(Default)]
 pub(super) struct DownloadQueue {
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
-    account_count: usize
+    account_count: usize,
 }
 
 #[derive(PartialEq, Eq)]
@@ -30,11 +28,13 @@ impl DownloadQueue {
     }
 
     pub fn insert(&mut self, account: Account, priority: Priority) {
-        let inserted = self.by_priority
+        let inserted = self
+            .by_priority
             .entry(priority.into())
             .or_default()
             .insert(account);
         debug_assert!(inserted);
+        self.account_count += 1;
     }
 
     pub fn pop_lowest_prio(&mut self) -> Option<Account> {
@@ -50,39 +50,26 @@ impl DownloadQueue {
         Some(account)
     }
 
-    pub fn change_priority(&mut self, account: &Account, old_prio: Priority, new_prio: Priority){
-        let accounts = self.by_priority.get_mut(&PriorityKeyDesc(old_prio)).unwrap();
+    pub fn change_priority(&mut self, account: &Account, old_prio: Priority, new_prio: Priority) {
+        let accounts = self
+            .by_priority
+            .get_mut(&PriorityKeyDesc(old_prio))
+            .unwrap();
         let removed = accounts.remove(account);
         debug_assert!(removed);
-        if accounts.is_empty(){
+        if accounts.is_empty() {
             self.by_priority.remove(&PriorityKeyDesc(old_prio));
         }
-        self.by_priority.entry(PriorityKeyDesc(new_prio)).or_default().insert(*account);
+        self.by_priority
+            .entry(PriorityKeyDesc(new_prio))
+            .or_default()
+            .insert(*account);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Priority, &Account)> {
         self.by_priority
             .iter()
             .flat_map(|(prio, accs)| accs.iter().map(|a| (prio.0, a)))
-    }
-
-    pub fn next_priority(
-        &self,
-        cutoff: Timestamp,
-        filter: impl Fn(&Account) -> bool,
-    ) -> Option<&BootstrappingAccount> {
-        self.by_priority
-            .values()
-            .flatten()
-            .map(|account| self.by_account.get(account).unwrap())
-            .find(|entry| {
-                if let Some(ts) = entry.last_request
-                    && ts > cutoff
-                {
-                    return false;
-                }
-                filter(&entry.account)
-            })
     }
 
     pub fn remove(&mut self, account: &Account, priority: Priority) {
@@ -94,4 +81,3 @@ impl DownloadQueue {
         }
     }
 }
-

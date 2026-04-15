@@ -10,16 +10,16 @@ use rsnano_utils::{
 };
 
 use super::{
-    running_query::QuerySource, BootstrapQueue, BootstrapTarget, PeerScoring, RunningQueryContainer,
+    BootstrapQueue, BootstrapTarget, PeerScoring, RunningQueryContainer, running_query::QuerySource,
 };
 use crate::bootstrap::bootstrapper::{
+    AscPullQuerySpec, BootstrapConfig,
     state::{
+        QueryType, RunningQuery,
         account_ack_processor::AccountAckProcessor,
         block_ack_processor::BlockAckProcessor,
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
-        QueryType, RunningQuery,
     },
-    AscPullQuerySpec, BootstrapConfig,
 };
 
 pub struct BootstrapLogic {

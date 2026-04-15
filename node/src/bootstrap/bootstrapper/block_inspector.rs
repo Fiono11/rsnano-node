@@ -145,7 +145,8 @@ impl BlockInspector {
                 }
 
                 let info = state.bootstrap_queue.processing_finished(&hash);
-                if let Some(account) = info.account && info.was_last
+                if let Some(account) = info.account
+                    && info.was_last
                 {
                     state.bootstrap_queue.reset_last_request(&account);
                 }
@@ -172,10 +173,8 @@ impl BlockInspector {
                                 self.stats
                                     .inc(StatType::BootstrapAccountSets, DetailType::Block);
                             } else {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::BlockFailed,
-                                );
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::BlockFailed);
                             }
                         }
                     }
@@ -213,7 +212,7 @@ impl BlockInspector {
                     }
                     // TODO handle old
                     _ => {
-                        state.bootstrap_queue.remove(account); 
+                        state.bootstrap_queue.remove(account);
                         // No need to handle other cases
                         // TODO: If we receive blocks that are invalid (bad signature, fork, etc.),
                         // we should penalize the peer that sent them
