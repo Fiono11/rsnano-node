@@ -89,59 +89,69 @@ impl BlockInspector {
         let hash = result.block.hash();
 
         match result.status {
-            Ok(()) => {
+            Ok(()) | Err(BlockError::Old) => {
                 let saved_block = result.saved_block.as_ref().unwrap();
                 let account = saved_block.account();
-                // If we've inserted any block in to an account, unmark it as blocked
-                if state.bootstrap_queue.unblock(account, None) {
-                    self.stats
-                        .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
-                    self.stats.inc(
-                        StatType::BootstrapAccountSets,
-                        DetailType::PriorityUnblocked,
-                    );
-                }
+                if result.status.is_ok() {
+                    // If we've inserted any block in to an account, unmark it as blocked
+                    if state.bootstrap_queue.unblock(account, None) {
+                        self.stats
+                            .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
+                        self.stats.inc(
+                            StatType::BootstrapAccountSets,
+                            DetailType::PriorityUnblocked,
+                        );
+                    }
 
-                // Progress blocks from live traffic don't need further bootstrapping
-                if result.source == BlockSource::Bootstrap {
-                    match state.bootstrap_queue.priority_up(&account) {
-                        PriorityUpResult::Updated => {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
-                        }
-                        PriorityUpResult::Inserted => {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
-                        }
-                        PriorityUpResult::AccountBlocked => {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
+                    // Progress blocks from live traffic don't need further bootstrapping
+                    if result.source == BlockSource::Bootstrap {
+                        match state.bootstrap_queue.priority_up(&account) {
+                            PriorityUpResult::Updated => {
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
+                            }
+                            PriorityUpResult::Inserted => {
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityInsert,
+                                );
+                            }
+                            PriorityUpResult::AccountBlocked => {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PrioritizeFailed,
+                                );
+                            }
                         }
                     }
-                }
 
-                if saved_block.is_send() {
-                    let destination = saved_block.destination().unwrap();
-                    if !destination.is_zero() {
-                        // Unblocking automatically inserts account into priority set
-                        if state.bootstrap_queue.unblock(destination, Some(hash)) {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
-                            self.stats.inc(
-                                StatType::BootstrapAccountSets,
-                                DetailType::PriorityUnblocked,
-                            );
-                        } else if matches!(
-                            state.bootstrap_queue.priority_up(&destination),
-                            PriorityUpResult::Inserted | PriorityUpResult::Updated
-                        ) {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
-                        } else {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
+                    if saved_block.is_send() {
+                        let destination = saved_block.destination().unwrap();
+                        if !destination.is_zero() {
+                            // Unblocking automatically inserts account into priority set
+                            if state.bootstrap_queue.unblock(destination, Some(hash)) {
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityUnblocked,
+                                );
+                            } else if matches!(
+                                state.bootstrap_queue.priority_up(&destination),
+                                PriorityUpResult::Inserted | PriorityUpResult::Updated
+                            ) {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityInsert,
+                                );
+                            } else {
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PrioritizeFailed,
+                                );
+                            }
                         }
                     }
                 }
@@ -150,9 +160,6 @@ impl BlockInspector {
             }
             Err(error) => {
                 match error {
-                    BlockError::Old => {
-                        state.bootstrap_queue.processing_finished(&hash);
-                    }
                     BlockError::GapSource => {
                         let source = result.block.source_or_link();
 
@@ -184,12 +191,16 @@ impl BlockInspector {
                             && result.block.block_type() == BlockType::State
                         {
                             let dep_account = result.block.account_field().unwrap();
-                            state
-                                .bootstrap_queue
-                                .priority_set(&dep_account, Priority::INITIAL);
+                            if !dep_account.is_zero() {
+                                state
+                                    .bootstrap_queue
+                                    .priority_set(&dep_account, Priority::INITIAL);
 
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
+                                self.stats.inc(
+                                    StatType::BootstrapAccountSets,
+                                    DetailType::PriorityInsert,
+                                );
+                            }
                         }
                     }
                     BlockError::GapEpochOpenPending => {
