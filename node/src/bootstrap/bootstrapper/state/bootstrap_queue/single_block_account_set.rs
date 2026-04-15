@@ -30,7 +30,7 @@ impl SingleBlockAccountSet {
             .map(|i| i.blocks.front().unwrap())
     }
 
-    pub fn remove_block(&mut self, block_hash: &Blake2Hash) -> Option<BootstrappingAccount> {
+    pub fn remove_block(&mut self, block_hash: &Blake2Hash) {
         let entry = self.by_hash.remove(block_hash)?;
         self.by_account.remove(&entry.account);
         Some(entry)

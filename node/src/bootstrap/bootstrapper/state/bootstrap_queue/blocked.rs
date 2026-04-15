@@ -3,14 +3,15 @@ use std::collections::{BTreeMap, VecDeque};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 
-use crate::bootstrap::bootstrapper::state::BootstrappingAccount;
+use rustc_hash::FxHashMap;
 
 /// A blocked account is an account that has failed to insert a new block because the source block is not currently present in the ledger
 /// An account is unblocked once it has a block successfully inserted
 #[derive(Default)]
 pub(super) struct BlockedAccounts {
-    by_account: BTreeMap<Account, BootstrappingAccount>,
     sequenced: VecDeque<Account>,
+    /// account => dep block + dep account
+    by_account: FxHashMap<Account, (BlockHash, Option<Account>)>,
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, Vec<Account>>,
     by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
@@ -41,37 +42,22 @@ impl BlockedAccounts {
         self.len() == 0
     }
 
-    pub fn insert(&mut self, entry: BootstrappingAccount) -> bool {
-        let Some(blocked) = entry.blocked.as_ref() else {
-            return false;
-        };
-        let account = entry.account;
-        let dependency = blocked.dependency_block;
-        let dependency_account = blocked.dependency_account.unwrap_or_default();
-        let timestamp = blocked.blocked_at;
-        if self.by_account.contains_key(&account) {
-            return false;
-        }
-
-        self.by_account.insert(account, entry);
+    pub fn insert(&mut self, account: Account, dependency: BlockHash, timestamp: Timestamp) {
         self.sequenced.push_back(account);
+        let old = self.by_account.insert(account, (dependency, None));
+        debug_assert!(old.is_none());
         self.by_dependency
             .entry(dependency)
             .or_default()
             .push(account);
         self.by_dependency_account
-            .entry(dependency_account)
+            .entry(Account::ZERO)
             .or_default()
             .push(account);
         self.by_timestamp
             .entry(timestamp)
             .or_default()
             .push(account);
-        true
-    }
-
-    pub fn contains(&self, account: &Account) -> bool {
-        self.by_account.contains_key(account)
     }
 
     pub fn count_by_dependency_account(&self, dep_account: &Account) -> usize {
@@ -84,37 +70,24 @@ impl BlockedAccounts {
     pub fn next(&self, filter: impl Fn(&BlockHash) -> bool) -> Option<BlockHash> {
         // Scan all entries with unknown dependency account
         let accounts = self.by_dependency_account.get(&Account::ZERO)?;
-        accounts
-            .iter()
-            .map(|a| self.by_account.get(a).unwrap())
-            .find_map(|e| {
-                let blocked = e.blocked.as_ref().unwrap();
-                if filter(&blocked.dependency_block) {
-                    Some(blocked.dependency_block)
-                } else {
-                    None
-                }
-            })
+        accounts.iter().find_map(|account| {
+            let dep_block = self.by_account.get(account).unwrap();
+            if filter(dep_block) {
+                Some(*dep_block)
+            } else {
+                None
+            }
+        })
     }
 
-    pub fn iter_start_dep_account(
-        &self,
-        start: Account,
-    ) -> impl Iterator<Item = &BootstrappingAccount> {
+    pub fn iter_start_dep_account(&self, start: Account) -> impl Iterator<Item = &Account> {
         self.by_dependency_account
             .range(start..)
             .flat_map(|(_, accs)| accs)
-            .map(|acc| self.by_account.get(acc).unwrap())
     }
 
-    pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &BootstrappingAccount> {
-        self.sequenced
-            .iter()
-            .map(|account| self.by_account.get(account).unwrap())
-    }
-
-    pub fn get(&self, account: &Account) -> Option<&BootstrappingAccount> {
-        self.by_account.get(account)
+    pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &Account> {
+        self.sequenced.iter()
     }
 
     /// Removes the oldest entry and all entries dependent on that
@@ -129,8 +102,8 @@ impl BlockedAccounts {
 
     /// Removes entries older than the given cutoff and all entries dependent on them
     /// Returns the number of removed entries
-    pub fn remove_older_than(&mut self, cutoff: Timestamp) -> usize {
-        let mut removed = 0;
+    pub fn remove_older_than(&mut self, cutoff: Timestamp) -> Vec<Account> {
+        let mut removed = Vec::new();
         while let Some((timestamp, accounts)) = self.by_timestamp.first_key_value() {
             if *timestamp >= cutoff {
                 // Entries are sorted by timestamp, no need to continue
@@ -150,6 +123,7 @@ impl BlockedAccounts {
         let mut removed = 0;
 
         while let Some(a) = stack.pop() {
+            let dep_block = self.by_account.remove(account).unwrap();
             if let Some(entry) = self.remove_account(&a) {
                 removed += 1;
 
@@ -162,9 +136,31 @@ impl BlockedAccounts {
         removed
     }
 
-    pub fn remove_account(&mut self, account: &Account) -> Option<BootstrappingAccount> {
-        let entry = self.by_account.remove(account)?;
-        self.remove_indexes(&entry);
+    pub fn remove_account(&mut self, account: &Account) {
+        let Some(dep_block) = self.by_account.remove(account) else {
+            return;
+        };
+        self.sequenced.retain(|i| i != account);
+        let accounts = self.by_dependency.get_mut(&dep_block).unwrap();
+        if accounts.len() > 1 {
+            accounts.retain(|i| i != account);
+        } else {
+            self.by_dependency.remove(&dep_block);
+        }
+
+        let dep_account = blocked.dependency_account.unwrap_or_default();
+        let accounts = self.by_dependency_account.get_mut(&dep_account).unwrap();
+        if accounts.len() > 1 {
+            accounts.retain(|i| *i != entry.account);
+        } else {
+            self.by_dependency_account.remove(&dep_account);
+        }
+        let accounts = self.by_timestamp.get_mut(&blocked.blocked_at).unwrap();
+        if accounts.len() > 1 {
+            accounts.retain(|i| *i != entry.account);
+        } else {
+            self.by_timestamp.remove(&blocked.blocked_at);
+        }
         Some(entry)
     }
 
@@ -206,34 +202,6 @@ impl BlockedAccounts {
         updated
     }
 
-    fn remove_indexes(&mut self, entry: &BootstrappingAccount) {
-        self.sequenced.retain(|i| *i != entry.account);
-        let blocked = entry.blocked.as_ref().unwrap();
-        let accounts = self
-            .by_dependency
-            .get_mut(&blocked.dependency_block)
-            .unwrap();
-        if accounts.len() > 1 {
-            accounts.retain(|i| *i != entry.account);
-        } else {
-            self.by_dependency.remove(&blocked.dependency_block);
-        }
-
-        let dep_account = blocked.dependency_account.unwrap_or_default();
-        let accounts = self.by_dependency_account.get_mut(&dep_account).unwrap();
-        if accounts.len() > 1 {
-            accounts.retain(|i| *i != entry.account);
-        } else {
-            self.by_dependency_account.remove(&dep_account);
-        }
-        let accounts = self.by_timestamp.get_mut(&blocked.blocked_at).unwrap();
-        if accounts.len() > 1 {
-            accounts.retain(|i| *i != entry.account);
-        } else {
-            self.by_timestamp.remove(&blocked.blocked_at);
-        }
-    }
-
     pub fn clear(&mut self) {
         self.by_account.clear();
         self.sequenced.clear();
@@ -258,12 +226,10 @@ mod tests {
         assert_eq!(blocked.is_empty(), true);
         assert_eq!(blocked.contains(&Account::from(1)), false);
         assert_eq!(blocked.count_by_dependency_account(&Account::from(1)), 0);
-        assert!(
-            blocked
-                .iter_start_dep_account(Account::from(1))
-                .next()
-                .is_none()
-        );
+        assert!(blocked
+            .iter_start_dep_account(Account::from(1))
+            .next()
+            .is_none());
         assert!(blocked.next(|_| true).is_none());
         assert!(blocked.get(&Account::from(1)).is_none());
         assert_eq!(blocked.remove_account_and_dependents(&Account::from(1)), 0);

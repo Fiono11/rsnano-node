@@ -22,7 +22,7 @@ impl DownloadingAccounts {
         self.by_time.remove(&(ts, old_entry.account));
         Some(old_entry)
     }
-    pub fn remove(&mut self, account: &Account) -> Option<BootstrappingAccount> {
+    pub fn remove(&mut self, account: &Account) {
         if let Some((entry, ts)) = self.by_account.remove(account) {
             self.by_time.remove(&(ts, entry.account));
             Some(entry)
