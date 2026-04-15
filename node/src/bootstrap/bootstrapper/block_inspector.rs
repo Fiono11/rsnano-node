@@ -210,6 +210,9 @@ impl BlockInspector {
                                 .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
                         }
                     }
+                    BlockError::Conflict => {
+                        // can happen if the unchecked map inserts at the same time
+                    }
                     // TODO handle old
                     _ => {
                         state.bootstrap_queue.remove(account);
