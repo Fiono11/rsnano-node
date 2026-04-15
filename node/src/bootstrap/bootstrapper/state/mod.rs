@@ -1,6 +1,5 @@
 mod account_ack_processor;
 pub(crate) mod block_ack_processor;
-pub(crate) mod block_queue;
 pub(crate) mod bootstrap_logic;
 mod bootstrap_queue;
 mod frontier_scan;

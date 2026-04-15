@@ -43,6 +43,7 @@ impl BlockedAccounts {
     }
 
     pub fn insert(&mut self, account: Account, dependency: BlockHash, timestamp: Timestamp) {
+        debug_assert!(!account.is_zero());
         self.sequenced.push_back(account);
         let old = self
             .by_account
@@ -174,12 +175,11 @@ impl BlockedAccounts {
         &mut self,
         dependency: &BlockHash,
         new_dependency_account: Account,
-    ) -> usize {
+    ) -> Vec<Account> {
+        let mut updated = Vec::new();
         let Some(accounts) = self.by_dependency.get(dependency) else {
-            return 0;
+            return updated;
         };
-
-        let mut updated = 0;
 
         for account in accounts {
             let (_, dep_account, _) = self.by_account.get_mut(account).unwrap();
@@ -200,7 +200,7 @@ impl BlockedAccounts {
                     .or_default()
                     .push(*account);
 
-                updated += 1;
+                updated.push(*account);
             }
         }
 

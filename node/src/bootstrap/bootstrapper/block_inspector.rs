@@ -124,32 +124,29 @@ impl BlockInspector {
 
                 if saved_block.is_send() {
                     let destination = saved_block.destination().unwrap();
-                    // Unblocking automatically inserts account into priority set
-                    if state.bootstrap_queue.unblock(destination, Some(hash)) {
-                        self.stats
-                            .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
-                        self.stats.inc(
-                            StatType::BootstrapAccountSets,
-                            DetailType::PriorityUnblocked,
-                        );
-                    } else if matches!(
-                        state.bootstrap_queue.priority_up(&destination),
-                        PriorityUpResult::Inserted | PriorityUpResult::Updated
-                    ) {
-                        self.stats
-                            .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
-                    } else {
-                        self.stats
-                            .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
+                    if !destination.is_zero() {
+                        // Unblocking automatically inserts account into priority set
+                        if state.bootstrap_queue.unblock(destination, Some(hash)) {
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
+                            self.stats.inc(
+                                StatType::BootstrapAccountSets,
+                                DetailType::PriorityUnblocked,
+                            );
+                        } else if matches!(
+                            state.bootstrap_queue.priority_up(&destination),
+                            PriorityUpResult::Inserted | PriorityUpResult::Updated
+                        ) {
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
+                        } else {
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
+                        }
                     }
                 }
 
-                let info = state.bootstrap_queue.processing_finished(&hash);
-                if let Some(account) = info.account
-                    && info.was_last
-                {
-                    state.bootstrap_queue.reset_last_request(&account);
-                }
+                state.bootstrap_queue.processing_finished(&hash);
             }
             Err(error) => {
                 match error {

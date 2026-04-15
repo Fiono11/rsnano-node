@@ -10,11 +10,8 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-use crate::bootstrap::bootstrapper::state::{
-    block_queue::BlockInfo,
-    bootstrap_queue::{
-        downloading::DownloadingAccounts, single_block_account_set::SingleBlockAccountSet,
-    },
+use crate::bootstrap::bootstrapper::state::bootstrap_queue::{
+    downloading::DownloadingAccounts, single_block_account_set::SingleBlockAccountSet,
 };
 use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
@@ -35,6 +32,9 @@ pub(crate) struct BootstrappingAccount {
 
 impl BootstrappingAccount {
     pub fn new(account: Account, priority: Priority) -> Self {
+        if account.is_zero() {
+            panic!("The zero account can never be a boostrapping account!")
+        }
         Self {
             account,
             priority,
@@ -194,10 +194,6 @@ impl BootstrapQueue {
     }
 
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
-        if account.is_zero() {
-            return PriorityUpResult::AccountBlocked;
-        }
-
         let result = self.modify_priority(account, |e| {
             e.priority = Self::higher_priority(e.priority);
             e.fails = 0;
@@ -222,10 +218,6 @@ impl BootstrapQueue {
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
-        if account.is_zero() {
-            return PriorityDownResult::InvalidAccount;
-        }
-
         let change_result = self.modify_priority(account, |e| {
             e.priority = e.priority / Priority::DIVIDE;
             e.fails += 1;
@@ -248,6 +240,10 @@ impl BootstrapQueue {
         };
         let old_prio = entry.priority;
         f(entry);
+        if entry.priority != old_prio && entry.state == AccountState::EnqueuedForDownload {
+            self.download_queue
+                .change_priority(account, old_prio, entry.priority);
+        }
 
         if entry.fails >= BootstrapQueue::MAX_FAILS
             || entry.fails as f64 >= entry.priority.as_f64()
@@ -257,18 +253,10 @@ impl BootstrapQueue {
             return ChangePriorityResult::Deleted;
         }
 
-        if entry.priority != old_prio && entry.state == AccountState::EnqueuedForDownload {
-            self.download_queue
-                .change_priority(account, old_prio, entry.priority);
-        }
         ChangePriorityResult::Updated
     }
 
     pub fn remove(&mut self, account: &Account) -> bool {
-        if account.is_zero() {
-            return false;
-        }
-
         let mut to_remove = VecDeque::new();
         to_remove.push_back(*account);
         while let Some(account) = to_remove.pop_front() {
@@ -300,8 +288,6 @@ impl BootstrapQueue {
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
-        debug_assert!(!account.is_zero());
-
         let Some(entry) = self.accounts.get_mut(&account) else {
             return false;
         };
@@ -384,17 +370,8 @@ impl BootstrapQueue {
     }
 
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
-        debug_assert!(!account.is_zero());
         if let Some(entry) = self.accounts.get_mut(account) {
             entry.last_request = Some(now);
-            self.revision += 1;
-        }
-    }
-
-    pub fn reset_last_request(&mut self, account: &Account) {
-        debug_assert!(!account.is_zero());
-        if let Some(entry) = self.accounts.get_mut(account) {
-            entry.last_request = None;
             self.revision += 1;
         }
     }
@@ -405,16 +382,20 @@ impl BootstrapQueue {
         dependency: &BlockHash,
         dependency_account: Account,
     ) -> usize {
-        debug_assert!(!dependency_account.is_zero());
         let updated = self
             .blocked
             .modify_dependency_account(dependency, dependency_account);
 
-        if updated > 0 && !self.queue_full() {
+        for account in &updated {
+            let entry = self.accounts.get_mut(account).unwrap();
+            entry.blocked.as_mut().unwrap().dependency_account = Some(dependency_account);
+        }
+
+        if !updated.is_empty() && !self.queue_full() {
             self.priority_up(&dependency_account);
         }
 
-        updated
+        updated.len()
     }
 
     /// Erase the oldest entries
@@ -500,6 +481,7 @@ impl BootstrapQueue {
         }
         self.downloading.remove(account);
         entry.blocks = blocks;
+        entry.last_request = None;
         if entry.blocks.is_empty() {
             entry.state = AccountState::EnqueuedForDownload;
             self.download_queue.insert(*account, entry.priority);
@@ -520,36 +502,21 @@ impl BootstrapQueue {
         }
     }
 
-    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) -> BlockInfo {
+    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) {
         if let Some(account) = self.processing.remove_block(block_hash) {
             let entry = self.accounts.get_mut(&account).unwrap();
             let first_block = entry.blocks.pop_front().unwrap();
             assert_eq!(first_block.hash(), *block_hash);
             if entry.blocks.is_empty() {
-                let block_info = BlockInfo {
-                    account: Some(entry.account),
-                    was_last: true,
-                };
                 entry.state = AccountState::EnqueuedForDownload;
                 self.download_queue.insert(account, entry.priority);
-                return block_info;
             } else {
-                let block_info = BlockInfo {
-                    account: Some(entry.account),
-                    was_last: false,
-                };
                 entry.state = AccountState::ReadyToProcess;
                 self.ready_to_process
                     .insert(account, entry.first_block_hash().unwrap());
-                return block_info;
             }
         } else {
             // TODO
-        }
-
-        BlockInfo {
-            account: None,
-            was_last: false,
         }
     }
 
@@ -584,7 +551,7 @@ impl BootstrapQueue {
                 .as_ref()
                 .unwrap()
                 .dependency_account
-                .unwrap_or_default();
+                .expect("should be set");
 
             if !self.contains(&dep_account) {
                 accounts_to_enqueue.push(dep_account);
@@ -970,15 +937,6 @@ mod tests {
         let new_timestamp = Timestamp::new_test_instance() + Duration::from_secs(1000);
         queue.set_last_request(&account, new_timestamp);
         assert_eq!(queue.last_request(&account), Some(new_timestamp))
-    }
-
-    #[test]
-    fn timestamp_reset() {
-        let mut queue = BootstrapQueue::default();
-        let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
-        queue.reset_last_request(&account);
-        assert_eq!(queue.last_request(&account), None);
     }
 
     #[test]

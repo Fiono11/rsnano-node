@@ -85,8 +85,6 @@ impl BlockAckProcessor {
             }
             PriorityDownResult::InvalidAccount => {}
         }
-
-        queue.reset_last_request(&query.account);
     }
 }
 
