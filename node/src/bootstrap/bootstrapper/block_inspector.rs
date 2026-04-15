@@ -90,9 +90,9 @@ impl BlockInspector {
 
         match result.status {
             Ok(()) | Err(BlockError::Old) => {
-                let saved_block = result.saved_block.as_ref().unwrap();
-                let account = saved_block.account();
                 if result.status.is_ok() {
+                    let saved_block = result.saved_block.as_ref().unwrap();
+                    let account = saved_block.account();
                     // If we've inserted any block in to an account, unmark it as blocked
                     if state.bootstrap_queue.unblock(account, None) {
                         self.stats
