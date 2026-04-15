@@ -187,20 +187,12 @@ impl BlockInspector {
                             && result.block.block_type() == BlockType::State
                         {
                             let dep_account = result.block.account_field().unwrap();
-                            if state
+                            state
                                 .bootstrap_queue
-                                .priority_set(&dep_account, Priority::INITIAL)
-                            {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityInsert,
-                                );
-                            } else {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PrioritizeFailed,
-                                );
-                            }
+                                .priority_set(&dep_account, Priority::INITIAL);
+
+                            self.stats
+                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
                         }
                     }
                     BlockError::GapEpochOpenPending => {

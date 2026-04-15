@@ -17,7 +17,10 @@ use rsnano_utils::{
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use crate::{block_processing::BlockProcessorQueue, transport::MessageSender};
+use crate::{
+    block_processing::BlockProcessorQueue, bootstrap::bootstrapper::state::Priority,
+    transport::MessageSender,
+};
 
 mod block_inspector;
 mod cleanup;
@@ -239,18 +242,13 @@ impl Bootstrapper {
     }
 
     pub fn initialize(&self, genesis_account: &Account) {
-        let inserted = self
-            .logic
+        self.logic
             .lock()
             .unwrap()
             .bootstrap_queue
-            .priority_up(genesis_account);
+            .priority_set(genesis_account, Priority::INITIAL);
 
-        if inserted == PriorityUpResult::Inserted {
-            self.priority_inserted()
-        } else {
-            self.priority_insertion_failed()
-        };
+        self.priority_inserted()
     }
 
     pub fn stop(&self) {

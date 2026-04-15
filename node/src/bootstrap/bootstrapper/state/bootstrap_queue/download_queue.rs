@@ -79,5 +79,6 @@ impl DownloadQueue {
         } else {
             self.by_priority.remove(&priority.into());
         }
+        self.account_count -= 1;
     }
 }
