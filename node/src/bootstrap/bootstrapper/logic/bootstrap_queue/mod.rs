@@ -12,7 +12,7 @@ pub use logic::{
 };
 pub use priority::Priority;
 
-pub(crate) use logic::BootstrapQueue;
+use logic::BootstrapQueueLogic;
 
 use std::collections::VecDeque;
 
@@ -22,14 +22,14 @@ use rsnano_utils::container_info::ContainerInfo;
 
 use bootstrapping_account::AccountState;
 
-pub(crate) struct BootstrapQueueService {
-    logic: BootstrapQueue,
+pub(crate) struct BootstrapQueue {
+    logic: BootstrapQueueLogic,
 }
 
-impl BootstrapQueueService {
+impl BootstrapQueue {
     pub fn new(config: BootstrapQueueConfig) -> Self {
         Self {
-            logic: BootstrapQueue::new(config),
+            logic: BootstrapQueueLogic::new(config),
         }
     }
 
@@ -49,12 +49,22 @@ impl BootstrapQueueService {
         self.logic.priority_down(account)
     }
 
+    #[cfg(test)]
+    pub fn priority(&self, account: &Account) -> Priority {
+        self.logic.priority(account)
+    }
+
     pub fn remove(&mut self, account: &Account) -> bool {
         self.logic.remove(account)
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
         self.logic.block(account, dependency, now)
+    }
+
+    #[cfg(test)]
+    pub fn blocked(&self, account: &Account) -> bool {
+        self.logic.blocked(account)
     }
 
     pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) -> bool {
@@ -68,6 +78,11 @@ impl BootstrapQueueService {
 
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
         self.logic.set_last_request(account, now);
+    }
+
+    #[cfg(test)]
+    pub fn last_request(&self, account: &Account) -> Option<Timestamp> {
+        self.logic.last_request(account)
     }
 
     /// Sets information about the account chain that contains the block hash
@@ -155,5 +170,11 @@ impl BootstrapQueueService {
 
     pub fn container_info(&self) -> ContainerInfo {
         self.logic.container_info()
+    }
+}
+
+impl Default for BootstrapQueue {
+    fn default() -> Self {
+        Self::new(Default::default())
     }
 }
