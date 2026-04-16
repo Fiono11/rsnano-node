@@ -16,7 +16,9 @@ use logic::BootstrapQueueLogic;
 
 use std::{collections::VecDeque, sync::Mutex};
 
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_nullable_clock::SteadyClock;
+#[cfg(test)]
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
