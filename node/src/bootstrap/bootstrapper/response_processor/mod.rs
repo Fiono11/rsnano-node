@@ -16,7 +16,7 @@ use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        logic::bootstrap_logic::{ProcessError, ProcessInfo},
+        logic::{ProcessError, ProcessInfo},
         response_processor::frontier_check_pool::FrontierCheckPool,
     },
 };

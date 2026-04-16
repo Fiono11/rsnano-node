@@ -31,13 +31,14 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::logic::{BootstrapQueueInfo, Priority},
     transport::MessageSender,
 };
 
 use block_inspector::BlockInspector;
 use cleanup::BootstrapCleanup;
-use logic::{BootstrapLogic, BootstrapQueueConfig, QueryType, bootstrap_logic::ProcessError};
+use logic::{
+    BootstrapLogic, BootstrapQueueConfig, BootstrapQueueInfo, Priority, ProcessError, QueryType,
+};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
 

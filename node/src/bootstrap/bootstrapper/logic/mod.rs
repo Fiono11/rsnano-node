@@ -1,7 +1,6 @@
 pub mod frontiers_processor;
 
 pub(crate) mod block_ack_processor;
-pub(crate) mod bootstrap_logic;
 
 mod account_ack_processor;
 mod bootstrap_queue;
@@ -10,7 +9,6 @@ mod peer_scoring;
 mod running_query;
 mod running_query_container;
 
-pub use bootstrap_logic::BootstrapLogic;
 pub use bootstrap_queue::{
     BootstrapQueue, BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot,
     BootstrapTarget, BootstrappingAccountInfo, Priority, PriorityDownResult, PrioritySetResult,
@@ -22,9 +20,226 @@ pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 
+use std::{sync::Arc, time::Duration};
+
+use rsnano_messages::{AscPullAck, AscPullAckType, AscPullReqType};
+use rsnano_network::{Channel, ChannelId};
+use rsnano_nullable_clock::Timestamp;
+use rsnano_types::{Account, Block, BlockHash};
+use rsnano_utils::{
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{StatsCollection, StatsSource},
+};
+
+use super::{AscPullQuerySpec, BootstrapConfig};
+use account_ack_processor::AccountAckProcessor;
+use block_ack_processor::BlockAckProcessor;
+use frontiers_processor::{FrontiersProcessor, OutdatedAccounts};
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum VerifyResult {
     Ok,
     NothingNew,
     Invalid,
+}
+
+pub struct BootstrapLogic {
+    pub bootstrap_queue: BootstrapQueue,
+    pub(crate) scoring: PeerScoring,
+    pub(crate) running_queries: RunningQueryContainer,
+    pub(crate) stopped: bool,
+    account_ack_processor: AccountAckProcessor,
+    pub frontiers_processor: FrontiersProcessor,
+    pub block_ack_processor: BlockAckProcessor,
+
+    response_blocks: u64,
+    response_account: u64,
+    response_frontiers: u64,
+}
+
+impl BootstrapLogic {
+    pub fn new(config: BootstrapConfig) -> Self {
+        let mut scoring = PeerScoring::new();
+        scoring.set_channel_limit(config.channel_limit);
+
+        Self {
+            bootstrap_queue: BootstrapQueue::new(config.bootstrap_queue.clone()),
+            scoring,
+            running_queries: RunningQueryContainer::default(),
+            stopped: false,
+            account_ack_processor: Default::default(),
+            frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
+            block_ack_processor: Default::default(),
+            response_blocks: 0,
+            response_account: 0,
+            response_frontiers: 0,
+        }
+    }
+
+    pub fn next_target(&mut self, now: Timestamp) -> BootstrapTarget {
+        let next = self.bootstrap_queue.next_download_target(now, |account| {
+            self.running_queries
+                .count_by_account(account, QuerySource::Priority)
+                < 4
+        });
+
+        if next.account.is_zero() {
+            return Default::default();
+        }
+
+        next
+    }
+
+    pub fn next_blocked_query(
+        &self,
+        query_id: u64,
+        channel: &Arc<Channel>,
+    ) -> Option<AscPullQuerySpec> {
+        let next = self.next_blocked();
+        if next.is_zero() {
+            return None;
+        }
+        Some(AscPullQuerySpec {
+            query_id,
+            channel: channel.clone(),
+            req_type: AscPullReqType::account_info_by_hash(next),
+            account: Account::ZERO,
+            hash: next,
+            cooldown_account: false,
+        })
+    }
+
+    pub fn next_block_to_process(&self) -> Option<&Block> {
+        self.bootstrap_queue.next_block_to_process()
+    }
+
+    fn count_queries_by_hash(&self, hash: &BlockHash, source: QuerySource) -> usize {
+        self.running_queries
+            .iter_hash(hash)
+            .filter(|i| i.source == source)
+            .count()
+    }
+
+    /* Waits for next available blocked block */
+    pub fn next_blocked(&self) -> BlockHash {
+        self.bootstrap_queue
+            .next_blocked(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
+    }
+
+    pub(crate) fn process_response(
+        &mut self,
+        response: AscPullAck,
+        channel_id: ChannelId,
+        now: Timestamp,
+    ) -> Result<ProcessInfo, ProcessError> {
+        let query = self.take_running_query_for(&response)?;
+        self.scoring.received_message(channel_id);
+        self.process_response_for_query(&query, response)
+            .map(|_| ProcessInfo::new(&query, now))
+    }
+
+    fn take_running_query_for(
+        &mut self,
+        response: &AscPullAck,
+    ) -> Result<RunningQuery, ProcessError> {
+        // Only process messages that have a known running query
+        let Some(query) = self.running_queries.remove(response.id) else {
+            return Err(ProcessError::NoRunningQueryFound);
+        };
+
+        if !query.is_valid_response_type(response) {
+            return Err(ProcessError::InvalidResponseType);
+        }
+
+        Ok(query)
+    }
+
+    fn process_response_for_query(
+        &mut self,
+        query: &RunningQuery,
+        response: AscPullAck,
+    ) -> Result<(), ProcessError> {
+        let ok = match response.pull_type {
+            AscPullAckType::Blocks(blocks) => {
+                self.response_blocks += 1;
+                self.block_ack_processor
+                    .process(&mut self.bootstrap_queue, query, blocks)
+            }
+            AscPullAckType::AccountInfo(info) => {
+                self.response_account += 1;
+                self.account_ack_processor
+                    .process(&mut self.bootstrap_queue, query, &info)
+            }
+            AscPullAckType::Frontiers(frontiers) => {
+                self.response_frontiers += 1;
+                self.frontiers_processor.process(query, frontiers)
+            }
+        };
+
+        if ok {
+            Ok(())
+        } else {
+            Err(ProcessError::InvalidResponse)
+        }
+    }
+
+    pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {
+        self.frontiers_processor
+            .frontiers_processed(outdated, &mut self.bootstrap_queue);
+    }
+}
+
+impl Default for BootstrapLogic {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+impl ContainerInfoProvider for BootstrapLogic {
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .leaf(
+                "tags",
+                self.running_queries.len(),
+                RunningQueryContainer::ELEMENT_SIZE,
+            )
+            .node("accounts", self.bootstrap_queue.container_info())
+            .node("frontiers", self.frontiers_processor.container_info())
+            .node("peers", self.scoring.container_info())
+            .finish()
+    }
+}
+
+impl StatsSource for BootstrapLogic {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        const BOOTSTRAP_PROCESS: &str = "bootstrap_process";
+        result.insert(BOOTSTRAP_PROCESS, "blocks", self.response_blocks);
+        result.insert(BOOTSTRAP_PROCESS, "account_info", self.response_account);
+        result.insert(BOOTSTRAP_PROCESS, "frontiers", self.response_frontiers);
+
+        self.frontiers_processor.collect_stats(result);
+        self.account_ack_processor.collect_stats(result);
+        self.block_ack_processor.collect_stats(result);
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum ProcessError {
+    NoRunningQueryFound,
+    InvalidResponseType,
+    InvalidResponse,
+}
+
+pub(crate) struct ProcessInfo {
+    pub query_type: QueryType,
+    pub response_time: Duration,
+}
+
+impl ProcessInfo {
+    pub fn new(query: &RunningQuery, now: Timestamp) -> Self {
+        Self {
+            query_type: query.query_type,
+            response_time: query.sent.elapsed(now),
+        }
+    }
 }
