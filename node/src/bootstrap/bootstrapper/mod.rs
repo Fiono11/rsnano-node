@@ -33,7 +33,7 @@ use cleanup::BootstrapCleanup;
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
 use state::{BootstrapLogic, BootstrapQueueConfig};
-use state::{PriorityUpResult, bootstrap_logic::ProcessError};
+use state::{PrioritySetResult, bootstrap_logic::ProcessError};
 
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};

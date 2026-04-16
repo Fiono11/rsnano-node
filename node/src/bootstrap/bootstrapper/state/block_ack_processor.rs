@@ -76,14 +76,13 @@ impl BlockAckProcessor {
             PriorityDownResult::Deprioritized => {
                 self.stats.deprioritize += 1;
             }
-            PriorityDownResult::Erased => {
+            PriorityDownResult::Removed => {
                 self.stats.deprioritize += 1;
                 self.stats.priority_erase_theshold += 1;
             }
             PriorityDownResult::AccountNotFound => {
                 self.stats.deprioritize_failed += 1;
             }
-            PriorityDownResult::InvalidAccount => {}
         }
     }
 }

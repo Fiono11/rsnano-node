@@ -6,7 +6,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Block, BlockType, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::state::{BootstrapLogic, PriorityUpResult};
+use super::state::{BootstrapLogic, PrioritySetResult};
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::state::Priority,
@@ -106,11 +106,11 @@ impl BlockInspector {
                     // Progress blocks from live traffic don't need further bootstrapping
                     if result.source == BlockSource::Bootstrap {
                         match state.bootstrap_queue.priority_up(&account) {
-                            PriorityUpResult::Updated => {
+                            PrioritySetResult::Updated => {
                                 self.stats
                                     .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
                             }
-                            PriorityUpResult::Inserted => {
+                            PrioritySetResult::Inserted => {
                                 self.stats
                                     .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
                                 self.stats.inc(
@@ -118,11 +118,15 @@ impl BlockInspector {
                                     DetailType::PriorityInsert,
                                 );
                             }
-                            PriorityUpResult::AccountBlocked => {
+                            PrioritySetResult::InvalidAccount => {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,
                                     DetailType::PrioritizeFailed,
                                 );
+                            }
+                            PrioritySetResult::Removed => {
+                                self.stats
+                                    .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
                             }
                         }
                     }
@@ -140,7 +144,7 @@ impl BlockInspector {
                                 );
                             } else if matches!(
                                 state.bootstrap_queue.priority_up(&destination),
-                                PriorityUpResult::Inserted | PriorityUpResult::Updated
+                                PrioritySetResult::Inserted | PrioritySetResult::Updated
                             ) {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,

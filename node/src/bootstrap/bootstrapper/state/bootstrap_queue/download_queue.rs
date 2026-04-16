@@ -14,7 +14,7 @@ pub(super) struct DownloadQueue {
 #[derive(PartialEq, Eq)]
 pub(crate) enum ChangePriorityResult {
     Updated,
-    Deleted,
+    Removed,
     NotFound,
 }
 

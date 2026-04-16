@@ -2,7 +2,7 @@ use rsnano_messages::AccountInfoAckPayload;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::state::{BootstrapQueue, PriorityUpResult, RunningQuery};
+use crate::bootstrap::bootstrapper::state::{BootstrapQueue, PrioritySetResult, RunningQuery};
 
 #[derive(Default)]
 pub(super) struct AccountAckProcessor {
@@ -48,7 +48,7 @@ impl AccountAckProcessor {
     fn prioritize(&mut self, queue: &mut BootstrapQueue, account: &Account) {
         if matches!(
             queue.priority_up(account),
-            PriorityUpResult::Inserted | PriorityUpResult::Updated
+            PrioritySetResult::Inserted | PrioritySetResult::Updated
         ) {
             self.stats.priority_insert += 1;
         } else {

@@ -5,13 +5,17 @@ use std::ops::{Add, Deref, Div, Mul, Sub};
 pub struct Priority(OrderedFloat<f64>);
 
 impl Priority {
+    const MAX_PRIORITY: f64 = 128.0;
     pub const INITIAL: Priority = Priority::new(2.0);
     pub const INCREASE: Priority = Priority::new(2.0);
     pub const DIVIDE: f64 = 2.0;
-    pub const MAX: Priority = Priority::new(128.0);
+    pub const MAX: Priority = Priority::new(Self::MAX_PRIORITY);
     pub const CUTOFF: Priority = Priority::new(0.15);
 
-    pub const fn new(value: f64) -> Self {
+    pub const fn new(mut value: f64) -> Self {
+        if value >= Self::MAX_PRIORITY {
+            value = Self::MAX_PRIORITY;
+        }
         Self(OrderedFloat(value))
     }
 
@@ -26,7 +30,7 @@ impl Add for Priority {
     type Output = Priority;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
+        Self::new(self.0.0 + rhs.0.0)
     }
 }
 
@@ -34,7 +38,7 @@ impl Sub for Priority {
     type Output = Priority;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
+        Self::new(self.0.0 - rhs.0.0)
     }
 }
 
@@ -42,7 +46,7 @@ impl Mul<f64> for Priority {
     type Output = Priority;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        Self(self.0 * rhs)
+        Self::new(self.0.0 * rhs)
     }
 }
 
@@ -50,7 +54,7 @@ impl Div<f64> for Priority {
     type Output = Priority;
 
     fn div(self, rhs: f64) -> Self::Output {
-        Self(self.0 / rhs)
+        Self::new(self.0.0 / rhs)
     }
 }
 
@@ -134,6 +138,13 @@ mod tests {
     #[test]
     fn div() {
         assert_priority_eq(Priority::new(2.4) / 2.0, Priority::new(1.2));
+    }
+
+    #[test]
+    fn priority_is_capped_at_max() {
+        assert_eq!(Priority::new(99999.0), Priority::MAX);
+        assert_eq!(Priority::new(1000.0) + Priority::new(1000.0), Priority::MAX);
+        assert_eq!(Priority::new(1000.0) * 10.0, Priority::MAX);
     }
 
     #[test]
