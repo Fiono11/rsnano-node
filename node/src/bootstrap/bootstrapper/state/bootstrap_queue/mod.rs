@@ -5,9 +5,10 @@ mod downloading;
 mod priority;
 mod single_block_account_set;
 
+pub use bootstrapping_account::AccountState;
 pub use priority::Priority;
 
-use std::{cmp::min, collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use rustc_hash::FxHashMap;
 
@@ -16,7 +17,7 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use blocked::BlockedAccounts;
-use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
+use bootstrapping_account::{BlockedInfo, BootstrappingAccount};
 use download_queue::{ChangePriorityResult, DownloadQueue};
 use downloading::DownloadingAccounts;
 use single_block_account_set::SingleBlockAccountSet;
@@ -126,7 +127,7 @@ impl BootstrapQueue {
         }
 
         let result = self.modify_priority(account, |e| {
-            e.priority = Self::higher_priority(e.priority);
+            e.priority = e.priority.increase();
             e.fails = 0;
         });
         self.revision += 1;
@@ -142,10 +143,6 @@ impl BootstrapQueue {
         } else {
             PrioritySetResult::Updated
         }
-    }
-
-    fn higher_priority(priority: Priority) -> Priority {
-        min(priority + Priority::INCREASE, Priority::MAX)
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
@@ -423,17 +420,17 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn processing_started(&mut self, block_hash: &BlockHash) {
-        if let Some(account) = self.ready_to_process.remove_block(block_hash) {
-            let entry = self.accounts.get_mut(&account).unwrap();
-            entry.state = AccountState::Processing;
-            self.processing.insert(account, *block_hash);
-        } else {
-            // TODO
-        }
+    pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
+        let Some(account) = self.ready_to_process.remove_block(block_hash) else {
+            return false;
+        };
+        let entry = self.accounts.get_mut(&account).unwrap();
+        entry.state = AccountState::Processing;
+        self.processing.insert(account, *block_hash);
+        true
     }
 
-    pub(crate) fn processing_finished(&mut self, block_hash: &BlockHash) {
+    pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
         if let Some(account) = self.processing.remove_block(block_hash) {
             let entry = self.accounts.get_mut(&account).unwrap();
             let first_block = entry.blocks.pop_front().unwrap();
@@ -441,13 +438,15 @@ impl BootstrapQueue {
             if entry.blocks.is_empty() {
                 entry.state = AccountState::EnqueuedForDownload;
                 self.download_queue.insert(account, entry.priority);
+                Some(entry.state)
             } else {
                 entry.state = AccountState::ReadyToProcess;
                 self.ready_to_process
                     .insert(account, entry.first_block_hash().unwrap());
+                Some(entry.state)
             }
         } else {
-            // TODO
+            None
         }
     }
 

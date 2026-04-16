@@ -1,5 +1,9 @@
+use std::{
+    cmp::min,
+    ops::{Add, Deref, Div, Mul, Sub},
+};
+
 use ordered_float::OrderedFloat;
-use std::ops::{Add, Deref, Div, Mul, Sub};
 
 #[derive(PartialEq, Eq, Default, Clone, Copy, Ord, PartialOrd)]
 pub struct Priority(OrderedFloat<f64>);
@@ -23,6 +27,10 @@ impl Priority {
 
     pub fn as_f64(&self) -> f64 {
         self.0.0
+    }
+
+    pub fn increase(&self) -> Priority {
+        min(*self + Priority::INCREASE, Priority::MAX)
     }
 }
 

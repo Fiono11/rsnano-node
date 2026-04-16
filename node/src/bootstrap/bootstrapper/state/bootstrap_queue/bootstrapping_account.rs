@@ -66,7 +66,7 @@ impl BootstrappingAccount {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
-pub(crate) enum AccountState {
+pub enum AccountState {
     #[default]
     EnqueuedForDownload,
     Downloading,
@@ -84,6 +84,7 @@ pub struct BlockedInfo {
 }
 
 impl BlockedInfo {
+    #[cfg(test)]
     pub fn new_test_instance() -> Self {
         Self {
             dependency_block: BlockHash::from(456),
