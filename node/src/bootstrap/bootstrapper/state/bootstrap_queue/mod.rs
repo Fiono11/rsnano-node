@@ -21,18 +21,33 @@ use download_queue::{ChangePriorityResult, DownloadQueue};
 use downloading::DownloadingAccounts;
 use single_block_account_set::SingleBlockAccountSet;
 
+#[derive(Default)]
+pub struct BootstrapQueueSnapshot {
+    pub info: BootstrapQueueInfo,
+    pub download_queue: Vec<BootstrappingAccountInfo>,
+    pub downloading: Vec<BootstrappingAccountInfo>,
+    pub blocked: Vec<BootstrappingAccountInfo>,
+}
+
+#[derive(Default)]
+pub struct BootstrapQueueInfo {
+    pub download_queue: usize,
+    pub unblocked: usize,
+    pub downloading: usize,
+    pub ready_to_process: usize,
+    pub processing: usize,
+    pub blocked: usize,
+    pub unknown_dependencies: usize,
+    pub unique_blocked_accounts: usize,
+    pub cached_blocks: usize,
+    pub discarded_blocks: usize,
+}
+
 pub struct BootstrappingAccountInfo {
     pub account: Account,
     pub priority: Priority,
     pub dependency_block: BlockHash,
     pub dependency_account: Account,
-}
-
-#[derive(Default)]
-pub struct BootstrapQueueSnapshot {
-    pub download_queue: Vec<BootstrappingAccountInfo>,
-    pub downloading: Vec<BootstrappingAccountInfo>,
-    pub blocked: Vec<BootstrappingAccountInfo>,
 }
 
 impl From<&BootstrappingAccount> for BootstrappingAccountInfo {
@@ -82,6 +97,8 @@ pub enum PrioritySetResult {
     Updated,
     InvalidAccount,
     Removed,
+    /// If the account is not in the download queue, we don't change its priority
+    Unchanged,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -90,6 +107,8 @@ pub enum PriorityDownResult {
     /// The priority got too low, so the account got erased
     Removed,
     AccountNotFound,
+    /// If the account is not in the download queue, we don't change its priority
+    Unchanged,
 }
 
 /// A prioritized queue of accounts which should bootstrapped.
@@ -104,6 +123,8 @@ pub struct BootstrapQueue {
     processing: SingleBlockAccountSet,
     blocked: BlockedAccounts,
     revision: u64,
+    cached_blocks: usize,
+    discarded_blocks: usize,
 }
 
 impl BootstrapQueue {
@@ -119,7 +140,13 @@ impl BootstrapQueue {
             ready_to_process: Default::default(),
             processing: Default::default(),
             revision: 0,
+            cached_blocks: 0,
+            discarded_blocks: 0,
         }
+    }
+
+    pub fn account_state(&self, account: &Account) -> Option<AccountState> {
+        self.accounts.get(account).map(|a| a.state)
     }
 
     pub fn priority_set(&mut self, account: &Account, priority: Priority) -> PrioritySetResult {
@@ -136,6 +163,7 @@ impl BootstrapQueue {
         match result {
             ChangePriorityResult::Updated => PrioritySetResult::Updated,
             ChangePriorityResult::Removed => PrioritySetResult::Removed,
+            ChangePriorityResult::Unchanged => PrioritySetResult::Unchanged,
             ChangePriorityResult::NotFound => {
                 if priority >= Priority::CUTOFF {
                     self.accounts
@@ -185,6 +213,7 @@ impl BootstrapQueue {
             ChangePriorityResult::Updated => PriorityDownResult::Deprioritized,
             ChangePriorityResult::Removed => PriorityDownResult::Removed,
             ChangePriorityResult::NotFound => PriorityDownResult::AccountNotFound,
+            ChangePriorityResult::Unchanged => PriorityDownResult::Unchanged,
         }
     }
 
@@ -195,6 +224,12 @@ impl BootstrapQueue {
         let Some(entry) = self.accounts.get_mut(account) else {
             return ChangePriorityResult::NotFound;
         };
+
+        if entry.state != AccountState::EnqueuedForDownload {
+            // We only allow priority changes if the account is in the download queue
+            return ChangePriorityResult::Unchanged;
+        }
+
         let old_prio = entry.priority;
         f(entry);
         if entry.priority != old_prio && entry.state == AccountState::EnqueuedForDownload {
@@ -220,6 +255,8 @@ impl BootstrapQueue {
             let Some(removed) = self.accounts.remove(&account) else {
                 continue;
             };
+            self.cached_blocks -= removed.blocks.len();
+            self.discarded_blocks += removed.blocks.len();
             match removed.state {
                 AccountState::EnqueuedForDownload => {
                     self.download_queue.remove(&account, removed.priority)
@@ -363,10 +400,8 @@ impl BootstrapQueue {
         }
 
         while self.blocked.len() > self.config.max_blocked_accounts {
-            let removed = self.blocked.remove_oldest();
-            for account in removed {
-                self.accounts.remove(&account);
-            }
+            let to_remove = *self.blocked.oldest().unwrap();
+            self.remove(&to_remove);
         }
     }
 
@@ -437,6 +472,8 @@ impl BootstrapQueue {
             return;
         }
         self.downloading.remove(account);
+        self.cached_blocks += blocks.len();
+        debug_assert!(entry.blocks.is_empty());
         entry.blocks = blocks;
         entry.last_request = None;
         if entry.blocks.is_empty() {
@@ -461,6 +498,7 @@ impl BootstrapQueue {
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
         if let Some(account) = self.processing.remove_block(block_hash) {
+            self.cached_blocks -= 1;
             let entry = self.accounts.get_mut(&account).unwrap();
             let first_block = entry.blocks.pop_front().unwrap();
             assert_eq!(first_block.hash(), *block_hash);
@@ -541,37 +579,13 @@ impl BootstrapQueue {
         self.accounts.len() - self.blocked.len()
     }
 
-    pub fn download_queue_len(&self) -> usize {
-        self.download_queue.len()
-    }
-
     pub fn blocked_count(&self) -> usize {
         self.blocked.len()
     }
 
-    pub fn downloading_count(&self) -> usize {
-        self.downloading.len()
-    }
-
-    pub fn ready_to_process_count(&self) -> usize {
-        self.ready_to_process.len()
-    }
-
-    pub fn processing_count(&self) -> usize {
-        self.processing.len()
-    }
-
-    pub fn unique_blocked_accounts(&self) -> usize {
-        self.blocked.unique_dependency_accounts()
-    }
-
-    pub fn known_dependencies(&self) -> usize {
-        self.blocked.known_dependencies()
-    }
-
     pub fn snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
         let download_queue = self
-            .iter_priorities()
+            .iter_download_queue()
             .filter(|e| filter.is_none() || filter == Some(e.account))
             .take(limit)
             .map(|e| e.into())
@@ -596,19 +610,35 @@ impl BootstrapQueue {
             .collect();
 
         BootstrapQueueSnapshot {
+            info: self.info(),
             download_queue,
             downloading,
             blocked,
         }
     }
 
-    pub fn iter_priorities(&self) -> impl Iterator<Item = &BootstrappingAccount> {
+    pub fn info(&self) -> BootstrapQueueInfo {
+        BootstrapQueueInfo {
+            download_queue: self.download_queue.len(),
+            unblocked: self.unblocked_count(),
+            downloading: self.downloading.len(),
+            ready_to_process: self.ready_to_process.len(),
+            processing: self.processing.len(),
+            blocked: self.blocked.len(),
+            unknown_dependencies: self.blocked.len() - self.blocked.known_dependencies(),
+            unique_blocked_accounts: self.blocked.unique_dependency_accounts(),
+            cached_blocks: self.cached_blocks,
+            discarded_blocks: self.discarded_blocks,
+        }
+    }
+
+    fn iter_download_queue(&self) -> impl Iterator<Item = &BootstrappingAccount> {
         self.download_queue
             .iter()
             .map(|(_, account)| self.accounts.get(account).unwrap())
     }
 
-    pub fn iter_downloading(&self) -> impl Iterator<Item = &BootstrappingAccount> {
+    fn iter_downloading(&self) -> impl Iterator<Item = &BootstrappingAccount> {
         self.accounts
             .values()
             .filter(|a| a.state == AccountState::Downloading)
@@ -643,7 +673,20 @@ impl BootstrapQueue {
     }
 
     pub fn clear_blocked_accounts(&mut self) {
-        self.blocked.clear();
+        let to_remove: Vec<_> = self
+            .accounts
+            .values()
+            .filter_map(|a| {
+                if a.state == AccountState::Blocked {
+                    Some(a.account)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for account in to_remove {
+            self.remove(&account);
+        }
         self.revision += 1;
     }
 
@@ -720,7 +763,7 @@ mod tests {
         queue.priority_set(&account, Priority::new(42.0));
 
         assert_eq!(queue.blocked_count(), 1);
-        assert_eq!(queue.download_queue_len(), 0);
+        assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]
@@ -768,7 +811,7 @@ mod tests {
             PrioritySetResult::InvalidAccount
         );
         assert_eq!(queue.blocked_count(), 0);
-        assert_eq!(queue.download_queue_len(), 0);
+        assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]
@@ -843,7 +886,7 @@ mod tests {
         queue.block(account, hash, Timestamp::new_test_instance());
 
         assert!(queue.blocked(&account));
-        assert_eq!(queue.download_queue_len(), 0);
+        assert_eq!(queue.info().download_queue, 0);
         assert_eq!(queue.blocked_count(), 1);
     }
 
@@ -872,7 +915,7 @@ mod tests {
         assert!(queue.unblock(account, None));
 
         assert_eq!(queue.blocked(&account), false);
-        assert_eq!(queue.download_queue_len(), 1);
+        assert_eq!(queue.info().download_queue, 1);
     }
 
     #[test]
@@ -942,7 +985,7 @@ mod tests {
     fn set_last_request_for_unknown_account_does_nothing() {
         let mut queue = BootstrapQueue::default();
         queue.set_last_request(&Account::from(1), Timestamp::new_test_instance());
-        assert_eq!(queue.download_queue_len(), 0);
+        assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]
@@ -958,7 +1001,7 @@ mod tests {
         queue.priority_set(&account2, Priority::new(1.0));
         queue.priority_set(&account3, Priority::new(3.0));
 
-        assert_eq!(queue.download_queue_len(), 2);
+        assert_eq!(queue.info().download_queue, 2);
         assert!(queue.contains(&account1));
         assert!(queue.contains(&account3));
         assert!(!queue.contains(&account2));
@@ -1241,6 +1284,7 @@ mod tests {
 
         let snap = queue.snapshot(10, None);
 
+        assert_eq!(snap.info.download_queue, 1);
         assert_eq!(snap.download_queue.len(), 1);
         assert_eq!(snap.download_queue[0].account, queued);
         assert_eq!(snap.download_queue[0].priority, Priority::INITIAL);

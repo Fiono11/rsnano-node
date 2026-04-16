@@ -93,14 +93,8 @@ impl BlockedAccounts {
         self.sequenced.iter()
     }
 
-    /// Removes the oldest entry and all entries dependent on that
-    /// Returns the number of removed entries
-    pub fn remove_oldest(&mut self) -> Vec<Account> {
-        let Some(oldest) = self.sequenced.front().cloned() else {
-            return Vec::new();
-        };
-
-        self.remove_account_and_dependents(&oldest)
+    pub fn oldest(&self) -> Option<&Account> {
+        self.sequenced.front()
     }
 
     /// Removes entries older than the given cutoff and all entries dependent on them

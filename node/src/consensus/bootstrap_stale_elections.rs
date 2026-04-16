@@ -108,7 +108,10 @@ mod tests {
 
         plugin.run(&aec);
 
-        assert_eq!(bootstrapper.state().bootstrap_queue.download_queue_len(), 0);
+        assert_eq!(
+            bootstrapper.state().bootstrap_queue.info().download_queue,
+            0
+        );
         assert_eq!(plugin.stats.bootstrap_stale.load(Ordering::Relaxed), 0);
     }
 

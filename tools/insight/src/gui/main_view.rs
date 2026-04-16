@@ -199,17 +199,29 @@ impl MainViewModel {
             .map(|e| AccountViewModel::from(e))
             .collect();
 
+        let downloading = self
+            .app
+            .bootstrap
+            .snapshot
+            .downloading
+            .iter()
+            .map(|e| AccountViewModel::from(e))
+            .collect();
+
+        let info = &self.app.bootstrap.snapshot.info;
         BootstrapViewModel {
-            download_queue_len: formatted_number(self.app.bootstrap.download_queue_len),
-            downloading_count: formatted_number(self.app.bootstrap.downloading_count),
-            blocked_accounts: formatted_number(self.app.bootstrap.blocked_accounts),
-            unblocked_accounts: formatted_number(self.app.bootstrap.unblocked_accounts),
-            process_queue: formatted_number(self.app.bootstrap.process_queue),
-            processing: formatted_number(self.app.bootstrap.processing),
-            unique_blocking_accounts: self.app.bootstrap.unique_blocked_accounts,
-            unknown_dependencies: self.app.bootstrap.unknown_dependencies,
+            download_queue_len: formatted_number(info.download_queue),
+            downloading_count: formatted_number(info.downloading),
+            blocked_accounts: formatted_number(info.blocked),
+            unblocked_accounts: formatted_number(info.unblocked),
+            process_queue: formatted_number(info.ready_to_process),
+            processing: formatted_number(info.processing),
+            unique_blocking_accounts: info.unblocked,
+            unknown_dependencies: info.unknown_dependencies,
+            cached_blocks: formatted_number(info.cached_blocks),
+            discarded_blocks: formatted_number(info.discarded_blocks),
             download_queue,
-            downloading: Vec::new(),
+            downloading,
             blocked,
         }
     }

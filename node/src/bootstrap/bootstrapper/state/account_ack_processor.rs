@@ -108,7 +108,7 @@ mod tests {
         assert!(processor.process(&mut queue, &query, &response));
 
         assert_eq!(processor.stats.empty, 1);
-        assert_eq!(queue.download_queue_len(), 0);
+        assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]

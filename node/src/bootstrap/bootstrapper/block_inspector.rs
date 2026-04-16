@@ -118,7 +118,7 @@ impl BlockInspector {
                                     DetailType::PriorityInsert,
                                 );
                             }
-                            PrioritySetResult::InvalidAccount => {
+                            PrioritySetResult::InvalidAccount | PrioritySetResult::Unchanged => {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,
                                     DetailType::PrioritizeFailed,
@@ -187,7 +187,10 @@ impl BlockInspector {
                         }
                     }
                     BlockError::GapPrevious => {
-                        state.bootstrap_queue.remove(&account);
+                        if result.source == BlockSource::Bootstrap {
+                            tracing::warn!("Got GAP_PREVIOUS from bootstrap!");
+                            state.bootstrap_queue.remove(&account);
+                        }
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
                             && !state.bootstrap_queue.queue_half_full()

@@ -83,6 +83,12 @@ impl BlockAckProcessor {
             PriorityDownResult::AccountNotFound => {
                 self.stats.deprioritize_failed += 1;
             }
+            PriorityDownResult::Unchanged => {
+                tracing::warn!(
+                    "PRIORITY DOWN FOR ACCOUNT IN STATE: {:?}",
+                    queue.account_state(&query.account)
+                );
+            }
         }
     }
 }

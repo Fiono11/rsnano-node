@@ -77,7 +77,7 @@ mod tests {
         worker.process(Vec::new());
 
         assert_eq!(
-            state.lock().unwrap().bootstrap_queue.download_queue_len(),
+            state.lock().unwrap().bootstrap_queue.info().download_queue,
             0
         );
     }
@@ -102,7 +102,7 @@ mod tests {
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
         let guard = state.lock().unwrap();
-        assert_eq!(guard.bootstrap_queue.download_queue_len(), 1);
+        assert_eq!(guard.bootstrap_queue.info().download_queue, 1);
         assert_eq!(guard.bootstrap_queue.priority(&account), Priority::CUTOFF);
         assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
         assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);

@@ -16,6 +16,7 @@ pub(crate) enum ChangePriorityResult {
     Updated,
     Removed,
     NotFound,
+    Unchanged,
 }
 
 impl DownloadQueue {

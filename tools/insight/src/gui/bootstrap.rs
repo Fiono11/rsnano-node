@@ -15,9 +15,29 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
             ui.add_space(16.0);
 
             ui.horizontal(|ui| {
-                ui.label(format!("Unblocked accounts: {}", model.unblocked_accounts));
-                ui.label(format!("Process queue: {}", model.process_queue));
-                ui.label(format!("Processing: {}", model.processing));
+                StripBuilder::new(ui)
+                    .size(Size::exact(160.0))
+                    .size(Size::exact(160.0))
+                    .size(Size::exact(160.0))
+                    .size(Size::exact(160.0))
+                    .size(Size::exact(160.0))
+                    .horizontal(|mut strip| {
+                        strip.cell(|ui| {
+                            ui.label(format!("Unblocked: {}", model.unblocked_accounts));
+                        });
+                        strip.cell(|ui| {
+                            ui.label(format!("Ready to process: {}", model.process_queue));
+                        });
+                        strip.cell(|ui| {
+                            ui.label(format!("Processing: {}", model.processing));
+                        });
+                        strip.cell(|ui| {
+                            ui.label(format!("Cached blocks: {}", model.cached_blocks));
+                        });
+                        strip.cell(|ui| {
+                            ui.label(format!("Discarded blocks: {}", model.discarded_blocks));
+                        });
+                    });
             });
 
             ui.horizontal(|ui| {
@@ -61,17 +81,17 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                                 });
                         });
 
-                        for item in model.download_queue {
+                        for account in model.download_queue {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
                                     .size(Size::exact(40.0))
                                     .size(Size::remainder())
                                     .horizontal(|mut strip| {
                                         strip.cell(|ui| {
-                                            ui.label(item.priority);
+                                            ui.label(account.priority);
                                         });
                                         strip.cell(|ui| {
-                                            ui.label(item.account);
+                                            ui.label(account.account);
                                         });
                                     });
                             });
@@ -81,7 +101,21 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                     strip.cell(|ui| {
                         ui.heading(format!("Downloading: {}", model.downloading_count));
 
-                        for item in model.downloading {}
+                        for account in model.downloading {
+                            ui.horizontal(|ui| {
+                                StripBuilder::new(ui)
+                                    .size(Size::exact(40.0))
+                                    .size(Size::remainder())
+                                    .horizontal(|mut strip| {
+                                        strip.cell(|ui| {
+                                            ui.label(account.priority);
+                                        });
+                                        strip.cell(|ui| {
+                                            ui.label(account.account);
+                                        });
+                                    });
+                            });
+                        }
                     });
 
                     strip.cell(|ui| {
@@ -162,6 +196,8 @@ pub(crate) struct BootstrapViewModel {
     pub downloading_count: String,
     pub unique_blocking_accounts: usize,
     pub unknown_dependencies: usize,
+    pub cached_blocks: String,
+    pub discarded_blocks: String,
     pub download_queue: Vec<AccountViewModel>,
     pub downloading: Vec<AccountViewModel>,
     pub blocked: Vec<AccountViewModel>,
@@ -181,9 +217,9 @@ impl From<&BootstrappingAccountInfo> for AccountViewModel {
         let mut account = e.account.encode_account();
         let mut dependency = e.dependency_block.to_string();
         let mut dependency_account = e.dependency_account.encode_account();
-        truncate_text(&mut account, 30);
-        truncate_text(&mut dependency, 30);
-        truncate_text(&mut dependency_account, 30);
+        truncate_text(&mut account, 20);
+        truncate_text(&mut dependency, 15);
+        truncate_text(&mut dependency_account, 20);
         Self {
             account,
             priority: format!("{:.2}", e.priority.as_f64()),
