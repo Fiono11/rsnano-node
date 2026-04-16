@@ -187,10 +187,7 @@ impl BlockInspector {
                         }
                     }
                     BlockError::GapPrevious => {
-                        if result.source == BlockSource::Bootstrap {
-                            tracing::warn!("Got GAP_PREVIOUS from bootstrap!");
-                            state.bootstrap_queue.remove(&account);
-                        }
+                        state.bootstrap_queue.remove(&account);
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
                             && !state.bootstrap_queue.queue_half_full()
@@ -218,6 +215,7 @@ impl BlockInspector {
                         }
                     }
                     BlockError::Conflict => {
+                        state.bootstrap_queue.reprocess(account, &hash);
                         // can happen if the unchecked map inserts at the same time
                     }
                     // TODO handle old

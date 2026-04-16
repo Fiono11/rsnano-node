@@ -21,23 +21,14 @@ impl SingleBlockAccountSet {
         self.by_hash.values().next().cloned()
     }
 
+    // TODO add account just for safety
     pub fn remove_block(&mut self, block_hash: &Blake2Hash) -> Option<Account> {
         let account = self.by_hash.remove(block_hash)?;
         self.by_account.remove(&account);
         Some(account)
     }
 
-    pub fn remove_account(&mut self, account: &Account) {
-        if let Some(hash) = self.by_account.remove(account) {
-            self.by_hash.remove(&hash);
-        }
-    }
-
-    pub fn contains(&self, account: &Account) -> bool {
-        self.by_account.contains_key(account)
-    }
-
     pub fn len(&self) -> usize {
-        self.by_account.len()
+        self.by_hash.len()
     }
 }

@@ -496,6 +496,16 @@ impl BootstrapQueue {
         true
     }
 
+    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
+        if self.processing.remove_block(block_hash).is_some() {
+            let entry = self.accounts.get_mut(&account).unwrap();
+            entry.state = AccountState::ReadyToProcess;
+            self.ready_to_process.insert(*account, *block_hash);
+        } else {
+            // TODO
+        }
+    }
+
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
         if let Some(account) = self.processing.remove_block(block_hash) {
             self.cached_blocks -= 1;
@@ -815,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn priority_can_be_increased_for_blocked_account() {
+    fn priority_cant_be_increased_for_blocked_account() {
         let mut queue = BootstrapQueue::default();
         let account = Account::from(1);
         queue.priority_set(&account, Priority::INITIAL);
@@ -825,10 +835,7 @@ mod tests {
 
         assert_eq!(result, PrioritySetResult::Updated);
         assert_eq!(queue.blocked_count(), 1);
-        assert_eq!(
-            queue.priority(&account),
-            Priority::INITIAL + Priority::INCREASE
-        );
+        assert_eq!(queue.priority(&account), Priority::INITIAL);
     }
 
     /*
