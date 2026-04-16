@@ -5,6 +5,7 @@ mod downloading;
 mod logic;
 mod priority;
 mod single_block_account_set;
+mod stats;
 
 pub use logic::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
@@ -14,19 +15,27 @@ pub use priority::Priority;
 
 use logic::BootstrapQueueLogic;
 
-use std::{collections::VecDeque, sync::Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{atomic::Ordering::Relaxed, Mutex},
+};
 
 use rsnano_nullable_clock::SteadyClock;
 #[cfg(test)]
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
-use rsnano_utils::container_info::ContainerInfo;
+use rsnano_utils::{
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{StatsCollection, StatsSource},
+};
 
 use bootstrapping_account::AccountState;
+use stats::BootstrapQueueStats;
 
 pub(crate) struct BootstrapQueue {
     logic: Mutex<BootstrapQueueLogic>,
     clock: SteadyClock,
+    stats: BootstrapQueueStats,
 }
 
 impl BootstrapQueue {
@@ -43,6 +52,7 @@ impl BootstrapQueue {
         Self {
             logic: Mutex::new(BootstrapQueueLogic::new(config)),
             clock,
+            stats: Default::default(),
         }
     }
 
@@ -51,15 +61,21 @@ impl BootstrapQueue {
     }
 
     pub fn priority_set(&mut self, account: &Account, priority: Priority) -> PrioritySetResult {
-        self.logic.lock().unwrap().priority_set(account, priority)
+        let result = self.logic.lock().unwrap().priority_set(account, priority);
+        self.stats.add_prio_set_result(&result);
+        result
     }
 
     pub fn priority_up(&mut self, account: &Account) -> PrioritySetResult {
-        self.logic.lock().unwrap().priority_up(account)
+        let result = self.logic.lock().unwrap().priority_up(account);
+        self.stats.add_prio_set_result(&result);
+        result
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
-        self.logic.lock().unwrap().priority_down(account)
+        let result = self.logic.lock().unwrap().priority_down(account);
+        self.stats.add_prio_down_result(&result);
+        result
     }
 
     #[cfg(test)]
@@ -68,7 +84,11 @@ impl BootstrapQueue {
     }
 
     pub fn remove(&mut self, account: &Account) -> bool {
-        self.logic.lock().unwrap().remove(account)
+        let removed = self.logic.lock().unwrap().remove(account);
+        if removed {
+            self.stats.removed.fetch_add(1, Relaxed);
+        }
+        removed
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash) -> bool {
@@ -188,14 +208,22 @@ impl BootstrapQueue {
     pub fn revision(&self) -> u64 {
         self.logic.lock().unwrap().revision()
     }
-
-    pub fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().unwrap().container_info()
-    }
 }
 
 impl Default for BootstrapQueue {
     fn default() -> Self {
         Self::new(Default::default())
+    }
+}
+
+impl ContainerInfoProvider for BootstrapQueue {
+    fn container_info(&self) -> ContainerInfo {
+        self.logic.lock().unwrap().container_info()
+    }
+}
+
+impl StatsSource for BootstrapQueue {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        self.stats.collect_stats(result);
     }
 }

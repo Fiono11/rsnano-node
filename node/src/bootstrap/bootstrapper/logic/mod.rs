@@ -221,6 +221,7 @@ impl StatsSource for BootstrapLogic {
         self.frontiers_processor.collect_stats(result);
         self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
+        self.bootstrap_queue.collect_stats(result);
     }
 }
 
