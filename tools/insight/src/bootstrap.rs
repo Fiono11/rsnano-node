@@ -1,4 +1,4 @@
-use rsnano_node::bootstrap::bootstrapper::state::{BootstrapLogic, BootstrapQueueSnapshot};
+use rsnano_node::bootstrap::bootstrapper::{Bootstrapper, state::BootstrapQueueSnapshot};
 use rsnano_types::Account;
 
 #[derive(Default)]
@@ -9,9 +9,8 @@ pub(crate) struct BootstrapInfo {
 }
 
 impl BootstrapInfo {
-    pub(crate) fn update(&mut self, state: &BootstrapLogic) {
+    pub(crate) fn update(&mut self, bootstrapper: &Bootstrapper) {
         let target_account = Account::parse(&self.search);
-        let queue = &state.bootstrap_queue;
-        self.snapshot = queue.snapshot(50, target_account);
+        self.snapshot = bootstrapper.queue_snapshot(50, target_account);
     }
 }

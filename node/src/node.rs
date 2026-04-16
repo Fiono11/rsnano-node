@@ -841,7 +841,10 @@ impl Node {
             message_sender.clone(),
             global_config.node_config.bootstrap.clone(),
         ));
-        bootstrapper.initialize(&network_params.ledger.genesis_account);
+        ledger_event_handlers.add(bootstrapper.clone());
+
+        // Start bootstrap from genesis account
+        bootstrapper.enqueue(network_params.ledger.genesis_account);
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
@@ -1273,7 +1276,6 @@ impl Node {
             dependent_elections_confirmer,
             confirming_set: confirming_set.clone(),
             stats: stats.clone(),
-            bootstrapper: bootstrapper.clone(),
             vote_history: vote_history.clone(),
             active_elections: active_elections.clone(),
             block_processor_queue: block_processor_queue.clone(),

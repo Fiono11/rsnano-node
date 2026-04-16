@@ -5,7 +5,6 @@ mod downloading;
 mod priority;
 mod single_block_account_set;
 
-pub use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
 pub use priority::Priority;
 
 use std::{collections::VecDeque, time::Duration};
@@ -17,6 +16,7 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use blocked::BlockedAccounts;
+use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
 use download_queue::{ChangePriorityResult, DownloadQueue};
 use downloading::DownloadingAccounts;
 use single_block_account_set::SingleBlockAccountSet;

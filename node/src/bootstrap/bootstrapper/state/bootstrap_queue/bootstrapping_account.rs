@@ -7,7 +7,7 @@ use super::Priority;
 
 /// An account that is currently being bootstrapped
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct BootstrappingAccount {
+pub(crate) struct BootstrappingAccount {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,
@@ -46,19 +46,6 @@ impl BootstrappingAccount {
         }
     }
 
-    #[cfg(test)]
-    pub fn new_blocked_test_instance() -> Self {
-        Self {
-            account: Account::from(7),
-            priority: Priority::new(3.0),
-            fails: 0,
-            last_request: None,
-            blocked: Some(BlockedInfo::new_test_instance()),
-            blocks: VecDeque::new(),
-            state: AccountState::Blocked,
-        }
-    }
-
     pub fn first_block_hash(&self) -> Option<BlockHash> {
         let front = self.blocks.front()?;
         Some(front.hash())
@@ -66,7 +53,7 @@ impl BootstrappingAccount {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
-pub enum AccountState {
+pub(crate) enum AccountState {
     #[default]
     EnqueuedForDownload,
     Downloading,
@@ -76,20 +63,9 @@ pub enum AccountState {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct BlockedInfo {
+pub(crate) struct BlockedInfo {
     pub dependency_block: BlockHash,
     /// Account that contains the dependency block, fetched via a background dependency walker
     pub dependency_account: Option<Account>,
     pub blocked_at: Timestamp,
-}
-
-impl BlockedInfo {
-    #[cfg(test)]
-    pub fn new_test_instance() -> Self {
-        Self {
-            dependency_block: BlockHash::from(456),
-            dependency_account: None,
-            blocked_at: Timestamp::new_test_instance(),
-        }
-    }
 }

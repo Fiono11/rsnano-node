@@ -9,7 +9,6 @@ use rsnano_utils::{
 use crate::{
     NodeEvent,
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
         AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
@@ -24,7 +23,6 @@ pub(crate) struct LedgerEventProcessor {
     pub confirming_set: Arc<ConfirmingSet>,
     pub stats: Arc<Stats>,
     pub(crate) dependent_elections_confirmer: DependentElectionsConfirmer,
-    pub(crate) bootstrapper: Arc<Bootstrapper>,
     pub(crate) vote_history: Arc<LocalVoteHistory>,
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
@@ -43,7 +41,6 @@ impl LedgerEventProcessor {
             confirming_set: Arc::new(ConfirmingSet::new_null()),
             stats: Arc::new(Stats::default()),
             dependent_elections_confirmer: DependentElectionsConfirmer::new_null(),
-            bootstrapper: Arc::new(Bootstrapper::new_null()),
             vote_history: Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork)),
             active_elections: Arc::new(AecService::new_null()),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
@@ -80,7 +77,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
             LedgerPipelineEvent::Ledger(event) => match event {
                 LedgerEvent::BlocksProcessed(results) => {
                     self.confirming_set.requeue_blocks(&results);
-                    self.bootstrapper.inspect_blocks(&results);
                     self.fork_cache_updater.update(&results);
                     if let Some(sender) = &self.node_event_sender {
                         sender.send(NodeEvent::BlocksProcessed(results)).unwrap();
@@ -103,9 +99,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     }
 
                     self.vote_history.erase_batch(rolled_back.roots());
-
-                    self.bootstrapper
-                        .unblock_batch(rolled_back.affected_accounts());
                 }
             },
             LedgerPipelineEvent::ConfirmingSet(event) => match event {

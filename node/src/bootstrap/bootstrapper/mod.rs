@@ -1,3 +1,13 @@
+mod block_inspector;
+mod cleanup;
+mod requesters;
+mod response_processor;
+pub mod state;
+
+pub use state::{
+    BootstrapQueueSnapshot, BootstrappingAccountInfo, FrontierHeadInfo, FrontierScanConfig,
+};
+
 use std::{
     sync::{Arc, Condvar, Mutex, MutexGuard, RwLock},
     thread::JoinHandle,
@@ -6,39 +16,29 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, LedgerSet, ProcessResult};
+use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
 };
 
 use crate::{
-    block_processing::BlockProcessorQueue, bootstrap::bootstrapper::state::Priority,
+    block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::state::{BootstrapQueueInfo, Priority},
     transport::MessageSender,
 };
-
-mod block_inspector;
-mod cleanup;
-mod requesters;
-mod response_processor;
-pub mod state;
 
 use block_inspector::BlockInspector;
 use cleanup::BootstrapCleanup;
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
-use state::{BootstrapLogic, BootstrapQueueConfig};
-use state::{PrioritySetResult, bootstrap_logic::ProcessError};
-
-use state::QueryType;
-pub use state::{FrontierHeadInfo, FrontierScanConfig};
-
-pub use state::{BootstrapQueueSnapshot, BootstrappingAccountInfo};
+use state::{BootstrapLogic, BootstrapQueueConfig, QueryType, bootstrap_logic::ProcessError};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AscPullQuerySpec {
@@ -243,16 +243,6 @@ impl Bootstrapper {
         )
     }
 
-    pub fn initialize(&self, genesis_account: &Account) {
-        self.logic
-            .lock()
-            .unwrap()
-            .bootstrap_queue
-            .priority_set(genesis_account, Priority::INITIAL);
-
-        self.priority_inserted()
-    }
-
     pub fn stop(&self) {
         {
             let mut guard = self.logic.lock().unwrap();
@@ -277,12 +267,39 @@ impl Bootstrapper {
         self.logic.lock().unwrap().bootstrap_queue.contains(account)
     }
 
-    pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
+    pub fn enqueue(&self, account: Account) {
         self.logic
             .lock()
             .unwrap()
             .bootstrap_queue
-            .snapshot(limit, filter)
+            .priority_set(&account, Priority::INITIAL);
+    }
+
+    pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
+        let mut logic = self.logic.lock().unwrap();
+        for account in accounts {
+            logic
+                .bootstrap_queue
+                .priority_set(&account, Priority::INITIAL);
+        }
+    }
+
+    pub fn clear_blocked_accounts(&self) {
+        let mut guard = self.logic.lock().unwrap();
+        guard.bootstrap_queue.clear_blocked_accounts();
+    }
+
+    pub fn consistency_check(&self) {
+        tracing::info!("Performing blocked accounts consistency check...");
+        let guard = self.logic.lock().unwrap();
+        let any = self.ledger.any();
+        for entry in guard.bootstrap_queue.iter_blocked() {
+            let dep_block = entry.blocked.as_ref().unwrap().dependency_block;
+            if any.block_exists(&dep_block) {
+                tracing::warn!(account = entry.account.encode_account(), dependency = ?dep_block, "Dependency block found, but account still blocked");
+            }
+        }
+        tracing::info!("Blocked accounts consistency check completed");
     }
 
     /// Process `asc_pull_ack` message coming from network
@@ -322,47 +339,16 @@ impl Bootstrapper {
         }
     }
 
-    pub fn inspect_blocks(&self, batch: &[ProcessResult]) {
+    fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
-
         self.state_changed.notify_all();
     }
 
-    pub fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let mut guard = self.logic.lock().unwrap();
+    fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
+        let mut logic = self.logic.lock().unwrap();
         for account in accounts {
-            guard.bootstrap_queue.unblock(account, None);
+            logic.bootstrap_queue.unblock(account, None);
         }
-    }
-
-    pub fn enqueue(&self, account: Account) {
-        let mut guard = self.logic.lock().unwrap();
-        guard.bootstrap_queue.priority_up(&account);
-    }
-
-    pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let mut guard = self.logic.lock().unwrap();
-        for account in accounts {
-            guard.bootstrap_queue.priority_up(&account);
-        }
-    }
-
-    pub fn clear_blocked_accounts(&self) {
-        let mut guard = self.logic.lock().unwrap();
-        guard.bootstrap_queue.clear_blocked_accounts();
-    }
-
-    pub fn consistency_check(&self) {
-        tracing::info!("Performing blocked accounts consistency check...");
-        let guard = self.logic.lock().unwrap();
-        let any = self.ledger.any();
-        for entry in guard.bootstrap_queue.iter_blocked() {
-            let dep_block = entry.blocked.as_ref().unwrap().dependency_block;
-            if any.block_exists(&dep_block) {
-                tracing::warn!(account = entry.account.encode_account(), dependency = ?dep_block, "Dependency block found, but account still blocked");
-            }
-        }
-        tracing::info!("Blocked accounts consistency check completed");
     }
 
     fn run_timeouts(&self) {
@@ -387,14 +373,16 @@ impl Bootstrapper {
         }
     }
 
-    fn priority_inserted(&self) {
-        self.stats
-            .inc(StatType::BootstrapAccountSets, DetailType::PriorityInsert);
+    pub fn queue_info(&self) -> BootstrapQueueInfo {
+        self.logic.lock().unwrap().bootstrap_queue.info()
     }
 
-    fn priority_insertion_failed(&self) {
-        self.stats
-            .inc(StatType::BootstrapAccountSets, DetailType::PrioritizeFailed);
+    pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
+        self.logic
+            .lock()
+            .unwrap()
+            .bootstrap_queue
+            .snapshot(limit, filter)
     }
 }
 
@@ -453,5 +441,19 @@ impl DeadChannelCleanupStep for BootstrapperCleanup {
             .unwrap()
             .scoring
             .clean_up_dead_channels(dead_channel_ids);
+    }
+}
+
+impl EventHandler<LedgerPipelineEvent> for Bootstrapper {
+    fn handle(&self, event: &LedgerPipelineEvent) {
+        match event {
+            LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) => {
+                self.inspect_blocks(&results);
+            }
+            LedgerPipelineEvent::Ledger(LedgerEvent::BlocksRolledBack(rolled_back)) => {
+                self.unblock_batch(rolled_back.affected_accounts());
+            }
+            _ => {}
+        }
     }
 }
