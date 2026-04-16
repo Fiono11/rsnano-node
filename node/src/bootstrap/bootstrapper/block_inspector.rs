@@ -169,10 +169,7 @@ impl BlockInspector {
 
                         if !account.is_zero() && !source.is_zero() {
                             // Mark account as blocked because it is missing the source block
-                            let blocked =
-                                state
-                                    .bootstrap_queue
-                                    .block(*account, source, self.clock.now());
+                            let blocked = state.bootstrap_queue.block(*account, source);
                             if blocked {
                                 self.stats.inc(
                                     StatType::BootstrapAccountSets,

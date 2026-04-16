@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn empty_response() {
         let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::new_null();
         let query = RunningQuery::new_test_instance();
 
         let response = AccountInfoAckPayload {
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn when_not_blocked_should_only_prioritize() {
         let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::new_null();
         let query = RunningQuery::new_test_instance();
         let response = AccountInfoAckPayload::new_test_instance();
 
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn update_dependency() {
         let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::new_null();
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
         let source_account = Account::from(200);
@@ -145,11 +145,7 @@ mod tests {
 
         queue.priority_set(&blocked_account, Priority::INITIAL);
 
-        queue.block(
-            blocked_account,
-            unknown_source,
-            Timestamp::new_test_instance(),
-        );
+        queue.block(blocked_account, unknown_source);
 
         assert!(processor.process(&mut queue, &query, &response));
 
@@ -164,7 +160,7 @@ mod tests {
     #[test]
     fn dependency_update_fails() {
         let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::default();
+        let mut queue = BootstrapQueue::new_null();
 
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
@@ -181,11 +177,7 @@ mod tests {
         };
 
         queue.priority_up(&blocked_account);
-        queue.block(
-            blocked_account,
-            unknown_source,
-            Timestamp::new_test_instance(),
-        );
+        queue.block(blocked_account, unknown_source);
         queue.dependency_update(&unknown_source, source_account);
         queue.priority_up(&source_account);
 

@@ -16,7 +16,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{collections::VecDeque, sync::Mutex};
 
-use rsnano_nullable_clock::Timestamp;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
@@ -24,12 +24,22 @@ use bootstrapping_account::AccountState;
 
 pub(crate) struct BootstrapQueue {
     logic: Mutex<BootstrapQueueLogic>,
+    clock: SteadyClock,
 }
 
 impl BootstrapQueue {
     pub fn new(config: BootstrapQueueConfig) -> Self {
+        Self::new_impl(config, SteadyClock::default())
+    }
+
+    pub fn new_null() -> Self {
+        Self::new_impl(Default::default(), SteadyClock::new_null())
+    }
+
+    fn new_impl(config: BootstrapQueueConfig, clock: SteadyClock) -> Self {
         Self {
             logic: Mutex::new(BootstrapQueueLogic::new(config)),
+            clock,
         }
     }
 
@@ -58,7 +68,8 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().remove(account)
     }
 
-    pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
+    pub fn block(&mut self, account: Account, dependency: BlockHash) -> bool {
+        let now = self.clock.now();
         self.logic.lock().unwrap().block(account, dependency, now)
     }
 
