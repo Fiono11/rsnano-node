@@ -110,7 +110,7 @@ impl BootstrapLogic {
         })
     }
 
-    pub fn next_block_to_process(&self) -> Option<&Block> {
+    pub fn next_block_to_process(&self) -> Option<Block> {
         self.bootstrap_queue.next_block_to_process()
     }
 
