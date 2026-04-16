@@ -78,7 +78,7 @@ impl QuerySpecFactory {
             return None;
         }
         let query_id = self.rng_factory.rng().next_u64();
-        let next = state.next_target(now);
+        let next = state.next_target();
         if next.account.is_zero() {
             self.stats.wait_priority.fetch_add(1, Relaxed);
             return None;

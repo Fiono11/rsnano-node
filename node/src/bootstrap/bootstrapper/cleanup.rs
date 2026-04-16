@@ -20,7 +20,7 @@ impl BootstrapCleanup {
         self.stats.inc(StatType::Bootstrap, DetailType::LoopCleanup);
         state.scoring.decay();
 
-        let decayed = state.bootstrap_queue.decay_blocked_accounts(now);
+        let decayed = state.bootstrap_queue.decay_blocked_accounts();
         self.stats.add(
             StatType::BootstrapAccountSets,
             DetailType::BlockingDecayed,

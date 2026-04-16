@@ -32,6 +32,7 @@ impl BootstrapQueue {
         Self::new_impl(config, SteadyClock::default())
     }
 
+    #[cfg(test)]
     pub fn new_null() -> Self {
         Self::new_impl(Default::default(), SteadyClock::new_null())
     }
@@ -83,11 +84,13 @@ impl BootstrapQueue {
     }
 
     /// Should be called periodically to remove old entries from the blocked accounts
-    pub fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
+    pub fn decay_blocked_accounts(&mut self) -> usize {
+        let now = self.clock.now();
         self.logic.lock().unwrap().decay_blocked_accounts(now)
     }
 
-    pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
+    pub fn set_last_request(&mut self, account: &Account) {
+        let now = self.clock.now();
         self.logic.lock().unwrap().set_last_request(account, now);
     }
 
@@ -108,11 +111,8 @@ impl BootstrapQueue {
             .dependency_update(dependency, dependency_account)
     }
 
-    pub fn next_download_target(
-        &self,
-        now: Timestamp,
-        filter: impl Fn(&Account) -> bool,
-    ) -> BootstrapTarget {
+    pub fn next_download_target(&self, filter: impl Fn(&Account) -> bool) -> BootstrapTarget {
+        let now = self.clock.now();
         self.logic.lock().unwrap().next_download_target(now, filter)
     }
 

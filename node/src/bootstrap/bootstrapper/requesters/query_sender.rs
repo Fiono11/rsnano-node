@@ -75,7 +75,7 @@ impl QuerySender {
             state.running_queries.insert(query);
 
             if spec.cooldown_account {
-                state.bootstrap_queue.set_last_request(&spec.account, now);
+                state.bootstrap_queue.set_last_request(&spec.account);
             }
 
             Some(id)
@@ -102,7 +102,7 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::SendEvent;
+    use crate::{bootstrap::bootstrapper::logic::BootstrapQueue, transport::SendEvent};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 
@@ -152,6 +152,7 @@ mod tests {
         spec.cooldown_account = true;
 
         let mut state = BootstrapLogic::default();
+        state.bootstrap_queue = BootstrapQueue::new_null();
         state.bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state).unwrap();

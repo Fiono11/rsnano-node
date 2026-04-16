@@ -151,7 +151,7 @@ mod tests {
 
         assert!(queue.blocked(&blocked_account));
         assert!(queue.contains(&source_account));
-        let target = queue.next_download_target(Timestamp::new_test_instance(), |_| true);
+        let target = queue.next_download_target(|_| true);
         assert_eq!(target.account, source_account);
         assert_eq!(processor.stats.dependency_update, 1);
         assert_eq!(processor.stats.priority_insert, 1);
