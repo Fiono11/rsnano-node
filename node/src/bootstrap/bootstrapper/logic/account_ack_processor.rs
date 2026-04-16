@@ -2,7 +2,7 @@ use rsnano_messages::AccountInfoAckPayload;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, PrioritySetResult, RunningQuery};
+use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery};
 
 #[derive(Default)]
 pub(super) struct AccountAckProcessor {
@@ -46,14 +46,7 @@ impl AccountAckProcessor {
     }
 
     fn prioritize(&mut self, queue: &mut BootstrapQueue, account: &Account) {
-        if matches!(
-            queue.priority_up(account),
-            PrioritySetResult::Inserted | PrioritySetResult::Updated
-        ) {
-            self.stats.priority_insert += 1;
-        } else {
-            self.stats.prioritize_failed += 1;
-        };
+        queue.priority_up(account);
     }
 }
 
@@ -68,8 +61,6 @@ pub(super) struct AccountAckStats {
     pub empty: u64,
     pub dependency_update: u64,
     pub dependency_update_failed: u64,
-    pub priority_insert: u64,
-    pub prioritize_failed: u64,
 }
 
 impl StatsSource for AccountAckStats {
@@ -83,8 +74,6 @@ impl StatsSource for AccountAckStats {
             "dependency_update_failed",
             self.dependency_update_failed,
         );
-        result.insert(PROCESSOR, "priority_insert", self.priority_insert);
-        result.insert(PROCESSOR, "prioritize_failed", self.prioritize_failed);
     }
 }
 
@@ -92,7 +81,6 @@ impl StatsSource for AccountAckStats {
 mod tests {
     use super::*;
     use crate::bootstrap::bootstrapper::logic::Priority;
-    use rsnano_nullable_clock::Timestamp;
 
     #[test]
     fn empty_response() {
@@ -122,7 +110,6 @@ mod tests {
 
         assert!(queue.contains(&response.account));
         assert_eq!(processor.stats.dependency_update_failed, 1);
-        assert_eq!(processor.stats.priority_insert, 1);
     }
 
     #[test]
@@ -154,7 +141,6 @@ mod tests {
         let target = queue.next_download_target(|_| true);
         assert_eq!(target.account, source_account);
         assert_eq!(processor.stats.dependency_update, 1);
-        assert_eq!(processor.stats.priority_insert, 1);
     }
 
     #[test]

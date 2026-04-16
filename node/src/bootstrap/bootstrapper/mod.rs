@@ -17,7 +17,7 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
+use rsnano_ledger::{Ledger, LedgerEvent, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
@@ -138,7 +138,6 @@ impl Default for BootstrapConfig {
 pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
-    ledger: Arc<Ledger>,
     logic: Arc<Mutex<BootstrapLogic>>,
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
@@ -196,7 +195,6 @@ impl Bootstrapper {
             logic.clone(),
             ledger.clone(),
             stats.clone(),
-            clock.clone(),
             block_processor_queue.clone(),
         );
 
@@ -206,7 +204,7 @@ impl Bootstrapper {
             message_sender.clone(),
             logic.clone(),
             state_changed.clone(),
-            ledger.clone(),
+            ledger,
             block_processor_queue,
             network,
         );
@@ -221,7 +219,6 @@ impl Bootstrapper {
             response_handler,
             block_inspector,
             requesters,
-            ledger,
         }
     }
 

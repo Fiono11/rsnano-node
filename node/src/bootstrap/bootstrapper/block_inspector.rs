@@ -2,11 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Block, BlockType, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::logic::{BootstrapLogic, PrioritySetResult};
+use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::logic::Priority,
@@ -17,7 +16,6 @@ pub(super) struct BlockInspector {
     state: Arc<Mutex<BootstrapLogic>>,
     ledger: Arc<Ledger>,
     stats: Arc<Stats>,
-    clock: Arc<SteadyClock>,
     block_processor_queue: Arc<BlockProcessorQueue>,
 }
 
@@ -26,14 +24,12 @@ impl BlockInspector {
         state: Arc<Mutex<BootstrapLogic>>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
-        clock: Arc<SteadyClock>,
         block_processor_queue: Arc<BlockProcessorQueue>,
     ) -> Self {
         Self {
             state,
             ledger,
             stats,
-            clock,
             block_processor_queue,
         }
     }
@@ -105,30 +101,7 @@ impl BlockInspector {
 
                     // Progress blocks from live traffic don't need further bootstrapping
                     if result.source == BlockSource::Bootstrap {
-                        match state.bootstrap_queue.priority_up(&account) {
-                            PrioritySetResult::Updated => {
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
-                            }
-                            PrioritySetResult::Inserted => {
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::Prioritize);
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityInsert,
-                                );
-                            }
-                            PrioritySetResult::InvalidAccount | PrioritySetResult::Unchanged => {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PrioritizeFailed,
-                                );
-                            }
-                            PrioritySetResult::Removed => {
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
-                            }
-                        }
+                        state.bootstrap_queue.priority_up(&account);
                     }
 
                     if saved_block.is_send() {
@@ -142,19 +115,8 @@ impl BlockInspector {
                                     StatType::BootstrapAccountSets,
                                     DetailType::PriorityUnblocked,
                                 );
-                            } else if matches!(
-                                state.bootstrap_queue.priority_up(&destination),
-                                PrioritySetResult::Inserted | PrioritySetResult::Updated
-                            ) {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityInsert,
-                                );
                             } else {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PrioritizeFailed,
-                                );
+                                state.bootstrap_queue.priority_up(&destination);
                             }
                         }
                     }
@@ -196,11 +158,6 @@ impl BlockInspector {
                                 state
                                     .bootstrap_queue
                                     .priority_set(&dep_account, Priority::INITIAL);
-
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityInsert,
-                                );
                             }
                         }
                     }

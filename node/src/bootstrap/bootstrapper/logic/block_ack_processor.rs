@@ -72,24 +72,7 @@ impl BlockAckProcessor {
     fn process_empty_response(&mut self, queue: &mut BootstrapQueue, query: &RunningQuery) {
         self.stats.nothing_new += 1;
         queue.download_finished(&query.account, VecDeque::new());
-        match queue.priority_down(&query.account) {
-            PriorityDownResult::Deprioritized => {
-                self.stats.deprioritize += 1;
-            }
-            PriorityDownResult::Removed => {
-                self.stats.deprioritize += 1;
-                self.stats.priority_erase_theshold += 1;
-            }
-            PriorityDownResult::AccountNotFound => {
-                self.stats.deprioritize_failed += 1;
-            }
-            PriorityDownResult::Unchanged => {
-                tracing::warn!(
-                    "PRIORITY DOWN FOR ACCOUNT IN STATE: {:?}",
-                    queue.account_state(&query.account)
-                );
-            }
-        }
+        queue.priority_down(&query.account);
     }
 }
 
@@ -105,9 +88,6 @@ pub(crate) struct BlockAckStats {
     verified: u64,
     blocks: u64,
     nothing_new: u64,
-    deprioritize: u64,
-    priority_erase_theshold: u64,
-    deprioritize_failed: u64,
 }
 
 impl StatsSource for BlockAckStats {
@@ -116,17 +96,6 @@ impl StatsSource for BlockAckStats {
         result.insert("bootstrap_verify_blocks", "ok", self.verified);
         result.insert("bootstrap_verify_blocks", "nothing_new", self.nothing_new);
         result.insert("bootstrap", "blocks", self.blocks);
-        result.insert("bootstrap_account_sets", "deprioritize", self.deprioritize);
-        result.insert(
-            "bootstrap_account_sets",
-            "priority_erase_threshold",
-            self.priority_erase_theshold,
-        );
-        result.insert(
-            "bootstrap_account_sets",
-            "deprioritize_failed",
-            self.deprioritize_failed,
-        );
     }
 }
 
