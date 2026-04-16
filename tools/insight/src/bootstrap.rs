@@ -1,4 +1,6 @@
-use rsnano_node::bootstrap::bootstrapper::state::{BootstrapLogic, BootstrappingAccountInfo};
+use rsnano_node::bootstrap::bootstrapper::state::{
+    BootstrapLogic, BootstrapQueueSnapshot,
+};
 use rsnano_types::Account;
 
 #[derive(Default)]
@@ -12,8 +14,7 @@ pub(crate) struct BootstrapInfo {
     pub processing: usize,
     pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
-    pub download_queue: Vec<BootstrappingAccountInfo>,
-    pub blocked: Vec<BootstrappingAccountInfo>,
+    pub snapshot: BootstrapQueueSnapshot,
     pub search: String,
     pub add_account: String,
 }
@@ -34,8 +35,6 @@ impl BootstrapInfo {
             .blocked_accounts
             .saturating_sub(queue.known_dependencies());
 
-        let snapshot = queue.snapshot(50, target_account);
-        self.download_queue = snapshot.download_queue;
-        self.blocked = snapshot.blocked;
+        self.snapshot = queue.snapshot(50, target_account);
     }
 }

@@ -28,6 +28,7 @@ pub struct BootstrappingAccountInfo {
     pub dependency_account: Account,
 }
 
+#[derive(Default)]
 pub struct BootstrapQueueSnapshot {
     pub download_queue: Vec<BootstrappingAccountInfo>,
     pub downloading: Vec<BootstrappingAccountInfo>,

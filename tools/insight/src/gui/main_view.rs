@@ -185,6 +185,7 @@ impl MainViewModel {
         let download_queue = self
             .app
             .bootstrap
+            .snapshot
             .download_queue
             .iter()
             .map(|e| {
@@ -204,6 +205,7 @@ impl MainViewModel {
         let blocked = self
             .app
             .bootstrap
+            .snapshot
             .blocked
             .iter()
             .map(|e| {
