@@ -43,7 +43,7 @@ use requesters::Requesters;
 use response_processor::ResponseProcessor;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct AscPullQuerySpec {
+pub(crate) struct AscPullQuerySpec {
     pub query_id: u64,
     pub channel: Arc<Channel>,
     pub req_type: AscPullReqType,

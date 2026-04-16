@@ -10,11 +10,12 @@ mod running_query;
 mod running_query_container;
 
 pub use bootstrap_queue::{
-    BootstrapQueue, BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot,
-    BootstrapTarget, BootstrappingAccountInfo, Priority, PriorityDownResult, PrioritySetResult,
+    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
+    BootstrappingAccountInfo, Priority, PriorityDownResult, PrioritySetResult,
 };
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 
+pub(crate) use bootstrap_queue::BootstrapQueue;
 pub(crate) use frontier_scan::FrontierScan;
 pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
@@ -44,7 +45,7 @@ pub(crate) enum VerifyResult {
 }
 
 pub struct BootstrapLogic {
-    pub bootstrap_queue: BootstrapQueue,
+    pub(crate) bootstrap_queue: BootstrapQueue,
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -90,7 +91,7 @@ impl BootstrapLogic {
         next
     }
 
-    pub fn next_blocked_query(
+    pub(crate) fn next_blocked_query(
         &self,
         query_id: u64,
         channel: &Arc<Channel>,

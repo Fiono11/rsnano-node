@@ -114,7 +114,7 @@ pub enum PriorityDownResult {
 /// A prioritized queue of accounts which should bootstrapped.
 /// Accounts can be blocked, because a dependency block is missing. Blocked accounts
 /// are put on hold.
-pub struct BootstrapQueue {
+pub(crate) struct BootstrapQueue {
     config: BootstrapQueueConfig,
     accounts: FxHashMap<Account, BootstrappingAccount>,
     download_queue: DownloadQueue,

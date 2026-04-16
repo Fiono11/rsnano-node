@@ -33,19 +33,6 @@ impl BootstrappingAccount {
         }
     }
 
-    #[cfg(test)]
-    pub fn new_test_instance() -> Self {
-        Self {
-            account: Account::from(7),
-            priority: Priority::new(3.0),
-            fails: 0,
-            last_request: None,
-            blocked: None,
-            blocks: VecDeque::new(),
-            state: AccountState::EnqueuedForDownload,
-        }
-    }
-
     pub fn first_block_hash(&self) -> Option<BlockHash> {
         let front = self.blocks.front()?;
         Some(front.hash())

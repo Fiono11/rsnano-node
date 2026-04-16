@@ -1,4 +1,4 @@
-use rsnano_types::{Account, Blake2Hash, Block, BlockHash};
+use rsnano_types::{Account, Blake2Hash, BlockHash};
 use rustc_hash::FxHashMap;
 
 /// A set of accounts and one block per account
@@ -21,7 +21,7 @@ impl SingleBlockAccountSet {
         self.by_hash.values().next().cloned()
     }
 
-    // TODO add account just for safety
+    // TODO add account arg just for safety
     pub fn remove_block(&mut self, block_hash: &Blake2Hash) -> Option<Account> {
         let account = self.by_hash.remove(block_hash)?;
         self.by_account.remove(&account);

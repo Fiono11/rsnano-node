@@ -75,7 +75,11 @@ impl FrontiersProcessor {
         self.frontiers_to_check.pop_front()
     }
 
-    pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts, queue: &mut BootstrapQueue) {
+    pub(crate) fn frontiers_processed(
+        &mut self,
+        outdated: &OutdatedAccounts,
+        queue: &mut BootstrapQueue,
+    ) {
         self.stats.processed_frontiers += outdated.frontiers_received as u64;
         self.stats.outdated_accounts_found += outdated.accounts.len() as u64;
 

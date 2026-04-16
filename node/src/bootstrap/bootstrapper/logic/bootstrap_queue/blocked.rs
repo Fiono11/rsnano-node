@@ -204,12 +204,4 @@ impl BlockedAccounts {
     pub fn contains(&self, account: &Account) -> bool {
         self.by_account.contains_key(account)
     }
-
-    pub fn clear(&mut self) {
-        self.by_account.clear();
-        self.sequenced.clear();
-        self.by_dependency.clear();
-        self.by_dependency_account.clear();
-        self.by_timestamp.clear();
-    }
 }

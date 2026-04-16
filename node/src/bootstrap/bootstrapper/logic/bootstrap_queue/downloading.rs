@@ -33,10 +33,6 @@ impl DownloadingAccounts {
         self.by_account.len()
     }
 
-    pub fn contains(&self, account: &Account) -> bool {
-        self.by_account.contains_key(account)
-    }
-
     pub fn pop_timeout(&mut self, now: Timestamp) -> Option<Account> {
         let first = self.by_time.first()?;
         if first.0 < now - Duration::from_secs(15) {
