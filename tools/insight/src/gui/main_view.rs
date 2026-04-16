@@ -6,12 +6,11 @@ use super::{
     BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
     block_processor::view_block_processor,
-    bootstrap::{AccountViewModel, BlockedViewModel, BootstrapViewModel, view_bootstrap},
+    bootstrap::{AccountViewModel, BootstrapViewModel, view_bootstrap},
     formatted_number, view_frontier_scan, view_ledger_stats, view_message_recorder_controls,
     view_message_tab, view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::{app::InsightApp, explorer::ExplorerState, gui::QueueViewModel, navigator::NavItem};
-use rsnano_types::Account;
 
 pub(crate) struct MainView {
     model: MainViewModel,
@@ -188,18 +187,7 @@ impl MainViewModel {
             .snapshot
             .download_queue
             .iter()
-            .map(|e| {
-                let mut account_str = e.account.encode_account();
-                truncate_text(&mut account_str, 30);
-                AccountViewModel {
-                    account: account_str,
-                    priority: format!("{:.2}", e.priority.as_f64()),
-                    dependency: String::new(),
-                    dependency_account: String::new(),
-                    account_val: e.account,
-                    dependency_account_val: Account::ZERO,
-                }
-            })
+            .map(|e| AccountViewModel::from(e))
             .collect();
 
         let blocked = self
@@ -208,19 +196,7 @@ impl MainViewModel {
             .snapshot
             .blocked
             .iter()
-            .map(|e| {
-                let mut model = BlockedViewModel {
-                    account: e.account.encode_account(),
-                    dependency: e.dependency_block.to_string(),
-                    dependency_account: e.dependency_account.encode_account(),
-                    account_val: e.account,
-                    dependency_account_val: e.dependency_account,
-                };
-                truncate_text(&mut model.account, 15);
-                truncate_text(&mut model.dependency, 15);
-                truncate_text(&mut model.dependency_account, 15);
-                model
-            })
+            .map(|e| AccountViewModel::from(e))
             .collect();
 
         BootstrapViewModel {
@@ -251,7 +227,7 @@ impl MainViewModel {
     }
 }
 
-fn truncate_text(s: &mut String, len: usize) {
+pub(super) fn truncate_text(s: &mut String, len: usize) {
     if s.len() > len {
         s.replace_range(len.., "...");
     }

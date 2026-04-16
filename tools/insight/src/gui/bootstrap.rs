@@ -1,9 +1,12 @@
 use eframe::egui::{self, CentralPanel, ScrollArea, TextEdit};
 use egui_extras::{Size, StripBuilder};
 
+use rsnano_node::bootstrap::bootstrapper::BootstrappingAccountInfo;
 use rsnano_types::Account;
 
 use crate::app::InsightApp;
+
+use super::main_view::truncate_text;
 
 pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app: &mut InsightApp) {
     CentralPanel::default().show(ctx, |ui| {
@@ -161,7 +164,7 @@ pub(crate) struct BootstrapViewModel {
     pub unknown_dependencies: usize,
     pub download_queue: Vec<AccountViewModel>,
     pub downloading: Vec<AccountViewModel>,
-    pub blocked: Vec<BlockedViewModel>,
+    pub blocked: Vec<AccountViewModel>,
 }
 
 pub(crate) struct AccountViewModel {
@@ -173,10 +176,21 @@ pub(crate) struct AccountViewModel {
     pub dependency_account_val: Account,
 }
 
-pub(crate) struct BlockedViewModel {
-    pub account: String,
-    pub dependency: String,
-    pub dependency_account: String,
-    pub account_val: Account,
-    pub dependency_account_val: Account,
+impl From<&BootstrappingAccountInfo> for AccountViewModel {
+    fn from(e: &BootstrappingAccountInfo) -> Self {
+        let mut account = e.account.encode_account();
+        let mut dependency = e.dependency_block.to_string();
+        let mut dependency_account = e.dependency_account.encode_account();
+        truncate_text(&mut account, 30);
+        truncate_text(&mut dependency, 30);
+        truncate_text(&mut dependency_account, 30);
+        Self {
+            account,
+            priority: format!("{:.2}", e.priority.as_f64()),
+            dependency,
+            dependency_account,
+            account_val: e.account,
+            dependency_account_val: e.dependency_account,
+        }
+    }
 }
