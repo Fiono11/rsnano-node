@@ -109,8 +109,10 @@ impl InsightApp {
             self.block_processor_info = node.block_processor_queue.info();
             self.vote_processor_info = node.vote_processor_queue.info();
             {
-                let state = node.bootstrapper.state();
-                self.frontier_scan.update(&state, now);
+                {
+                    let state = node.bootstrapper.state();
+                    self.frontier_scan.update(&state, now);
+                }
                 self.bootstrap.update(&node.bootstrapper);
             }
         }
