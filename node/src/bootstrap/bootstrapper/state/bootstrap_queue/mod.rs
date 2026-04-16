@@ -1212,4 +1212,38 @@ mod tests {
 
         assert_eq!(inserted, 0);
     }
+
+    /*
+     * Snapshot
+     */
+
+    #[test]
+    fn snapshot() {
+        let mut queue = BootstrapQueue::default();
+        let queued = Account::from(1);
+        let downloading = Account::from(2);
+        let blocked = Account::from(3);
+        let dependency = BlockHash::from(99);
+        let now = Timestamp::new_test_instance();
+
+        queue.priority_set(&queued, Priority::INITIAL);
+        queue.priority_set(&downloading, Priority::INITIAL);
+        queue.download_started(&downloading, now);
+        queue.priority_set(&blocked, Priority::INITIAL);
+        queue.block(blocked, dependency, now);
+
+        let snap = queue.snapshot(10);
+
+        assert_eq!(snap.download_queue.len(), 1);
+        assert_eq!(snap.download_queue[0].account, queued);
+        assert_eq!(snap.download_queue[0].priority, Priority::INITIAL);
+
+        assert_eq!(snap.downloading.len(), 1);
+        assert_eq!(snap.downloading[0].account, downloading);
+        assert_eq!(snap.downloading[0].priority, Priority::INITIAL);
+
+        assert_eq!(snap.blocked.len(), 1);
+        assert_eq!(snap.blocked[0].account, blocked);
+        assert_eq!(snap.blocked[0].dependency_block, dependency);
+    }
 }
