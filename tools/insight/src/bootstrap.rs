@@ -7,9 +7,12 @@ pub(crate) struct BootstrapInfo {
     pub downloading_count: usize,
     pub ready_to_process_count: usize,
     pub blocked_accounts: usize,
+    pub unblocked_accounts: usize,
+    pub process_queue: usize,
+    pub processing: usize,
     pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
-    pub priorities: Vec<(Priority, Account)>,
+    pub download_queue: Vec<(Priority, Account)>,
     pub blocked: Vec<(Account, BlockHash, Account)>,
     pub search: String,
     pub add_account: String,
@@ -23,12 +26,15 @@ impl BootstrapInfo {
         self.downloading_count = queue.downloading_count();
         self.ready_to_process_count = queue.ready_to_process_count();
         self.blocked_accounts = queue.blocked_count();
+        self.unblocked_accounts = queue.unblocked_count();
+        self.process_queue = queue.ready_to_process_count();
+        self.processing = queue.processing_count();
         self.unique_blocked_accounts = queue.unique_blocked_accounts();
         self.unknown_dependencies = self
             .blocked_accounts
             .saturating_sub(queue.known_dependencies());
 
-        self.priorities = queue
+        self.download_queue = queue
             .iter_priorities()
             .filter_map(|(prio, acc)| {
                 if target_account.is_none() || target_account.as_ref() == Some(acc) {

@@ -1,5 +1,6 @@
 use eframe::egui::{self, CentralPanel, ScrollArea, TextEdit};
 use egui_extras::{Size, StripBuilder};
+
 use rsnano_types::Account;
 
 use crate::app::InsightApp;
@@ -7,32 +8,41 @@ use crate::app::InsightApp;
 pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app: &mut InsightApp) {
     CentralPanel::default().show(ctx, |ui| {
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.add(
-                TextEdit::singleline(&mut app.bootstrap.search)
-                    .hint_text("filter account...")
-                    .desired_width(500.0),
-            );
+            ui.heading("Bootstrap Queue");
+            ui.add_space(16.0);
+
             ui.horizontal(|ui| {
+                ui.label(format!("Unblocked accounts: {}", model.unblocked_accounts));
+                ui.label(format!("Process queue: {}", model.process_queue));
+                ui.label(format!("Processing: {}", model.processing));
+            });
+
+            ui.horizontal(|ui| {
+                ui.add(
+                    TextEdit::singleline(&mut app.bootstrap.search)
+                        .hint_text("filter account...")
+                        .desired_width(300.0),
+                );
+                ui.separator();
                 ui.add(
                     TextEdit::singleline(&mut app.bootstrap.add_account)
                         .hint_text("account...")
-                        .desired_width(400.0),
+                        .desired_width(300.0),
                 );
                 if ui.button("add account").clicked() {
                     app.add_priority_account();
                 }
             });
+
+            ui.add_space(16.0);
+
             StripBuilder::new(ui)
-                .size(Size::relative(0.2))
-                .size(Size::relative(0.2))
-                .size(Size::relative(0.2))
-                .size(Size::relative(0.4))
+                .size(Size::relative(0.28))
+                .size(Size::relative(0.28))
+                .size(Size::remainder())
                 .horizontal(|mut strip| {
                     strip.cell(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.heading("Download queue: ");
-                            ui.heading(model.download_queue_len);
-                        });
+                        ui.heading(format!("Download queue: {}", model.download_queue_len));
 
                         ui.horizontal(|ui| {
                             StripBuilder::new(ui)
@@ -48,7 +58,7 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                                 });
                         });
 
-                        for item in model.priorities {
+                        for item in model.download_queue {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
                                     .size(Size::exact(40.0))
@@ -67,10 +77,8 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
 
                     strip.cell(|ui| {
                         ui.heading(format!("Downloading: {}", model.downloading_count));
-                    });
 
-                    strip.cell(|ui| {
-                        ui.heading(format!("Process queue: {}", model.process_queue_len));
+                        for item in model.downloading {}
                     });
 
                     strip.cell(|ui| {
@@ -145,17 +153,24 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
 pub(crate) struct BootstrapViewModel {
     pub download_queue_len: String,
     pub blocked_accounts: String,
+    pub unblocked_accounts: String,
+    pub process_queue: String,
+    pub processing: String,
     pub downloading_count: String,
-    pub process_queue_len: String,
     pub unique_blocking_accounts: usize,
     pub unknown_dependencies: usize,
-    pub priorities: Vec<PriorityViewModel>,
+    pub download_queue: Vec<AccountViewModel>,
+    pub downloading: Vec<AccountViewModel>,
     pub blocked: Vec<BlockedViewModel>,
 }
 
-pub(crate) struct PriorityViewModel {
+pub(crate) struct AccountViewModel {
     pub account: String,
     pub priority: String,
+    pub dependency: String,
+    pub dependency_account: String,
+    pub account_val: Account,
+    pub dependency_account_val: Account,
 }
 
 pub(crate) struct BlockedViewModel {

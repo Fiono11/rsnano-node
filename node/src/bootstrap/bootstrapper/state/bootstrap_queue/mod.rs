@@ -528,6 +528,10 @@ impl BootstrapQueue {
         self.ready_to_process.len()
     }
 
+    pub fn processing_count(&self) -> usize {
+        self.processing.len()
+    }
+
     pub fn unique_blocked_accounts(&self) -> usize {
         self.blocked.unique_dependency_accounts()
     }

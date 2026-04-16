@@ -6,11 +6,12 @@ use super::{
     BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
     block_processor::view_block_processor,
-    bootstrap::{BlockedViewModel, BootstrapViewModel, PriorityViewModel, view_bootstrap},
+    bootstrap::{AccountViewModel, BlockedViewModel, BootstrapViewModel, view_bootstrap},
     formatted_number, view_frontier_scan, view_ledger_stats, view_message_recorder_controls,
     view_message_tab, view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::{app::InsightApp, explorer::ExplorerState, gui::QueueViewModel, navigator::NavItem};
+use rsnano_types::Account;
 
 pub(crate) struct MainView {
     model: MainViewModel,
@@ -181,17 +182,21 @@ impl MainViewModel {
     }
 
     pub fn bootstrap(&self) -> BootstrapViewModel {
-        let priorities = self
+        let download_queue = self
             .app
             .bootstrap
-            .priorities
+            .download_queue
             .iter()
             .map(|(prio, account)| {
                 let mut account_str = account.encode_account();
                 truncate_text(&mut account_str, 30);
-                PriorityViewModel {
+                AccountViewModel {
                     account: account_str,
                     priority: format!("{:.2}", prio.as_f64()),
+                    dependency: String::new(),
+                    dependency_account: String::new(),
+                    account_val: *account,
+                    dependency_account_val: Account::ZERO,
                 }
             })
             .collect();
@@ -219,11 +224,14 @@ impl MainViewModel {
         BootstrapViewModel {
             download_queue_len: formatted_number(self.app.bootstrap.download_queue_len),
             downloading_count: formatted_number(self.app.bootstrap.downloading_count),
-            process_queue_len: formatted_number(self.app.bootstrap.ready_to_process_count),
             blocked_accounts: formatted_number(self.app.bootstrap.blocked_accounts),
+            unblocked_accounts: formatted_number(self.app.bootstrap.unblocked_accounts),
+            process_queue: formatted_number(self.app.bootstrap.process_queue),
+            processing: formatted_number(self.app.bootstrap.processing),
             unique_blocking_accounts: self.app.bootstrap.unique_blocked_accounts,
             unknown_dependencies: self.app.bootstrap.unknown_dependencies,
-            priorities,
+            download_queue,
+            downloading: Vec::new(),
             blocked,
         }
     }
