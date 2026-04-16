@@ -36,13 +36,10 @@ impl BootstrapInfo {
 
         self.download_queue = queue
             .iter_priorities()
-            .filter_map(|(prio, acc)| {
-                if target_account.is_none() || target_account.as_ref() == Some(acc) {
-                    Some((prio, *acc))
-                } else {
-                    None
-                }
+            .filter(|entry| {
+                target_account.is_none() || target_account.as_ref() == Some(&entry.account)
             })
+            .map(|entry| (entry.priority, entry.account))
             .take(50)
             .collect();
 

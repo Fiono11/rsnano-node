@@ -539,8 +539,10 @@ impl BootstrapQueue {
         self.blocked.known_dependencies()
     }
 
-    pub fn iter_priorities(&self) -> impl Iterator<Item = (Priority, &Account)> {
-        self.download_queue.iter()
+    pub fn iter_priorities(&self) -> impl Iterator<Item = &BootstrappingAccount> {
+        self.download_queue
+            .iter()
+            .map(|(_, account)| self.accounts.get(account).unwrap())
     }
 
     pub fn iter_downloading(&self) -> impl Iterator<Item = &BootstrappingAccount> {
