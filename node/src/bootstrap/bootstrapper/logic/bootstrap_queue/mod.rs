@@ -120,7 +120,8 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().next_block_to_process().cloned()
     }
 
-    pub fn download_started(&mut self, account: &Account, now: Timestamp) {
+    pub fn download_started(&mut self, account: &Account) {
+        let now = self.clock.now();
         self.logic.lock().unwrap().download_started(account, now);
     }
 
