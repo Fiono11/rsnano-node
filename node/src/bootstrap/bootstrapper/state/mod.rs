@@ -9,7 +9,11 @@ mod running_query;
 mod running_query_container;
 
 pub use bootstrap_logic::BootstrapLogic;
-pub use bootstrap_queue::*;
+pub use bootstrap_queue::{
+    AccountState, BlockedAccountInfo, BlockedInfo, BootstrapQueue, BootstrapQueueConfig,
+    BootstrapQueueSnapshot, BootstrapTarget, BootstrappingAccount, BootstrappingAccountInfo,
+    Priority, PriorityDownResult, PrioritySetResult,
+};
 pub(crate) use frontier_scan::FrontierScan;
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 pub(crate) use peer_scoring::PeerScoring;

@@ -8,6 +8,23 @@ mod single_block_account_set;
 pub use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
 pub use priority::Priority;
 
+pub struct BootstrappingAccountInfo {
+    pub account: Account,
+    pub priority: Priority,
+}
+
+pub struct BlockedAccountInfo {
+    pub account: Account,
+    pub dependency_block: BlockHash,
+    pub dependency_account: Account,
+}
+
+pub struct BootstrapQueueSnapshot {
+    pub download_queue: Vec<BootstrappingAccountInfo>,
+    pub downloading: Vec<BootstrappingAccountInfo>,
+    pub blocked: Vec<BlockedAccountInfo>,
+}
+
 use std::{collections::VecDeque, time::Duration};
 
 use rustc_hash::FxHashMap;
@@ -537,6 +554,45 @@ impl BootstrapQueue {
 
     pub fn known_dependencies(&self) -> usize {
         self.blocked.known_dependencies()
+    }
+
+    pub fn snapshot(&self, limit: usize) -> BootstrapQueueSnapshot {
+        let download_queue = self
+            .iter_priorities()
+            .take(limit)
+            .map(|e| BootstrappingAccountInfo {
+                account: e.account,
+                priority: e.priority,
+            })
+            .collect();
+
+        let downloading = self
+            .iter_downloading()
+            .take(limit)
+            .map(|e| BootstrappingAccountInfo {
+                account: e.account,
+                priority: e.priority,
+            })
+            .collect();
+
+        let blocked = self
+            .iter_blocked()
+            .take(limit)
+            .map(|e| {
+                let b = e.blocked.as_ref().unwrap();
+                BlockedAccountInfo {
+                    account: e.account,
+                    dependency_block: b.dependency_block,
+                    dependency_account: b.dependency_account.unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        BootstrapQueueSnapshot {
+            download_queue,
+            downloading,
+            blocked,
+        }
     }
 
     pub fn iter_priorities(&self) -> impl Iterator<Item = &BootstrappingAccount> {

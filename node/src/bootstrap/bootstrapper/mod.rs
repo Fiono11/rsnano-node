@@ -38,6 +38,8 @@ use state::{PrioritySetResult, bootstrap_logic::ProcessError};
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
 
+pub use state::{BlockedAccountInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo};
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AscPullQuerySpec {
     pub query_id: u64,
@@ -273,6 +275,10 @@ impl Bootstrapper {
 
     pub fn contains(&self, account: &Account) -> bool {
         self.logic.lock().unwrap().bootstrap_queue.contains(account)
+    }
+
+    pub fn queue_snapshot(&self, limit: usize) -> BootstrapQueueSnapshot {
+        self.logic.lock().unwrap().bootstrap_queue.snapshot(limit)
     }
 
     /// Process `asc_pull_ack` message coming from network
