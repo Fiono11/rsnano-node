@@ -178,7 +178,8 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().clear_blocked_accounts();
     }
 
-    pub fn timeout(&mut self, now: Timestamp) {
+    pub fn timeout(&mut self) {
+        let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now);
     }
 
