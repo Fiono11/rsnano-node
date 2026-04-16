@@ -8,19 +8,6 @@ mod single_block_account_set;
 pub use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
 pub use priority::Priority;
 
-pub struct BootstrappingAccountInfo {
-    pub account: Account,
-    pub priority: Priority,
-    pub dependency_block: BlockHash,
-    pub dependency_account: Account,
-}
-
-pub struct BootstrapQueueSnapshot {
-    pub download_queue: Vec<BootstrappingAccountInfo>,
-    pub downloading: Vec<BootstrappingAccountInfo>,
-    pub blocked: Vec<BootstrappingAccountInfo>,
-}
-
 use std::{collections::VecDeque, time::Duration};
 
 use rustc_hash::FxHashMap;
@@ -33,6 +20,19 @@ use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 use downloading::DownloadingAccounts;
 use single_block_account_set::SingleBlockAccountSet;
+
+pub struct BootstrappingAccountInfo {
+    pub account: Account,
+    pub priority: Priority,
+    pub dependency_block: BlockHash,
+    pub dependency_account: Account,
+}
+
+pub struct BootstrapQueueSnapshot {
+    pub download_queue: Vec<BootstrappingAccountInfo>,
+    pub downloading: Vec<BootstrappingAccountInfo>,
+    pub blocked: Vec<BootstrappingAccountInfo>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapQueueConfig {
@@ -552,9 +552,10 @@ impl BootstrapQueue {
         self.blocked.known_dependencies()
     }
 
-    pub fn snapshot(&self, limit: usize) -> BootstrapQueueSnapshot {
+    pub fn snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
         let download_queue = self
             .iter_priorities()
+            .filter(|e| filter.is_none() || filter == Some(e.account))
             .take(limit)
             .map(|e| BootstrappingAccountInfo {
                 account: e.account,
@@ -566,6 +567,7 @@ impl BootstrapQueue {
 
         let downloading = self
             .iter_downloading()
+            .filter(|e| filter.is_none() || filter == Some(e.account))
             .take(limit)
             .map(|e| BootstrappingAccountInfo {
                 account: e.account,
@@ -577,6 +579,11 @@ impl BootstrapQueue {
 
         let blocked = self
             .iter_blocked()
+            .filter(|e| {
+                filter.is_none()
+                    || filter == Some(e.account)
+                    || filter == e.blocked.as_ref().and_then(|b| b.dependency_account)
+            })
             .take(limit)
             .map(|e| {
                 let b = e.blocked.as_ref().unwrap();
@@ -1233,7 +1240,7 @@ mod tests {
         queue.priority_set(&blocked, Priority::INITIAL);
         queue.block(blocked, dependency, now);
 
-        let snap = queue.snapshot(10);
+        let snap = queue.snapshot(10, None);
 
         assert_eq!(snap.download_queue.len(), 1);
         assert_eq!(snap.download_queue[0].account, queued);

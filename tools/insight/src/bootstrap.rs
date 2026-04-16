@@ -1,5 +1,5 @@
-use rsnano_node::bootstrap::bootstrapper::state::{BootstrapLogic, Priority};
-use rsnano_types::{Account, BlockHash};
+use rsnano_node::bootstrap::bootstrapper::state::{BootstrapLogic, BootstrappingAccountInfo};
+use rsnano_types::Account;
 
 #[derive(Default)]
 pub(crate) struct BootstrapInfo {
@@ -12,8 +12,8 @@ pub(crate) struct BootstrapInfo {
     pub processing: usize,
     pub unique_blocked_accounts: usize,
     pub unknown_dependencies: usize,
-    pub download_queue: Vec<(Priority, Account)>,
-    pub blocked: Vec<(Account, BlockHash, Account)>,
+    pub download_queue: Vec<BootstrappingAccountInfo>,
+    pub blocked: Vec<BootstrappingAccountInfo>,
     pub search: String,
     pub add_account: String,
 }
@@ -34,36 +34,8 @@ impl BootstrapInfo {
             .blocked_accounts
             .saturating_sub(queue.known_dependencies());
 
-        self.download_queue = queue
-            .iter_priorities()
-            .filter(|entry| {
-                target_account.is_none() || target_account.as_ref() == Some(&entry.account)
-            })
-            .map(|entry| (entry.priority, entry.account))
-            .take(50)
-            .collect();
-
-        self.blocked = queue
-            .iter_blocked()
-            .filter(|entry| {
-                let dep_account = entry
-                    .blocked
-                    .as_ref()
-                    .and_then(|b| b.dependency_account)
-                    .unwrap_or_default();
-                target_account.is_none()
-                    || target_account == Some(entry.account)
-                    || target_account == Some(dep_account)
-            })
-            .map(|entry| {
-                let blocked = entry.blocked.as_ref().unwrap();
-                (
-                    entry.account,
-                    blocked.dependency_block,
-                    blocked.dependency_account.unwrap_or_default(),
-                )
-            })
-            .take(50)
-            .collect();
+        let snapshot = queue.snapshot(50, target_account);
+        self.download_queue = snapshot.download_queue;
+        self.blocked = snapshot.blocked;
     }
 }

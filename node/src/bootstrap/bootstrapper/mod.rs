@@ -277,8 +277,12 @@ impl Bootstrapper {
         self.logic.lock().unwrap().bootstrap_queue.contains(account)
     }
 
-    pub fn queue_snapshot(&self, limit: usize) -> BootstrapQueueSnapshot {
-        self.logic.lock().unwrap().bootstrap_queue.snapshot(limit)
+    pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
+        self.logic
+            .lock()
+            .unwrap()
+            .bootstrap_queue
+            .snapshot(limit, filter)
     }
 
     /// Process `asc_pull_ack` message coming from network

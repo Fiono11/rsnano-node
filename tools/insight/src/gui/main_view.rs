@@ -187,15 +187,15 @@ impl MainViewModel {
             .bootstrap
             .download_queue
             .iter()
-            .map(|(prio, account)| {
-                let mut account_str = account.encode_account();
+            .map(|e| {
+                let mut account_str = e.account.encode_account();
                 truncate_text(&mut account_str, 30);
                 AccountViewModel {
                     account: account_str,
-                    priority: format!("{:.2}", prio.as_f64()),
+                    priority: format!("{:.2}", e.priority.as_f64()),
                     dependency: String::new(),
                     dependency_account: String::new(),
-                    account_val: *account,
+                    account_val: e.account,
                     dependency_account_val: Account::ZERO,
                 }
             })
@@ -206,13 +206,13 @@ impl MainViewModel {
             .bootstrap
             .blocked
             .iter()
-            .map(|(account, dependency, dependency_account)| {
+            .map(|e| {
                 let mut model = BlockedViewModel {
-                    account: account.encode_account(),
-                    dependency: dependency.to_string(),
-                    dependency_account: dependency_account.encode_account(),
-                    account_val: *account,
-                    dependency_account_val: *dependency_account,
+                    account: e.account.encode_account(),
+                    dependency: e.dependency_block.to_string(),
+                    dependency_account: e.dependency_account.encode_account(),
+                    account_val: e.account,
+                    dependency_account_val: e.dependency_account,
                 };
                 truncate_text(&mut model.account, 15);
                 truncate_text(&mut model.dependency, 15);
