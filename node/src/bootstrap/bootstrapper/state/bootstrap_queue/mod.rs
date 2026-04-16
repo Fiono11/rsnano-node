@@ -5,7 +5,7 @@ mod downloading;
 mod priority;
 mod single_block_account_set;
 
-pub use bootstrapping_account::AccountState;
+pub use bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount};
 pub use priority::Priority;
 
 use std::{collections::VecDeque, time::Duration};
@@ -17,7 +17,6 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use blocked::BlockedAccounts;
-use bootstrapping_account::{BlockedInfo, BootstrappingAccount};
 use download_queue::{ChangePriorityResult, DownloadQueue};
 use downloading::DownloadingAccounts;
 use single_block_account_set::SingleBlockAccountSet;
@@ -544,16 +543,16 @@ impl BootstrapQueue {
         self.download_queue.iter()
     }
 
-    pub fn iter_blocked(&self) -> impl Iterator<Item = (Account, BlockHash, Account)> {
-        self.blocked.iter_by_insertion_order().map(|account| {
-            let entry = self.accounts.get(account).unwrap();
-            let blocked = entry.blocked.as_ref().unwrap();
-            (
-                *account,
-                blocked.dependency_block,
-                blocked.dependency_account.unwrap_or_default(),
-            )
-        })
+    pub fn iter_downloading(&self) -> impl Iterator<Item = &BootstrappingAccount> {
+        self.accounts
+            .values()
+            .filter(|a| a.state == AccountState::Downloading)
+    }
+
+    pub fn iter_blocked(&self) -> impl Iterator<Item = &BootstrappingAccount> {
+        self.blocked
+            .iter_by_insertion_order()
+            .map(|account| self.accounts.get(account).unwrap())
     }
 
     pub fn queue_full(&self) -> bool {

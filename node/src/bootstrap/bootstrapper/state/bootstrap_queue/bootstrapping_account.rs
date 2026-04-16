@@ -7,7 +7,7 @@ use super::Priority;
 
 /// An account that is currently being bootstrapped
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub(crate) struct BootstrappingAccount {
+pub struct BootstrappingAccount {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,

@@ -48,10 +48,23 @@ impl BootstrapInfo {
 
         self.blocked = queue
             .iter_blocked()
-            .filter(|(account, _, dep_account)| {
+            .filter(|entry| {
+                let dep_account = entry
+                    .blocked
+                    .as_ref()
+                    .and_then(|b| b.dependency_account)
+                    .unwrap_or_default();
                 target_account.is_none()
-                    || target_account == Some(*account)
-                    || target_account == Some(*dep_account)
+                    || target_account == Some(entry.account)
+                    || target_account == Some(dep_account)
+            })
+            .map(|entry| {
+                let blocked = entry.blocked.as_ref().unwrap();
+                (
+                    entry.account,
+                    blocked.dependency_block,
+                    blocked.dependency_account.unwrap_or_default(),
+                )
             })
             .take(50)
             .collect();

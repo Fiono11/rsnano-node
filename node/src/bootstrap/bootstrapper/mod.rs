@@ -346,9 +346,10 @@ impl Bootstrapper {
         tracing::info!("Performing blocked accounts consistency check...");
         let guard = self.logic.lock().unwrap();
         let any = self.ledger.any();
-        for (account, dep_block, _) in guard.bootstrap_queue.iter_blocked() {
+        for entry in guard.bootstrap_queue.iter_blocked() {
+            let dep_block = entry.blocked.as_ref().unwrap().dependency_block;
             if any.block_exists(&dep_block) {
-                tracing::warn!(account = account.encode_account(), dependency = ?dep_block, "Dependency block found, but account still blocked");
+                tracing::warn!(account = entry.account.encode_account(), dependency = ?dep_block, "Dependency block found, but account still blocked");
             }
         }
         tracing::info!("Blocked accounts consistency check completed");
