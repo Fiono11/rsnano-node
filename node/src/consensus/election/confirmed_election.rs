@@ -50,6 +50,8 @@ pub struct ConfirmedElection {
     pub final_tally: Amount,
     pub block_count: u32,
     pub voter_count: u32,
+    #[cfg(feature = "ledger_snapshots")]
+    pub epoch: u32,
     pub election_end: SystemTime,
     pub election_duration: Duration,
     pub confirmation_type: ConfirmationType,
@@ -66,6 +68,8 @@ impl ConfirmedElection {
             tally: Amount::ZERO,
             final_tally: Amount::ZERO,
             voter_count: 0,
+            #[cfg(feature = "ledger_snapshots")]
+            epoch: 0,
             election_duration: Duration::ZERO,
             votes: Default::default(),
         }

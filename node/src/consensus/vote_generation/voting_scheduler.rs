@@ -46,13 +46,14 @@ impl VotingScheduler {
         }
     }
 
-    /// Returns true if enough time has passed since the last vote for this election,
-    /// or if the winner has changed since the last vote.
+    /// Returns true if enough time has passed since the last vote for this election.
+    /// Outside Rai mode, a winner change also allows an immediate revote.
     pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
         let Some(record) = self.records.get(&target.root) else {
             return true;
         };
 
+        #[cfg(not(feature = "ledger_snapshots"))]
         if record.last_voted_winner != target.winner {
             return true;
         }
@@ -149,11 +150,20 @@ mod tests {
         assert!(s.can_vote(&target(VoteType::NonFinal), t(15)));
     }
 
+    #[cfg(not(feature = "ledger_snapshots"))]
     #[test]
     fn can_vote_immediately_if_winner_changed() {
         let mut s = scheduler();
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         assert!(s.can_vote(&other_winner_target(VoteType::NonFinal), t(1)));
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn cannot_vote_immediately_if_winner_changed() {
+        let mut s = scheduler();
+        s.mark_voted(&target(VoteType::NonFinal), t(0));
+        assert!(!s.can_vote(&other_winner_target(VoteType::NonFinal), t(1)));
     }
 
     #[test]

@@ -23,7 +23,7 @@ fn codes() {
     let node = system.build_node().config(config).finish();
     let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
 
-    let vote = Vote::new(
+    let vote = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         Vote::TIMESTAMP_MIN,
         0,
@@ -84,7 +84,7 @@ fn invalid_signature() {
     let node = system.make_node();
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
     let key = PrivateKey::new();
-    let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
+    let vote = Vote::new_for_test(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
     let mut vote_invalid = vote.clone();
     vote_invalid.signature = Signature::new();
 
@@ -111,7 +111,7 @@ fn overflow() {
     let mut system = System::new();
     let node = system.make_node();
     let key = PrivateKey::new();
-    let vote = Arc::new(Vote::new(
+    let vote = Arc::new(Vote::new_for_test(
         &key,
         Vote::TIMESTAMP_MIN,
         0,
@@ -148,7 +148,7 @@ fn overflow() {
 #[test]
 fn empty_hashes() {
     let key = PrivateKey::new();
-    let vote = Arc::new(Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![]));
+    let vote = Arc::new(Vote::new_for_test(&key, Vote::TIMESTAMP_MIN, 0, vec![]));
 
     assert_eq!(vote.voter, key.public_key());
     assert_eq!(vote.timestamp(), VoteTimestamp::TIMESTAMP_MIN);

@@ -5,7 +5,7 @@ authors = ["Gustav Schauwecker <service@simpago.com>"]
 edition = "2024"
 
 [features]
-ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
+ledger_snapshots = ["rsnano_utils/ledger_snapshots", "rsnano_types/ledger_snapshots"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

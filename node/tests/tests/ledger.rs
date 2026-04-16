@@ -28,7 +28,7 @@ mod votes {
         let send1 = node1.process(send1);
         assert_timely2(|| node1.is_active_hash(&send1.hash()));
 
-        let vote1 = Arc::new(Vote::new(
+        let vote1 = Arc::new(Vote::new_for_test(
             &DEV_GENESIS_KEY,
             Vote::TIMESTAMP_MIN,
             0,
@@ -41,7 +41,7 @@ mod votes {
             .unwrap();
 
         let vote2 = ReceivedVote::new(
-            Arc::new(Vote::new(
+            Arc::new(Vote::new_for_test(
                 &DEV_GENESIS_KEY,
                 Vote::TIMESTAMP_MIN * 2,
                 0,

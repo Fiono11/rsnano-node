@@ -6,6 +6,7 @@ use std::{
 use rsnano_messages::Message;
 use rsnano_network::ChannelId;
 use rsnano_network_protocol::MessageCallback;
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::NetworkType;
 use rsnano_utils::get_cpu_count;
 
@@ -74,6 +75,7 @@ pub struct NodeBuilder {
     flags: Option<NodeFlags>,
     callbacks: Option<NodeCallbacks>,
     event_sink: Option<SyncSender<NodeEvent>>,
+    steady_clock: Option<Arc<SteadyClock>>,
 }
 
 impl NodeBuilder {
@@ -86,6 +88,7 @@ impl NodeBuilder {
             flags: None,
             callbacks: None,
             event_sink: None,
+            steady_clock: None,
         }
     }
 
@@ -116,6 +119,11 @@ impl NodeBuilder {
 
     pub fn event_sink(mut self, sender: SyncSender<NodeEvent>) -> Self {
         self.event_sink = Some(sender);
+        self
+    }
+
+    pub fn steady_clock(mut self, clock: Arc<SteadyClock>) -> Self {
+        self.steady_clock = Some(clock);
         self
     }
 
@@ -158,6 +166,7 @@ impl NodeBuilder {
             flags,
             callbacks,
             event_sender: self.event_sink,
+            steady_clock: self.steady_clock,
         };
 
         Ok(Node::new_with_args(args))

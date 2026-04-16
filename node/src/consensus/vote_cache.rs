@@ -536,11 +536,11 @@ mod tests {
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
         let timestamp = UnixMillisTimestamp::new(timestamp_offset * 1024 * 1024);
-        Arc::new(Vote::new(&rep, timestamp, 0, vec![*hash]))
+        Arc::new(Vote::new_for_test(&rep, timestamp, 0, vec![*hash]))
     }
 
     fn create_final_vote(rep: &PrivateKey, hash: &BlockHash) -> Arc<Vote> {
-        Arc::new(Vote::new_final(rep, vec![*hash]))
+        Arc::new(Vote::new_final_for_test(rep, vec![*hash]))
     }
 
     fn test_config() -> VoteCacheConfig {
@@ -691,7 +691,7 @@ mod tests {
         let vote1 = create_vote(&rep, &hash, 1);
         cache.insert(&vote1, Amount::raw(9), &HashMap::new());
 
-        let vote2 = Arc::new(Vote::new(
+        let vote2 = Arc::new(Vote::new_for_test(
             &rep,
             Vote::TIMESTAMP_MAX,
             Vote::DURATION_MAX,

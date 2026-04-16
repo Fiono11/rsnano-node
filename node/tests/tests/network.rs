@@ -141,7 +141,7 @@ fn receivable_processor_confirm_insufficient_pos() {
     node1.process(send1.clone());
     assert_timely2(|| node1.is_active_hash(&send1.hash()));
     let key1 = PrivateKey::new();
-    let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(&key1, vec![send1.hash()]));
     let channel = make_fake_channel(&node1);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -178,7 +178,10 @@ fn receivable_processor_confirm_sufficient_pos() {
     let send1 = lattice.genesis().send(Account::ZERO, 1);
     node1.process(send1.clone());
     assert_timely2(|| node1.is_active_hash(&send1.hash()));
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send1.hash()],
+    ));
     let channel = make_fake_channel(&node1);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -321,7 +324,7 @@ fn duplicate_vote_detection() {
     let node0 = system.make_node();
     let node1 = system.make_node();
 
-    let vote = Vote::new(
+    let vote = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,
@@ -401,7 +404,7 @@ fn duplicate_revert_vote() {
         })
         .finish();
 
-    let vote1 = Vote::new(
+    let vote1 = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::new(1),
         0,
@@ -409,7 +412,7 @@ fn duplicate_revert_vote() {
     );
     let message1 = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote1));
 
-    let vote2 = Vote::new(
+    let vote2 = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::new(2),
         2,
@@ -489,7 +492,7 @@ fn expire_duplicate_filter() {
         })
         .finish();
 
-    let vote = Vote::new(
+    let vote = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,

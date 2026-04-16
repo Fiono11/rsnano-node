@@ -61,6 +61,9 @@ impl VoteError {
 pub struct Vote {
     timestamp: VoteTimestamp,
 
+    #[cfg(feature = "ledger_snapshots")]
+    pub epoch: u32,
+
     // Account that's voting
     pub voter: PublicKey,
 
@@ -78,17 +81,47 @@ impl Vote {
     pub fn null() -> Self {
         Self {
             timestamp: 0.into(),
+            #[cfg(feature = "ledger_snapshots")]
+            epoch: 0,
             voter: PublicKey::ZERO,
             signature: Signature::new(),
             hashes: Vec::new(),
         }
     }
 
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn new_final(key: &PrivateKey, epoch: u32, hashes: Vec<BlockHash>) -> Self {
+        assert!(hashes.len() <= Self::MAX_HASHES);
+        Self::new(key, epoch, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes)
+    }
+
+    #[cfg(not(feature = "ledger_snapshots"))]
     pub fn new_final(key: &PrivateKey, hashes: Vec<BlockHash>) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
         Self::new(key, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes)
     }
 
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn new(
+        priv_key: &PrivateKey,
+        epoch: u32,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        assert!(hashes.len() <= Self::MAX_HASHES);
+        let mut result = Self {
+            voter: priv_key.public_key(),
+            timestamp: VoteTimestamp::new(timestamp, duration),
+            epoch,
+            signature: Signature::new(),
+            hashes,
+        };
+        result.signature = priv_key.sign(result.hash().as_bytes());
+        result
+    }
+
+    #[cfg(not(feature = "ledger_snapshots"))]
     pub fn new(
         priv_key: &PrivateKey,
         timestamp: UnixMillisTimestamp,
@@ -108,6 +141,35 @@ impl Vote {
 
     pub fn new_test_instance() -> Self {
         Self::build_test_instance().finish()
+    }
+
+    pub fn new_for_test(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            Self::new(priv_key, 1, timestamp, duration, hashes)
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            Self::new(priv_key, timestamp, duration, hashes)
+        }
+    }
+
+    pub fn new_final_for_test(key: &PrivateKey, hashes: Vec<BlockHash>) -> Self {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            Self::new_final(key, 1, hashes)
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            Self::new_final(key, hashes)
+        }
     }
 
     pub fn build_test_instance() -> TestVoteBuilder {
@@ -134,8 +196,25 @@ impl Vote {
         self.timestamp.duration()
     }
 
+    pub fn epoch(&self) -> u32 {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            self.epoch
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            0
+        }
+    }
+
     pub fn hash(&self) -> BlockHash {
         let mut builder = Blake2HashBuilder::new().update(HASH_PREFIX);
+
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            builder = builder.update(self.epoch.to_le_bytes());
+        }
 
         for hash in &self.hashes {
             builder = builder.update(hash.as_bytes())
@@ -150,12 +229,20 @@ impl Vote {
         let mut buffer = [0; 8];
         bytes.read_exact(&mut buffer)?;
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
+        #[cfg(feature = "ledger_snapshots")]
+        let epoch = {
+            let mut buffer = [0; 4];
+            bytes.read_exact(&mut buffer)?;
+            u32::from_le_bytes(buffer)
+        };
         let mut hashes = Vec::new();
         while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
             hashes.push(BlockHash::deserialize(&mut bytes)?);
         }
         Ok(Self {
             timestamp,
+            #[cfg(feature = "ledger_snapshots")]
+            epoch,
             voter,
             signature,
             hashes,
@@ -170,6 +257,16 @@ impl Vote {
         Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
+        + {
+            #[cfg(feature = "ledger_snapshots")]
+            {
+                std::mem::size_of::<u32>()
+            }
+            #[cfg(not(feature = "ledger_snapshots"))]
+            {
+                0
+            }
+        }
         + (BlockHash::SERIALIZED_SIZE * count)
     }
 
@@ -180,6 +277,8 @@ impl Vote {
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
+        #[cfg(feature = "ledger_snapshots")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         for hash in &self.hashes {
             hash.serialize(writer)?;
         }
@@ -190,6 +289,7 @@ impl Vote {
 impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
         self.timestamp == other.timestamp
+            && self.epoch() == other.epoch()
             && self.voter == other.voter
             && self.signature == other.signature
             && self.hashes == other.hashes
@@ -203,6 +303,7 @@ pub struct TestVoteBuilder {
     timestamp: UnixMillisTimestamp,
     duration: u8,
     is_final: bool,
+    epoch: u32,
     hashes: Vec<BlockHash>,
 }
 
@@ -213,6 +314,7 @@ impl TestVoteBuilder {
             timestamp: UnixMillisTimestamp::new(1),
             duration: 2,
             is_final: false,
+            epoch: 0,
             hashes: vec![BlockHash::from(5)],
         }
     }
@@ -232,6 +334,11 @@ impl TestVoteBuilder {
         self
     }
 
+    pub fn epoch(mut self, epoch: u32) -> Self {
+        self.epoch = epoch;
+        self
+    }
+
     pub fn blocks(mut self, hashes: impl IntoIterator<Item = BlockHash>) -> Self {
         self.hashes = hashes.into_iter().collect();
         self
@@ -239,9 +346,69 @@ impl TestVoteBuilder {
 
     pub fn finish(self) -> Vote {
         if self.is_final {
-            Vote::new_final(&self.key, self.hashes)
+            #[cfg(feature = "ledger_snapshots")]
+            {
+                Vote::new_final(&self.key, self.epoch, self.hashes)
+            }
+            #[cfg(not(feature = "ledger_snapshots"))]
+            {
+                Vote::new_final(&self.key, self.hashes)
+            }
         } else {
-            Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
+            #[cfg(feature = "ledger_snapshots")]
+            {
+                Vote::new(
+                    &self.key,
+                    self.epoch,
+                    self.timestamp,
+                    self.duration,
+                    self.hashes,
+                )
+            }
+            #[cfg(not(feature = "ledger_snapshots"))]
+            {
+                Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vote_roundtrip() {
+        let vote = Vote::new_for_test(
+            &PrivateKey::from(1),
+            UnixMillisTimestamp::new(1234),
+            7,
+            vec![BlockHash::from(1), BlockHash::from(2)],
+        );
+
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        let deserialized = Vote::deserialize(&bytes).unwrap();
+
+        assert_eq!(deserialized, vote);
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn epoch_is_included_in_roundtrip() {
+        let vote = Vote::new(
+            &PrivateKey::from(2),
+            77,
+            UnixMillisTimestamp::new(999),
+            1,
+            vec![BlockHash::from(123)],
+        );
+
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        let deserialized = Vote::deserialize(&bytes).unwrap();
+
+        assert_eq!(deserialized.epoch(), 77);
+        assert_eq!(deserialized.hash(), vote.hash());
     }
 }

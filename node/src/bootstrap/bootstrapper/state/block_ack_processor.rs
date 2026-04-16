@@ -4,8 +4,8 @@ use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::state::{
-    block_queue::{AccountBlocks, BlockQueue},
     BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
+    block_queue::{AccountBlocks, BlockQueue},
 };
 use std::collections::VecDeque;
 

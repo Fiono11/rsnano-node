@@ -109,7 +109,7 @@ fn different_hashes() {
     // Add a vote for something else, not the winner
     let another_block = Block::new_test_instance();
     election.try_add_fork(&another_block, Amount::nano(1));
-    election.add_vote(
+    election.add_vote_for_test(
         *DEV_GENESIS_PUB_KEY,
         another_block.hash(),
         UnixMillisTimestamp::new(1),
@@ -165,7 +165,7 @@ fn bypass_max_requests_cap() {
     let another_block = Block::new_test_instance();
     election.try_add_fork(&another_block, Amount::nano(1));
     for rep in &representatives {
-        election.add_vote(
+        election.add_vote_for_test(
             rep.rep_key,
             another_block.hash(),
             UnixMillisTimestamp::new(1),

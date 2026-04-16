@@ -48,7 +48,7 @@ use rsnano_utils::{
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
 #[cfg(feature = "ledger_snapshots")]
-use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
+use crate::ledger_snapshots::{LedgerSnapshotTicker, LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_fact_processor::AecFactProcessor,
@@ -177,6 +177,7 @@ pub(crate) struct NodeArgs {
     pub flags: NodeFlags,
     pub callbacks: NodeCallbacks,
     pub event_sender: Option<SyncSender<NodeEvent>>,
+    pub steady_clock: Option<Arc<SteadyClock>>,
 }
 
 impl NodeArgs {
@@ -190,6 +191,7 @@ impl NodeArgs {
             flags: Default::default(),
             callbacks: Default::default(),
             event_sender: None,
+            steady_clock: None,
         }
     }
 }
@@ -271,11 +273,13 @@ impl Node {
         let node_observer = args.event_sender;
         // Time relative to the start of the node. This makes time exlpicit and enables us to
         // write time relevant unit tests with ease.
-        let steady_clock = if is_nulled {
-            Arc::new(SteadyClock::new_null())
-        } else {
-            Arc::new(SteadyClock::default())
-        };
+        let steady_clock = args.steady_clock.unwrap_or_else(|| {
+            if is_nulled {
+                Arc::new(SteadyClock::new_null())
+            } else {
+                Arc::new(SteadyClock::default())
+            }
+        });
 
         let global_config = &GlobalConfig {
             node_config: config.clone(),
@@ -955,6 +959,8 @@ impl Node {
                 },
                 message_flooder.clone(),
                 online_reps.clone(),
+                vote_history.clone(),
+                active_elections.clone(),
             ))
         };
 
@@ -1131,6 +1137,16 @@ impl Node {
 
         let wallets_ticker = WalletsTicker(wallets.clone());
         ticker_pool.insert(wallets_ticker, Duration::from_millis(500));
+
+        #[cfg(feature = "ledger_snapshots")]
+        ticker_pool.insert(
+            LedgerSnapshotTicker::new(
+                ledger_snapshots.clone(),
+                steady_clock.clone(),
+                config.rai_epoch_duration,
+            ),
+            Duration::from_secs(1),
+        );
 
         let mut wallet_reps_checker = WalletRepsChecker::new(wallet_reps.clone());
         wallet_reps_checker.add_consumer(vote_rebroadcast_queue.clone());
@@ -1723,6 +1739,8 @@ mod tests {
     use crate::consensus::{
         AecFact, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats,
     };
+    #[cfg(feature = "ledger_snapshots")]
+    use crate::ledger_snapshots::LedgerSnapshotTicker;
     use rsnano_utils::{stats::StatsSource, ticker::Tickable};
     use std::any::type_name;
 
@@ -1742,6 +1760,8 @@ mod tests {
         assert_ticker::<UncheckedBlockReenqueuer>(&node, Duration::from_secs(1));
         assert_ticker::<LocalRepsComputation>(&node, Duration::from_secs(10));
         assert_ticker::<WalletsTicker>(&node, Duration::from_millis(500));
+        #[cfg(feature = "ledger_snapshots")]
+        assert_ticker::<LedgerSnapshotTicker>(&node, Duration::from_secs(1));
 
         // helper:
         fn assert_ticker<T: Tickable + 'static>(node: &Node, expected: Duration) {

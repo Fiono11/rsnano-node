@@ -31,7 +31,10 @@ fn quorum_minimum_confirm_fail() {
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
     let vote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send1.hash()],
+        )),
         VoteSource::Live,
         None,
     );
@@ -72,7 +75,10 @@ fn quorum_minimum_confirm_success() {
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
     let vote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send1.hash()],
+        )),
         VoteSource::Live,
         None,
     );
@@ -115,7 +121,10 @@ fn quorum_minimum_flip_fail() {
     // Genesis generates a final vote for send2 but it should not be enough to reach quorum
     // due to the online_weight_minimum being so high
     let vote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send2.hash()],
+        )),
         VoteSource::Live,
         None,
     );
@@ -160,7 +169,10 @@ fn quorum_minimum_flip_success() {
 
     // Genesis generates a final vote for send2
     let vote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send2.hash()],
+        )),
         VoteSource::Live,
         None,
     );

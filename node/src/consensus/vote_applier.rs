@@ -158,7 +158,7 @@ mod tests {
         let vote_applier = VoteApplier::new(aec.clone(), online_reps, clock, rep_weights, false);
 
         let vote = ReceivedVote::new(
-            Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),
+            Vote::new_for_test(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),
             VoteSource::Live,
             None,
         );

@@ -119,11 +119,28 @@ mod tests {
     use crate::{Message, assert_deserializable};
     use rsnano_types::{BlockHash, PrivateKey, UnixMillisTimestamp};
 
+    fn create_vote(
+        key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        hashes: Vec<BlockHash>,
+    ) -> Vote {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            Vote::new(key, 1, timestamp, duration, hashes)
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            Vote::new(key, timestamp, duration, hashes)
+        }
+    }
+
     #[test]
     fn serialize_v1() {
         let keys = PrivateKey::new();
         let hashes = vec![BlockHash::from(1)];
-        let vote = Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
+        let vote = create_vote(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
         let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
         assert_deserializable(&confirm);
@@ -136,7 +153,7 @@ mod tests {
         for i in 0..ConfirmAck::HASHES_MAX {
             hashes.push(BlockHash::from(i as u64))
         }
-        let vote = Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
+        let vote = create_vote(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
         let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
         assert_deserializable(&confirm);
@@ -147,7 +164,7 @@ mod tests {
     fn panics_when_vote_contains_too_many_hashes() {
         let keys = PrivateKey::new();
         let hashes = vec![BlockHash::from(1); 256];
-        let vote = Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
+        let vote = create_vote(&keys, UnixMillisTimestamp::ZERO, 0, hashes);
         Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
     }
 
@@ -196,5 +213,25 @@ mod tests {
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
 
         assert_eq!(ack.is_rebroadcasted(), false);
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn preserves_vote_epoch() {
+        let vote = Vote::new(
+            &PrivateKey::from(9),
+            42,
+            UnixMillisTimestamp::new(123),
+            0,
+            vec![BlockHash::from(1)],
+        );
+        let ack = ConfirmAck::new_with_own_vote(vote.clone());
+        let mut bytes = Vec::new();
+        ack.serialize(&mut bytes).unwrap();
+
+        let deserialized = ConfirmAck::deserialize(&bytes, ack.header_extensions(0), 0).unwrap();
+
+        assert_eq!(deserialized.vote().epoch(), 42);
+        assert_eq!(deserialized.vote(), &vote);
     }
 }

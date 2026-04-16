@@ -10,7 +10,9 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
-use crate::bootstrap::bootstrapper::state::bootstrap_queue::{downloading::DownloadingAccounts, process_queue::ProcessQueue};
+use crate::bootstrap::bootstrapper::state::bootstrap_queue::{
+    downloading::DownloadingAccounts, process_queue::ProcessQueue,
+};
 use blocked::BlockedAccounts;
 use download_queue::{ChangePriorityResult, DownloadQueue};
 pub use priority::Priority;
@@ -249,8 +251,7 @@ impl BootstrapQueue {
             removed
         } else if let Some(removed) = self.downloading.remove(&account) {
             removed
-        }
-        else if let Some(removed) = self.process_queue.remove(&account){
+        } else if let Some(removed) = self.process_queue.remove(&account) {
             removed
         } else {
             return false;
@@ -384,26 +385,26 @@ impl BootstrapQueue {
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) {
-        if let Some(entry) = self.download_queue.remove(account){
-            if let Some(old) = self.downloading.insert(entry, now){
+        if let Some(entry) = self.download_queue.remove(account) {
+            if let Some(old) = self.downloading.insert(entry, now) {
                 // TODO
-            } else{
+            } else {
                 // TODO stats?
             }
-        } else{
+        } else {
             // TODO
         }
     }
 
     pub fn download_finished(&mut self, account: &Account, _blocks: VecDeque<Block>) {
-        if let Some(entry) = self.downloading.remove(account){
+        if let Some(entry) = self.downloading.remove(account) {
             // TODO move to process queue!
-            if self.download_queue.insert(entry){
+            if self.download_queue.insert(entry) {
                 // TODO stats?
-            } else{
+            } else {
                 // TODO
             }
-        } else{
+        } else {
             // TODO
         }
     }
@@ -549,8 +550,8 @@ impl BootstrapQueue {
         self.revision += 1;
     }
 
-    pub fn timeout(&mut self, now: Timestamp)  {
-        while let Some(entry) = self.downloading.pop_timeout(now){
+    pub fn timeout(&mut self, now: Timestamp) {
+        while let Some(entry) = self.downloading.pop_timeout(now) {
             if self.download_queue.insert(entry) {
                 // TODO
             } else {

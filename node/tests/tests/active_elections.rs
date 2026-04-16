@@ -81,7 +81,7 @@ fn fork_replacement_tally() {
     for i in 0..REPS_COUNT {
         let mut fork_l = fork_lattice.clone();
         let fork = fork_l.genesis().send(&key, Amount::raw(1 + i as u128));
-        let vote = Arc::new(Vote::new(
+        let vote = Arc::new(Vote::new_for_test(
             &keys[i],
             UnixMillisTimestamp::ZERO,
             0,
@@ -156,7 +156,7 @@ fn fork_replacement_tally() {
     assert!(!blocks1.contains_key(&send_last.hash()));
 
     // Process vote for correct block & replace existing lowest tally block
-    let vote = Arc::new(Vote::new(
+    let vote = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,
@@ -222,7 +222,10 @@ fn inactive_votes_cache_basic() {
     let key = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(&key, Amount::raw(100));
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send.hash()],
+    ));
     node.vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
@@ -242,7 +245,7 @@ fn non_final() {
     let send = lattice.genesis().send(Account::from(42), 100);
 
     // Non-final vote
-    let vote = Arc::new(Vote::new(
+    let vote = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,
@@ -291,7 +294,10 @@ fn inactive_votes_cache_fork() {
     let send1 = lattice1.genesis().send(&key, 100);
     let send2 = lattice2.genesis().send(&key, 200);
 
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send1.hash()],
+    ));
     node.vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
 
@@ -333,7 +339,7 @@ fn inactive_votes_cache_existing_vote() {
     );
 
     // Insert vote
-    let vote1 = Arc::new(Vote::new(
+    let vote1 = Arc::new(Vote::new_for_test(
         &key,
         UnixMillisTimestamp::ZERO,
         0,
@@ -407,7 +413,7 @@ fn inactive_votes_cache_multiple_votes() {
     assert_timely2(|| !node.is_active_hash(&send1.hash()));
 
     // Process votes
-    let vote1 = Arc::new(Vote::new(
+    let vote1 = Arc::new(Vote::new_for_test(
         &key,
         UnixMillisTimestamp::ZERO,
         0,
@@ -416,7 +422,7 @@ fn inactive_votes_cache_multiple_votes() {
     node.vote_processor_queue
         .enqueue(vote1, None, VoteSource::Live, None);
 
-    let vote2 = Arc::new(Vote::new(
+    let vote2 = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,
@@ -475,7 +481,7 @@ fn inactive_votes_cache_election_start() {
     let send4 = lattice.genesis().send(Account::from(3), 1);
 
     // Inactive votes
-    let vote1 = Arc::new(Vote::new(
+    let vote1 = Arc::new(Vote::new_for_test(
         &key1,
         UnixMillisTimestamp::ZERO,
         0,
@@ -488,7 +494,7 @@ fn inactive_votes_cache_election_start() {
     assert_eq!(1, node.ledger.confirmed_count());
 
     // 2 votes are required to start election (dev network)
-    let vote2 = Arc::new(Vote::new(
+    let vote2 = Arc::new(Vote::new_for_test(
         &key2,
         UnixMillisTimestamp::ZERO,
         0,
@@ -501,7 +507,7 @@ fn inactive_votes_cache_election_start() {
     assert!(node.is_active_hash(&send1.hash()));
 
     // Confirm elections with weight quorum
-    let vote0 = Arc::new(Vote::new_final(
+    let vote0 = Arc::new(Vote::new_final_for_test(
         &DEV_GENESIS_KEY,
         vec![open1.hash(), open2.hash(), send4.hash()],
     ));
@@ -573,7 +579,10 @@ fn republish_winner() {
     node1.process_active(fork.clone());
     assert_timely2(|| node1.is_active_hash(&fork.hash()));
 
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![fork.hash()],
+    ));
 
     node1
         .vote_processor_queue
@@ -980,7 +989,10 @@ fn conflicting_block_vote_existing_election() {
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let fork = fork_lattice.genesis().send(&key, 200);
 
-    let vote_fork = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
+    let vote_fork = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![fork.hash()],
+    ));
 
     node.process_local(send.clone()).unwrap();
     assert_timely_eq2(|| node.aec.len(), 1);
@@ -1086,7 +1098,10 @@ fn vote_replays() {
 
     // First vote is not a replay and confirms the election, second vote should be a replay since the election has confirmed but not yet removed
     let vote_send1: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send1.hash()],
+        )),
         VoteSource::Live,
         None,
     )
@@ -1103,7 +1118,10 @@ fn vote_replays() {
 
     // Open new account
     let vote_open1: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![open1.hash()],
+        )),
         VoteSource::Live,
         None,
     )
@@ -1128,14 +1146,17 @@ fn vote_replays() {
 
     // vote2_send2 is a non final vote with little weight, vote1_send2 is the vote that confirms the election
     let vote1_send2: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
+        Arc::new(Vote::new_final_for_test(
+            &DEV_GENESIS_KEY,
+            vec![send2.hash()],
+        )),
         VoteSource::Live,
         None,
     )
     .into();
 
     let vote2_send2: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &DEV_GENESIS_KEY,
             UnixMillisTimestamp::ZERO,
             0,

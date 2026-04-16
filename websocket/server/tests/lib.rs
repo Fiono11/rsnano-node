@@ -488,7 +488,12 @@ fn vote_options_type() {
         ws_client.next().await.unwrap().unwrap();
 
 	    // Custom made votes for simplicity
-        let vote = Vote::new(&DEV_GENESIS_KEY, UnixMillisTimestamp::ZERO, 0, vec![*DEV_GENESIS_HASH]);
+        let vote = Vote::new_for_test(
+            &DEV_GENESIS_KEY,
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![*DEV_GENESIS_HASH],
+        );
 
         spawn_blocking(move ||{
             websocket.broadcast(&vote_received(&vote, Err(VoteError::Replay)));

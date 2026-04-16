@@ -1,9 +1,11 @@
-use crate::{ledger_snapshots::Aggregator, representatives::ConsensusParams};
+use crate::{
+    ledger_snapshots::{Aggregator, set_current_rai_epoch},
+    representatives::ConsensusParams,
+};
 use rsnano_messages::{Aggregatable, Preproposal, Proposal, ProposalHash, ProposalVote};
-use rsnano_types::{Amount, PrivateKey};
+use rsnano_types::{Amount, BlockHash, PrivateKey};
 use std::collections::HashMap;
 
-#[derive(Default)]
 pub(crate) struct State {
     pub(crate) preproposal_aggregator: Aggregator<Preproposal>,
     pub(crate) proposal_aggregator: Aggregator<Proposal>,
@@ -11,6 +13,20 @@ pub(crate) struct State {
     pub(crate) proposal_published: bool,
     pub(crate) proposal_voted: bool,
     pub(crate) current_snapshot_number: u32,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        set_current_rai_epoch(1);
+        Self {
+            preproposal_aggregator: Default::default(),
+            proposal_aggregator: Default::default(),
+            vote_aggregator: Default::default(),
+            proposal_published: false,
+            proposal_voted: false,
+            current_snapshot_number: 1,
+        }
+    }
 }
 
 impl State {
@@ -55,7 +71,7 @@ impl State {
     ) -> Option<ProposalVote> {
         let has_quorum = self.proposal_aggregator.has_quorum(&consensus_params);
 
-        if has_quorum {
+        if has_quorum && !self.proposal_voted {
             let vote = self
                 .create_vote(rep_key)
                 .expect("Should always be able to create a vote when quorum reached");
@@ -92,6 +108,7 @@ impl State {
 
     pub(crate) fn advance_epoch(&mut self) {
         self.current_snapshot_number += 1;
+        set_current_rai_epoch(self.current_snapshot_number);
         self.preproposal_aggregator.clear();
         self.proposal_aggregator.clear();
         self.vote_aggregator.clear();
@@ -109,6 +126,27 @@ impl State {
 
     pub(crate) fn set_proposal_published(&mut self, published: bool) {
         self.proposal_published = published;
+    }
+
+    pub(crate) fn hashes_for_winner(&self, proposal_hash: &ProposalHash) -> Vec<BlockHash> {
+        let Some(proposal) = self.proposal_aggregator.get(proposal_hash) else {
+            return Vec::new();
+        };
+
+        let mut hashes = Vec::new();
+        for preproposal_hash in &proposal.preproposal_hashes {
+            let Some(preproposal) = self.preproposal_aggregator.get(preproposal_hash) else {
+                continue;
+            };
+
+            for (_, hash) in &preproposal.frontiers {
+                if !hashes.contains(hash) {
+                    hashes.push(*hash);
+                }
+            }
+        }
+
+        hashes
     }
 }
 
@@ -221,6 +259,32 @@ mod tests {
         let vote = state.create_vote(&PrivateKey::from(5));
 
         assert_eq!(vote.unwrap().proposal_hash, highest_hash);
+    }
+
+    #[test]
+    fn only_vote_once_per_epoch() {
+        let rep1 = PrivateKey::from(1);
+        let rep2 = PrivateKey::from(2);
+        let signer = PrivateKey::from(3);
+
+        let mut state = State::default();
+        state
+            .proposal_aggregator
+            .add(Proposal::new(vec![], &rep1, state.current_snapshot_number));
+        state
+            .proposal_aggregator
+            .add(Proposal::new(vec![], &rep2, state.current_snapshot_number));
+
+        let mut rep_weights = RepWeights::new(Amount::ZERO);
+        rep_weights.put(rep1.public_key(), Amount::raw(1));
+        rep_weights.put(rep2.public_key(), Amount::raw(1));
+        let consensus = ConsensusParams {
+            quorum_weight: Amount::raw(2),
+            rep_weights,
+        };
+
+        assert!(state.try_create_vote(&consensus, &signer).is_some());
+        assert!(state.try_create_vote(&consensus, &signer).is_none());
     }
 
     #[test]

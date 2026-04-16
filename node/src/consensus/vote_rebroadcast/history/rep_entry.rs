@@ -86,6 +86,8 @@ impl RepresentativeEntry {
                 *hash,
                 RebroadcastEntry {
                     block_hash: *hash,
+                    #[cfg(feature = "ledger_snapshots")]
+                    epoch: vote.epoch(),
                     vote_timestamp: vote.timestamp(),
                     timestamp: now,
                 },
@@ -97,12 +99,19 @@ impl RepresentativeEntry {
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) struct RebroadcastEntry {
     pub block_hash: BlockHash,
+    #[cfg(feature = "ledger_snapshots")]
+    pub epoch: u32,
     pub vote_timestamp: UnixMillisTimestamp,
     pub timestamp: Timestamp,
 }
 
 impl RebroadcastEntry {
     fn should_rebroadcast(&self, new_vote: &Vote, min_gap: Duration, now: Timestamp) -> bool {
+        #[cfg(feature = "ledger_snapshots")]
+        if self.epoch != new_vote.epoch() {
+            return true;
+        }
+
         if self.switched_to_final_vote(new_vote) {
             return true;
         }

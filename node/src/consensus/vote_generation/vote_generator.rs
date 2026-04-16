@@ -20,6 +20,8 @@ use rsnano_utils::{
 };
 
 use super::{LocalVoteHistory, VoteSpacing};
+#[cfg(feature = "ledger_snapshots")]
+use crate::ledger_snapshots::current_rai_epoch;
 use crate::{
     consensus::VoteBroadcaster, transport::MessageSender, utils::ProcessingQueue,
     wallets::WalletRepresentatives,
@@ -140,14 +142,7 @@ impl VoteGenerator {
             let can_vote = |block: &SavedBlock| {
                 #[cfg(feature = "ledger_snapshots")]
                 {
-                    // With ledger snapshots enabled, we just stop voting for forks, because
-                    // fork rollback will happen when a new snapshot is created
-                    any.dependencies_confirmed(block)
-                        && (!any.is_forked(&block.qualified_root()) || {
-                            // For now allow final votes, until we include final voted fronties in
-                            // the preproposals!
-                            self.shared_state.is_final
-                        })
+                    any.dependencies_confirmed(block) && !any.is_forked(&block.qualified_root())
                 }
                 #[cfg(not(feature = "ledger_snapshots"))]
                 {
@@ -334,6 +329,8 @@ impl SharedState {
             };
             votes.push(Arc::new(Vote::new(
                 &rep_key,
+                #[cfg(feature = "ledger_snapshots")]
+                current_rai_epoch(),
                 timestamp,
                 duration,
                 hashes.to_vec(),

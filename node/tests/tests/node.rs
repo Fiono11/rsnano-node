@@ -1294,7 +1294,7 @@ fn fork_no_vote_quorum() {
     }
     .into();
 
-    let vote = Vote::new(
+    let vote = Vote::new_for_test(
         &PrivateKey::new(),
         UnixMillisTimestamp::ZERO,
         0,
@@ -1397,7 +1397,7 @@ fn online_reps_rep_crawler() {
     let channel = make_fake_channel(&node);
 
     let vote: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &DEV_GENESIS_KEY,
             UnixMillisTimestamp::now(),
             0,
@@ -1446,7 +1446,7 @@ fn online_reps_election() {
     assert_timely_eq(Duration::from_secs(5), || node.aec.len(), 1);
 
     // Process vote for ongoing election
-    let vote = Arc::new(Vote::new(
+    let vote = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::now(),
         0,
@@ -1497,7 +1497,10 @@ fn vote_republish() {
     assert_eq!(node1.block_exists(&send2.hash()), false);
 
     // the vote causes the election to reach quorum and for the vote (and block?) to be published from node1 to node2
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send2.hash()],
+    ));
     node1
         .vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
@@ -1545,7 +1548,10 @@ fn vote_by_hash_republish() {
     assert_timely2(|| node1.is_active_root(&send2.qualified_root()));
 
     // construct a vote for send2 in order to overturn send1
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send2.hash()],
+    ));
     node1
         .vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
@@ -1629,7 +1635,10 @@ fn confirm_back() {
     start_election(&node, &open.hash());
     start_election(&node, &send2.hash());
     assert_eq!(node.aec.len(), 3);
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
+    let vote = Arc::new(Vote::new_final_for_test(
+        &DEV_GENESIS_KEY,
+        vec![send2.hash()],
+    ));
 
     node.vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
@@ -1672,7 +1681,7 @@ fn rep_crawler_rep_remove() {
 
     // Ensure Rep1 is found by the rep_crawler after receiving a vote from it
     let vote_rep1 = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &key_rep1,
             UnixMillisTimestamp::ZERO,
             0,
@@ -1731,7 +1740,7 @@ fn rep_crawler_rep_remove() {
 
     // genesis_rep should be found as principal representative after receiving a vote from it
     let vote_genesis_rep = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &DEV_GENESIS_KEY,
             UnixMillisTimestamp::ZERO,
             0,
@@ -1778,7 +1787,7 @@ fn rep_crawler_rep_remove() {
 
     // Rep2 should be found as a principal representative after receiving a vote from it
     let vote_rep2 = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &key_rep2,
             UnixMillisTimestamp::ZERO,
             0,

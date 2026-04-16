@@ -40,6 +40,10 @@ impl<T: Aggregatable> Aggregator<T> {
         self.values.values()
     }
 
+    pub(crate) fn get(&self, hash: &Blake2Hash) -> Option<&T> {
+        self.values.get(hash)
+    }
+
     /// Quorum is reached if all received valid values have 67% vote weight in sum
     pub(crate) fn has_quorum(&self, params: &ConsensusParams) -> bool {
         self.tally(params) >= params.quorum_weight

@@ -42,7 +42,7 @@ fn ignore_rebroadcast() {
     );
 
     // Now we spam the vote for genesis, so it appears as a rebroadcasted vote
-    let vote = Vote::new(
+    let vote = Vote::new_for_test(
         &DEV_GENESIS_KEY,
         UnixMillisTimestamp::ZERO,
         0,
@@ -111,7 +111,7 @@ fn rep_weight() {
     };
 
     let vote0 = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &DEV_GENESIS_KEY,
             UnixMillisTimestamp::ZERO,
             0,
@@ -122,7 +122,7 @@ fn rep_weight() {
     );
 
     let vote1 = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &key_non_pr,
             UnixMillisTimestamp::ZERO,
             0,
@@ -133,7 +133,7 @@ fn rep_weight() {
     );
 
     let vote2 = ReceivedVote::new(
-        Arc::new(Vote::new(
+        Arc::new(Vote::new_for_test(
             &key_pr,
             UnixMillisTimestamp::ZERO,
             0,

@@ -14,6 +14,8 @@ use rsnano_types::{
 use rsnano_utils::stats::DetailType;
 
 use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::BlockTallies};
+#[cfg(feature = "ledger_snapshots")]
+use crate::ledger_snapshots::{current_rai_epoch, is_rai_epoch_frozen};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum VoteType {
@@ -25,6 +27,8 @@ pub enum VoteType {
 pub struct Election {
     qualified_root: QualifiedRoot,
     winner: MaybeSavedBlock,
+    #[cfg(feature = "ledger_snapshots")]
+    epoch: u32,
     state: ElectionState,
     // TODO: there can't be more than 10 blocks, so an array might be a lot faster
     candidate_blocks: HashMap<BlockHash, MaybeSavedBlock>,
@@ -58,6 +62,8 @@ impl Election {
         Self {
             qualified_root: block.qualified_root(),
             votes: HashMap::new(),
+            #[cfg(feature = "ledger_snapshots")]
+            epoch: current_rai_epoch(),
             candidate_blocks: HashMap::from([(
                 block.hash(),
                 MaybeSavedBlock::Saved(block.clone()),
@@ -153,14 +159,40 @@ impl Election {
         &mut self,
         voter: PublicKey,
         hash: BlockHash,
+        #[cfg(feature = "ledger_snapshots")] vote_epoch: u32,
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) {
         debug_assert!(self.candidate_blocks.contains_key(&hash));
         self.votes.insert(
             voter,
-            VoteSummary::new(voter, hash, vote_created, vote_received),
+            VoteSummary::new(
+                voter,
+                hash,
+                #[cfg(feature = "ledger_snapshots")]
+                vote_epoch,
+                vote_created,
+                vote_received,
+            ),
         );
+    }
+
+    pub fn add_vote_for_test(
+        &mut self,
+        voter: PublicKey,
+        hash: BlockHash,
+        vote_created: UnixMillisTimestamp,
+        vote_received: Timestamp,
+    ) {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            self.add_vote(voter, hash, 1, vote_created, vote_received);
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            self.add_vote(voter, hash, vote_created, vote_received);
+        }
     }
 
     pub fn winner_tally(&self) -> Amount {
@@ -258,6 +290,18 @@ impl Election {
         &self.winner
     }
 
+    pub fn epoch(&self) -> u32 {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            self.epoch
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            0
+        }
+    }
+
     pub fn force_confirm(&mut self) -> bool {
         if !self.state.has_ended() {
             self.state = ElectionState::Confirmed;
@@ -350,6 +394,11 @@ impl Election {
     }
 
     fn check_new_winner(&self, quorum_delta: Amount) -> Option<BlockHash> {
+        #[cfg(feature = "ledger_snapshots")]
+        if self.candidate_blocks.len() > 1 {
+            return None;
+        }
+
         if self.tallies.sum() < quorum_delta {
             // The winner can only be changed after a super majority of votes has been observed!
             return None;
@@ -381,6 +430,11 @@ impl Election {
     }
 
     fn try_confirm(&mut self, quorum_delta: Amount) {
+        #[cfg(feature = "ledger_snapshots")]
+        if is_rai_epoch_frozen(self.epoch) {
+            return;
+        }
+
         if self.winner_final_tally >= quorum_delta {
             self.state = ElectionState::Confirmed;
         }
@@ -422,6 +476,8 @@ impl Election {
             final_tally: self.winner_final_tally(),
             block_count: self.block_count() as u32,
             voter_count: self.votes().len() as u32,
+            #[cfg(feature = "ledger_snapshots")]
+            epoch: self.epoch,
             election_duration: self.start().elapsed(now),
             election_end: SystemTime::now(),
             confirmation_type: result,
@@ -433,6 +489,8 @@ impl Election {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoteSummary {
     pub voter: PublicKey,
+    #[cfg(feature = "ledger_snapshots")]
+    pub epoch: u32,
     pub vote_created: UnixMillisTimestamp,
     pub vote_received: Timestamp, // TODO use Instant
     pub hash: BlockHash,
@@ -443,11 +501,14 @@ impl VoteSummary {
     pub fn new(
         voter: PublicKey,
         hash: BlockHash,
+        #[cfg(feature = "ledger_snapshots")] epoch: u32,
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) -> Self {
         Self {
             voter,
+            #[cfg(feature = "ledger_snapshots")]
+            epoch,
             vote_received,
             vote_created,
             hash,
@@ -464,6 +525,17 @@ impl VoteSummary {
         new_vote: &Vote,
         block_hash: &BlockHash,
     ) -> Result<(), VoteError> {
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            if self.epoch > new_vote.epoch() {
+                return Err(VoteError::Replay);
+            }
+
+            if self.epoch < new_vote.epoch() {
+                return Ok(());
+            }
+        }
+
         if self.vote_created > new_vote.timestamp() {
             Err(VoteError::Replay)
         } else if self.vote_created == new_vote.timestamp() && self.hash >= *block_hash {
@@ -474,6 +546,11 @@ impl VoteSummary {
     }
 
     pub fn has_switched_to_final_vote(&self, new_vote: &Vote) -> bool {
+        #[cfg(feature = "ledger_snapshots")]
+        if self.epoch != new_vote.epoch() {
+            return false;
+        }
+
         new_vote.is_final() && self.vote_created < new_vote.timestamp()
     }
 }

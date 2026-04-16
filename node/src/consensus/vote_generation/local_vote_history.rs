@@ -61,6 +61,33 @@ impl LocalVoteHistory {
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
+                #[cfg(feature = "ledger_snapshots")]
+                {
+                    if vote.voter != current.vote.voter {
+                        continue;
+                    }
+
+                    match current.vote.epoch().cmp(&vote.epoch()) {
+                        std::cmp::Ordering::Greater => {
+                            add_vote = false;
+                        }
+                        std::cmp::Ordering::Less => {
+                            ids_to_delete.push(i);
+                        }
+                        std::cmp::Ordering::Equal => {
+                            if &current.hash != hash {
+                                add_vote = false;
+                            } else if current.vote.timestamp() <= vote.timestamp() {
+                                ids_to_delete.push(i);
+                            } else {
+                                add_vote = false;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                #[cfg(not(feature = "ledger_snapshots"))]
                 if &current.hash != hash
                     || (vote.voter == current.vote.voter
                         && current.vote.timestamp() <= vote.timestamp())
@@ -144,6 +171,16 @@ impl LocalVoteHistory {
     pub fn exists(&self, root: &Root) -> bool {
         let data_lk = self.data.lock().unwrap();
         data_lk.history_by_root.contains_key(root)
+    }
+
+    pub fn final_votes_for_epoch(&self, epoch: u32) -> Vec<(Root, BlockHash, Arc<Vote>)> {
+        let data_lk = self.data.lock().unwrap();
+        data_lk
+            .history
+            .values()
+            .filter(|entry| entry.vote.is_final() && entry.vote.epoch() == epoch)
+            .map(|entry| (entry.root, entry.hash, entry.vote.clone()))
+            .collect()
     }
 
     pub fn size(&self) -> usize {
@@ -245,7 +282,12 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new_for_test(
+            &keys,
+            UnixMillisTimestamp::ZERO,
+            0,
+            Vec::new(),
+        ));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
@@ -265,16 +307,84 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys1 = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys1, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new_for_test(
+            &keys1,
+            UnixMillisTimestamp::ZERO,
+            0,
+            Vec::new(),
+        ));
         let keys2 = PrivateKey::new();
-        let vote3 = Arc::new(Vote::new(&keys2, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let vote3 = Arc::new(Vote::new_for_test(
+            &keys2,
+            UnixMillisTimestamp::ZERO,
+            0,
+            Vec::new(),
+        ));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
         history.add(&root, &BlockHash::from(3), &vote3);
-        assert_eq!(history.size(), 1);
-        let votes = history.votes(&root, &BlockHash::from(3), false);
-        assert_eq!(votes.len(), 1);
-        assert!(Arc::ptr_eq(&votes[0], &vote3));
+
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            assert_eq!(history.size(), 3);
+
+            let first_hash_votes = history.votes(&root, &hash, false);
+            assert_eq!(first_hash_votes.len(), 2);
+            assert!(
+                Arc::ptr_eq(&first_hash_votes[0], &vote1b)
+                    || Arc::ptr_eq(&first_hash_votes[1], &vote1b)
+            );
+            assert!(
+                Arc::ptr_eq(&first_hash_votes[0], &vote2)
+                    || Arc::ptr_eq(&first_hash_votes[1], &vote2)
+            );
+
+            let second_hash_votes = history.votes(&root, &BlockHash::from(3), false);
+            assert_eq!(second_hash_votes.len(), 1);
+            assert!(Arc::ptr_eq(&second_hash_votes[0], &vote3));
+        }
+
+        #[cfg(not(feature = "ledger_snapshots"))]
+        {
+            assert_eq!(history.size(), 1);
+            assert!(history.votes(&root, &hash, false).is_empty());
+
+            let votes = history.votes(&root, &BlockHash::from(3), false);
+            assert_eq!(votes.len(), 1);
+            assert!(Arc::ptr_eq(&votes[0], &vote3));
+        }
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn keeps_same_epoch_vote_target_when_hash_changes() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let first_hash = BlockHash::from(2);
+        let second_hash = BlockHash::from(3);
+        let key = PrivateKey::new();
+        let vote1 = Arc::new(Vote::new(
+            &key,
+            7,
+            UnixMillisTimestamp::new(1000),
+            0,
+            vec![first_hash],
+        ));
+        let vote2 = Arc::new(Vote::new(
+            &key,
+            7,
+            UnixMillisTimestamp::new(2000),
+            0,
+            vec![second_hash],
+        ));
+
+        history.add(&root, &first_hash, &vote1);
+        history.add(&root, &second_hash, &vote2);
+
+        let first_votes = history.votes(&root, &first_hash, false);
+        assert_eq!(first_votes.len(), 1);
+        assert!(Arc::ptr_eq(&first_votes[0], &vote1));
+        assert!(history.votes(&root, &second_hash, false).is_empty());
     }
 }

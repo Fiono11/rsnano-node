@@ -3,18 +3,93 @@ pub(crate) mod fork_detector;
 mod state;
 
 use crate::{
+    consensus::{AecService, LocalVoteHistory},
     ledger_snapshots::{aggregator::Aggregator, state::State},
     representatives::OnlineReps,
     transport::MessageFlooder,
 };
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{Aggregatable, Message, Preproposal, Proposal, ProposalVote};
 use rsnano_network::TrafficType;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, BlockHash};
-use rsnano_types::{PrivateKey, SnapshotNumber};
-use std::sync::{Arc, Mutex};
+use rsnano_types::{
+    Account, BlockHash, NetworkType, PrivateKey, PublicKey, SavedBlock, SnapshotNumber,
+};
+use rsnano_utils::{CancellationToken, ticker::Tickable};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU32, Ordering},
+};
+use std::time::Duration;
 use tracing::warn;
+
+static CURRENT_RAI_EPOCH: AtomicU32 = AtomicU32::new(1);
+static CURRENT_RAI_EPOCH_FROZEN: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn current_rai_epoch() -> u32 {
+    CURRENT_RAI_EPOCH.load(Ordering::SeqCst)
+}
+
+pub(crate) fn set_current_rai_epoch(epoch: u32) {
+    CURRENT_RAI_EPOCH.store(epoch, Ordering::SeqCst);
+    CURRENT_RAI_EPOCH_FROZEN.store(false, Ordering::SeqCst);
+}
+
+pub(crate) fn freeze_current_rai_epoch() {
+    CURRENT_RAI_EPOCH_FROZEN.store(true, Ordering::SeqCst);
+}
+
+pub(crate) fn is_rai_epoch_frozen(epoch: u32) -> bool {
+    current_rai_epoch() == epoch && CURRENT_RAI_EPOCH_FROZEN.load(Ordering::SeqCst)
+}
+
+pub(crate) struct LedgerSnapshotTicker {
+    ledger_snapshots: Arc<LedgerSnapshots>,
+    clock: Arc<SteadyClock>,
+    epoch_duration: Duration,
+    tracked_epoch: SnapshotNumber,
+    epoch_started_at: Timestamp,
+}
+
+impl LedgerSnapshotTicker {
+    pub fn new(
+        ledger_snapshots: Arc<LedgerSnapshots>,
+        clock: Arc<SteadyClock>,
+        epoch_duration: Duration,
+    ) -> Self {
+        let now = clock.now();
+        let tracked_epoch = ledger_snapshots.get_current_snapshot_number();
+        Self {
+            ledger_snapshots,
+            clock,
+            epoch_duration,
+            tracked_epoch,
+            epoch_started_at: now,
+        }
+    }
+}
+
+impl Tickable for LedgerSnapshotTicker {
+    fn tick(&mut self, cancel_token: &CancellationToken) {
+        if cancel_token.is_cancelled() || self.epoch_duration.is_zero() {
+            return;
+        }
+
+        let now = self.clock.now();
+        let epoch = self.ledger_snapshots.get_current_snapshot_number();
+
+        if epoch != self.tracked_epoch {
+            self.tracked_epoch = epoch;
+            self.epoch_started_at = now;
+        }
+
+        if !is_rai_epoch_frozen(epoch) && self.epoch_started_at.elapsed(now) >= self.epoch_duration
+        {
+            self.ledger_snapshots.start_ledger_snapshot();
+        }
+    }
+}
 
 pub struct LedgerSnapshots {
     ledger: Arc<Ledger>,
@@ -28,6 +103,8 @@ pub struct LedgerSnapshots {
     receive_vote_listener: OutputListenerMt<ProposalVote>,
     state: Mutex<State>,
     online_reps: Arc<Mutex<OnlineReps>>,
+    vote_history: Arc<LocalVoteHistory>,
+    active_elections: Arc<AecService>,
 }
 
 impl LedgerSnapshots {
@@ -36,6 +113,8 @@ impl LedgerSnapshots {
         get_private_key: impl Fn() -> Option<PrivateKey> + Send + Sync + 'static,
         flooder: MessageFlooder,
         online_reps: Arc<Mutex<OnlineReps>>,
+        vote_history: Arc<LocalVoteHistory>,
+        active_elections: Arc<AecService>,
     ) -> Self {
         Self {
             ledger,
@@ -46,6 +125,8 @@ impl LedgerSnapshots {
             receive_vote_listener: OutputListenerMt::new(),
             state: Default::default(),
             online_reps,
+            vote_history,
+            active_elections,
         }
     }
 
@@ -55,34 +136,118 @@ impl LedgerSnapshots {
             || None,
             MessageFlooder::new_null(),
             Mutex::new(OnlineReps::default()).into(),
+            Arc::new(LocalVoteHistory::new(NetworkType::NanoDevNetwork)),
+            Arc::new(AecService::new_null()),
         )
     }
 
     pub fn start_ledger_snapshot(&self) {
+        if is_rai_epoch_frozen(self.get_current_snapshot_number()) {
+            return;
+        }
+
+        freeze_current_rai_epoch();
         warn!(
             snapshot_number = self.get_current_snapshot_number(),
             "Preproposal generation triggered"
         );
-        // TODO add test for no private key
-        let private_key = (self.get_private_key)().unwrap();
+        let Some(private_key) = (self.get_private_key)() else {
+            warn!(
+                snapshot_number = self.get_current_snapshot_number(),
+                "Skipping local preproposal because no representative key is available"
+            );
+            return;
+        };
         let preproposal = self.create_preproposal(&private_key);
         let message = Message::SnapshotPreproposal(preproposal);
         self.publish_message(&message);
     }
 
     fn create_preproposal(&self, private_key: &PrivateKey) -> Preproposal {
-        let frontiers = self.collect_frontiers();
-        Preproposal::new(frontiers, private_key, self.get_current_snapshot_number())
+        let blocks = self.collect_final_voted_blocks(self.get_current_snapshot_number());
+        Preproposal::new(blocks, private_key, self.get_current_snapshot_number())
     }
 
+    fn collect_final_voted_blocks(&self, epoch: SnapshotNumber) -> Vec<(Account, BlockHash)> {
+        let any = self.ledger.any();
+        let mut blocks = Vec::new();
+
+        for (_, hash, vote) in self.vote_history.final_votes_for_epoch(epoch) {
+            let Some(block) = any.get_block(&hash) else {
+                continue;
+            };
+
+            if !self.preproposal_block_is_valid_for_signer(&block, vote.voter, epoch) {
+                continue;
+            }
+
+            let entry = (block.account(), hash);
+            if !blocks.contains(&entry) {
+                blocks.push(entry);
+            }
+        }
+
+        blocks
+    }
+
+    #[cfg(test)]
     fn collect_frontiers(&self) -> Vec<(Account, BlockHash)> {
-        self.ledger.confirmed().frontiers().collect()
+        self.collect_final_voted_blocks(self.get_current_snapshot_number())
+    }
+
+    fn validate_preproposal(&self, preproposal: &Preproposal) -> bool {
+        preproposal.frontiers.iter().all(|(account, hash)| {
+            let Some(block) = self.ledger.any().get_block(hash) else {
+                return false;
+            };
+
+            block.account() == *account
+                && self.preproposal_block_is_valid_for_signer(
+                    &block,
+                    preproposal.signer,
+                    preproposal.snapshot_number,
+                )
+        })
+    }
+
+    fn preproposal_block_is_valid_for_signer(
+        &self,
+        block: &SavedBlock,
+        signer: PublicKey,
+        epoch: SnapshotNumber,
+    ) -> bool {
+        if block.height() > 1 && !self.ledger.confirmed().block_exists(&block.previous()) {
+            return false;
+        }
+
+        let Some(election) = self.active_elections.election_for_block(&block.hash()) else {
+            return self.ledger.confirmed().block_exists(&block.hash());
+        };
+
+        if election.epoch() != epoch || !election.has_quorum() {
+            return false;
+        }
+
+        let Some(vote) = election.votes().get(&signer) else {
+            return self.ledger.confirmed().block_exists(&block.hash());
+        };
+
+        vote.hash == block.hash() && vote.is_final_vote()
     }
 
     pub fn handle_preproposal(&self, preproposal: Preproposal) {
         warn!(snapshot_number = preproposal.snapshot_number, preproposal_hash= ?preproposal.hash(), "Snapshot preproposal received");
         self.receive_preproposal_listener.emit(preproposal.clone());
         let consensus_params = self.online_reps.lock().unwrap().get_consensus_params();
+
+        if !self.validate_preproposal(&preproposal) {
+            warn!(
+                preproposal_hash = ?preproposal.hash(),
+                snapshot_number = ?preproposal.snapshot_number,
+                "Snapshot preproposal discarded because local Rai validation failed"
+            );
+            return;
+        }
 
         let mut state = self.state.lock().unwrap();
         if !state.receive_preproposal(preproposal.clone()) {
@@ -100,7 +265,13 @@ impl LedgerSnapshots {
             state.preproposal_aggregator.tally(&consensus_params)
         );
 
-        let rep_key = (self.get_private_key)().unwrap();
+        let Some(rep_key) = (self.get_private_key)() else {
+            warn!(
+                snapshot_number = state.current_snapshot_number,
+                "Skipping local proposal because no representative key is available"
+            );
+            return;
+        };
         let proposal = state.try_create_proposal(&consensus_params, &rep_key);
         if proposal.is_some() {
             state.set_proposal_published(true);
@@ -146,7 +317,13 @@ impl LedgerSnapshots {
             state.proposal_aggregator.tally(&consensus_params)
         );
 
-        let rep_key = (self.get_private_key)().unwrap();
+        let Some(rep_key) = (self.get_private_key)() else {
+            warn!(
+                snapshot_number = state.current_snapshot_number,
+                "Skipping local proposal vote because no representative key is available"
+            );
+            return;
+        };
         if let Some(vote) = state.try_create_vote(&consensus_params, &rep_key) {
             warn!(
                 snapshot_number = state.current_snapshot_number,
@@ -187,15 +364,16 @@ impl LedgerSnapshots {
 
         if let Some(winner) = state.find_winner_proposal(&consensus_params) {
             tracing::warn!(snapshot_number = state.current_snapshot_number, proposal_hash=?winner, "Found a winner!");
+            let hashes_to_confirm = state.hashes_for_winner(&winner);
             state.advance_epoch();
             tracing::warn!(
                 snapshot_number = state.current_snapshot_number,
                 "Advanced epoch"
             );
-            let snapshot_number = state.current_snapshot_number;
             drop(state);
-            tracing::warn!("Calling roll_back_forks_older_than");
-            self.ledger.roll_back_forks_older_than(snapshot_number - 1);
+            for hash in hashes_to_confirm {
+                self.ledger.confirm(hash);
+            }
         }
     }
 
@@ -222,18 +400,23 @@ mod tests {
     use super::*;
     use crate::{representatives::ONLINE_WEIGHT_QUORUM, transport::FloodEvent};
     use rsnano_ledger::{AnySet, RepWeights};
-    use rsnano_messages::{Aggregatable, Message, ProposalHash, ProposalVote};
+    use rsnano_messages::{Aggregatable, Message, MessageType, ProposalHash, ProposalVote};
     use rsnano_network::TrafficType;
+    use rsnano_nullable_clock::SteadyClock;
     use rsnano_output_tracker::OutputTrackerMt;
     use rsnano_types::{Amount, QualifiedRoot, SavedBlock};
-    use std::{sync::LazyLock, time::Duration};
+    use rsnano_utils::CancellationToken;
+    use std::sync::LazyLock;
 
     #[test]
     fn collect_one_frontier() {
         let account = Account::from(1);
         let frontier = BlockHash::from(2);
         let fixture = Fixture::builder().frontiers([(account, frontier)]).finish();
-        assert_eq!(fixture.snapshots.collect_frontiers(), [(account, frontier)]);
+        assert_eq!(
+            fixture.snapshots.collect_frontiers(),
+            Vec::<(Account, BlockHash)>::new()
+        );
     }
 
     #[test]
@@ -249,7 +432,7 @@ mod tests {
 
         assert_eq!(
             fixture.snapshots.collect_frontiers(),
-            [(account1, frontier1), (account2, frontier2)]
+            Vec::<(Account, BlockHash)>::new()
         );
     }
 
@@ -261,7 +444,7 @@ mod tests {
 
         let preproposal = fixture.snapshots.create_preproposal(&PrivateKey::from(1));
 
-        assert!(preproposal.frontiers.contains(&(account, frontier)));
+        assert!(preproposal.frontiers.is_empty());
         assert_eq!(
             preproposal.snapshot_number,
             fixture.snapshots.get_current_snapshot_number()
@@ -320,6 +503,25 @@ mod tests {
                 .preproposal_aggregator
                 .contains(&preproposal.hash())
         );
+    }
+
+    #[test]
+    fn a_received_preproposal_without_private_key_does_not_panic() {
+        let fixture = Fixture::builder().finish_with_get_private_key(|| None);
+        let preproposal = fixture.create_preproposal(&fixture.rep_keys.rep2);
+
+        fixture.snapshots.handle_preproposal(preproposal.clone());
+
+        assert!(
+            fixture
+                .snapshots
+                .state
+                .lock()
+                .unwrap()
+                .preproposal_aggregator
+                .contains(&preproposal.hash())
+        );
+        assert!(fixture.flood_tracker.output().is_empty());
     }
 
     #[test]
@@ -390,6 +592,25 @@ mod tests {
                 .proposal_aggregator
                 .contains(&proposal.hash())
         );
+    }
+
+    #[test]
+    fn a_received_proposal_without_private_key_does_not_panic() {
+        let fixture = Fixture::builder().finish_with_get_private_key(|| None);
+        let proposal = fixture.create_proposal(&fixture.rep_keys.rep2);
+
+        fixture.snapshots.handle_proposal(proposal.clone());
+
+        assert!(
+            fixture
+                .snapshots
+                .state
+                .lock()
+                .unwrap()
+                .proposal_aggregator
+                .contains(&proposal.hash())
+        );
+        assert!(fixture.flood_tracker.output().is_empty());
     }
 
     #[test]
@@ -510,10 +731,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_snapshot_number_should_be_zero() {
+    fn initial_snapshot_number_should_be_one() {
         let ledger_snapshots = LedgerSnapshots::new_null();
 
-        assert_eq!(ledger_snapshots.get_current_snapshot_number(), 0);
+        assert_eq!(ledger_snapshots.get_current_snapshot_number(), 1);
     }
 
     #[test]
@@ -549,16 +770,35 @@ mod tests {
 
         let output = rollback_tracker.output();
 
-        assert_eq!(output, vec![fork_block.hash()]);
+        assert!(output.is_empty());
         assert_eq!(
             fixture
                 .snapshots
                 .ledger
                 .any()
                 .is_forked(&fork_block.qualified_root()),
-            false,
-            "Should delete the fork from the forks table"
+            true,
+            "Closure no longer clears fork markers"
         );
+    }
+
+    #[test]
+    fn ticker_triggers_snapshot_after_epoch_duration() {
+        let fixture = Fixture::new();
+        let clock = Arc::new(SteadyClock::new_null());
+        let snapshots = Arc::new(fixture.snapshots);
+        let mut ticker =
+            LedgerSnapshotTicker::new(snapshots.clone(), clock.clone(), Duration::from_secs(5));
+
+        ticker.tick(&CancellationToken::new_null());
+        assert!(fixture.flood_tracker.output().is_empty());
+
+        clock.advance(Duration::from_secs(5));
+        ticker.tick(&CancellationToken::new_null());
+
+        let floods = fixture.flood_tracker.output();
+        assert_eq!(floods.len(), 1);
+        assert_eq!(floods[0].message.message_type(), MessageType::Preproposal);
     }
 
     struct FixtureBuilder {
@@ -593,6 +833,13 @@ mod tests {
         }
 
         fn finish(self) -> Fixture {
+            self.finish_with_get_private_key(get_test_key)
+        }
+
+        fn finish_with_get_private_key(
+            self,
+            get_private_key: impl Fn() -> Option<PrivateKey> + Send + Sync + 'static,
+        ) -> Fixture {
             let online_weight = Amount::nano(100_000_000);
             let quorum_weight = Amount::nano(67_000_000);
             let mut rep_weights = RepWeights::default();
@@ -609,13 +856,19 @@ mod tests {
                 .forks(self.forked_roots)
                 .finish();
 
-            Self::with_ledger_and_weights(ledger.into(), rep_weights, quorum_weight)
+            Self::with_ledger_and_weights(
+                ledger.into(),
+                rep_weights,
+                quorum_weight,
+                get_private_key,
+            )
         }
 
         fn with_ledger_and_weights(
             ledger: Arc<Ledger>,
             rep_weights: RepWeights,
             quorum_weight: Amount,
+            get_private_key: impl Fn() -> Option<PrivateKey> + Send + Sync + 'static,
         ) -> Fixture {
             let flooder = MessageFlooder::new_null();
             let flood_tracker = flooder.track_floods();
@@ -624,9 +877,17 @@ mod tests {
                 OnlineReps::new(Arc::new(rep_weights.into()), Amount::ZERO, Amount::ZERO);
             online_reps.set_trended(quorum_weight / ONLINE_WEIGHT_QUORUM as u128 * 100);
             let online_reps = Arc::new(Mutex::new(online_reps));
+            let vote_history = Arc::new(LocalVoteHistory::new(NetworkType::NanoDevNetwork));
+            let active_elections = Arc::new(AecService::new_null());
 
-            let snapshots =
-                LedgerSnapshots::new(ledger.clone(), get_test_key, flooder, online_reps);
+            let snapshots = LedgerSnapshots::new(
+                ledger.clone(),
+                get_private_key,
+                flooder,
+                online_reps,
+                vote_history,
+                active_elections,
+            );
 
             snapshots.state.lock().unwrap().current_snapshot_number = 10;
 

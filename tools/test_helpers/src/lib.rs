@@ -15,6 +15,7 @@ use rsnano_node::{
     config::{NetworkParams, NodeConfig, NodeFlags},
     unique_path,
 };
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
 use rsnano_store_lmdb::SyncStrategy;
@@ -73,6 +74,7 @@ impl System {
             flags: None,
             disconnected: false,
             event_sink: None,
+            steady_clock: None,
         }
     }
 
@@ -101,8 +103,9 @@ impl System {
         flags: NodeFlags,
         disconnected: bool,
         event_sink: Option<SyncSender<NodeEvent>>,
+        steady_clock: Option<Arc<SteadyClock>>,
     ) -> Arc<Node> {
-        let mut node = self.new_node(config, flags, event_sink);
+        let mut node = self.new_node(config, flags, event_sink, steady_clock);
 
         self.setup_node(&node);
 
@@ -154,6 +157,7 @@ impl System {
         config: NodeConfig,
         flags: NodeFlags,
         event_sink: Option<SyncSender<NodeEvent>>,
+        steady_clock: Option<Arc<SteadyClock>>,
     ) -> Node {
         let path = unique_path().expect("Could not get a unique path");
         let mut builder = NodeBuilder::new(self.network_params.network.current_network)
@@ -163,6 +167,9 @@ impl System {
             .flags(flags);
         if let Some(sink) = event_sink {
             builder = builder.event_sink(sink);
+        }
+        if let Some(clock) = steady_clock {
+            builder = builder.steady_clock(clock);
         }
         builder.finish().unwrap()
     }
@@ -221,6 +228,7 @@ pub struct TestNodeBuilder<'a> {
     flags: Option<NodeFlags>,
     disconnected: bool,
     event_sink: Option<SyncSender<NodeEvent>>,
+    steady_clock: Option<Arc<SteadyClock>>,
 }
 
 impl TestNodeBuilder<'_> {
@@ -244,11 +252,21 @@ impl TestNodeBuilder<'_> {
         self
     }
 
+    pub fn steady_clock(mut self, clock: Arc<SteadyClock>) -> Self {
+        self.steady_clock = Some(clock);
+        self
+    }
+
     pub fn finish(self) -> Arc<Node> {
         let config = self.config.unwrap_or_else(System::default_config);
         let flags = self.flags.unwrap_or_default();
-        self.system
-            .make_node_with(config, flags, self.disconnected, self.event_sink)
+        self.system.make_node_with(
+            config,
+            flags,
+            self.disconnected,
+            self.event_sink,
+            self.steady_clock,
+        )
     }
 }
 

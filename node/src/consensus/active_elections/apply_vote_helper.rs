@@ -82,6 +82,11 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             return Err(VoteError::Late);
         }
 
+        #[cfg(feature = "ledger_snapshots")]
+        if self.election.epoch() != self.args.vote.epoch() {
+            return Err(VoteError::Replay);
+        }
+
         let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
 
         if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
@@ -114,6 +119,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         self.election.add_vote(
             self.args.vote.voter,
             *self.block_hash,
+            #[cfg(feature = "ledger_snapshots")]
+            self.args.vote.epoch(),
             self.args.vote.timestamp(),
             self.args.now,
         );
@@ -282,6 +289,7 @@ mod tests {
         assert_eq!(result, Err(VoteError::Late));
     }
 
+    #[cfg(not(feature = "ledger_snapshots"))]
     #[test]
     fn notify_winner_changed() {
         let block = StateBlockArgs::new_test_instance();
@@ -300,7 +308,7 @@ mod tests {
         fixture.election.try_add_fork(&fork, Amount::ZERO);
 
         let vote = ReceivedVote::new(
-            Vote::new(&key, UnixMillisTimestamp::new(1000), 0, vec![fork.hash()]).into(),
+            Vote::new_for_test(&key, UnixMillisTimestamp::new(1000), 0, vec![fork.hash()]).into(),
             VoteSource::Live,
             None,
         );
@@ -316,6 +324,43 @@ mod tests {
         assert_eq!(new_winner, &fork);
     }
 
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn forked_election_keeps_original_winner() {
+        let block = StateBlockArgs::new_test_instance();
+        let key = block.key.clone();
+
+        let fork: Block = StateBlockArgs {
+            representative: 999888777.into(),
+            ..block
+        }
+        .into();
+
+        let block = SavedBlock::new_test_instance_with(block.into());
+
+        let mut fixture = FixtureForElection::with_block(block.clone());
+        fixture.rep_weights.put(key.public_key(), Amount::MAX);
+        fixture.election.try_add_fork(&fork, Amount::ZERO);
+
+        let vote = ReceivedVote::new(
+            Vote::new(
+                &key,
+                fixture.election.epoch(),
+                UnixMillisTimestamp::new(1000),
+                0,
+                vec![fork.hash()],
+            )
+            .into(),
+            VoteSource::Live,
+            None,
+        );
+
+        fixture.apply_vote(vote).unwrap();
+
+        assert_eq!(fixture.election.winner().hash(), block.hash());
+        assert!(fixture.events.is_empty());
+    }
+
     #[test]
     fn notify_election_confirmed() {
         let mut fixture = FixtureForElection::default();
@@ -328,6 +373,28 @@ mod tests {
         assert_eq!(fixture.events.len(), 1);
 
         assert!(matches!(fixture.events[0], AecFact::ElectionConfirmed(_)));
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    #[test]
+    fn reject_vote_from_different_epoch() {
+        let mut fixture = FixtureForElection::default();
+        let vote = ReceivedVote::new(
+            Vote::new(
+                &fixture.rep1_key,
+                fixture.election.epoch() + 1,
+                UnixMillisTimestamp::new(1000),
+                0,
+                vec![fixture.block.hash()],
+            )
+            .into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let result = fixture.apply_vote(vote);
+
+        assert_eq!(result, Err(VoteError::Replay));
     }
 
     // Test helpers:
@@ -374,7 +441,7 @@ mod tests {
             &mut self,
             hashes: Vec<BlockHash>,
         ) -> HashMap<BlockHash, Result<(), VoteError>> {
-            let vote = Vote::new(
+            let vote = Vote::new_for_test(
                 &PrivateKey::from(1),
                 UnixMillisTimestamp::new(1000),
                 0,
@@ -424,7 +491,7 @@ mod tests {
 
     impl FixtureForElection {
         fn add_processed_vote(&mut self, created: UnixMillisTimestamp, received_ago: Duration) {
-            self.election.add_vote(
+            self.election.add_vote_for_test(
                 self.rep1_key.public_key(),
                 self.block.hash(),
                 created,
@@ -438,7 +505,7 @@ mod tests {
             created: UnixMillisTimestamp,
         ) -> Result<(), VoteError> {
             let vote = ReceivedVote::new(
-                Vote::new(&self.rep1_key, created, 0, vec![self.block.hash()]).into(),
+                Vote::new_for_test(&self.rep1_key, created, 0, vec![self.block.hash()]).into(),
                 source,
                 None,
             );
@@ -448,7 +515,7 @@ mod tests {
 
         fn apply_final_vote_from(&mut self, source: VoteSource) -> Result<(), VoteError> {
             let vote = ReceivedVote::new(
-                Vote::new_final(&self.rep1_key, vec![self.block.hash()]).into(),
+                Vote::new_final_for_test(&self.rep1_key, vec![self.block.hash()]).into(),
                 source,
                 None,
             );

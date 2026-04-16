@@ -28,7 +28,8 @@ fn check_signature() {
     node.process(send1.clone());
     assert_timely2(|| node.is_active_hash(&send1.hash()));
     let channel = make_fake_channel(&node);
-    let mut vote1 = Vote::new(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()]);
+    let mut vote1 =
+        Vote::new_for_test(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()]);
     let good_signature = vote1.signature;
     vote1.signature = Signature::new();
     let received_vote1 = ReceivedVote::new(
@@ -67,7 +68,7 @@ fn add_cooldown() {
     let send1 = lattice.genesis().send_max(&key1);
     node.process(send1.clone());
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
-    let vote1 = Arc::new(Vote::new(
+    let vote1 = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         Vote::TIMESTAMP_MIN * 1,
         0,
@@ -80,7 +81,7 @@ fn add_cooldown() {
 
     let key2 = PrivateKey::new();
     let send2 = fork_lattice.genesis().send_max(&key2);
-    let vote2 = Arc::new(Vote::new(
+    let vote2 = Arc::new(Vote::new_for_test(
         &DEV_GENESIS_KEY,
         Vote::TIMESTAMP_MIN * 2,
         0,
