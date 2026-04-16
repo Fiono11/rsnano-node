@@ -11,10 +11,6 @@ pub use priority::Priority;
 pub struct BootstrappingAccountInfo {
     pub account: Account,
     pub priority: Priority,
-}
-
-pub struct BlockedAccountInfo {
-    pub account: Account,
     pub dependency_block: BlockHash,
     pub dependency_account: Account,
 }
@@ -22,7 +18,7 @@ pub struct BlockedAccountInfo {
 pub struct BootstrapQueueSnapshot {
     pub download_queue: Vec<BootstrappingAccountInfo>,
     pub downloading: Vec<BootstrappingAccountInfo>,
-    pub blocked: Vec<BlockedAccountInfo>,
+    pub blocked: Vec<BootstrappingAccountInfo>,
 }
 
 use std::{collections::VecDeque, time::Duration};
@@ -563,6 +559,8 @@ impl BootstrapQueue {
             .map(|e| BootstrappingAccountInfo {
                 account: e.account,
                 priority: e.priority,
+                dependency_block: BlockHash::ZERO,
+                dependency_account: Account::ZERO,
             })
             .collect();
 
@@ -572,6 +570,8 @@ impl BootstrapQueue {
             .map(|e| BootstrappingAccountInfo {
                 account: e.account,
                 priority: e.priority,
+                dependency_block: BlockHash::ZERO,
+                dependency_account: Account::ZERO,
             })
             .collect();
 
@@ -580,8 +580,9 @@ impl BootstrapQueue {
             .take(limit)
             .map(|e| {
                 let b = e.blocked.as_ref().unwrap();
-                BlockedAccountInfo {
+                BootstrappingAccountInfo {
                     account: e.account,
+                    priority: e.priority,
                     dependency_block: b.dependency_block,
                     dependency_account: b.dependency_account.unwrap_or_default(),
                 }

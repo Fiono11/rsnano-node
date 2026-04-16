@@ -38,7 +38,7 @@ use state::{PrioritySetResult, bootstrap_logic::ProcessError};
 use state::QueryType;
 pub use state::{FrontierHeadInfo, FrontierScanConfig};
 
-pub use state::{BlockedAccountInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo};
+pub use state::{BootstrapQueueSnapshot, BootstrappingAccountInfo};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AscPullQuerySpec {
