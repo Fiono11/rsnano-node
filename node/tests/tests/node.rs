@@ -35,6 +35,24 @@ use test_helpers::{
     start_election,
 };
 
+fn snapshot_disabled_config() -> NodeConfig {
+    let mut config = System::default_config();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
+
+fn snapshot_disabled_config_without_backlog_scan() -> NodeConfig {
+    let mut config = System::default_config_without_backlog_scan();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
+
 #[test]
 fn rollback_gap_source() {
     let mut system = System::new();
@@ -289,9 +307,13 @@ fn no_voting() {
 
 // Bootstrapping a forked open block should succeed.
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn bootstrap_fork_open() {
     let mut system = System::new();
-    let mut node_config = System::default_config();
+    let mut node_config = snapshot_disabled_config();
     // Reduce cooldown to speed up fork resolution
     node_config.bootstrap.bootstrap_queue.account_cooldown = Duration::from_millis(100);
     // Make sure we can process the full account number range
@@ -351,6 +373,10 @@ fn bootstrap_fork_open() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn rep_self_vote() {
     let mut system = System::new();
     let node0 = system
@@ -366,7 +392,7 @@ fn rep_self_vote() {
             enable_priority_scheduler: false,
             enable_hinted_scheduler: false,
             enable_optimistic_scheduler: false,
-            ..System::default_config_without_backlog_scan()
+            ..snapshot_disabled_config_without_backlog_scan()
         })
         .finish();
 
@@ -417,9 +443,13 @@ fn rep_self_vote() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_bootstrap_flip() {
     let mut system = System::new();
-    let config1 = System::default_config_without_backlog_scan();
+    let config1 = snapshot_disabled_config_without_backlog_scan();
 
     let node1 = system.build_node().config(config1).finish();
     let wallet_id1 = node1.wallets.wallet_ids()[0];
@@ -428,7 +458,7 @@ fn fork_bootstrap_flip() {
         .insert_adhoc2(&wallet_id1, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    let mut config2 = System::default_config();
+    let mut config2 = snapshot_disabled_config();
     // Reduce cooldown to speed up fork resolution
     config2.bootstrap.bootstrap_queue.account_cooldown = Duration::from_millis(100);
     let node2 = system.build_node().config(config2).disconnected().finish();
@@ -468,9 +498,13 @@ fn fork_bootstrap_flip() {
 
 // Test that more than one block can be rolled back
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_multi_flip() {
     let mut system = System::new();
-    let mut config = System::default_config_without_backlog_scan();
+    let mut config = snapshot_disabled_config_without_backlog_scan();
     let mut flags = NodeFlags::default();
     flags.disable_block_processor_republishing = true;
     let node1 = system
@@ -610,9 +644,13 @@ fn fork_publish_inactive() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn unlock_search() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id = node.wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let balance = node.balance(&DEV_GENESIS_ACCOUNT);
@@ -795,9 +833,13 @@ fn search_receivable_same() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn search_receivable_multiple() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id = node.wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
@@ -993,11 +1035,15 @@ fn send_single_observing_peer() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn send_single() {
     let mut system = System::new();
     let key2 = PrivateKey::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id1 = node1.wallets.wallet_ids()[0];
     let wallet_id2 = node2.wallets.wallet_ids()[0];
 
@@ -1039,10 +1085,14 @@ fn send_single() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn send_self() {
     let mut system = System::new();
     let key2 = PrivateKey::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id = node.wallets.wallet_ids()[0];
     node.wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
@@ -1194,11 +1244,15 @@ fn local_block_broadcast() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_no_vote_quorum() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
-    let node3 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node3 = system.build_node().config(snapshot_disabled_config()).finish();
     node1.local_block_broadcaster.stop();
     node2.local_block_broadcaster.stop();
     node3.local_block_broadcaster.stop();
@@ -1330,9 +1384,13 @@ fn fork_no_vote_quorum() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_open() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
 
     // create block send1, to send all the balance from genesis to key1
     // this is done to ensure that the open block(s) cannot be voted on and confirmed
@@ -1469,10 +1527,14 @@ fn online_reps_election() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn vote_republish() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     let key2 = PrivateKey::new();
     // by not setting a private key on node1's wallet for genesis account, it is stopped from voting
     node2.insert_into_wallet(&key2);
@@ -1525,10 +1587,14 @@ fn vote_republish() {
 // Then it sends a vote for send2 to node1 and expects node2 to also get the block plus vote and confirm send2.
 // TODO: This test enforces the order block followed by vote on node1, should vote followed by block also work? It doesn't currently.
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn vote_by_hash_republish() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     let key = PrivateKey::new();
 
     // send1 and send2 are forks of each other
@@ -1564,9 +1630,13 @@ fn vote_by_hash_republish() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_election_invalid_block_signature() {
     let mut system = System::new();
-    let node1 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
 
     // send1 and send2 are forks of each other
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -1617,9 +1687,13 @@ fn fork_election_invalid_block_signature() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn confirm_back() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let key = PrivateKey::new();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -1815,12 +1889,16 @@ fn rep_crawler_rep_remove() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn epoch_conflict_confirm() {
     let mut system = System::new();
-    let config0 = System::default_config_without_backlog_scan();
+    let config0 = snapshot_disabled_config_without_backlog_scan();
     let node0 = system.build_node().config(config0).finish();
 
-    let config1 = System::default_config_without_backlog_scan();
+    let config1 = snapshot_disabled_config_without_backlog_scan();
     let node1 = system.build_node().config(config1).finish();
 
     // Node 1 is the voting node
@@ -1920,9 +1998,13 @@ fn node_receive_quorum() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_open_flip() {
     let mut system = System::new();
-    let node1 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id = node1.wallets.wallet_ids()[0];
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -1954,7 +2036,7 @@ fn fork_open_flip() {
     // so that block open1 cannot possibly get in the ledger before open2 via background sync
     system.initialization_blocks.push(send1.clone());
     system.initialization_blocks.push(open2.clone());
-    let node2 = system.make_node();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     system.initialization_blocks.clear();
     let open2 = node2.block(&open2.hash()).unwrap();
 
@@ -1989,10 +2071,14 @@ fn fork_open_flip() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn unconfirmed_send() {
     let mut system = System::new();
 
-    let node1 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id1 = node1.wallets.wallet_ids()[0];
     node1
         .wallets
@@ -2000,7 +2086,7 @@ fn unconfirmed_send() {
         .unwrap();
 
     let key2 = PrivateKey::new();
-    let node2 = system.make_node();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id2 = node2.wallets.wallet_ids()[0];
     node2
         .wallets
@@ -2147,10 +2233,14 @@ fn block_processor_signatures() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn block_confirm() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     let wallet_id2 = node2.wallets.wallet_ids()[0];
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
@@ -2203,13 +2293,17 @@ fn block_confirm() {
 /// Confirm a complex dependency graph. Uses frontiers confirmation which will fail to
 /// confirm a frontier optimistically then fallback to pessimistic confirmation.
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn dependency_graph_frontier() {
     let mut system = System::new();
     let node1 = system
         .build_node()
-        .config(System::default_config_without_backlog_scan())
+        .config(snapshot_disabled_config_without_backlog_scan())
         .finish();
-    let node2 = system.make_node();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
@@ -2282,11 +2376,15 @@ fn dependency_graph_frontier() {
 
 /// Confirm a complex dependency graph starting from the first block
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn dependency_graph() {
     let mut system = System::new();
     let node = system
         .build_node()
-        .config(System::default_config_without_backlog_scan())
+        .config(snapshot_disabled_config_without_backlog_scan())
         .finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -2390,10 +2488,14 @@ fn dependency_graph() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_keep() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();

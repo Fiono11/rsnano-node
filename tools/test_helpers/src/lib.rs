@@ -54,6 +54,10 @@ impl System {
         // process blocks sequentially
         config.block_processor.batch_size = 1;
         config.block_processor_threads = 1;
+        #[cfg(feature = "ledger_snapshots")]
+        {
+            config.rai_epoch_duration = Duration::ZERO;
+        }
         config
     }
 

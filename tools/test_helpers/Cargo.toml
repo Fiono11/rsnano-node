@@ -3,6 +3,9 @@ name = "test_helpers"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+ledger_snapshots = ["rsnano_node/ledger_snapshots"]
+
 [dependencies]
 rsnano_nullable_clock = { path = "../../nullables/clock" }
 rsnano_nullable_tcp = { path = "../../nullables/tcp" }

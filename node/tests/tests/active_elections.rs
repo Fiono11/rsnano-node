@@ -20,6 +20,24 @@ use test_helpers::{
     start_elections,
 };
 
+fn snapshot_disabled_config() -> NodeConfig {
+    let mut config = System::default_config();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
+
+fn snapshot_disabled_config_without_backlog_scan() -> NodeConfig {
+    let mut config = System::default_config_without_backlog_scan();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
+
 /// What this test is doing:
 /// Create 20 representatives with minimum principal weight each
 /// Create a send block on the genesis account (the last send block)
@@ -29,11 +47,15 @@ use test_helpers::{
 ///     (9 votes from this batch should survive and replace existing blocks in the election, why not 10?)
 /// Then send winning block and it should replace one of the existing blocks
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_replacement_tally() {
     let mut system = System::new();
     let node1 = system
         .build_node()
-        .config(System::default_config_without_backlog_scan())
+        .config(snapshot_disabled_config_without_backlog_scan())
         .finish();
 
     const REPS_COUNT: usize = 20;
@@ -216,9 +238,13 @@ fn fork_replacement_tally() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn inactive_votes_cache_basic() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let key = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(&key, Amount::raw(100));
@@ -284,9 +310,13 @@ fn non_final() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn inactive_votes_cache_fork() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
     let mut lattice1 = UnsavedBlockLatticeBuilder::new();
     let mut lattice2 = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
@@ -450,9 +480,13 @@ fn inactive_votes_cache_multiple_votes() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn inactive_votes_cache_election_start() {
     let mut system = System::new();
-    let mut config = System::default_config_without_backlog_scan();
+    let mut config = snapshot_disabled_config_without_backlog_scan();
     config.enable_optimistic_scheduler = false;
     config.enable_priority_scheduler = false;
     let node = system.build_node().config(config).finish();
@@ -534,9 +568,13 @@ fn inactive_votes_cache_election_start() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn republish_winner() {
     let mut system = System::new();
-    let mut config = System::default_config_without_backlog_scan();
+    let mut config = snapshot_disabled_config_without_backlog_scan();
     let node1 = system.build_node().config(config.clone()).finish();
     config.network.listening_port = get_available_port();
     let node2 = system.build_node().config(config).finish();
@@ -601,6 +639,10 @@ fn republish_winner() {
  * 		- disabled rep crawler -> this inhibits node2 from learning that node1 is a rep
  */
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn confirm_election_by_request() {
     let mut system = System::new();
     let node1 = system
@@ -608,7 +650,7 @@ fn confirm_election_by_request() {
         .config(NodeConfig {
             // Disable vote rebroadcasting to prevent node1 from actively sending votes to node2
             enable_vote_rebroadcast: false,
-            ..System::default_config()
+            ..snapshot_disabled_config()
         })
         .finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -639,7 +681,11 @@ fn confirm_election_by_request() {
         disable_rep_crawler: true,
         ..Default::default()
     };
-    let node2 = system.build_node().flags(flags).finish();
+    let node2 = system
+        .build_node()
+        .config(snapshot_disabled_config())
+        .flags(flags)
+        .finish();
 
     // Process send1 block as live block on node2, this should start an election
     node2.process_active(send1.clone());
@@ -887,9 +933,13 @@ fn dropped_cleanup() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn confirmation_consistency() {
     let mut system = System::new();
-    let config = System::default_config_without_backlog_scan();
+    let config = snapshot_disabled_config_without_backlog_scan();
     let node = system.build_node().config(config).finish();
     let wallet_id = node.wallets.wallet_ids()[0];
     node.wallets
@@ -917,9 +967,13 @@ fn confirmation_consistency() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn fork_filter_cleanup() {
     let mut system = System::new();
-    let mut config = System::default_config_without_backlog_scan();
+    let mut config = snapshot_disabled_config_without_backlog_scan();
     let node1 = system.build_node().config(config.clone()).finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -973,9 +1027,13 @@ fn fork_filter_cleanup() {
 
 // Ensures votes are tallied on election::publish even if no vote is inserted through inactive_votes_cache
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn conflicting_block_vote_existing_election() {
     let mut system = System::new();
-    let config = System::default_config_without_backlog_scan();
+    let config = snapshot_disabled_config_without_backlog_scan();
     let flags = NodeFlags {
         disable_request_loop: true,
         ..Default::default()
@@ -1212,14 +1270,18 @@ fn vote_replays() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn confirm_new() {
     let mut system = System::new();
-    let node1 = system.make_node();
+    let node1 = system.build_node().config(snapshot_disabled_config()).finish();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(Account::from(1), 100);
     node1.process_active(send.clone());
     assert_timely_eq2(|| node1.aec.len(), 1);
-    let node2 = system.make_node();
+    let node2 = system.build_node().config(snapshot_disabled_config()).finish();
     // Add key to node2
     node2.insert_into_wallet(&DEV_GENESIS_KEY);
     // Let node2 know about the block

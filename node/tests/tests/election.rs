@@ -5,6 +5,15 @@ use rsnano_node::{config::NodeConfig, consensus::ReceivedVote};
 use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteSource};
 use test_helpers::{System, assert_timely2};
 
+fn snapshot_disabled_config_without_backlog_scan() -> NodeConfig {
+    let mut config = System::default_config_without_backlog_scan();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
+
 // checks that block cannot be confirmed if there is no enough votes to reach quorum
 #[test]
 fn quorum_minimum_confirm_fail() {
@@ -88,11 +97,15 @@ fn quorum_minimum_confirm_success() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn quorum_minimum_flip_fail() {
     let mut system = System::new();
     let config = NodeConfig {
         online_weight_minimum: Amount::MAX,
-        ..System::default_config_without_backlog_scan()
+        ..snapshot_disabled_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
 
@@ -137,11 +150,15 @@ fn quorum_minimum_flip_fail() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn quorum_minimum_flip_success() {
     let mut system = System::new();
     let config = NodeConfig {
         online_weight_minimum: Amount::MAX,
-        ..System::default_config_without_backlog_scan()
+        ..snapshot_disabled_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
 

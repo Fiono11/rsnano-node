@@ -6,7 +6,7 @@ use std::{
 use rsnano_ledger::{AnySet, test_helpers::UnsavedBlockLatticeBuilder};
 use rsnano_messages::ConfirmAck;
 use rsnano_node::{
-    config::NodeFlags,
+    config::{NodeConfig, NodeFlags},
     consensus::{AggregatorRequest, VoteGenerationEvent},
 };
 use rsnano_output_tracker::OutputTrackerMt;
@@ -17,6 +17,15 @@ use test_helpers::{
     System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
     make_fake_channel,
 };
+
+fn snapshot_disabled_config() -> NodeConfig {
+    let mut config = System::default_config();
+    #[cfg(feature = "ledger_snapshots")]
+    {
+        config.rai_epoch_duration = Duration::ZERO;
+    }
+    config
+}
 
 #[test]
 fn one() {
@@ -680,9 +689,13 @@ fn cannot_vote() {
 
 /// Request for a forked open block should return vote for the correct fork alternative
 #[test]
+#[cfg_attr(
+    feature = "ledger_snapshots",
+    ignore = "covered by tests::ledger_snapshots"
+)]
 fn forked_open() {
     let mut system = System::new();
-    let node = system.make_node();
+    let node = system.build_node().config(snapshot_disabled_config()).finish();
 
     // Voting needs a rep key set up on the node
     node.insert_into_wallet(&DEV_GENESIS_KEY);
