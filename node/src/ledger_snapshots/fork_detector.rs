@@ -48,12 +48,11 @@ impl EventHandlerMut<LedgerPipelineEvent> for ForkDetector {
 mod tests {
     use crate::{
         block_processing::LedgerPipelineEvent,
-        block_processing::{BlockSource, ProcessedResult},
         consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
         ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector},
     };
-    use rsnano_ledger::LedgerEvent;
-    use rsnano_ledger::{BlockError, Ledger};
+    use rsnano_ledger::{BlockError, Ledger, ProcessResult};
+    use rsnano_ledger::{BlockSource, LedgerEvent};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Block, BlockPriority, SavedBlock};
     use rsnano_utils::EventHandlerMut;
@@ -72,11 +71,12 @@ mod tests {
         let block = Block::new_test_instance();
         let root = block.qualified_root();
 
-        let processed_results = ProcessedResult {
+        let processed_results = ProcessResult {
             block,
             source: BlockSource::Live,
             status: Err(BlockError::Fork),
             saved_block: None,
+            priority: BlockPriority::new_test_instance(),
         };
 
         fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
@@ -107,18 +107,20 @@ mod tests {
         let root1 = block1.qualified_root();
         let root2 = block2.qualified_root();
 
-        let processed_result1 = ProcessedResult {
+        let processed_result1 = ProcessResult {
             block: block1,
             source: BlockSource::Live,
             status: Err(BlockError::Fork),
             saved_block: None,
+            priority: BlockPriority::new_test_instance(),
         };
 
-        let processed_result2 = ProcessedResult {
+        let processed_result2 = ProcessResult {
             block: block2,
             source: BlockSource::Live,
             status: Err(BlockError::Fork),
             saved_block: None,
+            priority: BlockPriority::new_test_instance(),
         };
 
         fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
@@ -154,11 +156,12 @@ mod tests {
         let block = Block::new_test_instance();
         let root = block.qualified_root();
 
-        let processed_results = ProcessedResult {
+        let processed_results = ProcessResult {
             block,
             source: BlockSource::Live,
             status: Err(BlockError::GapPrevious),
             saved_block: None,
+            priority: BlockPriority::new_test_instance(),
         };
 
         fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
@@ -191,11 +194,12 @@ mod tests {
         let mut fork_detector =
             ForkDetector::new(ledger.clone(), ledger_snapshots.into(), aec.clone());
 
-        let processed_results = ProcessedResult {
+        let processed_results = ProcessResult {
             block: block.into(),
             source: BlockSource::Live,
             status: Err(BlockError::Fork),
             saved_block: None,
+            priority: BlockPriority::new_test_instance(),
         };
 
         fork_detector.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
