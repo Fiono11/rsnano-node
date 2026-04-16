@@ -34,6 +34,22 @@ pub struct BootstrapQueueSnapshot {
     pub blocked: Vec<BootstrappingAccountInfo>,
 }
 
+impl From<&BootstrappingAccount> for BootstrappingAccountInfo {
+    fn from(e: &BootstrappingAccount) -> Self {
+        let (dependency_block, dependency_account) = e
+            .blocked
+            .as_ref()
+            .map(|b| (b.dependency_block, b.dependency_account.unwrap_or_default()))
+            .unwrap_or_default();
+        Self {
+            account: e.account,
+            priority: e.priority,
+            dependency_block,
+            dependency_account,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapQueueConfig {
     pub max_unblocked_accounts: usize,
@@ -557,24 +573,14 @@ impl BootstrapQueue {
             .iter_priorities()
             .filter(|e| filter.is_none() || filter == Some(e.account))
             .take(limit)
-            .map(|e| BootstrappingAccountInfo {
-                account: e.account,
-                priority: e.priority,
-                dependency_block: BlockHash::ZERO,
-                dependency_account: Account::ZERO,
-            })
+            .map(|e| e.into())
             .collect();
 
         let downloading = self
             .iter_downloading()
             .filter(|e| filter.is_none() || filter == Some(e.account))
             .take(limit)
-            .map(|e| BootstrappingAccountInfo {
-                account: e.account,
-                priority: e.priority,
-                dependency_block: BlockHash::ZERO,
-                dependency_account: Account::ZERO,
-            })
+            .map(|e| e.into())
             .collect();
 
         let blocked = self
@@ -585,15 +591,7 @@ impl BootstrapQueue {
                     || filter == e.blocked.as_ref().and_then(|b| b.dependency_account)
             })
             .take(limit)
-            .map(|e| {
-                let b = e.blocked.as_ref().unwrap();
-                BootstrappingAccountInfo {
-                    account: e.account,
-                    priority: e.priority,
-                    dependency_block: b.dependency_block,
-                    dependency_account: b.dependency_account.unwrap_or_default(),
-                }
-            })
+            .map(|e| e.into())
             .collect();
 
         BootstrapQueueSnapshot {
