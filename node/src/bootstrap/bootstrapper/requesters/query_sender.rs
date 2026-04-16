@@ -10,8 +10,8 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use crate::{
     bootstrap::bootstrapper::{
-        AscPullQuerySpec,
         logic::{BootstrapLogic, RunningQuery},
+        AscPullQuerySpec,
     },
     transport::MessageSender,
 };
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(id, None);
         assert_eq!(state.running_queries.len(), 0);
         assert_eq!(state.bootstrap_queue.info().download_queue, 0);
-        assert_eq!(state.bootstrap_queue.blocked_count(), 0);
+        assert_eq!(state.bootstrap_queue.info().blocked, 0);
     }
 
     #[test]

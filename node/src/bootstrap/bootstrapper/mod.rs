@@ -24,9 +24,9 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -289,19 +289,6 @@ impl Bootstrapper {
     pub fn clear_blocked_accounts(&self) {
         let mut guard = self.logic.lock().unwrap();
         guard.bootstrap_queue.clear_blocked_accounts();
-    }
-
-    pub fn consistency_check(&self) {
-        tracing::info!("Performing blocked accounts consistency check...");
-        let guard = self.logic.lock().unwrap();
-        let any = self.ledger.any();
-        for entry in guard.bootstrap_queue.iter_blocked() {
-            let dep_block = entry.blocked.as_ref().unwrap().dependency_block;
-            if any.block_exists(&dep_block) {
-                tracing::warn!(account = entry.account.encode_account(), dependency = ?dep_block, "Dependency block found, but account still blocked");
-            }
-        }
-        tracing::info!("Blocked accounts consistency check completed");
     }
 
     /// Process `asc_pull_ack` message coming from network
