@@ -14,7 +14,7 @@ use super::{
 };
 use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
-    state::{
+    logic::{
         QueryType, RunningQuery,
         account_ack_processor::AccountAckProcessor,
         block_ack_processor::BlockAckProcessor,

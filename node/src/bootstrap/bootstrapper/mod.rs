@@ -1,10 +1,11 @@
+pub mod logic;
+
 mod block_inspector;
 mod cleanup;
 mod requesters;
 mod response_processor;
-pub mod state;
 
-pub use state::{
+pub use logic::{
     BootstrapQueueSnapshot, BootstrappingAccountInfo, FrontierHeadInfo, FrontierScanConfig,
 };
 
@@ -30,15 +31,15 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::state::{BootstrapQueueInfo, Priority},
+    bootstrap::bootstrapper::logic::{BootstrapQueueInfo, Priority},
     transport::MessageSender,
 };
 
 use block_inspector::BlockInspector;
 use cleanup::BootstrapCleanup;
+use logic::{BootstrapLogic, BootstrapQueueConfig, QueryType, bootstrap_logic::ProcessError};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
-use state::{BootstrapLogic, BootstrapQueueConfig, QueryType, bootstrap_logic::ProcessError};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AscPullQuerySpec {
@@ -179,11 +180,11 @@ impl Bootstrapper {
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let state = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
+        let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
         let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
-            state.clone(),
+            logic.clone(),
             stats.clone(),
             block_processor_queue.clone(),
             ledger.clone(),
@@ -191,7 +192,7 @@ impl Bootstrapper {
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
         let block_inspector = BlockInspector::new(
-            state.clone(),
+            logic.clone(),
             ledger.clone(),
             stats.clone(),
             clock.clone(),
@@ -202,7 +203,7 @@ impl Bootstrapper {
             config.clone(),
             stats.clone(),
             message_sender.clone(),
-            state.clone(),
+            logic.clone(),
             state_changed.clone(),
             ledger.clone(),
             block_processor_queue,
@@ -211,7 +212,7 @@ impl Bootstrapper {
 
         Self {
             threads: Mutex::new(None),
-            logic: state,
+            logic,
             state_changed,
             config,
             stats,
@@ -353,21 +354,21 @@ impl Bootstrapper {
 
     fn run_timeouts(&self) {
         let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
-        let mut state = self.logic.lock().unwrap();
+        let mut logic = self.logic.lock().unwrap();
         let mut last_sync = self.clock.now();
-        while !state.stopped {
-            cleanup.cleanup(&mut state);
+        while !logic.stopped {
+            cleanup.cleanup(&mut logic);
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
-                cleanup.reinsert_known_dependencies(&mut state);
+                cleanup.reinsert_known_dependencies(&mut logic);
                 last_sync = self.clock.now();
             }
 
             self.state_changed.notify_all();
 
-            state = self
+            logic = self
                 .state_changed
-                .wait_timeout_while(state, Duration::from_secs(1), |s| !s.stopped)
+                .wait_timeout_while(logic, Duration::from_secs(1), |s| !s.stopped)
                 .unwrap()
                 .0;
         }

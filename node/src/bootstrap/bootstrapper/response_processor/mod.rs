@@ -12,12 +12,12 @@ use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::Stats;
 
-use super::state::BootstrapLogic;
+use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
+        logic::bootstrap_logic::{ProcessError, ProcessInfo},
         response_processor::frontier_check_pool::FrontierCheckPool,
-        state::bootstrap_logic::{ProcessError, ProcessInfo},
     },
 };
 

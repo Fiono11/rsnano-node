@@ -11,8 +11,8 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig,
+        logic::BootstrapLogic,
         requesters::{query_sender::QuerySender, query_spec_factory::QuerySpecFactory},
-        state::BootstrapLogic,
     },
     transport::MessageSender,
 };

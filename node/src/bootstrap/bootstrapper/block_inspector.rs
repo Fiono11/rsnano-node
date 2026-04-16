@@ -6,10 +6,10 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Block, BlockType, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::state::{BootstrapLogic, PrioritySetResult};
+use super::logic::{BootstrapLogic, PrioritySetResult};
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::bootstrapper::state::Priority,
+    bootstrap::bootstrapper::logic::Priority,
 };
 
 /// Inspects a processed block and adjusts the bootstrap state accordingly

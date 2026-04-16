@@ -11,7 +11,7 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 use crate::{
     bootstrap::bootstrapper::{
         AscPullQuerySpec,
-        state::{BootstrapLogic, RunningQuery},
+        logic::{BootstrapLogic, RunningQuery},
     },
     transport::MessageSender,
 };

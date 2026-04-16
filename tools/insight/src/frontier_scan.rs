@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use rsnano_node::{
     bootstrap::bootstrapper::{
         FrontierHeadInfo,
-        state::{BootstrapLogic, frontiers_processor::FrontiersStats},
+        logic::{BootstrapLogic, frontiers_processor::FrontiersStats},
     },
     utils::RateCalculator,
 };

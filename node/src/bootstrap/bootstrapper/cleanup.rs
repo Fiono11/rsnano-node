@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::state::{BootstrapLogic, RunningQuery};
+use super::logic::{BootstrapLogic, RunningQuery};
 
 pub(super) struct BootstrapCleanup {
     clock: Arc<SteadyClock>,

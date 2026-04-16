@@ -1,4 +1,4 @@
-use crate::bootstrap::bootstrapper::state::Priority;
+use crate::bootstrap::bootstrapper::logic::Priority;
 use num::clamp;
 use rsnano_messages::BlocksAckPayload;
 use std::cmp::min;

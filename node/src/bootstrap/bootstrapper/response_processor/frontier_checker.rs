@@ -2,7 +2,7 @@ use rsnano_ledger::{LedgerSet, OwningAnySet};
 use rsnano_types::{Account, Frontier};
 
 use super::database_crawler::{AccountCrawlSource, DatabaseCrawler, PendingCrawlSource};
-use crate::bootstrap::bootstrapper::state::frontiers_processor::OutdatedAccounts;
+use crate::bootstrap::bootstrapper::logic::frontiers_processor::OutdatedAccounts;
 
 pub(crate) enum FrontierCheckResult {
     /// Account doesn't exist in the ledger and has no pending blocks, can't be prioritized right now

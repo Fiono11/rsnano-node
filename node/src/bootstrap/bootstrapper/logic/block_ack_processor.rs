@@ -5,7 +5,7 @@ use tracing::trace;
 use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::state::{
+use crate::bootstrap::bootstrapper::logic::{
     BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
 };
 
@@ -133,7 +133,7 @@ impl StatsSource for BlockAckStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::state::QueryType;
+    use crate::bootstrap::bootstrapper::logic::QueryType;
     use rsnano_types::Account;
 
     #[test]

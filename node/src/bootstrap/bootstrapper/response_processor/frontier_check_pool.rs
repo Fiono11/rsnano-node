@@ -4,7 +4,7 @@ use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
-    response_processor::frontier_worker::FrontierWorker, state::BootstrapLogic,
+    logic::BootstrapLogic, response_processor::frontier_worker::FrontierWorker,
 };
 
 pub(crate) struct FrontierCheckPool {

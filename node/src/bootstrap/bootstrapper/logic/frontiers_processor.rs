@@ -1,6 +1,6 @@
 use crate::bootstrap::bootstrapper::{
     FrontierHeadInfo, FrontierScanConfig,
-    state::{BootstrapQueue, FrontierScan, Priority, RunningQuery, VerifyResult},
+    logic::{BootstrapQueue, FrontierScan, Priority, RunningQuery, VerifyResult},
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
@@ -146,7 +146,7 @@ impl StatsSource for FrontiersStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::state::{QuerySource, QueryType};
+    use crate::bootstrap::bootstrapper::logic::{QuerySource, QueryType};
 
     #[test]
     fn empty_frontiers() {
