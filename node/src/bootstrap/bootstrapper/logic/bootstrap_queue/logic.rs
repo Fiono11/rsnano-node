@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Duration};
+use std::{cmp::max, collections::VecDeque, time::Duration};
 
 use rustc_hash::FxHashMap;
 
@@ -86,11 +86,10 @@ impl Default for BootstrapQueueConfig {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum PrioritySetResult {
+pub enum PriorityUpResult {
     Inserted,
-    Updated,
+    Upgraded,
     InvalidAccount,
-    Removed,
     /// If the account is not in the download queue, we don't change its priority
     Unchanged,
 }
@@ -139,42 +138,42 @@ impl BootstrapQueueLogic {
         }
     }
 
-    pub fn account_state(&self, account: &Account) -> Option<AccountState> {
-        self.accounts.get(account).map(|a| a.state)
-    }
-
-    pub fn priority_set(&mut self, account: &Account, priority: Priority) -> PrioritySetResult {
+    pub fn priority_up_to(
+        &mut self,
+        account: &Account,
+        new_priority: Priority,
+    ) -> PriorityUpResult {
         if account.is_zero() {
-            return PrioritySetResult::InvalidAccount;
+            return PriorityUpResult::InvalidAccount;
         }
 
         let result = self.modify_priority(account, |e| {
-            e.priority = priority;
+            if e.priority < new_priority {
+                e.priority = new_priority;
+            }
             e.fails = 0;
         });
         self.revision += 1;
 
         match result {
-            ChangePriorityResult::Updated => PrioritySetResult::Updated,
-            ChangePriorityResult::Removed => PrioritySetResult::Removed,
-            ChangePriorityResult::Unchanged => PrioritySetResult::Unchanged,
+            ChangePriorityResult::Updated => PriorityUpResult::Upgraded,
+            ChangePriorityResult::Removed => unreachable!(),
+            ChangePriorityResult::Unchanged => PriorityUpResult::Unchanged,
             ChangePriorityResult::NotFound => {
-                if priority >= Priority::CUTOFF {
-                    self.accounts
-                        .insert(*account, BootstrappingAccount::new(*account, priority));
-                    self.download_queue.insert(*account, priority);
-                    self.trim_overflow();
-                    PrioritySetResult::Inserted
-                } else {
-                    PrioritySetResult::Removed
-                }
+                self.accounts.insert(
+                    *account,
+                    BootstrappingAccount::new(*account, max(new_priority, Priority::CUTOFF)),
+                );
+                self.download_queue.insert(*account, new_priority);
+                self.trim_overflow();
+                PriorityUpResult::Inserted
             }
         }
     }
 
-    pub fn priority_up(&mut self, account: &Account) -> PrioritySetResult {
+    pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         if account.is_zero() {
-            return PrioritySetResult::InvalidAccount;
+            return PriorityUpResult::InvalidAccount;
         }
 
         let result = self.modify_priority(account, |e| {
@@ -190,9 +189,9 @@ impl BootstrapQueueLogic {
             );
             self.download_queue.insert(*account, Priority::INITIAL);
             self.trim_overflow();
-            PrioritySetResult::Inserted
+            PriorityUpResult::Inserted
         } else {
-            PrioritySetResult::Updated
+            PriorityUpResult::Upgraded
         }
     }
 
@@ -233,7 +232,7 @@ impl BootstrapQueueLogic {
 
         if entry.fails >= BootstrapQueueLogic::MAX_FAILS
             || entry.fails as f64 > entry.priority.as_f64()
-            || entry.priority <= Priority::CUTOFF
+            || entry.priority < Priority::CUTOFF
         {
             self.remove(account);
             return ChangePriorityResult::Removed;
@@ -564,7 +563,7 @@ impl BootstrapQueueLogic {
                 break;
             }
 
-            self.priority_set(&account, Priority::INITIAL);
+            self.priority_up_to(&account, Priority::INITIAL);
             inserted += 1;
         }
 
@@ -750,7 +749,7 @@ mod tests {
         let account = Account::from(1);
         let prio = Priority::new(10.0);
 
-        queue.priority_set(&account, prio);
+        queue.priority_up_to(&account, prio);
 
         assert_eq!(queue.priority(&account), prio);
     }
@@ -759,9 +758,9 @@ mod tests {
     fn priority_set_fails_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, BlockHash::from(2), Timestamp::new_test_instance());
-        queue.priority_set(&account, Priority::new(42.0));
+        queue.priority_up_to(&account, Priority::new(42.0));
 
         assert_eq!(queue.info().blocked, 1);
         assert_eq!(queue.info().download_queue, 0);
@@ -774,14 +773,12 @@ mod tests {
     }
 
     #[test]
-    fn setting_priority_to_below_cutoff_dequeues_the_account() {
+    fn priority_up_cant_reduce_the_priority() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        assert_eq!(
-            queue.priority_set(&account, Priority::CUTOFF / 2.0),
-            PrioritySetResult::Removed
-        );
-        assert!(!queue.contains(&account));
+        queue.priority_up_to(&account, Priority::new(2.0));
+        queue.priority_up_to(&account, Priority::new(1.0));
+        assert_eq!(queue.priority(&account), Priority::new(2.0));
     }
 
     /*
@@ -805,11 +802,11 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         assert_eq!(
             queue.priority_up(&Account::ZERO),
-            PrioritySetResult::InvalidAccount
+            PriorityUpResult::InvalidAccount
         );
         assert_eq!(
-            queue.priority_set(&Account::ZERO, Priority::INITIAL),
-            PrioritySetResult::InvalidAccount
+            queue.priority_up_to(&Account::ZERO, Priority::INITIAL),
+            PriorityUpResult::InvalidAccount
         );
         assert_eq!(queue.info().blocked, 0);
         assert_eq!(queue.info().download_queue, 0);
@@ -819,12 +816,12 @@ mod tests {
     fn priority_cant_be_increased_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, BlockHash::from(2), Timestamp::new_test_instance());
 
         let result = queue.priority_up(&account);
 
-        assert_eq!(result, PrioritySetResult::Updated);
+        assert_eq!(result, PriorityUpResult::Upgraded);
         assert_eq!(queue.info().blocked, 1);
         assert_eq!(queue.priority(&account), Priority::INITIAL);
     }
@@ -837,7 +834,7 @@ mod tests {
     fn priority_down_decreases_priority() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
 
         queue.priority_down(&account);
 
@@ -861,7 +858,7 @@ mod tests {
     fn account_gets_dequeued_if_priority_gets_too_low() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
 
         for _ in 0..10 {
             queue.priority_down(&account);
@@ -879,7 +876,7 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
 
         queue.block(account, hash, Timestamp::new_test_instance());
 
@@ -929,7 +926,7 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         let hash = BlockHash::from(2);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, hash, Timestamp::new_test_instance());
 
         let unblocked = queue.unblock(account, Some(BlockHash::from(3)));
@@ -944,7 +941,7 @@ mod tests {
         let account = Account::from(1);
         let hash = BlockHash::from(2);
         let priority = Priority::new(99.0);
-        queue.priority_set(&account, priority);
+        queue.priority_up_to(&account, priority);
         queue.block(account, hash, Timestamp::new_test_instance());
 
         queue.unblock(account, None);
@@ -961,8 +958,8 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account1 = Account::from(1);
         let account2 = Account::from(2);
-        queue.priority_set(&account1, Priority::INITIAL);
-        queue.priority_set(&account2, Priority::INITIAL);
+        queue.priority_up_to(&account1, Priority::INITIAL);
+        queue.priority_up_to(&account2, Priority::INITIAL);
         let removed = queue.remove(&account1);
         assert!(removed);
         assert!(!queue.contains(&account1));
@@ -973,7 +970,7 @@ mod tests {
     fn set_last_request() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         let new_timestamp = Timestamp::new_test_instance() + Duration::from_secs(1000);
         queue.set_last_request(&account, new_timestamp);
         assert_eq!(queue.last_request(&account), Some(new_timestamp))
@@ -995,9 +992,9 @@ mod tests {
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let account3 = Account::from(3);
-        queue.priority_set(&account1, Priority::new(2.0));
-        queue.priority_set(&account2, Priority::new(1.0));
-        queue.priority_set(&account3, Priority::new(3.0));
+        queue.priority_up_to(&account1, Priority::new(2.0));
+        queue.priority_up_to(&account2, Priority::new(1.0));
+        queue.priority_up_to(&account3, Priority::new(3.0));
 
         assert_eq!(queue.info().download_queue, 2);
         assert!(queue.contains(&account1));
@@ -1038,7 +1035,7 @@ mod tests {
     fn next_priority() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         let now = Timestamp::new_test_instance();
         let next = queue.next_download_target(now, |_| true);
         assert_eq!(
@@ -1068,8 +1065,8 @@ mod tests {
         let mut queue = BootstrapQueueLogic::new(config.clone());
         let account1 = Account::from(1);
         let account2 = Account::from(2);
-        queue.priority_set(&account1, Priority::new(100.0));
-        queue.priority_set(&account2, Priority::new(1.0));
+        queue.priority_up_to(&account1, Priority::new(100.0));
+        queue.priority_up_to(&account2, Priority::new(1.0));
         let now = Timestamp::new_test_instance();
         queue.set_last_request(
             &account1,
@@ -1094,9 +1091,9 @@ mod tests {
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let account3 = Account::from(2);
-        queue.priority_set(&account1, Priority::INITIAL);
-        queue.priority_set(&account2, Priority::INITIAL);
-        queue.priority_set(&account3, Priority::INITIAL);
+        queue.priority_up_to(&account1, Priority::INITIAL);
+        queue.priority_up_to(&account2, Priority::INITIAL);
+        queue.priority_up_to(&account3, Priority::INITIAL);
         let now = Timestamp::new_test_instance();
         let next = queue.next_download_target(now, |a| *a == account2);
         assert_eq!(
@@ -1120,7 +1117,7 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         let dependency = BlockHash::from(2);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
         assert_eq!(queue.next_blocked(|_| true), dependency);
     }
@@ -1132,9 +1129,9 @@ mod tests {
         let account2 = Account::from(2);
         let account3 = Account::from(3);
         let dependency = BlockHash::from(2);
-        queue.priority_set(&account1, Priority::INITIAL);
-        queue.priority_set(&account2, Priority::INITIAL);
-        queue.priority_set(&account3, Priority::INITIAL);
+        queue.priority_up_to(&account1, Priority::INITIAL);
+        queue.priority_up_to(&account2, Priority::INITIAL);
+        queue.priority_up_to(&account3, Priority::INITIAL);
         queue.block(
             account1,
             BlockHash::from(1000),
@@ -1161,11 +1158,11 @@ mod tests {
 
         assert!(!queue.blocked_half_full());
 
-        queue.priority_set(&account1, Priority::INITIAL);
+        queue.priority_up_to(&account1, Priority::INITIAL);
         queue.block(account1, BlockHash::from(1), Timestamp::new_test_instance());
         assert!(!queue.blocked_half_full());
 
-        queue.priority_set(&account2, Priority::INITIAL);
+        queue.priority_up_to(&account2, Priority::INITIAL);
         queue.block(account2, BlockHash::from(2), Timestamp::new_test_instance());
         assert!(queue.blocked_half_full());
     }
@@ -1173,9 +1170,9 @@ mod tests {
     #[test]
     fn container_info() {
         let mut queue = BootstrapQueueLogic::default();
-        queue.priority_set(&Account::from(1), Priority::INITIAL);
-        queue.priority_set(&Account::from(2), Priority::INITIAL);
-        queue.priority_set(&Account::from(3), Priority::INITIAL);
+        queue.priority_up_to(&Account::from(1), Priority::INITIAL);
+        queue.priority_up_to(&Account::from(2), Priority::INITIAL);
+        queue.priority_up_to(&Account::from(3), Priority::INITIAL);
         queue.block(
             Account::from(2),
             BlockHash::from(3),
@@ -1216,7 +1213,7 @@ mod tests {
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
 
         queue.dependency_update(&dependency, dependency_account);
@@ -1230,10 +1227,10 @@ mod tests {
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
         queue.dependency_update(&dependency, dependency_account);
-        queue.priority_set(&dependency_account, Priority::INITIAL);
+        queue.priority_up_to(&dependency_account, Priority::INITIAL);
 
         let inserted = queue.sync_dependencies();
 
@@ -1250,11 +1247,11 @@ mod tests {
         let account = Account::from(1);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
-        queue.priority_set(&account, Priority::INITIAL);
+        queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
         queue.dependency_update(&dependency, dependency_account);
-        queue.priority_set(&Account::from(9999), Priority::INITIAL);
-        queue.priority_set(&Account::from(8888), Priority::INITIAL);
+        queue.priority_up_to(&Account::from(9999), Priority::INITIAL);
+        queue.priority_up_to(&Account::from(8888), Priority::INITIAL);
 
         let inserted = queue.sync_dependencies();
 
@@ -1274,10 +1271,10 @@ mod tests {
         let dependency = BlockHash::from(99);
         let now = Timestamp::new_test_instance();
 
-        queue.priority_set(&queued, Priority::INITIAL);
-        queue.priority_set(&downloading, Priority::INITIAL);
+        queue.priority_up_to(&queued, Priority::INITIAL);
+        queue.priority_up_to(&downloading, Priority::INITIAL);
         queue.download_started(&downloading, now);
-        queue.priority_set(&blocked, Priority::INITIAL);
+        queue.priority_up_to(&blocked, Priority::INITIAL);
         queue.block(blocked, dependency, now);
 
         let snap = queue.snapshot(10, None);

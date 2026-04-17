@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
 use rsnano_types::{Account, Block, BlockType, SavedBlock};
-use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::logic::BootstrapLogic;
 use crate::{
@@ -15,7 +14,6 @@ use crate::{
 pub(super) struct BlockInspector {
     state: Arc<Mutex<BootstrapLogic>>,
     ledger: Arc<Ledger>,
-    stats: Arc<Stats>,
     block_processor_queue: Arc<BlockProcessorQueue>,
 }
 
@@ -23,13 +21,11 @@ impl BlockInspector {
     pub(super) fn new(
         state: Arc<Mutex<BootstrapLogic>>,
         ledger: Arc<Ledger>,
-        stats: Arc<Stats>,
         block_processor_queue: Arc<BlockProcessorQueue>,
     ) -> Self {
         Self {
             state,
             ledger,
-            stats,
             block_processor_queue,
         }
     }
@@ -90,14 +86,7 @@ impl BlockInspector {
                     let saved_block = result.saved_block.as_ref().unwrap();
                     let account = saved_block.account();
                     // If we've inserted any block in to an account, unmark it as blocked
-                    if state.bootstrap_queue.unblock(account, None) {
-                        self.stats
-                            .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
-                        self.stats.inc(
-                            StatType::BootstrapAccountSets,
-                            DetailType::PriorityUnblocked,
-                        );
-                    }
+                    state.bootstrap_queue.unblock(account, None);
 
                     // Progress blocks from live traffic don't need further bootstrapping
                     if result.source == BlockSource::Bootstrap {
@@ -107,17 +96,7 @@ impl BlockInspector {
                     if saved_block.is_send() {
                         let destination = saved_block.destination().unwrap();
                         if !destination.is_zero() {
-                            // Unblocking automatically inserts account into priority set
-                            if state.bootstrap_queue.unblock(destination, Some(hash)) {
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::Unblock);
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityUnblocked,
-                                );
-                            } else {
-                                state.bootstrap_queue.priority_up(&destination);
-                            }
+                            state.bootstrap_queue.unblock(destination, Some(hash));
                         }
                     }
                 }
@@ -131,18 +110,7 @@ impl BlockInspector {
 
                         if !account.is_zero() && !source.is_zero() {
                             // Mark account as blocked because it is missing the source block
-                            let blocked = state.bootstrap_queue.block(*account, source);
-                            if blocked {
-                                self.stats.inc(
-                                    StatType::BootstrapAccountSets,
-                                    DetailType::PriorityEraseBlock,
-                                );
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::Block);
-                            } else {
-                                self.stats
-                                    .inc(StatType::BootstrapAccountSets, DetailType::BlockFailed);
-                            }
+                            state.bootstrap_queue.block(*account, source);
                         }
                     }
                     BlockError::GapPrevious => {
@@ -163,10 +131,7 @@ impl BlockInspector {
                     }
                     BlockError::GapEpochOpenPending => {
                         // Epoch open blocks for accounts that don't have any pending blocks yet
-                        if state.bootstrap_queue.remove(account) {
-                            self.stats
-                                .inc(StatType::BootstrapAccountSets, DetailType::PriorityErase);
-                        }
+                        state.bootstrap_queue.remove(account);
                     }
                     BlockError::Conflict => {
                         state.bootstrap_queue.reprocess(account, &hash);

@@ -1,5 +1,4 @@
 use rsnano_messages::AccountInfoAckPayload;
-use rsnano_types::{Account, BlockHash};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery};
@@ -23,30 +22,10 @@ impl AccountAckProcessor {
         }
 
         // Prioritize account containing the dependency
-        self.update_dependency(queue, &query.hash, response.account);
-        self.prioritize(queue, &response.account);
-
+        queue.dependency_update(&query.hash, response.account);
+        queue.priority_up(&response.account);
         // OK, no way to verify the response
         true
-    }
-
-    fn update_dependency(
-        &mut self,
-        queue: &mut BootstrapQueue,
-        dependency: &BlockHash,
-        dependency_account: Account,
-    ) {
-        let updated = queue.dependency_update(dependency, dependency_account);
-
-        if updated > 0 {
-            self.stats.dependency_update += updated as u64;
-        } else {
-            self.stats.dependency_update_failed += 1;
-        }
-    }
-
-    fn prioritize(&mut self, queue: &mut BootstrapQueue, account: &Account) {
-        queue.priority_up(account);
     }
 }
 
@@ -59,21 +38,12 @@ impl StatsSource for AccountAckProcessor {
 #[derive(Default)]
 pub(super) struct AccountAckStats {
     pub empty: u64,
-    pub dependency_update: u64,
-    pub dependency_update_failed: u64,
 }
 
 impl StatsSource for AccountAckStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
         const PROCESSOR: &str = "bootstr_acc_ack_proc";
-
         result.insert(PROCESSOR, "account_info_empty", self.empty);
-        result.insert(PROCESSOR, "dependency_update", self.dependency_update);
-        result.insert(
-            PROCESSOR,
-            "dependency_update_failed",
-            self.dependency_update_failed,
-        );
     }
 }
 
@@ -81,6 +51,7 @@ impl StatsSource for AccountAckStats {
 mod tests {
     use super::*;
     use crate::bootstrap::bootstrapper::logic::Priority;
+    use rsnano_types::{Account, BlockHash};
 
     #[test]
     fn empty_response() {
@@ -109,7 +80,6 @@ mod tests {
         assert!(processor.process(&mut queue, &query, &response));
 
         assert!(queue.contains(&response.account));
-        assert_eq!(processor.stats.dependency_update_failed, 1);
     }
 
     #[test]
@@ -140,7 +110,6 @@ mod tests {
         assert!(queue.contains(&source_account));
         let target = queue.next_download_target(|_| true);
         assert_eq!(target.account, source_account);
-        assert_eq!(processor.stats.dependency_update, 1);
     }
 
     #[test]
@@ -168,7 +137,5 @@ mod tests {
         queue.priority_up(&source_account);
 
         assert!(processor.process(&mut queue, &query, &response));
-
-        assert_eq!(processor.stats.dependency_update_failed, 1);
     }
 }

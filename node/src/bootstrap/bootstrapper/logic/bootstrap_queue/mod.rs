@@ -9,7 +9,7 @@ mod stats;
 
 pub use logic::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
-    BootstrappingAccountInfo, PriorityDownResult, PrioritySetResult,
+    BootstrappingAccountInfo, PriorityDownResult, PriorityUpResult,
 };
 pub use priority::Priority;
 
@@ -17,7 +17,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -56,26 +56,19 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn account_state(&self, account: &Account) -> Option<AccountState> {
-        self.logic.lock().unwrap().account_state(account)
-    }
-
-    pub fn priority_set(&mut self, account: &Account, priority: Priority) -> PrioritySetResult {
-        let result = self.logic.lock().unwrap().priority_set(account, priority);
+    pub fn priority_set(&mut self, account: &Account, priority: Priority) {
+        let result = self.logic.lock().unwrap().priority_up_to(account, priority);
         self.stats.add_prio_set_result(&result);
-        result
     }
 
-    pub fn priority_up(&mut self, account: &Account) -> PrioritySetResult {
+    pub fn priority_up(&mut self, account: &Account) {
         let result = self.logic.lock().unwrap().priority_up(account);
         self.stats.add_prio_set_result(&result);
-        result
     }
 
-    pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
+    pub fn priority_down(&mut self, account: &Account) {
         let result = self.logic.lock().unwrap().priority_down(account);
         self.stats.add_prio_down_result(&result);
-        result
     }
 
     #[cfg(test)]
@@ -83,17 +76,23 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().priority(account)
     }
 
-    pub fn remove(&mut self, account: &Account) -> bool {
+    pub fn remove(&mut self, account: &Account) {
         let removed = self.logic.lock().unwrap().remove(account);
         if removed {
             self.stats.removed.fetch_add(1, Relaxed);
+        } else {
+            self.stats.remove_failed.fetch_add(1, Relaxed);
         }
-        removed
     }
 
-    pub fn block(&mut self, account: Account, dependency: BlockHash) -> bool {
+    pub fn block(&mut self, account: Account, dependency: BlockHash) {
         let now = self.clock.now();
-        self.logic.lock().unwrap().block(account, dependency, now)
+        let blocked = self.logic.lock().unwrap().block(account, dependency, now);
+        if blocked {
+            self.stats.blocked.fetch_add(1, Relaxed);
+        } else {
+            self.stats.block_failed.fetch_add(1, Relaxed);
+        }
     }
 
     #[cfg(test)]
@@ -101,14 +100,22 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().blocked(account)
     }
 
-    pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) -> bool {
-        self.logic.lock().unwrap().unblock(account, dependency)
+    pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) {
+        let unblocked = self.logic.lock().unwrap().unblock(account, dependency);
+        if unblocked {
+            self.stats.unblocked.fetch_add(1, Relaxed);
+        } else {
+            self.stats.unblock_failed.fetch_add(1, Relaxed);
+        }
     }
 
     /// Should be called periodically to remove old entries from the blocked accounts
-    pub fn decay_blocked_accounts(&mut self) -> usize {
+    pub fn decay_blocked_accounts(&mut self) {
         let now = self.clock.now();
-        self.logic.lock().unwrap().decay_blocked_accounts(now)
+        let decayed = self.logic.lock().unwrap().decay_blocked_accounts(now);
+        self.stats
+            .decayed_blocked
+            .fetch_add(decayed as u64, Relaxed);
     }
 
     pub fn set_last_request(&mut self, account: &Account) {
@@ -122,15 +129,19 @@ impl BootstrapQueue {
     }
 
     /// Sets information about the account chain that contains the block hash
-    pub fn dependency_update(
-        &mut self,
-        dependency: &BlockHash,
-        dependency_account: Account,
-    ) -> usize {
-        self.logic
+    pub fn dependency_update(&mut self, dependency: &BlockHash, dependency_account: Account) {
+        let updated = self
+            .logic
             .lock()
             .unwrap()
-            .dependency_update(dependency, dependency_account)
+            .dependency_update(dependency, dependency_account);
+        if updated > 0 {
+            self.stats
+                .dependency_update
+                .fetch_add(updated as u64, Relaxed);
+        } else {
+            self.stats.dependency_update_failed.fetch_add(1, Relaxed);
+        }
     }
 
     pub fn next_download_target(&self, filter: impl Fn(&Account) -> bool) -> BootstrapTarget {

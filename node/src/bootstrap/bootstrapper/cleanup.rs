@@ -19,14 +19,7 @@ impl BootstrapCleanup {
         let now = self.clock.now();
         self.stats.inc(StatType::Bootstrap, DetailType::LoopCleanup);
         state.scoring.decay();
-
-        let decayed = state.bootstrap_queue.decay_blocked_accounts();
-        self.stats.add(
-            StatType::BootstrapAccountSets,
-            DetailType::BlockingDecayed,
-            decayed as u64,
-        );
-
+        state.bootstrap_queue.decay_blocked_accounts();
         self.erase_timed_out_requests(state, now);
     }
 
