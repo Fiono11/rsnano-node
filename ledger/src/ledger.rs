@@ -42,7 +42,7 @@ use crate::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BlockError {
     /// Signature was bad, forged or transmission error
     BadSignature,

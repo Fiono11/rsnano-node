@@ -91,12 +91,12 @@ impl BlockProcessorWaiter {
     }
 
     pub fn wait_result(&self) -> Option<Result<(), BlockError>> {
-        let guard = self.result.lock().unwrap();
+        let mut guard = self.result.lock().unwrap();
         if guard.1 {
-            return guard.0;
+            return guard.0.take();
         }
 
-        self.condition.wait_while(guard, |i| !i.1).unwrap().0
+        self.condition.wait_while(guard, |i| !i.1).unwrap().0.take()
     }
 }
 

@@ -80,7 +80,7 @@ impl BlockInspector {
     fn inspect_block(&self, state: &mut BootstrapLogic, result: &ProcessResult, account: &Account) {
         let hash = result.block.hash();
 
-        match result.status {
+        match &result.status {
             Ok(()) => {
                 state.bootstrap_queue.processing_finished(&hash);
 

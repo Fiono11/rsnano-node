@@ -1,8 +1,8 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
+        Arc, Mutex,
     },
 };
 
@@ -45,7 +45,7 @@ impl BlockBatchProcessor {
             .process_batch(batch.iter().map(|c| (&c.block, c.source)));
 
         assert_eq!(process_result.len(), batch.len());
-        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = process_result
+        let result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = process_result
             .into_iter()
             .zip(batch.into_iter())
             .map(|(result, block_ctx)| {
@@ -105,12 +105,12 @@ impl BlockBatchProcessor {
         }
 
         // Set results for futures when not holding the lock
-        for (res, context) in result.iter_mut() {
+        for (res, context) in result.into_iter() {
             if let Some(cb) = &context.callback {
                 let saved_block = context.saved_block.lock().unwrap().clone();
-                (cb)(&context.block.hash(), *res, saved_block.as_ref());
+                (cb)(&context.block.hash(), res.clone(), saved_block.as_ref());
             }
-            context.set_result(*res);
+            context.set_result(res);
         }
     }
 
