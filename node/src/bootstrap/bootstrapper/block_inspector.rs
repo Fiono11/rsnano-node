@@ -81,30 +81,31 @@ impl BlockInspector {
         let hash = result.block.hash();
 
         match result.status {
-            Ok(()) | Err(BlockError::Old) => {
-                if result.status.is_ok() {
-                    let saved_block = result.saved_block.as_ref().unwrap();
-                    let account = saved_block.account();
-                    // If we've inserted any block in to an account, unmark it as blocked
-                    state.bootstrap_queue.unblock(account, None);
+            Ok(()) => {
+                state.bootstrap_queue.processing_finished(&hash);
 
-                    // Progress blocks from live traffic don't need further bootstrapping
-                    if result.source == BlockSource::Bootstrap {
-                        state.bootstrap_queue.priority_up(&account);
-                    }
+                let saved_block = result.saved_block.as_ref().unwrap();
+                let account = saved_block.account();
+                // If we've inserted any block in to an account, unmark it as blocked
+                state.bootstrap_queue.unblock(account, None);
 
-                    if saved_block.is_send() {
-                        let destination = saved_block.destination().unwrap();
-                        if !destination.is_zero() {
-                            state.bootstrap_queue.unblock(destination, Some(hash));
-                        }
-                    }
+                // Progress blocks from live traffic don't need further bootstrapping
+                if result.source == BlockSource::Bootstrap {
+                    state.bootstrap_queue.priority_up(&account);
                 }
 
-                state.bootstrap_queue.processing_finished(&hash);
+                if saved_block.is_send() {
+                    let destination = saved_block.destination().unwrap();
+                    if !destination.is_zero() {
+                        state.bootstrap_queue.unblock(destination, Some(hash));
+                    }
+                }
             }
             Err(error) => {
                 match error {
+                    BlockError::Old => {
+                        state.bootstrap_queue.processing_finished(&hash);
+                    }
                     BlockError::GapSource => {
                         let source = result.block.source_or_link();
 
@@ -125,7 +126,7 @@ impl BlockInspector {
                             if !dep_account.is_zero() {
                                 state
                                     .bootstrap_queue
-                                    .priority_set(&dep_account, Priority::INITIAL);
+                                    .priority_up_to(&dep_account, Priority::INITIAL);
                             }
                         }
                     }

@@ -17,7 +17,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{atomic::Ordering::Relaxed, Mutex},
+    sync::{Mutex, atomic::Ordering::Relaxed},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -56,8 +56,12 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn priority_set(&mut self, account: &Account, priority: Priority) {
-        let result = self.logic.lock().unwrap().priority_up_to(account, priority);
+    pub fn priority_up_to(&mut self, account: &Account, new_priority: Priority) {
+        let result = self
+            .logic
+            .lock()
+            .unwrap()
+            .priority_up_to(account, new_priority);
         self.stats.add_prio_set_result(&result);
     }
 

@@ -86,7 +86,7 @@ impl FrontiersProcessor {
         for account in &outdated.accounts {
             // Use lowest possible priority here, because an account found by the frontier scan is
             // probably not an account that need immediate bootstrapping
-            queue.priority_set(account, Priority::CUTOFF);
+            queue.priority_up_to(account, Priority::CUTOFF);
 
             self.last_outdated_accounts.push_back(*account);
             if self.last_outdated_accounts.len() > 20 {

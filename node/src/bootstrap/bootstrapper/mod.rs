@@ -24,9 +24,9 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::{
@@ -267,7 +267,7 @@ impl Bootstrapper {
             .lock()
             .unwrap()
             .bootstrap_queue
-            .priority_set(&account, Priority::INITIAL);
+            .priority_up_to(&account, Priority::INITIAL);
     }
 
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
@@ -275,7 +275,7 @@ impl Bootstrapper {
         for account in accounts {
             logic
                 .bootstrap_queue
-                .priority_set(&account, Priority::INITIAL);
+                .priority_up_to(&account, Priority::INITIAL);
         }
     }
 

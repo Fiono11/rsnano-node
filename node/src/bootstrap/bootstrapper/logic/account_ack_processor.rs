@@ -100,7 +100,7 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        queue.priority_set(&blocked_account, Priority::INITIAL);
+        queue.priority_up_to(&blocked_account, Priority::INITIAL);
 
         queue.block(blocked_account, unknown_source);
 
