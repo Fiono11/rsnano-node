@@ -108,8 +108,6 @@ impl BootstrapQueue {
         let unblocked = self.logic.lock().unwrap().unblock(account, dependency);
         if unblocked {
             self.stats.unblocked.fetch_add(1, Relaxed);
-        } else {
-            self.stats.unblock_failed.fetch_add(1, Relaxed);
         }
     }
 

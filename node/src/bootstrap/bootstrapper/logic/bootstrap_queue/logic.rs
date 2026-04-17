@@ -100,8 +100,6 @@ pub enum PriorityDownResult {
     /// The priority got too low, so the account got erased
     Removed,
     AccountNotFound,
-    /// If the account is not in the download queue, we don't change its priority
-    Unchanged,
 }
 
 /// A prioritized queue of accounts which should bootstrapped.
@@ -206,7 +204,9 @@ impl BootstrapQueueLogic {
             ChangePriorityResult::Updated => PriorityDownResult::Deprioritized,
             ChangePriorityResult::Removed => PriorityDownResult::Removed,
             ChangePriorityResult::NotFound => PriorityDownResult::AccountNotFound,
-            ChangePriorityResult::Unchanged => PriorityDownResult::Unchanged,
+            ChangePriorityResult::Unchanged => {
+                unreachable!("the account is ether downgraded, removed or not found")
+            }
         }
     }
 
@@ -218,14 +218,13 @@ impl BootstrapQueueLogic {
             return ChangePriorityResult::NotFound;
         };
 
-        if entry.state != AccountState::EnqueuedForDownload {
-            // We only allow priority changes if the account is in the download queue
+        let old_prio = entry.priority;
+        f(entry);
+        if entry.priority == old_prio {
             return ChangePriorityResult::Unchanged;
         }
 
-        let old_prio = entry.priority;
-        f(entry);
-        if entry.priority != old_prio && entry.state == AccountState::EnqueuedForDownload {
+        if entry.state == AccountState::EnqueuedForDownload {
             self.download_queue
                 .change_priority(account, old_prio, entry.priority);
         }
@@ -708,9 +707,14 @@ impl BootstrapQueueLogic {
         // Count blocked entries with their dependency account unknown
         let blocked_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
         [
-            ("priorities", self.download_queue.len(), 0),
+            ("download_queue", self.download_queue.len(), 0),
             ("blocked", self.blocked.len(), 0),
             ("blocked_unknown", blocked_unknown, 0),
+            ("unblocked", self.unblocked_count(), 0),
+            ("downloading", self.downloading.len(), 0),
+            ("ready_to_process", self.ready_to_process.len(), 0),
+            ("processing", self.processing.len(), 0),
+            ("cached_blocks", self.cached_blocks, 0),
         ]
         .into()
     }
@@ -813,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn priority_cant_be_increased_for_blocked_account() {
+    fn priority_can_be_increased_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         queue.priority_up_to(&account, Priority::INITIAL);
@@ -823,7 +827,10 @@ mod tests {
 
         assert_eq!(result, PriorityUpResult::Upgraded);
         assert_eq!(queue.info().blocked, 1);
-        assert_eq!(queue.priority(&account), Priority::INITIAL);
+        assert_eq!(
+            queue.priority(&account),
+            Priority::INITIAL + Priority::INCREASE
+        );
     }
 
     /*
@@ -1188,9 +1195,14 @@ mod tests {
         assert_eq!(
             info,
             [
-                ("priorities", 2, 0),
+                ("download_queue", 2, 0),
                 ("blocked", 2, 0),
-                ("blocked_unknown", 1, 0)
+                ("blocked_unknown", 1, 0),
+                ("unblocked", 2, 0),
+                ("downloading", 0, 0),
+                ("ready_to_process", 0, 0),
+                ("processing", 0, 0),
+                ("cached_blocks", 0, 0),
             ]
             .into()
         )
