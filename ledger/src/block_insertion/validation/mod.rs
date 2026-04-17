@@ -21,7 +21,7 @@ pub(crate) struct BlockValidator<'a> {
     pub block: &'a Block,
     pub epochs: &'a Epochs,
     pub work: &'a WorkThresholds,
-    pub block_exists: bool,
+    pub existing_block: Option<SavedBlock>,
     pub account: Account,
     pub previous_block: Option<SavedBlock>,
     pub old_account_info: Option<AccountInfo>,

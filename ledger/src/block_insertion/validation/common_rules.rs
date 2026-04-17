@@ -4,7 +4,7 @@ use rsnano_types::PublicKey;
 
 impl<'a> BlockValidator<'a> {
     pub(crate) fn ensure_block_does_not_exist_yet(&self) -> Result<(), BlockError> {
-        if self.block_exists {
+        if let Some(existing) = &self.existing_block {
             Err(BlockError::Old)
         } else {
             Ok(())

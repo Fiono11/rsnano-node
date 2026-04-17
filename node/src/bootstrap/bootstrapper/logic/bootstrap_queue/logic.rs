@@ -136,6 +136,30 @@ impl BootstrapQueueLogic {
         }
     }
 
+    pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
+        if account.is_zero() {
+            return PriorityUpResult::InvalidAccount;
+        }
+
+        let result = self.modify_priority(account, |e| {
+            e.priority = e.priority.increase();
+            e.fails = 0;
+        });
+        self.revision += 1;
+
+        if result == ChangePriorityResult::NotFound {
+            self.accounts.insert(
+                *account,
+                BootstrappingAccount::new(*account, Priority::INITIAL),
+            );
+            self.download_queue.insert(*account, Priority::INITIAL);
+            self.trim_overflow();
+            PriorityUpResult::Inserted
+        } else {
+            PriorityUpResult::Upgraded
+        }
+    }
+
     pub fn priority_up_to(
         &mut self,
         account: &Account,
@@ -166,30 +190,6 @@ impl BootstrapQueueLogic {
                 self.trim_overflow();
                 PriorityUpResult::Inserted
             }
-        }
-    }
-
-    pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
-        if account.is_zero() {
-            return PriorityUpResult::InvalidAccount;
-        }
-
-        let result = self.modify_priority(account, |e| {
-            e.priority = e.priority.increase();
-            e.fails = 0;
-        });
-        self.revision += 1;
-
-        if result == ChangePriorityResult::NotFound {
-            self.accounts.insert(
-                *account,
-                BootstrappingAccount::new(*account, Priority::INITIAL),
-            );
-            self.download_queue.insert(*account, Priority::INITIAL);
-            self.trim_overflow();
-            PriorityUpResult::Inserted
-        } else {
-            PriorityUpResult::Upgraded
         }
     }
 

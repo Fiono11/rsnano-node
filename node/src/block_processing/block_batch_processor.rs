@@ -66,7 +66,7 @@ impl BlockBatchProcessor {
                     self.stats.progress.fetch_add(1, Relaxed);
                 }
                 Err(e) => {
-                    self.stats.errors[*e as usize].fetch_add(1, Relaxed);
+                    self.stats.add_error(e);
                 }
             }
 
@@ -129,32 +129,83 @@ impl BlockBatchProcessor {
 #[derive(Default)]
 pub(crate) struct BlockBatchProcessorStats {
     progress: AtomicU64,
-    errors: [AtomicU64; BlockError::COUNT],
+    bad_signature: AtomicU64,
+    old: AtomicU64,
+    negative_spend: AtomicU64,
+    fork: AtomicU64,
+    unreceivable: AtomicU64,
+    gap_previous: AtomicU64,
+    gap_source: AtomicU64,
+    gap_epoch_open: AtomicU64,
+    opened_burn_account: AtomicU64,
+    balance_mismatch: AtomicU64,
+    representative_mismatch: AtomicU64,
+    block_position: AtomicU64,
+    insufficient_work: AtomicU64,
+    conflict: AtomicU64,
     sources: [AtomicU64; BlockSource::COUNT],
+}
+
+impl BlockBatchProcessorStats {
+    pub fn add_error(&self, error: &BlockError) {
+        let counter = match error {
+            BlockError::BadSignature => &self.bad_signature,
+            BlockError::Old => &self.old,
+            BlockError::NegativeSpend => &self.negative_spend,
+            BlockError::Fork => &self.fork,
+            BlockError::Unreceivable => &self.unreceivable,
+            BlockError::GapPrevious => &self.gap_previous,
+            BlockError::GapSource => &self.gap_source,
+            BlockError::GapEpochOpenPending => &self.gap_epoch_open,
+            BlockError::OpenedBurnAccount => &self.opened_burn_account,
+            BlockError::BalanceMismatch => &self.balance_mismatch,
+            BlockError::RepresentativeMismatch => &self.representative_mismatch,
+            BlockError::BlockPosition => &self.block_position,
+            BlockError::InsufficientWork => &self.insufficient_work,
+            BlockError::Conflict => &self.conflict,
+        };
+        counter.fetch_add(1, Relaxed);
+    }
 }
 
 impl StatsSource for BlockBatchProcessorStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert(
-            "block_processor_result",
-            "progress",
-            self.progress.load(Relaxed),
-        );
+        const KEY: &'static str = "block_processor_result";
 
-        for e in BlockError::iter() {
-            result.insert(
-                "block_processor_result",
-                e.into(),
-                self.errors[e as usize].load(Relaxed),
-            );
-        }
+        result.insert(KEY, "progress", self.progress.load(Relaxed));
+        result.insert(KEY, "bad_signature", self.bad_signature.load(Relaxed));
+        result.insert(KEY, "old", self.old.load(Relaxed));
+        result.insert(KEY, "negative_spend", self.negative_spend.load(Relaxed));
+        result.insert(KEY, "fork", self.fork.load(Relaxed));
+        result.insert(KEY, "unreceivable", self.unreceivable.load(Relaxed));
+        result.insert(KEY, "gap_previous", self.gap_previous.load(Relaxed));
+        result.insert(KEY, "gap_source", self.gap_source.load(Relaxed));
+        result.insert(
+            KEY,
+            "gap_epoch_open_pending",
+            self.gap_epoch_open.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "opened_burn_account",
+            self.opened_burn_account.load(Relaxed),
+        );
+        result.insert(KEY, "balance_mismatch", self.balance_mismatch.load(Relaxed));
+        result.insert(
+            KEY,
+            "representative_mismatch",
+            self.representative_mismatch.load(Relaxed),
+        );
+        result.insert(KEY, "block_position", self.block_position.load(Relaxed));
+        result.insert(
+            KEY,
+            "insufficient_work",
+            self.insufficient_work.load(Relaxed),
+        );
+        result.insert(KEY, "conflict", self.conflict.load(Relaxed));
 
         for s in BlockSource::iter() {
-            result.insert(
-                "block_processor_source",
-                s.into(),
-                self.sources[s as usize].load(Relaxed),
-            );
+            result.insert(KEY, s.into(), self.sources[s as usize].load(Relaxed));
         }
     }
 }

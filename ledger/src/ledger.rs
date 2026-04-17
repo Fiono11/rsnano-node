@@ -42,8 +42,7 @@ use crate::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum BlockError {
     /// Signature was bad, forged or transmission error
     BadSignature,
@@ -1141,12 +1140,6 @@ impl RollbackResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn error_variant_to_static_str() {
-        let s: &'static str = BlockError::GapSource.into();
-        assert_eq!(s, "gap_source");
-    }
 
     #[test]
     fn builds_nulled_ledger() {

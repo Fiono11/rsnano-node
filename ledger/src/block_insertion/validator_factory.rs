@@ -36,12 +36,14 @@ impl<'a> BlockValidatorFactory<'a> {
                 .get_pending(&PendingKey::new(account, source_block))
         };
 
+        let existing_block = self.any.get_block(&self.block.hash());
+
         BlockValidator {
             block: self.block,
             epochs: &self.constants.epochs,
             work: &self.constants.work,
             account,
-            block_exists: self.any.block_exists(&self.block.hash()),
+            existing_block,
             old_account_info: self.any.get_account(&account),
             pending_receive_info,
             any_pending_exists: self.any.receivable_exists(account),
@@ -85,7 +87,7 @@ mod tests {
         assert_eq!(validator.block.hash(), block.hash());
         assert_eq!(validator.epochs, &ledger.constants.epochs);
         assert_eq!(validator.account, block.account_field().unwrap());
-        assert_eq!(validator.block_exists, false);
+        assert!(validator.existing_block.is_none());
         assert_eq!(validator.old_account_info, None);
         assert_eq!(validator.pending_receive_info, None);
         assert_eq!(validator.any_pending_exists, false);
@@ -115,7 +117,7 @@ mod tests {
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
-        assert_eq!(validator.block_exists, true);
+        assert!(validator.existing_block.is_some());
     }
 
     #[test]

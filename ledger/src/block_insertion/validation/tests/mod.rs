@@ -10,7 +10,7 @@ mod validate_state_receive;
 mod validate_state_send;
 
 use rsnano_types::{
-    Account, Amount, Block, Epoch, PendingInfo, SavedAccountChain, UnixMillisTimestamp,
+    Account, Amount, Block, Epoch, PendingInfo, SavedAccountChain, SavedBlock, UnixMillisTimestamp,
 };
 
 use super::BlockValidator;
@@ -137,7 +137,11 @@ impl BlockValidationTest {
             validator.source_block_exists = true;
             validator.pending_receive_info = self.pending_receive.clone();
         }
-        validator.block_exists = self.block_already_exists;
+        validator.existing_block = if self.block_already_exists {
+            Some(SavedBlock::new_test_instance())
+        } else {
+            None
+        };
         validator.source_block_exists = !self.source_block_missing;
         validator.validate()
     }
@@ -156,7 +160,7 @@ fn new_test_validator<'a>(
         } else {
             &IMPOSSIBLE_WORK
         },
-        block_exists: false,
+        existing_block: None,
         account,
         old_account_info: None,
         previous_block: None,
