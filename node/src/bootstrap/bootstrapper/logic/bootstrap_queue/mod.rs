@@ -181,21 +181,21 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
-        let reprocessed = self.logic.lock().unwrap().reprocess(account, block_hash);
-        if reprocessed {
-            self.stats.reprocess.fetch_add(1, Relaxed);
-        } else {
-            self.stats.reprocess_failed.fetch_add(1, Relaxed);
-        }
-    }
-
     pub fn processing_finished(&mut self, block_hash: &BlockHash) {
         let new_state = self.logic.lock().unwrap().processing_finished(block_hash);
         if new_state.is_some() {
             self.stats.processing_finished.fetch_add(1, Relaxed);
         } else {
             self.stats.processing_finished_failed.fetch_add(1, Relaxed);
+        }
+    }
+
+    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
+        let reprocessed = self.logic.lock().unwrap().reprocess(account, block_hash);
+        if reprocessed {
+            self.stats.reprocess.fetch_add(1, Relaxed);
+        } else {
+            self.stats.reprocess_failed.fetch_add(1, Relaxed);
         }
     }
 

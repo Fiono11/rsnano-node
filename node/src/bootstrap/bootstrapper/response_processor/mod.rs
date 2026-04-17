@@ -24,7 +24,7 @@ use crate::{
 pub(crate) struct ResponseProcessor {
     logic: Arc<Mutex<BootstrapLogic>>,
     frontier_check_pool: FrontierCheckPool,
-    block_queue: Arc<BlockProcessorQueue>,
+    block_proc_queue: Arc<BlockProcessorQueue>,
 }
 
 impl ResponseProcessor {
@@ -39,7 +39,7 @@ impl ResponseProcessor {
         Self {
             logic,
             frontier_check_pool,
-            block_queue,
+            block_proc_queue: block_queue,
         }
     }
 
@@ -67,7 +67,7 @@ impl ResponseProcessor {
         while let Some(block) = logic.bootstrap_queue.next_block_to_process() {
             let block_hash = block.hash();
 
-            let inserted = self.block_queue.push(BlockContext::new(
+            let inserted = self.block_proc_queue.push(BlockContext::new(
                 block.clone(),
                 BlockSource::Bootstrap,
                 // TODO use real channel id

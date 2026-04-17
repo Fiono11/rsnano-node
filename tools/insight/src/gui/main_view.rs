@@ -216,7 +216,7 @@ impl MainViewModel {
             unblocked_accounts: formatted_number(info.unblocked),
             process_queue: formatted_number(info.ready_to_process),
             processing: formatted_number(info.processing),
-            unique_blocking_accounts: info.unblocked,
+            unique_blocking_accounts: info.unique_blocking_accounts,
             unknown_dependencies: info.unknown_dependencies,
             cached_blocks: formatted_number(info.cached_blocks),
             discarded_blocks: formatted_number(info.discarded_blocks),

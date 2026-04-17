@@ -98,6 +98,9 @@ impl BlockInspector {
                     let destination = saved_block.destination().unwrap();
                     if !destination.is_zero() {
                         state.bootstrap_queue.unblock(destination, Some(hash));
+                        state
+                            .bootstrap_queue
+                            .priority_up_to(&destination, Priority::INITIAL);
                     }
                 }
             }
@@ -138,7 +141,6 @@ impl BlockInspector {
                         state.bootstrap_queue.reprocess(account, &hash);
                         // can happen if the unchecked map inserts at the same time
                     }
-                    // TODO handle old
                     _ => {
                         state.bootstrap_queue.remove(account);
                         // No need to handle other cases

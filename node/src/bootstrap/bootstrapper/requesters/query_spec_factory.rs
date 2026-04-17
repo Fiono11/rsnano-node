@@ -133,7 +133,10 @@ impl QuerySpecFactory {
         let channel = self.acquire_channel(state)?;
         let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
-        let spec = state.next_blocked_query(query_id, &channel)?;
+        let Some(spec) = state.next_blocked_query(query_id, &channel) else {
+            self.stats.wait_dependency_missing.fetch_add(1, Relaxed);
+            return None;
+        };
         self.request_limiter.consume(1, now);
         state.scoring.add_query(channel_id);
         Some(spec)

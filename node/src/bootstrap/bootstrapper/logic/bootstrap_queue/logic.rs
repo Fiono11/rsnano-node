@@ -32,7 +32,7 @@ pub struct BootstrapQueueInfo {
     pub processing: usize,
     pub blocked: usize,
     pub unknown_dependencies: usize,
-    pub unique_blocked_accounts: usize,
+    pub unique_blocking_accounts: usize,
     pub cached_blocks: usize,
     pub discarded_blocks: usize,
 }
@@ -628,7 +628,7 @@ impl BootstrapQueueLogic {
             processing: self.processing.len(),
             blocked: self.blocked.len(),
             unknown_dependencies: self.blocked.len() - self.blocked.known_dependencies(),
-            unique_blocked_accounts: self.blocked.unique_dependency_accounts(),
+            unique_blocking_accounts: self.blocked.unique_dependency_accounts(),
             cached_blocks: self.cached_blocks,
             discarded_blocks: self.discarded_blocks,
         }
