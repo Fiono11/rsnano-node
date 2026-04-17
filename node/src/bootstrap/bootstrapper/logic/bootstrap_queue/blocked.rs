@@ -83,10 +83,21 @@ impl BlockedAccounts {
         })
     }
 
-    pub fn iter_start_dep_account(&self, start: Account) -> impl Iterator<Item = &Account> {
+    pub fn get_info(&self, account: &Account) -> Option<(BlockHash, Option<Account>)> {
+        let (dep_block, dep_account, _) = self.by_account.get(account)?;
+        Some((*dep_block, *dep_account))
+    }
+
+    /// Iterates over `(dependency_account, blocked_account)` pairs for all blocked
+    /// accounts whose dependency account is known (i.e. non-zero).
+    pub fn iter_known_dep_accounts(&self) -> impl Iterator<Item = (Account, &Account)> {
         self.by_dependency_account
-            .range(start..)
-            .flat_map(|(_, accs)| accs)
+            .range(Account::from(1)..)
+            .flat_map(|(dep_account, accs)| {
+                let dep = *dep_account;
+                accs.iter()
+                    .map(move |blocked_account| (dep, blocked_account))
+            })
     }
 
     pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &Account> {

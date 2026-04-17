@@ -1,3 +1,4 @@
+mod block_processing_queue;
 mod blocked;
 mod bootstrapping_account;
 mod download_queue;
@@ -131,14 +132,15 @@ impl BootstrapQueue {
 
     /// Sets information about the account chain that contains the block hash
     pub fn dependency_update(&mut self, dependency: &BlockHash, dependency_account: Account) {
-        let updated = self
-            .logic
-            .lock()
-            .unwrap()
-            .dependency_update(dependency, dependency_account);
+        let mut logic = self.logic.lock().unwrap();
+        let updated = logic.dependency_update(dependency, dependency_account);
         self.stats
             .dependency_update
             .fetch_add(updated as u64, Relaxed);
+        if updated > 0 {
+            let result = logic.priority_up(&dependency_account);
+            self.stats.add_prio_set_result(&result);
+        }
     }
 
     pub fn next_download_target(&self, filter: impl Fn(&Account) -> bool) -> BootstrapTarget {

@@ -7,11 +7,11 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::ContainerInfo;
 
 use super::{
+    block_processing_queue::{BlockProcessingQueue, ProcessingFinished},
     blocked::BlockedAccounts,
-    bootstrapping_account::{AccountState, BlockedInfo, BootstrappingAccount},
+    bootstrapping_account::{AccountState, BootstrappingAccount},
     download_queue::{ChangePriorityResult, DownloadQueue},
     downloading::DownloadingAccounts,
-    single_block_account_set::SingleBlockAccountSet,
 };
 use crate::bootstrap::bootstrapper::logic::Priority;
 
@@ -46,16 +46,11 @@ pub struct BootstrappingAccountInfo {
 
 impl From<&BootstrappingAccount> for BootstrappingAccountInfo {
     fn from(e: &BootstrappingAccount) -> Self {
-        let (dependency_block, dependency_account) = e
-            .blocked
-            .as_ref()
-            .map(|b| (b.dependency_block, b.dependency_account.unwrap_or_default()))
-            .unwrap_or_default();
         Self {
             account: e.account,
             priority: e.priority,
-            dependency_block,
-            dependency_account,
+            dependency_block: BlockHash::ZERO,
+            dependency_account: Account::ZERO,
         }
     }
 }
@@ -110,13 +105,10 @@ pub(crate) struct BootstrapQueueLogic {
     accounts: FxHashMap<Account, BootstrappingAccount>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
-    ready_to_process: SingleBlockAccountSet,
-    processing: SingleBlockAccountSet,
+    block_processing: BlockProcessingQueue,
     blocked: BlockedAccounts,
     revision: u64,
-    cached_blocks: usize,
     discarded_blocks: usize,
-    block_cache: FxHashMap<Account, VecDeque<Block>>,
 }
 
 impl BootstrapQueueLogic {
@@ -129,17 +121,10 @@ impl BootstrapQueueLogic {
             download_queue: Default::default(),
             blocked: Default::default(),
             downloading: Default::default(),
-            ready_to_process: Default::default(),
-            processing: Default::default(),
+            block_processing: Default::default(),
             revision: 0,
-            cached_blocks: 0,
             discarded_blocks: 0,
-            block_cache: Default::default(),
         }
-    }
-
-    fn first_cached_block_hash(&self, account: &Account) -> Option<BlockHash> {
-        self.block_cache.get(account)?.front().map(|b| b.hash())
     }
 
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
@@ -255,30 +240,18 @@ impl BootstrapQueueLogic {
             };
             match removed.state {
                 AccountState::EnqueuedForDownload => {
-                    self.download_queue.remove(&account, removed.priority)
+                    self.download_queue.remove(&account, removed.priority);
                 }
                 AccountState::Downloading => {
                     self.downloading.remove(&account);
                 }
-                AccountState::ReadyToProcess => {
-                    let hash = self.first_cached_block_hash(&account).unwrap();
-                    self.ready_to_process.remove_block(&hash);
-                }
-                AccountState::Processing => {
-                    let hash = self.first_cached_block_hash(&account).unwrap();
-                    self.processing.remove_block(&hash);
-                }
+                AccountState::ReadyToProcess | AccountState::Processing => {}
                 AccountState::Blocked => {
                     to_remove.extend(self.blocked.remove_account_and_dependents(&account));
                 }
             }
-            let removed_blocks = self
-                .block_cache
-                .remove(&account)
-                .map(|b| b.len())
-                .unwrap_or(0);
-            self.cached_blocks -= removed_blocks;
-            self.discarded_blocks += removed_blocks;
+            let discarded = self.block_processing.remove(&account);
+            self.discarded_blocks += discarded;
         }
         self.revision += 1;
         true
@@ -301,23 +274,14 @@ impl BootstrapQueueLogic {
             AccountState::Downloading => {
                 self.downloading.remove(&account);
             }
-            AccountState::ReadyToProcess => {
-                let hash = self.first_cached_block_hash(&account).unwrap();
-                self.ready_to_process.remove_block(&hash);
-            }
-            AccountState::Processing => {
-                let hash = self.first_cached_block_hash(&account).unwrap();
-                self.processing.remove_block(&hash);
+            AccountState::ReadyToProcess | AccountState::Processing => {
+                // Blocks stay in block_cache so they can be processed after unblock
+                self.block_processing.suspend(&account);
             }
             AccountState::Blocked => unreachable!(),
         }
 
         let entry = self.accounts.get_mut(&account).unwrap();
-        entry.blocked = Some(BlockedInfo {
-            dependency_block: dependency,
-            dependency_account: None,
-            blocked_at: now,
-        });
         entry.state = AccountState::Blocked;
         self.blocked.insert(account, dependency, now);
         self.trim_overflow();
@@ -335,14 +299,11 @@ impl BootstrapQueueLogic {
         }
 
         self.blocked.remove(&account);
-        let first_hash = self.first_cached_block_hash(&account);
+        let first_hash = self.block_processing.resume(account);
 
         let entry = self.accounts.get_mut(&account).unwrap();
-        entry.blocked = None;
-
-        if let Some(hash) = first_hash {
+        if first_hash.is_some() {
             entry.state = AccountState::ReadyToProcess;
-            self.ready_to_process.insert(account, hash);
         } else {
             entry.state = AccountState::EnqueuedForDownload;
             self.download_queue.insert(account, priority);
@@ -360,6 +321,8 @@ impl BootstrapQueueLogic {
         let removed = self.blocked.remove_older_than(cutoff);
         for account in &removed {
             self.accounts.remove(account);
+            let discarded = self.block_processing.remove(account);
+            self.discarded_blocks += discarded;
         }
         removed.len()
     }
@@ -376,26 +339,17 @@ impl BootstrapQueueLogic {
         }
     }
 
-    /// Sets information about the account chain that contains the block hash
+    /// Sets information about the account chain that contains the block hash.
+    /// Returns the number of updated accounts.
+    /// The caller should call `priority_up` for the dependency account when this returns > 0.
     pub fn dependency_update(
         &mut self,
         dependency: &BlockHash,
         dependency_account: Account,
     ) -> usize {
-        let updated = self
-            .blocked
-            .modify_dependency_account(dependency, dependency_account);
-
-        for account in &updated {
-            let entry = self.accounts.get_mut(account).unwrap();
-            entry.blocked.as_mut().unwrap().dependency_account = Some(dependency_account);
-        }
-
-        if !updated.is_empty() && !self.queue_full() {
-            self.priority_up(&dependency_account);
-        }
-
-        updated.len()
+        self.blocked
+            .modify_dependency_account(dependency, dependency_account)
+            .len()
     }
 
     /// Erase the oldest entries
@@ -454,8 +408,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn next_block_to_process(&self) -> Option<&Block> {
-        let account = self.ready_to_process.next_account()?;
-        self.block_cache.get(&account)?.front()
+        self.block_processing.next_block()
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
@@ -479,18 +432,12 @@ impl BootstrapQueueLogic {
 
         self.downloading.remove(account);
 
-        let first_hash = blocks.front().map(|b| b.hash());
-        self.cached_blocks += blocks.len();
-        if !blocks.is_empty() {
-            debug_assert!(!self.block_cache.contains_key(account));
-            self.block_cache.insert(*account, blocks);
-        }
+        let first_hash = self.block_processing.enqueue(*account, blocks);
 
         let entry = self.accounts.get_mut(account).unwrap();
         entry.last_request = None;
-        if let Some(hash) = first_hash {
+        if first_hash.is_some() {
             entry.state = AccountState::ReadyToProcess;
-            self.ready_to_process.insert(*account, hash);
         } else {
             entry.state = AccountState::EnqueuedForDownload;
             self.download_queue.insert(*account, priority);
@@ -499,20 +446,16 @@ impl BootstrapQueueLogic {
     }
 
     pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(account) = self.ready_to_process.remove_block(block_hash) else {
+        let Some(account) = self.block_processing.processing_started(block_hash) else {
             return false;
         };
-        let entry = self.accounts.get_mut(&account).unwrap();
-        entry.state = AccountState::Processing;
-        self.processing.insert(account, *block_hash);
+        self.accounts.get_mut(&account).unwrap().state = AccountState::Processing;
         true
     }
 
     pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
-        if self.processing.remove_block(block_hash).is_some() {
-            let entry = self.accounts.get_mut(&account).unwrap();
-            entry.state = AccountState::ReadyToProcess;
-            self.ready_to_process.insert(*account, *block_hash);
+        if self.block_processing.reprocess(account, block_hash) {
+            self.accounts.get_mut(account).unwrap().state = AccountState::ReadyToProcess;
             true
         } else {
             false
@@ -520,24 +463,14 @@ impl BootstrapQueueLogic {
     }
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
-        let account = self.processing.remove_block(block_hash)?;
-
-        self.cached_blocks -= 1;
-        let next_hash = {
-            let blocks = self.block_cache.get_mut(&account).unwrap();
-            let first_block = blocks.pop_front().unwrap();
-            assert_eq!(first_block.hash(), *block_hash);
-            blocks.front().map(|b| b.hash())
-        };
-
-        if next_hash.is_none() {
-            self.block_cache.remove(&account);
-        }
+        let ProcessingFinished {
+            account,
+            next_block_hash,
+        } = self.block_processing.processing_finished(block_hash)?;
 
         let entry = self.accounts.get_mut(&account).unwrap();
-        if let Some(hash) = next_hash {
+        if next_block_hash.is_some() {
             entry.state = AccountState::ReadyToProcess;
-            self.ready_to_process.insert(account, hash);
         } else {
             entry.state = AccountState::EnqueuedForDownload;
             self.download_queue.insert(account, entry.priority);
@@ -553,41 +486,28 @@ impl BootstrapQueueLogic {
         self.blocked.next(filter).unwrap_or_default()
     }
 
-    /// Sets information about the account chain that contains the block hash
-    /// Returns the number of inserted accounts
+    /// Enqueues dependency accounts for all blocked accounts whose dependency is known.
+    /// Returns the number of inserted accounts.
     pub fn sync_dependencies(&mut self) -> usize {
         if self.queue_full() {
             return 0;
         }
 
-        let mut inserted = 0;
-
         let mut accounts_to_enqueue = Vec::new();
-        // Sample all accounts with a known dependency account (> account 0)
-        let begin = Account::from(1);
-        for blocked_account in self.blocked.iter_start_dep_account(begin) {
+        for (dep_account, _blocked_account) in self.blocked.iter_known_dep_accounts() {
             if self.queue_full() {
                 break;
             }
-
-            let entry = self.accounts.get(blocked_account).unwrap();
-            let dep_account = entry
-                .blocked
-                .as_ref()
-                .unwrap()
-                .dependency_account
-                .expect("should be set");
-
             if !self.contains(&dep_account) {
                 accounts_to_enqueue.push(dep_account);
             }
         }
 
+        let mut inserted = 0;
         for account in accounts_to_enqueue {
             if self.queue_full() {
                 break;
             }
-
             self.priority_up_to(&account, Priority::INITIAL);
             inserted += 1;
         }
@@ -626,12 +546,29 @@ impl BootstrapQueueLogic {
         let blocked = self
             .iter_blocked()
             .filter(|e| {
-                filter.is_none()
-                    || filter == Some(e.account)
-                    || filter == e.blocked.as_ref().and_then(|b| b.dependency_account)
+                if filter.is_none() || filter == Some(e.account) {
+                    return true;
+                }
+                self.blocked
+                    .get_info(&e.account)
+                    .and_then(|(_, dep_account)| dep_account)
+                    .map(|a| Some(a) == filter)
+                    .unwrap_or(false)
             })
             .take(limit)
-            .map(|e| e.into())
+            .map(|e| {
+                let (dependency_block, dependency_account) = self
+                    .blocked
+                    .get_info(&e.account)
+                    .map(|(h, a)| (h, a.unwrap_or_default()))
+                    .unwrap_or_default();
+                BootstrappingAccountInfo {
+                    account: e.account,
+                    priority: e.priority,
+                    dependency_block,
+                    dependency_account,
+                }
+            })
             .collect();
 
         BootstrapQueueSnapshot {
@@ -647,12 +584,12 @@ impl BootstrapQueueLogic {
             download_queue: self.download_queue.len(),
             unblocked: self.unblocked_count(),
             downloading: self.downloading.len(),
-            ready_to_process: self.ready_to_process.len(),
-            processing: self.processing.len(),
+            ready_to_process: self.block_processing.ready_to_process_len(),
+            processing: self.block_processing.processing_len(),
             blocked: self.blocked.len(),
             unknown_dependencies: self.blocked.len() - self.blocked.known_dependencies(),
             unique_blocking_accounts: self.blocked.unique_dependency_accounts(),
-            cached_blocks: self.cached_blocks,
+            cached_blocks: self.block_processing.cached_block_count(),
             discarded_blocks: self.discarded_blocks,
         }
     }
@@ -730,7 +667,6 @@ impl BootstrapQueueLogic {
     }
 
     pub fn container_info(&self) -> ContainerInfo {
-        // Count blocked entries with their dependency account unknown
         let blocked_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
         [
             ("download_queue", self.download_queue.len(), 0),
@@ -738,9 +674,17 @@ impl BootstrapQueueLogic {
             ("blocked_unknown", blocked_unknown, 0),
             ("unblocked", self.unblocked_count(), 0),
             ("downloading", self.downloading.len(), 0),
-            ("ready_to_process", self.ready_to_process.len(), 0),
-            ("processing", self.processing.len(), 0),
-            ("cached_blocks", self.cached_blocks, 0),
+            (
+                "ready_to_process",
+                self.block_processing.ready_to_process_len(),
+                0,
+            ),
+            ("processing", self.block_processing.processing_len(), 0),
+            (
+                "cached_blocks",
+                self.block_processing.cached_block_count(),
+                0,
+            ),
         ]
         .into()
     }
@@ -1197,7 +1141,10 @@ mod tests {
             BlockHash::from(3),
             Timestamp::new_test_instance(),
         );
-        queue.dependency_update(&BlockHash::from(3), Account::from(1000));
+        let updated = queue.dependency_update(&BlockHash::from(3), Account::from(1000));
+        if updated > 0 {
+            queue.priority_up(&Account::from(1000));
+        }
         queue.block(
             Account::from(3),
             BlockHash::from(4),
@@ -1240,7 +1187,12 @@ mod tests {
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
 
-        queue.dependency_update(&dependency, dependency_account);
+        // dependency_update returns the count; enqueueing the dependency account
+        // is the caller's responsibility (done by BootstrapQueue::dependency_update).
+        let updated = queue.dependency_update(&dependency, dependency_account);
+        if updated > 0 {
+            queue.priority_up(&dependency_account);
+        }
 
         assert!(queue.contains(&dependency_account));
     }

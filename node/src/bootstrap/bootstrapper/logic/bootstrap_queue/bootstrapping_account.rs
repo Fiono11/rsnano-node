@@ -1,5 +1,5 @@
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::Account;
 
 use super::Priority;
 
@@ -10,7 +10,6 @@ pub(crate) struct BootstrappingAccount {
     pub priority: Priority,
     pub fails: usize,
     pub last_request: Option<Timestamp>,
-    pub blocked: Option<BlockedInfo>,
     pub state: AccountState,
 }
 
@@ -24,7 +23,6 @@ impl BootstrappingAccount {
             priority,
             fails: 0,
             last_request: None,
-            blocked: None,
             state: AccountState::EnqueuedForDownload,
         }
     }
@@ -38,12 +36,4 @@ pub(crate) enum AccountState {
     ReadyToProcess,
     Processing,
     Blocked,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct BlockedInfo {
-    pub dependency_block: BlockHash,
-    /// Account that contains the dependency block, fetched via a background dependency walker
-    pub dependency_account: Option<Account>,
-    pub blocked_at: Timestamp,
 }
