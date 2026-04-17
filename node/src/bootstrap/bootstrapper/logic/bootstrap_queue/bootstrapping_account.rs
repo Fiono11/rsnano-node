@@ -1,7 +1,5 @@
-use std::collections::VecDeque;
-
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, Block, BlockHash};
+use rsnano_types::{Account, BlockHash};
 
 use super::Priority;
 
@@ -13,7 +11,6 @@ pub(crate) struct BootstrappingAccount {
     pub fails: usize,
     pub last_request: Option<Timestamp>,
     pub blocked: Option<BlockedInfo>,
-    pub blocks: VecDeque<Block>,
     pub state: AccountState,
 }
 
@@ -28,14 +25,8 @@ impl BootstrappingAccount {
             fails: 0,
             last_request: None,
             blocked: None,
-            blocks: VecDeque::new(),
             state: AccountState::EnqueuedForDownload,
         }
-    }
-
-    pub fn first_block_hash(&self) -> Option<BlockHash> {
-        let front = self.blocks.front()?;
-        Some(front.hash())
     }
 }
 
