@@ -40,22 +40,6 @@ impl BootstrapCleanup {
     }
 
     pub fn reinsert_known_dependencies(&mut self, state: &mut BootstrapLogic) {
-        self.stats
-            .inc(StatType::Bootstrap, DetailType::SyncDependencies);
-
-        let inserted = state.bootstrap_queue.sync_dependencies();
-
-        if inserted > 0 {
-            self.stats.add(
-                StatType::BootstrapAccountSets,
-                DetailType::PriorityInsert,
-                inserted as u64,
-            );
-            self.stats.add(
-                StatType::BootstrapAccountSets,
-                DetailType::DependencySynced,
-                inserted as u64,
-            );
-        }
+        state.bootstrap_queue.sync_dependencies();
     }
 }

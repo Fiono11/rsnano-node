@@ -37,15 +37,9 @@ pub enum StatType {
     Hinting,
     BlockProcessor,
     Bootstrap,
-    BootstrapVerifyBlocks,
-    BootstrapVerifyFrontiers,
-    BootstrapProcess,
     BootstrapRequest,
     BootstrapReply,
-    BootstrapNext,
     BootstrapFrontiers,
-    BootstrapAccountSets,
-    BootstrapFrontierScan,
     BootstrapTimeout,
     BootstrapServer,
     BootstrapServerRequest,
@@ -58,7 +52,6 @@ pub enum StatType {
     ActiveElectionsCancelled,
     BoundedBacklog,
     ElectionScheduler,
-    OptimisticScheduler,
     RepCrawler,
     LocalBlockBroadcaster,
     RepTiers,
@@ -129,30 +122,8 @@ pub enum DetailType {
     StateBlock,
     EpochBlock,
     Fork,
-    Old,
-    GapPrevious,
-    GapSource,
     Rollback,
     RollbackFailed,
-    Progress,
-    BadSignature,
-    NegativeSpend,
-    Unreceivable,
-    GapEpochOpenPending,
-    OpenedBurnAccount,
-    BalanceMismatch,
-    RepresentativeMismatch,
-    BlockPosition,
-
-    // block source
-    Live,
-    LiveOriginator,
-    Bootstrap,
-    BootstrapLegacy,
-    Unchecked,
-    Local,
-    Forced,
-    Election,
 
     // message specific
     NotAType,
@@ -334,12 +305,7 @@ pub enum DetailType {
     NextFrontier,
 
     PriorityInsert,
-    PriorityErase,
-    PriorityUnblocked,
-    PriorityEraseThreshold,
-    PriorityEraseBlock,
     SyncDependencies,
-    BlockingDecayed,
     DependencySynced,
 
     // rep_crawler
@@ -381,7 +347,6 @@ pub enum DetailType {
 
     // bounded backlog
     PerformingRollbacks,
-    NoTargets,
     RollbackMissingBlock,
     RollbackSkipped,
 }
