@@ -78,7 +78,7 @@ impl RunningQueryContainer {
         }
     }
 
-    pub(crate) fn insert(&mut self, query: RunningQuery) {
+    pub fn insert(&mut self, query: RunningQuery) {
         let id = query.id;
         let account = query.account;
         let hash = query.hash;

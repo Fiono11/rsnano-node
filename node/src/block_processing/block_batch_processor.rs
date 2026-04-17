@@ -205,7 +205,11 @@ impl StatsSource for BlockBatchProcessorStats {
         result.insert(KEY, "conflict", self.conflict.load(Relaxed));
 
         for s in BlockSource::iter() {
-            result.insert(KEY, s.into(), self.sources[s as usize].load(Relaxed));
+            result.insert(
+                "block_processor_source",
+                s.into(),
+                self.sources[s as usize].load(Relaxed),
+            );
         }
     }
 }
