@@ -87,7 +87,7 @@ impl BlockInspector {
                 let saved_block = result.saved_block.as_ref().unwrap();
                 let account = saved_block.account();
                 // If we've inserted any block in to an account, unmark it as blocked
-                state.bootstrap_queue.unblock(account, None);
+                state.bootstrap_queue.unblock(account);
 
                 // Progress blocks from live traffic don't need further bootstrapping
                 if result.source == BlockSource::Bootstrap {
@@ -97,7 +97,7 @@ impl BlockInspector {
                 if saved_block.is_send() {
                     let destination = saved_block.destination().unwrap();
                     if !destination.is_zero() {
-                        state.bootstrap_queue.unblock(destination, Some(hash));
+                        state.bootstrap_queue.unblock(destination);
                         state
                             .bootstrap_queue
                             .priority_up_to(&destination, Priority::INITIAL);

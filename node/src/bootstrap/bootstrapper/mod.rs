@@ -329,7 +329,7 @@ impl Bootstrapper {
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         let mut logic = self.logic.lock().unwrap();
         for account in accounts {
-            logic.bootstrap_queue.unblock(account, None);
+            logic.bootstrap_queue.unblock(account);
         }
     }
 

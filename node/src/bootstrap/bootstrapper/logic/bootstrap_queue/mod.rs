@@ -103,8 +103,8 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().blocked(account)
     }
 
-    pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) {
-        let unblocked = self.logic.lock().unwrap().unblock(account, dependency);
+    pub fn unblock(&mut self, account: Account) {
+        let unblocked = self.logic.lock().unwrap().unblock(account);
         if unblocked {
             self.stats.unblocked.fetch_add(1, Relaxed);
         }

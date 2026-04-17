@@ -307,21 +307,13 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn unblock(&mut self, account: Account, dependency: Option<BlockHash>) -> bool {
+    pub fn unblock(&mut self, account: Account) -> bool {
         let Some(entry) = self.accounts.get_mut(&account) else {
             return false;
         };
         if entry.state != AccountState::Blocked {
             return false;
         }
-        if let Some(expected_dependency) = dependency {
-            // Unblock only if the given dependency is fulfilled
-            if expected_dependency != entry.blocked.as_ref().unwrap().dependency_block {
-                // Not the dependency we were looking for...
-                return false;
-            }
-        }
-
         self.blocked.remove(&account);
         entry.blocked = None;
 
@@ -917,7 +909,7 @@ mod tests {
         queue.priority_up(&account);
         queue.block(account, hash, Timestamp::new_test_instance());
 
-        assert!(queue.unblock(account, None));
+        assert!(queue.unblock(account));
 
         assert_eq!(queue.blocked(&account), false);
         assert_eq!(queue.info().download_queue, 1);
@@ -927,22 +919,8 @@ mod tests {
     fn unblock_unknown_account() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
-        assert!(!queue.unblock(account, None));
+        assert!(!queue.unblock(account));
         assert!(!queue.contains(&account));
-    }
-
-    #[test]
-    fn unblock_with_unfulfilled_dependency_does_nothing() {
-        let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        let hash = BlockHash::from(2);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, hash, Timestamp::new_test_instance());
-
-        let unblocked = queue.unblock(account, Some(BlockHash::from(3)));
-
-        assert!(!unblocked);
-        assert!(queue.blocked(&account));
     }
 
     #[test]
@@ -954,7 +932,7 @@ mod tests {
         queue.priority_up_to(&account, priority);
         queue.block(account, hash, Timestamp::new_test_instance());
 
-        queue.unblock(account, None);
+        queue.unblock(account);
 
         assert_eq!(queue.priority(&account), priority);
     }
