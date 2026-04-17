@@ -5,9 +5,7 @@ use tracing::trace;
 use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::logic::{
-    BootstrapQueue, PriorityDownResult, RunningQuery, VerifyResult,
-};
+use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery, VerifyResult};
 
 #[derive(Default)]
 pub struct BlockAckProcessor {

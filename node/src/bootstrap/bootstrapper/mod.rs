@@ -191,12 +191,8 @@ impl Bootstrapper {
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
-        let block_inspector = BlockInspector::new(
-            logic.clone(),
-            ledger.clone(),
-            stats.clone(),
-            block_processor_queue.clone(),
-        );
+        let block_inspector =
+            BlockInspector::new(logic.clone(), ledger.clone(), block_processor_queue.clone());
 
         let requesters = Requesters::new(
             config.clone(),
