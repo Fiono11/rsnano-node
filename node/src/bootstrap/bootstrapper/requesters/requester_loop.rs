@@ -68,8 +68,8 @@ impl RequesterLoop {
         while !state.stopped {
             let mut produced = 0;
 
-            if self.config.enable_priorities
-                && let Some(spec) = self.query_spec_factory.try_priority_query(&mut state)
+            if self.config.enable_block_requester
+                && let Some(spec) = self.query_spec_factory.try_blocks_query(&mut state)
             {
                 self.query_sender.send(spec, &mut state);
                 produced += 1;

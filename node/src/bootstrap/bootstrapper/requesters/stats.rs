@@ -4,8 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 #[derive(Default)]
 pub(crate) struct BootstrapRequesterStats {
     pub wait_block_processor: AtomicU64,
-    pub wait_priority: AtomicU64,
-    pub next: AtomicU64,
+    pub wait_next_download: AtomicU64,
     pub no_channel: AtomicU64,
     pub queries_overfill: AtomicU64,
     pub rate_limit: AtomicU64,
@@ -21,8 +20,11 @@ impl StatsSource for BootstrapRequesterStats {
             "wait_block_processor",
             self.wait_block_processor.load(Relaxed),
         );
-        result.insert(STAT_NAME, "wait_priority", self.wait_priority.load(Relaxed));
-        result.insert(STAT_NAME, "next_priority", self.next.load(Relaxed));
+        result.insert(
+            STAT_NAME,
+            "wait_next_download",
+            self.wait_next_download.load(Relaxed),
+        );
         result.insert(STAT_NAME, "no_channel", self.no_channel.load(Relaxed));
 
         result.insert(

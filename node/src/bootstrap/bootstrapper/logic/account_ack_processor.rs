@@ -23,7 +23,6 @@ impl AccountAckProcessor {
 
         // Prioritize account containing the dependency
         queue.dependency_update(&query.hash, response.account);
-        queue.priority_up(&response.account);
         // OK, no way to verify the response
         true
     }
@@ -68,18 +67,6 @@ mod tests {
 
         assert_eq!(processor.stats.empty, 1);
         assert_eq!(queue.info().download_queue, 0);
-    }
-
-    #[test]
-    fn when_not_blocked_should_only_prioritize() {
-        let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::new_null();
-        let query = RunningQuery::new_test_instance();
-        let response = AccountInfoAckPayload::new_test_instance();
-
-        assert!(processor.process(&mut queue, &query, &response));
-
-        assert!(queue.contains(&response.account));
     }
 
     #[test]

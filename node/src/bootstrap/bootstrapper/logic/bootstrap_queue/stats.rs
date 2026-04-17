@@ -16,7 +16,16 @@ pub(crate) struct BootstrapQueueStats {
     pub unblocked: AtomicU64,
     pub decayed_blocked: AtomicU64,
     pub dependency_update: AtomicU64,
-    pub dependency_update_failed: AtomicU64,
+    pub download_started: AtomicU64,
+    pub download_start_failed: AtomicU64,
+    pub download_finished: AtomicU64,
+    pub download_finished_failed: AtomicU64,
+    pub processing_started: AtomicU64,
+    pub processing_started_failed: AtomicU64,
+    pub reprocess: AtomicU64,
+    pub reprocess_failed: AtomicU64,
+    pub processing_finished: AtomicU64,
+    pub processing_finished_failed: AtomicU64,
 }
 
 impl BootstrapQueueStats {
@@ -56,10 +65,43 @@ impl StatsSource for BootstrapQueueStats {
             "dependency_update",
             self.dependency_update.load(Relaxed),
         );
+        result.insert(KEY, "download_started", self.download_started.load(Relaxed));
         result.insert(
             KEY,
-            "dependency_update_failed",
-            self.dependency_update_failed.load(Relaxed),
+            "download_start_failed",
+            self.download_start_failed.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "download_finished",
+            self.download_finished.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "download_finished_failed",
+            self.download_finished_failed.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "processing_started",
+            self.processing_started.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "processing_started_failed",
+            self.processing_started_failed.load(Relaxed),
+        );
+        result.insert(KEY, "reprocess", self.reprocess.load(Relaxed));
+        result.insert(KEY, "reprocess_failed", self.reprocess_failed.load(Relaxed));
+        result.insert(
+            KEY,
+            "processing_finished",
+            self.processing_finished.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "processing_finished_failed",
+            self.processing_finished_failed.load(Relaxed),
         );
     }
 }

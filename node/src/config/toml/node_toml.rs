@@ -261,7 +261,7 @@ impl NodeConfig {
                 config.enable = *enable;
             }
             if let Some(enable) = &boot_toml.enable_priorities {
-                config.enable_priorities = *enable;
+                config.enable_block_requester = *enable;
             }
             if let Some(enable) = &boot_toml.enable_dependency_walker {
                 config.enable_dependency_walker = *enable;
@@ -565,7 +565,7 @@ impl From<&NodeConfig> for NodeToml {
             priority_bucket: Some((&config.priority_bucket).into()),
             bootstrap: Some(BootstrapToml {
                 enable: Some(config.bootstrap.enable),
-                enable_priorities: Some(config.bootstrap.enable_priorities),
+                enable_priorities: Some(config.bootstrap.enable_block_requester),
                 enable_dependency_walker: Some(config.bootstrap.enable_dependency_walker),
                 enable_frontier_scan: Some(config.bootstrap.enable_frontier_scan),
                 channel_limit: Some(config.bootstrap.channel_limit),

@@ -83,7 +83,7 @@ impl AscPullQuerySpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapConfig {
     pub enable: bool,
-    pub enable_priorities: bool,
+    pub enable_block_requester: bool,
     pub enable_dependency_walker: bool,
     pub enable_frontier_scan: bool,
     /// Maximum number of un-responded requests per channel, should be lower or equal to bootstrap server max queue size
@@ -112,7 +112,7 @@ impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
             enable: true,
-            enable_priorities: true,
+            enable_block_requester: true,
             enable_dependency_walker: true,
             enable_frontier_scan: true,
             channel_limit: 16,

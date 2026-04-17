@@ -444,24 +444,25 @@ impl BootstrapQueueLogic {
         self.accounts.get(&account).unwrap().blocks.front()
     }
 
-    pub fn download_started(&mut self, account: &Account, now: Timestamp) {
+    pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
         let Some(entry) = self.accounts.get_mut(&account) else {
-            return;
+            return false;
         };
         if entry.state != AccountState::EnqueuedForDownload {
-            return;
+            return false;
         }
         self.download_queue.remove(account, entry.priority);
         entry.state = AccountState::Downloading;
         self.downloading.insert(*account, now);
+        true
     }
 
-    pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) {
+    pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) -> bool {
         let Some(entry) = self.accounts.get_mut(account) else {
-            return;
+            return false;
         };
         if entry.state != AccountState::Downloading {
-            return;
+            return false;
         }
         self.downloading.remove(account);
         self.cached_blocks += blocks.len();
@@ -476,6 +477,7 @@ impl BootstrapQueueLogic {
             self.ready_to_process
                 .insert(*account, entry.first_block_hash().unwrap());
         }
+        true
     }
 
     pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
@@ -488,13 +490,14 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
+    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
         if self.processing.remove_block(block_hash).is_some() {
             let entry = self.accounts.get_mut(&account).unwrap();
             entry.state = AccountState::ReadyToProcess;
             self.ready_to_process.insert(*account, *block_hash);
+            true
         } else {
-            // TODO
+            false
         }
     }
 

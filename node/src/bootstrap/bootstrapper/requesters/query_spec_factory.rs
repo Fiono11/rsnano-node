@@ -61,7 +61,7 @@ impl QuerySpecFactory {
         }
     }
 
-    pub fn try_priority_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
+    pub fn try_blocks_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
         if state.running_queries.len() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -80,7 +80,7 @@ impl QuerySpecFactory {
         let query_id = self.rng_factory.rng().next_u64();
         let next = state.next_target();
         if next.account.is_zero() {
-            self.stats.wait_priority.fetch_add(1, Relaxed);
+            self.stats.wait_next_download.fetch_add(1, Relaxed);
             return None;
         }
 
@@ -113,7 +113,6 @@ impl QuerySpecFactory {
         self.request_limiter.consume(1, now);
         state.scoring.add_query(channel_id);
         state.bootstrap_queue.download_started(&next.account);
-        self.stats.next.fetch_add(1, Relaxed);
 
         Some(query)
     }
@@ -134,18 +133,10 @@ impl QuerySpecFactory {
         let channel = self.acquire_channel(state)?;
         let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
-        match state.next_blocked_query(query_id, &channel) {
-            Some(spec) => {
-                self.request_limiter.consume(1, now);
-                state.scoring.add_query(channel_id);
-                // TODO stats
-                Some(spec)
-            }
-            None => {
-                // TODO stats
-                None
-            }
-        }
+        let spec = state.next_blocked_query(query_id, &channel)?;
+        self.request_limiter.consume(1, now);
+        state.scoring.add_query(channel_id);
+        Some(spec)
     }
 
     pub fn try_frontier_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
@@ -170,13 +161,11 @@ impl QuerySpecFactory {
 
         let start = state.frontiers_processor.next(now);
         if !start.is_zero() {
-            // TODO stats
             self.frontiers_limiter.consume(1, now);
             state.scoring.add_query(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {
-            // TODO stats
             None
         }
     }

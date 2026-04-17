@@ -29,7 +29,6 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use bootstrapping_account::AccountState;
 use stats::BootstrapQueueStats;
 
 pub(crate) struct BootstrapQueue {
@@ -137,13 +136,9 @@ impl BootstrapQueue {
             .lock()
             .unwrap()
             .dependency_update(dependency, dependency_account);
-        if updated > 0 {
-            self.stats
-                .dependency_update
-                .fetch_add(updated as u64, Relaxed);
-        } else {
-            self.stats.dependency_update_failed.fetch_add(1, Relaxed);
-        }
+        self.stats
+            .dependency_update
+            .fetch_add(updated as u64, Relaxed);
     }
 
     pub fn next_download_target(&self, filter: impl Fn(&Account) -> bool) -> BootstrapTarget {
@@ -157,26 +152,51 @@ impl BootstrapQueue {
 
     pub fn download_started(&mut self, account: &Account) {
         let now = self.clock.now();
-        self.logic.lock().unwrap().download_started(account, now);
+        let started = self.logic.lock().unwrap().download_started(account, now);
+        if started {
+            self.stats.download_started.fetch_add(1, Relaxed);
+        } else {
+            self.stats.download_start_failed.fetch_add(1, Relaxed);
+        }
     }
 
     pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) {
-        self.logic
+        let finished = self
+            .logic
             .lock()
             .unwrap()
             .download_finished(account, blocks);
+        if finished {
+            self.stats.download_finished.fetch_add(1, Relaxed);
+        } else {
+            self.stats.download_finished_failed.fetch_add(1, Relaxed);
+        }
     }
 
-    pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
-        self.logic.lock().unwrap().processing_started(block_hash)
+    pub fn processing_started(&mut self, block_hash: &BlockHash) {
+        if self.logic.lock().unwrap().processing_started(block_hash) {
+            self.stats.processing_started.fetch_add(1, Relaxed);
+        } else {
+            self.stats.processing_started_failed.fetch_add(1, Relaxed);
+        }
     }
 
     pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
-        self.logic.lock().unwrap().reprocess(account, block_hash);
+        let reprocessed = self.logic.lock().unwrap().reprocess(account, block_hash);
+        if reprocessed {
+            self.stats.reprocess.fetch_add(1, Relaxed);
+        } else {
+            self.stats.reprocess_failed.fetch_add(1, Relaxed);
+        }
     }
 
-    pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
-        self.logic.lock().unwrap().processing_finished(block_hash)
+    pub fn processing_finished(&mut self, block_hash: &BlockHash) {
+        let new_state = self.logic.lock().unwrap().processing_finished(block_hash);
+        if new_state.is_some() {
+            self.stats.processing_finished.fetch_add(1, Relaxed);
+        } else {
+            self.stats.processing_finished_failed.fetch_add(1, Relaxed);
+        }
     }
 
     pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
