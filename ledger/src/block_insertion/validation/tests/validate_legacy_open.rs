@@ -1,5 +1,5 @@
 use rsnano_types::{
-    AccountInfo, Amount, BlockDetails, BlockSideband, Epoch, PendingKey, PrivateKey,
+    AccountInfo, Amount, BlockDetails, BlockSideband, Epoch, PendingKey, PrivateKey, SavedBlock,
 };
 
 use crate::{BlockError, block_insertion::validation::tests::BlockValidationTest};
@@ -58,7 +58,7 @@ fn fail_if_duplicate() {
     BlockValidationTest::for_epoch0_account()
         .block_to_validate(|chain| chain.new_legacy_open_block().build())
         .block_already_exists()
-        .assert_validation_fails_with(BlockError::Old);
+        .assert_validation_fails_with(BlockError::Old(SavedBlock::new_test_instance()));
 }
 
 #[test]

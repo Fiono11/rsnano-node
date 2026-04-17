@@ -1426,7 +1426,7 @@ impl Node {
         let hash = block.hash();
         match self.ledger.process_one(&block) {
             Ok(saved_block) => saved_block,
-            Err(BlockError::Old) | Err(BlockError::Conflict) => {
+            Err(BlockError::Old(_)) | Err(BlockError::Conflict) => {
                 self.block(&hash).expect("block should exist")
             }
             Err(e) => {
@@ -1438,7 +1438,7 @@ impl Node {
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
             match self.ledger.process_one(block) {
-                Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
+                Ok(_) | Err(BlockError::Old(_)) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
                 }
@@ -1468,7 +1468,7 @@ impl Node {
     pub fn process_local_multi(&self, blocks: &[Block]) {
         for block in blocks {
             let status = self.process_local(block.clone());
-            if !matches!(status, Ok(()) | Err(BlockError::Old)) {
+            if !matches!(status, Ok(()) | Err(BlockError::Old(_))) {
                 panic!("could not process block!");
             }
         }

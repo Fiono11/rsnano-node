@@ -1,6 +1,7 @@
 use crate::{BlockError, block_insertion::validation::tests::BlockValidationTest};
 use rsnano_types::{
     AccountInfo, Amount, BlockDetails, BlockHash, BlockSideband, Epoch, PendingInfo, PendingKey,
+    SavedBlock,
 };
 
 #[test]
@@ -52,7 +53,7 @@ fn fails_with_old_if_legacy_sending_twice() {
     BlockValidationTest::for_epoch0_account()
         .block_to_validate(|chain| chain.new_legacy_send_block().build())
         .block_already_exists()
-        .assert_validation_fails_with(BlockError::Old);
+        .assert_validation_fails_with(BlockError::Old(SavedBlock::new_test_instance()));
 }
 
 #[test]

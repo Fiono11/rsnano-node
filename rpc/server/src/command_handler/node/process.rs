@@ -70,7 +70,7 @@ impl RpcCommandHandler {
                 Ok(()) => Ok(serde_json::to_value(HashRpcMessage::new(hash))?),
                 Err(BlockError::GapPrevious) => Err(anyhow!("Gap previous block")),
                 Err(BlockError::BadSignature) => Err(anyhow!("Bad signature")),
-                Err(BlockError::Old) => Err(anyhow!("Old block")),
+                Err(BlockError::Old(_)) => Err(anyhow!("Old block")),
                 Err(BlockError::NegativeSpend) => Err(anyhow!("Negative spend")),
                 Err(BlockError::Fork) => {
                     if args.force.unwrap_or_default().inner() {

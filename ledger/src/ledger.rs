@@ -47,7 +47,7 @@ pub enum BlockError {
     /// Signature was bad, forged or transmission error
     BadSignature,
     /// Already seen and was valid
-    Old,
+    Old(SavedBlock),
     /// Malicious attempt to spend a negative amount
     NegativeSpend,
     /// Malicious fork based on previous
@@ -78,7 +78,7 @@ impl BlockError {
     pub fn as_str(&self) -> &'static str {
         match self {
             BlockError::BadSignature => "Bad signature",
-            BlockError::Old => "Old",
+            BlockError::Old(_) => "Old",
             BlockError::NegativeSpend => "Negative spend",
             BlockError::Fork => "Fork",
             BlockError::Unreceivable => "Unreceivable",
@@ -91,27 +91,6 @@ impl BlockError {
             BlockError::BlockPosition => "Block position",
             BlockError::InsufficientWork => "Insufficient work",
             BlockError::Conflict => "Conflict",
-        }
-    }
-}
-
-impl From<BlockError> for DetailType {
-    fn from(value: BlockError) -> Self {
-        match value {
-            BlockError::BadSignature => Self::BadSignature,
-            BlockError::Old => Self::Old,
-            BlockError::NegativeSpend => Self::NegativeSpend,
-            BlockError::Fork => Self::Fork,
-            BlockError::Unreceivable => Self::Unreceivable,
-            BlockError::GapPrevious => Self::GapPrevious,
-            BlockError::GapSource => Self::GapSource,
-            BlockError::GapEpochOpenPending => Self::GapEpochOpenPending,
-            BlockError::OpenedBurnAccount => Self::OpenedBurnAccount,
-            BlockError::BalanceMismatch => Self::BalanceMismatch,
-            BlockError::RepresentativeMismatch => Self::RepresentativeMismatch,
-            BlockError::BlockPosition => Self::BlockPosition,
-            BlockError::InsufficientWork => Self::InsufficientWork,
-            BlockError::Conflict => Self::Conflict,
         }
     }
 }

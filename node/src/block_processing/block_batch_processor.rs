@@ -1,8 +1,8 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
 
@@ -150,7 +150,7 @@ impl BlockBatchProcessorStats {
     pub fn add_error(&self, error: &BlockError) {
         let counter = match error {
             BlockError::BadSignature => &self.bad_signature,
-            BlockError::Old => &self.old,
+            BlockError::Old(_) => &self.old,
             BlockError::NegativeSpend => &self.negative_spend,
             BlockError::Fork => &self.fork,
             BlockError::Unreceivable => &self.unreceivable,

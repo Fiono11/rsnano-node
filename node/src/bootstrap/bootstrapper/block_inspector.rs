@@ -106,7 +106,7 @@ impl BlockInspector {
             }
             Err(error) => {
                 match error {
-                    BlockError::Old => {
+                    BlockError::Old(_) => {
                         state.bootstrap_queue.processing_finished(&hash);
                     }
                     BlockError::GapSource => {
