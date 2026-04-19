@@ -2,7 +2,7 @@ use crate::domain::{
     AccountMap, BlockFactory, BlockResult, DelayedBlocks, Forks, RateSpec, SpamStrategy,
     high_prio_tracker::HighPrioTracker,
 };
-use rsnano_network::token_bucket::TokenBucket;
+use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Block, BlockHash};
 use std::time::Duration;
@@ -20,7 +20,7 @@ pub(crate) struct SpamLogic {
     pub(crate) high_prio_tracker: HighPrioTracker,
     pub(crate) block_factory: BlockFactory,
     pub(crate) current_bps: usize,
-    bps_limiter: TokenBucket,
+    bps_limiter: TokenBucketLogic,
     next_block: Option<Forks>,
     bps_start: Option<Timestamp>,
     spec: SpamSpec,
@@ -38,7 +38,7 @@ impl SpamLogic {
             high_prio_tracker: Default::default(),
             block_factory: BlockFactory::new(account_map, spec.max_blocks, spec.spam_strategy),
             current_bps: spec.rate.initial_bps,
-            bps_limiter: TokenBucket::new(spec.rate.initial_bps),
+            bps_limiter: TokenBucketLogic::new(spec.rate.initial_bps),
             next_block: None,
             bps_start: None,
             spec,

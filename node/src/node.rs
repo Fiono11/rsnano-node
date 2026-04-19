@@ -483,7 +483,6 @@ impl Node {
             config.bootstrap_server.clone(),
             stats.clone(),
             ledger.clone(),
-            steady_clock.clone(),
             message_sender.clone(),
         ));
 
@@ -786,16 +785,12 @@ impl Node {
         ));
 
         let ledger_tx2 = ledger_tx.clone();
-        let backlog_scan = BacklogScan::new(
-            global_config.into(),
-            ledger.clone(),
-            steady_clock.clone(),
-            move |unconfirmed| {
+        let backlog_scan =
+            BacklogScan::new(global_config.into(), ledger.clone(), move |unconfirmed| {
                 ledger_tx2
                     .send(LedgerPipelineEvent::UnconfirmedFound(unconfirmed))
                     .expect("channel should be open");
-            },
-        );
+            });
 
         if config.bounded_backlog.max_backlog == 0 {
             config.enable_bounded_backlog = false;
@@ -866,7 +861,6 @@ impl Node {
             stats.clone(),
             ledger.clone(),
             confirming_set.clone(),
-            steady_clock.clone(),
             message_flooder.clone(),
             !flags.disable_block_processor_republishing,
         ));

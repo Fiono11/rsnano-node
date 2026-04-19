@@ -10,7 +10,6 @@ use std::{
 
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_network::token_bucket::TokenBucket;
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
@@ -60,7 +59,6 @@ impl BacklogScan {
     pub(crate) fn new(
         config: BacklogScanConfig,
         ledger: Arc<Ledger>,
-        clock: Arc<SteadyClock>,
         publish: impl Fn(Vec<UnconfirmedInfo>) + Send + Sync + 'static,
     ) -> Self {
         let stats = Arc::new(BacklogScanStats::default());
@@ -82,7 +80,6 @@ impl BacklogScan {
                 config,
                 flags: flags.clone(),
                 condition: condition.clone(),
-                clock,
             }),
             stats,
             flags,
@@ -156,7 +153,6 @@ struct BacklogScanLoop {
     flags: Arc<Mutex<BacklogScanFlags>>,
     condition: Arc<Condvar>,
     limiter: Mutex<TokenBucket>,
-    clock: Arc<SteadyClock>,
 }
 
 impl BacklogScanLoop {
@@ -205,7 +201,7 @@ impl BacklogScanLoop {
             .limiter
             .lock()
             .unwrap()
-            .try_consume(self.config.batch_size, self.clock.now())
+            .try_consume(self.config.batch_size)
         {
             lock = self
                 .condition
@@ -333,8 +329,6 @@ mod tests {
                 .account_info(&Account::from(2), &AccountInfo::new_test_instance())
                 .finish(),
         );
-        let clock = Arc::new(SteadyClock::new_null());
-
         let found = Arc::new(Mutex::new(Vec::new()));
         let found2 = found.clone();
         let done = Arc::new(Condvar::new());
@@ -351,8 +345,7 @@ mod tests {
             done2.notify_all();
         };
 
-        let mut backlog_scan =
-            BacklogScan::new(BacklogScanConfig::default(), ledger, clock, callback);
+        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger, callback);
 
         backlog_scan.start();
 
@@ -373,8 +366,6 @@ mod tests {
                 .account_info(&Account::from(2), &AccountInfo::new_test_instance())
                 .finish(),
         );
-        let clock = Arc::new(SteadyClock::new_null());
-
         let found = Arc::new(Mutex::new(Vec::new()));
         let found2 = found.clone();
         let done = Arc::new(Condvar::new());
@@ -391,8 +382,7 @@ mod tests {
             done2.notify_all();
         };
 
-        let mut backlog_scan =
-            BacklogScan::new(BacklogScanConfig::default(), ledger, clock, callback);
+        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger, callback);
 
         backlog_scan.start();
 

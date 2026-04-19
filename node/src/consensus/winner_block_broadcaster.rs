@@ -82,7 +82,7 @@ impl WinnerBlockBroadcaster {
         // Maximum amount of directed broadcasts to be sent per election
         let max_election_broadcasts = max(self.network.read().unwrap().fanout(1.0) / 2, 1);
 
-        if !self.rebroadcast_limiter.try_consume(1, now) {
+        if !self.rebroadcast_limiter.try_consume(1) {
             return;
         }
 

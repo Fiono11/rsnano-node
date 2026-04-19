@@ -1,4 +1,80 @@
-use rsnano_nullable_clock::Timestamp;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
+
+pub struct TokenBucket {
+    clock: SteadyClock,
+    logic: TokenBucketLogic,
+}
+
+impl TokenBucket {
+    pub fn new(limit: usize) -> Self {
+        Self {
+            clock: SteadyClock::default(),
+            logic: TokenBucketLogic::new(limit),
+        }
+    }
+
+    pub fn with_burst_ratio(limit: usize, limit_burst_ratio: f64) -> Self {
+        Self {
+            clock: SteadyClock::default(),
+            logic: TokenBucketLogic::with_burst_ratio(limit, limit_burst_ratio),
+        }
+    }
+
+    pub fn with_refill_rate(max_tokens: usize, refill_rate: usize) -> Self {
+        Self {
+            clock: SteadyClock::default(),
+            logic: TokenBucketLogic::with_refill_rate(max_tokens, refill_rate),
+        }
+    }
+
+    pub fn new_null(limit: usize) -> Self {
+        Self {
+            clock: SteadyClock::new_null(),
+            logic: TokenBucketLogic::new(limit),
+        }
+    }
+
+    pub fn new_null_with_burst_ratio(limit: usize, limit_burst_ratio: f64) -> Self {
+        Self {
+            clock: SteadyClock::new_null(),
+            logic: TokenBucketLogic::with_burst_ratio(limit, limit_burst_ratio),
+        }
+    }
+
+    pub fn try_consume(&mut self, tokens_required: usize) -> bool {
+        self.logic.try_consume(tokens_required, self.clock.now())
+    }
+
+    pub fn could_consume(&mut self, tokens_required: usize) -> bool {
+        self.logic.could_consume(tokens_required, self.clock.now())
+    }
+
+    pub fn consume(&mut self, tokens: usize) {
+        self.logic.consume(tokens, self.clock.now())
+    }
+
+    pub fn set_limit(&mut self, new_limit: usize) {
+        self.logic.set_limit(new_limit)
+    }
+
+    pub fn reset(&mut self) {
+        self.logic.reset()
+    }
+
+    pub fn reset_with(&mut self, max_token_count: usize, refill_rate: usize) {
+        self.logic.reset_with(max_token_count, refill_rate)
+    }
+
+    pub fn size(&self) -> usize {
+        self.logic.size()
+    }
+}
+
+impl Default for TokenBucket {
+    fn default() -> Self {
+        Self::new(UNLIMITED)
+    }
+}
 
 /**
  * Token bucket based rate limiting. This is suitable for rate limiting ipc/api calls
@@ -12,7 +88,7 @@ use rsnano_nullable_clock::Timestamp;
  * messages, or the cost of API invocations.
  */
 #[derive(Clone)]
-pub struct TokenBucket {
+pub struct TokenBucketLogic {
     last_refill: Option<Timestamp>,
     current_size: usize,
     max_token_count: usize,
@@ -21,7 +97,7 @@ pub struct TokenBucket {
 
 const UNLIMITED: usize = 1_000_000_000;
 
-impl TokenBucket {
+impl TokenBucketLogic {
     pub fn new(limit: usize) -> Self {
         Self::with_burst_ratio(limit, 1.0)
     }
@@ -120,7 +196,7 @@ impl TokenBucket {
     }
 }
 
-impl Default for TokenBucket {
+impl Default for TokenBucketLogic {
     fn default() -> Self {
         Self::new(UNLIMITED)
     }
@@ -133,13 +209,13 @@ mod tests {
 
     #[test]
     fn default_is_unlimited() {
-        let bucket = TokenBucket::default();
+        let bucket = TokenBucketLogic::default();
         assert_eq!(bucket.max_token_count, UNLIMITED);
     }
 
     #[test]
     fn basic() {
-        let mut bucket = TokenBucket::with_refill_rate(10, 10);
+        let mut bucket = TokenBucketLogic::with_refill_rate(10, 10);
         let mut now = Timestamp::new_test_instance();
 
         // Initial burst
@@ -161,7 +237,7 @@ mod tests {
     fn network() {
         // For the purpose of the test, one token represents 1MB instead of one byte.
         // Allow for 10 mb/s bursts (max bucket size), 5 mb/s long term rate
-        let mut bucket = TokenBucket::with_refill_rate(10, 5);
+        let mut bucket = TokenBucketLogic::with_refill_rate(10, 5);
         let mut now = Timestamp::new_test_instance();
 
         // Initial burst of 10 mb/s over two calls
@@ -177,7 +253,7 @@ mod tests {
 
     #[test]
     fn reset() {
-        let mut bucket = TokenBucket::with_refill_rate(0, 0);
+        let mut bucket = TokenBucketLogic::with_refill_rate(0, 0);
         let mut now = Timestamp::new_test_instance();
 
         // consume lots of tokens, buckets should be unlimited
@@ -212,7 +288,7 @@ mod tests {
 
     #[test]
     fn unlimited_rate() {
-        let mut bucket = TokenBucket::with_refill_rate(0, 0);
+        let mut bucket = TokenBucketLogic::with_refill_rate(0, 0);
         let now = Timestamp::new_test_instance();
         assert_eq!(bucket.try_consume(5, now), true);
         assert_eq!(bucket.try_consume(1_000_000_000, now), true);
@@ -224,7 +300,7 @@ mod tests {
     #[test]
     fn busy_spin() {
         // Bucket should refill at a rate of 1 token per second
-        let mut bucket = TokenBucket::with_refill_rate(1, 1);
+        let mut bucket = TokenBucketLogic::with_refill_rate(1, 1);
         let mut now = Timestamp::new_test_instance();
 
         // Run a very tight loop for 5 seconds + a bit of wiggle room

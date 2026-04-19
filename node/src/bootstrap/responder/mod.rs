@@ -17,7 +17,6 @@ use rsnano_messages::{
 use rsnano_network::{
     Channel, ChannelId, DeadChannelCleanupStep, TrafficType, token_bucket::TokenBucket,
 };
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, BlockHash, Frontier};
 use rsnano_utils::{
     fair_queue::FairQueue,
@@ -65,7 +64,6 @@ impl BootstrapResponder {
         config: BootstrapResponderConfig,
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
-        clock: Arc<SteadyClock>,
         message_sender: MessageSender,
     ) -> Self {
         let max_queue = config.max_queue;
@@ -79,7 +77,6 @@ impl BootstrapResponder {
             queue: Mutex::new(FairQueue::new(move |_| max_queue, |_| 1)),
             message_sender: Mutex::new(message_sender),
             limiter: Mutex::new(TokenBucket::with_burst_ratio(config.limiter, 3.0)),
-            clock,
         });
 
         Self {
@@ -96,7 +93,6 @@ impl BootstrapResponder {
             BootstrapResponderConfig::default(),
             Stats::default().into(),
             Ledger::new_null().into(),
-            SteadyClock::new_null().into(),
             MessageSender::new_null(),
         )
     }
@@ -203,7 +199,6 @@ pub(crate) struct BootstrapResponderImpl {
     batch_size: usize,
     message_sender: Mutex<MessageSender>,
     limiter: Mutex<TokenBucket>,
-    clock: Arc<SteadyClock>,
 }
 
 impl BootstrapResponderImpl {
@@ -219,11 +214,7 @@ impl BootstrapResponderImpl {
 
             // Rate limit the processing
             while !self.stopped.load(Ordering::SeqCst)
-                && !self
-                    .limiter
-                    .lock()
-                    .unwrap()
-                    .try_consume(self.batch_size, self.clock.now())
+                && !self.limiter.lock().unwrap().try_consume(self.batch_size)
             {
                 self.stats
                     .inc(StatType::BootstrapServer, DetailType::Cooldown);

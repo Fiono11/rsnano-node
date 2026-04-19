@@ -13,7 +13,6 @@ use crate::block_processing::LedgerPipelineEvent;
 use rsnano_ledger::{BlockSource, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, BlockHash, NetworkType};
 use rsnano_utils::{
     EventHandlerMut,
@@ -76,7 +75,6 @@ pub struct LocalBlockBroadcaster {
     condition: Condvar,
     limiter: Mutex<TokenBucket>,
     message_flooder: Mutex<MessageFlooder>,
-    clock: Arc<SteadyClock>,
 }
 
 impl LocalBlockBroadcaster {
@@ -85,7 +83,6 @@ impl LocalBlockBroadcaster {
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
-        clock: Arc<SteadyClock>,
         message_flooder: MessageFlooder,
         enabled: bool,
     ) -> Self {
@@ -107,7 +104,6 @@ impl LocalBlockBroadcaster {
             }),
             condition: Condvar::new(),
             message_flooder: Mutex::new(message_flooder),
-            clock,
         }
     }
 
@@ -117,17 +113,8 @@ impl LocalBlockBroadcaster {
         let ledger = Arc::new(Ledger::new_null());
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let message_flooder = MessageFlooder::new_null();
-        let clock = Arc::new(SteadyClock::new_null());
 
-        Self::new(
-            config,
-            stats,
-            ledger,
-            confirming_set,
-            clock,
-            message_flooder,
-            true,
-        )
+        Self::new(config, stats, ledger, confirming_set, message_flooder, true)
     }
 
     pub fn stop(&self) {
@@ -201,12 +188,7 @@ impl LocalBlockBroadcaster {
         drop(guard);
 
         for entry in to_broadcast {
-            while !self
-                .limiter
-                .lock()
-                .unwrap()
-                .try_consume(1, self.clock.now())
-            {
+            while !self.limiter.lock().unwrap().try_consume(1) {
                 let mut guard = self.mutex.lock().unwrap();
                 guard = self
                     .condition

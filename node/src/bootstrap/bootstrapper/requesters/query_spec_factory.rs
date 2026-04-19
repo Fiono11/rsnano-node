@@ -67,8 +67,7 @@ impl QuerySpecFactory {
             return None;
         }
 
-        let now = self.clock.now();
-        if !self.request_limiter.could_consume(1, now) {
+        if !self.request_limiter.could_consume(1) {
             self.stats.rate_limit.fetch_add(1, Relaxed);
             return None;
         }
@@ -110,7 +109,7 @@ impl QuerySpecFactory {
         };
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
-        self.request_limiter.consume(1, now);
+        self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);
         state.bootstrap_queue.download_started(&next.account);
 
@@ -123,13 +122,11 @@ impl QuerySpecFactory {
             return None;
         }
 
-        let now = self.clock.now();
-        if !self.request_limiter.could_consume(1, now) {
+        if !self.request_limiter.could_consume(1) {
             self.stats.rate_limit.fetch_add(1, Relaxed);
             return None;
         }
 
-        let now = self.clock.now();
         let channel = self.acquire_channel(state)?;
         let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
@@ -137,7 +134,7 @@ impl QuerySpecFactory {
             self.stats.wait_dependency_missing.fetch_add(1, Relaxed);
             return None;
         };
-        self.request_limiter.consume(1, now);
+        self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);
         Some(spec)
     }
@@ -153,7 +150,7 @@ impl QuerySpecFactory {
         if state.bootstrap_queue.queue_half_full() {
             return None;
         }
-        if !self.frontiers_limiter.could_consume(1, now) {
+        if !self.frontiers_limiter.could_consume(1) {
             return None;
         }
 
@@ -164,7 +161,7 @@ impl QuerySpecFactory {
 
         let start = state.frontiers_processor.next(now);
         if !start.is_zero() {
-            self.frontiers_limiter.consume(1, now);
+            self.frontiers_limiter.consume(1);
             state.scoring.add_query(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))

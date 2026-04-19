@@ -1,5 +1,5 @@
 use crate::block_rate_calculator::CurrentBlockRates;
-use rsnano_network::token_bucket::TokenBucket;
+use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use std::{sync::Arc, time::Duration};
 
@@ -10,7 +10,7 @@ pub(crate) struct CpsLimiter {
     block_rates: Arc<CurrentBlockRates>,
     cps_limit: f64,
     current_rate: f64,
-    vote_rate_limiter: TokenBucket,
+    vote_rate_limiter: TokenBucketLogic,
     last_adjustment: Option<Timestamp>,
 }
 
@@ -22,7 +22,7 @@ impl CpsLimiter {
             block_rates,
             cps_limit: cps_limit as f64,
             current_rate: cps_limit as f64,
-            vote_rate_limiter: TokenBucket::new(cps_limit),
+            vote_rate_limiter: TokenBucketLogic::new(cps_limit),
             last_adjustment: None,
         }
     }
