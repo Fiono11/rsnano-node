@@ -4,6 +4,7 @@ use rsnano_types::{Account, Block, BlockHash};
 use rustc_hash::FxHashMap;
 
 use super::single_block_account_set::SingleBlockAccountSet;
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub(super) struct ProcessingFinished {
     pub account: Account,
@@ -123,5 +124,16 @@ impl BlockProcessingQueue {
 
     pub fn cached_block_count(&self) -> usize {
         self.cached_block_count
+    }
+}
+
+impl ContainerInfoProvider for BlockProcessingQueue {
+    fn container_info(&self) -> ContainerInfo {
+        [
+            ("ready_to_process", self.ready_to_process.len(), 0),
+            ("processing", self.processing.len(), 0),
+            ("cached_blocks", self.cached_block_count, 0),
+        ]
+        .into()
     }
 }

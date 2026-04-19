@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
-use rsnano_utils::container_info::ContainerInfo;
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
     block_processing_queue::{BlockProcessingQueue, ProcessingFinished},
@@ -341,15 +341,21 @@ impl BootstrapQueueLogic {
 
     /// Sets information about the account chain that contains the block hash.
     /// Returns the number of updated accounts.
-    /// The caller should call `priority_up` for the dependency account when this returns > 0.
     pub fn dependency_update(
         &mut self,
         dependency: &BlockHash,
         dependency_account: Account,
     ) -> usize {
-        self.blocked
+        let updated = self
+            .blocked
             .modify_dependency_account(dependency, dependency_account)
-            .len()
+            .len();
+
+        if updated > 0 && !self.queue_full() {
+            self.priority_up(&dependency_account);
+        }
+
+        updated
     }
 
     /// Erase the oldest entries
@@ -668,25 +674,14 @@ impl BootstrapQueueLogic {
 
     pub fn container_info(&self) -> ContainerInfo {
         let blocked_unknown = self.blocked.count_by_dependency_account(&Account::ZERO);
-        [
-            ("download_queue", self.download_queue.len(), 0),
-            ("blocked", self.blocked.len(), 0),
-            ("blocked_unknown", blocked_unknown, 0),
-            ("unblocked", self.unblocked_count(), 0),
-            ("downloading", self.downloading.len(), 0),
-            (
-                "ready_to_process",
-                self.block_processing.ready_to_process_len(),
-                0,
-            ),
-            ("processing", self.block_processing.processing_len(), 0),
-            (
-                "cached_blocks",
-                self.block_processing.cached_block_count(),
-                0,
-            ),
-        ]
-        .into()
+        ContainerInfo::builder()
+            .leaf("download_queue", self.download_queue.len(), 0)
+            .leaf("blocked", self.blocked.len(), 0)
+            .leaf("blocked_unknown", blocked_unknown, 0)
+            .leaf("unblocked", self.unblocked_count(), 0)
+            .leaf("downloading", self.downloading.len(), 0)
+            .node("processing", self.block_processing.container_info())
+            .finish()
     }
 }
 
@@ -1142,9 +1137,6 @@ mod tests {
             Timestamp::new_test_instance(),
         );
         let updated = queue.dependency_update(&BlockHash::from(3), Account::from(1000));
-        if updated > 0 {
-            queue.priority_up(&Account::from(1000));
-        }
         queue.block(
             Account::from(3),
             BlockHash::from(4),
@@ -1153,17 +1145,14 @@ mod tests {
         let info = queue.container_info();
         assert_eq!(
             info,
-            [
-                ("download_queue", 2, 0),
-                ("blocked", 2, 0),
-                ("blocked_unknown", 1, 0),
-                ("unblocked", 2, 0),
-                ("downloading", 0, 0),
-                ("ready_to_process", 0, 0),
-                ("processing", 0, 0),
-                ("cached_blocks", 0, 0),
-            ]
-            .into()
+            ContainerInfo::builder()
+                .leaf("download_queue", 2, 0)
+                .leaf("blocked", 2, 0)
+                .leaf("blocked_unknown", 1, 0)
+                .leaf("unblocked", 2, 0)
+                .leaf("downloading", 0, 0)
+                .node("processing", queue.block_processing.container_info())
+                .finish()
         )
     }
 
@@ -1187,12 +1176,7 @@ mod tests {
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
 
-        // dependency_update returns the count; enqueueing the dependency account
-        // is the caller's responsibility (done by BootstrapQueue::dependency_update).
-        let updated = queue.dependency_update(&dependency, dependency_account);
-        if updated > 0 {
-            queue.priority_up(&dependency_account);
-        }
+        queue.dependency_update(&dependency, dependency_account);
 
         assert!(queue.contains(&dependency_account));
     }
@@ -1206,7 +1190,6 @@ mod tests {
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
         queue.dependency_update(&dependency, dependency_account);
-        queue.priority_up_to(&dependency_account, Priority::INITIAL);
 
         let inserted = queue.sync_dependencies();
 
