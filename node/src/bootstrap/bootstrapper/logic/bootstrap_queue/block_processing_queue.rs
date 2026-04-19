@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 use rsnano_types::{Account, Block, BlockHash};
 use rustc_hash::FxHashMap;
 
-use super::single_block_account_set::SingleBlockAccountSet;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub(super) struct ProcessingFinished {
@@ -21,7 +20,7 @@ pub(super) struct ProcessingFinished {
 #[derive(Default)]
 pub(super) struct BlockProcessingQueue {
     ready_to_process: FxHashMap<BlockHash, Account>,
-    processing: SingleBlockAccountSet,
+    processing: FxHashMap<BlockHash, Account>,
     block_cache: FxHashMap<Account, VecDeque<Block>>,
     cached_block_count: usize,
 }
@@ -44,7 +43,7 @@ impl BlockProcessingQueue {
     pub fn suspend(&mut self, account: &Account) {
         if let Some(hash) = self.first_block_hash(account) {
             if self.ready_to_process.remove(&hash).is_none() {
-                self.processing.remove_block(&hash);
+                self.processing.remove(&hash);
             }
         }
     }
@@ -69,12 +68,12 @@ impl BlockProcessingQueue {
     /// Moves the block from ready_to_process into processing. Returns the owning account.
     pub fn processing_started(&mut self, block_hash: &BlockHash) -> Option<Account> {
         let account = self.ready_to_process.remove(block_hash)?;
-        self.processing.insert(account, *block_hash);
+        self.processing.insert(*block_hash, account);
         Some(account)
     }
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<ProcessingFinished> {
-        let account = self.processing.remove_block(block_hash)?;
+        let account = self.processing.remove(block_hash)?;
         self.cached_block_count -= 1;
         let next_block_hash = {
             let blocks = self.block_cache.get_mut(&account).unwrap();
@@ -94,7 +93,7 @@ impl BlockProcessingQueue {
     }
 
     pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
-        if self.processing.remove_block(block_hash).is_none() {
+        if self.processing.remove(block_hash).is_none() {
             return false;
         }
         self.ready_to_process.insert(*block_hash, *account);

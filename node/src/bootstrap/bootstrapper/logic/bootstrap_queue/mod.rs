@@ -5,7 +5,6 @@ mod download_queue;
 mod downloading;
 mod logic;
 mod priority;
-mod single_block_account_set;
 mod stats;
 
 pub use logic::{
@@ -18,7 +17,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
