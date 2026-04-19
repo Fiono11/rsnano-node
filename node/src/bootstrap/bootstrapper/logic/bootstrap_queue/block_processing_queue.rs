@@ -20,7 +20,7 @@ pub(super) struct ProcessingFinished {
 /// without re-downloading.
 #[derive(Default)]
 pub(super) struct BlockProcessingQueue {
-    ready_to_process: SingleBlockAccountSet,
+    ready_to_process: FxHashMap<BlockHash, Account>,
     processing: SingleBlockAccountSet,
     block_cache: FxHashMap<Account, VecDeque<Block>>,
     cached_block_count: usize,
@@ -34,7 +34,7 @@ impl BlockProcessingQueue {
         let first_hash = blocks.front().map(|b| b.hash())?;
         self.cached_block_count += blocks.len();
         self.block_cache.insert(account, blocks);
-        self.ready_to_process.insert(account, first_hash);
+        self.ready_to_process.insert(first_hash, account);
         Some(first_hash)
     }
 
@@ -43,7 +43,7 @@ impl BlockProcessingQueue {
     /// has cached blocks, so those blocks survive until the account is unblocked.
     pub fn suspend(&mut self, account: &Account) {
         if let Some(hash) = self.first_block_hash(account) {
-            if self.ready_to_process.remove_block(&hash).is_none() {
+            if self.ready_to_process.remove(&hash).is_none() {
                 self.processing.remove_block(&hash);
             }
         }
@@ -53,13 +53,13 @@ impl BlockProcessingQueue {
     /// Returns the first block hash, or `None` if the account has no cached blocks.
     pub fn resume(&mut self, account: Account) -> Option<BlockHash> {
         let hash = self.first_block_hash(&account)?;
-        self.ready_to_process.insert(account, hash);
+        self.ready_to_process.insert(hash, account);
         Some(hash)
     }
 
     pub fn next_block(&self) -> Option<&Block> {
-        let account = self.ready_to_process.next_account()?;
-        self.block_cache.get(&account)?.front()
+        let account = self.ready_to_process.values().next()?;
+        self.block_cache.get(account)?.front()
     }
 
     pub fn first_block_hash(&self, account: &Account) -> Option<BlockHash> {
@@ -68,7 +68,7 @@ impl BlockProcessingQueue {
 
     /// Moves the block from ready_to_process into processing. Returns the owning account.
     pub fn processing_started(&mut self, block_hash: &BlockHash) -> Option<Account> {
-        let account = self.ready_to_process.remove_block(block_hash)?;
+        let account = self.ready_to_process.remove(block_hash)?;
         self.processing.insert(account, *block_hash);
         Some(account)
     }
@@ -83,7 +83,7 @@ impl BlockProcessingQueue {
             blocks.front().map(|b| b.hash())
         };
         if let Some(hash) = next_block_hash {
-            self.ready_to_process.insert(account, hash);
+            self.ready_to_process.insert(hash, account);
         } else {
             self.block_cache.remove(&account);
         }
@@ -97,7 +97,7 @@ impl BlockProcessingQueue {
         if self.processing.remove_block(block_hash).is_none() {
             return false;
         }
-        self.ready_to_process.insert(*account, *block_hash);
+        self.ready_to_process.insert(*block_hash, *account);
         true
     }
 
