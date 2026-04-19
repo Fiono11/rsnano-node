@@ -51,13 +51,38 @@ impl DownloadQueue {
         Some(account)
     }
 
-    pub fn change_priority(&mut self, account: &Account, old_prio: Priority, new_prio: Priority) {
-        let accounts = self
-            .by_priority
-            .get_mut(&PriorityKeyDesc(old_prio))
-            .unwrap();
-        let removed = accounts.remove(account);
-        debug_assert!(removed);
+    pub fn iter(&self) -> impl Iterator<Item = (Priority, &Account)> {
+        self.by_priority
+            .iter()
+            .flat_map(|(prio, accs)| accs.iter().map(|a| (prio.0, a)))
+    }
+
+    pub fn remove(&mut self, account: &Account, priority: Priority) -> bool {
+        let Some(ids) = self.by_priority.get_mut(&priority.into()) else {
+            return false;
+        };
+        if !ids.remove(account) {
+            return false;
+        }
+        if ids.is_empty() {
+            self.by_priority.remove(&priority.into());
+        }
+        self.account_count -= 1;
+        true
+    }
+
+    pub fn change_priority(
+        &mut self,
+        account: &Account,
+        old_prio: Priority,
+        new_prio: Priority,
+    ) -> bool {
+        let Some(accounts) = self.by_priority.get_mut(&PriorityKeyDesc(old_prio)) else {
+            return false;
+        };
+        if !accounts.remove(account) {
+            return false;
+        }
         if accounts.is_empty() {
             self.by_priority.remove(&PriorityKeyDesc(old_prio));
         }
@@ -65,21 +90,6 @@ impl DownloadQueue {
             .entry(PriorityKeyDesc(new_prio))
             .or_default()
             .insert(*account);
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (Priority, &Account)> {
-        self.by_priority
-            .iter()
-            .flat_map(|(prio, accs)| accs.iter().map(|a| (prio.0, a)))
-    }
-
-    pub fn remove(&mut self, account: &Account, priority: Priority) {
-        let ids = self.by_priority.get_mut(&priority.into()).unwrap();
-        if ids.len() > 1 {
-            ids.remove(account);
-        } else {
-            self.by_priority.remove(&priority.into());
-        }
-        self.account_count -= 1;
+        true
     }
 }

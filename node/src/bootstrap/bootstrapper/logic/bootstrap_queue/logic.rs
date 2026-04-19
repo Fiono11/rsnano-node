@@ -7,9 +7,9 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
-    block_processing_queue::{BlockProcessingQueue, ProcessingFinished},
+    block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
-    bootstrapping_account::{AccountState, BootstrappingAccount},
+    bootstrapping_account::BootstrappingAccount,
     download_queue::{ChangePriorityResult, DownloadQueue},
     downloading::DownloadingAccounts,
 };
@@ -105,7 +105,7 @@ pub(crate) struct BootstrapQueueLogic {
     accounts: FxHashMap<Account, BootstrappingAccount>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
-    block_processing: BlockProcessingQueue,
+    block_processing: BlockHandoffQueue,
     blocked: BlockedAccounts,
     revision: u64,
     discarded_blocks: usize,
@@ -215,10 +215,8 @@ impl BootstrapQueueLogic {
             return ChangePriorityResult::Unchanged;
         }
 
-        if entry.state == AccountState::EnqueuedForDownload {
-            self.download_queue
-                .change_priority(account, old_prio, entry.priority);
-        }
+        self.download_queue
+            .change_priority(account, old_prio, entry.priority);
 
         if entry.fails >= BootstrapQueueLogic::MAX_FAILS
             || entry.fails as f64 > entry.priority.as_f64()
@@ -238,15 +236,8 @@ impl BootstrapQueueLogic {
             let Some(removed) = self.accounts.remove(&account) else {
                 continue;
             };
-            match removed.state {
-                AccountState::EnqueuedForDownload => {
-                    self.download_queue.remove(&account, removed.priority);
-                }
-                AccountState::Downloading => {
-                    self.downloading.remove(&account);
-                }
-                AccountState::ReadyToProcess | AccountState::Processing => {}
-                AccountState::Blocked => {
+            if !self.download_queue.remove(&account, removed.priority) {
+                if !self.downloading.remove(&account) {
                     to_remove.extend(self.blocked.remove_account_and_dependents(&account));
                 }
             }
@@ -258,31 +249,22 @@ impl BootstrapQueueLogic {
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
-        let (state, priority) = match self.accounts.get(&account) {
-            Some(entry) => (entry.state, entry.priority),
+        let priority = match self.accounts.get(&account) {
+            Some(entry) => entry.priority,
             None => return false,
         };
 
-        if state == AccountState::Blocked {
+        if self.blocked.contains(&account) {
             return true;
         }
 
-        match state {
-            AccountState::EnqueuedForDownload => {
-                self.download_queue.remove(&account, priority);
-            }
-            AccountState::Downloading => {
-                self.downloading.remove(&account);
-            }
-            AccountState::ReadyToProcess | AccountState::Processing => {
+        if !self.download_queue.remove(&account, priority) {
+            if !self.downloading.remove(&account) {
                 // Blocks stay in block_cache so they can be processed after unblock
                 self.block_processing.suspend(&account);
             }
-            AccountState::Blocked => unreachable!(),
         }
 
-        let entry = self.accounts.get_mut(&account).unwrap();
-        entry.state = AccountState::Blocked;
         self.blocked.insert(account, dependency, now);
         self.trim_overflow();
         self.revision += 1;
@@ -290,22 +272,15 @@ impl BootstrapQueueLogic {
     }
 
     pub fn unblock(&mut self, account: Account) -> bool {
-        let (is_blocked, priority) = match self.accounts.get(&account) {
-            Some(entry) => (entry.state == AccountState::Blocked, entry.priority),
-            None => return false,
+        let priority = match self.accounts.get(&account) {
+            Some(entry) if self.blocked.contains(&account) => entry.priority,
+            _ => return false,
         };
-        if !is_blocked {
-            return false;
-        }
 
         self.blocked.remove(&account);
         let first_hash = self.block_processing.resume(account);
 
-        let entry = self.accounts.get_mut(&account).unwrap();
-        if first_hash.is_some() {
-            entry.state = AccountState::ReadyToProcess;
-        } else {
-            entry.state = AccountState::EnqueuedForDownload;
+        if first_hash.is_none() {
             self.download_queue.insert(account, priority);
         }
 
@@ -423,67 +398,53 @@ impl BootstrapQueueLogic {
         let Some(entry) = self.accounts.get_mut(&account) else {
             return false;
         };
-        if entry.state != AccountState::EnqueuedForDownload {
+        if !self.download_queue.remove(account, entry.priority) {
             return false;
         }
-        self.download_queue.remove(account, entry.priority);
-        entry.state = AccountState::Downloading;
         self.downloading.insert(*account, now);
         true
     }
 
     pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) -> bool {
-        let priority = match self.accounts.get(account) {
-            Some(entry) if entry.state == AccountState::Downloading => entry.priority,
-            _ => return false,
-        };
+        if !self.downloading.remove(account) {
+            return false;
+        }
 
-        self.downloading.remove(account);
-
+        let priority = self.accounts.get(account).unwrap().priority;
         let first_hash = self.block_processing.enqueue(*account, blocks);
 
         let entry = self.accounts.get_mut(account).unwrap();
         entry.last_request = None;
-        if first_hash.is_some() {
-            entry.state = AccountState::ReadyToProcess;
-        } else {
-            entry.state = AccountState::EnqueuedForDownload;
+        if first_hash.is_none() {
             self.download_queue.insert(*account, priority);
         }
         true
     }
 
     pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(account) = self.block_processing.processing_started(block_hash) else {
-            return false;
-        };
-        self.accounts.get_mut(&account).unwrap().state = AccountState::Processing;
-        true
+        self.block_processing
+            .processing_started(block_hash)
+            .is_some()
     }
 
     pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
-        if self.block_processing.reprocess(account, block_hash) {
-            self.accounts.get_mut(account).unwrap().state = AccountState::ReadyToProcess;
-            true
-        } else {
-            false
-        }
+        self.block_processing.reprocess(account, block_hash)
     }
 
-    pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<AccountState> {
+    pub fn processing_finished(&mut self, block_hash: &BlockHash) -> bool {
         let ProcessingFinished {
             account,
             next_block_hash,
-        } = self.block_processing.processing_finished(block_hash)?;
+        } = match self.block_processing.processing_finished(block_hash) {
+            Some(result) => result,
+            None => return false,
+        };
 
-        let entry = self.accounts.get_mut(&account).unwrap();
-        if next_block_hash.is_some() {
-            entry.state = AccountState::ReadyToProcess;
-        } else {
-            entry.state = AccountState::EnqueuedForDownload;
+        if next_block_hash.is_none() {
+            let entry = self.accounts.get(&account).unwrap();
             self.download_queue.insert(account, entry.priority);
         }
-        Some(entry.state)
+        true
     }
 
     pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
@@ -609,9 +570,9 @@ impl BootstrapQueueLogic {
     }
 
     fn iter_downloading(&self) -> impl Iterator<Item = &BootstrappingAccount> {
-        self.accounts
-            .values()
-            .filter(|a| a.state == AccountState::Downloading)
+        self.downloading
+            .iter_accounts()
+            .map(|account| self.accounts.get(account).unwrap())
     }
 
     fn iter_blocked(&self) -> impl Iterator<Item = &BootstrappingAccount> {
@@ -643,17 +604,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn clear_blocked_accounts(&mut self) {
-        let to_remove: Vec<_> = self
-            .accounts
-            .values()
-            .filter_map(|a| {
-                if a.state == AccountState::Blocked {
-                    Some(a.account)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let to_remove: Vec<_> = self.blocked.iter_by_insertion_order().copied().collect();
         for account in to_remove {
             self.remove(&account);
         }
@@ -662,8 +613,7 @@ impl BootstrapQueueLogic {
 
     pub fn timeout(&mut self, now: Timestamp) {
         while let Some(account) = self.downloading.pop_timeout(now) {
-            let entry = self.accounts.get_mut(&account).unwrap();
-            entry.state = AccountState::EnqueuedForDownload;
+            let entry = self.accounts.get(&account).unwrap();
             self.download_queue.insert(account, entry.priority);
         }
         self.trim_overflow();

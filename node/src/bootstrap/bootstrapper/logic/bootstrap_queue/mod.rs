@@ -1,4 +1,4 @@
-mod block_processing_queue;
+mod block_handoff_queue;
 mod blocked;
 mod bootstrapping_account;
 mod download_queue;
@@ -17,7 +17,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{atomic::Ordering::Relaxed, Mutex},
+    sync::{Mutex, atomic::Ordering::Relaxed},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -182,8 +182,8 @@ impl BootstrapQueue {
     }
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) {
-        let new_state = self.logic.lock().unwrap().processing_finished(block_hash);
-        if new_state.is_some() {
+        let finished = self.logic.lock().unwrap().processing_finished(block_hash);
+        if finished {
             self.stats.processing_finished.fetch_add(1, Relaxed);
         } else {
             self.stats.processing_finished_failed.fetch_add(1, Relaxed);

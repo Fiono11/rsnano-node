@@ -10,7 +10,6 @@ pub(crate) struct BootstrappingAccount {
     pub priority: Priority,
     pub fails: usize,
     pub last_request: Option<Timestamp>,
-    pub state: AccountState,
 }
 
 impl BootstrappingAccount {
@@ -23,17 +22,6 @@ impl BootstrappingAccount {
             priority,
             fails: 0,
             last_request: None,
-            state: AccountState::EnqueuedForDownload,
         }
     }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
-pub(crate) enum AccountState {
-    #[default]
-    EnqueuedForDownload,
-    Downloading,
-    ReadyToProcess,
-    Processing,
-    Blocked,
 }

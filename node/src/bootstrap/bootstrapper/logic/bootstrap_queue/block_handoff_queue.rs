@@ -18,14 +18,14 @@ pub(super) struct ProcessingFinished {
 /// stay in the cache and are processed immediately once the account is unblocked,
 /// without re-downloading.
 #[derive(Default)]
-pub(super) struct BlockProcessingQueue {
+pub(super) struct BlockHandoffQueue {
     ready_to_process: FxHashMap<BlockHash, Account>,
     processing: FxHashMap<BlockHash, Account>,
     block_cache: FxHashMap<Account, VecDeque<Block>>,
     cached_block_count: usize,
 }
 
-impl BlockProcessingQueue {
+impl BlockHandoffQueue {
     /// Stores downloaded blocks and marks the account as ready to process.
     /// Returns the first block hash, or `None` if `blocks` is empty.
     pub fn enqueue(&mut self, account: Account, blocks: VecDeque<Block>) -> Option<BlockHash> {
@@ -126,7 +126,7 @@ impl BlockProcessingQueue {
     }
 }
 
-impl ContainerInfoProvider for BlockProcessingQueue {
+impl ContainerInfoProvider for BlockHandoffQueue {
     fn container_info(&self) -> ContainerInfo {
         [
             ("ready_to_process", self.ready_to_process.len(), 0),
