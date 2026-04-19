@@ -134,7 +134,6 @@ impl BootstrapQueueLogic {
 
         let result = self.modify_priority(account, |e| {
             e.priority = e.priority.increase();
-            e.fails = 0;
         });
         self.revision += 1;
 
@@ -164,7 +163,6 @@ impl BootstrapQueueLogic {
             if e.priority < new_priority {
                 e.priority = new_priority;
             }
-            e.fails = 0;
         });
         self.revision += 1;
 
@@ -187,7 +185,6 @@ impl BootstrapQueueLogic {
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
         let change_result = self.modify_priority(account, |e| {
             e.priority = e.priority / Priority::DIVIDE;
-            e.fails += 1;
         });
 
         self.revision += 1;
@@ -218,10 +215,7 @@ impl BootstrapQueueLogic {
         self.download_queue
             .change_priority(account, old_prio, entry.priority);
 
-        if entry.fails >= BootstrapQueueLogic::MAX_FAILS
-            || entry.fails as f64 > entry.priority.as_f64()
-            || entry.priority < Priority::CUTOFF
-        {
+        if entry.fails as f64 > entry.priority.as_f64() || entry.priority < Priority::CUTOFF {
             self.remove(account);
             return ChangePriorityResult::Removed;
         }
@@ -304,12 +298,12 @@ impl BootstrapQueueLogic {
 
     #[cfg(test)]
     pub fn last_request(&self, account: &Account) -> Option<Timestamp> {
-        self.accounts.get(account)?.last_request
+        self.download_queue.get_last_request(account)
     }
 
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
-        if let Some(entry) = self.accounts.get_mut(account) {
-            entry.last_request = Some(now);
+        if self.accounts.contains_key(account) {
+            self.download_queue.set_last_request(*account, now);
             self.revision += 1;
         }
     }
@@ -366,8 +360,8 @@ impl BootstrapQueueLogic {
 
         let target = self.download_queue.iter().find_map(|(prio, account)| {
             let entry = self.accounts.get(account).unwrap();
-            let is_match = if let Some(last) = &entry.last_request {
-                if *last > cutoff {
+            let is_match = if let Some(last) = self.download_queue.get_last_request(account) {
+                if last > cutoff {
                     false
                 } else {
                     filter(account)
@@ -412,11 +406,18 @@ impl BootstrapQueueLogic {
 
         let priority = self.accounts.get(account).unwrap().priority;
         let first_hash = self.block_processing.enqueue(*account, blocks);
+        self.download_queue.clear_last_request(account);
 
-        let entry = self.accounts.get_mut(account).unwrap();
-        entry.last_request = None;
         if first_hash.is_none() {
-            self.download_queue.insert(*account, priority);
+            let entry = self.accounts.get_mut(account).unwrap();
+            entry.fails += 1;
+            if entry.fails >= Self::MAX_FAILS {
+                self.remove(account);
+            } else {
+                self.download_queue.insert(*account, priority);
+            }
+        } else {
+            self.accounts.get_mut(account).unwrap().fails = 0;
         }
         true
     }

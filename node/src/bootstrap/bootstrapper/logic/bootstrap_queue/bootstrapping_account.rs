@@ -1,4 +1,3 @@
-use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
 use super::Priority;
@@ -9,7 +8,6 @@ pub(crate) struct BootstrappingAccount {
     pub account: Account,
     pub priority: Priority,
     pub fails: usize,
-    pub last_request: Option<Timestamp>,
 }
 
 impl BootstrappingAccount {
@@ -21,7 +19,6 @@ impl BootstrappingAccount {
             account,
             priority,
             fails: 0,
-            last_request: None,
         }
     }
 }

@@ -1,14 +1,16 @@
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeMap;
 
 use super::priority::{Priority, PriorityKeyDesc};
-use rustc_hash::FxHashSet;
 
 /// Queue of bootstrapping accounts that are ready to download blocks
 #[derive(Default)]
 pub(super) struct DownloadQueue {
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
     account_count: usize,
+    last_request: FxHashMap<Account, Timestamp>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -48,6 +50,7 @@ impl DownloadQueue {
             accounts.remove(&account);
         }
         self.account_count -= 1;
+        self.last_request.remove(&account);
         Some(account)
     }
 
@@ -68,7 +71,20 @@ impl DownloadQueue {
             self.by_priority.remove(&priority.into());
         }
         self.account_count -= 1;
+        self.last_request.remove(account);
         true
+    }
+
+    pub fn set_last_request(&mut self, account: Account, now: Timestamp) {
+        self.last_request.insert(account, now);
+    }
+
+    pub fn get_last_request(&self, account: &Account) -> Option<Timestamp> {
+        self.last_request.get(account).copied()
+    }
+
+    pub fn clear_last_request(&mut self, account: &Account) {
+        self.last_request.remove(account);
     }
 
     pub fn change_priority(
