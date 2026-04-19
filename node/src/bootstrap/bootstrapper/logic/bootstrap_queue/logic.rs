@@ -345,17 +345,19 @@ impl BootstrapQueueLogic {
         &mut self,
         dependency: &BlockHash,
         dependency_account: Account,
-    ) -> usize {
+    ) -> (usize, PriorityUpResult) {
         let updated = self
             .blocked
             .modify_dependency_account(dependency, dependency_account)
             .len();
 
-        if updated > 0 && !self.queue_full() {
-            self.priority_up(&dependency_account);
-        }
+        let prio_result = if updated > 0 && !self.queue_full() {
+            self.priority_up(&dependency_account)
+        } else {
+            PriorityUpResult::Unchanged
+        };
 
-        updated
+        (updated, prio_result)
     }
 
     /// Erase the oldest entries

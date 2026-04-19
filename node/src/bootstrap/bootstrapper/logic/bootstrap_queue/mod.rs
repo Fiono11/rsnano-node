@@ -132,13 +132,12 @@ impl BootstrapQueue {
     /// Sets information about the account chain that contains the block hash
     pub fn dependency_update(&mut self, dependency: &BlockHash, dependency_account: Account) {
         let mut logic = self.logic.lock().unwrap();
-        let updated = logic.dependency_update(dependency, dependency_account);
-        self.stats
-            .dependency_update
-            .fetch_add(updated as u64, Relaxed);
+        let (updated, prio_result) = logic.dependency_update(dependency, dependency_account);
         if updated > 0 {
-            let result = logic.priority_up(&dependency_account);
-            self.stats.add_prio_set_result(&result);
+            self.stats
+                .dependency_update
+                .fetch_add(updated as u64, Relaxed);
+            self.stats.add_prio_set_result(&prio_result);
         }
     }
 
