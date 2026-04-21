@@ -90,7 +90,7 @@ pub enum PriorityDownResult {
 /// are put on hold.
 pub(crate) struct BootstrapQueueLogic {
     config: BootstrapQueueConfig,
-    accounts: FxHashMap<Account, Priority>,
+    priorities: FxHashMap<Account, Priority>,
     fails: FxHashMap<Account, usize>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
@@ -106,7 +106,7 @@ impl BootstrapQueueLogic {
     pub fn new(config: BootstrapQueueConfig) -> Self {
         Self {
             config,
-            accounts: Default::default(),
+            priorities: Default::default(),
             fails: Default::default(),
             download_queue: Default::default(),
             blocked: Default::default(),
@@ -122,14 +122,13 @@ impl BootstrapQueueLogic {
             return PriorityUpResult::InvalidAccount;
         }
 
-        let result = self.modify_priority(account, |e| {
-            *e = e.increase();
-        });
+        let result = self.modify_priority(account, |prio| prio.increase());
         self.revision += 1;
 
         if result == ChangePriorityResult::NotFound {
-            self.accounts.insert(*account, Priority::INITIAL);
-            self.download_queue.insert(*account, Priority::INITIAL);
+            let prio = Priority::INITIAL;
+            self.priorities.insert(*account, prio);
+            self.download_queue.insert(*account, prio);
             self.trim_overflow();
             PriorityUpResult::Inserted
         } else {
@@ -146,11 +145,7 @@ impl BootstrapQueueLogic {
             return PriorityUpResult::InvalidAccount;
         }
 
-        let result = self.modify_priority(account, |e| {
-            if *e < new_priority {
-                *e = new_priority;
-            }
-        });
+        let result = self.modify_priority(account, |old_prio| max(old_prio, new_priority));
         self.revision += 1;
 
         match result {
@@ -158,7 +153,7 @@ impl BootstrapQueueLogic {
             ChangePriorityResult::Removed => unreachable!(),
             ChangePriorityResult::Unchanged => PriorityUpResult::Unchanged,
             ChangePriorityResult::NotFound => {
-                self.accounts
+                self.priorities
                     .insert(*account, max(new_priority, Priority::CUTOFF));
                 self.download_queue.insert(*account, new_priority);
                 self.trim_overflow();
@@ -168,9 +163,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
-        let change_result = self.modify_priority(account, |e| {
-            *e = *e / Priority::DIVIDE;
-        });
+        let change_result = self.modify_priority(account, |prio| prio / Priority::DIVIDE);
 
         self.revision += 1;
         match change_result {
@@ -185,23 +178,23 @@ impl BootstrapQueueLogic {
 
     fn modify_priority<F>(&mut self, account: &Account, f: F) -> ChangePriorityResult
     where
-        F: Fn(&mut Priority),
+        F: Fn(Priority) -> Priority,
     {
-        let Some(entry) = self.accounts.get_mut(account) else {
+        let Some(old_prio) = self.priorities.get_mut(account) else {
             return ChangePriorityResult::NotFound;
         };
 
-        let old_prio = *entry;
-        f(entry);
-        let new_prio = *entry;
-        if new_prio == old_prio {
+        let new_prio = f(*old_prio);
+        if new_prio == *old_prio {
             return ChangePriorityResult::Unchanged;
         }
 
-        self.download_queue
-            .change_priority(account, old_prio, new_prio);
+        *old_prio = new_prio;
 
-        let fails = self.fails.get(account).copied().unwrap_or(0);
+        self.download_queue
+            .change_priority(account, new_prio, new_prio);
+
+        let fails = self.get_fails(account);
         if fails as f64 > new_prio.as_f64() || new_prio < Priority::CUTOFF {
             self.remove(account);
             return ChangePriorityResult::Removed;
@@ -210,11 +203,15 @@ impl BootstrapQueueLogic {
         ChangePriorityResult::Updated
     }
 
+    fn get_fails(&self, account: &Account) -> usize {
+        self.fails.get(account).copied().unwrap_or(0)
+    }
+
     pub fn remove(&mut self, account: &Account) -> bool {
         let mut to_remove = VecDeque::new();
         to_remove.push_back(*account);
         while let Some(account) = to_remove.pop_front() {
-            let Some(removed) = self.accounts.remove(&account) else {
+            let Some(removed) = self.priorities.remove(&account) else {
                 continue;
             };
             self.fails.remove(&account);
@@ -231,7 +228,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
-        let priority = match self.accounts.get(&account) {
+        let priority = match self.priorities.get(&account) {
             Some(&p) => p,
             None => return false,
         };
@@ -254,7 +251,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn unblock(&mut self, account: Account) -> bool {
-        let priority = match self.accounts.get(&account) {
+        let priority = match self.priorities.get(&account) {
             Some(&p) if self.blocked.contains(&account) => p,
             _ => return false,
         };
@@ -288,7 +285,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
-        if self.accounts.contains_key(account) {
+        if self.priorities.contains_key(account) {
             self.download_queue.set_last_request(*account, now);
             self.revision += 1;
         }
@@ -319,7 +316,7 @@ impl BootstrapQueueLogic {
     fn trim_overflow(&mut self) {
         while self.needs_trimming() {
             let account = self.download_queue.pop_lowest_prio().unwrap();
-            self.accounts.remove(&account);
+            self.priorities.remove(&account);
         }
 
         while self.blocked.len() > self.config.max_blocked_accounts {
@@ -359,7 +356,7 @@ impl BootstrapQueueLogic {
                 Some(BootstrapTarget {
                     account: *account,
                     priority: prio,
-                    fails: self.fails.get(account).copied().unwrap_or(0),
+                    fails: self.get_fails(account),
                 })
             } else {
                 None
@@ -374,7 +371,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
-        let Some(&priority) = self.accounts.get(account) else {
+        let Some(&priority) = self.priorities.get(account) else {
             return false;
         };
         if !self.download_queue.remove(account, priority) {
@@ -389,7 +386,7 @@ impl BootstrapQueueLogic {
             return false;
         }
 
-        let priority = *self.accounts.get(account).unwrap();
+        let priority = *self.priorities.get(account).unwrap();
         let first_hash = self.block_processing.enqueue(*account, blocks);
         self.download_queue.clear_last_request(account);
 
@@ -427,7 +424,7 @@ impl BootstrapQueueLogic {
         };
 
         if next_block_hash.is_none() {
-            let priority = *self.accounts.get(&account).unwrap();
+            let priority = *self.priorities.get(&account).unwrap();
             self.download_queue.insert(account, priority);
         }
         true
@@ -476,11 +473,11 @@ impl BootstrapQueueLogic {
     }
 
     pub fn contains(&self, account: &Account) -> bool {
-        self.accounts.contains_key(account)
+        self.priorities.contains_key(account)
     }
 
     pub fn unblocked_count(&self) -> usize {
-        self.accounts.len() - self.blocked.len()
+        self.priorities.len() - self.blocked.len()
     }
 
     pub fn snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
@@ -568,13 +565,13 @@ impl BootstrapQueueLogic {
     fn iter_downloading(&self) -> impl Iterator<Item = (Account, Priority)> + '_ {
         self.downloading
             .iter_accounts()
-            .map(|account| (*account, *self.accounts.get(account).unwrap()))
+            .map(|account| (*account, *self.priorities.get(account).unwrap()))
     }
 
     fn iter_blocked(&self) -> impl Iterator<Item = (Account, Priority)> + '_ {
         self.blocked
             .iter_by_insertion_order()
-            .map(|account| (*account, *self.accounts.get(account).unwrap()))
+            .map(|account| (*account, *self.priorities.get(account).unwrap()))
     }
 
     fn queue_full(&self) -> bool {
@@ -593,7 +590,7 @@ impl BootstrapQueueLogic {
     /// Blocked accounts are assumed priority 0.0f
     #[cfg(test)]
     pub fn priority(&self, account: &Account) -> Priority {
-        self.accounts
+        self.priorities
             .get(account)
             .copied()
             .unwrap_or(Priority::ZERO)
@@ -609,7 +606,7 @@ impl BootstrapQueueLogic {
 
     pub fn timeout(&mut self, now: Timestamp) {
         while let Some(account) = self.downloading.pop_timeout(now) {
-            let priority = *self.accounts.get(&account).unwrap();
+            let priority = *self.priorities.get(&account).unwrap();
             self.download_queue.insert(account, priority);
         }
         self.trim_overflow();
@@ -1084,7 +1081,7 @@ mod tests {
             BlockHash::from(3),
             Timestamp::new_test_instance(),
         );
-        let updated = queue.dependency_update(&BlockHash::from(3), Account::from(1000));
+        queue.dependency_update(&BlockHash::from(3), Account::from(1000));
         queue.block(
             Account::from(3),
             BlockHash::from(4),
