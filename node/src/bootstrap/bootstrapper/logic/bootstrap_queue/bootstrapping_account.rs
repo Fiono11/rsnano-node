@@ -7,7 +7,6 @@ use super::Priority;
 pub(crate) struct BootstrappingAccount {
     pub account: Account,
     pub priority: Priority,
-    pub fails: usize,
 }
 
 impl BootstrappingAccount {
@@ -15,10 +14,6 @@ impl BootstrappingAccount {
         if account.is_zero() {
             panic!("The zero account can never be a boostrapping account!")
         }
-        Self {
-            account,
-            priority,
-            fails: 0,
-        }
+        Self { account, priority }
     }
 }

@@ -103,6 +103,7 @@ pub enum PriorityDownResult {
 pub(crate) struct BootstrapQueueLogic {
     config: BootstrapQueueConfig,
     accounts: FxHashMap<Account, BootstrappingAccount>,
+    fails: FxHashMap<Account, usize>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
     block_processing: BlockHandoffQueue,
@@ -118,6 +119,7 @@ impl BootstrapQueueLogic {
         Self {
             config,
             accounts: Default::default(),
+            fails: Default::default(),
             download_queue: Default::default(),
             blocked: Default::default(),
             downloading: Default::default(),
@@ -215,7 +217,8 @@ impl BootstrapQueueLogic {
         self.download_queue
             .change_priority(account, old_prio, entry.priority);
 
-        if entry.fails as f64 > entry.priority.as_f64() || entry.priority < Priority::CUTOFF {
+        let fails = self.fails.get(account).copied().unwrap_or(0);
+        if fails as f64 > entry.priority.as_f64() || entry.priority < Priority::CUTOFF {
             self.remove(account);
             return ChangePriorityResult::Removed;
         }
@@ -230,6 +233,7 @@ impl BootstrapQueueLogic {
             let Some(removed) = self.accounts.remove(&account) else {
                 continue;
             };
+            self.fails.remove(&account);
             if !self.download_queue.remove(&account, removed.priority) {
                 if !self.downloading.remove(&account) {
                     to_remove.extend(self.blocked.remove_account_and_dependents(&account));
@@ -289,9 +293,7 @@ impl BootstrapQueueLogic {
         self.revision += 1;
         let removed = self.blocked.remove_older_than(cutoff);
         for account in &removed {
-            self.accounts.remove(account);
-            let discarded = self.block_processing.remove(account);
-            self.discarded_blocks += discarded;
+            self.remove(account);
         }
         removed.len()
     }
@@ -359,7 +361,6 @@ impl BootstrapQueueLogic {
         let cutoff = now - self.config.account_cooldown;
 
         let target = self.download_queue.iter().find_map(|(prio, account)| {
-            let entry = self.accounts.get(account).unwrap();
             let is_match = if let Some(last) = self.download_queue.get_last_request(account) {
                 if last > cutoff {
                     false
@@ -374,7 +375,7 @@ impl BootstrapQueueLogic {
                 Some(BootstrapTarget {
                     account: *account,
                     priority: prio,
-                    fails: entry.fails,
+                    fails: self.fails.get(account).copied().unwrap_or(0),
                 })
             } else {
                 None
@@ -409,15 +410,15 @@ impl BootstrapQueueLogic {
         self.download_queue.clear_last_request(account);
 
         if first_hash.is_none() {
-            let entry = self.accounts.get_mut(account).unwrap();
-            entry.fails += 1;
-            if entry.fails >= Self::MAX_FAILS {
+            let fails = self.fails.entry(*account).or_default();
+            *fails += 1;
+            if *fails >= Self::MAX_FAILS {
                 self.remove(account);
             } else {
                 self.download_queue.insert(*account, priority);
             }
         } else {
-            self.accounts.get_mut(account).unwrap().fails = 0;
+            self.fails.remove(account);
         }
         true
     }
