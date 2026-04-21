@@ -1,3 +1,4 @@
+mod account_priority_tracker;
 mod block_handoff_queue;
 mod blocked;
 mod download_queue;
@@ -6,9 +7,10 @@ mod logic;
 mod priority;
 mod stats;
 
+pub use account_priority_tracker::{PriorityDownResult, PriorityUpResult};
 pub use logic::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
-    BootstrappingAccountInfo, PriorityDownResult, PriorityUpResult,
+    BootstrappingAccountInfo,
 };
 pub use priority::Priority;
 
@@ -16,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;

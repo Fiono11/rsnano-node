@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use rustc_hash::FxHashMap;
 
@@ -6,13 +6,17 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
+use crate::bootstrap::bootstrapper::logic::{
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
+    PriorityDownResult, PriorityUpResult,
+};
+
 use super::{
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
-    download_queue::{ChangePriorityResult, DownloadQueue},
+    download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
 };
-use crate::bootstrap::bootstrapper::logic::Priority;
 
 #[derive(Default)]
 pub struct BootstrapQueueSnapshot {
@@ -68,29 +72,13 @@ impl Default for BootstrapQueueConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum PriorityUpResult {
-    Inserted,
-    Upgraded,
-    InvalidAccount,
-    /// If the account is not in the download queue, we don't change its priority
-    Unchanged,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PriorityDownResult {
-    Deprioritized,
-    /// The priority got too low, so the account got erased
-    Removed,
-    AccountNotFound,
-}
-
 /// A prioritized queue of accounts which should bootstrapped.
 /// Accounts can be blocked, because a dependency block is missing. Blocked accounts
 /// are put on hold.
 pub(crate) struct BootstrapQueueLogic {
     config: BootstrapQueueConfig,
     priorities: FxHashMap<Account, Priority>,
+    priorities2: AccountPriorityTracker,
     fails: FxHashMap<Account, usize>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
@@ -107,6 +95,7 @@ impl BootstrapQueueLogic {
         Self {
             config,
             priorities: Default::default(),
+            priorities2: Default::default(),
             fails: Default::default(),
             download_queue: Default::default(),
             blocked: Default::default(),
@@ -118,22 +107,20 @@ impl BootstrapQueueLogic {
     }
 
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
-        if account.is_zero() {
-            return PriorityUpResult::InvalidAccount;
+        let result = self.priorities2.priority_up(account);
+        match result {
+            PriorityUpResult::Inserted(prio) => {
+                self.download_queue.insert(*account, prio);
+                self.trim_overflow();
+            }
+            PriorityUpResult::Upgraded(old, new) => {
+                self.download_queue.change_priority(account, old, new);
+            }
+            _ => {}
         }
 
-        let result = self.modify_priority(account, |prio| prio.increase());
         self.revision += 1;
-
-        if result == ChangePriorityResult::NotFound {
-            let prio = Priority::INITIAL;
-            self.priorities.insert(*account, prio);
-            self.download_queue.insert(*account, prio);
-            self.trim_overflow();
-            PriorityUpResult::Inserted
-        } else {
-            PriorityUpResult::Upgraded
-        }
+        result
     }
 
     pub fn priority_up_to(
@@ -141,66 +128,43 @@ impl BootstrapQueueLogic {
         account: &Account,
         new_priority: Priority,
     ) -> PriorityUpResult {
-        if account.is_zero() {
-            return PriorityUpResult::InvalidAccount;
-        }
-
-        let result = self.modify_priority(account, |old_prio| max(old_prio, new_priority));
-        self.revision += 1;
-
+        let result = self.priorities2.priority_up_to(account, new_priority);
         match result {
-            ChangePriorityResult::Updated => PriorityUpResult::Upgraded,
-            ChangePriorityResult::Removed => unreachable!(),
-            ChangePriorityResult::Unchanged => PriorityUpResult::Unchanged,
-            ChangePriorityResult::NotFound => {
-                self.priorities
-                    .insert(*account, max(new_priority, Priority::CUTOFF));
-                self.download_queue.insert(*account, new_priority);
+            PriorityUpResult::Inserted(priority) => {
+                self.download_queue.insert(*account, priority);
                 self.trim_overflow();
-                PriorityUpResult::Inserted
             }
+            PriorityUpResult::Upgraded(old_prio, new_prio) => {
+                self.download_queue
+                    .change_priority(account, old_prio, new_prio);
+            }
+            _ => {}
         }
+
+        self.revision += 1;
+        result
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
-        let change_result = self.modify_priority(account, |prio| prio / Priority::DIVIDE);
+        let mut result = self.priorities2.priority_down(account);
+        match result {
+            PriorityDownResult::Deprioritized(old_prio, new_prio) => {
+                let fails = self.get_fails(account);
+                if fails as f64 > new_prio.as_f64() {
+                    self.remove(account);
+                    result = PriorityDownResult::Removed;
+                }
+                self.download_queue
+                    .change_priority(account, old_prio, new_prio);
+            }
+            PriorityDownResult::Removed => {
+                self.remove(account);
+            }
+            _ => {}
+        }
 
         self.revision += 1;
-        match change_result {
-            ChangePriorityResult::Updated => PriorityDownResult::Deprioritized,
-            ChangePriorityResult::Removed => PriorityDownResult::Removed,
-            ChangePriorityResult::NotFound => PriorityDownResult::AccountNotFound,
-            ChangePriorityResult::Unchanged => {
-                unreachable!("the account is ether downgraded, removed or not found")
-            }
-        }
-    }
-
-    fn modify_priority<F>(&mut self, account: &Account, f: F) -> ChangePriorityResult
-    where
-        F: Fn(Priority) -> Priority,
-    {
-        let Some(old_prio) = self.priorities.get_mut(account) else {
-            return ChangePriorityResult::NotFound;
-        };
-
-        let new_prio = f(*old_prio);
-        if new_prio == *old_prio {
-            return ChangePriorityResult::Unchanged;
-        }
-
-        *old_prio = new_prio;
-
-        self.download_queue
-            .change_priority(account, new_prio, new_prio);
-
-        let fails = self.get_fails(account);
-        if fails as f64 > new_prio.as_f64() || new_prio < Priority::CUTOFF {
-            self.remove(account);
-            return ChangePriorityResult::Removed;
-        }
-
-        ChangePriorityResult::Updated
+        result
     }
 
     fn get_fails(&self, account: &Account) -> usize {
@@ -735,7 +699,7 @@ mod tests {
 
         let result = queue.priority_up(&account);
 
-        assert_eq!(result, PriorityUpResult::Upgraded);
+        assert!(matches!(result, PriorityUpResult::Upgraded(_, _)));
         assert_eq!(queue.info().blocked, 1);
         assert_eq!(
             queue.priority(&account),

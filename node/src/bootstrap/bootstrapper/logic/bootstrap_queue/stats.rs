@@ -31,8 +31,8 @@ pub(crate) struct BootstrapQueueStats {
 impl BootstrapQueueStats {
     pub fn add_prio_set_result(&mut self, result: &PriorityUpResult) {
         match result {
-            PriorityUpResult::Inserted => self.inserted.fetch_add(1, Relaxed),
-            PriorityUpResult::Upgraded => self.upgraded.fetch_add(1, Relaxed),
+            PriorityUpResult::Inserted(_) => self.inserted.fetch_add(1, Relaxed),
+            PriorityUpResult::Upgraded(_, _) => self.upgraded.fetch_add(1, Relaxed),
             PriorityUpResult::InvalidAccount => self.invalid_account.fetch_add(1, Relaxed),
             PriorityUpResult::Unchanged => 0,
         };
@@ -40,7 +40,7 @@ impl BootstrapQueueStats {
 
     pub fn add_prio_down_result(&mut self, result: &PriorityDownResult) {
         match result {
-            PriorityDownResult::Deprioritized => self.deprioritized.fetch_add(1, Relaxed),
+            PriorityDownResult::Deprioritized(_, _) => self.deprioritized.fetch_add(1, Relaxed),
             PriorityDownResult::Removed => self.removed.fetch_add(1, Relaxed),
             PriorityDownResult::AccountNotFound => self.not_found.fetch_add(1, Relaxed),
         };

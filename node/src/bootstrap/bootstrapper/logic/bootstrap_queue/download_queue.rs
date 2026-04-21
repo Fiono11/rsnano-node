@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeMap;
 
 use super::priority::{Priority, PriorityKeyDesc};
 
@@ -11,14 +13,6 @@ pub(super) struct DownloadQueue {
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
     account_count: usize,
     last_request: FxHashMap<Account, Timestamp>,
-}
-
-#[derive(PartialEq, Eq)]
-pub(crate) enum ChangePriorityResult {
-    Updated,
-    Removed,
-    NotFound,
-    Unchanged,
 }
 
 impl DownloadQueue {
