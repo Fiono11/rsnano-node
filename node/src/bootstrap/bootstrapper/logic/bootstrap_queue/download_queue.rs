@@ -11,17 +11,17 @@ use super::priority::{Priority, PriorityKeyDesc};
 #[derive(Default)]
 pub(super) struct DownloadQueue {
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
-    account_count: usize,
+    by_account: FxHashMap<Account, Priority>,
     last_request: FxHashMap<Account, Timestamp>,
 }
 
 impl DownloadQueue {
     pub fn len(&self) -> usize {
-        self.account_count
+        self.by_account.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.account_count == 0
+        self.by_account.is_empty()
     }
 
     pub fn insert(&mut self, account: Account, priority: Priority) {
@@ -31,7 +31,8 @@ impl DownloadQueue {
             .or_default()
             .insert(account);
         debug_assert!(inserted);
-        self.account_count += 1;
+        let old = self.by_account.insert(account, priority);
+        debug_assert!(old.is_none());
     }
 
     pub fn pop_lowest_prio(&mut self) -> Option<Account> {
@@ -43,7 +44,7 @@ impl DownloadQueue {
         } else {
             accounts.remove(&account);
         }
-        self.account_count -= 1;
+        self.by_account.remove(&account);
         self.last_request.remove(&account);
         Some(account)
     }
@@ -54,17 +55,15 @@ impl DownloadQueue {
             .flat_map(|(prio, accs)| accs.iter().map(|a| (prio.0, a)))
     }
 
-    pub fn remove(&mut self, account: &Account, priority: Priority) -> bool {
-        let Some(ids) = self.by_priority.get_mut(&priority.into()) else {
+    pub fn remove(&mut self, account: &Account) -> bool {
+        let Some(priority) = self.by_account.remove(account) else {
             return false;
         };
-        if !ids.remove(account) {
-            return false;
-        }
+        let ids = self.by_priority.get_mut(&priority.into()).unwrap();
+        ids.remove(account);
         if ids.is_empty() {
             self.by_priority.remove(&priority.into());
         }
-        self.account_count -= 1;
         self.last_request.remove(account);
         true
     }
@@ -81,25 +80,23 @@ impl DownloadQueue {
         self.last_request.remove(account);
     }
 
-    pub fn change_priority(
-        &mut self,
-        account: &Account,
-        old_prio: Priority,
-        new_prio: Priority,
-    ) -> bool {
-        let Some(accounts) = self.by_priority.get_mut(&PriorityKeyDesc(old_prio)) else {
+    pub fn change_priority(&mut self, account: &Account, new_prio: Priority) -> bool {
+        let Some(current_prio) = self.by_account.get_mut(account) else {
             return false;
         };
-        if !accounts.remove(account) {
-            return false;
-        }
+        let accounts = self
+            .by_priority
+            .get_mut(&PriorityKeyDesc(*current_prio))
+            .unwrap();
+        accounts.remove(account);
         if accounts.is_empty() {
-            self.by_priority.remove(&PriorityKeyDesc(old_prio));
+            self.by_priority.remove(&PriorityKeyDesc(*current_prio));
         }
         self.by_priority
             .entry(PriorityKeyDesc(new_prio))
             .or_default()
             .insert(*account);
+        *current_prio = new_prio;
         true
     }
 }

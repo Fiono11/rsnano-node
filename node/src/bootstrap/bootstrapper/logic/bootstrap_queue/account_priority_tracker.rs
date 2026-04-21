@@ -200,7 +200,10 @@ mod tests {
         tracker.priority_up_to(&account, Priority::INITIAL);
         let higher = Priority::new(10.0);
         let result = tracker.priority_up_to(&account, higher);
-        assert_eq!(result, PriorityUpResult::Upgraded(Priority::INITIAL, higher));
+        assert_eq!(
+            result,
+            PriorityUpResult::Upgraded(Priority::INITIAL, higher)
+        );
         assert_eq!(tracker.get(&account), Some(higher));
     }
 

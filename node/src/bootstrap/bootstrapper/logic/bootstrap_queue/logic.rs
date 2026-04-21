@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
-    PriorityDownResult, PriorityUpResult,
+    Priority, PriorityDownResult, PriorityUpResult,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
 };
 
 use super::{
@@ -126,9 +126,8 @@ impl BootstrapQueueLogic {
                 self.download_queue.insert(*account, *priority);
                 self.trim_overflow();
             }
-            PriorityUpResult::Upgraded(old_prio, new_prio) => {
-                self.download_queue
-                    .change_priority(account, *old_prio, *new_prio);
+            PriorityUpResult::Upgraded(_, new_prio) => {
+                self.download_queue.change_priority(account, *new_prio);
             }
             _ => {}
         }
@@ -139,14 +138,13 @@ impl BootstrapQueueLogic {
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
         let mut result = self.priorities.priority_down(account);
         match result {
-            PriorityDownResult::Deprioritized(old_prio, new_prio) => {
+            PriorityDownResult::Deprioritized(_, new_prio) => {
                 let fails = self.get_fails(account);
                 if fails as f64 > new_prio.as_f64() {
                     self.remove(account);
                     result = PriorityDownResult::Removed;
                 } else {
-                    self.download_queue
-                        .change_priority(account, old_prio, new_prio);
+                    self.download_queue.change_priority(account, new_prio);
                 }
             }
             PriorityDownResult::Removed => {
@@ -167,15 +165,11 @@ impl BootstrapQueueLogic {
         let mut to_remove = VecDeque::new();
         to_remove.push_back(*account);
         while let Some(account) = to_remove.pop_front() {
-            let Some(priority) = self.priorities.remove(&account) else {
-                continue;
-            };
+            self.priorities.remove(&account);
             self.fails.remove(&account);
-            if !self.download_queue.remove(&account, priority) {
-                if !self.downloading.remove(&account) {
-                    to_remove.extend(self.blocked.remove_account_and_dependents(&account));
-                }
-            }
+            self.download_queue.remove(&account);
+            self.downloading.remove(&account);
+            to_remove.extend(self.blocked.remove_account_and_dependents(&account));
             let discarded = self.block_processing.remove(&account);
             self.discarded_blocks += discarded;
         }
@@ -184,21 +178,17 @@ impl BootstrapQueueLogic {
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
-        let Some(priority) = self.priorities.get(&account) else {
+        if !self.priorities.contains(&account) {
             return false;
-        };
-
+        }
         if self.blocked.contains(&account) {
             return true;
         }
 
-        if !self.download_queue.remove(&account, priority) {
-            if !self.downloading.remove(&account) {
-                // Blocks stay in block_cache so they can be processed after unblock
-                self.block_processing.suspend(&account);
-            }
-        }
-
+        self.download_queue.remove(&account);
+        self.downloading.remove(&account);
+        // Blocks stay in block_cache so they can be processed after unblock
+        self.block_processing.suspend(&account);
         self.blocked.insert(account, dependency, now);
         self.trim_overflow();
         self.revision += 1;
@@ -323,10 +313,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
-        let Some(priority) = self.priorities.get(account) else {
-            return false;
-        };
-        if !self.download_queue.remove(account, priority) {
+        if !self.download_queue.remove(account) {
             return false;
         }
         self.downloading.insert(*account, now);
