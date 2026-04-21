@@ -10,7 +10,6 @@ pub enum PriorityUpResult {
     Inserted(Priority),
     Upgraded(Priority, Priority),
     InvalidAccount,
-    /// If the account is not in the download queue, we don't change its priority
     Unchanged,
 }
 
@@ -73,8 +72,7 @@ impl AccountPriorityTracker {
             ChangePriorityResult::Removed => unreachable!(),
             ChangePriorityResult::Unchanged => PriorityUpResult::Unchanged,
             ChangePriorityResult::NotFound => {
-                self.priorities
-                    .insert(*account, max(new_priority, new_priority));
+                self.priorities.insert(*account, new_priority);
                 PriorityUpResult::Inserted(new_priority)
             }
         }
@@ -113,22 +111,185 @@ impl AccountPriorityTracker {
     where
         F: Fn(Priority) -> Priority,
     {
-        let Some(old_prio) = self.priorities.get_mut(account) else {
+        let Some(current_prio) = self.priorities.get_mut(account) else {
             return ChangePriorityResult::NotFound;
         };
 
-        let new_prio = f(*old_prio);
-        if new_prio == *old_prio {
+        let old_prio = *current_prio;
+        let new_prio = f(old_prio);
+        if new_prio == old_prio {
             return ChangePriorityResult::Unchanged;
         }
-
-        *old_prio = new_prio;
 
         if new_prio < Priority::CUTOFF {
             self.priorities.remove(account);
             return ChangePriorityResult::Removed;
         }
 
-        ChangePriorityResult::Updated(*old_prio, new_prio)
+        *current_prio = new_prio;
+        ChangePriorityResult::Updated(old_prio, new_prio)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /* priority_up */
+
+    #[test]
+    fn priority_up_inserts_new_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        let result = tracker.priority_up(&account);
+        assert_eq!(result, PriorityUpResult::Inserted(Priority::INITIAL));
+        assert_eq!(tracker.get(&account), Some(Priority::INITIAL));
+    }
+
+    #[test]
+    fn priority_up_upgrades_existing_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        tracker.priority_up(&account);
+        let result = tracker.priority_up(&account);
+        let expected_new = Priority::INITIAL.increase();
+        assert_eq!(
+            result,
+            PriorityUpResult::Upgraded(Priority::INITIAL, expected_new)
+        );
+        assert_eq!(tracker.get(&account), Some(expected_new));
+    }
+
+    #[test]
+    fn priority_up_rejects_zero_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        assert_eq!(
+            tracker.priority_up(&Account::ZERO),
+            PriorityUpResult::InvalidAccount
+        );
+        assert!(!tracker.contains(&Account::ZERO));
+    }
+
+    #[test]
+    fn priority_up_returns_unchanged_at_max() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        for _ in 0..100 {
+            tracker.priority_up(&account);
+        }
+        assert_eq!(tracker.get(&account), Some(Priority::MAX));
+        assert_eq!(tracker.priority_up(&account), PriorityUpResult::Unchanged);
+    }
+
+    /* priority_up_to */
+
+    #[test]
+    fn priority_up_to_inserts_new_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        let prio = Priority::new(5.0);
+        let result = tracker.priority_up_to(&account, prio);
+        assert_eq!(result, PriorityUpResult::Inserted(prio));
+        assert_eq!(tracker.get(&account), Some(prio));
+    }
+
+    #[test]
+    fn priority_up_to_upgrades_when_higher() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        tracker.priority_up_to(&account, Priority::INITIAL);
+        let higher = Priority::new(10.0);
+        let result = tracker.priority_up_to(&account, higher);
+        assert_eq!(result, PriorityUpResult::Upgraded(Priority::INITIAL, higher));
+        assert_eq!(tracker.get(&account), Some(higher));
+    }
+
+    #[test]
+    fn priority_up_to_unchanged_when_lower_or_equal() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        let prio = Priority::new(10.0);
+        tracker.priority_up_to(&account, prio);
+        assert_eq!(
+            tracker.priority_up_to(&account, Priority::INITIAL),
+            PriorityUpResult::Unchanged
+        );
+        assert_eq!(
+            tracker.priority_up_to(&account, prio),
+            PriorityUpResult::Unchanged
+        );
+        assert_eq!(tracker.get(&account), Some(prio));
+    }
+
+    #[test]
+    fn priority_up_to_rejects_zero_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        assert_eq!(
+            tracker.priority_up_to(&Account::ZERO, Priority::INITIAL),
+            PriorityUpResult::InvalidAccount
+        );
+    }
+
+    /* priority_down */
+
+    #[test]
+    fn priority_down_decreases_priority() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        tracker.priority_up_to(&account, Priority::INITIAL);
+        let result = tracker.priority_down(&account);
+        let expected = Priority::INITIAL / Priority::DIVIDE;
+        assert_eq!(
+            result,
+            PriorityDownResult::Deprioritized(Priority::INITIAL, expected)
+        );
+        assert_eq!(tracker.get(&account), Some(expected));
+    }
+
+    #[test]
+    fn priority_down_returns_not_found_for_unknown_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        assert_eq!(
+            tracker.priority_down(&Account::from(1)),
+            PriorityDownResult::AccountNotFound
+        );
+    }
+
+    #[test]
+    fn priority_down_removes_account_when_below_cutoff() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        tracker.priority_up_to(&account, Priority::INITIAL);
+        let result = loop {
+            let r = tracker.priority_down(&account);
+            if r == PriorityDownResult::Removed {
+                break r;
+            }
+        };
+        assert_eq!(result, PriorityDownResult::Removed);
+        assert!(!tracker.contains(&account));
+    }
+
+    /* contains / get / len / remove */
+
+    #[test]
+    fn contains_and_len() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        assert!(!tracker.contains(&account));
+        assert_eq!(tracker.len(), 0);
+        tracker.priority_up(&account);
+        assert!(tracker.contains(&account));
+        assert_eq!(tracker.len(), 1);
+    }
+
+    #[test]
+    fn remove_returns_priority_and_erases_account() {
+        let mut tracker = AccountPriorityTracker::default();
+        let account = Account::from(1);
+        tracker.priority_up(&account);
+        assert_eq!(tracker.remove(&account), Some(Priority::INITIAL));
+        assert!(!tracker.contains(&account));
+        assert_eq!(tracker.remove(&account), None);
     }
 }

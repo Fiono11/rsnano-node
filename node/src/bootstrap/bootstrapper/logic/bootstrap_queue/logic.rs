@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    Priority, PriorityDownResult, PriorityUpResult,
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
+    PriorityDownResult, PriorityUpResult,
 };
 
 use super::{
@@ -268,7 +268,7 @@ impl BootstrapQueueLogic {
     fn trim_overflow(&mut self) {
         while self.needs_trimming() {
             let account = self.download_queue.pop_lowest_prio().unwrap();
-            self.priorities.remove(&account);
+            self.remove(&account);
         }
 
         while self.blocked.len() > self.config.max_blocked_accounts {
