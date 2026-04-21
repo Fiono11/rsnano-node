@@ -93,6 +93,22 @@ impl AccountPriorityTracker {
         }
     }
 
+    pub fn contains(&self, account: &Account) -> bool {
+        self.priorities.contains_key(account)
+    }
+
+    pub fn get(&self, account: &Account) -> Option<Priority> {
+        self.priorities.get(account).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.priorities.len()
+    }
+
+    pub fn remove(&mut self, account: &Account) -> Option<Priority> {
+        self.priorities.remove(account)
+    }
+
     fn modify_priority<F>(&mut self, account: &Account, f: F) -> ChangePriorityResult
     where
         F: Fn(Priority) -> Priority,
