@@ -1,6 +1,5 @@
 mod block_handoff_queue;
 mod blocked;
-mod bootstrapping_account;
 mod download_queue;
 mod downloading;
 mod logic;
