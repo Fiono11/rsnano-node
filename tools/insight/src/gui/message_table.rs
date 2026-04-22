@@ -23,7 +23,6 @@ impl<'a> MessageTableView<'a> {
 
     pub(crate) fn view(&mut self, ui: &mut Ui) {
         TopBottomPanel::bottom("message_filter_panel").show_inside(ui, |ui| {
-            self.show_direction_labels(ui);
             self.show_message_type_labels(ui);
             self.show_hash_input(ui);
             self.show_account_input(ui);
@@ -33,31 +32,6 @@ impl<'a> MessageTableView<'a> {
             //ui.add_space(5.0);
             ui.heading(self.model.heading());
             self.show_message_table(ui);
-        });
-    }
-
-    fn show_direction_labels(&mut self, ui: &mut Ui) {
-        ui.horizontal_wrapped(|ui| {
-            let mut changed = false;
-            let in_label = format!("in({})", self.model.inbound_count);
-            if ui
-                .selectable_label(self.model.inbound_selected, in_label)
-                .clicked()
-            {
-                self.model.inbound_selected = !self.model.inbound_selected;
-                changed = true;
-            }
-            let out_label = format!("out({})", self.model.outbound_count);
-            if ui
-                .selectable_label(self.model.outbound_selected, out_label)
-                .clicked()
-            {
-                self.model.outbound_selected = !self.model.outbound_selected;
-                changed = true;
-            }
-            if changed {
-                self.model.update_direction_filter();
-            }
         });
     }
 
@@ -178,10 +152,6 @@ pub(crate) struct MessageTableViewModel {
     selected_index: Option<usize>,
     messages: Arc<RwLock<MessageCollection>>,
     pub message_types: Vec<MessageTypeOptionViewModel>,
-    pub inbound_selected: bool,
-    pub outbound_selected: bool,
-    pub inbound_count: usize,
-    pub outbound_count: usize,
     pub hash_filter: String,
     pub hash_error: bool,
     pub account_filter: String,
@@ -195,10 +165,6 @@ impl MessageTableViewModel {
             selected: None,
             selected_index: None,
             message_types: Vec::new(),
-            inbound_selected: false,
-            outbound_selected: false,
-            inbound_count: 0,
-            outbound_count: 0,
             account_filter: String::new(),
             account_error: false,
             hash_filter: String::new(),
@@ -242,7 +208,7 @@ impl MessageTableViewModel {
     }
 
     pub(crate) fn update_type_filter(&self) {
-        self.messages.write().unwrap().filter_message_types(
+        self.messages.write().unwrap().filter_type_direction_pairs(
             self.message_types
                 .iter()
                 .filter(|i| i.selected)
@@ -290,55 +256,54 @@ impl MessageTableViewModel {
         }
     }
 
-    pub(crate) fn update_direction_filter(&self) {
-        self.messages
-            .write()
-            .unwrap()
-            .filter_directions(self.inbound_selected, self.outbound_selected);
-    }
-
     pub(crate) fn update_message_counts(&mut self) {
         let messages = self.messages.read().unwrap();
         let counts = messages.counts();
-        let type_counts = &counts.types;
-        let empty = Vec::with_capacity(type_counts.len());
-
-        self.inbound_count = counts.inbound;
-        self.outbound_count = counts.outbound;
+        let by_type_direction = &counts.by_type_direction;
+        let empty = Vec::with_capacity(by_type_direction.len() * 2);
 
         let old = std::mem::replace(&mut self.message_types, empty);
-        for (msg_type, count) in type_counts {
-            self.message_types.push(MessageTypeOptionViewModel {
-                value: *msg_type,
-                label: format!("{}({})", msg_type.as_str(), count),
-                selected: false,
-            })
+
+        for (msg_type, (inbound_count, outbound_count)) in by_type_direction {
+            if *inbound_count > 0 {
+                self.message_types.push(MessageTypeOptionViewModel {
+                    value: (*msg_type, ChannelDirection::Inbound),
+                    label: format!("{} in({})", msg_type.as_str(), inbound_count),
+                    selected: false,
+                });
+            }
+            if *outbound_count > 0 {
+                self.message_types.push(MessageTypeOptionViewModel {
+                    value: (*msg_type, ChannelDirection::Outbound),
+                    label: format!("{} out({})", msg_type.as_str(), outbound_count),
+                    selected: false,
+                });
+            }
         }
 
-        for mut type_model in old {
+        for type_model in old {
             if type_model.selected {
-                let mut found = false;
                 for mt in self.message_types.iter_mut() {
                     if mt.value == type_model.value {
                         mt.selected = true;
-                        found = true;
                         break;
                     }
-                }
-
-                if !found {
-                    type_model.label = format!("{}({})", type_model.value.as_str(), 0);
-                    self.message_types.push(type_model);
                 }
             }
         }
 
-        self.message_types.sort_by_key(|x| x.value as u8)
+        self.message_types.sort_by_key(|x| {
+            let dir_order = match x.value.1 {
+                ChannelDirection::Inbound => 0u8,
+                ChannelDirection::Outbound => 1u8,
+            };
+            (x.value.0 as u8, dir_order)
+        });
     }
 }
 
 pub(crate) struct MessageTypeOptionViewModel {
-    pub value: MessageType,
+    pub value: (MessageType, ChannelDirection),
     pub label: String,
     pub selected: bool,
 }

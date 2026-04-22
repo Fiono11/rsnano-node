@@ -29,9 +29,7 @@ pub(crate) struct MessageFilter {
     channel_id: Option<ChannelId>,
     hash: Option<BlockHash>,
     account: Option<Account>,
-    types: Vec<MessageType>,
-    inbound: bool,
-    outbound: bool,
+    type_direction_pairs: Vec<(MessageType, ChannelDirection)>,
 }
 
 impl MessageFilter {
@@ -50,22 +48,13 @@ impl MessageFilter {
 
     pub fn include(&self, message: &RecordedMessage) -> bool {
         self.include_channel(message)
-            && self.include_direction(message)
-            && self.include_message_type(message)
+            && self.include_type_direction(message)
             && self.include_message_content(message)
     }
 
-    pub fn with_types(&self, types: Vec<MessageType>) -> Self {
+    pub fn with_type_direction_pairs(&self, pairs: Vec<(MessageType, ChannelDirection)>) -> Self {
         Self {
-            types,
-            ..self.clone()
-        }
-    }
-
-    pub fn with_directions(&self, inbound: bool, outbound: bool) -> Self {
-        Self {
-            inbound,
-            outbound,
+            type_direction_pairs: pairs,
             ..self.clone()
         }
     }
@@ -98,28 +87,13 @@ impl MessageFilter {
         }
     }
 
-    fn include_message_type(&self, message: &RecordedMessage) -> bool {
-        if self.types.is_empty() {
+    fn include_type_direction(&self, message: &RecordedMessage) -> bool {
+        if self.type_direction_pairs.is_empty() {
             return true;
         }
-
-        for msg_type in &self.types {
-            if message.message.message_type() == *msg_type {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    fn include_direction(&self, message: &RecordedMessage) -> bool {
-        if !self.inbound && !self.outbound {
-            return true;
-        }
-        match message.direction {
-            ChannelDirection::Inbound => self.inbound,
-            ChannelDirection::Outbound => self.outbound,
-        }
+        self.type_direction_pairs
+            .iter()
+            .any(|(t, d)| message.message.message_type() == *t && message.direction == *d)
     }
 
     fn include_message_content(&self, message: &RecordedMessage) -> bool {
@@ -190,9 +164,7 @@ impl MessageFilter {
 
 #[derive(Default)]
 pub(crate) struct FilterCounts {
-    pub types: HashMap<MessageType, usize>,
-    pub inbound: usize,
-    pub outbound: usize,
+    pub by_type_direction: HashMap<MessageType, (usize, usize)>,
 }
 
 #[derive(Default)]
@@ -217,18 +189,14 @@ impl MessageCollection {
             self.filtered.push(message.clone());
         }
         if self.filter.include_channel(&message) && self.filter.include_message_content(&message) {
-            if self.filter.include_direction(&message) {
-                *self
-                    .counts
-                    .types
-                    .entry(message.message.message_type())
-                    .or_default() += 1;
-            }
-            if self.filter.include_message_type(&message) {
-                match message.direction {
-                    ChannelDirection::Inbound => self.counts.inbound += 1,
-                    ChannelDirection::Outbound => self.counts.outbound += 1,
-                }
+            let entry = self
+                .counts
+                .by_type_direction
+                .entry(message.message.message_type())
+                .or_default();
+            match message.direction {
+                ChannelDirection::Inbound => entry.0 += 1,
+                ChannelDirection::Outbound => entry.1 += 1,
             }
         }
         self.all_messages.push(message);
@@ -252,13 +220,12 @@ impl MessageCollection {
         self.set_filter(self.filter.with_channel(channel_id))
     }
 
-    pub fn filter_message_types(&mut self, types: impl IntoIterator<Item = MessageType>) {
-        let types = types.into_iter().collect();
-        self.set_filter(self.filter.with_types(types));
-    }
-
-    pub fn filter_directions(&mut self, inbound: bool, outbound: bool) {
-        self.set_filter(self.filter.with_directions(inbound, outbound));
+    pub fn filter_type_direction_pairs(
+        &mut self,
+        pairs: impl IntoIterator<Item = (MessageType, ChannelDirection)>,
+    ) {
+        let pairs = pairs.into_iter().collect();
+        self.set_filter(self.filter.with_type_direction_pairs(pairs));
     }
 
     pub fn filter_hash(&mut self, hash: Option<BlockHash>) {
@@ -284,18 +251,14 @@ impl MessageCollection {
             .iter()
             .filter(|m| self.filter.include_channel(m) && self.filter.include_message_content(m))
         {
-            if self.filter.include_direction(m) {
-                *self
-                    .counts
-                    .types
-                    .entry(m.message.message_type())
-                    .or_default() += 1;
-            }
-            if self.filter.include_message_type(m) {
-                match m.direction {
-                    ChannelDirection::Inbound => self.counts.inbound += 1,
-                    ChannelDirection::Outbound => self.counts.outbound += 1,
-                }
+            let entry = self
+                .counts
+                .by_type_direction
+                .entry(m.message.message_type())
+                .or_default();
+            match m.direction {
+                ChannelDirection::Inbound => entry.0 += 1,
+                ChannelDirection::Outbound => entry.1 += 1,
             }
         }
     }
@@ -369,31 +332,33 @@ mod tests {
     }
 
     #[test]
-    fn filter_by_direction() {
+    fn filter_by_type_direction_pair() {
         let mut collection = MessageCollection::default();
         collection.add(inbound(Message::BulkPush));
         collection.add(outbound(Message::BulkPush));
         collection.add(outbound(Message::BulkPush));
+        collection.add(inbound(Message::TelemetryReq));
 
-        collection.filter_directions(false, false);
-        assert_eq!(collection.len(), 3, "(false, false) shows all");
+        collection.filter_type_direction_pairs([]);
+        assert_eq!(collection.len(), 4, "empty pairs shows all");
 
-        collection.filter_directions(true, false);
+        collection
+            .filter_type_direction_pairs([(MessageType::BulkPush, ChannelDirection::Inbound)]);
         assert_eq!(collection.len(), 1);
         assert_eq!(
             collection.get(0).unwrap().direction,
             ChannelDirection::Inbound
         );
 
-        collection.filter_directions(false, true);
-        assert_eq!(collection.len(), 2);
-
-        collection.filter_directions(true, true);
+        collection.filter_type_direction_pairs([
+            (MessageType::BulkPush, ChannelDirection::Outbound),
+            (MessageType::TelemetryReq, ChannelDirection::Inbound),
+        ]);
         assert_eq!(collection.len(), 3);
     }
 
     #[test]
-    fn counts_are_cross_filtered_between_direction_and_type() {
+    fn counts_ignore_type_direction_filter() {
         let mut collection = MessageCollection::default();
         collection.add(inbound(Message::BulkPush));
         collection.add(inbound(Message::BulkPush));
@@ -403,47 +368,26 @@ mod tests {
         collection.add(outbound(Message::TelemetryReq));
 
         let counts = collection.counts();
-        assert_eq!(counts.inbound, 3);
-        assert_eq!(counts.outbound, 3);
-        assert_eq!(counts.types.get(&MessageType::BulkPush).copied(), Some(3));
         assert_eq!(
-            counts.types.get(&MessageType::TelemetryReq).copied(),
-            Some(3)
+            counts.by_type_direction.get(&MessageType::BulkPush),
+            Some(&(2, 1))
+        );
+        assert_eq!(
+            counts.by_type_direction.get(&MessageType::TelemetryReq),
+            Some(&(1, 2))
         );
 
-        collection.filter_directions(true, false);
+        collection
+            .filter_type_direction_pairs([(MessageType::BulkPush, ChannelDirection::Inbound)]);
         let counts = collection.counts();
         assert_eq!(
-            counts.types.get(&MessageType::BulkPush).copied(),
-            Some(2),
-            "type counts should reflect inbound-only selection",
+            counts.by_type_direction.get(&MessageType::BulkPush),
+            Some(&(2, 1)),
+            "counts ignore the active filter"
         );
         assert_eq!(
-            counts.types.get(&MessageType::TelemetryReq).copied(),
-            Some(1),
-        );
-        assert_eq!(
-            counts.inbound, 3,
-            "direction counts ignore the direction filter itself"
-        );
-        assert_eq!(counts.outbound, 3);
-
-        collection.filter_directions(false, false);
-        collection.filter_message_types([MessageType::BulkPush]);
-        let counts = collection.counts();
-        assert_eq!(
-            counts.inbound, 2,
-            "direction counts should reflect BulkPush-only selection",
-        );
-        assert_eq!(counts.outbound, 1);
-        assert_eq!(
-            counts.types.get(&MessageType::BulkPush).copied(),
-            Some(3),
-            "type counts ignore the type filter itself",
-        );
-        assert_eq!(
-            counts.types.get(&MessageType::TelemetryReq).copied(),
-            Some(3)
+            counts.by_type_direction.get(&MessageType::TelemetryReq),
+            Some(&(1, 2))
         );
     }
 
