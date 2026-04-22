@@ -101,6 +101,9 @@ impl BlockInspector {
                             if !any.block_exists(&source) {
                                 // Mark account as blocked because it is missing the source block
                                 state.bootstrap_queue.block(*account, source);
+                            } else {
+                                // Reprocessing should succeed, because the source block was found
+                                state.bootstrap_queue.reprocess(account, &hash);
                             }
                         }
                     }
@@ -124,13 +127,9 @@ impl BlockInspector {
                         // Epoch open blocks for accounts that don't have any pending blocks yet
                         state.bootstrap_queue.remove(account);
                     }
-                    BlockError::Conflict => {
-                        state.bootstrap_queue.reprocess(account, &hash);
-                        // can happen if the unchecked map inserts at the same time
-                    }
+                    BlockError::Conflict => state.bootstrap_queue.reprocess(account, &hash),
                     _ => {
                         state.bootstrap_queue.remove(account);
-                        // No need to handle other cases
                         // TODO: If we receive blocks that are invalid (bad signature, fork, etc.),
                         // we should penalize the peer that sent them
                     }

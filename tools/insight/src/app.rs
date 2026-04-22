@@ -149,4 +149,10 @@ impl InsightApp {
             node.bootstrapper.verify_blocked_accounts();
         }
     }
+
+    pub fn print_processing(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.print_processing();
+        }
+    }
 }

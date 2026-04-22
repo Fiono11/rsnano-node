@@ -238,6 +238,10 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().missing_sends()
     }
 
+    pub fn processing(&self) -> Vec<BlockHash> {
+        self.logic.lock().unwrap().processing()
+    }
+
     pub fn timeout(&mut self) {
         let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now);

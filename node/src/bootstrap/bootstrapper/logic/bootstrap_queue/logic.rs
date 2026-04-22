@@ -324,22 +324,22 @@ impl BootstrapQueueLogic {
         if !self.downloading.remove(account) {
             return false;
         }
-
-        let priority = self.priorities.get(account).unwrap();
-        let first_hash = self.block_processing.enqueue(*account, blocks);
         self.download_queue.clear_last_request(account);
 
-        if first_hash.is_none() {
+        if blocks.is_empty() {
             let fails = self.fails.entry(*account).or_default();
             *fails += 1;
             if *fails >= Self::MAX_FAILS {
                 self.remove(account);
             } else {
+                let priority = self.priorities.get(account).unwrap();
                 self.download_queue.insert(*account, priority);
             }
         } else {
             self.fails.remove(account);
+            self.block_processing.enqueue(*account, blocks);
         }
+
         true
     }
 
@@ -542,6 +542,10 @@ impl BootstrapQueueLogic {
 
     pub fn missing_sends(&self) -> Vec<BlockHash> {
         self.blocked.missing_sends().cloned().collect()
+    }
+
+    pub fn processing(&self) -> Vec<BlockHash> {
+        self.block_processing.processing()
     }
 
     pub fn timeout(&mut self, now: Timestamp) {

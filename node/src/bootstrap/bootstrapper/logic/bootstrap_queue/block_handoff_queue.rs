@@ -27,14 +27,15 @@ pub(super) struct BlockHandoffQueue {
 
 impl BlockHandoffQueue {
     /// Stores downloaded blocks and marks the account as ready to process.
-    /// Returns the first block hash, or `None` if `blocks` is empty.
-    pub fn enqueue(&mut self, account: Account, blocks: VecDeque<Block>) -> Option<BlockHash> {
+    pub fn enqueue(&mut self, account: Account, blocks: VecDeque<Block>) {
         debug_assert!(!self.block_cache.contains_key(&account));
-        let first_hash = blocks.front().map(|b| b.hash())?;
+        let first_hash = blocks
+            .front()
+            .map(|b| b.hash())
+            .expect("should at least have one block");
         self.cached_block_count += blocks.len();
         self.block_cache.insert(account, blocks);
         self.ready_to_process.insert(first_hash, account);
-        Some(first_hash)
     }
 
     /// Removes the account from the active tracking sets (ready_to_process / processing)
@@ -46,6 +47,10 @@ impl BlockHandoffQueue {
                 self.processing.remove(&hash);
             }
         }
+    }
+
+    pub fn processing(&self) -> Vec<BlockHash> {
+        self.processing.keys().cloned().collect()
     }
 
     /// Re-inserts the account into ready_to_process using its cached blocks.
@@ -74,11 +79,11 @@ impl BlockHandoffQueue {
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<ProcessingFinished> {
         let account = self.processing.remove(block_hash)?;
-        self.cached_block_count -= 1;
         let next_block_hash = {
             let blocks = self.block_cache.get_mut(&account).unwrap();
             let first_block = blocks.pop_front().unwrap();
             debug_assert_eq!(first_block.hash(), *block_hash);
+            self.cached_block_count -= 1;
             blocks.front().map(|b| b.hash())
         };
         if let Some(hash) = next_block_hash {

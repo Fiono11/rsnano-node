@@ -288,8 +288,7 @@ impl Bootstrapper {
 
     pub fn verify_blocked_accounts(&self) {
         tracing::info!("Verifying blocked accounts...");
-        let guard = self.logic.lock().unwrap();
-        let missing_sends = guard.bootstrap_queue.missing_sends();
+        let missing_sends = self.logic.lock().unwrap().bootstrap_queue.missing_sends();
         let any = self.ledger.any();
         for block_hash in &missing_sends {
             if any.block_exists(block_hash) {
@@ -300,6 +299,15 @@ impl Bootstrapper {
             }
         }
         tracing::info!("Blocked accounts verfied!")
+    }
+
+    pub fn print_processing(&self) {
+        let processing = self.logic.lock().unwrap().bootstrap_queue.processing();
+        tracing::info!("Processing blocks:");
+        for hash in processing {
+            tracing::info!("Processing: {}", hash);
+        }
+        tracing::info!("Processing blocks end");
     }
 
     /// Process `asc_pull_ack` message coming from network
