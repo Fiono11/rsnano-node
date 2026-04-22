@@ -33,11 +33,6 @@ impl DownloadingAccounts {
         self.by_account.len()
     }
 
-    #[allow(dead_code)]
-    pub fn contains(&self, account: &Account) -> bool {
-        self.by_account.contains_key(account)
-    }
-
     pub fn iter_accounts(&self) -> impl Iterator<Item = &Account> {
         self.by_account.keys()
     }
