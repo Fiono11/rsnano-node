@@ -4,6 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::priority::{Priority, PriorityKeyDesc};
 
@@ -98,5 +99,15 @@ impl DownloadQueue {
             .insert(*account);
         *current_prio = new_prio;
         true
+    }
+}
+
+impl ContainerInfoProvider for DownloadQueue {
+    fn container_info(&self) -> ContainerInfo {
+        [
+            ("accounts", self.by_account.len(), 0),
+            ("last_request", self.last_request.len(), 0),
+        ]
+        .into()
     }
 }
