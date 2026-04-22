@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use rsnano_types::Account;
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::Priority;
 use std::cmp::max;
@@ -106,7 +107,15 @@ impl AccountPriorityTracker {
     pub fn remove(&mut self, account: &Account) -> Option<Priority> {
         self.priorities.remove(account)
     }
+}
 
+impl ContainerInfoProvider for AccountPriorityTracker {
+    fn container_info(&self) -> ContainerInfo {
+        [("priorities", self.priorities.len(), 0)].into()
+    }
+}
+
+impl AccountPriorityTracker {
     fn modify_priority<F>(&mut self, account: &Account, f: F) -> ChangePriorityResult
     where
         F: Fn(Priority) -> Priority,

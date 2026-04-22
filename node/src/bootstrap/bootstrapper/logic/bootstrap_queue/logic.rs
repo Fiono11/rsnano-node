@@ -562,6 +562,7 @@ impl BootstrapQueueLogic {
             .leaf("unblocked", self.unblocked_count(), 0)
             .leaf("downloading", self.downloading.len(), 0)
             .node("processing", self.block_processing.container_info())
+            .node("priorities", self.priorities.container_info())
             .finish()
     }
 }
@@ -1034,6 +1035,7 @@ mod tests {
                 .leaf("unblocked", 2, 0)
                 .leaf("downloading", 0, 0)
                 .node("processing", queue.block_processing.container_info())
+                .node("priorities", queue.priorities.container_info())
                 .finish()
         )
     }
