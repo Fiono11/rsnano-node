@@ -564,6 +564,7 @@ impl BootstrapQueueLogic {
             .node("processing", self.block_processing.container_info())
             .node("priorities", self.priorities.container_info())
             .node("download_queue_detail", self.download_queue.container_info())
+            .node("downloading_detail", self.downloading.container_info())
             .finish()
     }
 }
@@ -1038,6 +1039,7 @@ mod tests {
                 .node("processing", queue.block_processing.container_info())
                 .node("priorities", queue.priorities.container_info())
                 .node("download_queue_detail", queue.download_queue.container_info())
+                .node("downloading_detail", queue.downloading.container_info())
                 .finish()
         )
     }

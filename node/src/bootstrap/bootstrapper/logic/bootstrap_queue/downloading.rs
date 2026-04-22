@@ -1,5 +1,6 @@
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rustc_hash::FxHashMap;
 use std::{collections::BTreeSet, time::Duration};
 
@@ -46,5 +47,11 @@ impl DownloadingAccounts {
         } else {
             None
         }
+    }
+}
+
+impl ContainerInfoProvider for DownloadingAccounts {
+    fn container_info(&self) -> ContainerInfo {
+        [("accounts", self.by_account.len(), 0)].into()
     }
 }
