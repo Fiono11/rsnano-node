@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use rustc_hash::FxHashMap;
 
@@ -214,5 +215,16 @@ impl BlockedAccounts {
 
     pub fn contains(&self, account: &Account) -> bool {
         self.by_account.contains_key(account)
+    }
+}
+
+impl ContainerInfoProvider for BlockedAccounts {
+    fn container_info(&self) -> ContainerInfo {
+        [
+            ("accounts", self.by_account.len(), 0),
+            ("by_dependency", self.by_dependency.len(), 0),
+            ("by_dependency_account", self.by_dependency_account.len(), 0),
+        ]
+        .into()
     }
 }
