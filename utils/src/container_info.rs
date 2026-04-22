@@ -76,6 +76,32 @@ impl ContainerInfo {
         }
         serde_json::Value::Object(data)
     }
+
+    pub fn leaf(&self, name: &str) -> Option<usize> {
+        self.0.iter().find_map(|i| match i {
+            ContainerInfoEntry::Leaf(leaf) => {
+                if leaf.name == name {
+                    Some(leaf.info.count)
+                } else {
+                    None
+                }
+            }
+            ContainerInfoEntry::Node(_) => None,
+        })
+    }
+
+    pub fn node(&self, name: &str) -> Option<&ContainerInfo> {
+        self.0.iter().find_map(|i| match i {
+            ContainerInfoEntry::Leaf(leaf) => None,
+            ContainerInfoEntry::Node(node) => {
+                if node.name == name {
+                    Some(&node.children)
+                } else {
+                    None
+                }
+            }
+        })
+    }
 }
 
 impl Deref for ContainerInfo {

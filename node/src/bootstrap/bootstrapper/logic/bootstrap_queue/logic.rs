@@ -1033,24 +1033,31 @@ mod tests {
             Timestamp::new_test_instance(),
         );
         let info = queue.container_info();
+        assert_eq!(info.leaf("download_queue"), Some(2));
+        assert_eq!(info.leaf("blocked"), Some(2));
+        assert_eq!(info.leaf("blocked_unknown"), Some(1));
+        assert_eq!(info.leaf("unblocked"), Some(2));
+        assert_eq!(info.leaf("downloading"), Some(0));
         assert_eq!(
-            info,
-            ContainerInfo::builder()
-                .leaf("download_queue", 2, 0)
-                .leaf("blocked", 2, 0)
-                .leaf("blocked_unknown", 1, 0)
-                .leaf("unblocked", 2, 0)
-                .leaf("downloading", 0, 0)
-                .node("processing", queue.block_processing.container_info())
-                .node("priorities", queue.priorities.container_info())
-                .node(
-                    "download_queue_detail",
-                    queue.download_queue.container_info()
-                )
-                .node("downloading_detail", queue.downloading.container_info())
-                .node("blocked_detail", queue.blocked.container_info())
-                .finish()
-        )
+            info.node("processing").unwrap(),
+            &queue.block_processing.container_info()
+        );
+        assert_eq!(
+            info.node("priorities").unwrap(),
+            &queue.priorities.container_info()
+        );
+        assert_eq!(
+            info.node("download_queue_detail").unwrap(),
+            &queue.download_queue.container_info()
+        );
+        assert_eq!(
+            info.node("downloading_detail").unwrap(),
+            &queue.downloading.container_info()
+        );
+        assert_eq!(
+            info.node("blocked_detail").unwrap(),
+            &queue.blocked.container_info()
+        );
     }
 
     /*

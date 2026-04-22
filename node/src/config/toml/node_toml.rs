@@ -707,7 +707,7 @@ mod tests {
         assert_eq!(ascending_toml.enable, Some(true));
         assert_eq!(ascending_toml.enable_frontier_scan, Some(true));
         assert_eq!(ascending_toml.enable_dependency_walker, Some(true));
-        assert_eq!(ascending_toml.block_processor_threshold, Some(1000));
+        assert_eq!(ascending_toml.block_processor_threshold, Some(1024*8));
         assert_eq!(ascending_toml.database_rate_limit, Some(256));
         assert_eq!(ascending_toml.database_warmup_ratio, Some(10));
         assert_eq!(ascending_toml.max_pull_count, Some(128));

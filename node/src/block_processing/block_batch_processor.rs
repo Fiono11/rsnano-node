@@ -1,8 +1,8 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
+        Arc, Mutex,
     },
 };
 
@@ -83,22 +83,26 @@ impl BlockBatchProcessor {
                 }
                 Err(error) => {
                     trace!(block_hash = %hash, ?error, "Block processing failed");
-                    match error {
-                        BlockError::GapPrevious => {
-                            self.unchecked.lock().unwrap().put(
-                                block.previous(),
-                                block.clone(),
-                                now,
-                            );
+                    // Bootstrap has its own block cache which would cause conflicts with the
+                    // unchecked map
+                    if block_ctx.source != BlockSource::Bootstrap {
+                        match error {
+                            BlockError::GapPrevious => {
+                                self.unchecked.lock().unwrap().put(
+                                    block.previous(),
+                                    block.clone(),
+                                    now,
+                                );
+                            }
+                            BlockError::GapSource => {
+                                self.unchecked.lock().unwrap().put(
+                                    block.source_or_link(),
+                                    block.clone(),
+                                    now,
+                                );
+                            }
+                            _ => {}
                         }
-                        BlockError::GapSource => {
-                            self.unchecked.lock().unwrap().put(
-                                block.source_or_link(),
-                                block.clone(),
-                                now,
-                            );
-                        }
-                        _ => {}
                     }
                 }
             }

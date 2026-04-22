@@ -24,9 +24,9 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -124,7 +124,7 @@ impl Default for BootstrapConfig {
             request_timeout: Duration::from_secs(15),
             throttle_coefficient: 8 * 1024,
             throttle_wait: Duration::from_millis(100),
-            block_processor_threshold: 1000,
+            block_processor_threshold: 1024 * 8,
             min_protocol_version: 0x14, // TODO don't hard code
             max_requests: 1024,
             optimistic_request_percentage: 75,
