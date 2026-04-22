@@ -221,9 +221,11 @@ impl BlockedAccounts {
 impl ContainerInfoProvider for BlockedAccounts {
     fn container_info(&self) -> ContainerInfo {
         [
+            ("sequenced", self.sequenced.len(), 0),
             ("accounts", self.by_account.len(), 0),
             ("by_dependency", self.by_dependency.len(), 0),
             ("by_dependency_account", self.by_dependency_account.len(), 0),
+            ("by_timestamp", self.by_timestamp.len(), 0),
         ]
         .into()
     }
