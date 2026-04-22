@@ -143,4 +143,10 @@ impl InsightApp {
             node.bootstrapper.clear_blocked_accounts();
         }
     }
+
+    pub fn verify_blocked_accounts(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.verify_blocked_accounts();
+        }
+    }
 }

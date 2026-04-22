@@ -38,6 +38,10 @@ impl BlockedAccounts {
         known
     }
 
+    pub fn missing_sends(&self) -> impl Iterator<Item = &BlockHash> {
+        self.by_dependency.keys()
+    }
+
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0

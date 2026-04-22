@@ -234,6 +234,10 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().clear_blocked_accounts();
     }
 
+    pub fn missing_sends(&self) -> Vec<BlockHash> {
+        self.logic.lock().unwrap().missing_sends()
+    }
+
     pub fn timeout(&mut self) {
         let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now);

@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
-    PriorityDownResult, PriorityUpResult,
+    Priority, PriorityDownResult, PriorityUpResult,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
 };
 
 use super::{
@@ -538,6 +538,10 @@ impl BootstrapQueueLogic {
             self.remove(&account);
         }
         self.revision += 1;
+    }
+
+    pub fn missing_sends(&self) -> Vec<BlockHash> {
+        self.blocked.missing_sends().cloned().collect()
     }
 
     pub fn timeout(&mut self, now: Timestamp) {

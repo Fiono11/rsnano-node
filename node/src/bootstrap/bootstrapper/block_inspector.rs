@@ -35,7 +35,7 @@ impl BlockInspector {
         let any = self.ledger.any();
         for result in batch {
             let account = self.get_account(&any, &result.block, &result.saved_block);
-            self.inspect_block(&mut state, result, &account);
+            self.inspect_block(&mut state, result, &account, &any);
         }
         self.enqueue_next_blocks(&mut state);
     }
@@ -77,7 +77,13 @@ impl BlockInspector {
     /// Inspects a block that has been processed by the block processor
     /// - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
     /// - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
-    fn inspect_block(&self, state: &mut BootstrapLogic, result: &ProcessResult, account: &Account) {
+    fn inspect_block(
+        &self,
+        state: &mut BootstrapLogic,
+        result: &ProcessResult,
+        account: &Account,
+        any: &dyn AnySet,
+    ) {
         let hash = result.block.hash();
 
         match &result.status {
@@ -89,8 +95,13 @@ impl BlockInspector {
                         let source = result.block.source_or_link();
 
                         if !account.is_zero() && !source.is_zero() {
-                            // Mark account as blocked because it is missing the source block
-                            state.bootstrap_queue.block(*account, source);
+                            // We have to recheck the source block, because the parallel block
+                            // processing can cause race a condition where the send block got
+                            // already processed!
+                            if !any.block_exists(&source) {
+                                // Mark account as blocked because it is missing the source block
+                                state.bootstrap_queue.block(*account, source);
+                            }
                         }
                     }
                     BlockError::GapPrevious => {

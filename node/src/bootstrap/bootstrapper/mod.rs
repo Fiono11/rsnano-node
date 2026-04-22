@@ -17,16 +17,16 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, LedgerEvent, ProcessResult};
+use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::{
@@ -145,6 +145,7 @@ pub struct Bootstrapper {
     response_handler: ResponseProcessor,
     block_inspector: BlockInspector,
     requesters: Requesters,
+    ledger: Arc<Ledger>,
 }
 
 struct Threads {
@@ -200,7 +201,7 @@ impl Bootstrapper {
             message_sender.clone(),
             logic.clone(),
             state_changed.clone(),
-            ledger,
+            ledger.clone(),
             block_processor_queue,
             network,
         );
@@ -215,6 +216,7 @@ impl Bootstrapper {
             response_handler,
             block_inspector,
             requesters,
+            ledger,
         }
     }
 
@@ -282,6 +284,22 @@ impl Bootstrapper {
     pub fn clear_blocked_accounts(&self) {
         let mut guard = self.logic.lock().unwrap();
         guard.bootstrap_queue.clear_blocked_accounts();
+    }
+
+    pub fn verify_blocked_accounts(&self) {
+        tracing::info!("Verifying blocked accounts...");
+        let guard = self.logic.lock().unwrap();
+        let missing_sends = guard.bootstrap_queue.missing_sends();
+        let any = self.ledger.any();
+        for block_hash in &missing_sends {
+            if any.block_exists(block_hash) {
+                tracing::warn!(
+                    "Found send block that is still marked as missing: {}",
+                    block_hash
+                );
+            }
+        }
+        tracing::info!("Blocked accounts verfied!")
     }
 
     /// Process `asc_pull_ack` message coming from network

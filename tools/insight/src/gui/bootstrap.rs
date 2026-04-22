@@ -134,6 +134,9 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                             if ui.button("Clear blocked accounts").clicked() {
                                 app.clear_blocked_accounts();
                             }
+                            if ui.button("Verify").clicked() {
+                                app.verify_blocked_accounts();
+                            }
                         });
 
                         ui.horizontal(|ui| {
