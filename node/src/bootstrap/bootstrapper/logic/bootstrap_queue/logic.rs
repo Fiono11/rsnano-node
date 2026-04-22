@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    Priority, PriorityDownResult, PriorityUpResult,
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
+    PriorityDownResult, PriorityUpResult,
 };
 
 use super::{
@@ -561,9 +561,13 @@ impl BootstrapQueueLogic {
             .leaf("blocked_unknown", blocked_unknown, 0)
             .leaf("unblocked", self.unblocked_count(), 0)
             .leaf("downloading", self.downloading.len(), 0)
+            .leaf("fails", self.fails.len(), 0)
             .node("processing", self.block_processing.container_info())
             .node("priorities", self.priorities.container_info())
-            .node("download_queue_detail", self.download_queue.container_info())
+            .node(
+                "download_queue_detail",
+                self.download_queue.container_info(),
+            )
             .node("downloading_detail", self.downloading.container_info())
             .node("blocked_detail", self.blocked.container_info())
             .finish()
@@ -1039,7 +1043,10 @@ mod tests {
                 .leaf("downloading", 0, 0)
                 .node("processing", queue.block_processing.container_info())
                 .node("priorities", queue.priorities.container_info())
-                .node("download_queue_detail", queue.download_queue.container_info())
+                .node(
+                    "download_queue_detail",
+                    queue.download_queue.container_info()
+                )
                 .node("downloading_detail", queue.downloading.container_info())
                 .node("blocked_detail", queue.blocked.container_info())
                 .finish()

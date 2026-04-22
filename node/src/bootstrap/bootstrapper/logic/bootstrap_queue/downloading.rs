@@ -52,6 +52,10 @@ impl DownloadingAccounts {
 
 impl ContainerInfoProvider for DownloadingAccounts {
     fn container_info(&self) -> ContainerInfo {
-        [("accounts", self.by_account.len(), 0)].into()
+        [
+            ("accounts", self.by_account.len(), 0),
+            ("by_time", self.by_time.len(), 0),
+        ]
+        .into()
     }
 }
