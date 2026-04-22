@@ -23,12 +23,12 @@ impl RunningQueryContainer {
         self.sequenced.len()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn contains(&self, id: u64) -> bool {
         self.by_id.contains_key(&id)
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn get(&self, id: u64) -> Option<&RunningQuery> {
         self.by_id.get(&id)
     }

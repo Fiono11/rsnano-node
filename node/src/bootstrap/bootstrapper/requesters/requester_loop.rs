@@ -66,28 +66,23 @@ impl RequesterLoop {
         let mut loop_counter = 0;
         let mut last_revision;
         while !state.stopped {
-            let mut produced = 0;
-
-            if self.config.enable_block_requester
+            let sent = if self.config.enable_block_requester
                 && let Some(spec) = self.query_spec_factory.try_blocks_query(&mut state)
             {
-                self.query_sender.send(spec, &mut state);
-                produced += 1;
-            }
-            if self.config.enable_dependency_walker
+                self.query_sender.send(spec, &mut state)
+            } else if self.config.enable_dependency_walker
                 && let Some(spec) = self.query_spec_factory.try_dependency_query(&mut state)
             {
-                self.query_sender.send(spec, &mut state);
-                produced += 1;
-            }
-            if self.config.enable_frontier_scan
+                self.query_sender.send(spec, &mut state)
+            } else if self.config.enable_frontier_scan
                 && let Some(spec) = self.query_spec_factory.try_frontier_query(&mut state)
             {
-                self.query_sender.send(spec, &mut state);
-                produced += 1;
-            }
+                self.query_sender.send(spec, &mut state)
+            } else {
+                false
+            };
 
-            if produced == 0 {
+            if !sent {
                 self.stats.sleep.fetch_add(1, Relaxed);
                 loop_counter = 0;
                 // nothing to do — wait for a state change or fixed throttle
@@ -101,7 +96,7 @@ impl RequesterLoop {
                     .0;
             } else {
                 loop_counter += 1;
-                if loop_counter > 16 {
+                if loop_counter > 0 {
                     loop_counter = 0;
                     // periodically release the lock so cleanup/response threads can run
                     drop(state);

@@ -44,7 +44,7 @@ impl QuerySender {
         self.request_timeout = timeout;
     }
 
-    pub fn send(&mut self, spec: AscPullQuerySpec, state: &mut BootstrapLogic) -> Option<u64> {
+    pub fn send(&mut self, spec: AscPullQuerySpec, state: &mut BootstrapLogic) -> bool {
         if self.send_listener.is_tracked() {
             self.send_listener.emit(spec.clone());
         }
@@ -78,7 +78,7 @@ impl QuerySender {
                 state.bootstrap_queue.set_last_request(&spec.account);
             }
 
-            Some(id)
+            true
         } else {
             trace!(
                 query_id = id,
@@ -89,7 +89,7 @@ impl QuerySender {
 
             self.stats
                 .inc(StatType::Bootstrap, DetailType::RequestFailed);
-            None
+            false
         }
     }
 
@@ -114,8 +114,8 @@ mod tests {
         let channel_id = spec.channel.channel_id();
         let mut state = BootstrapLogic::default();
 
-        let id = fixture.query_sender.send(spec, &mut state);
-        assert!(id.is_some());
+        let sent = fixture.query_sender.send(spec, &mut state);
+        assert!(sent);
 
         let output = fixture.send_tracker.output();
         assert_eq!(output.len(), 1, "no message sent!");
@@ -134,12 +134,11 @@ mod tests {
         let mut state = BootstrapLogic::default();
         state.bootstrap_queue.priority_up(&spec.account);
 
-        let id = fixture.query_sender.send(spec.clone(), &mut state).unwrap();
+        fixture.query_sender.send(spec.clone(), &mut state);
 
         assert_eq!(state.running_queries.len(), 1);
-        assert!(state.running_queries.contains(id));
         assert_eq!(
-            state.running_queries.get(id).unwrap().response_cutoff,
+            state.running_queries.front().unwrap().response_cutoff,
             fixture.now + fixture.query_sender.request_timeout
         );
         assert_eq!(state.bootstrap_queue.last_request(&spec.account), None);
@@ -155,7 +154,7 @@ mod tests {
         state.bootstrap_queue = BootstrapQueue::new_null();
         state.bootstrap_queue.priority_up(&spec.account);
 
-        fixture.query_sender.send(spec.clone(), &mut state).unwrap();
+        fixture.query_sender.send(spec.clone(), &mut state);
 
         assert_eq!(
             state.bootstrap_queue.last_request(&spec.account),
@@ -170,9 +169,9 @@ mod tests {
         let mut state = BootstrapLogic::default();
 
         spec.channel.close();
-        let id = fixture.query_sender.send(spec.clone(), &mut state);
+        let sent = fixture.query_sender.send(spec.clone(), &mut state);
 
-        assert_eq!(id, None);
+        assert!(!sent);
         assert_eq!(state.running_queries.len(), 0);
         assert_eq!(state.bootstrap_queue.info().download_queue, 0);
         assert_eq!(state.bootstrap_queue.info().blocked, 0);
