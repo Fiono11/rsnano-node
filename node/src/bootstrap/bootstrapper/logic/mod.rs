@@ -10,8 +10,8 @@ mod running_query;
 mod running_query_container;
 
 pub use bootstrap_queue::{
-    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
-    BootstrappingAccountInfo, Priority, PriorityDownResult, PriorityUpResult,
+    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
+    Priority, PriorityDownResult, PriorityUpResult,
 };
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 

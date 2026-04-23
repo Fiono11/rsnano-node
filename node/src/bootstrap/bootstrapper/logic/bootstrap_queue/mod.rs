@@ -9,8 +9,7 @@ mod stats;
 
 pub use account_priority_tracker::{PriorityDownResult, PriorityUpResult};
 pub use logic::{
-    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrapTarget,
-    BootstrappingAccountInfo,
+    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
 };
 pub use priority::Priority;
 

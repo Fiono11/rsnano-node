@@ -543,13 +543,6 @@ impl Default for BootstrapQueueLogic {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct BootstrapTarget {
-    pub account: Account,
-    pub priority: Priority,
-    pub fails: usize,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
