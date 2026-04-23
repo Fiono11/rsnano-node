@@ -78,11 +78,7 @@ impl BootstrapLogic {
     }
 
     pub fn next_target(&mut self) -> BootstrapTarget {
-        let next = self.bootstrap_queue.next_download_target(|account| {
-            self.running_queries
-                .count_by_account(account, QuerySource::Priority)
-                < 4
-        });
+        let next = self.bootstrap_queue.next_download_target();
 
         if next.account.is_zero() {
             return Default::default();

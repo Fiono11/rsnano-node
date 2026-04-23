@@ -272,11 +272,7 @@ impl BootstrapQueueLogic {
             && self.unblocked_count() > self.config.max_unblocked_accounts
     }
 
-    pub fn next_download_target(
-        &self,
-        now: Timestamp,
-        filter: impl Fn(&Account) -> bool,
-    ) -> BootstrapTarget {
+    pub fn next_download_target(&self, now: Timestamp) -> BootstrapTarget {
         if self.download_queue.is_empty() {
             return Default::default();
         }
@@ -285,13 +281,9 @@ impl BootstrapQueueLogic {
 
         let target = self.download_queue.iter().find_map(|(prio, account)| {
             let is_match = if let Some(last) = self.download_queue.get_last_request(account) {
-                if last > cutoff {
-                    false
-                } else {
-                    filter(account)
-                }
+                if last > cutoff { false } else { true }
             } else {
-                filter(account)
+                true
             };
 
             if is_match {
@@ -883,7 +875,7 @@ mod tests {
     #[test]
     fn next_priority_empty() {
         let queue = BootstrapQueueLogic::default();
-        let next = queue.next_download_target(Timestamp::new_test_instance(), |_| true);
+        let next = queue.next_download_target(Timestamp::new_test_instance());
         assert_eq!(next, BootstrapTarget::default());
     }
 
@@ -893,7 +885,7 @@ mod tests {
         let account = Account::from(1);
         queue.priority_up_to(&account, Priority::INITIAL);
         let now = Timestamp::new_test_instance();
-        let next = queue.next_download_target(now, |_| true);
+        let next = queue.next_download_target(now);
         assert_eq!(
             next,
             BootstrapTarget {
@@ -911,7 +903,7 @@ mod tests {
         let account = Account::from(1);
         queue.priority_up(&account);
         queue.set_last_request(&account, now);
-        let next = queue.next_download_target(now, |_| true);
+        let next = queue.next_download_target(now);
         assert_eq!(next, BootstrapTarget::default());
     }
 
@@ -929,34 +921,12 @@ mod tests {
             now - config.account_cooldown + Duration::from_millis(1),
         );
         queue.set_last_request(&account2, now - config.account_cooldown);
-        let next = queue.next_download_target(now, |_| true);
+        let next = queue.next_download_target(now);
         assert_eq!(
             next,
             BootstrapTarget {
                 account: account2,
                 priority: Priority::new(1.0),
-                fails: 0
-            }
-        );
-    }
-
-    #[test]
-    fn next_priority_filter() {
-        let config = BootstrapQueueConfig::default();
-        let mut queue = BootstrapQueueLogic::new(config.clone());
-        let account1 = Account::from(1);
-        let account2 = Account::from(2);
-        let account3 = Account::from(2);
-        queue.priority_up_to(&account1, Priority::INITIAL);
-        queue.priority_up_to(&account2, Priority::INITIAL);
-        queue.priority_up_to(&account3, Priority::INITIAL);
-        let now = Timestamp::new_test_instance();
-        let next = queue.next_download_target(now, |a| *a == account2);
-        assert_eq!(
-            next,
-            BootstrapTarget {
-                account: account2,
-                priority: Priority::INITIAL,
                 fails: 0
             }
         );

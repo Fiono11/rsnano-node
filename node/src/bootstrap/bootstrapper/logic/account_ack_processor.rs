@@ -95,7 +95,7 @@ mod tests {
 
         assert!(queue.blocked(&blocked_account));
         assert!(queue.contains(&source_account));
-        let target = queue.next_download_target(|_| true);
+        let target = queue.next_download_target();
         assert_eq!(target.account, source_account);
     }
 
