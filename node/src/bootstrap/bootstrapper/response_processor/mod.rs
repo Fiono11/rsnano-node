@@ -3,14 +3,17 @@ mod frontier_check_pool;
 mod frontier_checker;
 mod frontier_worker;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering::Relaxed},
+};
 use tracing::trace;
 
 use rsnano_ledger::{BlockSource, Ledger};
 use rsnano_messages::{AscPullAck, AscPullAckType};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::stats::Stats;
+use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
 use super::logic::BootstrapLogic;
 use crate::{
@@ -25,6 +28,9 @@ pub(crate) struct ResponseProcessor {
     logic: Arc<Mutex<BootstrapLogic>>,
     frontier_check_pool: FrontierCheckPool,
     block_proc_queue: Arc<BlockProcessorQueue>,
+    response_blocks: AtomicU64,
+    response_account: AtomicU64,
+    response_frontiers: AtomicU64,
 }
 
 impl ResponseProcessor {
@@ -40,6 +46,9 @@ impl ResponseProcessor {
             logic,
             frontier_check_pool,
             block_proc_queue: block_queue,
+            response_blocks: AtomicU64::new(0),
+            response_account: AtomicU64::new(0),
+            response_frontiers: AtomicU64::new(0),
         }
     }
 
@@ -74,19 +83,19 @@ impl ResponseProcessor {
     ) -> Result<(), ProcessError> {
         let ok = match response.pull_type {
             AscPullAckType::Blocks(blocks) => {
-                logic.response_blocks += 1;
+                self.response_blocks.fetch_add(1, Relaxed);
                 logic
                     .block_ack_processor
                     .process(&mut logic.bootstrap_queue, query, blocks)
             }
             AscPullAckType::AccountInfo(info) => {
-                logic.response_account += 1;
+                self.response_account.fetch_add(1, Relaxed);
                 let acc_proc = &mut logic.account_ack_processor;
                 let boot_queue = &logic.bootstrap_queue;
                 acc_proc.process(boot_queue, query, &info)
             }
             AscPullAckType::Frontiers(frontiers) => {
-                logic.response_frontiers += 1;
+                self.response_frontiers.fetch_add(1, Relaxed);
                 logic.frontiers_processor.process(query, frontiers)
             }
         };
@@ -117,5 +126,26 @@ impl ResponseProcessor {
                 break;
             }
         }
+    }
+}
+
+impl StatsSource for ResponseProcessor {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        const BOOTSTRAP_PROCESS: &str = "bootstrap_process";
+        result.insert(
+            BOOTSTRAP_PROCESS,
+            "blocks",
+            self.response_blocks.load(Relaxed),
+        );
+        result.insert(
+            BOOTSTRAP_PROCESS,
+            "account_info",
+            self.response_account.load(Relaxed),
+        );
+        result.insert(
+            BOOTSTRAP_PROCESS,
+            "frontiers",
+            self.response_frontiers.load(Relaxed),
+        );
     }
 }

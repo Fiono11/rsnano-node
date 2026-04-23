@@ -407,6 +407,7 @@ impl ContainerInfoProvider for Bootstrapper {
 
 impl StatsSource for Bootstrapper {
     fn collect_stats(&self, result: &mut StatsCollection) {
+        self.response_handler.collect_stats(result);
         self.logic.lock().unwrap().collect_stats(result);
         self.requesters.collect_stats(result);
     }

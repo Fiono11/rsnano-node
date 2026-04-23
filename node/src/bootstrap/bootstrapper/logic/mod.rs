@@ -23,7 +23,7 @@ pub(crate) use running_query_container::*;
 
 use std::{sync::Arc, time::Duration};
 
-use rsnano_messages::{AscPullAck, AscPullAckType, AscPullReqType};
+use rsnano_messages::{AscPullAck, AscPullReqType};
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
@@ -52,10 +52,6 @@ pub struct BootstrapLogic {
     pub(crate) account_ack_processor: AccountAckProcessor,
     pub frontiers_processor: FrontiersProcessor,
     pub block_ack_processor: BlockAckProcessor,
-
-    pub(crate) response_blocks: u64,
-    pub(crate) response_account: u64,
-    pub(crate) response_frontiers: u64,
 }
 
 impl BootstrapLogic {
@@ -71,9 +67,6 @@ impl BootstrapLogic {
             account_ack_processor: Default::default(),
             frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
             block_ack_processor: Default::default(),
-            response_blocks: 0,
-            response_account: 0,
-            response_frontiers: 0,
         }
     }
 
@@ -164,11 +157,6 @@ impl ContainerInfoProvider for BootstrapLogic {
 
 impl StatsSource for BootstrapLogic {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        const BOOTSTRAP_PROCESS: &str = "bootstrap_process";
-        result.insert(BOOTSTRAP_PROCESS, "blocks", self.response_blocks);
-        result.insert(BOOTSTRAP_PROCESS, "account_info", self.response_account);
-        result.insert(BOOTSTRAP_PROCESS, "frontiers", self.response_frontiers);
-
         self.frontiers_processor.collect_stats(result);
         self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
