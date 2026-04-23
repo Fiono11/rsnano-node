@@ -77,19 +77,18 @@ impl QuerySpecFactory {
             return None;
         }
         let query_id = self.rng_factory.rng().next_u64();
-        let next = state.next_target();
-        if next.account.is_zero() {
+        let Some((next_account, next_prio)) = state.next_target() else {
             self.stats.wait_next_download.fetch_add(1, Relaxed);
             return None;
-        }
+        };
 
-        let (head, confirmed_frontier) = self.get_account_info(&next.account);
+        let (head, confirmed_frontier) = self.get_account_info(&next_account);
         let pull_type = self.pull_type_decider.decide_pull_type();
-        let pull_start = PullStart::new(pull_type, next.account, head, confirmed_frontier);
+        let pull_start = PullStart::new(pull_type, next_account, head, confirmed_frontier);
         let req_type = AscPullReqType::Blocks(BlocksReqPayload {
             start_type: pull_start.start_type,
             start: pull_start.start,
-            count: self.pull_count_decider.pull_count(next.priority),
+            count: self.pull_count_decider.pull_count(next_prio),
         });
 
         let channel = self.acquire_channel(state)?;
@@ -99,13 +98,13 @@ impl QuerySpecFactory {
             channel: channel,
             req_type,
             hash: pull_start.hash,
-            account: next.account,
+            account: next_account,
         };
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);
-        state.bootstrap_queue.download_started(&next.account);
+        state.bootstrap_queue.download_started(&next_account);
 
         Some(query)
     }

@@ -260,15 +260,8 @@ impl BootstrapQueueLogic {
             && self.unblocked_count() > self.config.max_unblocked_accounts
     }
 
-    pub fn next_download_target(&self) -> BootstrapTarget {
-        match self.download_queue.iter().next() {
-            Some((prio, account)) => BootstrapTarget {
-                account: *account,
-                priority: prio,
-                fails: self.get_fails(account),
-            },
-            None => Default::default(),
-        }
+    pub fn next_download_target(&self) -> Option<(Account, Priority)> {
+        self.download_queue.iter().next().map(|(p, a)| (*a, p))
     }
 
     pub fn next_block_to_process(&self) -> Option<&Block> {
@@ -829,7 +822,7 @@ mod tests {
     fn next_priority_empty() {
         let queue = BootstrapQueueLogic::default();
         let next = queue.next_download_target();
-        assert_eq!(next, BootstrapTarget::default());
+        assert_eq!(next, None);
     }
 
     #[test]
@@ -837,15 +830,9 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         queue.priority_up_to(&account, Priority::INITIAL);
-        let next = queue.next_download_target();
-        assert_eq!(
-            next,
-            BootstrapTarget {
-                account,
-                priority: Priority::INITIAL,
-                fails: 0
-            }
-        )
+        let (next_account, next_prio) = queue.next_download_target().unwrap();
+        assert_eq!(next_account, account);
+        assert_eq!(next_prio, Priority::INITIAL);
     }
 
     #[test]

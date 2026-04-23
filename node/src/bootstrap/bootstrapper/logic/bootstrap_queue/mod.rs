@@ -130,7 +130,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn next_download_target(&self) -> BootstrapTarget {
+    pub fn next_download_target(&self) -> Option<(Account, Priority)> {
         self.logic.lock().unwrap().next_download_target()
     }
 

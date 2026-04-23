@@ -77,14 +77,8 @@ impl BootstrapLogic {
         }
     }
 
-    pub fn next_target(&mut self) -> BootstrapTarget {
-        let next = self.bootstrap_queue.next_download_target();
-
-        if next.account.is_zero() {
-            return Default::default();
-        }
-
-        next
+    pub fn next_target(&mut self) -> Option<(Account, Priority)> {
+        self.bootstrap_queue.next_download_target()
     }
 
     pub(crate) fn next_blocked_query(
