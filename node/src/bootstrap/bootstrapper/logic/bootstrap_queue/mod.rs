@@ -143,8 +143,7 @@ impl BootstrapQueue {
     }
 
     pub fn next_download_target(&self) -> BootstrapTarget {
-        let now = self.clock.now();
-        self.logic.lock().unwrap().next_download_target(now)
+        self.logic.lock().unwrap().next_download_target()
     }
 
     pub fn next_block_to_process(&self) -> Option<Block> {
