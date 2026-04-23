@@ -74,10 +74,6 @@ impl QuerySender {
             query.response_cutoff = now + self.request_timeout;
             state.running_queries.insert(query);
 
-            if spec.cooldown_account {
-                state.bootstrap_queue.set_last_request(&spec.account);
-            }
-
             true
         } else {
             trace!(
@@ -102,7 +98,7 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bootstrap::bootstrapper::logic::BootstrapQueue, transport::SendEvent};
+    use crate::transport::SendEvent;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 
@@ -140,25 +136,6 @@ mod tests {
         assert_eq!(
             state.running_queries.front().unwrap().response_cutoff,
             fixture.now + fixture.query_sender.request_timeout
-        );
-        assert_eq!(state.bootstrap_queue.last_request(&spec.account), None);
-    }
-
-    #[test]
-    fn cool_down_account() {
-        let mut fixture = create_fixture();
-        let mut spec = AscPullQuerySpec::new_test_instance();
-        spec.cooldown_account = true;
-
-        let mut state = BootstrapLogic::default();
-        state.bootstrap_queue = BootstrapQueue::new_null();
-        state.bootstrap_queue.priority_up(&spec.account);
-
-        fixture.query_sender.send(spec.clone(), &mut state);
-
-        assert_eq!(
-            state.bootstrap_queue.last_request(&spec.account),
-            Some(fixture.now)
         );
     }
 

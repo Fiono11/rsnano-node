@@ -49,7 +49,6 @@ pub(crate) struct AscPullQuerySpec {
     pub req_type: AscPullReqType,
     pub account: Account,
     pub hash: BlockHash,
-    pub cooldown_account: bool,
 }
 
 impl AscPullQuerySpec {
@@ -64,7 +63,6 @@ impl AscPullQuerySpec {
             channel: Arc::new(Channel::new_test_instance()),
             account: Account::from(100),
             hash: BlockHash::from(200),
-            cooldown_account: false,
         }
     }
 

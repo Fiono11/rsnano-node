@@ -102,7 +102,6 @@ impl BootstrapLogic {
             req_type: AscPullReqType::account_info_by_hash(next),
             account: Account::ZERO,
             hash: next,
-            cooldown_account: false,
         })
     }
 

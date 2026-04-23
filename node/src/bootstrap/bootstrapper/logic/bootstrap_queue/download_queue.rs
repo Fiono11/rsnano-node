@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
@@ -13,7 +12,6 @@ use super::priority::{Priority, PriorityKeyDesc};
 pub(super) struct DownloadQueue {
     by_priority: BTreeMap<PriorityKeyDesc, FxHashSet<Account>>, // descending
     by_account: FxHashMap<Account, Priority>,
-    last_request: FxHashMap<Account, Timestamp>,
 }
 
 impl DownloadQueue {
@@ -46,7 +44,6 @@ impl DownloadQueue {
             accounts.remove(&account);
         }
         self.by_account.remove(&account);
-        self.last_request.remove(&account);
         Some(account)
     }
 
@@ -65,20 +62,7 @@ impl DownloadQueue {
         if ids.is_empty() {
             self.by_priority.remove(&priority.into());
         }
-        self.last_request.remove(account);
         true
-    }
-
-    pub fn set_last_request(&mut self, account: Account, now: Timestamp) {
-        self.last_request.insert(account, now);
-    }
-
-    pub fn get_last_request(&self, account: &Account) -> Option<Timestamp> {
-        self.last_request.get(account).copied()
-    }
-
-    pub fn clear_last_request(&mut self, account: &Account) {
-        self.last_request.remove(account);
     }
 
     pub fn change_priority(&mut self, account: &Account, new_prio: Priority) -> bool {
@@ -104,10 +88,6 @@ impl DownloadQueue {
 
 impl ContainerInfoProvider for DownloadQueue {
     fn container_info(&self) -> ContainerInfo {
-        [
-            ("accounts", self.by_account.len(), 0),
-            ("last_request", self.last_request.len(), 0),
-        ]
-        .into()
+        [("accounts", self.by_account.len(), 0)].into()
     }
 }

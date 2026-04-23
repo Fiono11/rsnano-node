@@ -22,8 +22,6 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
-#[cfg(test)]
-use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -118,16 +116,6 @@ impl BootstrapQueue {
         self.stats
             .decayed_blocked
             .fetch_add(decayed as u64, Relaxed);
-    }
-
-    pub fn set_last_request(&mut self, account: &Account) {
-        let now = self.clock.now();
-        self.logic.lock().unwrap().set_last_request(account, now);
-    }
-
-    #[cfg(test)]
-    pub fn last_request(&self, account: &Account) -> Option<Timestamp> {
-        self.logic.lock().unwrap().last_request(account)
     }
 
     /// Sets information about the account chain that contains the block hash

@@ -221,18 +221,6 @@ impl BootstrapQueueLogic {
         removed.len()
     }
 
-    #[cfg(test)]
-    pub fn last_request(&self, account: &Account) -> Option<Timestamp> {
-        self.download_queue.get_last_request(account)
-    }
-
-    pub fn set_last_request(&mut self, account: &Account, now: Timestamp) {
-        if self.priorities.contains(account) {
-            self.download_queue.set_last_request(*account, now);
-            self.revision += 1;
-        }
-    }
-
     /// Sets information about the account chain that contains the block hash.
     /// Returns the number of updated accounts.
     pub fn dependency_update(
@@ -299,7 +287,6 @@ impl BootstrapQueueLogic {
         if !self.downloading.remove(account) {
             return false;
         }
-        self.download_queue.clear_last_request(account);
 
         if blocks.is_empty() {
             let fails = self.fails.entry(*account).or_default();
@@ -795,23 +782,6 @@ mod tests {
         assert!(removed);
         assert!(!queue.contains(&account1));
         assert!(queue.contains(&account2));
-    }
-
-    #[test]
-    fn set_last_request() {
-        let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        let new_timestamp = Timestamp::new_test_instance() + Duration::from_secs(1000);
-        queue.set_last_request(&account, new_timestamp);
-        assert_eq!(queue.last_request(&account), Some(new_timestamp))
-    }
-
-    #[test]
-    fn set_last_request_for_unknown_account_does_nothing() {
-        let mut queue = BootstrapQueueLogic::default();
-        queue.set_last_request(&Account::from(1), Timestamp::new_test_instance());
-        assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]

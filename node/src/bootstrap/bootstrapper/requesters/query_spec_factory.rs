@@ -92,11 +92,6 @@ impl QuerySpecFactory {
             count: self.pull_count_decider.pull_count(next.priority),
         });
 
-        // Only cooldown accounts that are likely to have more blocks
-        // This is to avoid requesting blocks from the same frontier multiple times, before the block processor had a chance to process them
-        // Not throttling accounts that are probably up-to-date allows us to evict them from the priority set faster
-        let cooldown_account = next.fails == 0;
-
         let channel = self.acquire_channel(state)?;
         let channel_id = channel.channel_id();
         let query = AscPullQuerySpec {
@@ -105,7 +100,6 @@ impl QuerySpecFactory {
             req_type,
             hash: pull_start.hash,
             account: next.account,
-            cooldown_account,
         };
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
@@ -204,7 +198,6 @@ impl QuerySpecFactory {
             req_type: request,
             account: Account::ZERO,
             hash: BlockHash::ZERO,
-            cooldown_account: false,
         }
     }
 
