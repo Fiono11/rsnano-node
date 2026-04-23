@@ -53,7 +53,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn priority_up_to(&mut self, account: &Account, new_priority: Priority) {
+    pub fn priority_up_to(&self, account: &Account, new_priority: Priority) {
         let result = self
             .logic
             .lock()
@@ -62,12 +62,12 @@ impl BootstrapQueue {
         self.stats.add_prio_set_result(&result);
     }
 
-    pub fn priority_up(&mut self, account: &Account) {
+    pub fn priority_up(&self, account: &Account) {
         let result = self.logic.lock().unwrap().priority_up(account);
         self.stats.add_prio_set_result(&result);
     }
 
-    pub fn priority_down(&mut self, account: &Account) {
+    pub fn priority_down(&self, account: &Account) {
         let result = self.logic.lock().unwrap().priority_down(account);
         self.stats.add_prio_down_result(&result);
     }
@@ -77,7 +77,7 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().priority(account)
     }
 
-    pub fn remove(&mut self, account: &Account) {
+    pub fn remove(&self, account: &Account) {
         let removed = self.logic.lock().unwrap().remove(account);
         if removed {
             self.stats.removed.fetch_add(1, Relaxed);
@@ -86,7 +86,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn block(&mut self, account: Account, dependency: BlockHash) {
+    pub fn block(&self, account: Account, dependency: BlockHash) {
         let now = self.clock.now();
         let blocked = self.logic.lock().unwrap().block(account, dependency, now);
         if blocked {
@@ -101,7 +101,7 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().blocked(account)
     }
 
-    pub fn unblock(&mut self, account: Account) {
+    pub fn unblock(&self, account: Account) {
         let unblocked = self.logic.lock().unwrap().unblock(account);
         if unblocked {
             self.stats.unblocked.fetch_add(1, Relaxed);
@@ -109,7 +109,7 @@ impl BootstrapQueue {
     }
 
     /// Should be called periodically to remove old entries from the blocked accounts
-    pub fn decay_blocked_accounts(&mut self) {
+    pub fn decay_blocked_accounts(&self) {
         let now = self.clock.now();
         let decayed = self.logic.lock().unwrap().decay_blocked_accounts(now);
         self.stats
@@ -118,7 +118,7 @@ impl BootstrapQueue {
     }
 
     /// Sets information about the account chain that contains the block hash
-    pub fn dependency_update(&mut self, dependency: &BlockHash, dependency_account: Account) {
+    pub fn dependency_update(&self, dependency: &BlockHash, dependency_account: Account) {
         let mut logic = self.logic.lock().unwrap();
         let (updated, prio_result) = logic.dependency_update(dependency, dependency_account);
         if updated > 0 {
@@ -137,7 +137,7 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().next_block_to_process().cloned()
     }
 
-    pub fn download_started(&mut self, account: &Account) {
+    pub fn download_started(&self, account: &Account) {
         let now = self.clock.now();
         let started = self.logic.lock().unwrap().download_started(account, now);
         if started {
@@ -147,7 +147,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) {
+    pub fn download_finished(&self, account: &Account, blocks: VecDeque<Block>) {
         let finished = self
             .logic
             .lock()
@@ -160,7 +160,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn processing_started(&mut self, block_hash: &BlockHash) {
+    pub fn processing_started(&self, block_hash: &BlockHash) {
         if self.logic.lock().unwrap().processing_started(block_hash) {
             self.stats.processing_started.fetch_add(1, Relaxed);
         } else {
@@ -168,7 +168,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn processing_finished(&mut self, block_hash: &BlockHash) {
+    pub fn processing_finished(&self, block_hash: &BlockHash) {
         let finished = self.logic.lock().unwrap().processing_finished(block_hash);
         if finished {
             self.stats.processing_finished.fetch_add(1, Relaxed);
@@ -177,7 +177,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) {
+    pub fn reprocess(&self, account: &Account, block_hash: &BlockHash) {
         let reprocessed = self.logic.lock().unwrap().reprocess(account, block_hash);
         if reprocessed {
             self.stats.reprocess.fetch_add(1, Relaxed);
@@ -192,7 +192,7 @@ impl BootstrapQueue {
 
     /// Sets information about the account chain that contains the block hash
     /// Returns the number of inserted accounts
-    pub fn sync_dependencies(&mut self) -> usize {
+    pub fn sync_dependencies(&self) -> usize {
         self.logic.lock().unwrap().sync_dependencies()
     }
 
@@ -216,7 +216,7 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().blocked_half_full()
     }
 
-    pub fn clear_blocked_accounts(&mut self) {
+    pub fn clear_blocked_accounts(&self) {
         self.logic.lock().unwrap().clear_blocked_accounts();
     }
 
@@ -228,7 +228,7 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().processing()
     }
 
-    pub fn timeout(&mut self) {
+    pub fn timeout(&self) {
         let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now);
     }

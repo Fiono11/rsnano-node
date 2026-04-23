@@ -17,7 +17,7 @@ pub struct BlockAckProcessor {
 impl BlockAckProcessor {
     pub(crate) fn process(
         &mut self,
-        queue: &mut BootstrapQueue,
+        queue: &BootstrapQueue,
         query: &RunningQuery,
         response: BlocksAckPayload,
     ) -> bool {
@@ -47,7 +47,7 @@ impl BlockAckProcessor {
 
     fn process_valid_blocks(
         &mut self,
-        queue: &mut BootstrapQueue,
+        queue: &BootstrapQueue,
         query: &RunningQuery,
         response: BlocksAckPayload,
     ) {
@@ -64,7 +64,7 @@ impl BlockAckProcessor {
         queue.download_finished(&query.account, blocks);
     }
 
-    fn process_empty_response(&mut self, queue: &mut BootstrapQueue, query: &RunningQuery) {
+    fn process_empty_response(&mut self, queue: &BootstrapQueue, query: &RunningQuery) {
         self.stats.nothing_new += 1;
         queue.download_finished(&query.account, VecDeque::new());
         queue.priority_down(&query.account);

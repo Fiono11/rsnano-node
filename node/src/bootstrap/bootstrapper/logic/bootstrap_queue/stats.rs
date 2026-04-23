@@ -29,7 +29,7 @@ pub(crate) struct BootstrapQueueStats {
 }
 
 impl BootstrapQueueStats {
-    pub fn add_prio_set_result(&mut self, result: &PriorityUpResult) {
+    pub fn add_prio_set_result(&self, result: &PriorityUpResult) {
         match result {
             PriorityUpResult::Inserted(_) => self.inserted.fetch_add(1, Relaxed),
             PriorityUpResult::Upgraded(_, _) => self.upgraded.fetch_add(1, Relaxed),
@@ -38,7 +38,7 @@ impl BootstrapQueueStats {
         };
     }
 
-    pub fn add_prio_down_result(&mut self, result: &PriorityDownResult) {
+    pub fn add_prio_down_result(&self, result: &PriorityDownResult) {
         match result {
             PriorityDownResult::Deprioritized(_, _) => self.deprioritized.fetch_add(1, Relaxed),
             PriorityDownResult::Removed => self.removed.fetch_add(1, Relaxed),

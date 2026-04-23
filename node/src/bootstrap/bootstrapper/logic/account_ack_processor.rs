@@ -4,14 +4,14 @@ use rsnano_utils::stats::{StatsCollection, StatsSource};
 use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery};
 
 #[derive(Default)]
-pub(super) struct AccountAckProcessor {
+pub(crate) struct AccountAckProcessor {
     stats: AccountAckStats,
 }
 
 impl AccountAckProcessor {
     pub fn process(
         &mut self,
-        queue: &mut BootstrapQueue,
+        queue: &BootstrapQueue,
         query: &RunningQuery,
         response: &AccountInfoAckPayload,
     ) -> bool {

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tracing::trace;
 
 use rsnano_ledger::{BlockSource, Ledger};
-use rsnano_messages::AscPullAck;
+use rsnano_messages::{AscPullAck, AscPullAckType};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::Stats;
@@ -16,7 +16,7 @@ use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        logic::{ProcessError, ProcessInfo},
+        logic::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::frontier_check_pool::FrontierCheckPool,
     },
 };
@@ -56,10 +56,46 @@ impl ResponseProcessor {
         trace!(query_id = response.id, ?channel_id, "Process response");
 
         let mut logic = self.logic.lock().unwrap();
-        let process_info = logic.process_response(response, channel_id, now)?;
+        let query = logic.take_running_query_for(&response, channel_id)?;
+        let process_info = self
+            .process_response_for_query(&query, response, &mut logic)
+            .map(|_| ProcessInfo::new(&query, now))?;
+
         self.enqueue_next_blocks(&mut logic);
         self.frontier_check_pool.enqueue_frontiers(&mut logic);
         Ok(process_info)
+    }
+
+    fn process_response_for_query(
+        &self,
+        query: &RunningQuery,
+        response: AscPullAck,
+        logic: &mut BootstrapLogic,
+    ) -> Result<(), ProcessError> {
+        let ok = match response.pull_type {
+            AscPullAckType::Blocks(blocks) => {
+                logic.response_blocks += 1;
+                logic
+                    .block_ack_processor
+                    .process(&mut logic.bootstrap_queue, query, blocks)
+            }
+            AscPullAckType::AccountInfo(info) => {
+                logic.response_account += 1;
+                let acc_proc = &mut logic.account_ack_processor;
+                let boot_queue = &logic.bootstrap_queue;
+                acc_proc.process(boot_queue, query, &info)
+            }
+            AscPullAckType::Frontiers(frontiers) => {
+                logic.response_frontiers += 1;
+                logic.frontiers_processor.process(query, frontiers)
+            }
+        };
+
+        if ok {
+            Ok(())
+        } else {
+            Err(ProcessError::InvalidResponse)
+        }
     }
 
     // TODO Remeove duplication! Copied from BlockInspector

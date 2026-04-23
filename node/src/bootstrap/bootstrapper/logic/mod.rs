@@ -49,13 +49,13 @@ pub struct BootstrapLogic {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
-    account_ack_processor: AccountAckProcessor,
+    pub(crate) account_ack_processor: AccountAckProcessor,
     pub frontiers_processor: FrontiersProcessor,
     pub block_ack_processor: BlockAckProcessor,
 
-    response_blocks: u64,
-    response_account: u64,
-    response_frontiers: u64,
+    pub(crate) response_blocks: u64,
+    pub(crate) response_account: u64,
+    pub(crate) response_frontiers: u64,
 }
 
 impl BootstrapLogic {
@@ -116,21 +116,10 @@ impl BootstrapLogic {
             .next_blocked(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
     }
 
-    pub(crate) fn process_response(
-        &mut self,
-        response: AscPullAck,
-        channel_id: ChannelId,
-        now: Timestamp,
-    ) -> Result<ProcessInfo, ProcessError> {
-        let query = self.take_running_query_for(&response)?;
-        self.scoring.received_message(channel_id);
-        self.process_response_for_query(&query, response)
-            .map(|_| ProcessInfo::new(&query, now))
-    }
-
-    fn take_running_query_for(
+    pub(crate) fn take_running_query_for(
         &mut self,
         response: &AscPullAck,
+        channel_id: ChannelId,
     ) -> Result<RunningQuery, ProcessError> {
         // Only process messages that have a known running query
         let Some(query) = self.running_queries.remove(response.id) else {
@@ -141,36 +130,9 @@ impl BootstrapLogic {
             return Err(ProcessError::InvalidResponseType);
         }
 
+        self.scoring.received_message(channel_id);
+
         Ok(query)
-    }
-
-    fn process_response_for_query(
-        &mut self,
-        query: &RunningQuery,
-        response: AscPullAck,
-    ) -> Result<(), ProcessError> {
-        let ok = match response.pull_type {
-            AscPullAckType::Blocks(blocks) => {
-                self.response_blocks += 1;
-                self.block_ack_processor
-                    .process(&mut self.bootstrap_queue, query, blocks)
-            }
-            AscPullAckType::AccountInfo(info) => {
-                self.response_account += 1;
-                self.account_ack_processor
-                    .process(&mut self.bootstrap_queue, query, &info)
-            }
-            AscPullAckType::Frontiers(frontiers) => {
-                self.response_frontiers += 1;
-                self.frontiers_processor.process(query, frontiers)
-            }
-        };
-
-        if ok {
-            Ok(())
-        } else {
-            Err(ProcessError::InvalidResponse)
-        }
     }
 
     pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {

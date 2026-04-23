@@ -271,7 +271,7 @@ impl Bootstrapper {
     }
 
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let mut logic = self.logic.lock().unwrap();
+        let logic = self.logic.lock().unwrap();
         for account in accounts {
             logic
                 .bootstrap_queue
@@ -280,7 +280,7 @@ impl Bootstrapper {
     }
 
     pub fn clear_blocked_accounts(&self) {
-        let mut guard = self.logic.lock().unwrap();
+        let guard = self.logic.lock().unwrap();
         guard.bootstrap_queue.clear_blocked_accounts();
     }
 
@@ -351,7 +351,7 @@ impl Bootstrapper {
     }
 
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let mut logic = self.logic.lock().unwrap();
+        let logic = self.logic.lock().unwrap();
         for account in accounts {
             logic.bootstrap_queue.unblock(account);
         }
