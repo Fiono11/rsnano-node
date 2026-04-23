@@ -416,26 +416,18 @@ fn rep_self_vote() {
     assert_eq!(info.voter_count, 2);
 }
 
+/// Tests that forks are resolved during bootstrap
 #[test]
 fn fork_bootstrap_flip() {
     let mut system = System::new();
     let config1 = System::default_config_without_backlog_scan();
-
     let node1 = system.build_node().config(config1).finish();
-    let wallet_id1 = node1.wallets.wallet_ids()[0];
-    node1
-        .wallets
-        .insert_adhoc2(&wallet_id1, &DEV_GENESIS_KEY.raw_key(), true)
-        .unwrap();
+    node1.insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut config2 = System::default_config();
     // Reduce cooldown to speed up fork resolution
     config2.bootstrap.bootstrap_queue.account_cooldown = Duration::from_millis(100);
     let node2 = system.build_node().config(config2).disconnected().finish();
-    node1
-        .wallets
-        .insert_adhoc2(&wallet_id1, &DEV_GENESIS_KEY.raw_key(), true)
-        .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut fork_lattice = lattice.clone();
@@ -448,10 +440,10 @@ fn fork_bootstrap_flip() {
         .legacy_send(&key2, Amount::raw(1_000_000));
 
     // Insert but don't rebroadcast, simulating settled blocks
-    node1.process_local(send1.clone()).unwrap();
-    node2.process_local(send2.clone()).unwrap();
-
+    node1.process(send1.clone());
+    node2.process(send2.clone());
     node1.confirm(send1.hash());
+
     assert_timely2(|| node1.block_exists(&send1.hash()));
     assert_timely2(|| node2.block_exists(&send2.hash()));
 

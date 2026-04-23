@@ -5,7 +5,9 @@ use tracing::trace;
 use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery, VerifyResult};
+use crate::bootstrap::bootstrapper::logic::{
+    BootstrapQueue, QueryType, RunningQuery, VerifyResult,
+};
 
 #[derive(Default)]
 pub struct BlockAckProcessor {
@@ -54,13 +56,8 @@ impl BlockAckProcessor {
 
         let mut blocks = response.take_blocks();
 
-        // Avoid re-processing the block we already have
-        if blocks
-            .front()
-            .expect("valid blocks should at least have one entry")
-            .hash()
-            == query.start.into()
-        {
+        if query.query_type == QueryType::BlocksByHash {
+            // Avoid re-processing the block we already have
             blocks.pop_front();
         }
 
