@@ -71,6 +71,13 @@ impl<'a> BlockInserter<'a> {
     }
 
     fn account_changed_since_validation(&mut self) -> bool {
+        if let Some(pending) = &self.instructions.delete_pending {
+            // It could be that the corresponding send block got rolled back, so we
+            // have to check the pending store!
+            if !self.ledger.store.pending.exists(self.txn, pending) {
+                return true;
+            }
+        }
         self.get_current_account_info().head != self.instructions.old_account_info.head
     }
 

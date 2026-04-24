@@ -54,7 +54,8 @@ impl LmdbPendingStore {
     pub fn del(&self, txn: &mut WriteTransaction, key: &PendingKey) {
         self.delete_listener.emit(*key);
         let key_bytes = key.to_bytes();
-        txn.delete(self.database, &key_bytes, None).unwrap();
+        txn.delete(self.database, &key_bytes, None)
+            .expect("should delete pending entry");
     }
 
     pub fn get(&self, txn: &dyn Transaction, key: &PendingKey) -> Option<PendingInfo> {
