@@ -1,7 +1,10 @@
-use crate::bootstrap::bootstrapper::logic::Priority;
-use num::clamp;
-use rsnano_messages::BlocksAckPayload;
 use std::cmp::min;
+
+use num::clamp;
+
+use rsnano_messages::BlocksAckPayload;
+
+use crate::bootstrap::bootstrapper::Priority;
 
 /// Decides how many blocks to pull
 pub(crate) struct PullCountDecider {

@@ -3,19 +3,13 @@ pub mod frontiers_processor;
 pub(crate) mod block_ack_processor;
 
 mod account_ack_processor;
-mod bootstrap_queue;
 mod frontier_scan;
 mod peer_scoring;
 mod running_query;
 mod running_query_container;
 
-pub use bootstrap_queue::{
-    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
-    Priority, PriorityDownResult, PriorityUpResult,
-};
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 
-pub(crate) use bootstrap_queue::BootstrapQueue;
 pub(crate) use frontier_scan::FrontierScan;
 pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;

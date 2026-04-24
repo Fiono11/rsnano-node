@@ -19,7 +19,8 @@ use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        logic::{BootstrapQueue, ProcessError, ProcessInfo, RunningQuery},
+        bootstrap_queue::BootstrapQueue,
+        logic::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::frontier_check_pool::FrontierCheckPool,
     },
 };

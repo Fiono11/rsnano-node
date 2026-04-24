@@ -5,8 +5,9 @@ use rsnano_types::Frontier;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::frontier_checker::FrontierChecker;
-use crate::bootstrap::bootstrapper::logic::{
-    BootstrapLogic, BootstrapQueue, frontiers_processor::OutdatedAccounts,
+use crate::bootstrap::bootstrapper::{
+    bootstrap_queue::BootstrapQueue,
+    logic::{BootstrapLogic, frontiers_processor::OutdatedAccounts},
 };
 
 /// Handles received frontiers
@@ -69,7 +70,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, Priority};
+    use crate::bootstrap::bootstrapper::Priority;
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
     use std::sync::Arc;

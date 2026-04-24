@@ -4,7 +4,7 @@ use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
-    logic::{BootstrapLogic, BootstrapQueue},
+    bootstrap_queue::BootstrapQueue, logic::BootstrapLogic,
     response_processor::frontier_worker::FrontierWorker,
 };
 

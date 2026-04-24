@@ -1,7 +1,7 @@
 use rsnano_messages::AccountInfoAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, RunningQuery};
+use crate::bootstrap::bootstrapper::{bootstrap_queue::BootstrapQueue, logic::RunningQuery};
 
 #[derive(Default)]
 pub(crate) struct AccountAckProcessor {
@@ -50,7 +50,7 @@ impl StatsSource for AccountAckStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::logic::Priority;
+    use crate::bootstrap::bootstrapper::Priority;
     use rsnano_types::{Account, BlockHash};
 
     #[test]

@@ -6,12 +6,9 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use crate::bootstrap::bootstrapper::logic::{
-    Priority, PriorityDownResult, PriorityUpResult,
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
-};
-
 use super::{
+    Priority, PriorityDownResult, PriorityUpResult,
+    account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,

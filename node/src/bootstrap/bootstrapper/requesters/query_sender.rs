@@ -98,7 +98,7 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bootstrap::bootstrapper::logic::BootstrapQueue, transport::SendEvent};
+    use crate::{bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue, transport::SendEvent};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 

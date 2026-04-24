@@ -1,10 +1,11 @@
+use std::cmp::max;
+
 use rustc_hash::FxHashMap;
 
 use rsnano_types::Account;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use crate::bootstrap::bootstrapper::logic::Priority;
-use std::cmp::max;
+use crate::bootstrap::bootstrapper::Priority;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PriorityUpResult {

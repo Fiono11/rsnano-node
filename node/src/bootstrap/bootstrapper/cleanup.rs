@@ -4,7 +4,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::logic::{BootstrapLogic, RunningQuery};
-use crate::bootstrap::bootstrapper::logic::BootstrapQueue;
+use crate::bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue;
 
 pub(super) struct BootstrapCleanup {
     clock: Arc<SteadyClock>,

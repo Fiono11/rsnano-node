@@ -13,7 +13,8 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig,
-        logic::{BootstrapLogic, BootstrapQueue},
+        bootstrap_queue::BootstrapQueue,
+        logic::BootstrapLogic,
         requesters::{
             priority::{PullCountDecider, PullType, PullTypeDecider},
             stats::BootstrapRequesterStats,

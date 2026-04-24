@@ -1,12 +1,16 @@
 pub mod logic;
 
 mod block_inspector;
+mod bootstrap_queue;
 mod cleanup;
 mod requesters;
 mod response_processor;
 
-pub use logic::{
-    BootstrapQueueSnapshot, BootstrappingAccountInfo, FrontierHeadInfo, FrontierScanConfig,
+pub use logic::{FrontierHeadInfo, FrontierScanConfig};
+
+pub use bootstrap_queue::{
+    BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
+    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 use std::{
@@ -31,15 +35,13 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::logic::BootstrapQueue,
     transport::MessageSender,
 };
 
 use block_inspector::BlockInspector;
+use bootstrap_queue::BootstrapQueue;
 use cleanup::BootstrapCleanup;
-use logic::{
-    BootstrapLogic, BootstrapQueueConfig, BootstrapQueueInfo, Priority, ProcessError, QueryType,
-};
+use logic::{BootstrapLogic, ProcessError, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
 

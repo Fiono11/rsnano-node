@@ -6,7 +6,7 @@ use rsnano_types::{Account, Block, BlockType, SavedBlock};
 
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::bootstrapper::logic::{BootstrapQueue, Priority},
+    bootstrap::bootstrapper::{Priority, bootstrap_queue::BootstrapQueue},
 };
 
 /// Inspects a processed block and adjusts the bootstrap state accordingly

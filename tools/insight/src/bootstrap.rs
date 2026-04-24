@@ -1,4 +1,4 @@
-use rsnano_node::bootstrap::bootstrapper::{Bootstrapper, logic::BootstrapQueueSnapshot};
+use rsnano_node::bootstrap::bootstrapper::{BootstrapQueueSnapshot, Bootstrapper};
 use rsnano_types::Account;
 
 #[derive(Default)]

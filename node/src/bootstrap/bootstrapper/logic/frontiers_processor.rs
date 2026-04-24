@@ -1,14 +1,17 @@
-use crate::bootstrap::bootstrapper::{
-    FrontierHeadInfo, FrontierScanConfig,
-    logic::{BootstrapQueue, FrontierScan, Priority, RunningQuery, VerifyResult},
-};
+use std::collections::VecDeque;
+
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
-use std::collections::VecDeque;
+
+use crate::bootstrap::bootstrapper::{
+    FrontierHeadInfo, FrontierScanConfig, Priority,
+    bootstrap_queue::BootstrapQueue,
+    logic::{FrontierScan, RunningQuery, VerifyResult},
+};
 
 pub struct FrontiersProcessor {
     pub(crate) frontier_scan: FrontierScan,
