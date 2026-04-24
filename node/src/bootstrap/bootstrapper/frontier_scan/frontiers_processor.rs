@@ -5,8 +5,8 @@ use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
-    FrontierHeadInfo, FrontierScanConfig,
-    logic::{FrontierScan, RunningQuery, VerifyResult},
+    frontier_scan::coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
+    logic::{RunningQuery, VerifyResult},
 };
 
 pub(crate) struct FrontiersProcessor {
@@ -66,7 +66,7 @@ pub struct OutdatedAccounts {
 }
 
 struct FrontiersProcessorLogic {
-    frontier_scan: FrontierScan,
+    frontier_scan: FrontierScanCoordinator,
 
     /// Frontiers that were received from other nodes and that we need to check against our ledger
     frontiers_to_check: VecDeque<Vec<Frontier>>,
@@ -76,7 +76,7 @@ struct FrontiersProcessorLogic {
 impl FrontiersProcessorLogic {
     pub fn new(config: FrontierScanConfig) -> Self {
         Self {
-            frontier_scan: FrontierScan::new(config),
+            frontier_scan: FrontierScanCoordinator::new(config),
             frontiers_to_check: Default::default(),
             frontier_checker_overfill: false,
         }

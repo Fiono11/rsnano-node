@@ -12,10 +12,8 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        logic::{
-            BootstrapLogic,
-            frontiers_processor::{self, FrontiersProcessor},
-        },
+        frontier_scan::frontiers_processor::FrontiersProcessor,
+        logic::BootstrapLogic,
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
     },
     transport::MessageSender,

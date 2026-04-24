@@ -4,8 +4,8 @@ use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
-    bootstrap_queue::BootstrapQueue, frontier_scan::stats::FrontierScanStats,
-    logic::frontiers_processor::FrontiersProcessor,
+    bootstrap_queue::BootstrapQueue,
+    frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
     response_processor::frontier_worker::FrontierWorker,
 };
 

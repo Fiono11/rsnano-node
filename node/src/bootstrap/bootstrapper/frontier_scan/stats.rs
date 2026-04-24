@@ -9,7 +9,7 @@ use std::{
 use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::logic::frontiers_processor::OutdatedAccounts;
+use crate::bootstrap::bootstrapper::frontier_scan::frontiers_processor::OutdatedAccounts;
 
 #[derive(Default)]
 pub(crate) struct FrontierScanStats {

@@ -5,6 +5,9 @@ mod query_sender;
 mod requester_loop;
 mod stats;
 
+pub(crate) use pull_count_decider::PullCountDecider;
+pub(crate) use pull_type_decider::{PullType, PullTypeDecider};
+
 use std::{
     sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
@@ -19,13 +22,12 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        logic::{BootstrapLogic, frontiers_processor::FrontiersProcessor},
+        frontier_scan::frontiers_processor::FrontiersProcessor,
+        logic::BootstrapLogic,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
     },
     transport::MessageSender,
 };
-pub(crate) use pull_count_decider::PullCountDecider;
-pub(crate) use pull_type_decider::{PullType, PullTypeDecider};
 
 /// Manages the threads that send out AscPullReqs
 pub(crate) struct Requesters {

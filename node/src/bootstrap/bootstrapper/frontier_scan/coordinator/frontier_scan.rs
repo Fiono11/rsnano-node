@@ -9,11 +9,11 @@ use super::{FrontierScanConfig, heads_container::HeadsContainer};
 /// Divides the account space into ranges and scans each range for
 /// outdated frontiers in parallel.
 /// This class is used to track the progress of each range.
-pub struct FrontierScan {
+pub struct FrontierScanCoordinator {
     heads: HeadsContainer,
 }
 
-impl FrontierScan {
+impl FrontierScanCoordinator {
     pub fn new(config: FrontierScanConfig) -> Self {
         assert!(!config.parallelism > 0);
         Self {
@@ -66,7 +66,7 @@ impl FrontierScan {
         self.heads.iter().map(|i| i.accounts_processed).sum()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn total_requests_completed(&self) -> usize {
         self.heads.iter().map(|i| i.requests_completed).sum()
     }
@@ -118,7 +118,7 @@ mod tests {
             consideration_count: 3,
             ..Default::default()
         };
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
         let now = Timestamp::new_test_instance();
 
         // First call should return first head, account number 1 (avoiding burn account 0)
@@ -146,7 +146,7 @@ mod tests {
             candidates: 5,
             ..Default::default()
         };
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
         let now = Timestamp::new_test_instance();
 
         // Get initial account to scan
@@ -182,7 +182,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         let start = scan.next(now);
 
@@ -206,7 +206,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         // First call should succeed
         let first = scan.next(now);
@@ -230,7 +230,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         let start = scan.next(now);
         // Create response with more candidates than limit
@@ -264,7 +264,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         // Collect initial accounts from each head
         let first0 = scan.next(now);
@@ -286,7 +286,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         let start = scan.next(now);
 
@@ -309,7 +309,7 @@ mod tests {
             ..Default::default()
         };
         let now = Timestamp::new_test_instance();
-        let mut scan = FrontierScan::new(config);
+        let mut scan = FrontierScanCoordinator::new(config);
 
         let start = scan.next(now);
 
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn container_info() {
-        let scan = FrontierScan::new(Default::default());
+        let scan = FrontierScanCoordinator::new(Default::default());
         let info = scan.container_info();
         assert_eq!(info, [("total_processed", 0, 0)].into());
     }
@@ -346,7 +346,7 @@ mod tests {
             parallelism: 4,
             ..Default::default()
         };
-        let scan = FrontierScan::new(config);
+        let scan = FrontierScanCoordinator::new(config);
 
         let heads = scan.heads();
 

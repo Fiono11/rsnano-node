@@ -1,13 +1,7 @@
-pub mod frontiers_processor;
-
-mod frontier_scan;
 mod peer_scoring;
 mod running_query;
 mod running_query_container;
 
-pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
-
-pub(crate) use frontier_scan::FrontierScan;
 pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;

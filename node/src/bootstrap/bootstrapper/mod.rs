@@ -7,7 +7,7 @@ mod frontier_scan;
 mod requesters;
 mod response_processor;
 
-pub use logic::{FrontierHeadInfo, FrontierScanConfig};
+pub use frontier_scan::coordinator::{FrontierHeadInfo, FrontierScanConfig};
 
 pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
@@ -35,16 +35,13 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::{
-        bootstrap_queue::Priority, frontier_scan::stats::FrontierScanStats,
-        logic::frontiers_processor::FrontiersProcessor,
-    },
     transport::MessageSender,
 };
-
 use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
+use bootstrap_queue::Priority;
 use cleanup::BootstrapCleanup;
+use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats};
 use logic::{BootstrapLogic, ProcessError, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;

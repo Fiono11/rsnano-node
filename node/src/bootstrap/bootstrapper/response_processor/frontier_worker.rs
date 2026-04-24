@@ -7,8 +7,7 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 use super::frontier_checker::FrontierChecker;
 use crate::bootstrap::bootstrapper::{
     bootstrap_queue::{BootstrapQueue, Priority},
-    frontier_scan::stats::FrontierScanStats,
-    logic::frontiers_processor::OutdatedAccounts,
+    frontier_scan::{frontiers_processor::OutdatedAccounts, stats::FrontierScanStats},
 };
 
 /// Handles received frontiers

@@ -22,11 +22,8 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::stats::FrontierScanStats,
-        logic::{
-            ProcessError, ProcessInfo, RunningQuery, VerifyResult,
-            frontiers_processor::FrontiersProcessor,
-        },
+        frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
+        logic::{ProcessError, ProcessInfo, RunningQuery, VerifyResult},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,
