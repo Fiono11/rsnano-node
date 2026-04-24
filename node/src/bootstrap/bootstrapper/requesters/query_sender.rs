@@ -129,8 +129,8 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
-        state.bootstrap_queue.priority_up(&spec.account);
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue.clone());
+        bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state);
 
@@ -146,15 +146,15 @@ mod tests {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue.clone());
 
         spec.channel.close();
         let sent = fixture.query_sender.send(spec.clone(), &mut state);
 
         assert!(!sent);
         assert_eq!(state.running_queries.len(), 0);
-        assert_eq!(state.bootstrap_queue.info().download_queue, 0);
-        assert_eq!(state.bootstrap_queue.info().blocked, 0);
+        assert_eq!(bootstrap_queue.info().download_queue, 0);
+        assert_eq!(bootstrap_queue.info().blocked, 0);
     }
 
     #[test]

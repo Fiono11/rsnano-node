@@ -19,7 +19,7 @@ use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        logic::{ProcessError, ProcessInfo, RunningQuery},
+        logic::{BootstrapQueue, ProcessError, ProcessInfo, RunningQuery},
         response_processor::frontier_check_pool::FrontierCheckPool,
     },
 };
@@ -28,6 +28,7 @@ pub(crate) struct ResponseProcessor {
     logic: Arc<Mutex<BootstrapLogic>>,
     frontier_check_pool: FrontierCheckPool,
     block_proc_queue: Arc<BlockProcessorQueue>,
+    bootstrap_queue: Arc<BootstrapQueue>,
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
@@ -36,16 +37,23 @@ pub(crate) struct ResponseProcessor {
 impl ResponseProcessor {
     pub(crate) fn new(
         logic: Arc<Mutex<BootstrapLogic>>,
+        bootstrap_queue: Arc<BootstrapQueue>,
         stats: Arc<Stats>,
         block_queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
     ) -> Self {
-        let frontier_check_pool = FrontierCheckPool::new(stats.clone(), ledger, logic.clone());
+        let frontier_check_pool = FrontierCheckPool::new(
+            stats.clone(),
+            ledger,
+            logic.clone(),
+            bootstrap_queue.clone(),
+        );
 
         Self {
             logic,
             frontier_check_pool,
             block_proc_queue: block_queue,
+            bootstrap_queue,
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
@@ -70,7 +78,7 @@ impl ResponseProcessor {
             .process_response_for_query(&query, response, &mut logic)
             .map(|_| ProcessInfo::new(&query, now))?;
 
-        self.enqueue_next_blocks(&mut logic);
+        self.enqueue_next_blocks();
         self.frontier_check_pool.enqueue_frontiers(&mut logic);
         Ok(process_info)
     }
@@ -86,12 +94,12 @@ impl ResponseProcessor {
                 self.response_blocks.fetch_add(1, Relaxed);
                 logic
                     .block_ack_processor
-                    .process(&mut logic.bootstrap_queue, query, blocks)
+                    .process(&self.bootstrap_queue, query, blocks)
             }
             AscPullAckType::AccountInfo(info) => {
                 self.response_account.fetch_add(1, Relaxed);
                 let acc_proc = &mut logic.account_ack_processor;
-                let boot_queue = &logic.bootstrap_queue;
+                let boot_queue = &self.bootstrap_queue;
                 acc_proc.process(boot_queue, query, &info)
             }
             AscPullAckType::Frontiers(frontiers) => {
@@ -108,8 +116,8 @@ impl ResponseProcessor {
     }
 
     // TODO Remeove duplication! Copied from BlockInspector
-    fn enqueue_next_blocks(&self, logic: &mut BootstrapLogic) {
-        while let Some(block) = logic.bootstrap_queue.next_block_to_process() {
+    fn enqueue_next_blocks(&self) {
+        while let Some(block) = self.bootstrap_queue.next_block_to_process() {
             let block_hash = block.hash();
 
             let inserted = self.block_proc_queue.push(BlockContext::new(
@@ -120,7 +128,7 @@ impl ResponseProcessor {
             ));
 
             if inserted {
-                logic.bootstrap_queue.processing_started(&block_hash);
+                self.bootstrap_queue.processing_started(&block_hash);
             } else {
                 // block processor queue is full!
                 break;

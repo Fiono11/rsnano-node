@@ -190,6 +190,7 @@ impl Bootstrapper {
 
         let mut response_handler = ResponseProcessor::new(
             logic.clone(),
+            bootstrap_queue.clone(),
             stats.clone(),
             block_processor_queue.clone(),
             ledger.clone(),
@@ -270,34 +271,28 @@ impl Bootstrapper {
     }
 
     pub fn contains(&self, account: &Account) -> bool {
-        self.logic.lock().unwrap().bootstrap_queue.contains(account)
+        self.bootstrap_queue.contains(account)
     }
 
     pub fn enqueue(&self, account: Account) {
-        self.logic
-            .lock()
-            .unwrap()
-            .bootstrap_queue
+        self.bootstrap_queue
             .priority_up_to(&account, Priority::INITIAL);
     }
 
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let logic = self.logic.lock().unwrap();
         for account in accounts {
-            logic
-                .bootstrap_queue
+            self.bootstrap_queue
                 .priority_up_to(&account, Priority::INITIAL);
         }
     }
 
     pub fn clear_blocked_accounts(&self) {
-        let guard = self.logic.lock().unwrap();
-        guard.bootstrap_queue.clear_blocked_accounts();
+        self.bootstrap_queue.clear_blocked_accounts();
     }
 
     pub fn verify_blocked_accounts(&self) {
         tracing::info!("Verifying blocked accounts...");
-        let missing_sends = self.logic.lock().unwrap().bootstrap_queue.missing_sends();
+        let missing_sends = self.bootstrap_queue.missing_sends();
         let any = self.ledger.any();
         for block_hash in &missing_sends {
             if any.block_exists(block_hash) {
@@ -311,7 +306,7 @@ impl Bootstrapper {
     }
 
     pub fn print_processing(&self) {
-        let processing = self.logic.lock().unwrap().bootstrap_queue.processing();
+        let processing = self.bootstrap_queue.processing();
         tracing::info!("Processing blocks:");
         for hash in processing {
             tracing::info!("Processing: {}", hash);
@@ -362,9 +357,8 @@ impl Bootstrapper {
     }
 
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
-        let logic = self.logic.lock().unwrap();
         for account in accounts {
-            logic.bootstrap_queue.unblock(account);
+            self.bootstrap_queue.unblock(account);
         }
     }
 
@@ -395,15 +389,11 @@ impl Bootstrapper {
     }
 
     pub fn queue_info(&self) -> BootstrapQueueInfo {
-        self.logic.lock().unwrap().bootstrap_queue.info()
+        self.bootstrap_queue.info()
     }
 
     pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
-        self.logic
-            .lock()
-            .unwrap()
-            .bootstrap_queue
-            .snapshot(limit, filter)
+        self.bootstrap_queue.snapshot(limit, filter)
     }
 }
 
@@ -416,7 +406,10 @@ impl Drop for Bootstrapper {
 
 impl ContainerInfoProvider for Bootstrapper {
     fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().unwrap().container_info()
+        ContainerInfo::builder()
+            .node("logic", self.logic.lock().unwrap().container_info())
+            .node("bootstrap_queue", self.bootstrap_queue.container_info())
+            .finish()
     }
 }
 

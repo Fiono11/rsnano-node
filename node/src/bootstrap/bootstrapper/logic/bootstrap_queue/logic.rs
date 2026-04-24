@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
-    PriorityDownResult, PriorityUpResult,
+    Priority, PriorityDownResult, PriorityUpResult,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
 };
 
 use super::{

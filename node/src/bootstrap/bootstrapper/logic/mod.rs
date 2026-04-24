@@ -34,7 +34,7 @@ use rsnano_utils::{
 use super::BootstrapConfig;
 use account_ack_processor::AccountAckProcessor;
 use block_ack_processor::BlockAckProcessor;
-use frontiers_processor::{FrontiersProcessor, OutdatedAccounts};
+use frontiers_processor::FrontiersProcessor;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum VerifyResult {
@@ -87,11 +87,6 @@ impl BootstrapLogic {
 
         Ok(query)
     }
-
-    pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {
-        self.frontiers_processor
-            .frontiers_processed(outdated, &self.bootstrap_queue);
-    }
 }
 
 impl ContainerInfoProvider for BootstrapLogic {
@@ -102,7 +97,6 @@ impl ContainerInfoProvider for BootstrapLogic {
                 self.running_queries.len(),
                 RunningQueryContainer::ELEMENT_SIZE,
             )
-            .node("accounts", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
             .finish()

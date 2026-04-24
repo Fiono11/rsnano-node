@@ -4,7 +4,8 @@ use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
-    logic::BootstrapLogic, response_processor::frontier_worker::FrontierWorker,
+    logic::{BootstrapLogic, BootstrapQueue},
+    response_processor::frontier_worker::FrontierWorker,
 };
 
 pub(crate) struct FrontierCheckPool {
@@ -12,6 +13,7 @@ pub(crate) struct FrontierCheckPool {
     ledger: Arc<Ledger>,
     logic: Arc<Mutex<BootstrapLogic>>,
     workers: Arc<ThreadPool>,
+    bootstrap_queue: Arc<BootstrapQueue>,
     pub max_pending: usize,
 }
 
@@ -20,6 +22,7 @@ impl FrontierCheckPool {
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
         state: Arc<Mutex<BootstrapLogic>>,
+        bootstrap_queue: Arc<BootstrapQueue>,
     ) -> Self {
         let workers = Arc::new(ThreadPool::new(1, "Bootstrap work"));
         Self {
@@ -27,6 +30,7 @@ impl FrontierCheckPool {
             ledger,
             logic: state,
             workers,
+            bootstrap_queue,
             max_pending: 16,
         }
     }
@@ -36,9 +40,10 @@ impl FrontierCheckPool {
             let ledger = self.ledger.clone();
             let stats = self.stats.clone();
             let state = self.logic.clone();
+            let bootstrap_queue = self.bootstrap_queue.clone();
             self.workers.execute(move || {
                 let any = ledger.any();
-                let mut worker = FrontierWorker::new(&any, &stats, &state);
+                let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
                 worker.process(frontiers);
             });
         }

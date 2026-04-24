@@ -94,7 +94,7 @@ impl RequesterLoop {
                 state = self
                     .state_changed
                     .wait_timeout_while(state, Self::THROTTLE_WAIT, |s| {
-                        s.bootstrap_queue.revision() == last_revision && !s.stopped
+                        self.bootstrap_queue.revision() == last_revision && !s.stopped
                     })
                     .unwrap()
                     .0;

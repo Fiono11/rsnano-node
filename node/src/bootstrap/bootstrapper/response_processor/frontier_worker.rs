@@ -6,7 +6,7 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::frontier_checker::FrontierChecker;
 use crate::bootstrap::bootstrapper::logic::{
-    BootstrapLogic, frontiers_processor::OutdatedAccounts,
+    BootstrapLogic, BootstrapQueue, frontiers_processor::OutdatedAccounts,
 };
 
 /// Handles received frontiers
@@ -14,6 +14,7 @@ pub(crate) struct FrontierWorker<'a> {
     stats: &'a Stats,
     state: &'a Mutex<BootstrapLogic>,
     checker: FrontierChecker<'a>,
+    bootstrap_queue: &'a BootstrapQueue,
 }
 
 impl<'a> FrontierWorker<'a> {
@@ -21,18 +22,24 @@ impl<'a> FrontierWorker<'a> {
         any: &'a OwningAnySet<'a>,
         stats: &'a Stats,
         state: &'a Mutex<BootstrapLogic>,
+        bootstrap_queue: &'a BootstrapQueue,
     ) -> Self {
         Self {
             stats,
             state,
             checker: FrontierChecker::new(any),
+            bootstrap_queue,
         }
     }
 
     pub fn process(&mut self, frontiers: Vec<Frontier>) {
         let outdated = self.checker.get_outdated_accounts(&frontiers);
         self.update_stats(&frontiers, &outdated);
-        self.state.lock().unwrap().frontiers_processed(&outdated);
+        self.state
+            .lock()
+            .unwrap()
+            .frontiers_processor
+            .frontiers_processed(&outdated, self.bootstrap_queue);
     }
 
     fn update_stats(&self, frontiers: &[Frontier], outdated: &OutdatedAccounts) {
@@ -77,7 +84,7 @@ mod tests {
             Default::default(),
             bootstrap_queue.clone(),
         ));
-        let mut worker = FrontierWorker::new(&any, &stats, &state);
+        let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(Vec::new());
 
@@ -103,7 +110,7 @@ mod tests {
             Default::default(),
             bootstrap_queue.clone(),
         ));
-        let mut worker = FrontierWorker::new(&any, &stats, &state);
+        let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
