@@ -2,7 +2,6 @@ pub mod frontiers_processor;
 
 pub(crate) mod block_ack_processor;
 
-mod account_ack_processor;
 mod frontier_scan;
 mod peer_scoring;
 mod running_query;
@@ -26,7 +25,6 @@ use rsnano_utils::{
 };
 
 use super::BootstrapConfig;
-use account_ack_processor::AccountAckProcessor;
 use block_ack_processor::BlockAckProcessor;
 use frontiers_processor::FrontiersProcessor;
 
@@ -41,7 +39,6 @@ pub struct BootstrapLogic {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
-    pub(crate) account_ack_processor: AccountAckProcessor,
     pub frontiers_processor: FrontiersProcessor,
     pub block_ack_processor: BlockAckProcessor,
 }
@@ -55,7 +52,6 @@ impl BootstrapLogic {
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,
-            account_ack_processor: Default::default(),
             frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
             block_ack_processor: Default::default(),
         }
@@ -98,7 +94,6 @@ impl ContainerInfoProvider for BootstrapLogic {
 impl StatsSource for BootstrapLogic {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.frontiers_processor.collect_stats(result);
-        self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
     }
 }

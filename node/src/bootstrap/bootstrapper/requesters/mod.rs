@@ -17,10 +17,10 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
         logic::BootstrapLogic,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
-        BootstrapConfig,
     },
     transport::MessageSender,
 };

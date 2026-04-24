@@ -1,3 +1,4 @@
+mod account_ack_processor;
 mod database_crawler;
 mod frontier_check_pool;
 mod frontier_checker;
@@ -21,7 +22,9 @@ use crate::{
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
         logic::{ProcessError, ProcessInfo, RunningQuery},
-        response_processor::frontier_check_pool::FrontierCheckPool,
+        response_processor::{
+            account_ack_processor::AccountAckProcessor, frontier_check_pool::FrontierCheckPool,
+        },
     },
 };
 
@@ -30,6 +33,7 @@ pub(crate) struct ResponseProcessor {
     frontier_check_pool: FrontierCheckPool,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
+    account_ack_processor: AccountAckProcessor,
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
@@ -50,11 +54,14 @@ impl ResponseProcessor {
             bootstrap_queue.clone(),
         );
 
+        let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
+
         Self {
             logic,
             frontier_check_pool,
             block_proc_queue: block_queue,
             bootstrap_queue,
+            account_ack_processor,
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
@@ -99,9 +106,7 @@ impl ResponseProcessor {
             }
             AscPullAckType::AccountInfo(info) => {
                 self.response_account.fetch_add(1, Relaxed);
-                let acc_proc = &mut logic.account_ack_processor;
-                let boot_queue = &self.bootstrap_queue;
-                acc_proc.process(boot_queue, query, &info)
+                self.account_ack_processor.process(query, &info)
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
@@ -156,5 +161,6 @@ impl StatsSource for ResponseProcessor {
             "frontiers",
             self.response_frontiers.load(Relaxed),
         );
+        self.account_ack_processor.collect_stats(result);
     }
 }

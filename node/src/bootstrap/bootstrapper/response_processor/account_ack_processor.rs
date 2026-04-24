@@ -2,28 +2,36 @@ use rsnano_messages::AccountInfoAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::{bootstrap_queue::BootstrapQueue, logic::RunningQuery};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
-#[derive(Default)]
 pub(crate) struct AccountAckProcessor {
+    bootstrap_queue: Arc<BootstrapQueue>,
     stats: AccountAckStats,
 }
 
 impl AccountAckProcessor {
-    pub fn process(
-        &mut self,
-        queue: &BootstrapQueue,
-        query: &RunningQuery,
-        response: &AccountInfoAckPayload,
-    ) -> bool {
+    pub fn new(bootstrap_queue: Arc<BootstrapQueue>) -> Self {
+        Self {
+            bootstrap_queue,
+            stats: Default::default(),
+        }
+    }
+
+    pub fn process(&self, query: &RunningQuery, response: &AccountInfoAckPayload) -> bool {
         if response.account.is_zero() {
-            queue.dependency_account_not_found(&query.hash);
-            self.stats.empty += 1;
+            self.bootstrap_queue
+                .dependency_account_not_found(&query.hash);
+            self.stats.empty.fetch_add(1, Ordering::Relaxed);
             // OK, but nothing to do
             return true;
         }
 
         // Prioritize account containing the dependency
-        queue.dependency_update(&query.hash, response.account);
+        self.bootstrap_queue
+            .dependency_update(&query.hash, response.account);
         // OK, no way to verify the response
         true
     }
@@ -37,13 +45,17 @@ impl StatsSource for AccountAckProcessor {
 
 #[derive(Default)]
 pub(super) struct AccountAckStats {
-    pub empty: u64,
+    pub empty: AtomicU64,
 }
 
 impl StatsSource for AccountAckStats {
     fn collect_stats(&self, result: &mut StatsCollection) {
         const PROCESSOR: &str = "bootstr_acc_ack_proc";
-        result.insert(PROCESSOR, "account_info_empty", self.empty);
+        result.insert(
+            PROCESSOR,
+            "account_info_empty",
+            self.empty.load(Ordering::Relaxed),
+        );
     }
 }
 
@@ -55,8 +67,8 @@ mod tests {
 
     #[test]
     fn empty_response() {
-        let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::new_null();
+        let queue = Arc::new(BootstrapQueue::new_null());
+        let processor = AccountAckProcessor::new(queue.clone());
         let query = RunningQuery::new_test_instance();
 
         let response = AccountInfoAckPayload {
@@ -64,16 +76,16 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        assert!(processor.process(&mut queue, &query, &response));
+        assert!(processor.process(&query, &response));
 
-        assert_eq!(processor.stats.empty, 1);
+        assert_eq!(processor.stats.empty.load(Ordering::Relaxed), 1);
         assert_eq!(queue.info().download_queue, 0);
     }
 
     #[test]
     fn update_dependency() {
-        let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::new_null();
+        let queue = Arc::new(BootstrapQueue::new_null());
+        let processor = AccountAckProcessor::new(queue.clone());
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
         let source_account = Account::from(200);
@@ -92,7 +104,7 @@ mod tests {
 
         queue.block(blocked_account, unknown_source);
 
-        assert!(processor.process(&mut queue, &query, &response));
+        assert!(processor.process(&query, &response));
 
         assert!(queue.blocked(&blocked_account));
         assert!(queue.contains(&source_account));
@@ -102,8 +114,8 @@ mod tests {
 
     #[test]
     fn dependency_update_fails() {
-        let mut processor = AccountAckProcessor::default();
-        let mut queue = BootstrapQueue::new_null();
+        let queue = Arc::new(BootstrapQueue::new_null());
+        let processor = AccountAckProcessor::new(queue.clone());
 
         let blocked_account = Account::from(100);
         let unknown_source = BlockHash::from(42);
@@ -124,6 +136,6 @@ mod tests {
         queue.dependency_update(&unknown_source, source_account);
         queue.priority_up(&source_account);
 
-        assert!(processor.process(&mut queue, &query, &response));
+        assert!(processor.process(&query, &response));
     }
 }
