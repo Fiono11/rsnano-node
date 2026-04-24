@@ -22,6 +22,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
+        frontier_scan::stats::FrontierScanStats,
         logic::{ProcessError, ProcessInfo, RunningQuery, VerifyResult},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
@@ -40,6 +41,7 @@ pub(crate) struct ResponseProcessor {
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
+    frontier_stats: Arc<FrontierScanStats>,
 }
 
 impl ResponseProcessor {
@@ -49,6 +51,7 @@ impl ResponseProcessor {
         stats: Arc<Stats>,
         block_queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
+        frontier_stats: Arc<FrontierScanStats>,
     ) -> Self {
         let frontier_check_pool = FrontierCheckPool::new(
             stats.clone(),
@@ -70,6 +73,7 @@ impl ResponseProcessor {
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
+            frontier_stats,
         }
     }
 
@@ -114,8 +118,18 @@ impl ResponseProcessor {
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
                 match logic.frontiers_processor.process(query, frontiers) {
-                    VerifyResult::Ok | VerifyResult::NothingNew => true,
-                    VerifyResult::Invalid => false,
+                    VerifyResult::Ok => {
+                        self.frontier_stats.verified.fetch_add(1, Relaxed);
+                        true
+                    }
+                    VerifyResult::NothingNew => {
+                        self.frontier_stats.nothing_new.fetch_add(1, Relaxed);
+                        true
+                    }
+                    VerifyResult::Invalid => {
+                        self.frontier_stats.invalid.fetch_add(1, Relaxed);
+                        false
+                    }
                 }
             }
         };

@@ -51,25 +51,11 @@ impl FrontiersProcessor {
         query: &RunningQuery,
         frontiers: Vec<Frontier>,
     ) -> VerifyResult {
-        self.stats.processed_responses.fetch_add(1, Relaxed);
-
         let result = query.verify_frontiers(&frontiers);
         if result == VerifyResult::Ok {
             self.frontier_scan.process(query.start.into(), &frontiers);
             self.frontiers_to_check.push_back(frontiers);
         };
-
-        match result {
-            VerifyResult::Ok => {
-                self.stats.verified.fetch_add(1, Relaxed);
-            }
-            VerifyResult::NothingNew => {
-                self.stats.nothing_new.fetch_add(1, Relaxed);
-            }
-            VerifyResult::Invalid => {
-                self.stats.invalid.fetch_add(1, Relaxed);
-            }
-        }
 
         result
     }
@@ -145,10 +131,7 @@ mod tests {
 
         let result = processor.process(&query, Vec::new());
 
-        assert_eq!(result, VerifyResult::Ok);
-        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
-        assert_eq!(processor.stats.verified.load(Relaxed), 0);
-        assert_eq!(processor.stats.nothing_new.load(Relaxed), 1);
+        assert_eq!(result, VerifyResult::NothingNew);
     }
 
     #[test]
@@ -161,8 +144,6 @@ mod tests {
 
         assert_eq!(result, VerifyResult::Ok);
         assert_eq!(processor.frontier_scan.total_requests_completed(), 1);
-        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
-        assert_eq!(processor.stats.verified.load(Relaxed), 1);
     }
 
     #[test]
@@ -180,8 +161,6 @@ mod tests {
 
         assert_eq!(result, VerifyResult::Invalid);
         assert_eq!(processor.frontier_scan.total_requests_completed(), 0);
-        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
-        assert_eq!(processor.stats.invalid.load(Relaxed), 1);
     }
 
     fn running_query() -> RunningQuery {

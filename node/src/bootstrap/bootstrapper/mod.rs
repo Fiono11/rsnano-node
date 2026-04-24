@@ -199,6 +199,7 @@ impl Bootstrapper {
             stats.clone(),
             block_processor_queue.clone(),
             ledger.clone(),
+            frontier_stats.clone(),
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
