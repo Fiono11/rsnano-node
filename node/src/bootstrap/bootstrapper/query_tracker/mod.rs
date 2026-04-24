@@ -19,7 +19,6 @@ use super::BootstrapConfig;
 pub(crate) struct QueryTracker {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
-    pub(crate) stopped: bool,
 }
 
 impl QueryTracker {
@@ -29,7 +28,6 @@ impl QueryTracker {
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),
-            stopped: false,
         }
     }
 

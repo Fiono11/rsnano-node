@@ -14,7 +14,7 @@ pub use bootstrap_queue::{
 };
 
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, Mutex, RwLock, atomic::Ordering::Relaxed},
     thread::JoinHandle,
     time::Duration,
 };
@@ -35,7 +35,6 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::frontier_scan::frontiers_processor,
     transport::MessageSender,
 };
 use block_inspector::BlockInspector;
@@ -46,6 +45,7 @@ use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScan
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
+use rsnano_nullable_condvar::NullableCondvarMutex;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub(crate) struct AscPullQuerySpec {
@@ -141,9 +141,8 @@ impl Default for BootstrapConfig {
 pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
-    logic: Arc<Mutex<QueryTracker>>,
+    query_tracker: Arc<Mutex<QueryTracker>>,
     bootstrap_queue: Arc<BootstrapQueue>,
-    state_changed: Arc<Condvar>,
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
     response_handler: ResponseProcessor,
@@ -152,6 +151,7 @@ pub struct Bootstrapper {
     ledger: Arc<Ledger>,
     frontier_stats: Arc<FrontierScanStats>,
     frontiers_processor: Arc<FrontiersProcessor>,
+    stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
 struct Threads {
@@ -169,6 +169,7 @@ impl Bootstrapper {
     ) -> Self {
         let frontiers_processor = FrontiersProcessor::new(config.frontier_scan.clone());
         let bootstrap_queue = BootstrapQueue::new(config.bootstrap_queue.clone());
+        let stopped = NullableCondvarMutex::new(StoppedFlag::default());
         Self::new_impl(
             block_processor_queue,
             ledger,
@@ -179,6 +180,7 @@ impl Bootstrapper {
             message_sender,
             config,
             Arc::new(SteadyClock::default()),
+            stopped,
         )
     }
 
@@ -193,6 +195,7 @@ impl Bootstrapper {
         let clock = Arc::new(SteadyClock::new_null());
         let frontiers_processor = FrontiersProcessor::new_null();
         let bootstrap_queue = BootstrapQueue::new_null();
+        let stopped = NullableCondvarMutex::new_null(StoppedFlag::default());
 
         Self::new_impl(
             block_processor_queue,
@@ -204,6 +207,7 @@ impl Bootstrapper {
             message_sender,
             config,
             clock,
+            stopped,
         )
     }
 
@@ -217,12 +221,12 @@ impl Bootstrapper {
         message_sender: MessageSender,
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
+        stopped: NullableCondvarMutex<StoppedFlag>,
     ) -> Self {
         let frontiers_processor = Arc::new(frontiers_processor);
         let bootstrap_queue = Arc::new(bootstrap_queue);
         let frontier_stats = Arc::new(FrontierScanStats::default());
         let logic = Arc::new(Mutex::new(QueryTracker::new(config.clone())));
-        let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
             logic.clone(),
@@ -246,7 +250,6 @@ impl Bootstrapper {
             stats.clone(),
             message_sender.clone(),
             logic.clone(),
-            state_changed.clone(),
             ledger.clone(),
             block_processor_queue,
             bootstrap_queue.clone(),
@@ -256,8 +259,7 @@ impl Bootstrapper {
 
         Self {
             threads: Mutex::new(None),
-            logic,
-            state_changed,
+            query_tracker: logic,
             config,
             stats,
             clock,
@@ -268,15 +270,13 @@ impl Bootstrapper {
             bootstrap_queue,
             frontier_stats,
             frontiers_processor,
+            stopped: stopped.into(),
         }
     }
 
     pub fn stop(&self) {
-        {
-            let mut guard = self.logic.lock().unwrap();
-            guard.stopped = true;
-        }
-        self.state_changed.notify_all();
+        self.stopped.lock().stopped = true;
+        self.stopped.notify_all();
 
         self.requesters.stop();
 
@@ -346,7 +346,6 @@ impl Bootstrapper {
                     info.response_time.as_millis() as i64,
                     (0, self.config.request_timeout.as_millis() as i64),
                 );
-                self.state_changed.notify_all();
             }
             Err(error) => {
                 trace!(query_id, ?channel_id, ?error, "Response processing failed");
@@ -369,7 +368,6 @@ impl Bootstrapper {
 
     fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
-        self.state_changed.notify_all();
     }
 
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
@@ -384,22 +382,21 @@ impl Bootstrapper {
             self.stats.clone(),
             self.bootstrap_queue.clone(),
         );
-        let mut logic = self.logic.lock().unwrap();
+        let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
-        while !logic.stopped {
-            cleanup.cleanup(&mut logic);
+        while !stopped.stopped {
+            cleanup.cleanup(&mut self.query_tracker.lock().unwrap());
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
                 cleanup.reinsert_known_dependencies();
                 last_sync = self.clock.now();
             }
 
-            self.state_changed.notify_all();
+            self.stopped.notify_all();
 
-            logic = self
-                .state_changed
-                .wait_timeout_while(logic, Duration::from_secs(1), |s| !s.stopped)
-                .unwrap()
+            stopped = self
+                .stopped
+                .wait_timeout_while(stopped, Duration::from_secs(1), |s| !s.stopped)
                 .0;
         }
     }
@@ -432,7 +429,7 @@ impl Drop for Bootstrapper {
 impl ContainerInfoProvider for Bootstrapper {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
-            .node("logic", self.logic.lock().unwrap().container_info())
+            .node("logic", self.query_tracker.lock().unwrap().container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .finish()
@@ -478,7 +475,7 @@ pub(crate) struct BootstrapperCleanup(pub Arc<Bootstrapper>);
 impl DeadChannelCleanupStep for BootstrapperCleanup {
     fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
         self.0
-            .logic
+            .query_tracker
             .lock()
             .unwrap()
             .scoring
@@ -512,4 +509,9 @@ enum VerifyResult {
     Ok,
     NothingNew,
     Invalid,
+}
+
+#[derive(Default)]
+struct StoppedFlag {
+    pub stopped: bool,
 }

@@ -25,11 +25,11 @@ impl BootstrapCleanup {
         }
     }
 
-    pub fn cleanup(&mut self, state: &mut QueryTracker) {
+    pub fn cleanup(&mut self, query_tracker: &mut QueryTracker) {
         let now = self.clock.now();
-        self.stats.inc(StatType::Bootstrap, DetailType::LoopCleanup);
-        state.scoring.decay();
-        self.erase_timed_out_requests(state, now);
+        query_tracker.scoring.decay();
+        self.erase_timed_out_requests(query_tracker, now);
+
         self.bootstrap_queue.timeout();
     }
 

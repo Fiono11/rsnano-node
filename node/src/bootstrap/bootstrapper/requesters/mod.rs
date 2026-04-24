@@ -9,7 +9,7 @@ pub(crate) use pull_count_decider::PullCountDecider;
 pub(crate) use pull_type_decider::{PullType, PullTypeDecider};
 
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
     thread::JoinHandle,
 };
 
@@ -20,7 +20,7 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig,
+        BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::frontiers_processor::FrontiersProcessor,
         query_tracker::QueryTracker,
@@ -28,14 +28,14 @@ use crate::{
     },
     transport::MessageSender,
 };
+use rsnano_nullable_condvar::NullableCondvarMutex;
 
 /// Manages the threads that send out AscPullReqs
 pub(crate) struct Requesters {
     config: BootstrapConfig,
     stats: Arc<Stats>,
     message_sender: MessageSender,
-    state: Arc<Mutex<QueryTracker>>,
-    state_changed: Arc<Condvar>,
+    query_tracker: Arc<Mutex<QueryTracker>>,
     thread: Mutex<Option<JoinHandle<()>>>,
     ledger: Arc<Ledger>,
     block_processor_queue: Arc<BlockProcessorQueue>,
@@ -43,6 +43,7 @@ pub(crate) struct Requesters {
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
     frontiers_processor: Arc<FrontiersProcessor>,
+    stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
 impl Requesters {
@@ -50,8 +51,7 @@ impl Requesters {
         config: BootstrapConfig,
         stats: Arc<Stats>,
         message_sender: MessageSender,
-        state: Arc<Mutex<QueryTracker>>,
-        state_changed: Arc<Condvar>,
+        query_tracker: Arc<Mutex<QueryTracker>>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
@@ -62,8 +62,7 @@ impl Requesters {
             config,
             stats,
             message_sender,
-            state,
-            state_changed,
+            query_tracker,
             ledger,
             block_processor_queue,
             bootstrap_queue,
@@ -71,6 +70,7 @@ impl Requesters {
             thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
             frontiers_processor,
+            stopped: Arc::new(NullableCondvarMutex::new(StoppedFlag::default())),
         }
     }
 
@@ -82,8 +82,7 @@ impl Requesters {
             .push(requester_stats.clone());
 
         let mut requester_loop = RequesterLoop::new(
-            self.state.clone(),
-            self.state_changed.clone(),
+            self.query_tracker.clone(),
             self.config.clone(),
             self.message_sender.clone(),
             self.stats.clone(),
@@ -93,6 +92,7 @@ impl Requesters {
             self.block_processor_queue.clone(),
             self.bootstrap_queue.clone(),
             self.frontiers_processor.clone(),
+            self.stopped.clone(),
         );
         let join_handle = std::thread::Builder::new()
             .name("Bootstrap".to_string())
@@ -105,12 +105,8 @@ impl Requesters {
     }
 
     pub fn stop(&self) {
-        {
-            let mut state = self.state.lock().unwrap();
-            state.stopped = true;
-        }
-        self.state_changed.notify_all();
-
+        self.stopped.lock().stopped = true;
+        self.stopped.notify_all();
         let thread = self.thread.lock().unwrap().take();
         if let Some(join_handle) = thread {
             join_handle.join().unwrap();
