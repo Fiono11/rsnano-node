@@ -6,6 +6,7 @@ mod running_query;
 mod running_query_container;
 
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
+pub use frontiers_processor::FrontierScanSnapshot;
 
 pub(crate) use frontier_scan::FrontierScan;
 pub(crate) use peer_scoring::PeerScoring;
@@ -32,7 +33,7 @@ pub(crate) enum VerifyResult {
     Invalid,
 }
 
-pub struct BootstrapLogic {
+pub(crate) struct BootstrapLogic {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -52,7 +53,7 @@ impl BootstrapLogic {
         }
     }
 
-    pub(crate) fn take_running_query_for(
+    pub fn take_running_query_for(
         &mut self,
         response: &AscPullAck,
         channel_id: ChannelId,

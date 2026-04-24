@@ -6,11 +6,10 @@ mod cleanup;
 mod requesters;
 mod response_processor;
 
-pub use logic::{FrontierHeadInfo, FrontierScanConfig};
+pub use logic::{FrontierHeadInfo, FrontierScanConfig, FrontierScanSnapshot};
 
 pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
-    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 use std::{
@@ -35,6 +34,7 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::bootstrap_queue::Priority,
     transport::MessageSender,
 };
 
@@ -264,11 +264,6 @@ impl Bootstrapper {
         }
     }
 
-    #[deprecated = "don't access internal state!"]
-    pub fn state(&self) -> MutexGuard<'_, BootstrapLogic> {
-        self.logic.lock().unwrap()
-    }
-
     pub fn contains(&self, account: &Account) -> bool {
         self.bootstrap_queue.contains(account)
     }
@@ -393,6 +388,10 @@ impl Bootstrapper {
 
     pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
         self.bootstrap_queue.snapshot(limit, filter)
+    }
+
+    pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {
+        self.logic.lock().unwrap().frontiers_processor.snapshot()
     }
 }
 

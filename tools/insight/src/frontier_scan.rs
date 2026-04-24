@@ -1,10 +1,7 @@
 use std::collections::VecDeque;
 
 use rsnano_node::{
-    bootstrap::bootstrapper::{
-        FrontierHeadInfo,
-        logic::{BootstrapLogic, frontiers_processor::FrontiersStats},
-    },
+    bootstrap::bootstrapper::{Bootstrapper, FrontierHeadInfo, FrontierScanSnapshot},
     utils::RateCalculator,
 };
 use rsnano_nullable_clock::Timestamp;
@@ -21,18 +18,20 @@ pub(crate) struct FrontierScanInfo {
 }
 
 impl FrontierScanInfo {
-    pub(crate) fn update(&mut self, state: &BootstrapLogic, now: Timestamp) {
-        self.update_counters(&state.frontiers_processor.stats, now);
-        self.frontier_heads = state.frontiers_processor.heads();
-        self.outdated_accounts = state.frontiers_processor.last_outdated_accounts.clone();
+    pub(crate) fn update(&mut self, bootstrapper: &Bootstrapper, now: Timestamp) {
+        let snapshot = bootstrapper.frontier_scan_snapshot();
+        self.update_counters(&snapshot, now);
+        self.frontier_heads = snapshot.heads;
+        self.outdated_accounts = snapshot.last_outdated_accounts;
     }
 
-    fn update_counters(&mut self, stats: &FrontiersStats, now: Timestamp) {
-        self.frontiers_rate.sample(stats.processed_frontiers, now);
+    fn update_counters(&mut self, snapshot: &FrontierScanSnapshot, now: Timestamp) {
+        self.frontiers_rate
+            .sample(snapshot.processed_frontiers, now);
         self.outdated_rate
-            .sample(stats.outdated_accounts_found, now);
-        self.frontiers_total = stats.processed_frontiers;
-        self.outdated_total = stats.outdated_accounts_found;
+            .sample(snapshot.outdated_accounts_found, now);
+        self.frontiers_total = snapshot.processed_frontiers;
+        self.outdated_total = snapshot.outdated_accounts_found;
     }
 
     pub(crate) fn frontiers_rate(&self) -> i64 {

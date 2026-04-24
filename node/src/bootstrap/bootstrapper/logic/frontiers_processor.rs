@@ -13,14 +13,14 @@ use crate::bootstrap::bootstrapper::{
     logic::{FrontierScan, RunningQuery, VerifyResult},
 };
 
-pub struct FrontiersProcessor {
-    pub(crate) frontier_scan: FrontierScan,
-    pub stats: FrontiersStats,
+pub(crate) struct FrontiersProcessor {
+    frontier_scan: FrontierScan,
+    stats: FrontiersStats,
 
     /// Frontiers that were received from other nodes and that we need to check against our ledger
     frontiers_to_check: VecDeque<Vec<Frontier>>,
     frontier_checker_overfill: bool,
-    pub last_outdated_accounts: VecDeque<Account>,
+    last_outdated_accounts: VecDeque<Account>,
 }
 
 impl FrontiersProcessor {
@@ -81,7 +81,7 @@ impl FrontiersProcessor {
     pub(crate) fn frontiers_processed(
         &mut self,
         outdated: &OutdatedAccounts,
-        queue: &BootstrapQueue,
+        bootstrap_queue: &BootstrapQueue,
     ) {
         self.stats.processed_frontiers += outdated.frontiers_received as u64;
         self.stats.outdated_accounts_found += outdated.accounts.len() as u64;
@@ -89,7 +89,7 @@ impl FrontiersProcessor {
         for account in &outdated.accounts {
             // Use lowest possible priority here, because an account found by the frontier scan is
             // probably not an account that need immediate bootstrapping
-            queue.priority_up_to(account, Priority::CUTOFF);
+            bootstrap_queue.priority_up_to(account, Priority::CUTOFF);
 
             self.last_outdated_accounts.push_back(*account);
             if self.last_outdated_accounts.len() > 20 {
@@ -97,6 +97,22 @@ impl FrontiersProcessor {
             }
         }
     }
+
+    pub fn snapshot(&self) -> FrontierScanSnapshot {
+        FrontierScanSnapshot {
+            processed_frontiers: self.stats.processed_frontiers,
+            outdated_accounts_found: self.stats.outdated_accounts_found,
+            heads: self.heads(),
+            last_outdated_accounts: self.last_outdated_accounts.clone(),
+        }
+    }
+}
+
+pub struct FrontierScanSnapshot {
+    pub processed_frontiers: u64,
+    pub outdated_accounts_found: u64,
+    pub heads: Vec<FrontierHeadInfo>,
+    pub last_outdated_accounts: VecDeque<Account>,
 }
 
 impl Default for FrontiersProcessor {
@@ -129,7 +145,7 @@ pub struct OutdatedAccounts {
 }
 
 #[derive(Default)]
-pub struct FrontiersStats {
+pub(crate) struct FrontiersStats {
     pub processed_responses: u64,
     pub processed_frontiers: u64,
     pub verified: u64,

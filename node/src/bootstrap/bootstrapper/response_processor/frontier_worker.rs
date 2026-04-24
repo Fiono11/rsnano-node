@@ -112,7 +112,8 @@ mod tests {
         let guard = state.lock().unwrap();
         assert_eq!(bootstrap_queue.info().download_queue, 1);
         assert_eq!(bootstrap_queue.priority(&account), Priority::CUTOFF);
-        assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
-        assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);
+        let snapshot = guard.frontiers_processor.snapshot();
+        assert_eq!(snapshot.outdated_accounts_found, 1);
+        assert_eq!(snapshot.processed_frontiers, 1);
     }
 }

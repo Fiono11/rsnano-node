@@ -108,13 +108,8 @@ impl InsightApp {
             self.confirming_set = node.confirming_set.info();
             self.block_processor_info = node.block_processor_queue.info();
             self.vote_processor_info = node.vote_processor_queue.info();
-            {
-                {
-                    let state = node.bootstrapper.state();
-                    self.frontier_scan.update(&state, now);
-                }
-                self.bootstrap.update(&node.bootstrapper);
-            }
+            self.frontier_scan.update(&node.bootstrapper, now);
+            self.bootstrap.update(&node.bootstrapper);
         }
 
         self.last_update = Some(now);
