@@ -16,6 +16,7 @@ impl AccountAckProcessor {
         response: &AccountInfoAckPayload,
     ) -> bool {
         if response.account.is_zero() {
+            queue.dependency_account_not_found(&query.hash);
             self.stats.empty += 1;
             // OK, but nothing to do
             return true;

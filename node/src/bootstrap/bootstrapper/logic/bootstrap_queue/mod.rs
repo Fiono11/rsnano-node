@@ -1,4 +1,5 @@
 mod account_priority_tracker;
+
 mod block_handoff_queue;
 mod blocked;
 mod download_queue;
@@ -108,18 +109,20 @@ impl BootstrapQueue {
         }
     }
 
-    /// Should be called periodically to remove old entries from the blocked accounts
-    pub fn decay_blocked_accounts(&self) {
+    pub fn dependency_account_requested(&self, dependency: &BlockHash) {
         let now = self.clock.now();
-        let decayed = self.logic.lock().unwrap().decay_blocked_accounts(now);
-        self.stats
-            .decayed_blocked
-            .fetch_add(decayed as u64, Relaxed);
+        self.logic
+            .lock()
+            .unwrap()
+            .dependency_account_requested(dependency, now);
+        self.stats.dependency_requested.fetch_add(1, Relaxed);
     }
 
-    pub fn dependency_requested(&self, dependency: &BlockHash) {
-        self.logic.lock().unwrap().dependency_requested(dependency);
-        self.stats.dependency_requested.fetch_add(1, Relaxed);
+    pub fn dependency_account_not_found(&self, dependency: &BlockHash) {
+        self.logic
+            .lock()
+            .unwrap()
+            .dependency_account_not_found(dependency);
     }
 
     /// Sets information about the account chain that contains the block hash
@@ -238,7 +241,10 @@ impl BootstrapQueue {
 
     pub fn timeout(&self) {
         let now = self.clock.now();
-        self.logic.lock().unwrap().timeout(now);
+        let decayed = self.logic.lock().unwrap().timeout(now);
+        self.stats
+            .decayed_blocked
+            .fetch_add(decayed as u64, Relaxed);
     }
 
     pub fn revision(&self) -> u64 {

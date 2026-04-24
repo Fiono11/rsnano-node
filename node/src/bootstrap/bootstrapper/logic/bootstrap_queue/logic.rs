@@ -210,19 +210,12 @@ impl BootstrapQueueLogic {
         true
     }
 
-    /// Should be called periodically to remove old entries from the blocked accounts
-    pub fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
-        let cutoff = now - self.config.blocked_decay;
-        self.revision += 1;
-        let removed = self.blocked.remove_older_than(cutoff);
-        for account in &removed {
-            self.remove(account);
-        }
-        removed.len()
+    pub fn dependency_account_requested(&mut self, dependency: &BlockHash, now: Timestamp) {
+        self.blocked.dependency_account_requested(dependency, now);
     }
 
-    pub fn dependency_requested(&mut self, dependency: &BlockHash) {
-        self.blocked.dependency_requested(dependency);
+    pub fn dependency_account_not_found(&mut self, dependency: &BlockHash) {
+        self.blocked.dependency_account_not_found(dependency);
     }
 
     /// Sets information about the account chain that contains the block hash.
@@ -509,13 +502,30 @@ impl BootstrapQueueLogic {
         self.block_processing.processing()
     }
 
-    pub fn timeout(&mut self, now: Timestamp) {
+    pub fn timeout(&mut self, now: Timestamp) -> usize {
+        let decayed_blocks = self.decay_blocked_accounts(now);
+        // TODO: make timeout configurable
+        self.blocked
+            .remove_requests_older_than(now - Duration::from_secs(15));
+
         while let Some(account) = self.downloading.pop_timeout(now) {
             let priority = self.priorities.get(&account).unwrap();
             self.download_queue.insert(account, priority);
         }
         self.trim_overflow();
         self.revision += 1;
+        decayed_blocks
+    }
+
+    /// Should be called periodically to remove old entries from the blocked accounts
+    fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
+        let cutoff = now - self.config.blocked_decay;
+        self.revision += 1;
+        let removed = self.blocked.remove_older_than(cutoff);
+        for account in &removed {
+            self.remove(account);
+        }
+        removed.len()
     }
 
     pub fn revision(&self) -> u64 {

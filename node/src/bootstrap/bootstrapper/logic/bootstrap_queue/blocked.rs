@@ -16,7 +16,8 @@ pub(super) struct BlockedAccounts {
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, Vec<Account>>,
     by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
-    requested_dependencies: FxHashSet<BlockHash>,
+    requested_dependencies: FxHashMap<BlockHash, Timestamp>,
+    requested_timestamps: VecDeque<(BlockHash, Timestamp)>,
 }
 
 impl BlockedAccounts {
@@ -92,8 +93,13 @@ impl BlockedAccounts {
         })
     }
 
-    pub fn dependency_requested(&mut self, dependency: &BlockHash) {
-        self.requested_dependencies.insert(*dependency);
+    pub fn dependency_account_requested(&mut self, dependency: &BlockHash, now: Timestamp) {
+        self.requested_dependencies.insert(*dependency, now);
+        self.requested_timestamps.push_back((*dependency, now));
+    }
+
+    pub fn dependency_account_not_found(&mut self, dependency: &BlockHash) {
+        self.requested_dependencies.remove(dependency);
     }
 
     pub fn modify_dependency_account(
@@ -225,6 +231,17 @@ impl BlockedAccounts {
         }
 
         true
+    }
+
+    pub fn remove_requests_older_than(&mut self, cutoff: Timestamp) {
+        while let Some((_, started)) = self.requested_timestamps.front()
+            && *started < cutoff
+        {
+            let (hash, started) = self.requested_timestamps.pop_front().unwrap();
+            if *self.requested_dependencies.get(&hash).unwrap() == started {
+                self.requested_dependencies.remove(&hash);
+            }
+        }
     }
 
     pub fn contains(&self, account: &Account) -> bool {

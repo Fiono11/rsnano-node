@@ -30,7 +30,6 @@ impl BootstrapCleanup {
         self.stats.inc(StatType::Bootstrap, DetailType::LoopCleanup);
         state.scoring.decay();
         self.erase_timed_out_requests(state, now);
-        self.bootstrap_queue.decay_blocked_accounts();
         self.bootstrap_queue.timeout();
     }
 
