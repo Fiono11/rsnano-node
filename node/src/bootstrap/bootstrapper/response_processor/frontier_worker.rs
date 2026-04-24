@@ -70,7 +70,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::Priority;
+    use crate::bootstrap::bootstrapper::{Priority, frontier_scan::stats::FrontierScanStats};
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
     use std::sync::Arc;
@@ -81,7 +81,8 @@ mod tests {
         let any = ledger.any();
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let state = Mutex::new(BootstrapLogic::new(Default::default()));
+        let stats2 = Arc::new(FrontierScanStats::default());
+        let state = Mutex::new(BootstrapLogic::new(Default::default(), stats2));
         let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(Vec::new());
@@ -104,7 +105,8 @@ mod tests {
         let any = ledger.any();
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let state = Mutex::new(BootstrapLogic::new(Default::default()));
+        let stats2 = Arc::new(FrontierScanStats::default());
+        let state = Mutex::new(BootstrapLogic::new(Default::default(), stats2));
         let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);

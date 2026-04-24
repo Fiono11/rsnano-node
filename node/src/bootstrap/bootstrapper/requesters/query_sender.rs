@@ -98,7 +98,12 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue, transport::SendEvent};
+    use crate::{
+        bootstrap::bootstrapper::{
+            bootstrap_queue::BootstrapQueue, frontier_scan::stats::FrontierScanStats,
+        },
+        transport::SendEvent,
+    };
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 
@@ -108,7 +113,7 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
-        let mut state = BootstrapLogic::new(Default::default());
+        let mut state = create_logic();
 
         let sent = fixture.query_sender.send(spec, &mut state);
         assert!(sent);
@@ -128,7 +133,7 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default());
+        let mut state = create_logic();
         bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state);
@@ -145,7 +150,7 @@ mod tests {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default());
+        let mut state = create_logic();
 
         spec.channel.close();
         let sent = fixture.query_sender.send(spec.clone(), &mut state);
@@ -160,7 +165,7 @@ mod tests {
     fn can_track_sends() {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
-        let mut state = BootstrapLogic::new(Default::default());
+        let mut state = create_logic();
 
         let tracker = fixture.query_sender.track();
         fixture.query_sender.send(spec.clone(), &mut state);
@@ -181,6 +186,11 @@ mod tests {
             send_tracker,
             now,
         }
+    }
+
+    fn create_logic() -> BootstrapLogic {
+        let stats = Arc::new(FrontierScanStats::default());
+        BootstrapLogic::new(Default::default(), stats)
     }
 
     struct Fixture {

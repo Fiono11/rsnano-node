@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use rsnano_node::{
     bootstrap::bootstrapper::{Bootstrapper, FrontierHeadInfo, FrontierScanSnapshot},
     utils::RateCalculator,
@@ -14,7 +12,7 @@ pub(crate) struct FrontierScanInfo {
     pub frontier_heads: Vec<FrontierHeadInfo>,
     pub frontiers_total: u64,
     pub outdated_total: u64,
-    pub outdated_accounts: VecDeque<Account>,
+    pub outdated_accounts: Vec<Account>,
 }
 
 impl FrontierScanInfo {

@@ -1,41 +1,36 @@
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, atomic::Ordering::Relaxed},
+};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
     FrontierHeadInfo, FrontierScanConfig, Priority,
     bootstrap_queue::BootstrapQueue,
+    frontier_scan::stats::FrontierScanStats,
     logic::{FrontierScan, RunningQuery, VerifyResult},
 };
 
 pub(crate) struct FrontiersProcessor {
     frontier_scan: FrontierScan,
-    stats: FrontiersStats,
 
     /// Frontiers that were received from other nodes and that we need to check against our ledger
     frontiers_to_check: VecDeque<Vec<Frontier>>,
     frontier_checker_overfill: bool,
-    last_outdated_accounts: VecDeque<Account>,
+    stats: Arc<FrontierScanStats>,
 }
 
 impl FrontiersProcessor {
-    pub fn new(config: FrontierScanConfig) -> Self {
+    pub fn new(config: FrontierScanConfig, stats: Arc<FrontierScanStats>) -> Self {
         Self {
             frontier_scan: FrontierScan::new(config),
-            stats: Default::default(),
             frontiers_to_check: Default::default(),
             frontier_checker_overfill: false,
-            last_outdated_accounts: Default::default(),
+            stats,
         }
-    }
-
-    pub fn heads(&self) -> Vec<FrontierHeadInfo> {
-        self.frontier_scan.heads()
     }
 
     pub fn set_frontier_checker_overfill(&mut self, overfill: bool) {
@@ -51,27 +46,32 @@ impl FrontiersProcessor {
     }
 
     /// Returns true if the frontiers were valid
-    pub(crate) fn process(&mut self, query: &RunningQuery, frontiers: Vec<Frontier>) -> bool {
-        self.stats.processed_responses += 1;
+    pub(crate) fn process(
+        &mut self,
+        query: &RunningQuery,
+        frontiers: Vec<Frontier>,
+    ) -> VerifyResult {
+        self.stats.processed_responses.fetch_add(1, Relaxed);
 
-        match query.verify_frontiers(&frontiers) {
+        let result = query.verify_frontiers(&frontiers);
+        if result == VerifyResult::Ok {
+            self.frontier_scan.process(query.start.into(), &frontiers);
+            self.frontiers_to_check.push_back(frontiers);
+        };
+
+        match result {
             VerifyResult::Ok => {
-                self.stats.verified += 1;
-                self.frontier_scan.process(query.start.into(), &frontiers);
-                self.frontiers_to_check.push_back(frontiers);
-                // valid frontiers
-                true
+                self.stats.verified.fetch_add(1, Relaxed);
             }
             VerifyResult::NothingNew => {
-                self.stats.nothing_new += 1;
-                // OK, but nothing to do
-                true
+                self.stats.nothing_new.fetch_add(1, Relaxed);
             }
             VerifyResult::Invalid => {
-                self.stats.invalid += 1;
-                false
+                self.stats.invalid.fetch_add(1, Relaxed);
             }
         }
+
+        result
     }
 
     pub fn pop_frontiers_to_check(&mut self) -> Option<Vec<Frontier>> {
@@ -83,27 +83,27 @@ impl FrontiersProcessor {
         outdated: &OutdatedAccounts,
         bootstrap_queue: &BootstrapQueue,
     ) {
-        self.stats.processed_frontiers += outdated.frontiers_received as u64;
-        self.stats.outdated_accounts_found += outdated.accounts.len() as u64;
+        self.stats
+            .processed_frontiers
+            .fetch_add(outdated.frontiers_received as u64, Relaxed);
+        self.stats
+            .outdated_accounts_found
+            .fetch_add(outdated.accounts.len() as u64, Relaxed);
+        self.stats.add(&outdated);
 
         for account in &outdated.accounts {
             // Use lowest possible priority here, because an account found by the frontier scan is
             // probably not an account that need immediate bootstrapping
             bootstrap_queue.priority_up_to(account, Priority::CUTOFF);
-
-            self.last_outdated_accounts.push_back(*account);
-            if self.last_outdated_accounts.len() > 20 {
-                self.last_outdated_accounts.pop_front();
-            }
         }
     }
 
     pub fn snapshot(&self) -> FrontierScanSnapshot {
         FrontierScanSnapshot {
-            processed_frontiers: self.stats.processed_frontiers,
-            outdated_accounts_found: self.stats.outdated_accounts_found,
-            heads: self.heads(),
-            last_outdated_accounts: self.last_outdated_accounts.clone(),
+            processed_frontiers: self.stats.processed_frontiers.load(Relaxed),
+            outdated_accounts_found: self.stats.outdated_accounts_found.load(Relaxed),
+            heads: self.frontier_scan.heads(),
+            last_outdated_accounts: self.stats.last_outdated_found(),
         }
     }
 }
@@ -112,19 +112,7 @@ pub struct FrontierScanSnapshot {
     pub processed_frontiers: u64,
     pub outdated_accounts_found: u64,
     pub heads: Vec<FrontierHeadInfo>,
-    pub last_outdated_accounts: VecDeque<Account>,
-}
-
-impl Default for FrontiersProcessor {
-    fn default() -> Self {
-        Self::new(Default::default())
-    }
-}
-
-impl StatsSource for FrontiersProcessor {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.stats.collect_stats(result);
-    }
+    pub last_outdated_accounts: Vec<Account>,
 }
 
 impl ContainerInfoProvider for FrontiersProcessor {
@@ -144,28 +132,6 @@ pub struct OutdatedAccounts {
     pub frontiers_received: usize,
 }
 
-#[derive(Default)]
-pub(crate) struct FrontiersStats {
-    pub processed_responses: u64,
-    pub processed_frontiers: u64,
-    pub verified: u64,
-    pub nothing_new: u64,
-    pub invalid: u64,
-    pub outdated_accounts_found: u64,
-}
-
-impl StatsSource for FrontiersStats {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert("bootstrap_verify_frontiers", "ok", self.verified);
-        result.insert(
-            "bootstrap_verify_frontiers",
-            "nothing_new",
-            self.nothing_new,
-        );
-        result.insert("bootstrap_verify_frontiers", "invalid", self.invalid);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,33 +139,36 @@ mod tests {
 
     #[test]
     fn empty_frontiers() {
-        let mut processor = FrontiersProcessor::default();
+        let stats = Arc::new(FrontierScanStats::default());
+        let mut processor = FrontiersProcessor::new(Default::default(), stats);
         let query = running_query();
 
-        let success = processor.process(&query, Vec::new());
+        let result = processor.process(&query, Vec::new());
 
-        assert!(success);
-        assert_eq!(processor.stats.processed_responses, 1);
-        assert_eq!(processor.stats.verified, 0);
-        assert_eq!(processor.stats.nothing_new, 1);
+        assert_eq!(result, VerifyResult::Ok);
+        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
+        assert_eq!(processor.stats.verified.load(Relaxed), 0);
+        assert_eq!(processor.stats.nothing_new.load(Relaxed), 1);
     }
 
     #[test]
     fn update_account_ranges() {
-        let mut processor = FrontiersProcessor::default();
+        let stats = Arc::new(FrontierScanStats::default());
+        let mut processor = FrontiersProcessor::new(Default::default(), stats);
         let query = running_query();
 
-        let success = processor.process(&query, vec![Frontier::new_test_instance()]);
+        let result = processor.process(&query, vec![Frontier::new_test_instance()]);
 
-        assert!(success);
+        assert_eq!(result, VerifyResult::Ok);
         assert_eq!(processor.frontier_scan.total_requests_completed(), 1);
-        assert_eq!(processor.stats.processed_responses, 1);
-        assert_eq!(processor.stats.verified, 1);
+        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
+        assert_eq!(processor.stats.verified.load(Relaxed), 1);
     }
 
     #[test]
     fn invalid_frontiers() {
-        let mut processor = FrontiersProcessor::default();
+        let stats = Arc::new(FrontierScanStats::default());
+        let mut processor = FrontiersProcessor::new(Default::default(), stats);
         let query = running_query();
 
         let frontiers = vec![
@@ -207,12 +176,12 @@ mod tests {
             Frontier::new(1.into(), 200.into()), // descending order is invalid!
         ];
 
-        let success = processor.process(&query, frontiers);
+        let result = processor.process(&query, frontiers);
 
-        assert!(!success);
+        assert_eq!(result, VerifyResult::Invalid);
         assert_eq!(processor.frontier_scan.total_requests_completed(), 0);
-        assert_eq!(processor.stats.processed_responses, 1);
-        assert_eq!(processor.stats.invalid, 1);
+        assert_eq!(processor.stats.processed_responses.load(Relaxed), 1);
+        assert_eq!(processor.stats.invalid.load(Relaxed), 1);
     }
 
     fn running_query() -> RunningQuery {

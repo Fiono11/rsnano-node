@@ -13,20 +13,18 @@ pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-};
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::BootstrapConfig;
+use crate::bootstrap::bootstrapper::frontier_scan::stats::FrontierScanStats;
 use frontiers_processor::FrontiersProcessor;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub(crate) enum VerifyResult {
     Ok,
     NothingNew,
@@ -41,15 +39,17 @@ pub(crate) struct BootstrapLogic {
 }
 
 impl BootstrapLogic {
-    pub fn new(config: BootstrapConfig) -> Self {
+    pub fn new(config: BootstrapConfig, frontier_stats: Arc<FrontierScanStats>) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
-
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,
-            frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
+            frontiers_processor: FrontiersProcessor::new(
+                config.frontier_scan.clone(),
+                frontier_stats,
+            ),
         }
     }
 
@@ -84,12 +84,6 @@ impl ContainerInfoProvider for BootstrapLogic {
             .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
             .finish()
-    }
-}
-
-impl StatsSource for BootstrapLogic {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.frontiers_processor.collect_stats(result);
     }
 }
 

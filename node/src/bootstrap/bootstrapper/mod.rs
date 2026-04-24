@@ -3,6 +3,7 @@ pub mod logic;
 mod block_inspector;
 mod bootstrap_queue;
 mod cleanup;
+mod frontier_scan;
 mod requesters;
 mod response_processor;
 
@@ -13,7 +14,7 @@ pub use bootstrap_queue::{
 };
 
 use std::{
-    sync::{Arc, Condvar, Mutex, MutexGuard, RwLock},
+    sync::{Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
@@ -34,7 +35,7 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::bootstrap_queue::Priority,
+    bootstrap::bootstrapper::{bootstrap_queue::Priority, frontier_scan::stats::FrontierScanStats},
     transport::MessageSender,
 };
 
@@ -148,6 +149,7 @@ pub struct Bootstrapper {
     block_inspector: BlockInspector,
     requesters: Requesters,
     ledger: Arc<Ledger>,
+    frontier_stats: Arc<FrontierScanStats>,
 }
 
 struct Threads {
@@ -184,7 +186,11 @@ impl Bootstrapper {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
-        let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
+        let frontier_stats = Arc::new(FrontierScanStats::default());
+        let logic = Arc::new(Mutex::new(BootstrapLogic::new(
+            config.clone(),
+            frontier_stats.clone(),
+        )));
         let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
@@ -226,6 +232,7 @@ impl Bootstrapper {
             requesters,
             ledger,
             bootstrap_queue,
+            frontier_stats,
         }
     }
 
@@ -415,8 +422,8 @@ impl StatsSource for Bootstrapper {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.response_handler.collect_stats(result);
         self.bootstrap_queue.collect_stats(result);
-        self.logic.lock().unwrap().collect_stats(result);
         self.requesters.collect_stats(result);
+        self.frontier_stats.collect_stats(result);
     }
 }
 

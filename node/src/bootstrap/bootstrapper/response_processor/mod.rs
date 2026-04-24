@@ -22,7 +22,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
-        logic::{ProcessError, ProcessInfo, RunningQuery},
+        logic::{ProcessError, ProcessInfo, RunningQuery, VerifyResult},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,
@@ -113,7 +113,10 @@ impl ResponseProcessor {
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
-                logic.frontiers_processor.process(query, frontiers)
+                match logic.frontiers_processor.process(query, frontiers) {
+                    VerifyResult::Ok | VerifyResult::NothingNew => true,
+                    VerifyResult::Invalid => false,
+                }
             }
         };
 
