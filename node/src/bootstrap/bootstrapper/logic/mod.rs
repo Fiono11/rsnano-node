@@ -23,16 +23,15 @@ pub(crate) use running_query_container::*;
 
 use std::{sync::Arc, time::Duration};
 
-use rsnano_messages::{AscPullAck, AscPullReqType};
-use rsnano_network::{Channel, ChannelId};
+use rsnano_messages::AscPullAck;
+use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
-use super::{AscPullQuerySpec, BootstrapConfig};
+use super::BootstrapConfig;
 use account_ack_processor::AccountAckProcessor;
 use block_ack_processor::BlockAckProcessor;
 use frontiers_processor::{FrontiersProcessor, OutdatedAccounts};
@@ -68,24 +67,6 @@ impl BootstrapLogic {
             frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
             block_ack_processor: Default::default(),
         }
-    }
-
-    pub(crate) fn next_blocked_query(
-        &self,
-        query_id: u64,
-        channel: &Arc<Channel>,
-    ) -> Option<AscPullQuerySpec> {
-        let next_hash = self.bootstrap_queue.next_unknown_blocking_hash();
-        if next_hash.is_zero() {
-            return None;
-        }
-        Some(AscPullQuerySpec {
-            query_id,
-            channel: channel.clone(),
-            req_type: AscPullReqType::account_info_by_hash(next_hash),
-            account: Account::ZERO,
-            hash: next_hash,
-        })
     }
 
     pub(crate) fn take_running_query_for(

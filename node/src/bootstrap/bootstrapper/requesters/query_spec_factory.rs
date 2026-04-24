@@ -1,10 +1,10 @@
-use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
+use std::sync::{atomic::Ordering::Relaxed, Arc, RwLock};
 
 use rand::RngCore;
 
 use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
-use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
+use rsnano_network::{token_bucket::TokenBucket, Channel, Network, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
@@ -12,12 +12,12 @@ use rsnano_types::{Account, BlockHash, HashOrAccount};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        AscPullQuerySpec, BootstrapConfig,
         logic::{BootstrapLogic, BootstrapQueue},
         requesters::{
             priority::{PullCountDecider, PullType, PullTypeDecider},
             stats::BootstrapRequesterStats,
         },
+        AscPullQuerySpec, BootstrapConfig,
     },
 };
 
@@ -126,9 +126,16 @@ impl QuerySpecFactory {
         let channel = self.acquire_channel(state)?;
         let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
-        let Some(spec) = state.next_blocked_query(query_id, &channel) else {
+        let Some(next_hash) = self.bootstrap_queue.next_unknown_blocking_hash() else {
             self.stats.wait_dependency_missing.fetch_add(1, Relaxed);
             return None;
+        };
+        let spec = AscPullQuerySpec {
+            query_id,
+            channel: channel.clone(),
+            req_type: AscPullReqType::account_info_by_hash(next_hash),
+            account: Account::ZERO,
+            hash: next_hash,
         };
         self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);

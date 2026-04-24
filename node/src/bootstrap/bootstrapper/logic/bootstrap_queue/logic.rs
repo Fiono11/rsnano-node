@@ -7,8 +7,8 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::logic::{
-    Priority, PriorityDownResult, PriorityUpResult,
-    bootstrap_queue::account_priority_tracker::AccountPriorityTracker,
+    bootstrap_queue::account_priority_tracker::AccountPriorityTracker, Priority,
+    PriorityDownResult, PriorityUpResult,
 };
 
 use super::{
@@ -321,14 +321,8 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
-        if self.blocked.is_empty() {
-            return BlockHash::ZERO;
-        }
-
-        self.blocked
-            .next_unknown_blocking_hash()
-            .unwrap_or_default()
+    pub fn next_unknown_blocking_hash(&self) -> Option<BlockHash> {
+        self.blocked.next_unknown_blocking_hash()
     }
 
     /// Enqueues dependency accounts for all blocked accounts whose dependency is known.
@@ -847,7 +841,7 @@ mod tests {
     #[test]
     fn next_blocked_empty() {
         let queue = BootstrapQueueLogic::default();
-        assert_eq!(queue.next_unknown_blocking_hash(), BlockHash::ZERO);
+        assert_eq!(queue.next_unknown_blocking_hash(), None);
     }
 
     #[test]
@@ -857,7 +851,7 @@ mod tests {
         let dependency = BlockHash::from(2);
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
-        assert_eq!(queue.next_unknown_blocking_hash(), dependency);
+        assert_eq!(queue.next_unknown_blocking_hash(), Some(dependency));
     }
 
     #[test]
@@ -878,7 +872,7 @@ mod tests {
         let now = Timestamp::new_test_instance();
         queue.dependency_account_requested(&dependency1, now);
         queue.dependency_account_requested(&dependency3, now);
-        assert_eq!(queue.next_unknown_blocking_hash(), dependency2);
+        assert_eq!(queue.next_unknown_blocking_hash(), Some(dependency2));
     }
 
     #[test]

@@ -18,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -194,7 +194,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
+    pub fn next_unknown_blocking_hash(&self) -> Option<BlockHash> {
         self.logic.lock().unwrap().next_unknown_blocking_hash()
     }
 
