@@ -11,7 +11,7 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig,
-        logic::BootstrapLogic,
+        logic::{BootstrapLogic, BootstrapQueue},
         requesters::{query_sender::QuerySender, query_spec_factory::QuerySpecFactory},
     },
     transport::MessageSender,
@@ -25,6 +25,7 @@ pub(super) struct RequesterLoop {
     config: BootstrapConfig,
     query_sender: QuerySender,
     query_spec_factory: QuerySpecFactory,
+    bootstrap_queue: Arc<BootstrapQueue>,
     stats: Arc<BootstrapRequesterStats>,
 }
 
@@ -41,6 +42,7 @@ impl RequesterLoop {
         network: Arc<RwLock<Network>>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
+        bootstrap_queue: Arc<BootstrapQueue>,
     ) -> Self {
         let mut query_sender = QuerySender::new(message_sender, stats.clone());
         query_sender.set_request_timeout(config.request_timeout);
@@ -57,7 +59,9 @@ impl RequesterLoop {
                 network,
                 ledger,
                 block_processor_queue,
+                bootstrap_queue.clone(),
             ),
+            bootstrap_queue,
         }
     }
 
@@ -86,7 +90,7 @@ impl RequesterLoop {
                 self.stats.sleep.fetch_add(1, Relaxed);
                 loop_counter = 0;
                 // nothing to do — wait for a state change or fixed throttle
-                last_revision = state.bootstrap_queue.revision();
+                last_revision = self.bootstrap_queue.revision();
                 state = self
                     .state_changed
                     .wait_timeout_while(state, Self::THROTTLE_WAIT, |s| {

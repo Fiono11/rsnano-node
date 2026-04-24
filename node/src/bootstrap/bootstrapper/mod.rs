@@ -210,6 +210,7 @@ impl Bootstrapper {
             state_changed.clone(),
             ledger.clone(),
             block_processor_queue,
+            bootstrap_queue.clone(),
             network,
         );
 
@@ -368,7 +369,11 @@ impl Bootstrapper {
     }
 
     fn run_timeouts(&self) {
-        let mut cleanup = BootstrapCleanup::new(self.clock.clone(), self.stats.clone());
+        let mut cleanup = BootstrapCleanup::new(
+            self.clock.clone(),
+            self.stats.clone(),
+            self.bootstrap_queue.clone(),
+        );
         let mut logic = self.logic.lock().unwrap();
         let mut last_sync = self.clock.now();
         while !logic.stopped {
@@ -418,6 +423,7 @@ impl ContainerInfoProvider for Bootstrapper {
 impl StatsSource for Bootstrapper {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.response_handler.collect_stats(result);
+        self.bootstrap_queue.collect_stats(result);
         self.logic.lock().unwrap().collect_stats(result);
         self.requesters.collect_stats(result);
     }

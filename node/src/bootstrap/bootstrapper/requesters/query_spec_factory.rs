@@ -13,7 +13,7 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig,
-        logic::BootstrapLogic,
+        logic::{BootstrapLogic, BootstrapQueue},
         requesters::{
             priority::{PullCountDecider, PullType, PullTypeDecider},
             stats::BootstrapRequesterStats,
@@ -28,6 +28,7 @@ pub(crate) struct QuerySpecFactory {
     network: Arc<RwLock<Network>>,
     request_limiter: TokenBucket,
     block_processor_queue: Arc<BlockProcessorQueue>,
+    bootstrap_queue: Arc<BootstrapQueue>,
     rng_factory: NullableRngFactory,
     frontiers_limiter: TokenBucket,
     pull_type_decider: PullTypeDecider,
@@ -42,6 +43,7 @@ impl QuerySpecFactory {
         network: Arc<RwLock<Network>>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
+        bootstrap_queue: Arc<BootstrapQueue>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
@@ -52,6 +54,7 @@ impl QuerySpecFactory {
             network,
             request_limiter: limiter,
             block_processor_queue,
+            bootstrap_queue,
             rng_factory: NullableRngFactory::default(),
             frontiers_limiter: TokenBucket::new(config.frontier_rate_limit),
             config,
@@ -77,7 +80,7 @@ impl QuerySpecFactory {
             return None;
         }
         let query_id = self.rng_factory.rng().next_u64();
-        let Some((next_account, next_prio)) = state.next_target() else {
+        let Some((next_account, next_prio)) = self.bootstrap_queue.next_download_target() else {
             self.stats.wait_next_download.fetch_add(1, Relaxed);
             return None;
         };

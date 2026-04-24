@@ -70,10 +70,6 @@ impl BootstrapLogic {
         }
     }
 
-    pub fn next_target(&mut self) -> Option<(Account, Priority)> {
-        self.bootstrap_queue.next_download_target()
-    }
-
     pub(crate) fn next_blocked_query(
         &self,
         query_id: u64,
@@ -90,10 +86,6 @@ impl BootstrapLogic {
             account: Account::ZERO,
             hash: next,
         })
-    }
-
-    pub fn next_block_to_process(&self) -> Option<Block> {
-        self.bootstrap_queue.next_block_to_process()
     }
 
     fn count_queries_by_hash(&self, hash: &BlockHash, source: QuerySource) -> usize {
@@ -154,7 +146,6 @@ impl StatsSource for BootstrapLogic {
         self.frontiers_processor.collect_stats(result);
         self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
-        self.bootstrap_queue.collect_stats(result);
     }
 }
 

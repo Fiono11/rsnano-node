@@ -17,7 +17,7 @@ use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig,
-        logic::BootstrapLogic,
+        logic::{BootstrapLogic, BootstrapQueue},
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
     },
     transport::MessageSender,
@@ -33,6 +33,7 @@ pub(crate) struct Requesters {
     thread: Mutex<Option<JoinHandle<()>>>,
     ledger: Arc<Ledger>,
     block_processor_queue: Arc<BlockProcessorQueue>,
+    bootstrap_queue: Arc<BootstrapQueue>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
 }
@@ -46,6 +47,7 @@ impl Requesters {
         state_changed: Arc<Condvar>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
+        bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
@@ -56,6 +58,7 @@ impl Requesters {
             state_changed,
             ledger,
             block_processor_queue,
+            bootstrap_queue,
             network,
             thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
@@ -79,6 +82,7 @@ impl Requesters {
             self.network.clone(),
             self.ledger.clone(),
             self.block_processor_queue.clone(),
+            self.bootstrap_queue.clone(),
         );
         let join_handle = std::thread::Builder::new()
             .name("Bootstrap".to_string())
