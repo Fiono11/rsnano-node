@@ -6,8 +6,8 @@ mod frontier_checker;
 mod frontier_worker;
 
 use std::sync::{
-    Arc, Mutex,
     atomic::{AtomicU64, Ordering::Relaxed},
+    Arc, Mutex,
 };
 use tracing::trace;
 
@@ -17,18 +17,18 @@ use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
-use super::logic::BootstrapLogic;
+use super::query_tracker::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        VerifyResult,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
-        logic::{ProcessError, ProcessInfo, RunningQuery},
+        query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,
         },
+        VerifyResult,
     },
 };
 

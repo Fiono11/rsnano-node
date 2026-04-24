@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::logic::{BootstrapLogic, RunningQuery};
+use super::query_tracker::{BootstrapLogic, RunningQuery};
 use crate::bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue;
 
 pub(super) struct BootstrapCleanup {

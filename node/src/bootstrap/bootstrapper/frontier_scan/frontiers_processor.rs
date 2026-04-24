@@ -6,11 +6,10 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
     frontier_scan::{
-        VerifyResult,
         coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
-        verify_frontiers,
+        verify_frontiers, VerifyResult,
     },
-    logic::RunningQuery,
+    query_tracker::RunningQuery,
 };
 
 pub(crate) struct FrontiersProcessor {
@@ -130,7 +129,7 @@ impl ContainerInfoProvider for FrontiersProcessorLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::logic::{QuerySource, QueryType};
+    use crate::bootstrap::bootstrapper::query_tracker::{QuerySource, QueryType};
 
     #[test]
     fn empty_frontiers() {

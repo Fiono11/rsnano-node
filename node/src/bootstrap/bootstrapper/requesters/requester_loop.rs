@@ -10,11 +10,7 @@ use rsnano_utils::stats::Stats;
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig,
-        bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontiers_processor::FrontiersProcessor,
-        logic::BootstrapLogic,
-        requesters::{query_factory::QueryFactory, query_sender::QuerySender},
+        BootstrapConfig, bootstrap_queue::BootstrapQueue, frontier_scan::frontiers_processor::FrontiersProcessor, query_tracker::BootstrapLogic, requesters::{query_factory::QueryFactory, query_sender::QuerySender}
     },
     transport::MessageSender,
 };

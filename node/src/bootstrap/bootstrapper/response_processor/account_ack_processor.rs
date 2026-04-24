@@ -1,10 +1,12 @@
 use rsnano_messages::AccountInfoAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::{bootstrap_queue::BootstrapQueue, logic::RunningQuery};
+use crate::bootstrap::bootstrapper::{
+    bootstrap_queue::BootstrapQueue, query_tracker::RunningQuery,
+};
 use std::sync::{
-    Arc,
     atomic::{AtomicU64, Ordering},
+    Arc,
 };
 
 pub(crate) struct AccountAckProcessor {

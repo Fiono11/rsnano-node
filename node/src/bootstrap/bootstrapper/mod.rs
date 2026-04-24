@@ -1,4 +1,4 @@
-pub mod logic;
+pub mod query_tracker;
 
 mod block_inspector;
 mod bootstrap_queue;
@@ -14,7 +14,7 @@ pub use bootstrap_queue::{
 };
 
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
@@ -28,9 +28,9 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -42,7 +42,7 @@ use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
 use cleanup::BootstrapCleanup;
 use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats};
-use logic::{BootstrapLogic, ProcessError, QueryType};
+use query_tracker::{BootstrapLogic, ProcessError, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
 
