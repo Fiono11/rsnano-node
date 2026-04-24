@@ -21,7 +21,7 @@ pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
@@ -44,7 +44,6 @@ pub(crate) enum VerifyResult {
 }
 
 pub struct BootstrapLogic {
-    pub(crate) bootstrap_queue: Arc<BootstrapQueue>,
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -54,12 +53,11 @@ pub struct BootstrapLogic {
 }
 
 impl BootstrapLogic {
-    pub fn new(config: BootstrapConfig, bootstrap_queue: Arc<BootstrapQueue>) -> Self {
+    pub fn new(config: BootstrapConfig) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
 
         Self {
-            bootstrap_queue,
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,

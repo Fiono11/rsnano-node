@@ -182,10 +182,7 @@ impl Bootstrapper {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
-        let logic = Arc::new(Mutex::new(BootstrapLogic::new(
-            config.clone(),
-            bootstrap_queue.clone(),
-        )));
+        let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
         let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(

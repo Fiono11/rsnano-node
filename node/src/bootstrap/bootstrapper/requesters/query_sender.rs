@@ -109,7 +109,7 @@ mod tests {
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
+        let mut state = BootstrapLogic::new(Default::default());
 
         let sent = fixture.query_sender.send(spec, &mut state);
         assert!(sent);
@@ -129,7 +129,7 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue.clone());
+        let mut state = BootstrapLogic::new(Default::default());
         bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state);
@@ -146,7 +146,7 @@ mod tests {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue.clone());
+        let mut state = BootstrapLogic::new(Default::default());
 
         spec.channel.close();
         let sent = fixture.query_sender.send(spec.clone(), &mut state);
@@ -162,7 +162,7 @@ mod tests {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
+        let mut state = BootstrapLogic::new(Default::default());
 
         let tracker = fixture.query_sender.track();
         fixture.query_sender.send(spec.clone(), &mut state);

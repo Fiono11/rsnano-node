@@ -80,10 +80,7 @@ mod tests {
         let any = ledger.any();
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let state = Mutex::new(BootstrapLogic::new(
-            Default::default(),
-            bootstrap_queue.clone(),
-        ));
+        let state = Mutex::new(BootstrapLogic::new(Default::default()));
         let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(Vec::new());
@@ -106,10 +103,7 @@ mod tests {
         let any = ledger.any();
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let state = Mutex::new(BootstrapLogic::new(
-            Default::default(),
-            bootstrap_queue.clone(),
-        ));
+        let state = Mutex::new(BootstrapLogic::new(Default::default()));
         let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
