@@ -6,7 +6,6 @@ mod running_query;
 mod running_query_container;
 
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
-pub use frontiers_processor::FrontierScanSnapshot;
 
 pub(crate) use frontier_scan::FrontierScan;
 pub(crate) use peer_scoring::PeerScoring;

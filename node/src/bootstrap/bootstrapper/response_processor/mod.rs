@@ -55,8 +55,8 @@ impl ResponseProcessor {
     ) -> Self {
         let frontier_check_pool = FrontierCheckPool::new(
             stats.clone(),
+            frontier_stats.clone(),
             ledger,
-            logic.clone(),
             bootstrap_queue.clone(),
         );
 

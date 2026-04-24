@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::atomic::Ordering::Relaxed;
 
 use rsnano_ledger::OwningAnySet;
 use rsnano_types::Frontier;
@@ -6,14 +6,15 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::frontier_checker::FrontierChecker;
 use crate::bootstrap::bootstrapper::{
-    bootstrap_queue::BootstrapQueue,
-    logic::{BootstrapLogic, frontiers_processor::OutdatedAccounts},
+    bootstrap_queue::{BootstrapQueue, Priority},
+    frontier_scan::stats::FrontierScanStats,
+    logic::frontiers_processor::OutdatedAccounts,
 };
 
 /// Handles received frontiers
 pub(crate) struct FrontierWorker<'a> {
     stats: &'a Stats,
-    state: &'a Mutex<BootstrapLogic>,
+    stats2: &'a FrontierScanStats,
     checker: FrontierChecker<'a>,
     bootstrap_queue: &'a BootstrapQueue,
 }
@@ -22,12 +23,12 @@ impl<'a> FrontierWorker<'a> {
     pub(crate) fn new(
         any: &'a OwningAnySet<'a>,
         stats: &'a Stats,
-        state: &'a Mutex<BootstrapLogic>,
+        stats2: &'a FrontierScanStats,
         bootstrap_queue: &'a BootstrapQueue,
     ) -> Self {
         Self {
             stats,
-            state,
+            stats2,
             checker: FrontierChecker::new(any),
             bootstrap_queue,
         }
@@ -36,11 +37,20 @@ impl<'a> FrontierWorker<'a> {
     pub fn process(&mut self, frontiers: Vec<Frontier>) {
         let outdated = self.checker.get_outdated_accounts(&frontiers);
         self.update_stats(&frontiers, &outdated);
-        self.state
-            .lock()
-            .unwrap()
-            .frontiers_processor
-            .frontiers_processed(&outdated, self.bootstrap_queue);
+        self.stats2
+            .processed_frontiers
+            .fetch_add(outdated.frontiers_received as u64, Relaxed);
+        self.stats2
+            .outdated_accounts_found
+            .fetch_add(outdated.accounts.len() as u64, Relaxed);
+        self.stats2.add(&outdated);
+
+        for account in &outdated.accounts {
+            // Use lowest possible priority here, because an account found by the frontier scan is
+            // probably not an account that need immediate bootstrapping
+            self.bootstrap_queue
+                .priority_up_to(account, Priority::CUTOFF);
+        }
     }
 
     fn update_stats(&self, frontiers: &[Frontier], outdated: &OutdatedAccounts) {
@@ -82,8 +92,7 @@ mod tests {
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stats2 = Arc::new(FrontierScanStats::default());
-        let state = Mutex::new(BootstrapLogic::new(Default::default(), stats2));
-        let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
+        let mut worker = FrontierWorker::new(&any, &stats, &stats2, &bootstrap_queue);
 
         worker.process(Vec::new());
 
@@ -106,16 +115,13 @@ mod tests {
         let stats = Stats::default();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stats2 = Arc::new(FrontierScanStats::default());
-        let state = Mutex::new(BootstrapLogic::new(Default::default(), stats2));
-        let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
+        let mut worker = FrontierWorker::new(&any, &stats, &stats2, &bootstrap_queue);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
-        let guard = state.lock().unwrap();
         assert_eq!(bootstrap_queue.info().download_queue, 1);
         assert_eq!(bootstrap_queue.priority(&account), Priority::CUTOFF);
-        let snapshot = guard.frontiers_processor.snapshot();
-        assert_eq!(snapshot.outdated_accounts_found, 1);
-        assert_eq!(snapshot.processed_frontiers, 1);
+        assert_eq!(stats2.outdated_accounts_found.load(Relaxed), 1);
+        assert_eq!(stats2.processed_frontiers.load(Relaxed), 1);
     }
 }

@@ -7,14 +7,14 @@ mod frontier_scan;
 mod requesters;
 mod response_processor;
 
-pub use logic::{FrontierHeadInfo, FrontierScanConfig, FrontierScanSnapshot};
+pub use logic::{FrontierHeadInfo, FrontierScanConfig};
 
 pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
 };
 
 use std::{
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Condvar, Mutex, RwLock, atomic::Ordering::Relaxed},
     thread::JoinHandle,
     time::Duration,
 };
@@ -399,7 +399,12 @@ impl Bootstrapper {
     }
 
     pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {
-        self.logic.lock().unwrap().frontiers_processor.snapshot()
+        FrontierScanSnapshot {
+            processed_frontiers: self.frontier_stats.processed_frontiers.load(Relaxed),
+            outdated_accounts_found: self.frontier_stats.outdated_accounts_found.load(Relaxed),
+            heads: self.logic.lock().unwrap().frontiers_processor.heads(),
+            last_outdated_accounts: self.frontier_stats.last_outdated_found(),
+        }
     }
 }
 
@@ -478,4 +483,11 @@ impl EventHandler<LedgerPipelineEvent> for Bootstrapper {
             _ => {}
         }
     }
+}
+
+pub struct FrontierScanSnapshot {
+    pub processed_frontiers: u64,
+    pub outdated_accounts_found: u64,
+    pub heads: Vec<FrontierHeadInfo>,
+    pub last_outdated_accounts: Vec<Account>,
 }

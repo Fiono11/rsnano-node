@@ -1,15 +1,11 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, atomic::Ordering::Relaxed},
-};
+use std::{collections::VecDeque, sync::Arc};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
-    FrontierHeadInfo, FrontierScanConfig, Priority,
-    bootstrap_queue::BootstrapQueue,
+    FrontierHeadInfo, FrontierScanConfig,
     frontier_scan::stats::FrontierScanStats,
     logic::{FrontierScan, RunningQuery, VerifyResult},
 };
@@ -64,41 +60,9 @@ impl FrontiersProcessor {
         self.frontiers_to_check.pop_front()
     }
 
-    pub(crate) fn frontiers_processed(
-        &mut self,
-        outdated: &OutdatedAccounts,
-        bootstrap_queue: &BootstrapQueue,
-    ) {
-        self.stats
-            .processed_frontiers
-            .fetch_add(outdated.frontiers_received as u64, Relaxed);
-        self.stats
-            .outdated_accounts_found
-            .fetch_add(outdated.accounts.len() as u64, Relaxed);
-        self.stats.add(&outdated);
-
-        for account in &outdated.accounts {
-            // Use lowest possible priority here, because an account found by the frontier scan is
-            // probably not an account that need immediate bootstrapping
-            bootstrap_queue.priority_up_to(account, Priority::CUTOFF);
-        }
+    pub fn heads(&self) -> Vec<FrontierHeadInfo> {
+        self.frontier_scan.heads()
     }
-
-    pub fn snapshot(&self) -> FrontierScanSnapshot {
-        FrontierScanSnapshot {
-            processed_frontiers: self.stats.processed_frontiers.load(Relaxed),
-            outdated_accounts_found: self.stats.outdated_accounts_found.load(Relaxed),
-            heads: self.frontier_scan.heads(),
-            last_outdated_accounts: self.stats.last_outdated_found(),
-        }
-    }
-}
-
-pub struct FrontierScanSnapshot {
-    pub processed_frontiers: u64,
-    pub outdated_accounts_found: u64,
-    pub heads: Vec<FrontierHeadInfo>,
-    pub last_outdated_accounts: Vec<Account>,
 }
 
 impl ContainerInfoProvider for FrontiersProcessor {

@@ -4,14 +4,14 @@ use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
-    bootstrap_queue::BootstrapQueue, logic::BootstrapLogic,
-    response_processor::frontier_worker::FrontierWorker,
+    bootstrap_queue::BootstrapQueue, frontier_scan::stats::FrontierScanStats,
+    logic::BootstrapLogic, response_processor::frontier_worker::FrontierWorker,
 };
 
 pub(crate) struct FrontierCheckPool {
     stats: Arc<Stats>,
+    stats2: Arc<FrontierScanStats>,
     ledger: Arc<Ledger>,
-    logic: Arc<Mutex<BootstrapLogic>>,
     workers: Arc<ThreadPool>,
     bootstrap_queue: Arc<BootstrapQueue>,
     pub max_pending: usize,
@@ -20,15 +20,15 @@ pub(crate) struct FrontierCheckPool {
 impl FrontierCheckPool {
     pub(crate) fn new(
         stats: Arc<Stats>,
+        stats2: Arc<FrontierScanStats>,
         ledger: Arc<Ledger>,
-        state: Arc<Mutex<BootstrapLogic>>,
         bootstrap_queue: Arc<BootstrapQueue>,
     ) -> Self {
         let workers = Arc::new(ThreadPool::new(1, "Bootstrap work"));
         Self {
             stats,
+            stats2,
             ledger,
-            logic: state,
             workers,
             bootstrap_queue,
             max_pending: 16,
@@ -39,11 +39,11 @@ impl FrontierCheckPool {
         while let Some(frontiers) = logic.frontiers_processor.pop_frontiers_to_check() {
             let ledger = self.ledger.clone();
             let stats = self.stats.clone();
-            let state = self.logic.clone();
+            let stats2 = self.stats2.clone();
             let bootstrap_queue = self.bootstrap_queue.clone();
             self.workers.execute(move || {
                 let any = ledger.any();
-                let mut worker = FrontierWorker::new(&any, &stats, &state, &bootstrap_queue);
+                let mut worker = FrontierWorker::new(&any, &stats, &stats2, &bootstrap_queue);
                 worker.process(frontiers);
             });
         }
