@@ -194,11 +194,8 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn next_unknown_blocking_hash(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
-        self.logic
-            .lock()
-            .unwrap()
-            .next_unknown_blocking_hash(filter)
+    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
+        self.logic.lock().unwrap().next_unknown_blocking_hash()
     }
 
     /// Sets information about the account chain that contains the block hash

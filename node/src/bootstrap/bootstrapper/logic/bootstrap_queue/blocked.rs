@@ -77,18 +77,15 @@ impl BlockedAccounts {
             .unwrap_or_default()
     }
 
-    pub fn next_unknown_blocking_hash(
-        &self,
-        filter: impl Fn(&BlockHash) -> bool,
-    ) -> Option<BlockHash> {
+    pub fn next_unknown_blocking_hash(&self) -> Option<BlockHash> {
         // Scan all entries with unknown dependency account
         let accounts = self.by_dependency_account.get(&Account::ZERO)?;
         accounts.iter().find_map(|account| {
             let (dep_block, _, _) = self.by_account.get(account).unwrap();
-            if filter(dep_block) {
-                Some(*dep_block)
-            } else {
+            if self.requested_dependencies.contains_key(dep_block) {
                 None
+            } else {
+                Some(*dep_block)
             }
         })
     }

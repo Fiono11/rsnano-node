@@ -75,30 +75,16 @@ impl BootstrapLogic {
         query_id: u64,
         channel: &Arc<Channel>,
     ) -> Option<AscPullQuerySpec> {
-        let next = self.next_unknown_blocking_hash();
-        if next.is_zero() {
+        let next_hash = self.bootstrap_queue.next_unknown_blocking_hash();
+        if next_hash.is_zero() {
             return None;
         }
         Some(AscPullQuerySpec {
             query_id,
             channel: channel.clone(),
-            req_type: AscPullReqType::account_info_by_hash(next),
+            req_type: AscPullReqType::account_info_by_hash(next_hash),
             account: Account::ZERO,
-            hash: next,
-        })
-    }
-
-    fn count_queries_by_hash(&self, hash: &BlockHash, source: QuerySource) -> usize {
-        self.running_queries
-            .iter_hash(hash)
-            .filter(|i| i.source == source)
-            .count()
-    }
-
-    /* Waits for next available blocked block */
-    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
-        self.bootstrap_queue.next_unknown_blocking_hash(|hash| {
-            self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0
+            hash: next_hash,
         })
     }
 

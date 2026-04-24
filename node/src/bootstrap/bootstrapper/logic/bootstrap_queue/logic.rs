@@ -321,13 +321,13 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn next_unknown_blocking_hash(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
+    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
         if self.blocked.is_empty() {
             return BlockHash::ZERO;
         }
 
         self.blocked
-            .next_unknown_blocking_hash(filter)
+            .next_unknown_blocking_hash()
             .unwrap_or_default()
     }
 
@@ -847,7 +847,7 @@ mod tests {
     #[test]
     fn next_blocked_empty() {
         let queue = BootstrapQueueLogic::default();
-        assert_eq!(queue.next_unknown_blocking_hash(|_| true), BlockHash::ZERO);
+        assert_eq!(queue.next_unknown_blocking_hash(), BlockHash::ZERO);
     }
 
     #[test]
@@ -857,7 +857,7 @@ mod tests {
         let dependency = BlockHash::from(2);
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
-        assert_eq!(queue.next_unknown_blocking_hash(|_| true), dependency);
+        assert_eq!(queue.next_unknown_blocking_hash(), dependency);
     }
 
     #[test]
@@ -866,25 +866,19 @@ mod tests {
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let account3 = Account::from(3);
-        let dependency = BlockHash::from(2);
+        let dependency1 = BlockHash::from(1000);
+        let dependency2 = BlockHash::from(2);
+        let dependency3 = BlockHash::from(2000);
         queue.priority_up_to(&account1, Priority::INITIAL);
         queue.priority_up_to(&account2, Priority::INITIAL);
         queue.priority_up_to(&account3, Priority::INITIAL);
-        queue.block(
-            account1,
-            BlockHash::from(1000),
-            Timestamp::new_test_instance(),
-        );
-        queue.block(account2, dependency, Timestamp::new_test_instance());
-        queue.block(
-            account3,
-            BlockHash::from(2000),
-            Timestamp::new_test_instance(),
-        );
-        assert_eq!(
-            queue.next_unknown_blocking_hash(|h| *h == dependency),
-            dependency
-        );
+        queue.block(account1, dependency1, Timestamp::new_test_instance());
+        queue.block(account2, dependency2, Timestamp::new_test_instance());
+        queue.block(account3, dependency3, Timestamp::new_test_instance());
+        let now = Timestamp::new_test_instance();
+        queue.dependency_account_requested(&dependency1, now);
+        queue.dependency_account_requested(&dependency3, now);
+        assert_eq!(queue.next_unknown_blocking_hash(), dependency2);
     }
 
     #[test]
