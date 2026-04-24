@@ -117,6 +117,11 @@ impl BootstrapQueue {
             .fetch_add(decayed as u64, Relaxed);
     }
 
+    pub fn dependency_requested(&self, dependency: &BlockHash) {
+        self.logic.lock().unwrap().dependency_requested(dependency);
+        self.stats.dependency_requested.fetch_add(1, Relaxed);
+    }
+
     /// Sets information about the account chain that contains the block hash
     pub fn dependency_update(&self, dependency: &BlockHash, dependency_account: Account) {
         let mut logic = self.logic.lock().unwrap();
@@ -186,8 +191,11 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
-        self.logic.lock().unwrap().next_blocked(filter)
+    pub fn next_unknown_blocking_hash(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
+        self.logic
+            .lock()
+            .unwrap()
+            .next_unknown_blocking_hash(filter)
     }
 
     /// Sets information about the account chain that contains the block hash

@@ -221,6 +221,10 @@ impl BootstrapQueueLogic {
         removed.len()
     }
 
+    pub fn dependency_requested(&mut self, dependency: &BlockHash) {
+        self.blocked.dependency_requested(dependency);
+    }
+
     /// Sets information about the account chain that contains the block hash.
     /// Returns the number of updated accounts.
     pub fn dependency_update(
@@ -324,12 +328,14 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn next_blocked(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
+    pub fn next_unknown_blocking_hash(&self, filter: impl Fn(&BlockHash) -> bool) -> BlockHash {
         if self.blocked.is_empty() {
             return BlockHash::ZERO;
         }
 
-        self.blocked.next(filter).unwrap_or_default()
+        self.blocked
+            .next_unknown_blocking_hash(filter)
+            .unwrap_or_default()
     }
 
     /// Enqueues dependency accounts for all blocked accounts whose dependency is known.
@@ -831,7 +837,7 @@ mod tests {
     #[test]
     fn next_blocked_empty() {
         let queue = BootstrapQueueLogic::default();
-        assert_eq!(queue.next_blocked(|_| true), BlockHash::ZERO);
+        assert_eq!(queue.next_unknown_blocking_hash(|_| true), BlockHash::ZERO);
     }
 
     #[test]
@@ -841,7 +847,7 @@ mod tests {
         let dependency = BlockHash::from(2);
         queue.priority_up_to(&account, Priority::INITIAL);
         queue.block(account, dependency, Timestamp::new_test_instance());
-        assert_eq!(queue.next_blocked(|_| true), dependency);
+        assert_eq!(queue.next_unknown_blocking_hash(|_| true), dependency);
     }
 
     #[test]
@@ -865,7 +871,10 @@ mod tests {
             BlockHash::from(2000),
             Timestamp::new_test_instance(),
         );
-        assert_eq!(queue.next_blocked(|h| *h == dependency), dependency);
+        assert_eq!(
+            queue.next_unknown_blocking_hash(|h| *h == dependency),
+            dependency
+        );
     }
 
     #[test]

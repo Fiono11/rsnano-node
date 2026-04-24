@@ -26,6 +26,7 @@ pub(crate) struct BootstrapQueueStats {
     pub reprocess_failed: AtomicU64,
     pub processing_finished: AtomicU64,
     pub processing_finished_failed: AtomicU64,
+    pub dependency_requested: AtomicU64,
 }
 
 impl BootstrapQueueStats {
@@ -60,6 +61,11 @@ impl StatsSource for BootstrapQueueStats {
         result.insert(KEY, "block_failed", self.block_failed.load(Relaxed));
         result.insert(KEY, "unblocked", self.unblocked.load(Relaxed));
         result.insert(KEY, "decayed_blocked", self.decayed_blocked.load(Relaxed));
+        result.insert(
+            KEY,
+            "dependency_requested",
+            self.dependency_requested.load(Relaxed),
+        );
         result.insert(
             KEY,
             "dependency_update",

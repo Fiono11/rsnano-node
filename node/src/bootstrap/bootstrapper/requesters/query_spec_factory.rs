@@ -107,7 +107,7 @@ impl QuerySpecFactory {
 
         self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);
-        state.bootstrap_queue.download_started(&next_account);
+        self.bootstrap_queue.download_started(&next_account);
 
         Some(query)
     }
@@ -132,6 +132,7 @@ impl QuerySpecFactory {
         };
         self.request_limiter.consume(1);
         state.scoring.add_query(channel_id);
+        self.bootstrap_queue.dependency_requested(&spec.hash);
         Some(spec)
     }
 

@@ -75,7 +75,7 @@ impl BootstrapLogic {
         query_id: u64,
         channel: &Arc<Channel>,
     ) -> Option<AscPullQuerySpec> {
-        let next = self.next_blocked();
+        let next = self.next_unknown_blocking_hash();
         if next.is_zero() {
             return None;
         }
@@ -96,9 +96,10 @@ impl BootstrapLogic {
     }
 
     /* Waits for next available blocked block */
-    pub fn next_blocked(&self) -> BlockHash {
-        self.bootstrap_queue
-            .next_blocked(|hash| self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0)
+    pub fn next_unknown_blocking_hash(&self) -> BlockHash {
+        self.bootstrap_queue.next_unknown_blocking_hash(|hash| {
+            self.count_queries_by_hash(hash, QuerySource::Dependencies) == 0
+        })
     }
 
     pub(crate) fn take_running_query_for(

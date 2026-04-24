@@ -4,7 +4,7 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A blocked account is an account that has failed to insert a new block because the source block is not currently present in the ledger
 /// An account is unblocked once it has a block successfully inserted
@@ -16,6 +16,7 @@ pub(super) struct BlockedAccounts {
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, Vec<Account>>,
     by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
+    requested_dependencies: FxHashSet<BlockHash>,
 }
 
 impl BlockedAccounts {
@@ -75,7 +76,10 @@ impl BlockedAccounts {
             .unwrap_or_default()
     }
 
-    pub fn next(&self, filter: impl Fn(&BlockHash) -> bool) -> Option<BlockHash> {
+    pub fn next_unknown_blocking_hash(
+        &self,
+        filter: impl Fn(&BlockHash) -> bool,
+    ) -> Option<BlockHash> {
         // Scan all entries with unknown dependency account
         let accounts = self.by_dependency_account.get(&Account::ZERO)?;
         accounts.iter().find_map(|account| {
@@ -86,6 +90,47 @@ impl BlockedAccounts {
                 None
             }
         })
+    }
+
+    pub fn dependency_requested(&mut self, dependency: &BlockHash) {
+        self.requested_dependencies.insert(*dependency);
+    }
+
+    pub fn modify_dependency_account(
+        &mut self,
+        dependency: &BlockHash,
+        new_dependency_account: Account,
+    ) -> Vec<Account> {
+        let mut updated = Vec::new();
+        self.requested_dependencies.remove(dependency);
+        let Some(accounts) = self.by_dependency.get(dependency) else {
+            return updated;
+        };
+
+        for account in accounts {
+            let (_, dep_account, _) = self.by_account.get_mut(account).unwrap();
+            if *dep_account != Some(new_dependency_account) {
+                let old_dependency_account = dep_account.unwrap_or_default();
+                *dep_account = Some(new_dependency_account);
+                let old = self
+                    .by_dependency_account
+                    .get_mut(&old_dependency_account)
+                    .unwrap();
+                if old.len() == 1 {
+                    self.by_dependency_account.remove(&old_dependency_account);
+                } else {
+                    old.retain(|a| a != account);
+                }
+                self.by_dependency_account
+                    .entry(new_dependency_account)
+                    .or_default()
+                    .push(*account);
+
+                updated.push(*account);
+            }
+        }
+
+        updated
     }
 
     pub fn get_info(&self, account: &Account) -> Option<(BlockHash, Option<Account>)> {
@@ -154,6 +199,7 @@ impl BlockedAccounts {
         let Some((dep_block, dep_account, blocked_at)) = self.by_account.remove(account) else {
             return false;
         };
+        self.requested_dependencies.remove(&dep_block);
 
         self.sequenced.retain(|i| i != account);
         let dep_accounts = self.by_dependency.get_mut(&dep_block).unwrap();
@@ -181,42 +227,6 @@ impl BlockedAccounts {
         true
     }
 
-    pub fn modify_dependency_account(
-        &mut self,
-        dependency: &BlockHash,
-        new_dependency_account: Account,
-    ) -> Vec<Account> {
-        let mut updated = Vec::new();
-        let Some(accounts) = self.by_dependency.get(dependency) else {
-            return updated;
-        };
-
-        for account in accounts {
-            let (_, dep_account, _) = self.by_account.get_mut(account).unwrap();
-            if *dep_account != Some(new_dependency_account) {
-                let old_dependency_account = dep_account.unwrap_or_default();
-                *dep_account = Some(new_dependency_account);
-                let old = self
-                    .by_dependency_account
-                    .get_mut(&old_dependency_account)
-                    .unwrap();
-                if old.len() == 1 {
-                    self.by_dependency_account.remove(&old_dependency_account);
-                } else {
-                    old.retain(|a| a != account);
-                }
-                self.by_dependency_account
-                    .entry(new_dependency_account)
-                    .or_default()
-                    .push(*account);
-
-                updated.push(*account);
-            }
-        }
-
-        updated
-    }
-
     pub fn contains(&self, account: &Account) -> bool {
         self.by_account.contains_key(account)
     }
@@ -230,6 +240,11 @@ impl ContainerInfoProvider for BlockedAccounts {
             ("by_dependency", self.by_dependency.len(), 0),
             ("by_dependency_account", self.by_dependency_account.len(), 0),
             ("by_timestamp", self.by_timestamp.len(), 0),
+            (
+                "requested_dependencies",
+                self.requested_dependencies.len(),
+                0,
+            ),
         ]
         .into()
     }
