@@ -235,7 +235,9 @@ impl BlockedAccounts {
             && *started < cutoff
         {
             let (hash, started) = self.requested_timestamps.pop_front().unwrap();
-            if *self.requested_dependencies.get(&hash).unwrap() == started {
+            if let Some(t) = self.requested_dependencies.get(&hash)
+                && *t == started
+            {
                 self.requested_dependencies.remove(&hash);
             }
         }

@@ -226,7 +226,7 @@ impl Bootstrapper {
         let frontiers_processor = Arc::new(frontiers_processor);
         let bootstrap_queue = Arc::new(bootstrap_queue);
         let frontier_stats = Arc::new(FrontierScanStats::default());
-        let logic = Arc::new(Mutex::new(QueryTracker::new(config.clone())));
+        let logic = Arc::new(Mutex::new(QueryTracker::new(config.clone(), stats.clone())));
 
         let mut response_handler = ResponseProcessor::new(
             logic.clone(),
@@ -379,13 +379,13 @@ impl Bootstrapper {
     fn run_timeouts(&self) {
         let mut cleanup = BootstrapCleanup::new(
             self.clock.clone(),
-            self.stats.clone(),
             self.bootstrap_queue.clone(),
+            self.query_tracker.clone(),
         );
         let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
         while !stopped.stopped {
-            cleanup.cleanup(&mut self.query_tracker.lock().unwrap());
+            cleanup.cleanup();
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
                 cleanup.reinsert_known_dependencies();
@@ -478,7 +478,6 @@ impl DeadChannelCleanupStep for BootstrapperCleanup {
             .query_tracker
             .lock()
             .unwrap()
-            .scoring
             .clean_up_dead_channels(dead_channel_ids);
     }
 }

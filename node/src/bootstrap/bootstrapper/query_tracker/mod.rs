@@ -6,29 +6,42 @@ pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
+use rsnano_utils::{
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{DetailType, StatType, Stats},
+};
 
 use super::BootstrapConfig;
 
 /// Keeps track of all currently running bootstrap queries
 pub(crate) struct QueryTracker {
-    pub(crate) scoring: PeerScoring,
+    stats: Arc<Stats>,
+    scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
 }
 
 impl QueryTracker {
-    pub fn new(config: BootstrapConfig) -> Self {
+    pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),
+            stats,
         }
+    }
+
+    pub fn add_query_for_channel(&mut self, channel_id: ChannelId) {
+        self.scoring.add_query(channel_id);
+    }
+
+    pub fn find_channel(&mut self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
+        self.scoring.channel(candidates)
     }
 
     pub fn take_running_query_for(
@@ -48,6 +61,30 @@ impl QueryTracker {
         self.scoring.received_message(channel_id);
 
         Ok(query)
+    }
+
+    pub fn timeout(&mut self, now: Timestamp) {
+        self.scoring.decay();
+        self.erase_timed_out_requests(now);
+    }
+
+    fn erase_timed_out_requests(&mut self, now: Timestamp) {
+        let should_timeout = |query: &RunningQuery| query.response_cutoff < now;
+
+        while let Some(front) = self.running_queries.front() {
+            if !should_timeout(front) {
+                break;
+            }
+
+            self.stats.inc(StatType::Bootstrap, DetailType::Timeout);
+            self.stats
+                .inc(StatType::BootstrapTimeout, front.query_type.into());
+            self.running_queries.pop_front();
+        }
+    }
+
+    pub fn clean_up_dead_channels(&mut self, dead_channel_ids: &[ChannelId]) {
+        self.scoring.clean_up_dead_channels(dead_channel_ids);
     }
 }
 

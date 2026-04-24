@@ -184,7 +184,7 @@ mod tests {
     }
 
     fn create_logic() -> QueryTracker {
-        QueryTracker::new(Default::default())
+        QueryTracker::new(Default::default(), Arc::new(Stats::default()))
     }
 
     struct Fixture {
