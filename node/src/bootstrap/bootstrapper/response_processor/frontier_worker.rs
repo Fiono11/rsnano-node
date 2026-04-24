@@ -62,24 +62,26 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::logic::Priority;
+    use crate::bootstrap::bootstrapper::logic::{BootstrapQueue, Priority};
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
+    use std::sync::Arc;
 
     #[test]
     fn empty() {
         let ledger = Ledger::new_null();
         let any = ledger.any();
         let stats = Stats::default();
-        let state = Mutex::new(BootstrapLogic::default());
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let state = Mutex::new(BootstrapLogic::new(
+            Default::default(),
+            bootstrap_queue.clone(),
+        ));
         let mut worker = FrontierWorker::new(&any, &stats, &state);
 
         worker.process(Vec::new());
 
-        assert_eq!(
-            state.lock().unwrap().bootstrap_queue.info().download_queue,
-            0
-        );
+        assert_eq!(bootstrap_queue.info().download_queue, 0);
     }
 
     #[test]
@@ -96,14 +98,18 @@ mod tests {
             .finish();
         let any = ledger.any();
         let stats = Stats::default();
-        let state = Mutex::new(BootstrapLogic::default());
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let state = Mutex::new(BootstrapLogic::new(
+            Default::default(),
+            bootstrap_queue.clone(),
+        ));
         let mut worker = FrontierWorker::new(&any, &stats, &state);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
         let guard = state.lock().unwrap();
-        assert_eq!(guard.bootstrap_queue.info().download_queue, 1);
-        assert_eq!(guard.bootstrap_queue.priority(&account), Priority::CUTOFF);
+        assert_eq!(bootstrap_queue.info().download_queue, 1);
+        assert_eq!(bootstrap_queue.priority(&account), Priority::CUTOFF);
         assert_eq!(guard.frontiers_processor.stats.outdated_accounts_found, 1);
         assert_eq!(guard.frontiers_processor.stats.processed_frontiers, 1);
     }

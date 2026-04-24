@@ -98,7 +98,7 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::SendEvent;
+    use crate::{bootstrap::bootstrapper::logic::BootstrapQueue, transport::SendEvent};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 
@@ -108,7 +108,8 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
-        let mut state = BootstrapLogic::default();
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
 
         let sent = fixture.query_sender.send(spec, &mut state);
         assert!(sent);
@@ -127,7 +128,8 @@ mod tests {
         let mut fixture = create_fixture();
 
         let spec = AscPullQuerySpec::new_test_instance();
-        let mut state = BootstrapLogic::default();
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
         state.bootstrap_queue.priority_up(&spec.account);
 
         fixture.query_sender.send(spec.clone(), &mut state);
@@ -143,7 +145,8 @@ mod tests {
     fn when_channel_unavailable_should_not_send() {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
-        let mut state = BootstrapLogic::default();
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
 
         spec.channel.close();
         let sent = fixture.query_sender.send(spec.clone(), &mut state);
@@ -158,7 +161,8 @@ mod tests {
     fn can_track_sends() {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
-        let mut state = BootstrapLogic::default();
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
+        let mut state = BootstrapLogic::new(Default::default(), bootstrap_queue);
 
         let tracker = fixture.query_sender.track();
         fixture.query_sender.send(spec.clone(), &mut state);

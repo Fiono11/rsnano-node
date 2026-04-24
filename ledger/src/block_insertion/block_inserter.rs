@@ -165,10 +165,30 @@ mod tests {
         let pending_key = PendingKey::new_test_instance();
         instructions.delete_pending = Some(pending_key.clone());
         let ledger = Ledger::new_null();
+        let mut txn = ledger.store.env.begin_write();
+        ledger
+            .store
+            .pending
+            .put(&mut txn, &pending_key, &PendingInfo::new_test_instance());
+        txn.commit();
 
         let result = insert(&ledger, &mut block, &instructions);
 
         assert_eq!(result.deleted_pending, vec![pending_key]);
+    }
+
+    #[test]
+    fn doesnt_insert_if_pending_missing() {
+        let (mut block, mut instructions) = legacy_open_block_instructions();
+        let pending_key = PendingKey::new_test_instance();
+        instructions.delete_pending = Some(pending_key.clone());
+        let ledger = Ledger::new_null();
+
+        let mut txn = ledger.store.env.begin_write();
+        let mut block_inserter = BlockInserter::new(&ledger, &mut txn, &mut block, &instructions);
+        let result = block_inserter.insert();
+        txn.commit();
+        assert!(result.is_none());
     }
 
     #[test]

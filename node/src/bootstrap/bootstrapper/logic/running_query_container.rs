@@ -1,4 +1,4 @@
-use super::{QuerySource, RunningQuery};
+use super::RunningQuery;
 use rsnano_types::{Account, BlockHash};
 use std::{
     collections::{HashMap, VecDeque},
@@ -33,18 +33,8 @@ impl RunningQueryContainer {
         self.by_id.get(&id)
     }
 
-    pub fn count_by_account(&self, account: &Account, source: QuerySource) -> usize {
-        self.iter_account(account)
-            .filter(|i| i.source == source)
-            .count()
-    }
-
     pub fn iter_hash(&self, hash: &BlockHash) -> impl Iterator<Item = &RunningQuery> + use<'_> {
         self.iter_ids(self.by_hash.get(hash))
-    }
-
-    pub fn iter_account(&self, account: &Account) -> impl Iterator<Item = &RunningQuery> + use<'_> {
-        self.iter_ids(self.by_account.get(account))
     }
 
     fn iter_ids<'a>(&'a self, ids: Option<&'a Vec<u64>>) -> impl Iterator<Item = &'a RunningQuery> {
@@ -143,12 +133,7 @@ mod tests {
         assert_eq!(container.len(), 0);
         assert_eq!(container.contains(123), false);
         assert_eq!(container.get(123), None);
-        assert_eq!(
-            container.count_by_account(&Account::from(1), QuerySource::Priority),
-            0
-        );
         assert_eq!(container.iter_hash(&BlockHash::from(1)).next(), None);
-        assert_eq!(container.iter_account(&Account::from(1)).next(), None);
         assert_eq!(container.front(), None);
         assert_eq!(container.pop_front(), None);
     }
@@ -163,7 +148,6 @@ mod tests {
         assert_eq!(container.len(), 1);
         assert_eq!(container.contains(query.id), true);
         assert_eq!(container.get(query.id), Some(&query));
-        assert_eq!(container.count_by_account(&query.account, query.source), 1);
         assert_eq!(container.front(), Some(&query));
         assert_eq!(
             container
@@ -171,13 +155,6 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>(),
             vec![query.clone()]
-        );
-        assert_eq!(
-            container
-                .iter_account(&query.account)
-                .cloned()
-                .collect::<Vec<_>>(),
-            vec![query]
         );
     }
 
@@ -272,10 +249,6 @@ mod tests {
         container.remove(query_a.id);
 
         assert_eq!(container.len(), 1);
-        assert_eq!(
-            container.iter_account(&query_b.account).collect::<Vec<_>>(),
-            vec![&query_b]
-        )
     }
 
     #[test]

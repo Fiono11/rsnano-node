@@ -92,7 +92,7 @@ impl ContainerInfo {
 
     pub fn node(&self, name: &str) -> Option<&ContainerInfo> {
         self.0.iter().find_map(|i| match i {
-            ContainerInfoEntry::Leaf(leaf) => None,
+            ContainerInfoEntry::Leaf(_) => None,
             ContainerInfoEntry::Node(node) => {
                 if node.name == name {
                     Some(&node.children)

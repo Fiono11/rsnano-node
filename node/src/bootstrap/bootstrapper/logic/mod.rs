@@ -45,7 +45,7 @@ pub(crate) enum VerifyResult {
 }
 
 pub struct BootstrapLogic {
-    pub(crate) bootstrap_queue: BootstrapQueue,
+    pub(crate) bootstrap_queue: Arc<BootstrapQueue>,
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
@@ -55,12 +55,12 @@ pub struct BootstrapLogic {
 }
 
 impl BootstrapLogic {
-    pub fn new(config: BootstrapConfig) -> Self {
+    pub fn new(config: BootstrapConfig, bootstrap_queue: Arc<BootstrapQueue>) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
 
         Self {
-            bootstrap_queue: BootstrapQueue::new(config.bootstrap_queue.clone()),
+            bootstrap_queue,
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,
@@ -130,13 +130,7 @@ impl BootstrapLogic {
 
     pub fn frontiers_processed(&mut self, outdated: &OutdatedAccounts) {
         self.frontiers_processor
-            .frontiers_processed(outdated, &mut self.bootstrap_queue);
-    }
-}
-
-impl Default for BootstrapLogic {
-    fn default() -> Self {
-        Self::new(Default::default())
+            .frontiers_processed(outdated, &self.bootstrap_queue);
     }
 }
 

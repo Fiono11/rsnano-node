@@ -31,6 +31,7 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::logic::BootstrapQueue,
     transport::MessageSender,
 };
 
@@ -137,6 +138,7 @@ pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
     logic: Arc<Mutex<BootstrapLogic>>,
+    bootstrap_queue: Arc<BootstrapQueue>,
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
@@ -179,7 +181,11 @@ impl Bootstrapper {
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
+        let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
+        let logic = Arc::new(Mutex::new(BootstrapLogic::new(
+            config.clone(),
+            bootstrap_queue.clone(),
+        )));
         let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
@@ -190,8 +196,11 @@ impl Bootstrapper {
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
-        let block_inspector =
-            BlockInspector::new(logic.clone(), ledger.clone(), block_processor_queue.clone());
+        let block_inspector = BlockInspector::new(
+            bootstrap_queue.clone(),
+            ledger.clone(),
+            block_processor_queue.clone(),
+        );
 
         let requesters = Requesters::new(
             config.clone(),
@@ -215,6 +224,7 @@ impl Bootstrapper {
             block_inspector,
             requesters,
             ledger,
+            bootstrap_queue,
         }
     }
 
