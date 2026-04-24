@@ -10,7 +10,11 @@ use rsnano_utils::stats::Stats;
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig, bootstrap_queue::BootstrapQueue, frontier_scan::frontiers_processor::FrontiersProcessor, query_tracker::BootstrapLogic, requesters::{query_factory::QueryFactory, query_sender::QuerySender}
+        BootstrapConfig,
+        bootstrap_queue::BootstrapQueue,
+        frontier_scan::frontiers_processor::FrontiersProcessor,
+        query_tracker::QueryTracker,
+        requesters::{query_factory::QueryFactory, query_sender::QuerySender},
     },
     transport::MessageSender,
 };
@@ -18,7 +22,7 @@ use crate::{
 use super::stats::BootstrapRequesterStats;
 
 pub(super) struct RequesterLoop {
-    state: Arc<Mutex<BootstrapLogic>>,
+    state: Arc<Mutex<QueryTracker>>,
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
     query_sender: QuerySender,
@@ -31,7 +35,7 @@ impl RequesterLoop {
     const THROTTLE_WAIT: Duration = Duration::from_millis(50);
 
     pub(super) fn new(
-        logic: Arc<Mutex<BootstrapLogic>>,
+        logic: Arc<Mutex<QueryTracker>>,
         state_changed: Arc<Condvar>,
         config: BootstrapConfig,
         message_sender: MessageSender,

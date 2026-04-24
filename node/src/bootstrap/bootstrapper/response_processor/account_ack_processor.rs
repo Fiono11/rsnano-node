@@ -5,8 +5,8 @@ use crate::bootstrap::bootstrapper::{
     bootstrap_queue::BootstrapQueue, query_tracker::RunningQuery,
 };
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 pub(crate) struct AccountAckProcessor {

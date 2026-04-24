@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::query_tracker::{BootstrapLogic, RunningQuery};
+use super::query_tracker::{QueryTracker, RunningQuery};
 use crate::bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue;
 
 pub(super) struct BootstrapCleanup {
@@ -25,7 +25,7 @@ impl BootstrapCleanup {
         }
     }
 
-    pub fn cleanup(&mut self, state: &mut BootstrapLogic) {
+    pub fn cleanup(&mut self, state: &mut QueryTracker) {
         let now = self.clock.now();
         self.stats.inc(StatType::Bootstrap, DetailType::LoopCleanup);
         state.scoring.decay();
@@ -33,7 +33,7 @@ impl BootstrapCleanup {
         self.bootstrap_queue.timeout();
     }
 
-    fn erase_timed_out_requests(&mut self, state: &mut BootstrapLogic, now: Timestamp) {
+    fn erase_timed_out_requests(&mut self, state: &mut QueryTracker, now: Timestamp) {
         let should_timeout = |query: &RunningQuery| query.response_cutoff < now;
 
         while let Some(front) = state.running_queries.front() {

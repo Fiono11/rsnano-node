@@ -6,8 +6,8 @@ mod frontier_checker;
 mod frontier_worker;
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering::Relaxed},
     Arc, Mutex,
+    atomic::{AtomicU64, Ordering::Relaxed},
 };
 use tracing::trace;
 
@@ -17,10 +17,11 @@ use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
-use super::query_tracker::BootstrapLogic;
+use super::query_tracker::QueryTracker;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
+        VerifyResult,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
         query_tracker::{ProcessError, ProcessInfo, RunningQuery},
@@ -28,12 +29,11 @@ use crate::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,
         },
-        VerifyResult,
     },
 };
 
 pub(crate) struct ResponseProcessor {
-    logic: Arc<Mutex<BootstrapLogic>>,
+    logic: Arc<Mutex<QueryTracker>>,
     frontier_check_pool: FrontierCheckPool,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
@@ -48,7 +48,7 @@ pub(crate) struct ResponseProcessor {
 
 impl ResponseProcessor {
     pub(crate) fn new(
-        logic: Arc<Mutex<BootstrapLogic>>,
+        logic: Arc<Mutex<QueryTracker>>,
         bootstrap_queue: Arc<BootstrapQueue>,
         stats: Arc<Stats>,
         block_queue: Arc<BlockProcessorQueue>,

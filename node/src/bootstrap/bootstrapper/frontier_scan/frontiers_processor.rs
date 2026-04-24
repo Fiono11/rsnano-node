@@ -1,25 +1,37 @@
 use std::{collections::VecDeque, sync::Mutex};
 
-use rsnano_nullable_clock::Timestamp;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
     frontier_scan::{
+        VerifyResult,
         coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
-        verify_frontiers, VerifyResult,
+        verify_frontiers,
     },
     query_tracker::RunningQuery,
 };
 
 pub(crate) struct FrontiersProcessor {
     logic: Mutex<FrontiersProcessorLogic>,
+    clock: SteadyClock,
 }
 
 impl FrontiersProcessor {
     pub fn new(config: FrontierScanConfig) -> Self {
+        Self::new_impl(config, SteadyClock::default())
+    }
+
+    #[cfg(test)]
+    pub fn new_null() -> Self {
+        Self::new_impl(Default::default(), SteadyClock::new_null())
+    }
+
+    fn new_impl(config: FrontierScanConfig, clock: SteadyClock) -> Self {
         Self {
             logic: Mutex::new(FrontiersProcessorLogic::new(config)),
+            clock,
         }
     }
 
@@ -34,7 +46,8 @@ impl FrontiersProcessor {
         self.logic.lock().unwrap().frontier_checker_overfill()
     }
 
-    pub fn next(&self, now: Timestamp) -> Account {
+    pub fn next(&self) -> Account {
+        let now = self.clock.now();
         self.logic.lock().unwrap().next(now)
     }
 

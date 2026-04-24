@@ -20,11 +20,11 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::frontiers_processor::FrontiersProcessor,
-        query_tracker::BootstrapLogic,
+        query_tracker::QueryTracker,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
-        BootstrapConfig,
     },
     transport::MessageSender,
 };
@@ -34,7 +34,7 @@ pub(crate) struct Requesters {
     config: BootstrapConfig,
     stats: Arc<Stats>,
     message_sender: MessageSender,
-    state: Arc<Mutex<BootstrapLogic>>,
+    state: Arc<Mutex<QueryTracker>>,
     state_changed: Arc<Condvar>,
     thread: Mutex<Option<JoinHandle<()>>>,
     ledger: Arc<Ledger>,
@@ -50,7 +50,7 @@ impl Requesters {
         config: BootstrapConfig,
         stats: Arc<Stats>,
         message_sender: MessageSender,
-        state: Arc<Mutex<BootstrapLogic>>,
+        state: Arc<Mutex<QueryTracker>>,
         state_changed: Arc<Condvar>,
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,

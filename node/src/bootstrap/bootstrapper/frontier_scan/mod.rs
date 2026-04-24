@@ -1,6 +1,6 @@
 use crate::bootstrap::bootstrapper::{
-    query_tracker::{QueryType, RunningQuery},
     VerifyResult,
+    query_tracker::{QueryType, RunningQuery},
 };
 use rsnano_types::{Account, Frontier};
 

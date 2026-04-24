@@ -1,28 +1,26 @@
-use std::sync::{atomic::Ordering::Relaxed, Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
 use rand::RngCore;
 
 use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
-use rsnano_network::{token_bucket::TokenBucket, Channel, Network, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
 
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        AscPullQuerySpec, BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::frontiers_processor::FrontiersProcessor,
-        query_tracker::BootstrapLogic,
-        requesters::{stats::BootstrapRequesterStats, PullCountDecider, PullType, PullTypeDecider},
-        AscPullQuerySpec, BootstrapConfig,
+        query_tracker::QueryTracker,
+        requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
     },
 };
 
 pub(crate) struct QueryFactory {
     config: BootstrapConfig,
-    clock: SteadyClock,
     stats: Arc<BootstrapRequesterStats>,
     network: Arc<RwLock<Network>>,
     request_limiter: TokenBucket,
@@ -50,7 +48,6 @@ impl QueryFactory {
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
         let limiter = TokenBucket::new(config.rate_limit);
         Self {
-            clock: SteadyClock::default(),
             stats,
             network,
             request_limiter: limiter,
@@ -66,7 +63,7 @@ impl QueryFactory {
         }
     }
 
-    pub fn try_blocks_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
+    pub fn try_blocks_query(&mut self, state: &mut QueryTracker) -> Option<AscPullQuerySpec> {
         if state.running_queries.len() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -114,7 +111,7 @@ impl QueryFactory {
         Some(query)
     }
 
-    pub fn try_dependency_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
+    pub fn try_dependency_query(&mut self, state: &mut QueryTracker) -> Option<AscPullQuerySpec> {
         if state.running_queries.len() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -146,9 +143,7 @@ impl QueryFactory {
         Some(spec)
     }
 
-    pub fn try_frontier_query(&mut self, state: &mut BootstrapLogic) -> Option<AscPullQuerySpec> {
-        let now = self.clock.now();
-
+    pub fn try_frontier_query(&mut self, state: &mut QueryTracker) -> Option<AscPullQuerySpec> {
         if state.running_queries.len() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -166,7 +161,7 @@ impl QueryFactory {
         }
         let channel = self.acquire_channel(state)?;
 
-        let start = self.frontiers_processor.next(now);
+        let start = self.frontiers_processor.next();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
             state.scoring.add_query(channel.channel_id());
@@ -177,7 +172,7 @@ impl QueryFactory {
         }
     }
 
-    fn acquire_channel(&mut self, state: &mut BootstrapLogic) -> Option<Arc<Channel>> {
+    fn acquire_channel(&mut self, state: &mut QueryTracker) -> Option<Arc<Channel>> {
         let network = self.network.read().unwrap();
         let candidate_channels: Vec<_> = network
             .available_channels(TrafficType::BootstrapRequests)

@@ -10,8 +10,8 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use crate::{
     bootstrap::bootstrapper::{
-        query_tracker::{BootstrapLogic, RunningQuery},
         AscPullQuerySpec,
+        query_tracker::{QueryTracker, RunningQuery},
     },
     transport::MessageSender,
 };
@@ -44,7 +44,7 @@ impl QuerySender {
         self.request_timeout = timeout;
     }
 
-    pub fn send(&mut self, spec: AscPullQuerySpec, state: &mut BootstrapLogic) -> bool {
+    pub fn send(&mut self, spec: AscPullQuerySpec, state: &mut QueryTracker) -> bool {
         if self.send_listener.is_tracked() {
             self.send_listener.emit(spec.clone());
         }
@@ -183,8 +183,8 @@ mod tests {
         }
     }
 
-    fn create_logic() -> BootstrapLogic {
-        BootstrapLogic::new(Default::default())
+    fn create_logic() -> QueryTracker {
+        QueryTracker::new(Default::default())
     }
 
     struct Fixture {

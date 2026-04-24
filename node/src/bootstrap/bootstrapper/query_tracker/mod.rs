@@ -15,13 +15,14 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::BootstrapConfig;
 
-pub(crate) struct BootstrapLogic {
+/// Keeps track of all currently running bootstrap queries
+pub(crate) struct QueryTracker {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
 }
 
-impl BootstrapLogic {
+impl QueryTracker {
     pub fn new(config: BootstrapConfig) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
@@ -52,7 +53,7 @@ impl BootstrapLogic {
     }
 }
 
-impl ContainerInfoProvider for BootstrapLogic {
+impl ContainerInfoProvider for QueryTracker {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf(

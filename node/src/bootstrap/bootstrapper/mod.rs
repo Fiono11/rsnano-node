@@ -14,7 +14,7 @@ pub use bootstrap_queue::{
 };
 
 use std::{
-    sync::{atomic::Ordering::Relaxed, Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Condvar, Mutex, RwLock, atomic::Ordering::Relaxed},
     thread::JoinHandle,
     time::Duration,
 };
@@ -28,13 +28,14 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::frontier_scan::frontiers_processor,
     transport::MessageSender,
 };
 use block_inspector::BlockInspector;
@@ -42,7 +43,7 @@ use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
 use cleanup::BootstrapCleanup;
 use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats};
-use query_tracker::{BootstrapLogic, ProcessError, QueryType};
+use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
 
@@ -140,7 +141,7 @@ impl Default for BootstrapConfig {
 pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
-    logic: Arc<Mutex<BootstrapLogic>>,
+    logic: Arc<Mutex<QueryTracker>>,
     bootstrap_queue: Arc<BootstrapQueue>,
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
@@ -166,14 +167,43 @@ impl Bootstrapper {
         message_sender: MessageSender,
         config: BootstrapConfig,
     ) -> Self {
+        let frontiers_processor = FrontiersProcessor::new(config.frontier_scan.clone());
+        let bootstrap_queue = BootstrapQueue::new(config.bootstrap_queue.clone());
         Self::new_impl(
             block_processor_queue,
             ledger,
             stats,
             network,
+            frontiers_processor,
+            bootstrap_queue,
             message_sender,
             config,
             Arc::new(SteadyClock::default()),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn new_null() -> Self {
+        let block_processor_queue = Arc::new(BlockProcessorQueue::default());
+        let ledger = Arc::new(Ledger::new_null());
+        let stats = Arc::new(Stats::default());
+        let network = Arc::new(RwLock::new(Network::new_test_instance()));
+        let message_sender = MessageSender::new_null();
+        let config = BootstrapConfig::default();
+        let clock = Arc::new(SteadyClock::new_null());
+        let frontiers_processor = FrontiersProcessor::new_null();
+        let bootstrap_queue = BootstrapQueue::new_null();
+
+        Self::new_impl(
+            block_processor_queue,
+            ledger,
+            stats,
+            network,
+            frontiers_processor,
+            bootstrap_queue,
+            message_sender,
+            config,
+            clock,
         )
     }
 
@@ -182,14 +212,16 @@ impl Bootstrapper {
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
+        frontiers_processor: FrontiersProcessor,
+        bootstrap_queue: BootstrapQueue,
         message_sender: MessageSender,
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
+        let frontiers_processor = Arc::new(frontiers_processor);
+        let bootstrap_queue = Arc::new(bootstrap_queue);
         let frontier_stats = Arc::new(FrontierScanStats::default());
-        let frontiers_processor = Arc::new(FrontiersProcessor::new(config.frontier_scan.clone()));
-        let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
+        let logic = Arc::new(Mutex::new(QueryTracker::new(config.clone())));
         let state_changed = Arc::new(Condvar::new());
 
         let mut response_handler = ResponseProcessor::new(
@@ -237,26 +269,6 @@ impl Bootstrapper {
             frontier_stats,
             frontiers_processor,
         }
-    }
-
-    pub fn new_null() -> Self {
-        let block_processor_queue = Arc::new(BlockProcessorQueue::default());
-        let ledger = Arc::new(Ledger::new_null());
-        let stats = Arc::new(Stats::default());
-        let network = Arc::new(RwLock::new(Network::new_test_instance()));
-        let message_sender = MessageSender::new_null();
-        let config = BootstrapConfig::default();
-        let clock = Arc::new(SteadyClock::new_null());
-
-        Self::new_impl(
-            block_processor_queue,
-            ledger,
-            stats,
-            network,
-            message_sender,
-            config,
-            clock,
-        )
     }
 
     pub fn stop(&self) {
