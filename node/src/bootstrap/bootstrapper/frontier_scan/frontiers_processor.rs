@@ -5,8 +5,12 @@ use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::bootstrap::bootstrapper::{
-    frontier_scan::coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
-    logic::{RunningQuery, VerifyResult},
+    frontier_scan::{
+        VerifyResult,
+        coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
+        verify_frontiers,
+    },
+    logic::RunningQuery,
 };
 
 pub(crate) struct FrontiersProcessor {
@@ -99,7 +103,7 @@ impl FrontiersProcessorLogic {
         query: &RunningQuery,
         frontiers: Vec<Frontier>,
     ) -> VerifyResult {
-        let result = query.verify_frontiers(&frontiers);
+        let result = verify_frontiers(query, &frontiers);
         if result == VerifyResult::Ok {
             self.frontier_scan.process(query.start.into(), &frontiers);
             self.frontiers_to_check.push_back(frontiers);

@@ -494,3 +494,10 @@ pub struct FrontierScanSnapshot {
     pub heads: Vec<FrontierHeadInfo>,
     pub last_outdated_accounts: Vec<Account>,
 }
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum VerifyResult {
+    Ok,
+    NothingNew,
+    Invalid,
+}

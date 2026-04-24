@@ -15,13 +15,6 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::BootstrapConfig;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub(crate) enum VerifyResult {
-    Ok,
-    NothingNew,
-    Invalid,
-}
-
 pub(crate) struct BootstrapLogic {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,

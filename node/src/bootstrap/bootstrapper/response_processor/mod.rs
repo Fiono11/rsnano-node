@@ -21,9 +21,10 @@ use super::logic::BootstrapLogic;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
+        VerifyResult,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
-        logic::{ProcessError, ProcessInfo, RunningQuery, VerifyResult},
+        logic::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,

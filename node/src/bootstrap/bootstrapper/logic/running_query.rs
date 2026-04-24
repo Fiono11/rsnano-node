@@ -2,12 +2,10 @@ use std::time::Duration;
 
 use rsnano_messages::{AscPullAck, AscPullAckType, AscPullReqType, BlocksAckPayload, HashType};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, BlockHash, Frontier, HashOrAccount};
+use rsnano_types::{Account, BlockHash, HashOrAccount};
 use rsnano_utils::stats::DetailType;
 
-use crate::bootstrap::bootstrapper::AscPullQuerySpec;
-
-use super::VerifyResult;
+use crate::bootstrap::bootstrapper::{AscPullQuerySpec, VerifyResult};
 
 #[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
 pub enum QueryType {
@@ -124,39 +122,6 @@ impl RunningQuery {
             AscPullAckType::AccountInfo(_) => self.query_type == QueryType::AccountInfoByHash,
             AscPullAckType::Frontiers(_) => self.query_type == QueryType::Frontiers,
         }
-    }
-
-    pub fn verify_frontiers(&self, frontiers: &[Frontier]) -> VerifyResult {
-        if self.query_type != QueryType::Frontiers {
-            return VerifyResult::Invalid;
-        }
-
-        if frontiers.is_empty() {
-            return VerifyResult::NothingNew;
-        }
-
-        if !Self::are_accounts_in_ascending_order(frontiers) {
-            return VerifyResult::Invalid;
-        }
-
-        // Ensure the frontiers are larger or equal to the requested frontier
-        if frontiers[0].account.number() < self.start.number() {
-            return VerifyResult::Invalid;
-        }
-
-        VerifyResult::Ok
-    }
-
-    fn are_accounts_in_ascending_order(frontiers: &[Frontier]) -> bool {
-        let mut previous = &Account::ZERO;
-        for f in frontiers {
-            if f.account.number() <= previous.number() {
-                return false;
-            }
-            previous = &f.account;
-        }
-
-        true
     }
 
     /// Verifies whether the received response is valid. Returns:
@@ -403,88 +368,6 @@ mod tests {
 
         let response = AscPullAck { id: 1, pull_type };
         assert_eq!(query.is_valid_response_type(&response), valid);
-    }
-
-    mod verify_frontiers {
-        use super::*;
-
-        #[test]
-        fn empty_frontiers() {
-            let query = RunningQuery {
-                query_type: QueryType::Frontiers,
-                ..RunningQuery::new_test_instance()
-            };
-
-            assert_eq!(query.verify_frontiers(&[]), VerifyResult::NothingNew);
-        }
-
-        #[test]
-        fn valid_frontiers() {
-            let query = RunningQuery {
-                query_type: QueryType::Frontiers,
-                start: 1.into(),
-                ..RunningQuery::new_test_instance()
-            };
-
-            assert_eq!(
-                query.verify_frontiers(&[
-                    Frontier::new(1.into(), 100.into()),
-                    Frontier::new(2.into(), 200.into()),
-                    Frontier::new(4.into(), 400.into()),
-                ]),
-                VerifyResult::Ok
-            );
-        }
-
-        mod error_cases {
-            use super::*;
-
-            #[test]
-            fn invalid_query_type() {
-                let query = RunningQuery {
-                    query_type: QueryType::BlocksByHash, // invalid!
-                    ..RunningQuery::new_test_instance()
-                };
-
-                assert_eq!(query.verify_frontiers(&[]), VerifyResult::Invalid);
-            }
-
-            #[test]
-            fn accounts_not_in_order() {
-                let query = RunningQuery {
-                    query_type: QueryType::Frontiers,
-                    start: 1.into(),
-                    ..RunningQuery::new_test_instance()
-                };
-
-                assert_eq!(
-                    query.verify_frontiers(&[
-                        Frontier::new(2.into(), 200.into()), // out of order!
-                        Frontier::new(1.into(), 100.into()),
-                        Frontier::new(4.into(), 400.into()),
-                    ]),
-                    VerifyResult::Invalid
-                );
-            }
-
-            #[test]
-            fn accounts_lower_than_requested() {
-                let query = RunningQuery {
-                    query_type: QueryType::Frontiers,
-                    start: 2.into(),
-                    ..RunningQuery::new_test_instance()
-                };
-
-                assert_eq!(
-                    query.verify_frontiers(&[
-                        Frontier::new(1.into(), 100.into()), // too low!
-                        Frontier::new(2.into(), 200.into()),
-                        Frontier::new(4.into(), 400.into()),
-                    ]),
-                    VerifyResult::Invalid
-                );
-            }
-        }
     }
 
     mod verify_blocks {

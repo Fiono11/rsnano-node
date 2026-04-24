@@ -10,8 +10,9 @@ use rsnano_messages::BlocksAckPayload;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use crate::bootstrap::bootstrapper::{
+    VerifyResult,
     bootstrap_queue::BootstrapQueue,
-    logic::{QueryType, RunningQuery, VerifyResult},
+    logic::{QueryType, RunningQuery},
 };
 
 pub(crate) struct BlockAckProcessor {
