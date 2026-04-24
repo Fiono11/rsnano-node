@@ -10,10 +10,7 @@ use rsnano_utils::stats::Stats;
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig,
-        bootstrap_queue::BootstrapQueue,
-        logic::BootstrapLogic,
-        requesters::{query_sender::QuerySender, query_spec_factory::QuerySpecFactory},
+        BootstrapConfig, bootstrap_queue::BootstrapQueue, logic::BootstrapLogic, requesters::{query_sender::QuerySender, query_factory::QueryFactory}
     },
     transport::MessageSender,
 };
@@ -25,7 +22,7 @@ pub(super) struct RequesterLoop {
     state_changed: Arc<Condvar>,
     config: BootstrapConfig,
     query_sender: QuerySender,
-    query_spec_factory: QuerySpecFactory,
+    query_spec_factory: QueryFactory,
     bootstrap_queue: Arc<BootstrapQueue>,
     stats: Arc<BootstrapRequesterStats>,
 }
@@ -54,7 +51,7 @@ impl RequesterLoop {
             config: config.clone(),
             query_sender,
             stats: stats2.clone(),
-            query_spec_factory: QuerySpecFactory::new(
+            query_spec_factory: QueryFactory::new(
                 config,
                 stats2,
                 network,

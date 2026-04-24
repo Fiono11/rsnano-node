@@ -1,6 +1,7 @@
-mod priority;
+mod pull_count_decider;
+mod pull_type_decider;
+mod query_factory;
 mod query_sender;
-mod query_spec_factory;
 mod requester_loop;
 mod stats;
 
@@ -16,13 +17,15 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
         logic::BootstrapLogic,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
+        BootstrapConfig,
     },
     transport::MessageSender,
 };
+pub(crate) use pull_count_decider::PullCountDecider;
+pub(crate) use pull_type_decider::{PullType, PullTypeDecider};
 
 /// Manages the threads that send out AscPullReqs
 pub(crate) struct Requesters {

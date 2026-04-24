@@ -4,7 +4,7 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap};
 
 /// A blocked account is an account that has failed to insert a new block because the source block is not currently present in the ledger
 /// An account is unblocked once it has a block successfully inserted
