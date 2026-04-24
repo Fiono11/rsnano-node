@@ -13,8 +13,6 @@ pub(crate) struct RunningQueryContainer {
     sequenced: VecDeque<u64>,
 }
 
-static EMPTY_IDS: Vec<u64> = Vec::new();
-
 impl RunningQueryContainer {
     pub const ELEMENT_SIZE: usize =
         size_of::<RunningQuery>() + size_of::<Account>() + size_of::<u64>() * 3;
@@ -31,15 +29,6 @@ impl RunningQueryContainer {
     #[cfg(test)]
     pub fn get(&self, id: u64) -> Option<&RunningQuery> {
         self.by_id.get(&id)
-    }
-
-    pub fn iter_hash(&self, hash: &BlockHash) -> impl Iterator<Item = &RunningQuery> + use<'_> {
-        self.iter_ids(self.by_hash.get(hash))
-    }
-
-    fn iter_ids<'a>(&'a self, ids: Option<&'a Vec<u64>>) -> impl Iterator<Item = &'a RunningQuery> {
-        let ids = ids.unwrap_or(&EMPTY_IDS);
-        ids.iter().map(|id| self.by_id.get(id).unwrap())
     }
 
     pub fn remove(&mut self, id: u64) -> Option<RunningQuery> {
@@ -133,7 +122,6 @@ mod tests {
         assert_eq!(container.len(), 0);
         assert_eq!(container.contains(123), false);
         assert_eq!(container.get(123), None);
-        assert_eq!(container.iter_hash(&BlockHash::from(1)).next(), None);
         assert_eq!(container.front(), None);
         assert_eq!(container.pop_front(), None);
     }
@@ -149,13 +137,6 @@ mod tests {
         assert_eq!(container.contains(query.id), true);
         assert_eq!(container.get(query.id), Some(&query));
         assert_eq!(container.front(), Some(&query));
-        assert_eq!(
-            container
-                .iter_hash(&query.hash)
-                .cloned()
-                .collect::<Vec<_>>(),
-            vec![query.clone()]
-        );
     }
 
     #[test]
@@ -228,10 +209,6 @@ mod tests {
         container.remove(query_a.id);
 
         assert_eq!(container.len(), 1);
-        assert_eq!(
-            container.iter_hash(&query_b.hash).collect::<Vec<_>>(),
-            vec![&query_b]
-        )
     }
 
     #[test]

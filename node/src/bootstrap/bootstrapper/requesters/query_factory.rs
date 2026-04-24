@@ -14,7 +14,7 @@ use crate::{
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        logic::BootstrapLogic,
+        logic::{BootstrapLogic, frontiers_processor::FrontiersProcessor},
         requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
     },
 };
@@ -32,6 +32,7 @@ pub(crate) struct QueryFactory {
     pull_type_decider: PullTypeDecider,
     pull_count_decider: PullCountDecider,
     ledger: Arc<Ledger>,
+    frontiers_processor: Arc<FrontiersProcessor>,
 }
 
 impl QueryFactory {
@@ -42,6 +43,7 @@ impl QueryFactory {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
+        frontiers_processor: Arc<FrontiersProcessor>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
@@ -59,6 +61,7 @@ impl QueryFactory {
             pull_count_decider,
             pull_type_decider,
             ledger,
+            frontiers_processor,
         }
     }
 
@@ -157,12 +160,12 @@ impl QueryFactory {
             return None;
         }
 
-        if state.frontiers_processor.frontier_checker_overfill() {
+        if self.frontiers_processor.frontier_checker_overfill() {
             return None;
         }
         let channel = self.acquire_channel(state)?;
 
-        let start = state.frontiers_processor.next(now);
+        let start = self.frontiers_processor.next(now);
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
             state.scoring.add_query(channel.channel_id());

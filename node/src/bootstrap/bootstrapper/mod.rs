@@ -35,7 +35,10 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::{bootstrap_queue::Priority, frontier_scan::stats::FrontierScanStats},
+    bootstrap::bootstrapper::{
+        bootstrap_queue::Priority, frontier_scan::stats::FrontierScanStats,
+        logic::frontiers_processor::FrontiersProcessor,
+    },
     transport::MessageSender,
 };
 
@@ -150,6 +153,7 @@ pub struct Bootstrapper {
     requesters: Requesters,
     ledger: Arc<Ledger>,
     frontier_stats: Arc<FrontierScanStats>,
+    frontiers_processor: Arc<FrontiersProcessor>,
 }
 
 struct Threads {
@@ -187,6 +191,7 @@ impl Bootstrapper {
     ) -> Self {
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
         let frontier_stats = Arc::new(FrontierScanStats::default());
+        let frontiers_processor = Arc::new(FrontiersProcessor::new(config.frontier_scan.clone()));
         let logic = Arc::new(Mutex::new(BootstrapLogic::new(config.clone())));
         let state_changed = Arc::new(Condvar::new());
 
@@ -197,6 +202,7 @@ impl Bootstrapper {
             block_processor_queue.clone(),
             ledger.clone(),
             frontier_stats.clone(),
+            frontiers_processor.clone(),
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
@@ -216,6 +222,7 @@ impl Bootstrapper {
             block_processor_queue,
             bootstrap_queue.clone(),
             network,
+            frontiers_processor.clone(),
         );
 
         Self {
@@ -231,6 +238,7 @@ impl Bootstrapper {
             ledger,
             bootstrap_queue,
             frontier_stats,
+            frontiers_processor,
         }
     }
 
@@ -373,7 +381,7 @@ impl Bootstrapper {
             cleanup.cleanup(&mut logic);
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
-                cleanup.reinsert_known_dependencies(&mut logic);
+                cleanup.reinsert_known_dependencies();
                 last_sync = self.clock.now();
             }
 
@@ -399,7 +407,7 @@ impl Bootstrapper {
         FrontierScanSnapshot {
             processed_frontiers: self.frontier_stats.processed_frontiers.load(Relaxed),
             outdated_accounts_found: self.frontier_stats.outdated_accounts_found.load(Relaxed),
-            heads: self.logic.lock().unwrap().frontiers_processor.heads(),
+            heads: self.frontiers_processor.heads(),
             last_outdated_accounts: self.frontier_stats.last_outdated_found(),
         }
     }
@@ -417,6 +425,7 @@ impl ContainerInfoProvider for Bootstrapper {
         ContainerInfo::builder()
             .node("logic", self.logic.lock().unwrap().container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
+            .node("frontiers", self.frontiers_processor.container_info())
             .finish()
     }
 }

@@ -19,7 +19,7 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        logic::BootstrapLogic,
+        logic::{BootstrapLogic, frontiers_processor::FrontiersProcessor},
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
     },
     transport::MessageSender,
@@ -40,6 +40,7 @@ pub(crate) struct Requesters {
     bootstrap_queue: Arc<BootstrapQueue>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
+    frontiers_processor: Arc<FrontiersProcessor>,
 }
 
 impl Requesters {
@@ -53,6 +54,7 @@ impl Requesters {
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
+        frontiers_processor: Arc<FrontiersProcessor>,
     ) -> Self {
         Self {
             config,
@@ -66,6 +68,7 @@ impl Requesters {
             network,
             thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
+            frontiers_processor,
         }
     }
 
@@ -87,6 +90,7 @@ impl Requesters {
             self.ledger.clone(),
             self.block_processor_queue.clone(),
             self.bootstrap_queue.clone(),
+            self.frontiers_processor.clone(),
         );
         let join_handle = std::thread::Builder::new()
             .name("Bootstrap".to_string())

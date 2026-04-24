@@ -1,11 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
 use crate::bootstrap::bootstrapper::{
     bootstrap_queue::BootstrapQueue, frontier_scan::stats::FrontierScanStats,
-    logic::BootstrapLogic, response_processor::frontier_worker::FrontierWorker,
+    logic::frontiers_processor::FrontiersProcessor,
+    response_processor::frontier_worker::FrontierWorker,
 };
 
 pub(crate) struct FrontierCheckPool {
@@ -13,6 +14,7 @@ pub(crate) struct FrontierCheckPool {
     stats2: Arc<FrontierScanStats>,
     ledger: Arc<Ledger>,
     workers: Arc<ThreadPool>,
+    frontiers_processor: Arc<FrontiersProcessor>,
     bootstrap_queue: Arc<BootstrapQueue>,
     pub max_pending: usize,
 }
@@ -23,6 +25,7 @@ impl FrontierCheckPool {
         stats2: Arc<FrontierScanStats>,
         ledger: Arc<Ledger>,
         bootstrap_queue: Arc<BootstrapQueue>,
+        frontiers_processor: Arc<FrontiersProcessor>,
     ) -> Self {
         let workers = Arc::new(ThreadPool::new(1, "Bootstrap work"));
         Self {
@@ -31,12 +34,13 @@ impl FrontierCheckPool {
             ledger,
             workers,
             bootstrap_queue,
+            frontiers_processor,
             max_pending: 16,
         }
     }
 
-    pub(crate) fn enqueue_frontiers(&self, logic: &mut BootstrapLogic) {
-        while let Some(frontiers) = logic.frontiers_processor.pop_frontiers_to_check() {
+    pub(crate) fn enqueue_frontiers(&self) {
+        while let Some(frontiers) = self.frontiers_processor.pop_frontiers_to_check() {
             let ledger = self.ledger.clone();
             let stats = self.stats.clone();
             let stats2 = self.stats2.clone();
@@ -48,8 +52,7 @@ impl FrontierCheckPool {
             });
         }
         let queued_tasks = self.workers.queued_count();
-        logic
-            .frontiers_processor
+        self.frontiers_processor
             .set_frontier_checker_overfill(queued_tasks >= self.max_pending);
     }
 }

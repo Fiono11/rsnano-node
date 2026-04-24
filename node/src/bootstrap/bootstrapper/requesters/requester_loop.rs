@@ -12,7 +12,10 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        logic::BootstrapLogic,
+        logic::{
+            BootstrapLogic,
+            frontiers_processor::{self, FrontiersProcessor},
+        },
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
     },
     transport::MessageSender,
@@ -44,6 +47,7 @@ impl RequesterLoop {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
+        frontiers_processor: Arc<FrontiersProcessor>,
     ) -> Self {
         let mut query_sender = QuerySender::new(message_sender, stats.clone());
         query_sender.set_request_timeout(config.request_timeout);
@@ -61,6 +65,7 @@ impl RequesterLoop {
                 ledger,
                 block_processor_queue,
                 bootstrap_queue.clone(),
+                frontiers_processor,
             ),
             bootstrap_queue,
         }

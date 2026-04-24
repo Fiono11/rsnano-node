@@ -23,7 +23,10 @@ use crate::{
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
         frontier_scan::stats::FrontierScanStats,
-        logic::{ProcessError, ProcessInfo, RunningQuery, VerifyResult},
+        logic::{
+            ProcessError, ProcessInfo, RunningQuery, VerifyResult,
+            frontiers_processor::FrontiersProcessor,
+        },
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
             frontier_check_pool::FrontierCheckPool,
@@ -42,6 +45,7 @@ pub(crate) struct ResponseProcessor {
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
     frontier_stats: Arc<FrontierScanStats>,
+    frontiers_processor: Arc<FrontiersProcessor>,
 }
 
 impl ResponseProcessor {
@@ -52,12 +56,14 @@ impl ResponseProcessor {
         block_queue: Arc<BlockProcessorQueue>,
         ledger: Arc<Ledger>,
         frontier_stats: Arc<FrontierScanStats>,
+        frontiers_processor: Arc<FrontiersProcessor>,
     ) -> Self {
         let frontier_check_pool = FrontierCheckPool::new(
             stats.clone(),
             frontier_stats.clone(),
             ledger,
             bootstrap_queue.clone(),
+            frontiers_processor.clone(),
         );
 
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
@@ -74,6 +80,7 @@ impl ResponseProcessor {
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
             frontier_stats,
+            frontiers_processor,
         }
     }
 
@@ -89,14 +96,18 @@ impl ResponseProcessor {
     ) -> Result<ProcessInfo, ProcessError> {
         trace!(query_id = response.id, ?channel_id, "Process response");
 
-        let mut logic = self.logic.lock().unwrap();
-        let query = logic.take_running_query_for(&response, channel_id)?;
+        let query = self
+            .logic
+            .lock()
+            .unwrap()
+            .take_running_query_for(&response, channel_id)?;
+
         let process_info = self
-            .process_response_for_query(&query, response, &mut logic)
+            .process_response_for_query(&query, response)
             .map(|_| ProcessInfo::new(&query, now))?;
 
         self.enqueue_next_blocks();
-        self.frontier_check_pool.enqueue_frontiers(&mut logic);
+        self.frontier_check_pool.enqueue_frontiers();
         Ok(process_info)
     }
 
@@ -104,7 +115,6 @@ impl ResponseProcessor {
         &self,
         query: &RunningQuery,
         response: AscPullAck,
-        logic: &mut BootstrapLogic,
     ) -> Result<(), ProcessError> {
         let ok = match response.pull_type {
             AscPullAckType::Blocks(blocks) => {
@@ -117,7 +127,7 @@ impl ResponseProcessor {
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
-                match logic.frontiers_processor.process(query, frontiers) {
+                match self.frontiers_processor.process(query, frontiers) {
                     VerifyResult::Ok => {
                         self.frontier_stats.verified.fetch_add(1, Relaxed);
                         true

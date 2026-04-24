@@ -20,7 +20,6 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::BootstrapConfig;
-use frontiers_processor::FrontiersProcessor;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub(crate) enum VerifyResult {
@@ -33,7 +32,6 @@ pub(crate) struct BootstrapLogic {
     pub(crate) scoring: PeerScoring,
     pub(crate) running_queries: RunningQueryContainer,
     pub(crate) stopped: bool,
-    pub frontiers_processor: FrontiersProcessor,
 }
 
 impl BootstrapLogic {
@@ -44,7 +42,6 @@ impl BootstrapLogic {
             scoring,
             running_queries: RunningQueryContainer::default(),
             stopped: false,
-            frontiers_processor: FrontiersProcessor::new(config.frontier_scan.clone()),
         }
     }
 
@@ -76,7 +73,6 @@ impl ContainerInfoProvider for BootstrapLogic {
                 self.running_queries.len(),
                 RunningQueryContainer::ELEMENT_SIZE,
             )
-            .node("frontiers", self.frontiers_processor.container_info())
             .node("peers", self.scoring.container_info())
             .finish()
     }

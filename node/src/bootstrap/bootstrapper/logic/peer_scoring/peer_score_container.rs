@@ -12,11 +12,12 @@ impl PeerScoreContainer {
         self.by_channel.len()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn get(&self, channel_id: ChannelId) -> Option<&PeerScore> {
         self.by_channel.get(&channel_id)
     }
 
+    #[cfg(test)]
     pub fn insert(&mut self, score: PeerScore) -> Option<PeerScore> {
         self.by_channel.insert(score.channel_id, score)
     }

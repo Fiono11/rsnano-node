@@ -48,7 +48,7 @@ impl BootstrapCleanup {
         }
     }
 
-    pub fn reinsert_known_dependencies(&mut self, state: &mut BootstrapLogic) {
+    pub fn reinsert_known_dependencies(&self) {
         self.bootstrap_queue.sync_dependencies();
     }
 }
