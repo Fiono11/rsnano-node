@@ -98,12 +98,7 @@ impl QuerySender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        bootstrap::bootstrapper::{
-            bootstrap_queue::BootstrapQueue, frontier_scan::stats::FrontierScanStats,
-        },
-        transport::SendEvent,
-    };
+    use crate::{bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue, transport::SendEvent};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_output_tracker::OutputTrackerMt;
 
@@ -189,8 +184,7 @@ mod tests {
     }
 
     fn create_logic() -> BootstrapLogic {
-        let stats = Arc::new(FrontierScanStats::default());
-        BootstrapLogic::new(Default::default(), stats)
+        BootstrapLogic::new(Default::default())
     }
 
     struct Fixture {
