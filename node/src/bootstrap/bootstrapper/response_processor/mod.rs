@@ -1,4 +1,5 @@
 mod account_ack_processor;
+mod block_ack_processor;
 mod database_crawler;
 mod frontier_check_pool;
 mod frontier_checker;
@@ -23,7 +24,8 @@ use crate::{
         bootstrap_queue::BootstrapQueue,
         logic::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
-            account_ack_processor::AccountAckProcessor, frontier_check_pool::FrontierCheckPool,
+            account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
+            frontier_check_pool::FrontierCheckPool,
         },
     },
 };
@@ -34,6 +36,7 @@ pub(crate) struct ResponseProcessor {
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
     account_ack_processor: AccountAckProcessor,
+    block_ack_processor: BlockAckProcessor,
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
@@ -55,6 +58,7 @@ impl ResponseProcessor {
         );
 
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
+        let block_ack_processor = BlockAckProcessor::new(bootstrap_queue.clone());
 
         Self {
             logic,
@@ -62,6 +66,7 @@ impl ResponseProcessor {
             block_proc_queue: block_queue,
             bootstrap_queue,
             account_ack_processor,
+            block_ack_processor,
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
@@ -100,9 +105,7 @@ impl ResponseProcessor {
         let ok = match response.pull_type {
             AscPullAckType::Blocks(blocks) => {
                 self.response_blocks.fetch_add(1, Relaxed);
-                logic
-                    .block_ack_processor
-                    .process(&self.bootstrap_queue, query, blocks)
+                self.block_ack_processor.process(query, blocks)
             }
             AscPullAckType::AccountInfo(info) => {
                 self.response_account.fetch_add(1, Relaxed);
@@ -162,5 +165,6 @@ impl StatsSource for ResponseProcessor {
             self.response_frontiers.load(Relaxed),
         );
         self.account_ack_processor.collect_stats(result);
+        self.block_ack_processor.collect_stats(result);
     }
 }

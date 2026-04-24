@@ -108,7 +108,6 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
-        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let mut state = BootstrapLogic::new(Default::default());
 
         let sent = fixture.query_sender.send(spec, &mut state);
@@ -161,7 +160,6 @@ mod tests {
     fn can_track_sends() {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
-        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let mut state = BootstrapLogic::new(Default::default());
 
         let tracker = fixture.query_sender.track();
