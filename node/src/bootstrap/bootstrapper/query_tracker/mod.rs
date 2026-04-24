@@ -22,7 +22,7 @@ use super::BootstrapConfig;
 pub(crate) struct QueryTracker {
     stats: Arc<Stats>,
     scoring: PeerScoring,
-    pub(crate) running_queries: RunningQueryContainer,
+    running_queries: RunningQueryContainer,
 }
 
 impl QueryTracker {
@@ -42,6 +42,15 @@ impl QueryTracker {
 
     pub fn find_channel(&mut self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
         self.scoring.channel(candidates)
+    }
+
+    pub fn insert(&mut self, query: RunningQuery) {
+        self.running_queries.insert(query);
+    }
+
+    #[cfg(test)]
+    pub fn front(&self) -> Option<RunningQuery> {
+        self.running_queries.front().cloned()
     }
 
     pub fn take_running_query_for(
@@ -66,6 +75,10 @@ impl QueryTracker {
     pub fn timeout(&mut self, now: Timestamp) {
         self.scoring.decay();
         self.erase_timed_out_requests(now);
+    }
+
+    pub fn query_count(&self) -> usize {
+        self.running_queries.len()
     }
 
     fn erase_timed_out_requests(&mut self, now: Timestamp) {

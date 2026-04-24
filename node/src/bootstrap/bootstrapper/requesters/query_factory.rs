@@ -67,7 +67,7 @@ impl QueryFactory {
         &mut self,
         query_tracker: &mut QueryTracker,
     ) -> Option<AscPullQuerySpec> {
-        if query_tracker.running_queries.len() >= self.config.max_requests {
+        if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
         }
@@ -118,7 +118,7 @@ impl QueryFactory {
         &mut self,
         query_tracker: &mut QueryTracker,
     ) -> Option<AscPullQuerySpec> {
-        if query_tracker.running_queries.len() >= self.config.max_requests {
+        if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
         }
@@ -153,7 +153,7 @@ impl QueryFactory {
         &mut self,
         query_tracker: &mut QueryTracker,
     ) -> Option<AscPullQuerySpec> {
-        if query_tracker.running_queries.len() >= self.config.max_requests {
+        if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
         }
