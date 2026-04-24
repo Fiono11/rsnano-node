@@ -63,10 +63,7 @@ impl QueryFactory {
         }
     }
 
-    pub fn try_blocks_query(
-        &mut self,
-        query_tracker: &mut QueryTracker,
-    ) -> Option<AscPullQuerySpec> {
+    pub fn try_blocks_query(&mut self, query_tracker: &QueryTracker) -> Option<AscPullQuerySpec> {
         if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -116,7 +113,7 @@ impl QueryFactory {
 
     pub fn try_dependency_query(
         &mut self,
-        query_tracker: &mut QueryTracker,
+        query_tracker: &QueryTracker,
     ) -> Option<AscPullQuerySpec> {
         if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
@@ -149,10 +146,7 @@ impl QueryFactory {
         Some(spec)
     }
 
-    pub fn try_frontier_query(
-        &mut self,
-        query_tracker: &mut QueryTracker,
-    ) -> Option<AscPullQuerySpec> {
+    pub fn try_frontier_query(&mut self, query_tracker: &QueryTracker) -> Option<AscPullQuerySpec> {
         if query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
@@ -181,7 +175,7 @@ impl QueryFactory {
         }
     }
 
-    fn acquire_channel(&mut self, query_tracker: &mut QueryTracker) -> Option<Arc<Channel>> {
+    fn acquire_channel(&mut self, query_tracker: &QueryTracker) -> Option<Arc<Channel>> {
         let network = self.network.read().unwrap();
         let candidate_channels: Vec<_> = network
             .available_channels(TrafficType::BootstrapRequests)

@@ -6,7 +6,10 @@ pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
@@ -20,12 +23,73 @@ use super::BootstrapConfig;
 
 /// Keeps track of all currently running bootstrap queries
 pub(crate) struct QueryTracker {
+    logic: Mutex<QueryTrackerLogic>,
+}
+
+impl QueryTracker {
+    pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
+        Self {
+            logic: Mutex::new(QueryTrackerLogic::new(config, stats)),
+        }
+    }
+
+    pub fn add_query_for_channel(&self, channel_id: ChannelId) {
+        self.logic.lock().unwrap().add_query_for_channel(channel_id);
+    }
+
+    pub fn find_channel(&self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
+        self.logic.lock().unwrap().find_channel(candidates)
+    }
+
+    pub fn insert(&self, query: RunningQuery) {
+        self.logic.lock().unwrap().insert(query);
+    }
+
+    #[cfg(test)]
+    pub fn front(&self) -> Option<RunningQuery> {
+        self.logic.lock().unwrap().front()
+    }
+
+    pub fn take_running_query_for(
+        &self,
+        response: &AscPullAck,
+        channel_id: ChannelId,
+    ) -> Result<RunningQuery, ProcessError> {
+        self.logic
+            .lock()
+            .unwrap()
+            .take_running_query_for(response, channel_id)
+    }
+
+    pub fn timeout(&self, now: Timestamp) {
+        self.logic.lock().unwrap().timeout(now);
+    }
+
+    pub fn query_count(&self) -> usize {
+        self.logic.lock().unwrap().query_count()
+    }
+
+    pub fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
+        self.logic
+            .lock()
+            .unwrap()
+            .clean_up_dead_channels(dead_channel_ids);
+    }
+}
+
+impl ContainerInfoProvider for QueryTracker {
+    fn container_info(&self) -> ContainerInfo {
+        self.logic.lock().unwrap().container_info()
+    }
+}
+
+pub(crate) struct QueryTrackerLogic {
     stats: Arc<Stats>,
     scoring: PeerScoring,
     running_queries: RunningQueryContainer,
 }
 
-impl QueryTracker {
+impl QueryTrackerLogic {
     pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
         let mut scoring = PeerScoring::new();
         scoring.set_channel_limit(config.channel_limit);
@@ -101,7 +165,7 @@ impl QueryTracker {
     }
 }
 
-impl ContainerInfoProvider for QueryTracker {
+impl ContainerInfoProvider for QueryTrackerLogic {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf(

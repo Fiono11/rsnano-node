@@ -23,7 +23,7 @@ use super::stats::BootstrapRequesterStats;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 
 pub(super) struct RequesterLoop {
-    query_tracker: Arc<Mutex<QueryTracker>>,
+    query_tracker: Arc<QueryTracker>,
     config: BootstrapConfig,
     query_sender: QuerySender,
     query_spec_factory: QueryFactory,
@@ -36,7 +36,7 @@ impl RequesterLoop {
     const THROTTLE_WAIT: Duration = Duration::from_millis(50);
 
     pub(super) fn new(
-        query_tracker: Arc<Mutex<QueryTracker>>,
+        query_tracker: Arc<QueryTracker>,
         config: BootstrapConfig,
         message_sender: MessageSender,
         stats: Arc<Stats>,
@@ -75,23 +75,27 @@ impl RequesterLoop {
         let mut loop_counter = 0;
         let mut last_revision;
         while !stopped.stopped {
-            let mut state = self.query_tracker.lock().unwrap();
             let sent = if self.config.enable_block_requester
-                && let Some(spec) = self.query_spec_factory.try_blocks_query(&mut state)
+                && let Some(spec) = self
+                    .query_spec_factory
+                    .try_blocks_query(&self.query_tracker)
             {
-                self.query_sender.send(spec, &mut state)
+                self.query_sender.send(spec, &self.query_tracker)
             } else if self.config.enable_dependency_walker
-                && let Some(spec) = self.query_spec_factory.try_dependency_query(&mut state)
+                && let Some(spec) = self
+                    .query_spec_factory
+                    .try_dependency_query(&self.query_tracker)
             {
-                self.query_sender.send(spec, &mut state)
+                self.query_sender.send(spec, &self.query_tracker)
             } else if self.config.enable_frontier_scan
-                && let Some(spec) = self.query_spec_factory.try_frontier_query(&mut state)
+                && let Some(spec) = self
+                    .query_spec_factory
+                    .try_frontier_query(&self.query_tracker)
             {
-                self.query_sender.send(spec, &mut state)
+                self.query_sender.send(spec, &self.query_tracker)
             } else {
                 false
             };
-            drop(state);
 
             if !sent {
                 self.stats.sleep.fetch_add(1, Relaxed);

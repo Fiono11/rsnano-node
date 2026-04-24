@@ -6,7 +6,7 @@ mod frontier_checker;
 mod frontier_worker;
 
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicU64, Ordering::Relaxed},
 };
 use tracing::trace;
@@ -33,7 +33,7 @@ use crate::{
 };
 
 pub(crate) struct ResponseProcessor {
-    logic: Arc<Mutex<QueryTracker>>,
+    query_tracker: Arc<QueryTracker>,
     frontier_check_pool: FrontierCheckPool,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
@@ -48,7 +48,7 @@ pub(crate) struct ResponseProcessor {
 
 impl ResponseProcessor {
     pub(crate) fn new(
-        logic: Arc<Mutex<QueryTracker>>,
+        query_tracker: Arc<QueryTracker>,
         bootstrap_queue: Arc<BootstrapQueue>,
         stats: Arc<Stats>,
         block_queue: Arc<BlockProcessorQueue>,
@@ -68,7 +68,7 @@ impl ResponseProcessor {
         let block_ack_processor = BlockAckProcessor::new(bootstrap_queue.clone());
 
         Self {
-            logic,
+            query_tracker,
             frontier_check_pool,
             block_proc_queue: block_queue,
             bootstrap_queue,
@@ -95,9 +95,7 @@ impl ResponseProcessor {
         trace!(query_id = response.id, ?channel_id, "Process response");
 
         let query = self
-            .logic
-            .lock()
-            .unwrap()
+            .query_tracker
             .take_running_query_for(&response, channel_id)?;
 
         let process_info = self

@@ -44,7 +44,7 @@ impl QuerySender {
         self.request_timeout = timeout;
     }
 
-    pub fn send(&mut self, spec: AscPullQuerySpec, query_tracker: &mut QueryTracker) -> bool {
+    pub fn send(&mut self, spec: AscPullQuerySpec, query_tracker: &QueryTracker) -> bool {
         if self.send_listener.is_tracked() {
             self.send_listener.emit(spec.clone());
         }

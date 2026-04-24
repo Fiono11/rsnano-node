@@ -141,7 +141,7 @@ impl Default for BootstrapConfig {
 pub struct Bootstrapper {
     stats: Arc<Stats>,
     threads: Mutex<Option<Threads>>,
-    query_tracker: Arc<Mutex<QueryTracker>>,
+    query_tracker: Arc<QueryTracker>,
     bootstrap_queue: Arc<BootstrapQueue>,
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
@@ -226,10 +226,10 @@ impl Bootstrapper {
         let frontiers_processor = Arc::new(frontiers_processor);
         let bootstrap_queue = Arc::new(bootstrap_queue);
         let frontier_stats = Arc::new(FrontierScanStats::default());
-        let logic = Arc::new(Mutex::new(QueryTracker::new(config.clone(), stats.clone())));
+        let query_tracker = Arc::new(QueryTracker::new(config.clone(), stats.clone()));
 
         let mut response_handler = ResponseProcessor::new(
-            logic.clone(),
+            query_tracker.clone(),
             bootstrap_queue.clone(),
             stats.clone(),
             block_processor_queue.clone(),
@@ -249,7 +249,7 @@ impl Bootstrapper {
             config.clone(),
             stats.clone(),
             message_sender.clone(),
-            logic.clone(),
+            query_tracker.clone(),
             ledger.clone(),
             block_processor_queue,
             bootstrap_queue.clone(),
@@ -259,7 +259,7 @@ impl Bootstrapper {
 
         Self {
             threads: Mutex::new(None),
-            query_tracker: logic,
+            query_tracker,
             config,
             stats,
             clock,
@@ -429,7 +429,7 @@ impl Drop for Bootstrapper {
 impl ContainerInfoProvider for Bootstrapper {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
-            .node("logic", self.query_tracker.lock().unwrap().container_info())
+            .node("query_tracker", self.query_tracker.container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontiers_processor.container_info())
             .finish()
@@ -476,8 +476,6 @@ impl DeadChannelCleanupStep for BootstrapperCleanup {
     fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
         self.0
             .query_tracker
-            .lock()
-            .unwrap()
             .clean_up_dead_channels(dead_channel_ids);
     }
 }
