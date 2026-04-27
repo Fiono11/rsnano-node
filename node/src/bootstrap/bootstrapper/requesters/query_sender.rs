@@ -24,17 +24,28 @@ pub(crate) struct QuerySender {
     request_timeout: Duration,
     stats: Arc<Stats>,
     send_listener: OutputListenerMt<AscPullQuerySpec>,
+    query_tracker: Arc<QueryTracker>,
 }
 
 impl QuerySender {
-    pub(crate) fn new(message_sender: MessageSender, stats: Arc<Stats>) -> Self {
-        Self::new_impl(message_sender, SteadyClock::default(), stats)
+    pub(crate) fn new(
+        message_sender: MessageSender,
+        stats: Arc<Stats>,
+        query_tracker: Arc<QueryTracker>,
+    ) -> Self {
+        Self::new_impl(message_sender, SteadyClock::default(), stats, query_tracker)
     }
-    fn new_impl(message_sender: MessageSender, clock: SteadyClock, stats: Arc<Stats>) -> Self {
+    fn new_impl(
+        message_sender: MessageSender,
+        clock: SteadyClock,
+        stats: Arc<Stats>,
+        query_tracker: Arc<QueryTracker>,
+    ) -> Self {
         Self {
             message_sender,
             clock,
             stats,
+            query_tracker,
             request_timeout: Duration::from_secs(15),
             send_listener: OutputListenerMt::new(),
         }
@@ -44,7 +55,7 @@ impl QuerySender {
         self.request_timeout = timeout;
     }
 
-    pub fn send(&mut self, spec: AscPullQuerySpec, query_tracker: &QueryTracker) -> bool {
+    pub fn send(&mut self, spec: AscPullQuerySpec) -> bool {
         if self.send_listener.is_tracked() {
             self.send_listener.emit(spec.clone());
         }
@@ -72,7 +83,7 @@ impl QuerySender {
 
             // After the request has been sent, the peer has a limited time to respond
             query.response_cutoff = now + self.request_timeout;
-            query_tracker.insert(query);
+            self.query_tracker.insert(query);
 
             true
         } else {
@@ -108,9 +119,8 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
-        let mut query_tracker = create_query_tracker();
 
-        let sent = fixture.query_sender.send(spec, &mut query_tracker);
+        let sent = fixture.query_sender.send(spec);
         assert!(sent);
 
         let output = fixture.send_tracker.output();
@@ -128,14 +138,13 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut query_tracker = create_query_tracker();
         bootstrap_queue.priority_up(&spec.account);
 
-        fixture.query_sender.send(spec.clone(), &mut query_tracker);
+        fixture.query_sender.send(spec.clone());
 
-        assert_eq!(query_tracker.query_count(), 1);
+        assert_eq!(fixture.query_tracker.query_count(), 1);
         assert_eq!(
-            query_tracker.front().unwrap().response_cutoff,
+            fixture.query_tracker.front().unwrap().response_cutoff,
             fixture.now + fixture.query_sender.request_timeout
         );
     }
@@ -145,13 +154,12 @@ mod tests {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let mut query_tracker = create_query_tracker();
 
         spec.channel.close();
-        let sent = fixture.query_sender.send(spec.clone(), &mut query_tracker);
+        let sent = fixture.query_sender.send(spec.clone());
 
         assert!(!sent);
-        assert_eq!(query_tracker.query_count(), 0);
+        assert_eq!(fixture.query_tracker.query_count(), 0);
         assert_eq!(bootstrap_queue.info().download_queue, 0);
         assert_eq!(bootstrap_queue.info().blocked, 0);
     }
@@ -160,10 +168,9 @@ mod tests {
     fn can_track_sends() {
         let mut fixture = create_fixture();
         let spec = AscPullQuerySpec::new_test_instance();
-        let mut query_tracker = create_query_tracker();
 
         let tracker = fixture.query_sender.track();
-        fixture.query_sender.send(spec.clone(), &mut query_tracker);
+        fixture.query_sender.send(spec.clone());
 
         assert_eq!(tracker.output(), [spec]);
     }
@@ -171,25 +178,33 @@ mod tests {
     fn create_fixture() -> Fixture {
         let message_sender = MessageSender::new_null();
         let send_tracker = message_sender.track();
+        let query_tracker = create_query_tracker();
 
         let clock = SteadyClock::new_null();
         let now = clock.now();
-        let query_sender = QuerySender::new_impl(message_sender, clock, Arc::new(Stats::default()));
+        let query_sender = QuerySender::new_impl(
+            message_sender,
+            clock,
+            Arc::new(Stats::default()),
+            query_tracker.clone(),
+        );
 
         Fixture {
             query_sender,
             send_tracker,
+            query_tracker,
             now,
         }
     }
 
-    fn create_query_tracker() -> QueryTracker {
-        QueryTracker::new(Default::default(), Arc::new(Stats::default()))
+    fn create_query_tracker() -> Arc<QueryTracker> {
+        Arc::new(QueryTracker::new_null())
     }
 
     struct Fixture {
         query_sender: QuerySender,
         send_tracker: Arc<OutputTrackerMt<SendEvent>>,
+        query_tracker: Arc<QueryTracker>,
         now: Timestamp,
     }
 }

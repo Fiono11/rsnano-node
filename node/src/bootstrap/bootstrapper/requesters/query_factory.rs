@@ -26,6 +26,7 @@ pub(crate) struct QueryFactory {
     request_limiter: TokenBucket,
     block_processor_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
+    query_tracker: Arc<QueryTracker>,
     rng_factory: NullableRngFactory,
     frontiers_limiter: TokenBucket,
     pull_type_decider: PullTypeDecider,
@@ -43,6 +44,7 @@ impl QueryFactory {
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         frontiers_processor: Arc<FrontiersProcessor>,
+        query_tracker: Arc<QueryTracker>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
@@ -53,6 +55,7 @@ impl QueryFactory {
             request_limiter: limiter,
             block_processor_queue,
             bootstrap_queue,
+            query_tracker,
             rng_factory: NullableRngFactory::default(),
             frontiers_limiter: TokenBucket::new(config.frontier_rate_limit),
             config,
@@ -63,17 +66,30 @@ impl QueryFactory {
         }
     }
 
-    pub fn try_blocks_query(&mut self, query_tracker: &QueryTracker) -> Option<AscPullQuerySpec> {
-        if query_tracker.query_count() >= self.config.max_requests {
+    pub fn try_query(&mut self) -> Option<AscPullQuerySpec> {
+        if self.query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);
             return None;
         }
 
+        let mut query = self.try_blocks_query();
+        if query.is_none() {
+            query = self.try_dependency_query();
+        }
+        if query.is_none() {
+            query = self.try_frontier_query();
+        }
+        query
+    }
+
+    fn try_blocks_query(&mut self) -> Option<AscPullQuerySpec> {
+        if !self.config.enable_block_requester {
+            return None;
+        }
         if !self.request_limiter.could_consume(1) {
             self.stats.rate_limit.fetch_add(1, Relaxed);
             return None;
         }
-
         if !self.block_processor_free() {
             self.stats.wait_block_processor.fetch_add(1, Relaxed);
             return None;
@@ -93,7 +109,7 @@ impl QueryFactory {
             count: self.pull_count_decider.pull_count(next_prio),
         });
 
-        let channel = self.acquire_channel(query_tracker)?;
+        let channel = self.acquire_channel()?;
         let channel_id = channel.channel_id();
         let query = AscPullQuerySpec {
             query_id,
@@ -105,18 +121,14 @@ impl QueryFactory {
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1);
-        query_tracker.add_query_for_channel(channel_id);
+        self.query_tracker.add_query_for_channel(channel_id);
         self.bootstrap_queue.download_started(&next_account);
 
         Some(query)
     }
 
-    pub fn try_dependency_query(
-        &mut self,
-        query_tracker: &QueryTracker,
-    ) -> Option<AscPullQuerySpec> {
-        if query_tracker.query_count() >= self.config.max_requests {
-            self.stats.queries_overfill.fetch_add(1, Relaxed);
+    fn try_dependency_query(&mut self) -> Option<AscPullQuerySpec> {
+        if !self.config.enable_dependency_walker {
             return None;
         }
 
@@ -125,7 +137,7 @@ impl QueryFactory {
             return None;
         }
 
-        let channel = self.acquire_channel(query_tracker)?;
+        let channel = self.acquire_channel()?;
         let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
         let Some(next_hash) = self.bootstrap_queue.next_unknown_blocking_hash() else {
@@ -140,34 +152,32 @@ impl QueryFactory {
             hash: next_hash,
         };
         self.request_limiter.consume(1);
-        query_tracker.add_query_for_channel(channel_id);
+        self.query_tracker.add_query_for_channel(channel_id);
         self.bootstrap_queue
             .dependency_account_requested(&spec.hash);
         Some(spec)
     }
 
-    pub fn try_frontier_query(&mut self, query_tracker: &QueryTracker) -> Option<AscPullQuerySpec> {
-        if query_tracker.query_count() >= self.config.max_requests {
-            self.stats.queries_overfill.fetch_add(1, Relaxed);
+    fn try_frontier_query(&mut self) -> Option<AscPullQuerySpec> {
+        if !self.config.enable_frontier_scan {
             return None;
         }
-
         if self.bootstrap_queue.queue_half_full() {
             return None;
         }
         if !self.frontiers_limiter.could_consume(1) {
             return None;
         }
-
         if self.frontiers_processor.frontier_checker_overfill() {
             return None;
         }
-        let channel = self.acquire_channel(query_tracker)?;
+        let channel = self.acquire_channel()?;
 
         let start = self.frontiers_processor.next();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
-            query_tracker.add_query_for_channel(channel.channel_id());
+            self.query_tracker
+                .add_query_for_channel(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {
@@ -175,13 +185,13 @@ impl QueryFactory {
         }
     }
 
-    fn acquire_channel(&mut self, query_tracker: &QueryTracker) -> Option<Arc<Channel>> {
+    fn acquire_channel(&mut self) -> Option<Arc<Channel>> {
         let network = self.network.read().unwrap();
         let candidate_channels: Vec<_> = network
             .available_channels(TrafficType::BootstrapRequests)
             .map(|c| c.channel_id())
             .collect();
-        let Some(channel_id) = query_tracker.find_channel(candidate_channels) else {
+        let Some(channel_id) = self.query_tracker.find_channel(candidate_channels) else {
             self.stats.no_channel.fetch_add(1, Relaxed);
             return None;
         };

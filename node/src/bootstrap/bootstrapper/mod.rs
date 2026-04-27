@@ -2,7 +2,6 @@ pub mod query_tracker;
 
 mod block_inspector;
 mod bootstrap_queue;
-mod cleanup;
 mod frontier_scan;
 mod requesters;
 mod response_processor;
@@ -40,7 +39,6 @@ use crate::{
 use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
-use cleanup::BootstrapCleanup;
 use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats};
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
@@ -140,7 +138,7 @@ impl Default for BootstrapConfig {
 
 pub struct Bootstrapper {
     stats: Arc<Stats>,
-    threads: Mutex<Option<Threads>>,
+    cleanup_thread: Mutex<Option<JoinHandle<()>>>,
     query_tracker: Arc<QueryTracker>,
     bootstrap_queue: Arc<BootstrapQueue>,
     config: BootstrapConfig,
@@ -152,10 +150,6 @@ pub struct Bootstrapper {
     frontier_stats: Arc<FrontierScanStats>,
     frontiers_processor: Arc<FrontiersProcessor>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
-}
-
-struct Threads {
-    cleanup: JoinHandle<()>,
 }
 
 impl Bootstrapper {
@@ -258,7 +252,7 @@ impl Bootstrapper {
         );
 
         Self {
-            threads: Mutex::new(None),
+            cleanup_thread: Mutex::new(None),
             query_tracker,
             config,
             stats,
@@ -280,9 +274,9 @@ impl Bootstrapper {
 
         self.requesters.stop();
 
-        let threads = self.threads.lock().unwrap().take();
-        if let Some(threads) = threads {
-            threads.cleanup.join().unwrap();
+        let join_handle = self.cleanup_thread.lock().unwrap().take();
+        if let Some(handle) = join_handle {
+            handle.join().unwrap();
         }
     }
 
@@ -377,18 +371,14 @@ impl Bootstrapper {
     }
 
     fn run_timeouts(&self) {
-        let mut cleanup = BootstrapCleanup::new(
-            self.clock.clone(),
-            self.bootstrap_queue.clone(),
-            self.query_tracker.clone(),
-        );
         let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
         while !stopped.stopped {
-            cleanup.cleanup();
+            self.query_tracker.timeout();
+            self.bootstrap_queue.timeout();
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
-                cleanup.reinsert_known_dependencies();
+                self.bootstrap_queue.sync_dependencies();
                 last_sync = self.clock.now();
             }
 
@@ -422,7 +412,7 @@ impl Bootstrapper {
 impl Drop for Bootstrapper {
     fn drop(&mut self) {
         // All threads must be stopped before destruction
-        debug_assert!(self.threads.lock().unwrap().is_none());
+        debug_assert!(self.cleanup_thread.lock().unwrap().is_none());
     }
 }
 
@@ -451,7 +441,7 @@ pub trait BootstrapExt {
 
 impl BootstrapExt for Arc<Bootstrapper> {
     fn start(&self) {
-        debug_assert!(self.threads.lock().unwrap().is_none());
+        debug_assert!(self.cleanup_thread.lock().unwrap().is_none());
 
         if !self.config.enable {
             warn!("Ascending bootstrap is disabled");
@@ -466,7 +456,7 @@ impl BootstrapExt for Arc<Bootstrapper> {
             .spawn(Box::new(move || self_l.run_timeouts()))
             .unwrap();
 
-        *self.threads.lock().unwrap() = Some(Threads { cleanup });
+        *self.cleanup_thread.lock().unwrap() = Some(cleanup);
     }
 }
 

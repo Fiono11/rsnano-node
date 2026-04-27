@@ -13,7 +13,7 @@ use std::{
 
 use rsnano_messages::AscPullAck;
 use rsnano_network::ChannelId;
-use rsnano_nullable_clock::Timestamp;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -24,12 +24,25 @@ use super::BootstrapConfig;
 /// Keeps track of all currently running bootstrap queries
 pub(crate) struct QueryTracker {
     logic: Mutex<QueryTrackerLogic>,
+    clock: SteadyClock,
 }
 
 impl QueryTracker {
     pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
         Self {
             logic: Mutex::new(QueryTrackerLogic::new(config, stats)),
+            clock: SteadyClock::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_null() -> Self {
+        Self {
+            logic: Mutex::new(QueryTrackerLogic::new(
+                Default::default(),
+                Arc::new(Stats::default()),
+            )),
+            clock: SteadyClock::new_null(),
         }
     }
 
@@ -61,7 +74,8 @@ impl QueryTracker {
             .take_running_query_for(response, channel_id)
     }
 
-    pub fn timeout(&self, now: Timestamp) {
+    pub fn timeout(&self) {
+        let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now);
     }
 

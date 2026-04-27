@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -23,10 +23,8 @@ use super::stats::BootstrapRequesterStats;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 
 pub(super) struct RequesterLoop {
-    query_tracker: Arc<QueryTracker>,
-    config: BootstrapConfig,
     query_sender: QuerySender,
-    query_spec_factory: QueryFactory,
+    query_factory: QueryFactory,
     bootstrap_queue: Arc<BootstrapQueue>,
     stats: Arc<BootstrapRequesterStats>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
@@ -48,15 +46,14 @@ impl RequesterLoop {
         frontiers_processor: Arc<FrontiersProcessor>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
     ) -> Self {
-        let mut query_sender = QuerySender::new(message_sender, stats.clone());
+        let mut query_sender =
+            QuerySender::new(message_sender, stats.clone(), query_tracker.clone());
         query_sender.set_request_timeout(config.request_timeout);
 
         Self {
-            query_tracker,
-            config: config.clone(),
             query_sender,
             stats: stats2.clone(),
-            query_spec_factory: QueryFactory::new(
+            query_factory: QueryFactory::new(
                 config,
                 stats2,
                 network,
@@ -64,6 +61,7 @@ impl RequesterLoop {
                 block_processor_queue,
                 bootstrap_queue.clone(),
                 frontiers_processor,
+                query_tracker,
             ),
             bootstrap_queue,
             stopped,
@@ -72,37 +70,21 @@ impl RequesterLoop {
 
     pub fn run_loop(&mut self) {
         let mut stopped = self.stopped.lock();
-        let mut loop_counter = 0;
         let mut last_revision;
         while !stopped.stopped {
-            let sent = if self.config.enable_block_requester
-                && let Some(spec) = self
-                    .query_spec_factory
-                    .try_blocks_query(&self.query_tracker)
-            {
-                self.query_sender.send(spec, &self.query_tracker)
-            } else if self.config.enable_dependency_walker
-                && let Some(spec) = self
-                    .query_spec_factory
-                    .try_dependency_query(&self.query_tracker)
-            {
-                self.query_sender.send(spec, &self.query_tracker)
-            } else if self.config.enable_frontier_scan
-                && let Some(spec) = self
-                    .query_spec_factory
-                    .try_frontier_query(&self.query_tracker)
-            {
-                self.query_sender.send(spec, &self.query_tracker)
+            drop(stopped);
+
+            let sent = if let Some(spec) = self.query_factory.try_query() {
+                self.query_sender.send(spec)
             } else {
                 false
             };
 
             if !sent {
-                self.stats.sleep.fetch_add(1, Relaxed);
-                loop_counter = 0;
                 // nothing to do — wait for a state change or fixed throttle
+                self.stats.sleep.fetch_add(1, Relaxed);
                 last_revision = self.bootstrap_queue.revision();
-
+                stopped = self.stopped.lock();
                 stopped = self
                     .stopped
                     .wait_timeout_while(stopped, Self::THROTTLE_WAIT, |s| {
@@ -110,14 +92,7 @@ impl RequesterLoop {
                     })
                     .0;
             } else {
-                loop_counter += 1;
-                if loop_counter > 0 {
-                    loop_counter = 0;
-                    // periodically release the lock so cleanup/response threads can run
-                    drop(stopped);
-                    std::thread::yield_now();
-                    stopped = self.stopped.lock();
-                }
+                stopped = self.stopped.lock();
             }
         }
     }
