@@ -1,4 +1,8 @@
 mod coordinator;
+mod database_crawler;
+pub(crate) mod frontier_check_pool;
+pub(crate) mod frontier_checker;
+pub(crate) mod frontier_worker;
 pub(crate) mod frontiers_processor;
 pub(crate) mod stats;
 
@@ -9,8 +13,8 @@ use primitive_types::U512;
 use rsnano_types::{Account, Frontier};
 
 use crate::bootstrap::bootstrapper::{
-    query_tracker::{QueryType, RunningQuery},
     VerifyResult,
+    query_tracker::{QueryType, RunningQuery},
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]

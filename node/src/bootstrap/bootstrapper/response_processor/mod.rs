@@ -1,14 +1,11 @@
 mod account_ack_processor;
 mod block_ack_processor;
-mod database_crawler;
-mod frontier_check_pool;
-mod frontier_checker;
-mod frontier_worker;
 
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering::Relaxed},
 };
+
 use tracing::trace;
 
 use rsnano_ledger::{BlockSource, Ledger};
@@ -23,11 +20,13 @@ use crate::{
     bootstrap::bootstrapper::{
         VerifyResult,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
+        frontier_scan::{
+            frontier_check_pool::FrontierCheckPool, frontiers_processor::FrontiersProcessor,
+            stats::FrontierScanStats,
+        },
         query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
-            frontier_check_pool::FrontierCheckPool,
         },
     },
 };

@@ -3,11 +3,11 @@ use std::sync::Arc;
 use rsnano_ledger::Ledger;
 use rsnano_utils::{stats::Stats, thread_pool::ThreadPool};
 
-use crate::bootstrap::bootstrapper::{
-    bootstrap_queue::BootstrapQueue,
-    frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats},
-    response_processor::frontier_worker::FrontierWorker,
+use super::{
+    frontier_worker::FrontierWorker, frontiers_processor::FrontiersProcessor,
+    stats::FrontierScanStats,
 };
+use crate::bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue;
 
 pub(crate) struct FrontierCheckPool {
     stats: Arc<Stats>,

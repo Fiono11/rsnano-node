@@ -4,11 +4,11 @@ use rsnano_ledger::OwningAnySet;
 use rsnano_types::Frontier;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::frontier_checker::FrontierChecker;
-use crate::bootstrap::bootstrapper::{
-    bootstrap_queue::{BootstrapQueue, Priority},
-    frontier_scan::{frontiers_processor::OutdatedAccounts, stats::FrontierScanStats},
+use super::{
+    frontier_checker::FrontierChecker, frontiers_processor::OutdatedAccounts,
+    stats::FrontierScanStats,
 };
+use crate::bootstrap::bootstrapper::bootstrap_queue::{BootstrapQueue, Priority};
 
 /// Handles received frontiers
 pub(crate) struct FrontierWorker<'a> {
