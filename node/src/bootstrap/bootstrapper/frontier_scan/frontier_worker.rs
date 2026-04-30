@@ -4,10 +4,7 @@ use rsnano_ledger::OwningAnySet;
 use rsnano_types::Frontier;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::{
-    frontier_checker::FrontierChecker, frontiers_processor::OutdatedAccounts,
-    stats::FrontierScanStats,
-};
+use super::{frontier_checker::FrontierChecker, logic::OutdatedAccounts, stats::FrontierScanStats};
 use crate::bootstrap::bootstrapper::bootstrap_queue::{BootstrapQueue, Priority};
 
 /// Handles received frontiers
@@ -79,7 +76,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::{Priority, frontier_scan::stats::FrontierScanStats};
+    use crate::bootstrap::bootstrapper::{frontier_scan::stats::FrontierScanStats, Priority};
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
     use std::sync::Arc;

@@ -1,15 +1,15 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
+        Mutex,
     },
 };
 
 use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use crate::bootstrap::bootstrapper::frontier_scan::frontiers_processor::OutdatedAccounts;
+use crate::bootstrap::bootstrapper::frontier_scan::logic::OutdatedAccounts;
 
 #[derive(Default)]
 pub(crate) struct FrontierScanStats {

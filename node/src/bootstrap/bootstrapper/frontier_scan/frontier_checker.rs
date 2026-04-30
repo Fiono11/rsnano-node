@@ -3,7 +3,7 @@ use rsnano_types::{Account, Frontier};
 
 use super::{
     database_crawler::{AccountCrawlSource, DatabaseCrawler, PendingCrawlSource},
-    frontiers_processor::OutdatedAccounts,
+    logic::OutdatedAccounts,
 };
 
 pub(crate) enum FrontierCheckResult {

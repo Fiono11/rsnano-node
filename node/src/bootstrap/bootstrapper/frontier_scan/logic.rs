@@ -1,70 +1,13 @@
-use std::{collections::VecDeque, sync::Mutex};
+use std::collections::VecDeque;
 
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use super::{VerifyResult, coordinator::FrontierScanCoordinator, verify_frontiers};
+use super::{coordinator::FrontierScanCoordinator, verify_frontiers, VerifyResult};
 use crate::bootstrap::bootstrapper::{
-    FrontierHeadInfo, FrontierScanConfig, query_tracker::RunningQuery,
+    query_tracker::RunningQuery, FrontierHeadInfo, FrontierScanConfig,
 };
-
-pub(crate) struct FrontiersProcessor {
-    logic: Mutex<FrontiersProcessorLogic>,
-    clock: SteadyClock,
-}
-
-impl FrontiersProcessor {
-    pub fn new(config: FrontierScanConfig) -> Self {
-        Self::new_impl(config, SteadyClock::default())
-    }
-
-    #[cfg(test)]
-    pub fn new_null() -> Self {
-        Self::new_impl(Default::default(), SteadyClock::new_null())
-    }
-
-    fn new_impl(config: FrontierScanConfig, clock: SteadyClock) -> Self {
-        Self {
-            logic: Mutex::new(FrontiersProcessorLogic::new(config)),
-            clock,
-        }
-    }
-
-    pub fn set_frontier_checker_overfill(&self, overfill: bool) {
-        self.logic
-            .lock()
-            .unwrap()
-            .set_frontier_checker_overfill(overfill)
-    }
-
-    pub fn frontier_checker_overfill(&self) -> bool {
-        self.logic.lock().unwrap().frontier_checker_overfill()
-    }
-
-    pub fn next_account_to_query(&self) -> Account {
-        let now = self.clock.now();
-        self.logic.lock().unwrap().next(now)
-    }
-
-    pub(crate) fn process(&self, query: &RunningQuery, frontiers: Vec<Frontier>) -> VerifyResult {
-        self.logic.lock().unwrap().process(query, frontiers)
-    }
-
-    pub fn pop_received_frontiers(&self) -> Option<Vec<Frontier>> {
-        self.logic.lock().unwrap().pop_received_frontiers()
-    }
-
-    pub fn heads(&self) -> Vec<FrontierHeadInfo> {
-        self.logic.lock().unwrap().heads()
-    }
-}
-
-impl ContainerInfoProvider for FrontiersProcessor {
-    fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().unwrap().container_info()
-    }
-}
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct OutdatedAccounts {
@@ -77,7 +20,7 @@ pub struct OutdatedAccounts {
     pub frontiers_received: usize,
 }
 
-struct FrontiersProcessorLogic {
+pub(super) struct FrontierScanLogic {
     frontier_scan: FrontierScanCoordinator,
 
     /// Frontiers that were received from other nodes and that we need to check against our ledger
@@ -85,7 +28,7 @@ struct FrontiersProcessorLogic {
     frontier_checker_overfill: bool,
 }
 
-impl FrontiersProcessorLogic {
+impl FrontierScanLogic {
     pub fn new(config: FrontierScanConfig) -> Self {
         Self {
             frontier_scan: FrontierScanCoordinator::new(config),
@@ -129,7 +72,7 @@ impl FrontiersProcessorLogic {
     }
 }
 
-impl ContainerInfoProvider for FrontiersProcessorLogic {
+impl ContainerInfoProvider for FrontierScanLogic {
     fn container_info(&self) -> ContainerInfo {
         self.frontier_scan.container_info()
     }
@@ -142,7 +85,7 @@ mod tests {
 
     #[test]
     fn empty_frontiers() {
-        let mut processor = FrontiersProcessorLogic::new(Default::default());
+        let mut processor = FrontierScanLogic::new(Default::default());
         let query = running_query();
 
         let result = processor.process(&query, Vec::new());
@@ -152,7 +95,7 @@ mod tests {
 
     #[test]
     fn update_account_ranges() {
-        let mut processor = FrontiersProcessorLogic::new(Default::default());
+        let mut processor = FrontierScanLogic::new(Default::default());
         let query = running_query();
 
         let result = processor.process(&query, vec![Frontier::new_test_instance()]);
@@ -163,7 +106,7 @@ mod tests {
 
     #[test]
     fn invalid_frontiers() {
-        let mut processor = FrontiersProcessorLogic::new(Default::default());
+        let mut processor = FrontierScanLogic::new(Default::default());
         let query = running_query();
 
         let frontiers = vec![

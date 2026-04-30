@@ -2,11 +2,11 @@ mod coordinator;
 mod database_crawler;
 mod frontier_checker;
 mod frontier_worker;
-mod frontiers_processor;
+mod logic;
 mod stats;
 
 use std::{
-    sync::{Arc, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Arc, Mutex},
     time::Duration,
 };
 
@@ -21,12 +21,13 @@ use rsnano_utils::{
 };
 
 use crate::bootstrap::bootstrapper::{
-    FrontierScanSnapshot, VerifyResult,
     bootstrap_queue::BootstrapQueue,
     query_tracker::{QueryType, RunningQuery},
+    FrontierScanSnapshot, VerifyResult,
 };
 use frontier_worker::FrontierWorker;
-use frontiers_processor::FrontiersProcessor;
+use logic::FrontierScanLogic;
+use rsnano_nullable_clock::SteadyClock;
 use stats::FrontierScanStats;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -73,7 +74,8 @@ pub(crate) struct FrontierScan {
     stats2: Arc<FrontierScanStats>,
     ledger: Arc<Ledger>,
     workers: Arc<ThreadPool>,
-    frontiers_processor: Arc<FrontiersProcessor>,
+    clock: SteadyClock,
+    logic: Mutex<FrontierScanLogic>,
     bootstrap_queue: Arc<BootstrapQueue>,
     max_pending: usize,
 }
@@ -87,15 +89,16 @@ impl FrontierScan {
     ) -> Self {
         let workers = Arc::new(ThreadPool::new(1, "Bootstrap work"));
         let max_pending = config.max_pending_frontier_responses;
-        let frontiers_processor = Arc::new(FrontiersProcessor::new(config));
         let stats2 = Arc::new(FrontierScanStats::default());
+        let clock = SteadyClock::default();
         Self {
             stats,
             stats2,
             ledger,
             workers,
             bootstrap_queue,
-            frontiers_processor,
+            clock,
+            logic: Mutex::new(FrontierScanLogic::new(config)),
             max_pending,
         }
     }
@@ -105,9 +108,9 @@ impl FrontierScan {
         let stats = Arc::new(Stats::default());
         let ledger = Arc::new(Ledger::new_null());
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        let frontiers_processor = Arc::new(FrontiersProcessor::new_null());
         let stats2 = Arc::new(FrontierScanStats::default());
         let workers = Arc::new(ThreadPool::new_null());
+        let clock = SteadyClock::new_null();
         let max_pending = 16;
         Self {
             stats,
@@ -115,21 +118,24 @@ impl FrontierScan {
             ledger,
             workers,
             bootstrap_queue,
-            frontiers_processor,
+            clock,
+            logic: Mutex::new(FrontierScanLogic::new(Default::default())),
             max_pending,
         }
     }
 
     pub fn frontier_checker_overfill(&self) -> bool {
-        self.frontiers_processor.frontier_checker_overfill()
+        self.logic.lock().unwrap().frontier_checker_overfill()
     }
 
     pub fn next_account_to_query(&self) -> Account {
-        self.frontiers_processor.next_account_to_query()
+        let now = self.clock.now();
+        self.logic.lock().unwrap().next(now)
     }
 
     pub fn process(&self, query: &RunningQuery, frontiers: Vec<Frontier>) -> bool {
-        match self.frontiers_processor.process(query, frontiers) {
+        let result = self.logic.lock().unwrap().process(query, frontiers);
+        match result {
             VerifyResult::Ok => {
                 self.stats2.verified.fetch_add(1, Relaxed);
                 true
@@ -146,7 +152,7 @@ impl FrontierScan {
     }
 
     pub fn enqueue_frontiers(&self) {
-        while let Some(frontiers) = self.frontiers_processor.pop_received_frontiers() {
+        while let Some(frontiers) = self.pop_received_frontiers() {
             let ledger = self.ledger.clone();
             let stats = self.stats.clone();
             let stats2 = self.stats2.clone();
@@ -158,15 +164,22 @@ impl FrontierScan {
             });
         }
         let queued_tasks = self.workers.queued_count();
-        self.frontiers_processor
-            .set_frontier_checker_overfill(queued_tasks >= self.max_pending);
+        self.logic
+            .lock()
+            .unwrap()
+            .set_frontier_checker_overfill(queued_tasks >= self.max_pending)
+    }
+
+    fn pop_received_frontiers(&self) -> Option<Vec<Frontier>> {
+        self.logic.lock().unwrap().pop_received_frontiers()
     }
 
     pub fn snapshot(&self) -> FrontierScanSnapshot {
+        let heads = self.logic.lock().unwrap().heads();
         FrontierScanSnapshot {
             processed_frontiers: self.stats2.processed_frontiers.load(Relaxed),
             outdated_accounts_found: self.stats2.outdated_accounts_found.load(Relaxed),
-            heads: self.frontiers_processor.heads(),
+            heads,
             last_outdated_accounts: self.stats2.last_outdated_found(),
         }
     }
@@ -174,7 +187,7 @@ impl FrontierScan {
 
 impl ContainerInfoProvider for FrontierScan {
     fn container_info(&self) -> ContainerInfo {
-        self.frontiers_processor.container_info()
+        self.logic.lock().unwrap().container_info()
     }
 }
 
