@@ -1,4 +1,4 @@
-use std::sync::{Arc, atomic::Ordering::Relaxed};
+use std::sync::{atomic::Ordering::Relaxed, Arc};
 
 use rsnano_ledger::Ledger;
 use rsnano_utils::{
@@ -12,10 +12,8 @@ use super::{
     stats::FrontierScanStats,
 };
 use crate::bootstrap::bootstrapper::{
+    bootstrap_queue::BootstrapQueue, query_tracker::RunningQuery, FrontierScanConfig,
     FrontierScanSnapshot, VerifyResult,
-    bootstrap_queue::{self, BootstrapQueue},
-    frontier_scan::frontiers_processor,
-    query_tracker::RunningQuery,
 };
 use rsnano_types::{Account, Frontier};
 
@@ -26,7 +24,7 @@ pub(crate) struct FrontierCheckPool {
     workers: Arc<ThreadPool>,
     frontiers_processor: Arc<FrontiersProcessor>,
     bootstrap_queue: Arc<BootstrapQueue>,
-    pub max_pending: usize,
+    max_pending: usize,
 }
 
 impl FrontierCheckPool {
@@ -34,9 +32,11 @@ impl FrontierCheckPool {
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        frontiers_processor: Arc<FrontiersProcessor>,
+        config: FrontierScanConfig,
     ) -> Self {
         let workers = Arc::new(ThreadPool::new(1, "Bootstrap work"));
+        let max_pending = config.max_pending_frontier_responses;
+        let frontiers_processor = Arc::new(FrontiersProcessor::new(config));
         let stats2 = Arc::new(FrontierScanStats::default());
         Self {
             stats,
@@ -45,7 +45,7 @@ impl FrontierCheckPool {
             workers,
             bootstrap_queue,
             frontiers_processor,
-            max_pending: 16,
+            max_pending,
         }
     }
 
@@ -55,7 +55,18 @@ impl FrontierCheckPool {
         let ledger = Arc::new(Ledger::new_null());
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let frontiers_processor = Arc::new(FrontiersProcessor::new_null());
-        Self::new(stats, ledger, bootstrap_queue, frontiers_processor)
+        let stats2 = Arc::new(FrontierScanStats::default());
+        let workers = Arc::new(ThreadPool::new_null());
+        let max_pending = 16;
+        Self {
+            stats,
+            stats2,
+            ledger,
+            workers,
+            bootstrap_queue,
+            frontiers_processor,
+            max_pending,
+        }
     }
 
     pub fn frontier_checker_overfill(&self) -> bool {

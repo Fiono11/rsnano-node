@@ -1,10 +1,10 @@
 mod coordinator;
 mod database_crawler;
 pub(crate) mod frontier_check_pool;
-pub(crate) mod frontier_checker;
-pub mod frontier_worker;
-pub(crate) mod frontiers_processor;
-pub(crate) mod stats;
+mod frontier_checker;
+mod frontier_worker;
+mod frontiers_processor;
+mod stats;
 
 use std::time::Duration;
 
@@ -13,8 +13,8 @@ use primitive_types::U512;
 use rsnano_types::{Account, Frontier};
 
 use crate::bootstrap::bootstrapper::{
-    VerifyResult,
     query_tracker::{QueryType, RunningQuery},
+    VerifyResult,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -23,6 +23,8 @@ pub struct FrontierScanConfig {
     pub consideration_count: usize,
     pub candidates: usize,
     pub cooldown: Duration,
+    /// How many frontier acks can get queued in the processor
+    pub max_pending_frontier_responses: usize,
 }
 
 impl Default for FrontierScanConfig {
@@ -32,6 +34,7 @@ impl Default for FrontierScanConfig {
             consideration_count: 4,
             candidates: 1000,
             cooldown: Duration::from_secs(5),
+            max_pending_frontier_responses: 16,
         }
     }
 }

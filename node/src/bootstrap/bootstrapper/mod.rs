@@ -27,9 +27,9 @@ use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -40,7 +40,6 @@ use crate::{
 use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
-use frontier_scan::frontiers_processor::FrontiersProcessor;
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
@@ -106,8 +105,6 @@ pub struct BootstrapConfig {
     pub optimistic_request_percentage: u8,
     pub bootstrap_queue: BootstrapQueueConfig,
     pub frontier_scan: FrontierScanConfig,
-    /// How many frontier acks can get queued in the processor
-    pub max_pending_frontier_responses: usize,
 }
 
 impl Default for BootstrapConfig {
@@ -132,7 +129,6 @@ impl Default for BootstrapConfig {
             optimistic_request_percentage: 75,
             bootstrap_queue: Default::default(),
             frontier_scan: Default::default(),
-            max_pending_frontier_responses: 16,
         }
     }
 }
@@ -161,16 +157,13 @@ impl Bootstrapper {
         message_sender: MessageSender,
         config: BootstrapConfig,
     ) -> Self {
-        let frontiers_processor = FrontiersProcessor::new(config.frontier_scan.clone());
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
-        let frontiers_processor = Arc::new(frontiers_processor);
-        let mut frontier_check_pool = FrontierCheckPool::new(
+        let frontier_check_pool = Arc::new(FrontierCheckPool::new(
             stats.clone(),
             ledger.clone(),
             bootstrap_queue.clone(),
-            frontiers_processor.clone(),
-        );
-        frontier_check_pool.max_pending = config.max_pending_frontier_responses;
+            config.frontier_scan.clone(),
+        ));
         let stopped = NullableCondvarMutex::new(StoppedFlag::default());
         Self::new_impl(
             block_processor_queue,
@@ -195,7 +188,7 @@ impl Bootstrapper {
         let message_sender = MessageSender::new_null();
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
-        let frontier_check_pool = FrontierCheckPool::new_null();
+        let frontier_check_pool = Arc::new(FrontierCheckPool::new_null());
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stopped = NullableCondvarMutex::new_null(StoppedFlag::default());
 
@@ -218,7 +211,7 @@ impl Bootstrapper {
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
-        frontier_check_pool: FrontierCheckPool,
+        frontier_check_pool: Arc<FrontierCheckPool>,
         bootstrap_queue: Arc<BootstrapQueue>,
         message_sender: MessageSender,
         config: BootstrapConfig,
@@ -226,8 +219,6 @@ impl Bootstrapper {
         stopped: NullableCondvarMutex<StoppedFlag>,
     ) -> Self {
         let query_tracker = Arc::new(QueryTracker::new(config.clone(), stats.clone()));
-
-        let frontier_check_pool = Arc::new(frontier_check_pool);
 
         let response_handler = ResponseProcessor::new(
             query_tracker.clone(),

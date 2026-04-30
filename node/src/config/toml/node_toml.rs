@@ -300,10 +300,7 @@ impl NodeConfig {
                     config.frontier_scan.cooldown = Duration::from_millis(i);
                 }
                 if let Some(i) = front.max_pending {
-                    config.max_pending_frontier_responses = i;
-                }
-                if let Some(i) = front.max_pending {
-                    config.max_pending_frontier_responses = i;
+                    config.frontier_scan.max_pending_frontier_responses = i;
                 }
             }
             if let Some(threshold) = boot_toml.block_processor_threshold {
@@ -600,7 +597,7 @@ impl From<&NodeConfig> for NodeToml {
                     consideration_count: Some(config.bootstrap.frontier_scan.consideration_count),
                     candidates: Some(config.bootstrap.frontier_scan.candidates),
                     cooldown: Some(config.bootstrap.frontier_scan.cooldown.as_millis() as u64),
-                    max_pending: Some(config.bootstrap.max_pending_frontier_responses),
+                    max_pending: Some(config.bootstrap.frontier_scan.max_pending_frontier_responses),
                 }),
             }),
             bootstrap_server: Some(config.into()),
