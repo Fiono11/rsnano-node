@@ -34,7 +34,7 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::frontier_scan::frontier_check_pool::FrontierCheckPool,
+    bootstrap::bootstrapper::frontier_scan::FrontierCheckPool,
     transport::MessageSender,
 };
 use block_inspector::BlockInspector;

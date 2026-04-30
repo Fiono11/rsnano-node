@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Arc, RwLock},
     time::Duration,
 };
 
@@ -10,11 +10,11 @@ use rsnano_utils::stats::Stats;
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontier_check_pool::FrontierCheckPool,
+        frontier_scan::FrontierCheckPool,
         query_tracker::QueryTracker,
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
+        BootstrapConfig, StoppedFlag,
     },
     transport::MessageSender,
 };

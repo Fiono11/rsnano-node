@@ -2,8 +2,8 @@ mod account_ack_processor;
 mod block_ack_processor;
 
 use std::sync::{
-    Arc,
     atomic::{AtomicU64, Ordering::Relaxed},
+    Arc,
 };
 
 use tracing::trace;
@@ -19,7 +19,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontier_check_pool::FrontierCheckPool,
+        frontier_scan::FrontierCheckPool,
         query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
