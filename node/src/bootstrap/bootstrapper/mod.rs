@@ -6,7 +6,7 @@ mod frontier_scan;
 mod requesters;
 mod response_processor;
 
-pub use frontier_scan::coordinator::{FrontierHeadInfo, FrontierScanConfig};
+pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 
 pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,

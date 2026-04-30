@@ -1,12 +1,53 @@
+pub(crate) mod coordinator;
+pub(crate) mod frontiers_processor;
+pub(crate) mod stats;
+
+use std::time::Duration;
+
+use primitive_types::U512;
+
+use rsnano_types::{Account, Frontier};
+
 use crate::bootstrap::bootstrapper::{
     VerifyResult,
     query_tracker::{QueryType, RunningQuery},
 };
-use rsnano_types::{Account, Frontier};
 
-pub(crate) mod coordinator;
-pub(crate) mod frontiers_processor;
-pub(crate) mod stats;
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FrontierScanConfig {
+    pub parallelism: usize,
+    pub consideration_count: usize,
+    pub candidates: usize,
+    pub cooldown: Duration,
+}
+
+impl Default for FrontierScanConfig {
+    fn default() -> Self {
+        Self {
+            parallelism: 128,
+            consideration_count: 4,
+            candidates: 1000,
+            cooldown: Duration::from_secs(5),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
+pub struct FrontierHeadInfo {
+    pub start: Account,
+    pub end: Account,
+    pub current: Account,
+}
+
+impl FrontierHeadInfo {
+    /// Returns how far the current frontier is in the range [0, 1]
+    pub fn done_normalized(&self) -> f32 {
+        let total: U512 = (self.end.number() - self.start.number()).into();
+        let mut progress: U512 = (self.current.number() - self.start.number()).into();
+        progress *= 1000;
+        (progress / total).as_u64() as f32 / 1000.0
+    }
+}
 
 pub(crate) fn verify_frontiers(query: &RunningQuery, frontiers: &[Frontier]) -> VerifyResult {
     if query.query_type != QueryType::Frontiers {

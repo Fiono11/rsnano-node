@@ -4,13 +4,9 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
+use super::{VerifyResult, coordinator::FrontierScanCoordinator, verify_frontiers};
 use crate::bootstrap::bootstrapper::{
-    frontier_scan::{
-        VerifyResult,
-        coordinator::{FrontierHeadInfo, FrontierScanConfig, FrontierScanCoordinator},
-        verify_frontiers,
-    },
-    query_tracker::RunningQuery,
+    FrontierHeadInfo, FrontierScanConfig, query_tracker::RunningQuery,
 };
 
 pub(crate) struct FrontiersProcessor {

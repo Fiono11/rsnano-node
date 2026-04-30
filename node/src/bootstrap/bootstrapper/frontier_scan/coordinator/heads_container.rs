@@ -1,7 +1,10 @@
-use super::frontier_head::{FrontierHead, FrontierScanConfig};
+use std::collections::BTreeMap;
+
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
-use std::collections::BTreeMap;
+
+use super::frontier_head::FrontierHead;
+use crate::bootstrap::bootstrapper::FrontierScanConfig;
 
 #[derive(Default)]
 pub(super) struct HeadsContainer {
