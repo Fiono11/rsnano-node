@@ -13,7 +13,7 @@ pub use bootstrap_queue::{
 };
 
 use std::{
-    sync::{Arc, Mutex, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, Mutex, RwLock},
     thread::JoinHandle,
     time::Duration,
 };
@@ -34,12 +34,13 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::frontier_scan::frontier_check_pool::FrontierCheckPool,
     transport::MessageSender,
 };
 use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
-use frontier_scan::{frontiers_processor::FrontiersProcessor, stats::FrontierScanStats};
+use frontier_scan::frontiers_processor::FrontiersProcessor;
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
@@ -147,8 +148,7 @@ pub struct Bootstrapper {
     block_inspector: BlockInspector,
     requesters: Requesters,
     ledger: Arc<Ledger>,
-    frontier_stats: Arc<FrontierScanStats>,
-    frontiers_processor: Arc<FrontiersProcessor>,
+    frontier_check_pool: Arc<FrontierCheckPool>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
@@ -162,14 +162,22 @@ impl Bootstrapper {
         config: BootstrapConfig,
     ) -> Self {
         let frontiers_processor = FrontiersProcessor::new(config.frontier_scan.clone());
-        let bootstrap_queue = BootstrapQueue::new(config.bootstrap_queue.clone());
+        let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
+        let frontiers_processor = Arc::new(frontiers_processor);
+        let mut frontier_check_pool = FrontierCheckPool::new(
+            stats.clone(),
+            ledger.clone(),
+            bootstrap_queue.clone(),
+            frontiers_processor.clone(),
+        );
+        frontier_check_pool.max_pending = config.max_pending_frontier_responses;
         let stopped = NullableCondvarMutex::new(StoppedFlag::default());
         Self::new_impl(
             block_processor_queue,
             ledger,
             stats,
             network,
-            frontiers_processor,
+            frontier_check_pool,
             bootstrap_queue,
             message_sender,
             config,
@@ -187,8 +195,8 @@ impl Bootstrapper {
         let message_sender = MessageSender::new_null();
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
-        let frontiers_processor = FrontiersProcessor::new_null();
-        let bootstrap_queue = BootstrapQueue::new_null();
+        let frontier_check_pool = FrontierCheckPool::new_null();
+        let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stopped = NullableCondvarMutex::new_null(StoppedFlag::default());
 
         Self::new_impl(
@@ -196,7 +204,7 @@ impl Bootstrapper {
             ledger,
             stats,
             network,
-            frontiers_processor,
+            frontier_check_pool,
             bootstrap_queue,
             message_sender,
             config,
@@ -210,28 +218,23 @@ impl Bootstrapper {
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
-        frontiers_processor: FrontiersProcessor,
-        bootstrap_queue: BootstrapQueue,
+        frontier_check_pool: FrontierCheckPool,
+        bootstrap_queue: Arc<BootstrapQueue>,
         message_sender: MessageSender,
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
         stopped: NullableCondvarMutex<StoppedFlag>,
     ) -> Self {
-        let frontiers_processor = Arc::new(frontiers_processor);
-        let bootstrap_queue = Arc::new(bootstrap_queue);
-        let frontier_stats = Arc::new(FrontierScanStats::default());
         let query_tracker = Arc::new(QueryTracker::new(config.clone(), stats.clone()));
 
-        let mut response_handler = ResponseProcessor::new(
+        let frontier_check_pool = Arc::new(frontier_check_pool);
+
+        let response_handler = ResponseProcessor::new(
             query_tracker.clone(),
             bootstrap_queue.clone(),
-            stats.clone(),
             block_processor_queue.clone(),
-            ledger.clone(),
-            frontier_stats.clone(),
-            frontiers_processor.clone(),
+            frontier_check_pool.clone(),
         );
-        response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
 
         let block_inspector = BlockInspector::new(
             bootstrap_queue.clone(),
@@ -248,7 +251,7 @@ impl Bootstrapper {
             block_processor_queue,
             bootstrap_queue.clone(),
             network,
-            frontiers_processor.clone(),
+            frontier_check_pool.clone(),
         );
 
         Self {
@@ -262,8 +265,7 @@ impl Bootstrapper {
             requesters,
             ledger,
             bootstrap_queue,
-            frontier_stats,
-            frontiers_processor,
+            frontier_check_pool,
             stopped: stopped.into(),
         }
     }
@@ -400,12 +402,7 @@ impl Bootstrapper {
     }
 
     pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {
-        FrontierScanSnapshot {
-            processed_frontiers: self.frontier_stats.processed_frontiers.load(Relaxed),
-            outdated_accounts_found: self.frontier_stats.outdated_accounts_found.load(Relaxed),
-            heads: self.frontiers_processor.heads(),
-            last_outdated_accounts: self.frontier_stats.last_outdated_found(),
-        }
+        self.frontier_check_pool.snapshot()
     }
 }
 
@@ -421,7 +418,7 @@ impl ContainerInfoProvider for Bootstrapper {
         ContainerInfo::builder()
             .node("query_tracker", self.query_tracker.container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
-            .node("frontiers", self.frontiers_processor.container_info())
+            .node("frontiers", self.frontier_check_pool.container_info())
             .finish()
     }
 }
@@ -431,7 +428,7 @@ impl StatsSource for Bootstrapper {
         self.response_handler.collect_stats(result);
         self.bootstrap_queue.collect_stats(result);
         self.requesters.collect_stats(result);
-        self.frontier_stats.collect_stats(result);
+        self.frontier_check_pool.collect_stats(result);
     }
 }
 

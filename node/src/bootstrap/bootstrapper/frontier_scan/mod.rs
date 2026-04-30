@@ -2,7 +2,7 @@ mod coordinator;
 mod database_crawler;
 pub(crate) mod frontier_check_pool;
 pub(crate) mod frontier_checker;
-pub(crate) mod frontier_worker;
+pub mod frontier_worker;
 pub(crate) mod frontiers_processor;
 pub(crate) mod stats;
 

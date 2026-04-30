@@ -42,7 +42,7 @@ impl FrontiersProcessor {
         self.logic.lock().unwrap().frontier_checker_overfill()
     }
 
-    pub fn next(&self) -> Account {
+    pub fn next_account_to_query(&self) -> Account {
         let now = self.clock.now();
         self.logic.lock().unwrap().next(now)
     }
@@ -51,8 +51,8 @@ impl FrontiersProcessor {
         self.logic.lock().unwrap().process(query, frontiers)
     }
 
-    pub fn pop_frontiers_to_check(&self) -> Option<Vec<Frontier>> {
-        self.logic.lock().unwrap().pop_frontiers_to_check()
+    pub fn pop_received_frontiers(&self) -> Option<Vec<Frontier>> {
+        self.logic.lock().unwrap().pop_received_frontiers()
     }
 
     pub fn heads(&self) -> Vec<FrontierHeadInfo> {
@@ -81,7 +81,7 @@ struct FrontiersProcessorLogic {
     frontier_scan: FrontierScanCoordinator,
 
     /// Frontiers that were received from other nodes and that we need to check against our ledger
-    frontiers_to_check: VecDeque<Vec<Frontier>>,
+    received_frontiers: VecDeque<Vec<Frontier>>,
     frontier_checker_overfill: bool,
 }
 
@@ -89,7 +89,7 @@ impl FrontiersProcessorLogic {
     pub fn new(config: FrontierScanConfig) -> Self {
         Self {
             frontier_scan: FrontierScanCoordinator::new(config),
-            frontiers_to_check: Default::default(),
+            received_frontiers: Default::default(),
             frontier_checker_overfill: false,
         }
     }
@@ -114,14 +114,14 @@ impl FrontiersProcessorLogic {
         let result = verify_frontiers(query, &frontiers);
         if result == VerifyResult::Ok {
             self.frontier_scan.process(query.start.into(), &frontiers);
-            self.frontiers_to_check.push_back(frontiers);
+            self.received_frontiers.push_back(frontiers);
         };
 
         result
     }
 
-    pub fn pop_frontiers_to_check(&mut self) -> Option<Vec<Frontier>> {
-        self.frontiers_to_check.pop_front()
+    pub fn pop_received_frontiers(&mut self) -> Option<Vec<Frontier>> {
+        self.received_frontiers.pop_front()
     }
 
     pub fn heads(&self) -> Vec<FrontierHeadInfo> {

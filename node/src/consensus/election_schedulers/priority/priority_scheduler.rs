@@ -201,7 +201,6 @@ impl PriorityScheduler {
 
     fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {
         if let Some(destination) = block.destination()
-            && block.is_send()
             && !destination.is_zero()
             && destination != block.account()
         {

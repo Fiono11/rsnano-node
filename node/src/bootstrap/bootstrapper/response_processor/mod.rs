@@ -8,22 +8,18 @@ use std::sync::{
 
 use tracing::trace;
 
-use rsnano_ledger::{BlockSource, Ledger};
+use rsnano_ledger::BlockSource;
 use rsnano_messages::{AscPullAck, AscPullAckType};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
+use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::query_tracker::QueryTracker;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
-        VerifyResult,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::{
-            frontier_check_pool::FrontierCheckPool, frontiers_processor::FrontiersProcessor,
-            stats::FrontierScanStats,
-        },
+        frontier_scan::frontier_check_pool::FrontierCheckPool,
         query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
@@ -33,7 +29,7 @@ use crate::{
 
 pub(crate) struct ResponseProcessor {
     query_tracker: Arc<QueryTracker>,
-    frontier_check_pool: FrontierCheckPool,
+    frontier_check_pool: Arc<FrontierCheckPool>,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
     account_ack_processor: AccountAckProcessor,
@@ -41,28 +37,15 @@ pub(crate) struct ResponseProcessor {
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
-    frontier_stats: Arc<FrontierScanStats>,
-    frontiers_processor: Arc<FrontiersProcessor>,
 }
 
 impl ResponseProcessor {
     pub(crate) fn new(
         query_tracker: Arc<QueryTracker>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        stats: Arc<Stats>,
         block_queue: Arc<BlockProcessorQueue>,
-        ledger: Arc<Ledger>,
-        frontier_stats: Arc<FrontierScanStats>,
-        frontiers_processor: Arc<FrontiersProcessor>,
+        frontier_check_pool: Arc<FrontierCheckPool>,
     ) -> Self {
-        let frontier_check_pool = FrontierCheckPool::new(
-            stats.clone(),
-            frontier_stats.clone(),
-            ledger,
-            bootstrap_queue.clone(),
-            frontiers_processor.clone(),
-        );
-
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
         let block_ack_processor = BlockAckProcessor::new(bootstrap_queue.clone());
 
@@ -76,13 +59,7 @@ impl ResponseProcessor {
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
-            frontier_stats,
-            frontiers_processor,
         }
-    }
-
-    pub fn set_max_pending_frontiers(&mut self, max_pending: usize) {
-        self.frontier_check_pool.max_pending = max_pending;
     }
 
     pub fn process(
@@ -122,20 +99,7 @@ impl ResponseProcessor {
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
-                match self.frontiers_processor.process(query, frontiers) {
-                    VerifyResult::Ok => {
-                        self.frontier_stats.verified.fetch_add(1, Relaxed);
-                        true
-                    }
-                    VerifyResult::NothingNew => {
-                        self.frontier_stats.nothing_new.fetch_add(1, Relaxed);
-                        true
-                    }
-                    VerifyResult::Invalid => {
-                        self.frontier_stats.invalid.fetch_add(1, Relaxed);
-                        false
-                    }
-                }
+                self.frontier_check_pool.process(query, frontiers)
             }
         };
 

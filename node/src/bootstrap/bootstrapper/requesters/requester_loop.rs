@@ -12,7 +12,7 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontiers_processor::FrontiersProcessor,
+        frontier_scan::frontier_check_pool::FrontierCheckPool,
         query_tracker::QueryTracker,
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
     },
@@ -43,7 +43,7 @@ impl RequesterLoop {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        frontiers_processor: Arc<FrontiersProcessor>,
+        frontier_check_pool: Arc<FrontierCheckPool>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
     ) -> Self {
         let mut query_sender =
@@ -60,7 +60,7 @@ impl RequesterLoop {
                 ledger,
                 block_processor_queue,
                 bootstrap_queue.clone(),
-                frontiers_processor,
+                frontier_check_pool,
                 query_tracker,
             ),
             bootstrap_queue,

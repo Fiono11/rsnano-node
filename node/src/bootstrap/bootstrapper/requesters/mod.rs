@@ -22,7 +22,7 @@ use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontiers_processor::FrontiersProcessor,
+        frontier_scan::frontier_check_pool::FrontierCheckPool,
         query_tracker::QueryTracker,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
     },
@@ -42,7 +42,7 @@ pub(crate) struct Requesters {
     bootstrap_queue: Arc<BootstrapQueue>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
-    frontiers_processor: Arc<FrontiersProcessor>,
+    frontier_check_pool: Arc<FrontierCheckPool>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
@@ -56,7 +56,7 @@ impl Requesters {
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
-        frontiers_processor: Arc<FrontiersProcessor>,
+        frontier_check_pool: Arc<FrontierCheckPool>,
     ) -> Self {
         Self {
             config,
@@ -69,7 +69,7 @@ impl Requesters {
             network,
             thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
-            frontiers_processor,
+            frontier_check_pool,
             stopped: Arc::new(NullableCondvarMutex::new(StoppedFlag::default())),
         }
     }
@@ -91,7 +91,7 @@ impl Requesters {
             self.ledger.clone(),
             self.block_processor_queue.clone(),
             self.bootstrap_queue.clone(),
-            self.frontiers_processor.clone(),
+            self.frontier_check_pool.clone(),
             self.stopped.clone(),
         );
         let join_handle = std::thread::Builder::new()

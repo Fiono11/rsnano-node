@@ -13,7 +13,7 @@ use crate::{
     bootstrap::bootstrapper::{
         AscPullQuerySpec, BootstrapConfig,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::frontiers_processor::FrontiersProcessor,
+        frontier_scan::frontier_check_pool::FrontierCheckPool,
         query_tracker::QueryTracker,
         requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
     },
@@ -32,7 +32,7 @@ pub(crate) struct QueryFactory {
     pull_type_decider: PullTypeDecider,
     pull_count_decider: PullCountDecider,
     ledger: Arc<Ledger>,
-    frontiers_processor: Arc<FrontiersProcessor>,
+    frontier_check_pool: Arc<FrontierCheckPool>,
 }
 
 impl QueryFactory {
@@ -43,7 +43,7 @@ impl QueryFactory {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        frontiers_processor: Arc<FrontiersProcessor>,
+        frontier_check_pool: Arc<FrontierCheckPool>,
         query_tracker: Arc<QueryTracker>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
@@ -62,7 +62,7 @@ impl QueryFactory {
             pull_count_decider,
             pull_type_decider,
             ledger,
-            frontiers_processor,
+            frontier_check_pool,
         }
     }
 
@@ -168,12 +168,12 @@ impl QueryFactory {
         if !self.frontiers_limiter.could_consume(1) {
             return None;
         }
-        if self.frontiers_processor.frontier_checker_overfill() {
+        if self.frontier_check_pool.frontier_checker_overfill() {
             return None;
         }
         let channel = self.acquire_channel()?;
 
-        let start = self.frontiers_processor.next();
+        let start = self.frontier_check_pool.next_account_to_query();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
             self.query_tracker
