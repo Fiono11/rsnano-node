@@ -1,5 +1,5 @@
 use std::{
-    sync::{atomic::Ordering::Relaxed, Arc, RwLock},
+    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -10,11 +10,11 @@ use rsnano_utils::stats::Stats;
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::FrontierCheckPool,
+        frontier_scan::FrontierScan,
         query_tracker::QueryTracker,
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
-        BootstrapConfig, StoppedFlag,
     },
     transport::MessageSender,
 };
@@ -43,7 +43,7 @@ impl RequesterLoop {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        frontier_check_pool: Arc<FrontierCheckPool>,
+        frontier_scan: Arc<FrontierScan>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
     ) -> Self {
         let mut query_sender =
@@ -60,7 +60,7 @@ impl RequesterLoop {
                 ledger,
                 block_processor_queue,
                 bootstrap_queue.clone(),
-                frontier_check_pool,
+                frontier_scan,
                 query_tracker,
             ),
             bootstrap_queue,

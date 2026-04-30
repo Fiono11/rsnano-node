@@ -6,7 +6,7 @@ mod frontiers_processor;
 mod stats;
 
 use std::{
-    sync::{atomic::Ordering::Relaxed, Arc},
+    sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -21,9 +21,9 @@ use rsnano_utils::{
 };
 
 use crate::bootstrap::bootstrapper::{
+    FrontierScanSnapshot, VerifyResult,
     bootstrap_queue::BootstrapQueue,
     query_tracker::{QueryType, RunningQuery},
-    FrontierScanSnapshot, VerifyResult,
 };
 use frontier_worker::FrontierWorker;
 use frontiers_processor::FrontiersProcessor;
@@ -68,7 +68,7 @@ impl FrontierHeadInfo {
     }
 }
 
-pub(crate) struct FrontierCheckPool {
+pub(crate) struct FrontierScan {
     stats: Arc<Stats>,
     stats2: Arc<FrontierScanStats>,
     ledger: Arc<Ledger>,
@@ -78,7 +78,7 @@ pub(crate) struct FrontierCheckPool {
     max_pending: usize,
 }
 
-impl FrontierCheckPool {
+impl FrontierScan {
     pub fn new(
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
@@ -172,13 +172,13 @@ impl FrontierCheckPool {
     }
 }
 
-impl ContainerInfoProvider for FrontierCheckPool {
+impl ContainerInfoProvider for FrontierScan {
     fn container_info(&self) -> ContainerInfo {
         self.frontiers_processor.container_info()
     }
 }
 
-impl StatsSource for FrontierCheckPool {
+impl StatsSource for FrontierScan {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.stats2.collect_stats(result);
     }

@@ -25,25 +25,26 @@ use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
 use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::frontier_scan::FrontierCheckPool,
     transport::MessageSender,
 };
+
 use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
+use frontier_scan::FrontierScan;
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;
-use rsnano_nullable_condvar::NullableCondvarMutex;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub(crate) struct AscPullQuerySpec {
@@ -144,7 +145,7 @@ pub struct Bootstrapper {
     block_inspector: BlockInspector,
     requesters: Requesters,
     ledger: Arc<Ledger>,
-    frontier_check_pool: Arc<FrontierCheckPool>,
+    frontier_scan: Arc<FrontierScan>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
@@ -158,7 +159,7 @@ impl Bootstrapper {
         config: BootstrapConfig,
     ) -> Self {
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
-        let frontier_check_pool = Arc::new(FrontierCheckPool::new(
+        let frontier_scan = Arc::new(FrontierScan::new(
             stats.clone(),
             ledger.clone(),
             bootstrap_queue.clone(),
@@ -170,7 +171,7 @@ impl Bootstrapper {
             ledger,
             stats,
             network,
-            frontier_check_pool,
+            frontier_scan,
             bootstrap_queue,
             message_sender,
             config,
@@ -188,7 +189,7 @@ impl Bootstrapper {
         let message_sender = MessageSender::new_null();
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
-        let frontier_check_pool = Arc::new(FrontierCheckPool::new_null());
+        let frontier_scan = Arc::new(FrontierScan::new_null());
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stopped = NullableCondvarMutex::new_null(StoppedFlag::default());
 
@@ -197,7 +198,7 @@ impl Bootstrapper {
             ledger,
             stats,
             network,
-            frontier_check_pool,
+            frontier_scan,
             bootstrap_queue,
             message_sender,
             config,
@@ -211,7 +212,7 @@ impl Bootstrapper {
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
-        frontier_check_pool: Arc<FrontierCheckPool>,
+        frontier_scan: Arc<FrontierScan>,
         bootstrap_queue: Arc<BootstrapQueue>,
         message_sender: MessageSender,
         config: BootstrapConfig,
@@ -224,7 +225,7 @@ impl Bootstrapper {
             query_tracker.clone(),
             bootstrap_queue.clone(),
             block_processor_queue.clone(),
-            frontier_check_pool.clone(),
+            frontier_scan.clone(),
         );
 
         let block_inspector = BlockInspector::new(
@@ -242,7 +243,7 @@ impl Bootstrapper {
             block_processor_queue,
             bootstrap_queue.clone(),
             network,
-            frontier_check_pool.clone(),
+            frontier_scan.clone(),
         );
 
         Self {
@@ -256,7 +257,7 @@ impl Bootstrapper {
             requesters,
             ledger,
             bootstrap_queue,
-            frontier_check_pool,
+            frontier_scan,
             stopped: stopped.into(),
         }
     }
@@ -393,7 +394,7 @@ impl Bootstrapper {
     }
 
     pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {
-        self.frontier_check_pool.snapshot()
+        self.frontier_scan.snapshot()
     }
 }
 
@@ -409,7 +410,7 @@ impl ContainerInfoProvider for Bootstrapper {
         ContainerInfo::builder()
             .node("query_tracker", self.query_tracker.container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
-            .node("frontiers", self.frontier_check_pool.container_info())
+            .node("frontiers", self.frontier_scan.container_info())
             .finish()
     }
 }
@@ -419,7 +420,7 @@ impl StatsSource for Bootstrapper {
         self.response_handler.collect_stats(result);
         self.bootstrap_queue.collect_stats(result);
         self.requesters.collect_stats(result);
-        self.frontier_check_pool.collect_stats(result);
+        self.frontier_scan.collect_stats(result);
     }
 }
 

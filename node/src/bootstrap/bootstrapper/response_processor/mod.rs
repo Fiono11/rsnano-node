@@ -2,8 +2,8 @@ mod account_ack_processor;
 mod block_ack_processor;
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering::Relaxed},
     Arc,
+    atomic::{AtomicU64, Ordering::Relaxed},
 };
 
 use tracing::trace;
@@ -19,7 +19,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::FrontierCheckPool,
+        frontier_scan::FrontierScan,
         query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
@@ -29,7 +29,7 @@ use crate::{
 
 pub(crate) struct ResponseProcessor {
     query_tracker: Arc<QueryTracker>,
-    frontier_check_pool: Arc<FrontierCheckPool>,
+    frontier_scan: Arc<FrontierScan>,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
     account_ack_processor: AccountAckProcessor,
@@ -44,14 +44,14 @@ impl ResponseProcessor {
         query_tracker: Arc<QueryTracker>,
         bootstrap_queue: Arc<BootstrapQueue>,
         block_queue: Arc<BlockProcessorQueue>,
-        frontier_check_pool: Arc<FrontierCheckPool>,
+        frontier_scan: Arc<FrontierScan>,
     ) -> Self {
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
         let block_ack_processor = BlockAckProcessor::new(bootstrap_queue.clone());
 
         Self {
             query_tracker,
-            frontier_check_pool,
+            frontier_scan,
             block_proc_queue: block_queue,
             bootstrap_queue,
             account_ack_processor,
@@ -79,7 +79,7 @@ impl ResponseProcessor {
             .map(|_| ProcessInfo::new(&query, now))?;
 
         self.enqueue_next_blocks();
-        self.frontier_check_pool.enqueue_frontiers();
+        self.frontier_scan.enqueue_frontiers();
         Ok(process_info)
     }
 
@@ -99,7 +99,7 @@ impl ResponseProcessor {
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
-                self.frontier_check_pool.process(query, frontiers)
+                self.frontier_scan.process(query, frontiers)
             }
         };
 

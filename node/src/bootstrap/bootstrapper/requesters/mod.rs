@@ -20,11 +20,11 @@ use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
+        BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
-        frontier_scan::FrontierCheckPool,
+        frontier_scan::FrontierScan,
         query_tracker::QueryTracker,
         requesters::{requester_loop::RequesterLoop, stats::BootstrapRequesterStats},
-        BootstrapConfig, StoppedFlag,
     },
     transport::MessageSender,
 };
@@ -42,7 +42,7 @@ pub(crate) struct Requesters {
     bootstrap_queue: Arc<BootstrapQueue>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
-    frontier_check_pool: Arc<FrontierCheckPool>,
+    frontier_scan: Arc<FrontierScan>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
 }
 
@@ -56,7 +56,7 @@ impl Requesters {
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
-        frontier_check_pool: Arc<FrontierCheckPool>,
+        frontier_scan: Arc<FrontierScan>,
     ) -> Self {
         Self {
             config,
@@ -69,7 +69,7 @@ impl Requesters {
             network,
             thread: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
-            frontier_check_pool,
+            frontier_scan,
             stopped: Arc::new(NullableCondvarMutex::new(StoppedFlag::default())),
         }
     }
@@ -91,7 +91,7 @@ impl Requesters {
             self.ledger.clone(),
             self.block_processor_queue.clone(),
             self.bootstrap_queue.clone(),
-            self.frontier_check_pool.clone(),
+            self.frontier_scan.clone(),
             self.stopped.clone(),
         );
         let join_handle = std::thread::Builder::new()

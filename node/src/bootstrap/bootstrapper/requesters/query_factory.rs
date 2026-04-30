@@ -1,21 +1,21 @@
-use std::sync::{atomic::Ordering::Relaxed, Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
 use rand::RngCore;
 
 use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
-use rsnano_network::{token_bucket::TokenBucket, Channel, Network, TrafficType};
+use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
 
 use crate::{
     block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
-        bootstrap_queue::BootstrapQueue,
-        frontier_scan::FrontierCheckPool,
-        query_tracker::QueryTracker,
-        requesters::{stats::BootstrapRequesterStats, PullCountDecider, PullType, PullTypeDecider},
         AscPullQuerySpec, BootstrapConfig,
+        bootstrap_queue::BootstrapQueue,
+        frontier_scan::FrontierScan,
+        query_tracker::QueryTracker,
+        requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
     },
 };
 
@@ -32,7 +32,7 @@ pub(crate) struct QueryFactory {
     pull_type_decider: PullTypeDecider,
     pull_count_decider: PullCountDecider,
     ledger: Arc<Ledger>,
-    frontier_check_pool: Arc<FrontierCheckPool>,
+    frontier_scan: Arc<FrontierScan>,
 }
 
 impl QueryFactory {
@@ -43,7 +43,7 @@ impl QueryFactory {
         ledger: Arc<Ledger>,
         block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
-        frontier_check_pool: Arc<FrontierCheckPool>,
+        frontier_scan: Arc<FrontierScan>,
         query_tracker: Arc<QueryTracker>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
@@ -62,7 +62,7 @@ impl QueryFactory {
             pull_count_decider,
             pull_type_decider,
             ledger,
-            frontier_check_pool,
+            frontier_scan,
         }
     }
 
@@ -168,12 +168,12 @@ impl QueryFactory {
         if !self.frontiers_limiter.could_consume(1) {
             return None;
         }
-        if self.frontier_check_pool.frontier_checker_overfill() {
+        if self.frontier_scan.frontier_checker_overfill() {
             return None;
         }
         let channel = self.acquire_channel()?;
 
-        let start = self.frontier_check_pool.next_account_to_query();
+        let start = self.frontier_scan.next_account_to_query();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
             self.query_tracker
