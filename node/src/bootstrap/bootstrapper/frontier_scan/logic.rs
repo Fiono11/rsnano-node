@@ -4,9 +4,9 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Frontier};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use super::{coordinator::FrontierScanCoordinator, verify_frontiers, VerifyResult};
+use super::{VerifyResult, coordinator::FrontierScanCoordinator, verify_frontiers};
 use crate::bootstrap::bootstrapper::{
-    query_tracker::RunningQuery, FrontierHeadInfo, FrontierScanConfig,
+    FrontierHeadInfo, FrontierScanConfig, query_tracker::RunningQuery,
 };
 
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -49,11 +49,7 @@ impl FrontierScanLogic {
         self.frontier_scan.next(now)
     }
 
-    pub(crate) fn process(
-        &mut self,
-        query: &RunningQuery,
-        frontiers: Vec<Frontier>,
-    ) -> VerifyResult {
+    pub fn process(&mut self, query: &RunningQuery, frontiers: Vec<Frontier>) -> VerifyResult {
         let result = verify_frontiers(query, &frontiers);
         if result == VerifyResult::Ok {
             self.frontier_scan.process(query.start.into(), &frontiers);

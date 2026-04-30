@@ -76,7 +76,7 @@ impl<'a> FrontierWorker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::{frontier_scan::stats::FrontierScanStats, Priority};
+    use crate::bootstrap::bootstrapper::{Priority, frontier_scan::stats::FrontierScanStats};
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
     use std::sync::Arc;

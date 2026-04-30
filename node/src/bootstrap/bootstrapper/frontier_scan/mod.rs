@@ -6,7 +6,7 @@ mod logic;
 mod stats;
 
 use std::{
-    sync::{atomic::Ordering::Relaxed, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -21,9 +21,9 @@ use rsnano_utils::{
 };
 
 use crate::bootstrap::bootstrapper::{
+    FrontierScanSnapshot, VerifyResult,
     bootstrap_queue::BootstrapQueue,
     query_tracker::{QueryType, RunningQuery},
-    FrontierScanSnapshot, VerifyResult,
 };
 use frontier_worker::FrontierWorker;
 use logic::FrontierScanLogic;

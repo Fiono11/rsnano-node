@@ -481,7 +481,7 @@ pub struct FrontierScanSnapshot {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum VerifyResult {
+pub(crate) enum VerifyResult {
     Ok,
     NothingNew,
     Invalid,
