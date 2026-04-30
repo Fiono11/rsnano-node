@@ -9,6 +9,7 @@ use crate::consensus::{
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
 };
+use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub(crate) struct Entry {
     pub root: QualifiedRoot,
@@ -250,6 +251,16 @@ impl RootContainer {
 
     pub fn bucket_count(&self) -> usize {
         self.bucket_infos.len()
+    }
+}
+
+impl ContainerInfoProvider for RootContainer {
+    fn container_info(&self) -> ContainerInfo {
+        let mut result = ContainerInfo::builder();
+        for (i, b) in self.buckets.iter().enumerate() {
+            result = result.leaf(format!("bucket {}", i), b.len(), 0);
+        }
+        result.finish()
     }
 }
 

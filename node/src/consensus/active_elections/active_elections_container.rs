@@ -544,6 +544,7 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
                 self.recently_confirmed.container_info(),
             )
             .node("vote_router", self.roots.vote_router.container_info())
+            .node("buckets", self.roots.container_info())
             .finish()
     }
 }
