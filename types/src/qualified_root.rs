@@ -47,6 +47,14 @@ impl QualifiedRoot {
     pub fn new_test_instance() -> Self {
         Self::new(Root::from(111), BlockHash::from(222))
     }
+    pub fn encode_hex(&self) -> String {
+        use std::fmt::Write;
+        let mut result = String::with_capacity(128);
+        for byte in &self.to_bytes() {
+            write!(&mut result, "{:02X}", byte).unwrap();
+        }
+        result
+    }
 
     pub fn decode_hex(s: impl AsRef<str>) -> Option<Self> {
         let mut bytes = [0u8; 64];

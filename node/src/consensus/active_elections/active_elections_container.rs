@@ -15,7 +15,7 @@ use rsnano_utils::{
 
 use crate::{
     consensus::{
-        ElectionCandidateSource,
+        AecSnapshot, ElectionCandidateSource,
         election::{
             AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
         },
@@ -498,6 +498,10 @@ impl ActiveElectionsContainer {
 
     pub fn simulate_event(&self, event: AecFact) {
         self.notify(event);
+    }
+
+    pub fn snapshot(&self) -> AecSnapshot {
+        self.roots.snapshot()
     }
 
     fn notify(&self, event: AecFact) {

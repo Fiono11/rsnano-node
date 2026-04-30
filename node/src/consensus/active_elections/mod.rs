@@ -7,6 +7,10 @@ mod root_container;
 mod stats;
 mod vote_router;
 
+pub use active_elections_container::*;
+pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
+pub use cooldown_controller::AecCooldownReason;
+
 use std::{collections::HashMap, isize};
 
 use rsnano_types::{
@@ -17,9 +21,6 @@ use super::{
     ReceivedVote,
     election::{ConfirmedElection, Election, ElectionBehavior},
 };
-pub use active_elections_container::*;
-pub use aec_service::AecService;
-pub use cooldown_controller::AecCooldownReason;
 use root_container::{Entry, RootContainer};
 
 #[derive(Clone, Debug, PartialEq)]

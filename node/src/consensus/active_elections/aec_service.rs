@@ -192,6 +192,10 @@ impl AecService {
     pub fn simulate_event(&self, event: AecFact) {
         self.aec.read().unwrap().simulate_event(event)
     }
+
+    pub fn snapshot(&self) -> AecSnapshot {
+        self.aec.read().unwrap().snapshot()
+    }
 }
 
 impl StatsSource for AecService {
@@ -204,4 +208,22 @@ impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
         self.aec.read().unwrap().container_info()
     }
+}
+
+#[derive(Default)]
+pub struct AecSnapshot {
+    pub buckets: Vec<BucketSnapshot>,
+}
+
+pub struct BucketSnapshot {
+    pub bucket_index: usize,
+    pub election_count: usize,
+    pub elections: Vec<ElectionSnapshot>,
+}
+
+pub struct ElectionSnapshot {
+    pub winner_hash: BlockHash,
+    pub non_final_tally: Amount,
+    pub final_tally: Amount,
+    pub root: QualifiedRoot,
 }

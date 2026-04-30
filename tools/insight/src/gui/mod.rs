@@ -4,6 +4,7 @@ mod badge;
 mod block_processor;
 mod bootstrap;
 mod channels;
+mod elections;
 mod explorer;
 mod frontier_scan;
 mod ledger_stats;

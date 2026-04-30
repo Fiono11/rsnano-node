@@ -5,7 +5,8 @@ use rustc_hash::FxHashMap;
 
 use super::{AecInsertRequest, vote_router::VoteRouter};
 use crate::consensus::{
-    BucketInfo,
+    AecSnapshot, BucketInfo,
+    active_elections::aec_service::{BucketSnapshot, ElectionSnapshot},
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
 };
@@ -251,6 +252,33 @@ impl RootContainer {
 
     pub fn bucket_count(&self) -> usize {
         self.bucket_infos.len()
+    }
+
+    pub fn snapshot(&self) -> AecSnapshot {
+        AecSnapshot {
+            buckets: self
+                .buckets
+                .iter()
+                .enumerate()
+                .map(|(i, b)| BucketSnapshot {
+                    bucket_index: i,
+                    election_count: b.len(),
+                    elections: b
+                        .iter()
+                        .take(3)
+                        .map(|entry| {
+                            let election = &self.by_root.get(&entry.root).unwrap().election;
+                            ElectionSnapshot {
+                                winner_hash: election.winner().hash(),
+                                non_final_tally: election.winner_tally(),
+                                final_tally: election.winner_final_tally(),
+                                root: election.qualified_root().clone(),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
     }
 }
 

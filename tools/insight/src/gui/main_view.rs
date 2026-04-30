@@ -10,7 +10,20 @@ use super::{
     formatted_number, view_frontier_scan, view_ledger_stats, view_message_recorder_controls,
     view_message_tab, view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
-use crate::{app::InsightApp, explorer::ExplorerState, gui::QueueViewModel, navigator::NavItem};
+use crate::{
+    app::InsightApp,
+    explorer::ExplorerState,
+    gui::{
+        QueueViewModel,
+        elections::{
+            BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
+            view_election_details, view_elections,
+        },
+    },
+    navigator::NavItem,
+};
+use rsnano_node::consensus::BucketSnapshot;
+use rsnano_types::Amount;
 
 pub(crate) struct MainView {
     model: MainViewModel,
@@ -70,6 +83,13 @@ impl eframe::App for MainView {
             NavItem::Messages => view_message_tab(ctx, &mut self.model),
             NavItem::Queues => view_queues(ctx, self.model.queue_groups()),
             NavItem::BlockProcessor => view_block_processor(ctx),
+            NavItem::Elections => {
+                if let Some(details) = self.model.election_details() {
+                    view_election_details(ctx, details)
+                } else {
+                    view_elections(ctx, self.model.elections(), &mut self.model.app)
+                }
+            }
             NavItem::Bootstrap => view_bootstrap(ctx, self.model.bootstrap(), &mut self.model.app),
             NavItem::FrontierScan => {
                 view_frontier_scan(ctx, self.model.frontier_scan(), &mut self.model.app)
@@ -226,6 +246,29 @@ impl MainViewModel {
         }
     }
 
+    pub fn elections(&self) -> ElectionsViewModel {
+        if self.app.elections.buckets.len() < 33 {
+            return Default::default();
+        }
+        let (col1, col2) = self.app.elections.buckets.split_at(33);
+        ElectionsViewModel {
+            bucket_col1: create_bucket_column(col1),
+            bucket_col2: create_bucket_column(col2),
+        }
+    }
+
+    pub fn election_details(&self) -> Option<ElectionDetailsViewModel> {
+        self.app
+            .election_details
+            .as_ref()
+            .map(|d| ElectionDetailsViewModel {
+                winner_hash: d.winner().hash().encode_hex(),
+                non_final_tally: d.winner_tally().to_string_dec(),
+                final_tally: d.winner_final_tally().to_string_dec(),
+                root: d.qualified_root().encode_hex(),
+            })
+    }
+
     pub fn explorer(&self) -> BlockViewModel {
         let mut view_model = BlockViewModel::default();
         if let ExplorerState::Block(b) = self.app.explorer.state() {
@@ -239,8 +282,49 @@ impl MainViewModel {
     }
 }
 
+fn create_bucket_column(buckets: &[BucketSnapshot]) -> Vec<BucketViewModel> {
+    buckets
+        .iter()
+        .map(|i| BucketViewModel {
+            name: format!("Bucket {:02}", i.bucket_index),
+            election_count: i.election_count,
+            elections: i
+                .elections
+                .iter()
+                .map(|election| {
+                    let mut hash = election.winner_hash.encode_hex();
+                    hash.truncate(6);
+                    ElectionViewModel {
+                        hash,
+                        non_final_tally: to_short_tally(election.non_final_tally),
+                        final_tally: to_short_tally(election.final_tally),
+                        root: election.root.clone(),
+                    }
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn to_short_tally(tally: Amount) -> u16 {
+    (tally.number() / Amount::nano(1_000_000).number()) as u16
+}
+
 pub(super) fn truncate_text(s: &mut String, len: usize) {
     if s.len() > len {
         s.replace_range(len.., "...");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_tally() {
+        assert_eq!(
+            108,
+            to_short_tally(Amount::decode_dec("108902282988839324247169685594164037852").unwrap())
+        );
     }
 }

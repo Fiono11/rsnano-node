@@ -5,6 +5,7 @@ pub(crate) enum NavItem {
     Messages,
     Queues,
     BlockProcessor,
+    Elections,
     Bootstrap,
     FrontierScan,
     Explorer,
@@ -17,6 +18,7 @@ impl NavItem {
             NavItem::Messages => "Messages",
             NavItem::Queues => "Queues",
             NavItem::BlockProcessor => "Block Processor",
+            NavItem::Elections => "Elections",
             NavItem::Bootstrap => "Bootstrap",
             NavItem::FrontierScan => "Frontier Scan",
             NavItem::Explorer => "Explorer",
@@ -24,11 +26,12 @@ impl NavItem {
     }
 }
 
-static NAV_ORDER: [NavItem; 6] = [
+static NAV_ORDER: [NavItem; 7] = [
     NavItem::Peers,
     NavItem::Messages,
     NavItem::Queues,
     //NavItem::BlockProcessor,
+    NavItem::Elections,
     NavItem::Bootstrap,
     NavItem::FrontierScan,
     NavItem::Explorer,

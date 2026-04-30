@@ -6,10 +6,10 @@ use std::{
 use rsnano_ledger::BlockSource;
 use rsnano_node::{
     cementation::ConfirmingSetInfo,
-    consensus::{ActiveElectionsInfo, RepTier},
+    consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
 };
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::{Account, BlockHash, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
 
 use crate::{
@@ -43,7 +43,10 @@ pub(crate) struct InsightApp {
     pub vote_processor_info: FairQueueInfo<RepTier>,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
+    pub elections: AecSnapshot,
     pub rollback_hash: String,
+    selected_election: Option<QualifiedRoot>,
+    pub election_details: Option<Election>,
 }
 
 impl InsightApp {
@@ -72,6 +75,9 @@ impl InsightApp {
             last_update: None,
             bootstrap: Default::default(),
             rollback_hash: String::new(),
+            elections: AecSnapshot::default(),
+            selected_election: None,
+            election_details: None,
         }
     }
 
@@ -110,6 +116,11 @@ impl InsightApp {
             self.vote_processor_info = node.vote_processor_queue.info();
             self.frontier_scan.update(&node.bootstrapper, now);
             self.bootstrap.update(&node.bootstrapper);
+            self.elections = node.aec.snapshot();
+            self.election_details = self.selected_election.as_ref().and_then(|root| {
+                let node = self.node_runner.node()?;
+                node.aec.election_for_root(root)
+            });
         }
 
         self.last_update = Some(now);
@@ -149,5 +160,9 @@ impl InsightApp {
         if let Some(node) = self.node_runner.node() {
             node.bootstrapper.print_processing();
         }
+    }
+
+    pub fn show_election(&mut self, root: QualifiedRoot) {
+        self.selected_election = Some(root);
     }
 }
