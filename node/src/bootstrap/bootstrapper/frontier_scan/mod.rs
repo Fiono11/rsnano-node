@@ -1,4 +1,4 @@
-pub(crate) mod coordinator;
+mod coordinator;
 pub(crate) mod frontiers_processor;
 pub(crate) mod stats;
 
@@ -9,8 +9,8 @@ use primitive_types::U512;
 use rsnano_types::{Account, Frontier};
 
 use crate::bootstrap::bootstrapper::{
-    VerifyResult,
     query_tracker::{QueryType, RunningQuery},
+    VerifyResult,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
