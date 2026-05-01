@@ -124,6 +124,10 @@ impl BlockInspector {
                                 // Reprocessing should succeed, because the source block was found
                                 self.bootstrap_queue.reprocess(account, &hash);
                             }
+                        } else {
+                            // The block can't be acted on (account couldn't be resolved or the
+                            // source field is zero). Free the processing slot so it doesn't leak.
+                            self.bootstrap_queue.processing_finished(&hash);
                         }
                     }
                     BlockError::GapPrevious => {

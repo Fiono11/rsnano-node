@@ -175,6 +175,12 @@ impl BootstrapQueueLogic {
     }
 
     pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
+        // Always evict any active block hash for this account from the
+        // ready_to_process / processing sets. Without this, an in-flight block
+        // could be stranded in `processing` if `block` returns early below.
+        // Blocks stay in block_cache so they can be processed after unblock.
+        self.block_processing.suspend(&account);
+
         if !self.priorities.contains(&account) {
             return false;
         }
@@ -184,8 +190,6 @@ impl BootstrapQueueLogic {
 
         self.download_queue.remove(&account);
         self.downloading.remove(&account);
-        // Blocks stay in block_cache so they can be processed after unblock
-        self.block_processing.suspend(&account);
         self.blocked.insert(account, dependency, now);
         self.trim_overflow();
         self.revision += 1;
