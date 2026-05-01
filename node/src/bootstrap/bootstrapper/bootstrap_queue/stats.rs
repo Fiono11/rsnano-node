@@ -21,7 +21,7 @@ pub(crate) struct BootstrapQueueStats {
     pub download_finished: AtomicU64,
     pub download_finished_failed: AtomicU64,
     pub processing_started: AtomicU64,
-    pub processing_started_failed: AtomicU64,
+    pub processing_started_reverted: AtomicU64,
     pub reprocess: AtomicU64,
     pub reprocess_failed: AtomicU64,
     pub processing_finished: AtomicU64,
@@ -94,8 +94,8 @@ impl StatsSource for BootstrapQueueStats {
         );
         result.insert(
             KEY,
-            "processing_started_failed",
-            self.processing_started_failed.load(Relaxed),
+            "processing_started_reverted",
+            self.processing_started_reverted.load(Relaxed),
         );
         result.insert(KEY, "reprocess", self.reprocess.load(Relaxed));
         result.insert(KEY, "reprocess_failed", self.reprocess_failed.load(Relaxed));

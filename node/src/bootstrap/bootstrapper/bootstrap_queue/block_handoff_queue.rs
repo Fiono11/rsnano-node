@@ -61,20 +61,32 @@ impl BlockHandoffQueue {
         Some(hash)
     }
 
-    pub fn next_block(&self) -> Option<&Block> {
-        let account = self.ready_to_process.values().next()?;
-        self.block_cache.get(account)?.front()
-    }
-
     pub fn first_block_hash(&self, account: &Account) -> Option<BlockHash> {
         self.block_cache.get(account)?.front().map(|b| b.hash())
     }
 
-    /// Moves the block from ready_to_process into processing. Returns the owning account.
-    pub fn processing_started(&mut self, block_hash: &BlockHash) -> Option<Account> {
-        let account = self.ready_to_process.remove(block_hash)?;
-        self.processing.insert(*block_hash, account);
-        Some(account)
+    /// Atomically picks the next block ready for processing and moves it
+    /// from `ready_to_process` into `processing`. The caller must either commit
+    /// the hand-off (e.g. push to the block processor queue) or call
+    /// `revert_processing_started` if it cannot proceed; otherwise the block
+    /// will be stranded in `processing`.
+    pub fn take_next_block_for_processing(&mut self) -> Option<Block> {
+        let &account = self.ready_to_process.values().next()?;
+        let block = self.block_cache.get(&account)?.front()?.clone();
+        let hash = block.hash();
+        self.ready_to_process.remove(&hash);
+        self.processing.insert(hash, account);
+        Some(block)
+    }
+
+    /// Reverts a previous `take_next_block_for_processing` by moving the block
+    /// back from `processing` into `ready_to_process`.
+    pub fn revert_processing_started(&mut self, block_hash: &BlockHash) -> bool {
+        let Some(account) = self.processing.remove(block_hash) else {
+            return false;
+        };
+        self.ready_to_process.insert(*block_hash, account);
+        true
     }
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> Option<ProcessingFinished> {

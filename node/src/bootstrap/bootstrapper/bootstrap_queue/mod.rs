@@ -141,8 +141,23 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().next_download_target()
     }
 
-    pub fn next_block_to_process(&self) -> Option<Block> {
-        self.logic.lock().unwrap().next_block_to_process().cloned()
+    pub fn take_next_block_for_processing(&self) -> Option<Block> {
+        let block = self.logic.lock().unwrap().take_next_block_for_processing();
+        if block.is_some() {
+            self.stats.processing_started.fetch_add(1, Relaxed);
+        }
+        block
+    }
+
+    pub fn revert_processing_started(&self, block_hash: &BlockHash) {
+        let reverted = self
+            .logic
+            .lock()
+            .unwrap()
+            .revert_processing_started(block_hash);
+        if reverted {
+            self.stats.processing_started_reverted.fetch_add(1, Relaxed);
+        }
     }
 
     pub fn download_started(&self, account: &Account) {
@@ -165,14 +180,6 @@ impl BootstrapQueue {
             self.stats.download_finished.fetch_add(1, Relaxed);
         } else {
             self.stats.download_finished_failed.fetch_add(1, Relaxed);
-        }
-    }
-
-    pub fn processing_started(&self, block_hash: &BlockHash) {
-        if self.logic.lock().unwrap().processing_started(block_hash) {
-            self.stats.processing_started.fetch_add(1, Relaxed);
-        } else {
-            self.stats.processing_started_failed.fetch_add(1, Relaxed);
         }
     }
 

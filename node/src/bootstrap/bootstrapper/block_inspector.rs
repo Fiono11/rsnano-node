@@ -39,20 +39,20 @@ impl BlockInspector {
     }
 
     fn enqueue_next_blocks(&self) {
-        while let Some(block) = self.bootstrap_queue.next_block_to_process() {
+        while let Some(block) = self.bootstrap_queue.take_next_block_for_processing() {
             let block_hash = block.hash();
 
             let inserted = self.block_processor_queue.push(BlockContext::new(
-                block.clone(),
+                block,
                 BlockSource::Bootstrap,
                 // TODO use real channel id
                 ChannelId::LOOPBACK,
             ));
 
-            if inserted {
-                self.bootstrap_queue.processing_started(&block_hash);
-            } else {
-                // block processor queue is full!
+            if !inserted {
+                // block processor queue is full — undo the hand-off so the block
+                // stays in ready_to_process and can be retried later.
+                self.bootstrap_queue.revert_processing_started(&block_hash);
                 break;
             }
         }

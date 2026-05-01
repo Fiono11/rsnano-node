@@ -258,8 +258,12 @@ impl BootstrapQueueLogic {
         self.download_queue.iter().next().map(|(p, a)| (*a, p))
     }
 
-    pub fn next_block_to_process(&self) -> Option<&Block> {
-        self.block_processing.next_block()
+    pub fn take_next_block_for_processing(&mut self) -> Option<Block> {
+        self.block_processing.take_next_block_for_processing()
+    }
+
+    pub fn revert_processing_started(&mut self, block_hash: &BlockHash) -> bool {
+        self.block_processing.revert_processing_started(block_hash)
     }
 
     pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
@@ -290,12 +294,6 @@ impl BootstrapQueueLogic {
         }
 
         true
-    }
-
-    pub fn processing_started(&mut self, block_hash: &BlockHash) -> bool {
-        self.block_processing
-            .processing_started(block_hash)
-            .is_some()
     }
 
     pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
