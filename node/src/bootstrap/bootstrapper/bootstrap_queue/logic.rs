@@ -174,26 +174,15 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn block(&mut self, account: Account, dependency: BlockHash, now: Timestamp) -> bool {
-        // Always evict any active block hash for this account from the
-        // ready_to_process / processing sets. Without this, an in-flight block
-        // could be stranded in `processing` if `block` returns early below.
-        // Blocks stay in block_cache so they can be processed after unblock.
-        self.block_processing.suspend(&account);
-
-        if !self.priorities.contains(&account) {
-            return false;
+    pub fn block(&mut self, block_hash: &BlockHash, dependency: BlockHash, now: Timestamp) -> bool {
+        if let Some(account) = self.block_processing.processing_failed(&block_hash) {
+            self.blocked.insert(account, dependency, now);
+            self.trim_overflow();
+            self.revision += 1;
+            true
+        } else {
+            false
         }
-        if self.blocked.contains(&account) {
-            return true;
-        }
-
-        self.download_queue.remove(&account);
-        self.downloading.remove(&account);
-        self.blocked.insert(account, dependency, now);
-        self.trim_overflow();
-        self.revision += 1;
-        true
     }
 
     pub fn unblock(&mut self, account: Account) -> bool {
@@ -300,8 +289,8 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
-        self.block_processing.reprocess(account, block_hash)
+    pub fn reprocess(&mut self, block_hash: &BlockHash) -> bool {
+        self.block_processing.reprocess(block_hash)
     }
 
     pub fn processing_finished(&mut self, block_hash: &BlockHash) -> bool {
@@ -318,6 +307,13 @@ impl BootstrapQueueLogic {
             self.download_queue.insert(account, priority);
         }
         true
+    }
+
+    pub fn processing_failed(&mut self, block_hash: &BlockHash) {
+        let Some(account) = self.block_processing.processing_failed(block_hash) else {
+            return;
+        };
+        self.remove(&account);
     }
 
     pub fn next_unknown_blocking_hash(&self) -> Option<BlockHash> {
@@ -555,6 +551,7 @@ impl Default for BootstrapQueueLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_types::{PrivateKey, StateBlockArgs};
 
     #[test]
     fn new_queue_is_empty() {
@@ -581,9 +578,10 @@ mod tests {
     #[test]
     fn priority_set_fails_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, BlockHash::from(2), Timestamp::new_test_instance());
+        let account_key = PrivateKey::from(42);
+        let account = account_key.account();
+        let dependency = BlockHash::from(2);
+        make_blocked_account(&mut queue, &account_key, dependency);
         queue.priority_up_to(&account, Priority::new(42.0));
 
         assert_eq!(queue.info().blocked, 1);
@@ -639,16 +637,16 @@ mod tests {
     #[test]
     fn priority_can_be_increased_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, BlockHash::from(2), Timestamp::new_test_instance());
+        let key = PrivateKey::from(42);
+        let dependency = BlockHash::from(2);
+        make_blocked_account(&mut queue, &key, dependency);
 
-        let result = queue.priority_up(&account);
+        let result = queue.priority_up(&key.account());
 
         assert!(matches!(result, PriorityUpResult::Upgraded(_, _)));
         assert_eq!(queue.info().blocked, 1);
         assert_eq!(
-            queue.priority(&account),
+            queue.priority(&key.account()),
             Priority::INITIAL + Priority::INCREASE
         );
     }
@@ -701,13 +699,10 @@ mod tests {
     #[test]
     fn block_blocks_an_account() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        let hash = BlockHash::from(2);
-        queue.priority_up_to(&account, Priority::INITIAL);
-
-        queue.block(account, hash, Timestamp::new_test_instance());
-
-        assert!(queue.blocked(&account));
+        let key = PrivateKey::from(42);
+        let dependency = BlockHash::from(2);
+        make_blocked_account(&mut queue, &key, dependency);
+        assert!(queue.blocked(&key.account()));
         assert_eq!(queue.info().download_queue, 0);
         assert_eq!(queue.info().blocked, 1);
     }
@@ -715,11 +710,10 @@ mod tests {
     #[test]
     fn blocking_unknown_account_does_nothing() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        let blocked = queue.block(account, BlockHash::from(2), Timestamp::new_test_instance());
+        let hash = BlockHash::from(2);
+        let blocked = queue.block(&hash, BlockHash::from(2), Timestamp::new_test_instance());
         assert!(!blocked);
         assert_eq!(queue.info().blocked, 0);
-        assert!(!queue.blocked(&account));
     }
 
     /*
@@ -729,15 +723,15 @@ mod tests {
     #[test]
     fn unblock_unblocks_the_account() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        let hash = BlockHash::from(2);
-        queue.priority_up(&account);
-        queue.block(account, hash, Timestamp::new_test_instance());
+        let key = PrivateKey::from(42);
+        let dependency = BlockHash::from(2);
+        let account = key.account();
+        make_blocked_account(&mut queue, &key, dependency);
 
         assert!(queue.unblock(account));
 
         assert_eq!(queue.blocked(&account), false);
-        assert_eq!(queue.info().download_queue, 1);
+        assert_eq!(queue.info().ready_to_process, 1);
     }
 
     #[test]
@@ -751,15 +745,15 @@ mod tests {
     #[test]
     fn priority_stays_unchanged_after_unblock() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
+        let key = PrivateKey::from(1);
         let hash = BlockHash::from(2);
         let priority = Priority::new(99.0);
-        queue.priority_up_to(&account, priority);
-        queue.block(account, hash, Timestamp::new_test_instance());
+        queue.priority_up_to(&key.account(), priority);
+        make_blocked_account(&mut queue, &key, hash);
 
-        queue.unblock(account);
+        queue.unblock(key.account());
 
-        assert_eq!(queue.priority(&account), priority);
+        assert_eq!(queue.priority(&key.account()), priority);
     }
 
     /*
@@ -804,20 +798,17 @@ mod tests {
             max_blocked_accounts: 2,
             ..Default::default()
         });
-        let account1 = Account::from(1);
-        let account2 = Account::from(2);
-        let account3 = Account::from(3);
-        queue.priority_up(&account1);
-        queue.priority_up(&account2);
-        queue.priority_up(&account3);
-        queue.block(account1, BlockHash::from(1), Timestamp::new_test_instance());
-        queue.block(account2, BlockHash::from(2), Timestamp::new_test_instance());
-        queue.block(account3, BlockHash::from(3), Timestamp::new_test_instance());
+        let key1 = PrivateKey::from(1);
+        let key2 = PrivateKey::from(2);
+        let key3 = PrivateKey::from(3);
+        make_blocked_account(&mut queue, &key1, BlockHash::from(1));
+        make_blocked_account(&mut queue, &key2, BlockHash::from(2));
+        make_blocked_account(&mut queue, &key3, BlockHash::from(3));
 
         assert_eq!(queue.info().blocked, 2);
-        assert!(queue.blocked(&account2));
-        assert!(queue.blocked(&account3));
-        assert!(!queue.blocked(&account1));
+        assert!(queue.blocked(&key2.account()));
+        assert!(queue.blocked(&key3.account()));
+        assert!(!queue.blocked(&key1.account()));
     }
 
     #[test]
@@ -846,28 +837,24 @@ mod tests {
     #[test]
     fn next_blocked() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
+        let key = PrivateKey::from(1);
         let dependency = BlockHash::from(2);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, dependency, Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key, dependency);
         assert_eq!(queue.next_unknown_blocking_hash(), Some(dependency));
     }
 
     #[test]
     fn next_blocked_filter() {
         let mut queue = BootstrapQueueLogic::default();
-        let account1 = Account::from(1);
-        let account2 = Account::from(2);
-        let account3 = Account::from(3);
+        let key1 = PrivateKey::from(1);
+        let key2 = PrivateKey::from(2);
+        let key3 = PrivateKey::from(3);
         let dependency1 = BlockHash::from(1000);
         let dependency2 = BlockHash::from(2);
         let dependency3 = BlockHash::from(2000);
-        queue.priority_up_to(&account1, Priority::INITIAL);
-        queue.priority_up_to(&account2, Priority::INITIAL);
-        queue.priority_up_to(&account3, Priority::INITIAL);
-        queue.block(account1, dependency1, Timestamp::new_test_instance());
-        queue.block(account2, dependency2, Timestamp::new_test_instance());
-        queue.block(account3, dependency3, Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key1, dependency1);
+        make_blocked_account(&mut queue, &key2, dependency2);
+        make_blocked_account(&mut queue, &key3, dependency3);
         let now = Timestamp::new_test_instance();
         queue.dependency_account_requested(&dependency1, now);
         queue.dependency_account_requested(&dependency3, now);
@@ -881,17 +868,14 @@ mod tests {
             ..Default::default()
         };
         let mut queue = BootstrapQueueLogic::new(config);
-        let account1 = Account::from(1);
-        let account2 = Account::from(2);
-
+        let key1 = PrivateKey::from(1);
+        let key2 = PrivateKey::from(2);
         assert!(!queue.blocked_half_full());
 
-        queue.priority_up_to(&account1, Priority::INITIAL);
-        queue.block(account1, BlockHash::from(1), Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key1, BlockHash::from(1));
         assert!(!queue.blocked_half_full());
 
-        queue.priority_up_to(&account2, Priority::INITIAL);
-        queue.block(account2, BlockHash::from(2), Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key2, BlockHash::from(2));
         assert!(queue.blocked_half_full());
     }
 
@@ -900,22 +884,10 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         queue.priority_up_to(&Account::from(1), Priority::INITIAL);
         queue.priority_up_to(&Account::from(2), Priority::INITIAL);
-        queue.priority_up_to(&Account::from(3), Priority::INITIAL);
-        queue.block(
-            Account::from(2),
-            BlockHash::from(3),
-            Timestamp::new_test_instance(),
-        );
-        queue.dependency_update(&BlockHash::from(3), Account::from(1000));
-        queue.block(
-            Account::from(3),
-            BlockHash::from(4),
-            Timestamp::new_test_instance(),
-        );
         let info = queue.container_info();
         assert_eq!(info.leaf("download_queue"), Some(2));
-        assert_eq!(info.leaf("blocked"), Some(2));
-        assert_eq!(info.leaf("blocked_unknown"), Some(1));
+        assert_eq!(info.leaf("blocked"), Some(0));
+        assert_eq!(info.leaf("blocked_unknown"), Some(0));
         assert_eq!(info.leaf("unblocked"), Some(2));
         assert_eq!(info.leaf("downloading"), Some(0));
         assert_eq!(
@@ -954,11 +926,10 @@ mod tests {
     #[test]
     fn sync_dependencies_insert_one_account() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
+        let key = PrivateKey::from(42);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, dependency, Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key, dependency);
 
         queue.dependency_update(&dependency, dependency_account);
 
@@ -968,11 +939,10 @@ mod tests {
     #[test]
     fn sync_dependencies_doesnt_insert_when_dependency_account_already_prioritized() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
+        let key = PrivateKey::from(42);
         let dependency_account = Account::from(2);
         let dependency = BlockHash::from(100);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, dependency, Timestamp::new_test_instance());
+        make_blocked_account(&mut queue, &key, dependency);
         queue.dependency_update(&dependency, dependency_account);
 
         let inserted = queue.sync_dependencies();
@@ -987,12 +957,13 @@ mod tests {
             ..Default::default()
         };
         let mut queue = BootstrapQueueLogic::new(config);
-        let account = Account::from(1);
-        let dependency_account = Account::from(2);
+
+        let key = PrivateKey::from(42);
         let dependency = BlockHash::from(100);
-        queue.priority_up_to(&account, Priority::INITIAL);
-        queue.block(account, dependency, Timestamp::new_test_instance());
+        let dependency_account = Account::from(2);
+        make_blocked_account(&mut queue, &key, dependency);
         queue.dependency_update(&dependency, dependency_account);
+
         queue.priority_up_to(&Account::from(9999), Priority::INITIAL);
         queue.priority_up_to(&Account::from(8888), Priority::INITIAL);
 
@@ -1010,15 +981,11 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let queued = Account::from(1);
         let downloading = Account::from(2);
-        let blocked = Account::from(3);
-        let dependency = BlockHash::from(99);
         let now = Timestamp::new_test_instance();
 
         queue.priority_up_to(&queued, Priority::INITIAL);
         queue.priority_up_to(&downloading, Priority::INITIAL);
         queue.download_started(&downloading, now);
-        queue.priority_up_to(&blocked, Priority::INITIAL);
-        queue.block(blocked, dependency, now);
 
         let snap = queue.snapshot(10, None);
 
@@ -1030,9 +997,28 @@ mod tests {
         assert_eq!(snap.downloading.len(), 1);
         assert_eq!(snap.downloading[0].account, downloading);
         assert_eq!(snap.downloading[0].priority, Priority::INITIAL);
+    }
 
-        assert_eq!(snap.blocked.len(), 1);
-        assert_eq!(snap.blocked[0].account, blocked);
-        assert_eq!(snap.blocked[0].dependency_block, dependency);
+    /*
+     * Test Helpers
+     */
+
+    fn make_blocked_account(
+        queue: &mut BootstrapQueueLogic,
+        key: &PrivateKey,
+        dependency: BlockHash,
+    ) {
+        let account = key.account();
+        let now = Timestamp::new_test_instance();
+        let receive: Block = StateBlockArgs {
+            key,
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        queue.priority_up_to(&account, Priority::INITIAL);
+        queue.download_started(&account, now);
+        queue.download_finished(&account, [receive].into());
+        let next = queue.take_next_block_for_processing().unwrap();
+        queue.block(&next.hash(), dependency, now);
     }
 }

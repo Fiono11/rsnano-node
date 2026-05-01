@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
-use rsnano_types::{Account, Block, BlockType, SavedBlock};
+use rsnano_types::BlockType;
 
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
@@ -32,8 +32,7 @@ impl BlockInspector {
     pub fn inspect(&self, batch: &[ProcessResult]) {
         let any = self.ledger.any();
         for result in batch {
-            let account = self.get_account(&any, &result.block, &result.saved_block);
-            self.inspect_block(result, &account, &any);
+            self.inspect_block(result, &any);
         }
         self.enqueue_next_blocks();
     }
@@ -58,24 +57,10 @@ impl BlockInspector {
         }
     }
 
-    fn get_account(
-        &self,
-        any: &dyn AnySet,
-        block: &Block,
-        saved_block: &Option<SavedBlock>,
-    ) -> Account {
-        match saved_block {
-            Some(b) => b.account(),
-            None => block
-                .account_field()
-                .unwrap_or_else(|| any.block_account(&block.previous()).unwrap_or_default()),
-        }
-    }
-
     /// Inspects a block that has been processed by the block processor
     /// - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
     /// - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
-    fn inspect_block(&self, result: &ProcessResult, account: &Account, any: &dyn AnySet) {
+    fn inspect_block(&self, result: &ProcessResult, any: &dyn AnySet) {
         let hash = result.block.hash();
 
         match &result.status {
@@ -87,16 +72,19 @@ impl BlockInspector {
 
                 let account = saved_block.account();
                 // If we've inserted any block in to an account, unmark it as blocked
+                // TODO: do this inside processing_finished
                 self.bootstrap_queue.unblock(account);
 
                 // Progress blocks from live traffic don't need further bootstrapping
                 if source == BlockSource::Bootstrap {
+                    // TODO: do this inside processing_finished
                     self.bootstrap_queue.priority_up(&account);
                 }
 
                 if saved_block.is_send() {
                     let destination = saved_block.destination().unwrap();
                     if !destination.is_zero() {
+                        // TODO: one call
                         self.bootstrap_queue.unblock(destination);
                         self.bootstrap_queue
                             .priority_up_to(&destination, Priority::INITIAL);
@@ -113,25 +101,23 @@ impl BlockInspector {
                     BlockError::GapSource => {
                         let source = result.block.source_or_link();
 
-                        if !account.is_zero() && !source.is_zero() {
+                        if !source.is_zero() {
                             // We have to recheck the source block, because the parallel block
                             // processing can cause race a condition where the send block got
                             // already processed!
                             if !any.block_exists(&source) {
                                 // Mark account as blocked because it is missing the source block
-                                self.bootstrap_queue.block(*account, source);
+                                self.bootstrap_queue.block(&hash, source);
                             } else {
                                 // Reprocessing should succeed, because the source block was found
-                                self.bootstrap_queue.reprocess(account, &hash);
+                                self.bootstrap_queue.reprocess(&hash);
                             }
                         } else {
-                            // The block can't be acted on (account couldn't be resolved or the
-                            // source field is zero). Free the processing slot so it doesn't leak.
-                            self.bootstrap_queue.processing_finished(&hash);
+                            self.bootstrap_queue.processing_failed(&hash);
                         }
                     }
                     BlockError::GapPrevious => {
-                        self.bootstrap_queue.remove(&account);
+                        self.bootstrap_queue.processing_failed(&hash);
                         // Prevent live traffic from evicting accounts from the priority list
                         if result.source == BlockSource::Live
                             && !self.bootstrap_queue.queue_half_full()
@@ -147,11 +133,11 @@ impl BlockInspector {
                     }
                     BlockError::GapEpochOpenPending => {
                         // Epoch open blocks for accounts that don't have any pending blocks yet
-                        self.bootstrap_queue.remove(account);
+                        self.bootstrap_queue.processing_failed(&hash);
                     }
-                    BlockError::Conflict => self.bootstrap_queue.reprocess(account, &hash),
+                    BlockError::Conflict => self.bootstrap_queue.reprocess(&hash),
                     _ => {
-                        self.bootstrap_queue.remove(account);
+                        self.bootstrap_queue.processing_failed(&hash);
                         // TODO: If we receive blocks that are invalid (bad signature, fork, etc.),
                         // we should penalize the peer that sent them
                     }

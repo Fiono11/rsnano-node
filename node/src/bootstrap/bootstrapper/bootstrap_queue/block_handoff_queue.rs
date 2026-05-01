@@ -109,11 +109,15 @@ impl BlockHandoffQueue {
         })
     }
 
-    pub fn reprocess(&mut self, account: &Account, block_hash: &BlockHash) -> bool {
-        if self.processing.remove(block_hash).is_none() {
+    pub fn processing_failed(&mut self, block_hash: &BlockHash) -> Option<Account> {
+        self.processing.remove(block_hash)
+    }
+
+    pub fn reprocess(&mut self, block_hash: &BlockHash) -> bool {
+        let Some(account) = self.processing.remove(block_hash) else {
             return false;
-        }
-        self.ready_to_process.insert(*block_hash, *account);
+        };
+        self.ready_to_process.insert(*block_hash, account);
         true
     }
 

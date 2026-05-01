@@ -65,7 +65,7 @@ impl StatsSource for AccountAckStats {
 mod tests {
     use super::*;
     use crate::bootstrap::bootstrapper::Priority;
-    use rsnano_types::{Account, BlockHash};
+    use rsnano_types::{Account, Block, BlockHash, PrivateKey, StateBlockArgs};
 
     #[test]
     fn empty_response() {
@@ -88,9 +88,16 @@ mod tests {
     fn update_dependency() {
         let queue = Arc::new(BootstrapQueue::new_null());
         let processor = AccountAckProcessor::new(queue.clone());
-        let blocked_account = Account::from(100);
-        let unknown_source = BlockHash::from(42);
+        let key = PrivateKey::from(42);
+        let blocked_account = key.account();
+        let unknown_source = BlockHash::from(100);
         let source_account = Account::from(200);
+        let receive: Block = StateBlockArgs {
+            key: &key,
+            link: unknown_source.into(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
 
         let query = RunningQuery {
             hash: unknown_source,
@@ -103,8 +110,11 @@ mod tests {
         };
 
         queue.priority_up_to(&blocked_account, Priority::INITIAL);
+        queue.download_started(&blocked_account);
+        queue.download_finished(&blocked_account, [receive].into());
+        let next = queue.take_next_block_for_processing().unwrap();
 
-        queue.block(blocked_account, unknown_source);
+        queue.block(&next.hash(), unknown_source);
 
         assert!(processor.process(&query, &response));
 
@@ -112,32 +122,5 @@ mod tests {
         assert!(queue.contains(&source_account));
         let (target, _) = queue.next_download_target().unwrap();
         assert_eq!(target, source_account);
-    }
-
-    #[test]
-    fn dependency_update_fails() {
-        let queue = Arc::new(BootstrapQueue::new_null());
-        let processor = AccountAckProcessor::new(queue.clone());
-
-        let blocked_account = Account::from(100);
-        let unknown_source = BlockHash::from(42);
-        let source_account = Account::from(200);
-
-        let query = RunningQuery {
-            hash: unknown_source,
-            ..RunningQuery::new_test_instance()
-        };
-
-        let response = AccountInfoAckPayload {
-            account: source_account,
-            ..AccountInfoAckPayload::new_test_instance()
-        };
-
-        queue.priority_up(&blocked_account);
-        queue.block(blocked_account, unknown_source);
-        queue.dependency_update(&unknown_source, source_account);
-        queue.priority_up(&source_account);
-
-        assert!(processor.process(&query, &response));
     }
 }

@@ -87,9 +87,13 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn block(&self, account: Account, dependency: BlockHash) {
+    pub fn block(&self, block_hash: &BlockHash, dependency: BlockHash) {
         let now = self.clock.now();
-        let blocked = self.logic.lock().unwrap().block(account, dependency, now);
+        let blocked = self
+            .logic
+            .lock()
+            .unwrap()
+            .block(block_hash, dependency, now);
         if blocked {
             self.stats.blocked.fetch_add(1, Relaxed);
         } else {
@@ -192,8 +196,12 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn reprocess(&self, account: &Account, block_hash: &BlockHash) {
-        let reprocessed = self.logic.lock().unwrap().reprocess(account, block_hash);
+    pub fn processing_failed(&self, block_hash: &BlockHash) {
+        self.logic.lock().unwrap().processing_failed(block_hash);
+    }
+
+    pub fn reprocess(&self, block_hash: &BlockHash) {
+        let reprocessed = self.logic.lock().unwrap().reprocess(block_hash);
         if reprocessed {
             self.stats.reprocess.fetch_add(1, Relaxed);
         } else {
