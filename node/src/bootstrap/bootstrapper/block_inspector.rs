@@ -81,14 +81,10 @@ impl BlockInspector {
                     self.bootstrap_queue.priority_up(&account);
                 }
 
-                if saved_block.is_send() {
-                    let destination = saved_block.destination().unwrap();
-                    if !destination.is_zero() {
-                        // TODO: one call
-                        self.bootstrap_queue.unblock(destination);
-                        self.bootstrap_queue
-                            .priority_up_to(&destination, Priority::INITIAL);
-                    }
+                if let Some(destination) = saved_block.destination() && !destination.is_zero(){
+                    self.bootstrap_queue.unblock(destination);
+                    self.bootstrap_queue
+                        .priority_up_to(&destination, Priority::INITIAL);
                 }
             }
             Err(error) => {
