@@ -112,11 +112,16 @@ where
             self.seek_next();
         }
 
-        let it = self.current_queue_key.as_ref()?;
-        let queue = self.queues.get_mut(it).unwrap();
+        let key = *self.current_queue_key.as_ref()?;
+        let queue = self.queues.get_mut(&key).unwrap();
         self.counter += 1;
         self.total_len -= 1;
-        Some((*it, queue.pop().unwrap()))
+        let item = queue.pop().unwrap();
+        if queue.is_empty() {
+            self.queues.remove(&key);
+            self.current_queue_key = None;
+        }
+        Some((key, item))
     }
 
     fn should_seek(&self) -> bool {
@@ -417,6 +422,21 @@ mod tests {
         assert_eq!(queue.pop().unwrap().1, "8c");
         assert_eq!(queue.pop().unwrap().1, "7c");
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn drains_empty_sub_queues() {
+        let mut queue: FairQueue<usize, &'static str> = FairQueue::new(|_| 999, |_| 1);
+
+        queue.push(7, "a");
+        queue.push(8, "b");
+        assert_eq!(queue.queues_len(), 2);
+
+        queue.pop().unwrap();
+        queue.pop().unwrap();
+
+        assert!(queue.is_empty());
+        assert_eq!(queue.queues_len(), 0);
     }
 
     #[test]

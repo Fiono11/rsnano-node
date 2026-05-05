@@ -8,7 +8,7 @@ use strum::{EnumCount, IntoEnumIterator};
 use tracing::trace;
 
 use rsnano_ledger::{BlockError, BlockSource};
-use rsnano_network::{ChannelId, DeadChannelCleanupStep};
+use rsnano_network::ChannelId;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Block, SavedBlock};
 use rsnano_utils::{
@@ -183,18 +183,6 @@ impl Default for BlockProcessorQueue {
     }
 }
 
-impl DeadChannelCleanupStep for BlockProcessorQueue {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut guard = self.queue.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            let iter = BlockSource::iter();
-            for source in iter {
-                guard.process_queue.remove(source, *channel_id)
-            }
-        }
-    }
-}
-
 impl StatsSource for BlockProcessorQueue {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.queue.lock().unwrap().collect_stats(result);
@@ -211,7 +199,7 @@ struct BlockProcessorQueueImpl {
     process_queue: ProcessQueue,
     stopped: bool,
     cool_down: bool,
-    processed: u64,
+    enqueued: u64,
     overfill_count: u64,
     overfill_by_source: [u64; BlockSource::COUNT],
     timeout: u64,
@@ -223,7 +211,7 @@ impl BlockProcessorQueueImpl {
             process_queue: ProcessQueue::new(config),
             stopped: false,
             cool_down: false,
-            processed: 0,
+            enqueued: 0,
             overfill_count: 0,
             overfill_by_source: Default::default(),
             timeout: 0,
@@ -251,7 +239,7 @@ impl BlockProcessorQueueImpl {
         let added = self.process_queue.push(context);
 
         if added {
-            self.processed += 1;
+            self.enqueued += 1;
         } else {
             self.overfill_count += 1;
             self.overfill_by_source[source as usize] += 1;
@@ -263,7 +251,7 @@ impl BlockProcessorQueueImpl {
 
 impl StatsSource for BlockProcessorQueueImpl {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert("block_processor", "process", self.processed);
+        result.insert("block_processor", "enqueued", self.enqueued);
         result.insert("block_processor", "overfill", self.overfill_count);
         for i in BlockSource::iter() {
             result.insert(

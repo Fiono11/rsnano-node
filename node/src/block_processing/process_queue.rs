@@ -97,10 +97,6 @@ impl ProcessQueue {
         panic!("next() called when no blocks are ready");
     }
 
-    pub fn remove(&mut self, source: BlockSource, channel_id: ChannelId) {
-        self.queue.remove(&(source, channel_id));
-    }
-
     pub fn source_len(&self, source: BlockSource) -> usize {
         self.queue
             .sum_queue_len((source, ChannelId::MIN)..=(source, ChannelId::MAX))
