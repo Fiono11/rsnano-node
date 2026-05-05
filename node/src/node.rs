@@ -78,7 +78,7 @@ use crate::{
         election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
         get_bootstrap_weights, log_bootstrap_weights,
     },
-    ledger_event_processor::LedgerEventProcessor,
+    ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
@@ -323,7 +323,7 @@ impl Node {
 
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
-        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024 * 5);
+        let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024 * 32);
         let ledger_tx2 = ledger_tx.clone();
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
@@ -354,7 +354,7 @@ impl Node {
 
         let mut event_queues_info = ContainerInfoFactory::new();
         let ledger_tx2 = ledger_tx.clone();
-        event_queues_info.add_leaf("app", move || ledger_tx2.len());
+        event_queues_info.add_leaf("ledger", move || ledger_tx2.len());
 
         let ledger = Arc::new(ledger);
         info!(
@@ -1265,11 +1265,12 @@ impl Node {
 
         let fork_cache_updater = ForkCacheUpdater::new(fork_cache.clone());
 
+        let ledger_event_processor_stats = Arc::new(LedgerEventProcessorStats::default());
         let ledger_event_processor = LedgerEventProcessor {
             node_event_sender: node_observer.clone(),
             dependent_elections_confirmer,
             confirming_set: confirming_set.clone(),
-            stats: stats.clone(),
+            stats: ledger_event_processor_stats.clone(),
             vote_history: vote_history.clone(),
             active_elections: active_elections.clone(),
             block_processor_queue: block_processor_queue.clone(),
@@ -1280,7 +1281,7 @@ impl Node {
             backpressure_plugins: backpressure_handlers,
         };
 
-        spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
+        spawn_backpressure_processor("Ledger ev proc", ledger_rx, ledger_event_processor);
 
         vote_processor.add_observer(aec_tx);
 
@@ -1302,6 +1303,7 @@ impl Node {
         stats_collector.add_source(bootstrapper.clone());
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
+        stats_collector.add_source(ledger_event_processor_stats);
 
         container_info.add("work", work_factory.clone());
         container_info.add("ledger", ledger.clone());

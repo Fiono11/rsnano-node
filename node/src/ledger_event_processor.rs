@@ -1,9 +1,13 @@
-use std::sync::{Arc, RwLock, mpsc::SyncSender};
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicU64, Ordering},
+    mpsc::SyncSender,
+};
 
 use rsnano_types::NetworkType;
 use rsnano_utils::{
     BackpressureHandlerRegistry, EventHandlerRegistry,
-    stats::{DetailType, StatType, Stats},
+    stats::{StatsCollection, StatsSource},
 };
 
 use crate::{
@@ -21,7 +25,7 @@ use rsnano_ledger::{Ledger, LedgerEvent};
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
     pub confirming_set: Arc<ConfirmingSet>,
-    pub stats: Arc<Stats>,
+    pub stats: Arc<LedgerEventProcessorStats>,
     pub(crate) dependent_elections_confirmer: DependentElectionsConfirmer,
     pub(crate) vote_history: Arc<LocalVoteHistory>,
     pub(crate) active_elections: Arc<AecService>,
@@ -39,7 +43,7 @@ impl LedgerEventProcessor {
         Self {
             node_event_sender: None,
             confirming_set: Arc::new(ConfirmingSet::new_null()),
-            stats: Arc::new(Stats::default()),
+            stats: Arc::new(Default::default()),
             dependent_elections_confirmer: DependentElectionsConfirmer::new_null(),
             vote_history: Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork)),
             active_elections: Arc::new(AecService::new_null()),
@@ -58,19 +62,18 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
         self.backpressure_plugins.cool_down();
         self.confirming_set.set_cooldown(true);
         self.block_processor_queue.set_cooldown(true);
-        self.stats
-            .inc(StatType::ConfirmingSet, DetailType::Cooldown);
+        self.stats.cool_down.fetch_add(1, Ordering::Relaxed);
     }
 
     fn recovered(&mut self) {
         self.backpressure_plugins.recovered();
         self.confirming_set.set_cooldown(false);
         self.block_processor_queue.set_cooldown(false);
-        self.stats
-            .inc(StatType::ConfirmingSet, DetailType::Recovered);
+        self.stats.recovered.fetch_add(1, Ordering::Relaxed);
     }
 
     fn process(&mut self, event: LedgerPipelineEvent) {
+        self.stats.processed.fetch_add(1, Ordering::Relaxed);
         self.plugins.raise(&event);
 
         match event {
@@ -128,5 +131,21 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 }
             }
         }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct LedgerEventProcessorStats {
+    processed: AtomicU64,
+    cool_down: AtomicU64,
+    recovered: AtomicU64,
+}
+
+impl StatsSource for LedgerEventProcessorStats {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        const KEY: &'static str = "ledger_ev_proc";
+        result.insert(KEY, "processed", self.processed.load(Ordering::Relaxed));
+        result.insert(KEY, "cool_down", self.cool_down.load(Ordering::Relaxed));
+        result.insert(KEY, "recovered", self.recovered.load(Ordering::Relaxed));
     }
 }

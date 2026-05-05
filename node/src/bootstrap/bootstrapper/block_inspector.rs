@@ -81,7 +81,9 @@ impl BlockInspector {
                     self.bootstrap_queue.priority_up(&account);
                 }
 
-                if let Some(destination) = saved_block.destination() && !destination.is_zero(){
+                if let Some(destination) = saved_block.destination()
+                    && !destination.is_zero()
+                {
                     self.bootstrap_queue.unblock(destination);
                     self.bootstrap_queue
                         .priority_up_to(&destination, Priority::INITIAL);
