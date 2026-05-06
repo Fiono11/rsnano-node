@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
@@ -14,7 +14,7 @@ pub(super) struct BlockedAccounts {
     by_account: FxHashMap<Account, (BlockHash, Option<Account>, Timestamp)>,
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, FxHashSet<Account>>,
-    by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
+    by_timestamp: BTreeSet<(Timestamp, Account)>,
     requested_dependencies: FxHashMap<BlockHash, Timestamp>,
     requested_timestamps: VecDeque<(BlockHash, Timestamp)>,
 }
@@ -64,10 +64,8 @@ impl BlockedAccounts {
             .or_default()
             .insert(account);
         debug_assert!(inserted);
-        self.by_timestamp
-            .entry(timestamp)
-            .or_default()
-            .push(account);
+        let inserted = self.by_timestamp.insert((timestamp, account));
+        debug_assert!(inserted);
     }
 
     pub fn count_by_dependency_account(&self, dep_account: &Account) -> usize {
@@ -154,26 +152,24 @@ impl BlockedAccounts {
     }
 
     pub fn iter_by_timestamp(&self) -> impl Iterator<Item = &Account> {
-        self.by_timestamp.values().flat_map(|i| i.iter())
+        self.by_timestamp.iter().map(|(_, account)| account)
     }
 
     pub fn oldest(&self) -> Option<&Account> {
-        self.by_timestamp.values().next().and_then(|i| i.first())
+        self.by_timestamp.first().map(|(_, account)| account)
     }
 
     /// Removes entries older than the given cutoff and all entries dependent on them
     /// Returns the number of removed entries
     pub fn remove_older_than(&mut self, cutoff: Timestamp) -> Vec<Account> {
         let mut removed = Vec::new();
-        while let Some((timestamp, accounts)) = self.by_timestamp.first_key_value() {
+        while let Some((timestamp, account)) = self.by_timestamp.first() {
             if *timestamp >= cutoff {
                 // Entries are sorted by timestamp, no need to continue
                 break;
             }
-            let accounts = accounts.clone();
-            for account in &accounts {
-                removed.extend(self.remove_account_and_dependents(account));
-            }
+            let account = *account;
+            removed.extend(self.remove_account_and_dependents(&account));
         }
 
         removed
@@ -219,12 +215,8 @@ impl BlockedAccounts {
             self.by_dependency_account.remove(&dep_account);
         }
 
-        let accounts = self.by_timestamp.get_mut(&blocked_at).unwrap();
-        if accounts.len() > 1 {
-            accounts.retain(|i| i != account);
-        } else {
-            self.by_timestamp.remove(&blocked_at);
-        }
+        let removed = self.by_timestamp.remove(&(blocked_at, *account));
+        debug_assert!(removed);
 
         true
     }
