@@ -262,10 +262,10 @@ impl LocalBlockBroadcaster {
         publisher.flood_prs_and_some_non_prs(&message, TrafficType::BlockBroadcastInitial, 1.0);
     }
 
-    pub fn confirmed(&self, confirmed: impl IntoIterator<Item = BlockHash>) {
+    pub fn confirmed<'a>(&self, confirmed: impl IntoIterator<Item = &'a BlockHash>) {
         let mut guard = self.mutex.lock().unwrap();
         for block in confirmed {
-            if guard.local_blocks.remove(&block) {
+            if guard.local_blocks.remove(block) {
                 self.stats
                     .inc(StatType::LocalBlockBroadcaster, DetailType::Cemented);
             }
@@ -496,7 +496,7 @@ impl EventHandlerMut<LedgerPipelineEvent> for LocalBlockBroadcasterPlugin {
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
                     self.local_block_broadcaster
-                        .confirmed(confirmed.iter().map(|i| i.1));
+                        .confirmed(confirmed.iter().map(|i| &i.1));
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.local_block_broadcaster

@@ -73,10 +73,8 @@ use crate::{
         RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
         VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
         VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
-        WinnerBlockBroadcaster,
-        election::ConfirmedElection,
-        election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
-        get_bootstrap_weights, log_bootstrap_weights,
+        WinnerBlockBroadcaster, election::ConfirmedElection,
+        election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
@@ -689,7 +687,7 @@ impl Node {
             online_reps.clone(),
             steady_clock.clone(),
         ));
-        ledger_event_handlers.add_mut(ElectionSchedulersPlugin::new(election_schedulers.clone()));
+        ledger_event_handlers.add(election_schedulers.clone());
 
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
@@ -820,6 +818,7 @@ impl Node {
                 container_info.add("bounded_backlog", backlog.clone());
                 Some(backlog)
             } else {
+                info!("Bounded backlog is disabled!");
                 should_throttle_block_processor = Arc::new(|| false);
                 None
             };
