@@ -79,6 +79,13 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
         match event {
             LedgerPipelineEvent::Ledger(event) => match event {
                 LedgerEvent::BlocksProcessed(results) => {
+                    self.stats
+                        .ev_blocks_processed
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.stats
+                        .ev_blocks_processed_total
+                        .fetch_add(results.len() as u64, Ordering::Relaxed);
+
                     self.confirming_set.requeue_blocks(&results);
                     self.fork_cache_updater.update(&results);
                     if let Some(sender) = &self.node_event_sender {
@@ -86,10 +93,22 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     }
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
+                    self.stats
+                        .ev_blocks_confirmed
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.stats
+                        .ev_blocks_confirmed_total
+                        .fetch_add(confirmed.len() as u64, Ordering::Relaxed);
                     self.dependent_elections_confirmer
                         .confirm_dependent_elections(&confirmed);
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
+                    self.stats
+                        .ev_blocks_rolled_back
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.stats
+                        .ev_blocks_rolled_back_total
+                        .fetch_add(rolled_back.len() as u64, Ordering::Relaxed);
                     {
                         for result in rolled_back.iter() {
                             for block in &result.rolled_back {
@@ -106,20 +125,35 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
             },
             LedgerPipelineEvent::ConfirmingSet(event) => match event {
                 ConfirmingSetEvent::ConfirmationFailed(hash) => {
+                    self.stats
+                        .ev_confirmation_failed
+                        .fetch_add(1, Ordering::Relaxed);
                     // The block never got confirmed! Clean up the election, so
                     // that a new election for this block can be started
                     self.active_elections.remove_recently_confirmed(&hash);
                 }
                 ConfirmingSetEvent::NearFull => {
+                    self.stats
+                        .ev_conf_set_near_full
+                        .fetch_add(1, Ordering::Relaxed);
                     self.active_elections
                         .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
                 }
                 ConfirmingSetEvent::Recovered => {
+                    self.stats
+                        .ev_conf_set_recovered
+                        .fetch_add(1, Ordering::Relaxed);
                     self.active_elections
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
                 }
             },
             LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
+                self.stats
+                    .ev_unconfirmed_found
+                    .fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .ev_unconfirmed_found_total
+                    .fetch_add(unconfirmed.len() as u64, Ordering::Relaxed);
                 let any = self.ledger.any();
                 for info in unconfirmed {
                     self.election_schedulers.activate_backlog(
@@ -139,6 +173,17 @@ pub(crate) struct LedgerEventProcessorStats {
     processed: AtomicU64,
     cool_down: AtomicU64,
     recovered: AtomicU64,
+    ev_blocks_processed: AtomicU64,
+    ev_blocks_processed_total: AtomicU64,
+    ev_blocks_confirmed: AtomicU64,
+    ev_blocks_confirmed_total: AtomicU64,
+    ev_blocks_rolled_back: AtomicU64,
+    ev_blocks_rolled_back_total: AtomicU64,
+    ev_confirmation_failed: AtomicU64,
+    ev_conf_set_near_full: AtomicU64,
+    ev_conf_set_recovered: AtomicU64,
+    ev_unconfirmed_found: AtomicU64,
+    ev_unconfirmed_found_total: AtomicU64,
 }
 
 impl StatsSource for LedgerEventProcessorStats {
@@ -147,5 +192,55 @@ impl StatsSource for LedgerEventProcessorStats {
         result.insert(KEY, "processed", self.processed.load(Ordering::Relaxed));
         result.insert(KEY, "cool_down", self.cool_down.load(Ordering::Relaxed));
         result.insert(KEY, "recovered", self.recovered.load(Ordering::Relaxed));
+        result.insert(
+            KEY,
+            "ev_blocks_processed",
+            self.ev_blocks_processed.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_blocks_processed_total",
+            self.ev_blocks_processed_total.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_blocks_confirmed",
+            self.ev_blocks_confirmed.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_blocks_confirmed_total",
+            self.ev_blocks_confirmed_total.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_blocks_rolled_back",
+            self.ev_blocks_rolled_back.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_blocks_rolled_back_total",
+            self.ev_blocks_rolled_back_total.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_conf_set_near_full",
+            self.ev_conf_set_near_full.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_conf_set_recovered",
+            self.ev_conf_set_recovered.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_unconfirmed_found",
+            self.ev_unconfirmed_found.load(Ordering::Relaxed),
+        );
+        result.insert(
+            KEY,
+            "ev_unconfirmed_found_total",
+            self.ev_unconfirmed_found_total.load(Ordering::Relaxed),
+        );
     }
 }
