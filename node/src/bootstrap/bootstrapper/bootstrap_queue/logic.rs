@@ -801,9 +801,20 @@ mod tests {
         let key1 = PrivateKey::from(1);
         let key2 = PrivateKey::from(2);
         let key3 = PrivateKey::from(3);
-        make_blocked_account(&mut queue, &key1, BlockHash::from(1));
-        make_blocked_account(&mut queue, &key2, BlockHash::from(2));
-        make_blocked_account(&mut queue, &key3, BlockHash::from(3));
+        let now = Timestamp::new_test_instance();
+        make_blocked_account_at(&mut queue, &key1, BlockHash::from(1), now);
+        make_blocked_account_at(
+            &mut queue,
+            &key2,
+            BlockHash::from(2),
+            now + Duration::from_secs(1),
+        );
+        make_blocked_account_at(
+            &mut queue,
+            &key3,
+            BlockHash::from(3),
+            now + Duration::from_secs(2),
+        );
 
         assert_eq!(queue.info().blocked, 2);
         assert!(queue.blocked(&key2.account()));
@@ -1002,23 +1013,31 @@ mod tests {
     /*
      * Test Helpers
      */
-
     fn make_blocked_account(
         queue: &mut BootstrapQueueLogic,
         key: &PrivateKey,
         dependency: BlockHash,
     ) {
-        let account = key.account();
         let now = Timestamp::new_test_instance();
+        make_blocked_account_at(queue, key, dependency, now);
+    }
+
+    fn make_blocked_account_at(
+        queue: &mut BootstrapQueueLogic,
+        key: &PrivateKey,
+        dependency: BlockHash,
+        blocked_at: Timestamp,
+    ) {
+        let account = key.account();
         let receive: Block = StateBlockArgs {
             key,
             ..StateBlockArgs::new_test_instance()
         }
         .into();
         queue.priority_up_to(&account, Priority::INITIAL);
-        queue.download_started(&account, now);
+        queue.download_started(&account, blocked_at);
         queue.download_finished(&account, [receive].into());
         let next = queue.take_next_block_for_processing().unwrap();
-        queue.block(&next.hash(), dependency, now);
+        queue.block(&next.hash(), dependency, blocked_at);
     }
 }
