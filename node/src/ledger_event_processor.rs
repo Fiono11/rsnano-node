@@ -1,27 +1,27 @@
 use std::{
     sync::{
-        Arc, RwLock,
         atomic::{AtomicU64, Ordering},
         mpsc::SyncSender,
+        Arc, RwLock,
     },
     time::Instant,
 };
 
 use rsnano_types::NetworkType;
 use rsnano_utils::{
-    BackpressureHandlerRegistry, EventHandlerRegistry,
     stats::{StatsCollection, StatsSource},
+    BackpressureHandlerRegistry, EventHandlerRegistry,
 };
 
 use crate::{
-    NodeEvent,
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
-        AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, election_schedulers::ElectionSchedulers,
+        election_schedulers::ElectionSchedulers, AecCooldownReason, AecService,
+        DependentElectionsConfirmer, ForkCache, ForkCacheUpdater, LocalVoteHistory,
     },
     utils::BackpressureEventProcessor,
+    NodeEvent,
 };
 use rsnano_ledger::{Ledger, LedgerEvent};
 
@@ -117,8 +117,13 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     self.stats
                         .ev_blocks_confirmed_total
                         .fetch_add(confirmed.len() as u64, Ordering::Relaxed);
+                    let dep_conf_start = Instant::now();
                     self.dependent_elections_confirmer
                         .confirm_dependent_elections(&confirmed);
+                    self.stats.dur_dependent_elections.fetch_add(
+                        dep_conf_start.elapsed().as_millis() as u64,
+                        Ordering::Relaxed,
+                    );
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.stats
@@ -166,6 +171,7 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 }
             },
             LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
+                let activate_start = Instant::now();
                 self.stats
                     .ev_unconfirmed_found
                     .fetch_add(1, Ordering::Relaxed);
@@ -181,6 +187,10 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         &info.conf_info,
                     );
                 }
+                self.stats.dur_activate_backlog.fetch_add(
+                    activate_start.elapsed().as_millis() as u64,
+                    Ordering::Relaxed,
+                );
             }
         }
 
@@ -214,6 +224,8 @@ pub(crate) struct LedgerEventProcessorStats {
     dur_conf_set_near_full: AtomicU64,
     dur_conf_set_recovered: AtomicU64,
     dur_unconfirmed_found: AtomicU64,
+    dur_dependent_elections: AtomicU64,
+    dur_activate_backlog: AtomicU64,
 }
 
 impl StatsSource for LedgerEventProcessorStats {
@@ -308,6 +320,16 @@ impl StatsSource for LedgerEventProcessorStats {
             DUR_KEY,
             "dur_unconfirmed_found",
             self.dur_unconfirmed_found.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_dependent_elections",
+            self.dur_dependent_elections.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_activate_backlog",
+            self.dur_activate_backlog.load(Ordering::Relaxed),
         );
     }
 }

@@ -8,8 +8,12 @@ pub use manual_scheduler::*;
 pub use optimistic::*;
 
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     thread::JoinHandle,
+    time::Instant,
 };
 
 use rsnano_ledger::{AnySet, Ledger, LedgerEvent, ProcessResult};
@@ -39,6 +43,7 @@ pub struct ElectionSchedulers {
     ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
+    duration_activate_successors: AtomicU64,
 }
 
 impl ElectionSchedulers {
@@ -103,6 +108,7 @@ impl ElectionSchedulers {
             ledger,
             activate_successors_listener: Default::default(),
             optimistic_thread: Mutex::new(None),
+            duration_activate_successors: AtomicU64::new(0),
         }
     }
 
@@ -233,6 +239,11 @@ impl StatsSource for ElectionSchedulers {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.priority.collect_stats(result);
         self.optimistic.collect_stats(result);
+        result.insert(
+            "ledger_ev_dur",
+            "dur_activate_successors",
+            self.duration_activate_successors.load(Ordering::Relaxed),
+        );
     }
 }
 
@@ -244,7 +255,10 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                     self.activate_accounts_with_fresh_blocks(results);
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
+                    let start = Instant::now();
                     self.activate_successors(confirmed.iter().map(|(b, _)| b));
+                    self.duration_activate_successors
+                        .fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
                 }
                 _ => {}
             }
