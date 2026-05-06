@@ -16,6 +16,15 @@ banano = [
 	"rsnano_daemon/banano",
 ]
 
+[[bin]]
+name = "rsnano-insight"
+path = "src/main.rs"
+
+[[bin]]
+name = "rsban-insight"
+path = "src/main.rs"
+required-features = ["banano"]
+
 [dependencies]
 eframe = "0.33.3"
 egui_extras = "0.33.3"

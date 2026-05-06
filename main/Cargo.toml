@@ -18,6 +18,11 @@ banano = [
 name = "rsnano_node"
 path = "src/bin.rs"
 
+[[bin]]
+name = "rsban_node"
+path = "src/bin.rs"
+required-features = ["banano"]
+
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_utils = { path = "../utils" }
