@@ -1,4 +1,5 @@
 use super::{PriorityDownResult, PriorityUpResult};
+use crate::bootstrap::bootstrapper::bootstrap_queue::logic::TrimCount;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
@@ -27,6 +28,8 @@ pub(crate) struct BootstrapQueueStats {
     pub processing_finished: AtomicU64,
     pub processing_finished_failed: AtomicU64,
     pub dependency_requested: AtomicU64,
+    pub trim_download_queue: AtomicU64,
+    pub trim_blocked: AtomicU64,
 }
 
 impl BootstrapQueueStats {
@@ -45,6 +48,17 @@ impl BootstrapQueueStats {
             PriorityDownResult::Removed => self.removed.fetch_add(1, Relaxed),
             PriorityDownResult::AccountNotFound => self.not_found.fetch_add(1, Relaxed),
         };
+    }
+
+    pub fn add_trim_count(&self, trim_count: &TrimCount) {
+        if trim_count.download_queue > 0 {
+            self.trim_download_queue
+                .fetch_add(trim_count.download_queue as u64, Relaxed);
+        }
+        if trim_count.blocked > 0 {
+            self.trim_blocked
+                .fetch_add(trim_count.blocked as u64, Relaxed);
+        }
     }
 }
 
@@ -109,6 +123,12 @@ impl StatsSource for BootstrapQueueStats {
             "processing_finished_failed",
             self.processing_finished_failed.load(Relaxed),
         );
+        result.insert(
+            KEY,
+            "trim_download_queue",
+            self.trim_download_queue.load(Relaxed),
+        );
+        result.insert(KEY, "trim_blocked", self.trim_blocked.load(Relaxed));
     }
 }
 

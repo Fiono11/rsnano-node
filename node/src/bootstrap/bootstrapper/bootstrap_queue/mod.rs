@@ -18,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{atomic::Ordering::Relaxed, Mutex},
+    sync::{Mutex, atomic::Ordering::Relaxed},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -56,22 +56,26 @@ impl BootstrapQueue {
 
     pub fn priority_up_to(&self, account: &Account, new_priority: Priority) {
         let prio_result;
+        let trim_count;
         {
             let mut logic = self.logic.lock().unwrap();
             prio_result = logic.priority_up_to(account, new_priority);
-            logic.trim_overflow();
+            trim_count = logic.trim_overflow();
         }
         self.stats.add_prio_set_result(&prio_result);
+        self.stats.add_trim_count(&trim_count);
     }
 
     pub fn priority_up(&self, account: &Account) {
         let prio_result;
+        let trim_count;
         {
             let mut logic = self.logic.lock().unwrap();
             prio_result = logic.priority_up(account);
-            logic.trim_overflow();
+            trim_count = logic.trim_overflow();
         }
         self.stats.add_prio_set_result(&prio_result);
+        self.stats.add_trim_count(&trim_count);
     }
 
     pub fn priority_down(&self, account: &Account) {
@@ -86,16 +90,19 @@ impl BootstrapQueue {
 
     pub fn block(&self, block_hash: &BlockHash, dependency: BlockHash) {
         let now = self.clock.now();
-        let blocked = self
-            .logic
-            .lock()
-            .unwrap()
-            .block(block_hash, dependency, now);
+        let blocked;
+        let trim_count;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            blocked = logic.block(block_hash, dependency, now);
+            trim_count = logic.trim_overflow();
+        }
         if blocked {
             self.stats.blocked.fetch_add(1, Relaxed);
         } else {
             self.stats.block_failed.fetch_add(1, Relaxed);
         }
+        self.stats.add_trim_count(&trim_count);
     }
 
     #[cfg(test)]
@@ -104,10 +111,17 @@ impl BootstrapQueue {
     }
 
     pub fn unblock(&self, account: Account) {
-        let unblocked = self.logic.lock().unwrap().unblock(account);
+        let unblocked;
+        let trim_count;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            unblocked = logic.unblock(account);
+            trim_count = logic.trim_overflow();
+        }
         if unblocked {
             self.stats.unblocked.fetch_add(1, Relaxed);
         }
+        self.stats.add_trim_count(&trim_count);
     }
 
     pub fn dependency_account_requested(&self, dependency: &BlockHash) {
@@ -250,10 +264,17 @@ impl BootstrapQueue {
 
     pub fn timeout(&self) {
         let now = self.clock.now();
-        let decayed = self.logic.lock().unwrap().timeout(now);
+        let decayed;
+        let trim_count;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            decayed = logic.timeout(now);
+            trim_count = logic.trim_overflow();
+        }
         self.stats
             .decayed_blocked
             .fetch_add(decayed as u64, Relaxed);
+        self.stats.add_trim_count(&trim_count);
     }
 
     pub fn revision(&self) -> u64 {

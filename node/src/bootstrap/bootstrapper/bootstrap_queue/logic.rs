@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
+    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
-    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -67,6 +67,11 @@ impl Default for BootstrapQueueConfig {
             account_cooldown: Duration::from_secs(3),
         }
     }
+}
+
+pub(crate) struct TrimCount {
+    pub download_queue: usize,
+    pub blocked: usize,
 }
 
 /// A prioritized queue of accounts which should bootstrapped.
@@ -176,7 +181,6 @@ impl BootstrapQueueLogic {
     pub fn block(&mut self, block_hash: &BlockHash, dependency: BlockHash, now: Timestamp) -> bool {
         if let Some(account) = self.block_processing.processing_failed(&block_hash) {
             self.blocked.insert(account, dependency, now);
-            self.trim_overflow();
             self.revision += 1;
             true
         } else {
@@ -194,7 +198,6 @@ impl BootstrapQueueLogic {
             self.download_queue.insert(account, priority);
         }
 
-        self.trim_overflow();
         self.revision += 1;
         true
     }
@@ -229,16 +232,25 @@ impl BootstrapQueueLogic {
     }
 
     /// Erase the oldest entries
-    pub fn trim_overflow(&mut self) {
+    pub fn trim_overflow(&mut self) -> TrimCount {
+        let mut trim_count = TrimCount {
+            download_queue: 0,
+            blocked: 0,
+        };
+
         while self.needs_trimming() {
             let account = self.download_queue.pop_lowest_prio().unwrap();
             self.remove(&account);
+            trim_count.download_queue += 1;
         }
 
         while self.blocked.len() > self.config.max_blocked_accounts {
             let to_remove = *self.blocked.oldest().unwrap();
             self.remove(&to_remove);
+            trim_count.blocked += 1;
         }
+
+        trim_count
     }
 
     fn needs_trimming(&self) -> bool {
@@ -500,7 +512,6 @@ impl BootstrapQueueLogic {
             let priority = self.priorities.get(&account).unwrap();
             self.download_queue.insert(account, priority);
         }
-        self.trim_overflow();
         self.revision += 1;
         decayed_blocks
     }
@@ -770,36 +781,6 @@ mod tests {
         assert!(removed);
         assert!(!queue.contains(&account1));
         assert!(queue.contains(&account2));
-    }
-
-    #[test]
-    fn trim_bocked_on_overflow() {
-        let mut queue = BootstrapQueueLogic::new(BootstrapQueueConfig {
-            max_blocked_accounts: 2,
-            ..Default::default()
-        });
-        let key1 = PrivateKey::from(1);
-        let key2 = PrivateKey::from(2);
-        let key3 = PrivateKey::from(3);
-        let now = Timestamp::new_test_instance();
-        make_blocked_account_at(&mut queue, &key1, BlockHash::from(1), now);
-        make_blocked_account_at(
-            &mut queue,
-            &key2,
-            BlockHash::from(2),
-            now + Duration::from_secs(1),
-        );
-        make_blocked_account_at(
-            &mut queue,
-            &key3,
-            BlockHash::from(3),
-            now + Duration::from_secs(2),
-        );
-
-        assert_eq!(queue.info().blocked, 2);
-        assert!(queue.blocked(&key2.account()));
-        assert!(queue.blocked(&key3.account()));
-        assert!(!queue.blocked(&key1.account()));
     }
 
     #[test]
