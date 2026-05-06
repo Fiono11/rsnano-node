@@ -452,7 +452,7 @@ impl BootstrapQueueLogic {
 
     fn iter_blocked(&self) -> impl Iterator<Item = (Account, Priority)> + '_ {
         self.blocked
-            .iter_by_insertion_order()
+            .iter_by_timestamp()
             .map(|account| (*account, self.priorities.get(account).unwrap()))
     }
 
@@ -476,7 +476,7 @@ impl BootstrapQueueLogic {
     }
 
     pub fn clear_blocked_accounts(&mut self) {
-        let to_remove: Vec<_> = self.blocked.iter_by_insertion_order().copied().collect();
+        let to_remove: Vec<_> = self.blocked.iter_by_timestamp().copied().collect();
         for account in to_remove {
             self.remove(&account);
         }

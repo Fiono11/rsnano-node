@@ -4,17 +4,16 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A blocked account is an account that has failed to insert a new block because the source block is not currently present in the ledger
 /// An account is unblocked once it has a block successfully inserted
 #[derive(Default)]
 pub(super) struct BlockedAccounts {
-    sequenced: VecDeque<Account>,
     /// account => dep block + dep account + blocked_at
     by_account: FxHashMap<Account, (BlockHash, Option<Account>, Timestamp)>,
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
-    by_dependency_account: BTreeMap<Account, Vec<Account>>,
+    by_dependency_account: BTreeMap<Account, FxHashSet<Account>>,
     by_timestamp: BTreeMap<Timestamp, Vec<Account>>,
     requested_dependencies: FxHashMap<BlockHash, Timestamp>,
     requested_timestamps: VecDeque<(BlockHash, Timestamp)>,
@@ -22,7 +21,7 @@ pub(super) struct BlockedAccounts {
 
 impl BlockedAccounts {
     pub fn len(&self) -> usize {
-        self.sequenced.len()
+        self.by_account.len()
     }
 
     pub(crate) fn known_dependencies(&self) -> usize {
@@ -51,7 +50,6 @@ impl BlockedAccounts {
 
     pub fn insert(&mut self, account: Account, dependency: BlockHash, timestamp: Timestamp) {
         debug_assert!(!account.is_zero());
-        self.sequenced.push_back(account);
         let old = self
             .by_account
             .insert(account, (dependency, None, timestamp));
@@ -60,10 +58,12 @@ impl BlockedAccounts {
             .entry(dependency)
             .or_default()
             .push(account);
-        self.by_dependency_account
+        let inserted = self
+            .by_dependency_account
             .entry(Account::ZERO)
             .or_default()
-            .push(account);
+            .insert(account);
+        debug_assert!(inserted);
         self.by_timestamp
             .entry(timestamp)
             .or_default()
@@ -122,12 +122,12 @@ impl BlockedAccounts {
                 if old.len() == 1 {
                     self.by_dependency_account.remove(&old_dependency_account);
                 } else {
-                    old.retain(|a| a != account);
+                    old.remove(account);
                 }
                 self.by_dependency_account
                     .entry(new_dependency_account)
                     .or_default()
-                    .push(*account);
+                    .insert(*account);
 
                 updated.push(*account);
             }
@@ -153,12 +153,12 @@ impl BlockedAccounts {
             })
     }
 
-    pub fn iter_by_insertion_order(&self) -> impl Iterator<Item = &Account> {
-        self.sequenced.iter()
+    pub fn iter_by_timestamp(&self) -> impl Iterator<Item = &Account> {
+        self.by_timestamp.values().flat_map(|i| i.iter())
     }
 
     pub fn oldest(&self) -> Option<&Account> {
-        self.sequenced.front()
+        self.by_timestamp.values().next().and_then(|i| i.first())
     }
 
     /// Removes entries older than the given cutoff and all entries dependent on them
@@ -191,7 +191,7 @@ impl BlockedAccounts {
             removed.push(account);
 
             if let Some(dependents) = self.by_dependency_account.get(&account) {
-                stack.extend_from_slice(dependents);
+                stack.extend(dependents.iter());
             }
         }
 
@@ -204,7 +204,6 @@ impl BlockedAccounts {
         };
         self.requested_dependencies.remove(&dep_block);
 
-        self.sequenced.retain(|i| i != account);
         let dep_accounts = self.by_dependency.get_mut(&dep_block).unwrap();
         if dep_accounts.len() > 1 {
             dep_accounts.retain(|i| i != account);
@@ -215,7 +214,7 @@ impl BlockedAccounts {
         let dep_account = dep_account.unwrap_or_default();
         let dep_accounts = self.by_dependency_account.get_mut(&dep_account).unwrap();
         if dep_accounts.len() > 1 {
-            dep_accounts.retain(|i| i != account);
+            dep_accounts.remove(account);
         } else {
             self.by_dependency_account.remove(&dep_account);
         }
@@ -243,6 +242,7 @@ impl BlockedAccounts {
         }
     }
 
+    #[cfg(test)]
     pub fn contains(&self, account: &Account) -> bool {
         self.by_account.contains_key(account)
     }
@@ -251,7 +251,6 @@ impl BlockedAccounts {
 impl ContainerInfoProvider for BlockedAccounts {
     fn container_info(&self) -> ContainerInfo {
         [
-            ("sequenced", self.sequenced.len(), 0),
             ("accounts", self.by_account.len(), 0),
             ("by_dependency", self.by_dependency.len(), 0),
             ("by_dependency_account", self.by_dependency_account.len(), 0),
