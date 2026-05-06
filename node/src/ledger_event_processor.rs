@@ -1,7 +1,10 @@
-use std::sync::{
-    Arc, RwLock,
-    atomic::{AtomicU64, Ordering},
-    mpsc::SyncSender,
+use std::{
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
+        mpsc::SyncSender,
+    },
+    time::Instant,
 };
 
 use rsnano_types::NetworkType;
@@ -73,6 +76,21 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
     }
 
     fn process(&mut self, event: LedgerPipelineEvent) {
+        let start = Instant::now();
+        let duration_stat = match &event {
+            LedgerPipelineEvent::Ledger(e) => match e {
+                LedgerEvent::BlocksProcessed(_) => &self.stats.dur_blocks_processed,
+                LedgerEvent::BlocksConfirmed(_) => &self.stats.dur_blocks_confirmed,
+                LedgerEvent::BlocksRolledBack(_) => &self.stats.dur_blocks_rolled_back,
+            },
+            LedgerPipelineEvent::ConfirmingSet(e) => match e {
+                ConfirmingSetEvent::ConfirmationFailed(_) => &self.stats.dur_confirmation_failed,
+                ConfirmingSetEvent::NearFull => &self.stats.dur_conf_set_near_full,
+                ConfirmingSetEvent::Recovered => &self.stats.dur_conf_set_recovered,
+            },
+            LedgerPipelineEvent::UnconfirmedFound(_) => &self.stats.dur_unconfirmed_found,
+        };
+
         self.stats.processed.fetch_add(1, Ordering::Relaxed);
         self.plugins.raise(&event);
 
@@ -165,6 +183,9 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 }
             }
         }
+
+        let elapsed = start.elapsed();
+        duration_stat.fetch_add(elapsed.as_millis() as u64, Ordering::Relaxed);
     }
 }
 
@@ -173,6 +194,7 @@ pub(crate) struct LedgerEventProcessorStats {
     processed: AtomicU64,
     cool_down: AtomicU64,
     recovered: AtomicU64,
+
     ev_blocks_processed: AtomicU64,
     ev_blocks_processed_total: AtomicU64,
     ev_blocks_confirmed: AtomicU64,
@@ -184,6 +206,14 @@ pub(crate) struct LedgerEventProcessorStats {
     ev_conf_set_recovered: AtomicU64,
     ev_unconfirmed_found: AtomicU64,
     ev_unconfirmed_found_total: AtomicU64,
+
+    dur_blocks_processed: AtomicU64,
+    dur_blocks_confirmed: AtomicU64,
+    dur_blocks_rolled_back: AtomicU64,
+    dur_confirmation_failed: AtomicU64,
+    dur_conf_set_near_full: AtomicU64,
+    dur_conf_set_recovered: AtomicU64,
+    dur_unconfirmed_found: AtomicU64,
 }
 
 impl StatsSource for LedgerEventProcessorStats {
@@ -241,6 +271,43 @@ impl StatsSource for LedgerEventProcessorStats {
             KEY,
             "ev_unconfirmed_found_total",
             self.ev_unconfirmed_found_total.load(Ordering::Relaxed),
+        );
+
+        const DUR_KEY: &'static str = "ledger_ev_dur";
+        result.insert(
+            DUR_KEY,
+            "dur_blocks_processed",
+            self.dur_blocks_processed.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_blocks_confirmed",
+            self.dur_blocks_confirmed.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_blocks_rolled_back",
+            self.dur_blocks_rolled_back.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_confirmation_failed",
+            self.dur_confirmation_failed.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_conf_set_near_full",
+            self.dur_conf_set_near_full.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_conf_set_recovered",
+            self.dur_conf_set_recovered.load(Ordering::Relaxed),
+        );
+        result.insert(
+            DUR_KEY,
+            "dur_unconfirmed_found",
+            self.dur_unconfirmed_found.load(Ordering::Relaxed),
         );
     }
 }
