@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
-    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
+    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -121,7 +121,6 @@ impl BootstrapQueueLogic {
         match result {
             PriorityUpResult::Inserted(priority) => {
                 self.download_queue.insert(*account, *priority);
-                self.trim_overflow();
             }
             PriorityUpResult::Upgraded(_, new_prio) => {
                 self.download_queue.change_priority(account, *new_prio);
@@ -230,7 +229,7 @@ impl BootstrapQueueLogic {
     }
 
     /// Erase the oldest entries
-    fn trim_overflow(&mut self) {
+    pub fn trim_overflow(&mut self) {
         while self.needs_trimming() {
             let account = self.download_queue.pop_lowest_prio().unwrap();
             self.remove(&account);
@@ -771,25 +770,6 @@ mod tests {
         assert!(removed);
         assert!(!queue.contains(&account1));
         assert!(queue.contains(&account2));
-    }
-
-    #[test]
-    fn trim_priorities_on_overflow() {
-        let mut queue = BootstrapQueueLogic::new(BootstrapQueueConfig {
-            max_unblocked_accounts: 2,
-            ..Default::default()
-        });
-        let account1 = Account::from(1);
-        let account2 = Account::from(2);
-        let account3 = Account::from(3);
-        queue.priority_up_to(&account1, Priority::new(2.0));
-        queue.priority_up_to(&account2, Priority::new(1.0));
-        queue.priority_up_to(&account3, Priority::new(3.0));
-
-        assert_eq!(queue.info().download_queue, 2);
-        assert!(queue.contains(&account1));
-        assert!(queue.contains(&account3));
-        assert!(!queue.contains(&account2));
     }
 
     #[test]

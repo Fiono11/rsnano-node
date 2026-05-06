@@ -18,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -55,17 +55,23 @@ impl BootstrapQueue {
     }
 
     pub fn priority_up_to(&self, account: &Account, new_priority: Priority) {
-        let result = self
-            .logic
-            .lock()
-            .unwrap()
-            .priority_up_to(account, new_priority);
-        self.stats.add_prio_set_result(&result);
+        let prio_result;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            prio_result = logic.priority_up_to(account, new_priority);
+            logic.trim_overflow();
+        }
+        self.stats.add_prio_set_result(&prio_result);
     }
 
     pub fn priority_up(&self, account: &Account) {
-        let result = self.logic.lock().unwrap().priority_up(account);
-        self.stats.add_prio_set_result(&result);
+        let prio_result;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            prio_result = logic.priority_up(account);
+            logic.trim_overflow();
+        }
+        self.stats.add_prio_set_result(&prio_result);
     }
 
     pub fn priority_down(&self, account: &Account) {
@@ -76,15 +82,6 @@ impl BootstrapQueue {
     #[cfg(test)]
     pub fn priority(&self, account: &Account) -> Priority {
         self.logic.lock().unwrap().priority(account)
-    }
-
-    pub fn remove(&self, account: &Account) {
-        let removed = self.logic.lock().unwrap().remove(account);
-        if removed {
-            self.stats.removed.fetch_add(1, Relaxed);
-        } else {
-            self.stats.remove_failed.fetch_add(1, Relaxed);
-        }
     }
 
     pub fn block(&self, block_hash: &BlockHash, dependency: BlockHash) {
