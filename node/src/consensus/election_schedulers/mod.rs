@@ -227,9 +227,18 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                     let start = Instant::now();
                     {
                         // Activate successors of confirmed blocks
-                        let any = self.ledger.any();
+                        let mut any = self.ledger.any();
                         for (block, _) in confirmed {
-                            self.priority.activate_successors(&any, block);
+                            self.priority.activate(&any, &block.account());
+                            if let Some(destination) = block.destination()
+                                && !destination.is_zero()
+                                && destination != block.account()
+                            {
+                                self.priority.activate(&any, &destination);
+                            }
+                            if any.is_refresh_needed(){
+                                any = any.refresh();
+                            }
                         }
                     }
                     self.duration_activate_successors
@@ -265,7 +274,7 @@ mod tests {
     #[test]
     fn activate_successors() {
         let schedulers = ElectionSchedulers::new_null();
-        let tracker = schedulers.priority.track_activate_successors();
+        let activate_tracker = schedulers.priority.track_activate();
         let block = SavedBlock::new_test_instance();
 
         schedulers.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
@@ -278,14 +287,14 @@ mod tests {
             }],
         )));
 
-        let output = tracker.output();
-        assert_eq!(output, [block]);
+        let output = activate_tracker.output();
+        assert_eq!(output, [block.account()]);
     }
 
     #[test]
     fn when_blocks_confirmed_should_activate_elections_for_successors() {
         let schedulers = ElectionSchedulers::new_null();
-        let activation_tracker = schedulers.priority.track_activate_successors();
+        let activation_tracker = schedulers.priority.track_activate();
 
         let block = SavedBlock::new_test_instance();
         let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
@@ -294,6 +303,6 @@ mod tests {
         )));
 
         let output = activation_tracker.output();
-        assert_eq!(output, [block]);
+        assert_eq!(output, [block.account(), block.destination().unwrap()]);
     }
 }

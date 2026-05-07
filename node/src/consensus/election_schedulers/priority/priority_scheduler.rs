@@ -6,18 +6,18 @@ use std::{
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use super::{PriorityBucketConfig, prio_bucket_count};
+use super::{prio_bucket_count, PriorityBucketConfig};
 use crate::consensus::{
-    AecService,
     election_schedulers::priority::{
-        BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
+        priority_buckets::PriorityBuckets, BucketInsertError, Eviction,
     },
+    AecService,
 };
 
 pub struct PriorityScheduler {
@@ -28,7 +28,7 @@ pub struct PriorityScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
-    activate_successors_listener: OutputListenerMt<SavedBlock>,
+    activate_listener: OutputListenerMt<Account>,
 }
 
 impl PriorityScheduler {
@@ -48,12 +48,12 @@ impl PriorityScheduler {
             stats,
             clock,
             aec: active_elections,
-            activate_successors_listener: Default::default(),
+            activate_listener: Default::default(),
         }
     }
 
-    pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        self.activate_successors_listener.track()
+    pub fn track_activate(&self) -> Arc<OutputTrackerMt<Account>> {
+        self.activate_listener.track()
     }
 
     pub fn stop(&self) {
@@ -74,6 +74,9 @@ impl PriorityScheduler {
     }
 
     pub fn activate(&self, any: &impl AnySet, account: &Account) {
+        if self.activate_listener.is_tracked() {
+            self.activate_listener.emit(*account);
+        }
         debug_assert!(!account.is_zero());
         if let Some(account_info) = any.get_account(account) {
             let conf_info = any.confirmed().get_conf_info(account).unwrap_or_default();
@@ -191,23 +194,6 @@ impl PriorityScheduler {
         self.aec.refill(&mut *buckets, now);
     }
 
-    pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
-        if self.activate_successors_listener.is_tracked() {
-            self.activate_successors_listener.emit(block.clone());
-        }
-        self.activate(any, &block.account());
-        self.activate_destination_account(any, block);
-    }
-
-    fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {
-        if let Some(destination) = block.destination()
-            && !destination.is_zero()
-            && destination != block.account()
-        {
-            self.activate(any, &destination);
-        }
-    }
-
     pub fn container_info(&self) -> ContainerInfo {
         let mut bucket_infos = ContainerInfo::builder();
 
@@ -253,52 +239,5 @@ impl StatsSource for PriorityScheduler {
         let guard = self.buckets.lock().unwrap();
         guard.bucket_stats.collect_stats(result);
         guard.collect_stats(result);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rsnano_ledger::{Ledger, LedgerInserter};
-    use rsnano_types::PrivateKey;
-
-    #[test]
-    fn can_track_successor_activation() {
-        let scheduler = create_test_scheduler();
-        let block = SavedBlock::new_test_instance();
-        let ledger = Ledger::new_null();
-        let tracker = scheduler.track_activate_successors();
-
-        scheduler.activate_successors(&ledger.any(), &block);
-
-        let output = tracker.output();
-        assert_eq!(output, [block]);
-    }
-
-    #[test]
-    fn activate_successors() {
-        let scheduler = create_test_scheduler();
-
-        let ledger = Ledger::new_null();
-        let inserter = LedgerInserter::new(&ledger);
-        let destination = PrivateKey::from(1);
-        let send1 = inserter.genesis().send(&destination, 100);
-        let send2 = inserter.genesis().send(Account::from(2), 100);
-        let open = inserter.account(&destination).receive(send1.hash());
-
-        ledger.confirm(send1.hash());
-        scheduler.activate_successors(&ledger.any(), &send1);
-        scheduler.run_one();
-
-        assert!(scheduler.aec.is_active_hash(&send2.hash()));
-        assert!(scheduler.aec.is_active_hash(&open.hash()));
-    }
-
-    fn create_test_scheduler() -> PriorityScheduler {
-        let config = PriorityBucketConfig::default();
-        let stats = Arc::new(Stats::default());
-        let active_elections = Arc::new(AecService::new_null());
-        let clock = Arc::new(SteadyClock::new_null());
-        PriorityScheduler::new(config, stats, active_elections, clock)
     }
 }
