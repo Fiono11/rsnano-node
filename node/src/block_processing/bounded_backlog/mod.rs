@@ -140,12 +140,14 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
                     self.logic.lock().remove_batch(rolled_back.hashes());
                 }
             },
-            LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
-                // TODO: Move into a bounded queue here, because the account walker can be slow?
-                self.unconfirmed_accounts_found(unconfirmed);
-            }
             _ => (),
         }
+    }
+}
+
+impl EventHandler<Vec<UnconfirmedInfo>> for BoundedBacklog {
+    fn handle(&self, unconfirmed: &Vec<UnconfirmedInfo>) {
+        self.unconfirmed_accounts_found(unconfirmed);
     }
 }
 
@@ -528,7 +530,7 @@ mod tests {
             conf_info: ConfirmationHeightInfo::default(),
         };
 
-        backlog.handle(&LedgerPipelineEvent::UnconfirmedFound(vec![info]));
+        backlog.handle(&vec![info]);
 
         assert!(backlog.logic.lock().contains(&saved_open.hash()));
     }

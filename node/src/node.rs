@@ -41,7 +41,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
-    thread_factory::{ThreadFactory},
+    thread_factory::ThreadFactory,
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
@@ -382,6 +382,8 @@ impl Node {
         };
 
         let mut ledger_event_handlers = EventHandlerRegistry::<LedgerPipelineEvent>::default();
+        let mut unconfirmed_handler: EventHandlerRegistry<Vec<UnconfirmedInfo>> =
+            EventHandlerRegistry::default();
         let mut backpressure_handlers = BackpressureHandlerRegistry::default();
 
         let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
@@ -689,6 +691,7 @@ impl Node {
             steady_clock.clone(),
         ));
         ledger_event_handlers.add(election_schedulers.clone());
+        unconfirmed_handler.add(election_schedulers.clone());
 
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
@@ -783,20 +786,20 @@ impl Node {
             ledger.clone(),
         ));
 
-        let ledger_tx2 = ledger_tx.clone();
         let unconfirmed_queue_stats = Arc::new(UnconfirmedQueueStats::default());
         let unconfirmed_stats = unconfirmed_queue_stats.clone();
         let (unconfirmed_tx, unconfirmed_rx) =
             std::sync::mpsc::sync_channel::<Vec<UnconfirmedInfo>>(128);
         let backlog_scan =
             BacklogScan::new(global_config.into(), ledger.clone(), move |unconfirmed| {
-                ledger_tx2
-                    .send(LedgerPipelineEvent::UnconfirmedFound(unconfirmed.clone()))
-                    .expect("channel should be open");
-                match unconfirmed_tx.try_send(unconfirmed){
+                let unconfirmed_len = unconfirmed.len() as u64;
+                match unconfirmed_tx.try_send(unconfirmed) {
                     Ok(()) => {
                         unconfirmed_stats.enqueued.fetch_add(1, Ordering::Relaxed);
-                    },
+                        unconfirmed_stats
+                            .enqueued_total
+                            .fetch_add(unconfirmed_len, Ordering::Relaxed);
+                    }
                     Err(mpsc::TrySendError::Full(_)) => {
                         unconfirmed_stats.overfill.fetch_add(1, Ordering::Relaxed);
                     }
@@ -805,8 +808,6 @@ impl Node {
                     }
                 }
             });
-
-        let mut unconfirmed_handler: EventHandlerRegistry<Vec<UnconfirmedInfo>> = EventHandlerRegistry::default();
 
         if config.bounded_backlog.max_backlog == 0 {
             config.enable_bounded_backlog = false;
@@ -1301,15 +1302,17 @@ impl Node {
 
         let unconf_stats = unconfirmed_queue_stats.clone();
         let unconfirmed_thread = std::thread::Builder::new()
-        .name("unconfirmed queue".to_string())
-        .spawn(move || {
-            while let Ok(i) = unconfirmed_rx.recv(){
-                let start = std::time::Instant::now();
-                unconfirmed_handler.raise(&i);
-                unconf_stats.process_duration.fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
-            }
-        })
-        .unwrap();
+            .name("unconfirmed queue".to_string())
+            .spawn(move || {
+                while let Ok(i) = unconfirmed_rx.recv() {
+                    let start = std::time::Instant::now();
+                    unconfirmed_handler.raise(&i);
+                    unconf_stats
+                        .process_duration
+                        .fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
+                }
+            })
+            .unwrap();
 
         vote_processor.add_observer(aec_tx);
 
@@ -1666,7 +1669,7 @@ impl Node {
         self.ticker_pool.stop();
         self.tcp_listener.stop();
         self.backlog_scan.stop();
-        if let Some(handle) = self.unconfirmed_thread.take(){
+        if let Some(handle) = self.unconfirmed_thread.take() {
             handle.join().expect("unconfirmed thread should join");
         }
         self.aec_voter.stop();

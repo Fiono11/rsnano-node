@@ -88,7 +88,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 ConfirmingSetEvent::NearFull => &self.stats.dur_conf_set_near_full,
                 ConfirmingSetEvent::Recovered => &self.stats.dur_conf_set_recovered,
             },
-            LedgerPipelineEvent::UnconfirmedFound(_) => &self.stats.dur_unconfirmed_found,
         };
 
         self.stats.processed.fetch_add(1, Ordering::Relaxed);
@@ -170,28 +169,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
                 }
             },
-            LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
-                let activate_start = Instant::now();
-                self.stats
-                    .ev_unconfirmed_found
-                    .fetch_add(1, Ordering::Relaxed);
-                self.stats
-                    .ev_unconfirmed_found_total
-                    .fetch_add(unconfirmed.len() as u64, Ordering::Relaxed);
-                let any = self.ledger.any();
-                for info in unconfirmed {
-                    self.election_schedulers.activate_backlog(
-                        &any,
-                        &info.account,
-                        &info.account_info,
-                        &info.conf_info,
-                    );
-                }
-                self.stats.dur_activate_backlog.fetch_add(
-                    activate_start.elapsed().as_millis() as u64,
-                    Ordering::Relaxed,
-                );
-            }
         }
 
         let elapsed = start.elapsed();
@@ -214,8 +191,6 @@ pub(crate) struct LedgerEventProcessorStats {
     ev_confirmation_failed: AtomicU64,
     ev_conf_set_near_full: AtomicU64,
     ev_conf_set_recovered: AtomicU64,
-    ev_unconfirmed_found: AtomicU64,
-    ev_unconfirmed_found_total: AtomicU64,
 
     dur_blocks_processed: AtomicU64,
     dur_blocks_confirmed: AtomicU64,
@@ -223,7 +198,6 @@ pub(crate) struct LedgerEventProcessorStats {
     dur_confirmation_failed: AtomicU64,
     dur_conf_set_near_full: AtomicU64,
     dur_conf_set_recovered: AtomicU64,
-    dur_unconfirmed_found: AtomicU64,
     dur_dependent_elections: AtomicU64,
     dur_activate_backlog: AtomicU64,
 }
@@ -274,16 +248,6 @@ impl StatsSource for LedgerEventProcessorStats {
             "ev_conf_set_recovered",
             self.ev_conf_set_recovered.load(Ordering::Relaxed),
         );
-        result.insert(
-            KEY,
-            "ev_unconfirmed_found",
-            self.ev_unconfirmed_found.load(Ordering::Relaxed),
-        );
-        result.insert(
-            KEY,
-            "ev_unconfirmed_found_total",
-            self.ev_unconfirmed_found_total.load(Ordering::Relaxed),
-        );
 
         const DUR_KEY: &'static str = "ledger_ev_dur";
         result.insert(
@@ -315,11 +279,6 @@ impl StatsSource for LedgerEventProcessorStats {
             DUR_KEY,
             "dur_conf_set_recovered",
             self.dur_conf_set_recovered.load(Ordering::Relaxed),
-        );
-        result.insert(
-            DUR_KEY,
-            "dur_unconfirmed_found",
-            self.dur_unconfirmed_found.load(Ordering::Relaxed),
         );
         result.insert(
             DUR_KEY,

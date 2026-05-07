@@ -28,7 +28,9 @@ use rsnano_utils::{
 
 use super::{AecService, VoteCache};
 use crate::{
-    block_processing::LedgerPipelineEvent, cementation::ConfirmingSet, config::NodeConfig,
+    block_processing::{LedgerPipelineEvent, backlog_scan::UnconfirmedInfo},
+    cementation::ConfirmingSet,
+    config::NodeConfig,
     representatives::OnlineReps,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
@@ -262,6 +264,15 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+impl EventHandler<Vec<UnconfirmedInfo>> for ElectionSchedulers {
+    fn handle(&self, unconfirmed: &Vec<UnconfirmedInfo>) {
+        let any = self.ledger.any();
+        for info in unconfirmed {
+            self.activate_backlog(&any, &info.account, &info.account_info, &info.conf_info);
         }
     }
 }

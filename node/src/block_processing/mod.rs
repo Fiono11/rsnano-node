@@ -26,5 +26,4 @@ use rsnano_ledger::LedgerEvent;
 pub(crate) enum LedgerPipelineEvent {
     Ledger(LedgerEvent),
     ConfirmingSet(ConfirmingSetEvent),
-    UnconfirmedFound(Vec<UnconfirmedInfo>),
 }
