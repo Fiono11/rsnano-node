@@ -1,18 +1,15 @@
+pub mod priority;
+
 mod hinted_scheduler;
 mod manual_scheduler;
 mod optimistic;
-pub mod priority;
 
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
 
 use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex},
     thread::JoinHandle,
 };
 
@@ -32,6 +29,7 @@ use crate::{
     cementation::ConfirmingSet,
     config::NodeConfig,
     representatives::OnlineReps,
+    utils::event_processor::{EventProcessor, EventSender},
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
@@ -44,11 +42,8 @@ pub struct ElectionSchedulers {
     config: NodeConfig,
     ledger: Arc<Ledger>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
-    tx_activate: Mutex<Option<mpsc::SyncSender<Account>>>,
-    ev_proc_thread: Mutex<Option<JoinHandle<()>>>,
-    enqueued: AtomicU64,
-    overfill: AtomicU64,
-    dequeued: Arc<AtomicU64>,
+    event_processor: EventProcessor,
+    tx_activate: Mutex<Option<EventSender<Account>>>,
 }
 
 impl ElectionSchedulers {
@@ -112,11 +107,8 @@ impl ElectionSchedulers {
             config,
             ledger,
             optimistic_thread: Mutex::new(None),
+            event_processor: EventProcessor::new("prio_sched_queue"),
             tx_activate: Mutex::new(None),
-            ev_proc_thread: Mutex::new(None),
-            enqueued: AtomicU64::new(0),
-            dequeued: Arc::new(AtomicU64::new(0)),
-            overfill: AtomicU64::new(0),
         }
     }
 
@@ -161,22 +153,17 @@ impl ElectionSchedulers {
         if self.config.enable_priority_scheduler {
             let priority = self.priority.clone();
             let ledger = self.ledger.clone();
-            let (tx, rx) = mpsc::sync_channel::<Account>(1024 * 16);
-            let dequeued = self.dequeued.clone();
-            let ev_proc_thread = std::thread::Builder::new()
-                .name("prio sched queue".to_string())
-                .spawn(move || {
-                    // TODO batch accounts for better performance?
-                    while let Ok(account) = rx.recv() {
-                        dequeued.fetch_add(1, Ordering::Relaxed);
-                        let any = ledger.any();
-                        priority.activate(&any, &account);
-                    }
-                })
-                .unwrap();
 
-            *self.tx_activate.lock().unwrap() = Some(tx);
-            *self.ev_proc_thread.lock().unwrap() = Some(ev_proc_thread);
+            let tx_account = self.event_processor.start(
+                "prio sched queue",
+                1024 * 16,
+                move |account: &Account| {
+                    let any = ledger.any();
+                    priority.activate(&any, account);
+                },
+            );
+
+            *self.tx_activate.lock().unwrap() = Some(tx_account);
 
             self.priority.start();
         }
@@ -192,10 +179,7 @@ impl ElectionSchedulers {
         self.priority.stop();
         let tx = self.tx_activate.lock().unwrap().take();
         drop(tx);
-        let handle = self.ev_proc_thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().expect("Ev proc thread should end normally");
-        }
+        self.event_processor.join();
     }
 
     /// Does the block exist in any of the schedulers
@@ -221,17 +205,7 @@ impl ElectionSchedulers {
     fn enqueue_activation(&self, account: Account) {
         let tx = self.tx_activate.lock().unwrap();
         if let Some(tx) = tx.as_ref() {
-            match tx.try_send(account) {
-                Ok(()) => {
-                    self.enqueued.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(mpsc::TrySendError::Full(_)) => {
-                    self.overfill.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(mpsc::TrySendError::Disconnected(_)) => {
-                    unreachable!("Queue should always be open")
-                }
-            }
+            tx.try_send(account);
         }
     }
 }
@@ -243,6 +217,7 @@ impl ContainerInfoProvider for ElectionSchedulers {
             .node("manual", self.manual.container_info())
             .node("optimistic", self.optimistic.container_info())
             .node("priority", self.priority.container_info())
+            .node("ev_proc", self.event_processor.container_info())
             .finish()
     }
 }
@@ -251,21 +226,7 @@ impl StatsSource for ElectionSchedulers {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.priority.collect_stats(result);
         self.optimistic.collect_stats(result);
-        result.insert(
-            "prio_sched_queue",
-            "enqueued",
-            self.enqueued.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "prio_sched_queue",
-            "overfill",
-            self.overfill.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "prio_sched_queue",
-            "dequeued",
-            self.dequeued.load(Ordering::Relaxed),
-        );
+        self.event_processor.collect_stats(result);
     }
 }
 

@@ -1,8 +1,8 @@
 use std::{
     cmp::max,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Condvar, Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -13,9 +13,9 @@ use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
+    EventHandlerMut,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    EventHandlerMut,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -80,9 +80,9 @@ impl BacklogScan {
     }
 
     pub fn start(&self, unconfirmed_handler: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static) {
-        let unconfirmed_tx = self
-            .event_processor
-            .start("backlog scan proc", unconfirmed_handler);
+        let unconfirmed_tx =
+            self.event_processor
+                .start("backlog scan proc", 128, unconfirmed_handler);
 
         let scan_loop = BacklogScanLoop {
             ledger: self.ledger.clone(),

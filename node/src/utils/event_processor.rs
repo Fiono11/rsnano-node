@@ -1,15 +1,16 @@
 use std::{
     sync::{
+        Arc, Mutex,
         atomic::{AtomicIsize, AtomicU64, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc,
     },
     thread::JoinHandle,
 };
 
 use rsnano_utils::{
+    EventHandlerMut,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    EventHandlerMut,
 };
 
 pub(crate) struct EventProcessor {
@@ -34,10 +35,11 @@ impl EventProcessor {
     pub fn start<T: Send + 'static>(
         &self,
         thread_name: impl Into<String>,
+        max_queue: usize,
         mut handle: impl EventHandlerMut<T> + 'static,
     ) -> EventSender<T> {
         let stats = self.stats.clone();
-        let (tx_event, rx_event) = mpsc::sync_channel::<T>(128);
+        let (tx_event, rx_event) = mpsc::sync_channel::<T>(max_queue);
 
         let ev_processor_thread = std::thread::Builder::new()
             .name(thread_name.into())
