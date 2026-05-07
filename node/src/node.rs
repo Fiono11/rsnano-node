@@ -139,7 +139,7 @@ pub struct Node {
     pub tcp_listener: Arc<TcpListener>,
     pub election_schedulers: Arc<ElectionSchedulers>,
     pub request_aggregator: Arc<RequestAggregator>,
-    pub backlog_scan: BacklogScan,
+    pub backlog_scan: Arc<BacklogScan>,
     pub bounded_backlog: Option<Arc<BoundedBacklog>>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
@@ -782,7 +782,7 @@ impl Node {
             ledger.clone(),
         ));
 
-        let backlog_scan = BacklogScan::new(global_config.into(), ledger.clone());
+        let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));
 
         if config.bounded_backlog.max_backlog == 0 {
             config.enable_bounded_backlog = false;
@@ -1282,7 +1282,7 @@ impl Node {
         stats_collector.add_source(vote_rebroadcaster.stats.clone());
         stats_collector.add_source(election_schedulers.clone());
         stats_collector.add_source(network.clone());
-        stats_collector.add_source(backlog_scan.stats());
+        stats_collector.add_source(backlog_scan.clone());
         stats_collector.add_source(handshake_stats);
         stats_collector.add_source(inbound_message_queue.clone());
         stats_collector.add_source(bootstrap_stale_stats);

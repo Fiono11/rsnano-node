@@ -57,8 +57,8 @@ pub struct BacklogScan {
     condition: Arc<Condvar>,
     /** Thread that runs the backlog implementation logic. The thread always runs, even if
      *  backlog population is disabled, so that it can service a manual trigger (e.g. via RPC). */
-    scan_thread: Option<JoinHandle<()>>,
-    queue_thread: Option<JoinHandle<()>>,
+    scan_thread: Mutex<Option<JoinHandle<()>>>,
+    queue_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl BacklogScan {
@@ -75,13 +75,13 @@ impl BacklogScan {
             ledger,
             config,
             condition: Arc::new(Condvar::new()),
-            scan_thread: None,
-            queue_thread: None,
+            scan_thread: Mutex::new(None),
+            queue_thread: Mutex::new(None),
         }
     }
 
     pub fn start(
-        &mut self,
+        &self,
         mut unconfirmed_handler: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static,
     ) {
         let queue_stats = self.queue_stats.clone();
@@ -100,7 +100,7 @@ impl BacklogScan {
             })
             .unwrap();
 
-        self.queue_thread = Some(queue_thread);
+        *self.queue_thread.lock().unwrap() = Some(queue_thread);
 
         let queue_stats = self.queue_stats.clone();
         let publish: Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync> =
@@ -132,7 +132,7 @@ impl BacklogScan {
             condition: self.condition.clone(),
         };
 
-        self.scan_thread = Some(
+        *self.scan_thread.lock().unwrap() = Some(
             thread::Builder::new()
                 .name("Backlog scan".to_owned())
                 .spawn(move || {
@@ -142,17 +142,17 @@ impl BacklogScan {
         );
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         {
             let mut lock = self.flags.lock().unwrap();
             lock.stopped = true;
         }
         self.condition.notify_all();
-        let handle = self.scan_thread.take();
+        let handle = self.scan_thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap()
         }
-        if let Some(handle) = self.queue_thread.take() {
+        if let Some(handle) = self.queue_thread.lock().unwrap().take() {
             handle.join().expect("unconfirmed thread should join");
         }
     }
@@ -164,10 +164,6 @@ impl BacklogScan {
             lock.triggered = true;
         }
         self.condition.notify_all();
-    }
-
-    pub(crate) fn stats(&self) -> Arc<BacklogScanStats> {
-        self.stats.clone()
     }
 }
 
@@ -404,7 +400,7 @@ mod tests {
         let done = Arc::new(Condvar::new());
         let done2 = done.clone();
 
-        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger);
+        let backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger);
 
         backlog_scan.start(move |unconfirmed: &Vec<UnconfirmedInfo>| {
             {
@@ -439,7 +435,7 @@ mod tests {
         let found2 = found.clone();
         let done = Arc::new(Condvar::new());
         let done2 = done.clone();
-        let mut backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger);
+        let backlog_scan = BacklogScan::new(BacklogScanConfig::default(), ledger);
 
         backlog_scan.start(move |unconfirmed: &Vec<UnconfirmedInfo>| {
             {

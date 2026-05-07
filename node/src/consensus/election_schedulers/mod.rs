@@ -164,11 +164,11 @@ impl ElectionSchedulers {
             let (tx, rx) = mpsc::sync_channel::<Account>(1024 * 16);
             let dequeued = self.dequeued.clone();
             let ev_proc_thread = std::thread::Builder::new()
-                .name("prio scheduler queue".to_string())
+                .name("prio sched queue".to_string())
                 .spawn(move || {
                     // TODO batch accounts for better performance?
                     while let Ok(account) = rx.recv() {
-                        dequeued.fetch_and(1, Ordering::Relaxed);
+                        dequeued.fetch_add(1, Ordering::Relaxed);
                         let any = ledger.any();
                         priority.activate(&any, &account);
                     }

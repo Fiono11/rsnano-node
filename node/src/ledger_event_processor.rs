@@ -167,8 +167,9 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
             },
         }
 
-        let elapsed = start.elapsed();
-        duration_stat.fetch_add(elapsed.as_millis() as u64, Ordering::Relaxed);
+        let elapsed = start.elapsed().as_millis() as u64;
+        duration_stat.fetch_add(elapsed, Ordering::Relaxed);
+        self.stats.dur_total.fetch_add(elapsed, Ordering::Relaxed);
     }
 }
 
@@ -188,6 +189,7 @@ pub(crate) struct LedgerEventProcessorStats {
     ev_conf_set_near_full: AtomicU64,
     ev_conf_set_recovered: AtomicU64,
 
+    dur_total: AtomicU64,
     dur_blocks_processed: AtomicU64,
     dur_blocks_confirmed: AtomicU64,
     dur_blocks_rolled_back: AtomicU64,
@@ -246,6 +248,7 @@ impl StatsSource for LedgerEventProcessorStats {
         );
 
         const DUR_KEY: &'static str = "ledger_ev_dur";
+        result.insert(DUR_KEY, "dur_total", self.dur_total.load(Ordering::Relaxed));
         result.insert(
             DUR_KEY,
             "dur_blocks_processed",
