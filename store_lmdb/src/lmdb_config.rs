@@ -56,7 +56,8 @@ pub fn get_lmdb_flags(config: &LmdbConfig) -> EnvironmentFlags {
     // This can happen if something like 256 io_threads are specified in the node config
     // MDB_NORDAHEAD will allow platforms that support it to load the DB in memory as needed.
     // MDB_NOMEMINIT prevents zeroing malloc'ed pages. Can provide improvement for non-sensitive data but may make memory checkers noisy (e.g valgrind).
-    let mut flags = EnvironmentFlags::NO_SUB_DIR | EnvironmentFlags::NO_TLS;
+    let mut flags =
+        EnvironmentFlags::NO_SUB_DIR | EnvironmentFlags::NO_TLS | EnvironmentFlags::NO_READAHEAD;
 
     if config.sync == SyncStrategy::NosyncSafe {
         flags |= EnvironmentFlags::NO_META_SYNC;
