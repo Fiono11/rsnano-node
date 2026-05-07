@@ -16,10 +16,10 @@ use std::{
     time::Instant,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerEvent, ProcessResult};
+use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -43,7 +43,6 @@ pub struct ElectionSchedulers {
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
     ledger: Arc<Ledger>,
-    activate_successors_listener: OutputListenerMt<SavedBlock>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
     duration_activate_successors: AtomicU64,
 }
@@ -108,7 +107,6 @@ impl ElectionSchedulers {
             notify_listener: OutputListenerMt::new(),
             config,
             ledger,
-            activate_successors_listener: Default::default(),
             optimistic_thread: Mutex::new(None),
             duration_activate_successors: AtomicU64::new(0),
         }
@@ -139,36 +137,9 @@ impl ElectionSchedulers {
         )
     }
 
-    pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        self.activate_successors_listener.track()
-    }
-
     /// Does the block exist in any of the schedulers
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.manual.contains(hash) || self.priority.contains(hash)
-    }
-
-    pub fn activate_backlog(
-        &self,
-        any: &impl AnySet,
-        account: &Account,
-        account_info: &AccountInfo,
-        conf_info: &ConfirmationHeightInfo,
-    ) {
-        self.optimistic
-            .activate(account, account_info.block_count, conf_info.height);
-        self.priority
-            .activate_with_info(any, account_info, conf_info);
-    }
-
-    pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
-        let any = self.ledger.any();
-        for result in processed {
-            if result.status.is_ok() {
-                let account = result.saved_block.as_ref().unwrap().account();
-                self.priority.activate(&any, &account);
-            }
-        }
     }
 
     pub fn notify(&self) {
@@ -180,17 +151,6 @@ impl ElectionSchedulers {
 
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
-    }
-
-    pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
-        // Activate successors of confirmed blocks
-        let any = self.ledger.any();
-        for block in confirmed {
-            if self.activate_successors_listener.is_tracked() {
-                self.activate_successors_listener.emit(block.clone());
-            }
-            self.priority.activate_successors(&any, block);
-        }
     }
 
     pub fn start(&self) {
@@ -254,11 +214,24 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
         if let LedgerPipelineEvent::Ledger(event) = event {
             match event {
                 LedgerEvent::BlocksProcessed(results) => {
-                    self.activate_accounts_with_fresh_blocks(results);
+                    // Activate accounts with fresh blocks
+                    let any = self.ledger.any();
+                    for result in results {
+                        if result.status.is_ok() {
+                            let account = result.saved_block.as_ref().unwrap().account();
+                            self.priority.activate(&any, &account);
+                        }
+                    }
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
                     let start = Instant::now();
-                    self.activate_successors(confirmed.iter().map(|(b, _)| b));
+                    {
+                        // Activate successors of confirmed blocks
+                        let any = self.ledger.any();
+                        for (block, _) in confirmed {
+                            self.priority.activate_successors(&any, block);
+                        }
+                    }
                     self.duration_activate_successors
                         .fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
                 }
@@ -272,7 +245,13 @@ impl EventHandler<Vec<UnconfirmedInfo>> for ElectionSchedulers {
     fn handle(&self, unconfirmed: &Vec<UnconfirmedInfo>) {
         let any = self.ledger.any();
         for info in unconfirmed {
-            self.activate_backlog(&any, &info.account, &info.account_info, &info.conf_info);
+            self.optimistic.activate(
+                &info.account,
+                info.account_info.block_count,
+                info.conf_info.height,
+            );
+            self.priority
+                .activate_with_info(&any, &info.account_info, &info.conf_info);
         }
     }
 }
@@ -280,6 +259,8 @@ impl EventHandler<Vec<UnconfirmedInfo>> for ElectionSchedulers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_ledger::{BlockSource, ProcessResult};
+    use rsnano_types::BlockPriority;
 
     #[test]
     fn activate_successors() {
@@ -287,28 +268,24 @@ mod tests {
         let tracker = schedulers.priority.track_activate_successors();
         let block = SavedBlock::new_test_instance();
 
-        schedulers.activate_successors([&block]);
+        schedulers.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
+            vec![ProcessResult {
+                block: (*block).clone(),
+                source: BlockSource::Live,
+                status: Ok(()),
+                saved_block: Some(block.clone()),
+                priority: BlockPriority::new_test_instance(),
+            }],
+        )));
 
         let output = tracker.output();
         assert_eq!(output, [block]);
     }
 
     #[test]
-    fn can_track_successor_activation() {
+    fn when_blocks_confirmed_should_activate_elections_for_successors() {
         let schedulers = ElectionSchedulers::new_null();
-        let tracker = schedulers.track_activate_successors();
-        let block = SavedBlock::new_test_instance();
-
-        schedulers.activate_successors([&block]);
-
-        let output = tracker.output();
-        assert_eq!(output, [block]);
-    }
-
-    #[test]
-    fn when_blocks_confirmed_should_activate_elections_for_sucessors() {
-        let schedulers = ElectionSchedulers::new_null();
-        let activation_tracker = schedulers.track_activate_successors();
+        let activation_tracker = schedulers.priority.track_activate_successors();
 
         let block = SavedBlock::new_test_instance();
         let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
