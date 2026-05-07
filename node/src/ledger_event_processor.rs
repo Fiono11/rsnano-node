@@ -169,7 +169,9 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
 
         let elapsed = start.elapsed().as_millis() as u64;
         duration_stat.fetch_add(elapsed, Ordering::Relaxed);
-        self.stats.dur_total.fetch_add(elapsed, Ordering::Relaxed);
+        self.stats
+            .dur_total
+            .fetch_add(start.elapsed().as_micros() as u64, Ordering::Relaxed);
     }
 }
 
@@ -248,7 +250,11 @@ impl StatsSource for LedgerEventProcessorStats {
         );
 
         const DUR_KEY: &'static str = "ledger_ev_dur";
-        result.insert(DUR_KEY, "dur_total", self.dur_total.load(Ordering::Relaxed));
+        result.insert(
+            "event_proc_duration",
+            "ledger_ev_queue",
+            self.dur_total.load(Ordering::Relaxed),
+        );
         result.insert(
             DUR_KEY,
             "dur_blocks_processed",
