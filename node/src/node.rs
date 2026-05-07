@@ -41,7 +41,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
-    thread_factory::ThreadFactory,
+    thread_factory::{ThreadFactory},
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
@@ -56,7 +56,7 @@ use crate::{
         BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
         LocalBlockBroadcaster, LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin,
         ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
-        backlog_scan::{BacklogScan, UnconfirmedInfo},
+        backlog_scan::{BacklogScan, UnconfirmedInfo, UnconfirmedQueueStats},
         bounded_backlog::BoundedBacklog,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
@@ -166,6 +166,7 @@ pub struct Node {
     ticker_pool: TickerPool,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
+    unconfirmed_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 pub(crate) struct NodeArgs {
@@ -783,14 +784,29 @@ impl Node {
         ));
 
         let ledger_tx2 = ledger_tx.clone();
+        let unconfirmed_queue_stats = Arc::new(UnconfirmedQueueStats::default());
+        let unconfirmed_stats = unconfirmed_queue_stats.clone();
         let (unconfirmed_tx, unconfirmed_rx) =
             std::sync::mpsc::sync_channel::<Vec<UnconfirmedInfo>>(128);
         let backlog_scan =
             BacklogScan::new(global_config.into(), ledger.clone(), move |unconfirmed| {
                 ledger_tx2
-                    .send(LedgerPipelineEvent::UnconfirmedFound(unconfirmed))
+                    .send(LedgerPipelineEvent::UnconfirmedFound(unconfirmed.clone()))
                     .expect("channel should be open");
+                match unconfirmed_tx.try_send(unconfirmed){
+                    Ok(()) => {
+                        unconfirmed_stats.enqueued.fetch_add(1, Ordering::Relaxed);
+                    },
+                    Err(mpsc::TrySendError::Full(_)) => {
+                        unconfirmed_stats.overfill.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(mpsc::TrySendError::Disconnected(_)) => {
+                        unreachable!("Unconfirmed queue should be open")
+                    }
+                }
             });
+
+        let mut unconfirmed_handler: EventHandlerRegistry<Vec<UnconfirmedInfo>> = EventHandlerRegistry::default();
 
         if config.bounded_backlog.max_backlog == 0 {
             config.enable_bounded_backlog = false;
@@ -1283,6 +1299,18 @@ impl Node {
 
         spawn_backpressure_processor("Ledger ev proc", ledger_rx, ledger_event_processor);
 
+        let unconf_stats = unconfirmed_queue_stats.clone();
+        let unconfirmed_thread = std::thread::Builder::new()
+        .name("unconfirmed queue".to_string())
+        .spawn(move || {
+            while let Ok(i) = unconfirmed_rx.recv(){
+                let start = std::time::Instant::now();
+                unconfirmed_handler.raise(&i);
+                unconf_stats.process_duration.fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
+            }
+        })
+        .unwrap();
+
         vote_processor.add_observer(aec_tx);
 
         stats_collector.add_source(stats.clone());
@@ -1293,6 +1321,7 @@ impl Node {
         stats_collector.add_source(election_schedulers.clone());
         stats_collector.add_source(network.clone());
         stats_collector.add_source(backlog_scan.stats());
+        stats_collector.add_source(unconfirmed_queue_stats);
         stats_collector.add_source(handshake_stats);
         stats_collector.add_source(inbound_message_queue.clone());
         stats_collector.add_source(bootstrap_stale_stats);
@@ -1395,6 +1424,7 @@ impl Node {
             ticker_pool,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
+            unconfirmed_thread: Some(unconfirmed_thread),
         }
     }
 
@@ -1636,6 +1666,9 @@ impl Node {
         self.ticker_pool.stop();
         self.tcp_listener.stop();
         self.backlog_scan.stop();
+        if let Some(handle) = self.unconfirmed_thread.take(){
+            handle.join().expect("unconfirmed thread should join");
+        }
         self.aec_voter.stop();
         self.peer_connector.stop();
         // Cancels ongoing work generation tasks, which may be blocking other threads

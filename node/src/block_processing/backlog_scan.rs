@@ -1,8 +1,8 @@
 use std::{
     cmp::max,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard, RwLock,
         atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex, MutexGuard, RwLock,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -295,7 +295,7 @@ pub struct UnconfirmedInfo {
 }
 
 #[derive(Default)]
-pub struct BacklogScanStats {
+pub(crate) struct BacklogScanStats {
     looped: AtomicU64,
     scanned: AtomicU64,
     activated: AtomicU64,
@@ -313,6 +313,33 @@ impl StatsSource for BacklogScanStats {
             "backlog_scan",
             "activated",
             self.activated.load(Ordering::Relaxed),
+        );
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct UnconfirmedQueueStats {
+    pub enqueued: AtomicU64,
+    pub overfill: AtomicU64,
+    pub process_duration: AtomicU64,
+}
+
+impl StatsSource for UnconfirmedQueueStats {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert(
+            "unconfirmed_queue",
+            "enqueued",
+            self.enqueued.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "unconfirmed_queue",
+            "overfill",
+            self.overfill.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "unconfirmed_queue",
+            "dur_process",
+            self.process_duration.load(Ordering::Relaxed),
         );
     }
 }
