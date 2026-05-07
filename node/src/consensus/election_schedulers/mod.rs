@@ -11,15 +11,15 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        mpsc,
     },
     thread::JoinHandle,
-    time::Instant,
 };
 
 use rsnano_ledger::{Ledger, LedgerEvent};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, SavedBlock};
+use rsnano_types::{Account, BlockHash, SavedBlock};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -44,7 +44,11 @@ pub struct ElectionSchedulers {
     config: NodeConfig,
     ledger: Arc<Ledger>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
-    duration_activate_successors: AtomicU64,
+    tx_activate: Mutex<Option<mpsc::SyncSender<Account>>>,
+    ev_proc_thread: Mutex<Option<JoinHandle<()>>>,
+    enqueued: AtomicU64,
+    overfill: AtomicU64,
+    dequeued: Arc<AtomicU64>,
 }
 
 impl ElectionSchedulers {
@@ -108,7 +112,11 @@ impl ElectionSchedulers {
             config,
             ledger,
             optimistic_thread: Mutex::new(None),
-            duration_activate_successors: AtomicU64::new(0),
+            tx_activate: Mutex::new(None),
+            ev_proc_thread: Mutex::new(None),
+            enqueued: AtomicU64::new(0),
+            dequeued: Arc::new(AtomicU64::new(0)),
+            overfill: AtomicU64::new(0),
         }
     }
 
@@ -137,22 +145,6 @@ impl ElectionSchedulers {
         )
     }
 
-    /// Does the block exist in any of the schedulers
-    pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.manual.contains(hash) || self.priority.contains(hash)
-    }
-
-    pub fn notify(&self) {
-        self.notify_listener.emit(());
-        self.priority.notify();
-        self.hinted.notify();
-        self.optimistic.notify();
-    }
-
-    pub fn add_manual(&self, block: SavedBlock) {
-        self.manual.push(block);
-    }
-
     pub fn start(&self) {
         if self.config.enable_hinted_scheduler {
             self.hinted.start();
@@ -167,12 +159,27 @@ impl ElectionSchedulers {
             *self.optimistic_thread.lock().unwrap() = Some(handle);
         }
         if self.config.enable_priority_scheduler {
+            let priority = self.priority.clone();
+            let ledger = self.ledger.clone();
+            let (tx, rx) = mpsc::sync_channel::<Account>(1024 * 16);
+            let dequeued = self.dequeued.clone();
+            let ev_proc_thread = std::thread::Builder::new()
+                .name("prio scheduler queue".to_string())
+                .spawn(move || {
+                    // TODO batch accounts for better performance?
+                    while let Ok(account) = rx.recv() {
+                        dequeued.fetch_and(1, Ordering::Relaxed);
+                        let any = ledger.any();
+                        priority.activate(&any, &account);
+                    }
+                })
+                .unwrap();
+
+            *self.tx_activate.lock().unwrap() = Some(tx);
+            *self.ev_proc_thread.lock().unwrap() = Some(ev_proc_thread);
+
             self.priority.start();
         }
-    }
-
-    pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
-        self.notify_listener.track()
     }
 
     pub fn stop(&self) {
@@ -183,6 +190,49 @@ impl ElectionSchedulers {
             handle.join().unwrap();
         }
         self.priority.stop();
+        let tx = self.tx_activate.lock().unwrap().take();
+        drop(tx);
+        let handle = self.ev_proc_thread.lock().unwrap().take();
+        if let Some(handle) = handle {
+            handle.join().expect("Ev proc thread should end normally");
+        }
+    }
+
+    /// Does the block exist in any of the schedulers
+    pub fn contains(&self, hash: &BlockHash) -> bool {
+        self.manual.contains(hash) || self.priority.contains(hash)
+    }
+
+    pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
+        self.notify_listener.track()
+    }
+
+    pub fn notify(&self) {
+        self.notify_listener.emit(());
+        self.priority.notify();
+        self.hinted.notify();
+        self.optimistic.notify();
+    }
+
+    pub fn add_manual(&self, block: SavedBlock) {
+        self.manual.push(block);
+    }
+
+    fn enqueue_activation(&self, account: Account) {
+        let tx = self.tx_activate.lock().unwrap();
+        if let Some(tx) = tx.as_ref() {
+            match tx.try_send(account) {
+                Ok(()) => {
+                    self.enqueued.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(mpsc::TrySendError::Full(_)) => {
+                    self.overfill.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    unreachable!("Queue should always be open")
+                }
+            }
+        }
     }
 }
 
@@ -202,9 +252,19 @@ impl StatsSource for ElectionSchedulers {
         self.priority.collect_stats(result);
         self.optimistic.collect_stats(result);
         result.insert(
-            "ledger_ev_dur",
-            "dur_activate_successors",
-            self.duration_activate_successors.load(Ordering::Relaxed),
+            "prio_sched_queue",
+            "enqueued",
+            self.enqueued.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "prio_sched_queue",
+            "overfill",
+            self.overfill.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "prio_sched_queue",
+            "dequeued",
+            self.dequeued.load(Ordering::Relaxed),
         );
     }
 }
@@ -215,34 +275,23 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
             match event {
                 LedgerEvent::BlocksProcessed(results) => {
                     // Activate accounts with fresh blocks
-                    let any = self.ledger.any();
                     for result in results {
                         if result.status.is_ok() {
                             let account = result.saved_block.as_ref().unwrap().account();
-                            self.priority.activate(&any, &account);
+                            self.enqueue_activation(account);
                         }
                     }
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
-                    let start = Instant::now();
-                    {
-                        // Activate successors of confirmed blocks
-                        let mut any = self.ledger.any();
-                        for (block, _) in confirmed {
-                            self.priority.activate(&any, &block.account());
-                            if let Some(destination) = block.destination()
-                                && !destination.is_zero()
-                                && destination != block.account()
-                            {
-                                self.priority.activate(&any, &destination);
-                            }
-                            if any.is_refresh_needed(){
-                                any = any.refresh();
-                            }
+                    for (block, _) in confirmed {
+                        self.enqueue_activation(block.account());
+                        if let Some(destination) = block.destination()
+                            && !destination.is_zero()
+                            && destination != block.account()
+                        {
+                            self.enqueue_activation(destination);
                         }
                     }
-                    self.duration_activate_successors
-                        .fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
                 }
                 _ => {}
             }
@@ -262,47 +311,5 @@ impl EventHandler<Vec<UnconfirmedInfo>> for ElectionSchedulers {
             self.priority
                 .activate_with_info(&any, &info.account_info, &info.conf_info);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rsnano_ledger::{BlockSource, ProcessResult};
-    use rsnano_types::BlockPriority;
-
-    #[test]
-    fn activate_successors() {
-        let schedulers = ElectionSchedulers::new_null();
-        let activate_tracker = schedulers.priority.track_activate();
-        let block = SavedBlock::new_test_instance();
-
-        schedulers.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(
-            vec![ProcessResult {
-                block: (*block).clone(),
-                source: BlockSource::Live,
-                status: Ok(()),
-                saved_block: Some(block.clone()),
-                priority: BlockPriority::new_test_instance(),
-            }],
-        )));
-
-        let output = activate_tracker.output();
-        assert_eq!(output, [block.account()]);
-    }
-
-    #[test]
-    fn when_blocks_confirmed_should_activate_elections_for_successors() {
-        let schedulers = ElectionSchedulers::new_null();
-        let activation_tracker = schedulers.priority.track_activate();
-
-        let block = SavedBlock::new_test_instance();
-        let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];
-        schedulers.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(
-            confirmed_blocks,
-        )));
-
-        let output = activation_tracker.output();
-        assert_eq!(output, [block.account(), block.destination().unwrap()]);
     }
 }

@@ -29,14 +29,18 @@ impl<T: Clone + 'static> OutputTrackerMt<T> {
         self.output.lock().unwrap().clone()
     }
 
-    pub fn wait_output(&self) -> Result<Vec<T>, &'static str> {
+    pub fn wait_output(&self) -> Vec<T> {
         let mut guard = self.output.lock().unwrap();
         guard = self
             .added
             .wait_timeout_while(guard, Duration::from_secs(5), |i| i.is_empty())
-            .map_err(|_| "poison error")?
+            .map_err(|_| "poison error")
+            .unwrap()
             .0;
-        Ok(guard.clone())
+        if guard.is_empty() {
+            panic!("timeout while waiting for output");
+        }
+        guard.clone()
     }
 
     pub fn clear(&self) {

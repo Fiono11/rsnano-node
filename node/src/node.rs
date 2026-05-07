@@ -1796,7 +1796,7 @@ mod tests {
         node.aec
             .simulate_event(AecFact::ElectionConfirmed(election));
 
-        let output = broadcast_tracker.wait_output().unwrap();
+        let output = broadcast_tracker.wait_output();
         assert_eq!(output, vec![winner_hash]);
     }
 

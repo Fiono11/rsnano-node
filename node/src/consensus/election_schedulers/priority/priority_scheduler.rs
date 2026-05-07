@@ -12,12 +12,12 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use super::{prio_bucket_count, PriorityBucketConfig};
+use super::{PriorityBucketConfig, prio_bucket_count};
 use crate::consensus::{
-    election_schedulers::priority::{
-        priority_buckets::PriorityBuckets, BucketInsertError, Eviction,
-    },
     AecService,
+    election_schedulers::priority::{
+        BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
+    },
 };
 
 pub struct PriorityScheduler {
