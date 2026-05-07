@@ -12,7 +12,7 @@ use std::{
 
 use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use rsnano_ledger::{
     AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
@@ -41,7 +41,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
-    thread_factory::{JoinHandle, ThreadFactory},
+    thread_factory::ThreadFactory,
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
@@ -53,9 +53,10 @@ use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_fact_processor::AecFactProcessor,
     block_processing::{
-        BacklogScan, BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
+        BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
         LocalBlockBroadcaster, LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin,
         ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
+        backlog_scan::{BacklogScan, UnconfirmedInfo},
         bounded_backlog::BoundedBacklog,
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
@@ -782,6 +783,8 @@ impl Node {
         ));
 
         let ledger_tx2 = ledger_tx.clone();
+        let (unconfirmed_tx, unconfirmed_rx) =
+            std::sync::mpsc::sync_channel::<Vec<UnconfirmedInfo>>(128);
         let backlog_scan =
             BacklogScan::new(global_config.into(), ledger.clone(), move |unconfirmed| {
                 ledger_tx2

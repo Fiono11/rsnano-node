@@ -1,4 +1,4 @@
-use crate::block_processing::BacklogScanConfig;
+use crate::block_processing::backlog_scan::BacklogScanConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]

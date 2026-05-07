@@ -56,7 +56,7 @@ pub struct BacklogScan {
 }
 
 impl BacklogScan {
-    pub(crate) fn new(
+    pub fn new(
         config: BacklogScanConfig,
         ledger: Arc<Ledger>,
         publish: impl Fn(Vec<UnconfirmedInfo>) + Send + Sync + 'static,

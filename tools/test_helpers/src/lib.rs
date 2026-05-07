@@ -11,7 +11,7 @@ use rsnano_ledger::{
 use rsnano_network::{Channel, ChannelDirection, NULL_ENDPOINT, TEST_ENDPOINT_1};
 use rsnano_node::{
     Node, NodeBuilder, NodeEvent,
-    block_processing::BacklogScanConfig,
+    block_processing::backlog_scan::BacklogScanConfig,
     config::{NetworkParams, NodeConfig, NodeFlags},
     unique_path,
 };

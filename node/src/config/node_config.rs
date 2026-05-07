@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     block_processing::{
-        BacklogScanConfig, LocalBlockBroadcasterConfig, ProcessQueueConfig,
+        LocalBlockBroadcasterConfig, ProcessQueueConfig, backlog_scan::BacklogScanConfig,
         bounded_backlog::BoundedBacklogConfig,
     },
     bootstrap::{bootstrapper::BootstrapConfig, responder::BootstrapResponderConfig},

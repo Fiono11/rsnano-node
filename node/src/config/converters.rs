@@ -1,5 +1,5 @@
 use super::GlobalConfig;
-use crate::block_processing::{BacklogScanConfig, ProcessQueueConfig};
+use crate::block_processing::{ProcessQueueConfig, backlog_scan::BacklogScanConfig};
 
 impl From<&GlobalConfig> for ProcessQueueConfig {
     fn from(value: &GlobalConfig) -> Self {
