@@ -20,7 +20,7 @@ pub use unchecked_map::*;
 pub(crate) use block_processor_queue::*;
 pub(crate) use local_block_broadcaster::*;
 
-use crate::{block_processing::backlog_scan::UnconfirmedInfo, cementation::ConfirmingSetEvent};
+use crate::cementation::ConfirmingSetEvent;
 use rsnano_ledger::LedgerEvent;
 
 pub(crate) enum LedgerPipelineEvent {

@@ -9,7 +9,7 @@ use std::{
 
 use rsnano_types::NetworkType;
 use rsnano_utils::{
-    BackpressureHandlerRegistry, EventHandlerRegistry,
+    BackpressureHandlerRegistry, EventHandlerMut, EventHandlerRegistry,
     stats::{StatsCollection, StatsSource},
 };
 
@@ -19,11 +19,11 @@ use crate::{
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
         AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, election_schedulers::ElectionSchedulers,
+        LocalVoteHistory,
     },
     utils::BackpressureEventProcessor,
 };
-use rsnano_ledger::{Ledger, LedgerEvent};
+use rsnano_ledger::LedgerEvent;
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
@@ -34,8 +34,6 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
-    pub(crate) election_schedulers: Arc<ElectionSchedulers>,
-    pub(crate) ledger: Arc<Ledger>,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
     pub(crate) backpressure_plugins: BackpressureHandlerRegistry,
 }
@@ -52,8 +50,6 @@ impl LedgerEventProcessor {
             active_elections: Arc::new(AecService::new_null()),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
-            election_schedulers: ElectionSchedulers::new_null().into(),
-            ledger: Ledger::new_null().into(),
             plugins: EventHandlerRegistry::default(),
             backpressure_plugins: BackpressureHandlerRegistry::default(),
         }
@@ -91,7 +87,7 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
         };
 
         self.stats.processed.fetch_add(1, Ordering::Relaxed);
-        self.plugins.raise(&event);
+        self.plugins.handle(&event);
 
         match event {
             LedgerPipelineEvent::Ledger(event) => match event {

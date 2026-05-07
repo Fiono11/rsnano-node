@@ -39,14 +39,34 @@ impl<T> EventHandlerRegistry<T> {
     pub fn add(&mut self, handler: impl EventHandler<T> + 'static) {
         self.handlers.push(Box::new(handler));
     }
+}
 
-    pub fn raise(&mut self, event: &T) {
+impl<T> EventHandlerMut<T> for EventHandlerRegistry<T> {
+    fn handle(&mut self, event: &T) {
         for handler in &mut self.mut_handlers {
             handler.handle(event);
         }
         for handler in &mut self.handlers {
             handler.handle(event);
         }
+    }
+}
+
+impl<T, I> EventHandler<I> for T
+where
+    T: Fn(&I) + Send,
+{
+    fn handle(&self, event: &I) {
+        (*self)(event)
+    }
+}
+
+impl<T, I> EventHandlerMut<I> for T
+where
+    T: Fn(&I) + Send,
+{
+    fn handle(&mut self, event: &I) {
+        (*self)(event)
     }
 }
 
@@ -58,7 +78,7 @@ mod tests {
     #[test]
     fn raise_with_no_handlers_does_nothing() {
         let mut registry = EventHandlerRegistry::<i32>::default();
-        registry.raise(&42); // should not panic
+        registry.handle(&42); // should not panic
     }
 
     #[test]
@@ -75,9 +95,9 @@ mod tests {
         let mut registry = EventHandlerRegistry::default();
         registry.add_mut(LogHandler(Arc::clone(&log)));
 
-        registry.raise(&1);
-        registry.raise(&2);
-        registry.raise(&3);
+        registry.handle(&1);
+        registry.handle(&2);
+        registry.handle(&3);
 
         assert_eq!(*log.lock().unwrap(), vec![1, 2, 3]);
     }
@@ -110,7 +130,7 @@ mod tests {
             log: Arc::clone(&log),
         });
 
-        registry.raise(&0);
+        registry.handle(&0);
 
         assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
     }
