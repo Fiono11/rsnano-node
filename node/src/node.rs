@@ -140,7 +140,6 @@ pub struct Node {
     pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
     pub bounded_backlog: Option<Arc<BoundedBacklog>>,
-    pub bounded_backlog_thread: Option<JoinHandle>,
     pub bootstrapper: Arc<Bootstrapper>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
     message_processor: Mutex<MessageProcessor>,
@@ -1369,7 +1368,6 @@ impl Node {
             request_aggregator,
             backlog_scan,
             bounded_backlog,
-            bounded_backlog_thread: None,
             bootstrapper,
             local_block_broadcaster,
             network_threads,
@@ -1604,11 +1602,8 @@ impl Node {
         self.confirming_set.start();
         self.election_schedulers.start();
         self.backlog_scan.start();
-        if let Some(bounded_backlog) = self.bounded_backlog.as_ref().cloned() {
-            let handle = self.thread_factory.spawn("Bounded backlog", move || {
-                bounded_backlog.run_loop();
-            });
-            self.bounded_backlog_thread = Some(handle);
+        if let Some(bounded_backlog) = self.bounded_backlog.as_ref() {
+            bounded_backlog.start();
         }
         if self.config.enable_bootstrap_responder {
             self.bootstrap_responder.start();
@@ -1647,10 +1642,8 @@ impl Node {
         if let Some(i) = &self.bounded_backlog {
             i.stop();
         }
-        if let Some(handle) = self.bounded_backlog_thread.take() {
-            debug!("Waiting for bounded backlog thread to stop...");
-            handle.join().unwrap();
-            debug!("Bounded backlog thread stopped");
+        if let Some(backlog) = self.bounded_backlog.as_ref() {
+            backlog.stop();
         }
         self.rep_crawler.stop();
         self.block_processor.stop();

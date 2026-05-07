@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
@@ -12,39 +12,54 @@ use rsnano_utils::{
     BackpressureHandler, EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
+    thread_factory::{JoinHandle, ThreadFactory},
 };
 
 use super::{logic::BoundedBacklogLogic, walker::AccountWalker};
 use crate::block_processing::{
     LedgerPipelineEvent, backlog_scan::UnconfirmedInfo, bounded_backlog::BoundedBacklogConfig,
 };
+use tracing::debug;
 
 /// Continuously rolls back unconfirmed blocks with the lowest priority
 /// if the backlog exceeds the configured limit
 /// This struct belongs to the application layer
 pub struct BoundedBacklog {
-    logic: NullableCondvarMutex<BoundedBacklogLogic>,
+    logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
     ledger: Arc<Ledger>,
-    should_throttle: AtomicBool,
-    // stats
-    rollback_iterations: AtomicU64,
-    total_gathered: AtomicU64,
+    should_throttle: Arc<AtomicBool>,
+    thread_factory: ThreadFactory,
+    stats: Arc<BoundedBacklogStats>,
+    thread_handle: Mutex<Option<JoinHandle>>,
 }
 
 impl BoundedBacklog {
     pub fn new(config: BoundedBacklogConfig, ledger: Arc<Ledger>) -> Self {
-        let logic = NullableCondvarMutex::new(BoundedBacklogLogic::new(config));
-        Self {
-            logic,
-            ledger,
-            should_throttle: AtomicBool::new(false),
-            rollback_iterations: AtomicU64::new(0),
-            total_gathered: AtomicU64::new(0),
-        }
+        Self::new_impl(config, ledger, ThreadFactory::default())
     }
 
     pub fn new_null() -> Self {
-        Self::new(Default::default(), Ledger::new_null().into())
+        Self::new_impl(
+            Default::default(),
+            Ledger::new_null().into(),
+            ThreadFactory::new_null(),
+        )
+    }
+
+    fn new_impl(
+        config: BoundedBacklogConfig,
+        ledger: Arc<Ledger>,
+        thread_factory: ThreadFactory,
+    ) -> Self {
+        let logic = Arc::new(NullableCondvarMutex::new(BoundedBacklogLogic::new(config)));
+        Self {
+            logic,
+            ledger,
+            should_throttle: Arc::new(AtomicBool::new(false)),
+            thread_factory,
+            stats: Arc::new(BoundedBacklogStats::default()),
+            thread_handle: Mutex::new(None),
+        }
     }
 
     fn set_cooldown(&self, cool_down: bool) {
@@ -52,55 +67,32 @@ impl BoundedBacklog {
         self.logic.notify_all();
     }
 
+    pub fn start(&self) {
+        let mut backlog_loop = BoundedBacklogLoop::new(
+            self.logic.clone(),
+            self.ledger.clone(),
+            self.should_throttle.clone(),
+            self.stats.clone(),
+        );
+        let handle = self.thread_factory.spawn("Bounded backlog", move || {
+            backlog_loop.run_loop();
+        });
+        *self.thread_handle.lock().unwrap() = Some(handle);
+    }
+
     pub fn stop(&self) {
         self.logic.lock().stop();
         self.logic.notify_all();
+        let handle = self.thread_handle.lock().unwrap().take();
+        if let Some(handle) = handle {
+            debug!("Waiting for bounded backlog thread to stop...");
+            handle.join().unwrap();
+            debug!("Bounded backlog thread stopped");
+        }
     }
 
     pub fn should_throttle_block_processor(&self) -> bool {
         self.should_throttle.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn run_loop(&self) {
-        let mut logic = self.logic.lock();
-        let mut targets = Vec::with_capacity(logic.rollback_batch_size());
-
-        while !logic.stopped() {
-            logic = self
-                .logic
-                .wait_timeout_while(logic, Duration::from_secs(1), |i| {
-                    !i.stopped() && !i.rollback_needed()
-                })
-                .0;
-
-            if logic.stopped() {
-                return;
-            }
-
-            logic.set_bootstrap_weights_max_blocks(self.ledger.bootstrap_weights_max_blocks());
-            logic.set_ledger_info(self.ledger.block_count(), self.ledger.confirmed_count());
-            self.should_throttle
-                .store(logic.should_throttle_block_processor(), Ordering::Relaxed);
-
-            if !logic.rollback_needed() {
-                continue;
-            }
-
-            logic.gather_targets(&mut targets);
-            self.rollback_iterations.fetch_add(1, Ordering::Relaxed);
-            self.total_gathered
-                .fetch_add(targets.len() as u64, Ordering::Relaxed);
-
-            if !targets.is_empty() {
-                let target_count = logic.rollback_target_count();
-                drop(logic);
-
-                self.ledger
-                    .roll_back_batch(&*targets, target_count as usize);
-
-                logic = self.logic.lock();
-            }
-        }
     }
 
     fn unconfirmed_accounts_found(&self, batch: &[UnconfirmedInfo]) {
@@ -117,16 +109,7 @@ impl BoundedBacklog {
 
 impl StatsSource for BoundedBacklog {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert(
-            "bounded_backlog",
-            "rollback_iterations",
-            self.rollback_iterations.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "bounded_backlog",
-            "gathered_targets",
-            self.total_gathered.load(Ordering::Relaxed),
-        );
+        self.stats.collect_stats(result);
     }
 }
 
@@ -153,6 +136,7 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
                 }
             },
             LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
+                // TODO: Move into a bounded queue here, because the account walker can be slow?
                 self.unconfirmed_accounts_found(unconfirmed);
             }
             _ => (),
@@ -167,6 +151,94 @@ impl BackpressureHandler for BoundedBacklog {
 
     fn recovered(&self) {
         self.set_cooldown(false);
+    }
+}
+
+struct BoundedBacklogLoop {
+    logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
+    ledger: Arc<Ledger>,
+    should_throttle: Arc<AtomicBool>,
+    stats: Arc<BoundedBacklogStats>,
+}
+
+impl BoundedBacklogLoop {
+    pub fn new(
+        logic: Arc<NullableCondvarMutex<BoundedBacklogLogic>>,
+        ledger: Arc<Ledger>,
+        should_throttle: Arc<AtomicBool>,
+        stats: Arc<BoundedBacklogStats>,
+    ) -> Self {
+        Self {
+            logic,
+            ledger,
+            should_throttle,
+            stats,
+        }
+    }
+
+    pub fn run_loop(&mut self) {
+        let mut logic = self.logic.lock();
+        let mut targets = Vec::with_capacity(logic.rollback_batch_size());
+
+        while !logic.stopped() {
+            logic = self
+                .logic
+                .wait_timeout_while(logic, Duration::from_secs(1), |i| {
+                    !i.stopped() && !i.rollback_needed()
+                })
+                .0;
+
+            if logic.stopped() {
+                return;
+            }
+
+            logic.set_bootstrap_weights_max_blocks(self.ledger.bootstrap_weights_max_blocks());
+            logic.set_ledger_info(self.ledger.block_count(), self.ledger.confirmed_count());
+            self.should_throttle
+                .store(logic.should_throttle_block_processor(), Ordering::Relaxed);
+
+            if !logic.rollback_needed() {
+                continue;
+            }
+
+            logic.gather_targets(&mut targets);
+            self.stats
+                .rollback_iterations
+                .fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .total_gathered
+                .fetch_add(targets.len() as u64, Ordering::Relaxed);
+
+            if !targets.is_empty() {
+                let target_count = logic.rollback_target_count();
+                drop(logic);
+
+                self.ledger
+                    .roll_back_batch(&*targets, target_count as usize);
+
+                logic = self.logic.lock();
+            }
+        }
+    }
+}
+#[derive(Default)]
+struct BoundedBacklogStats {
+    pub rollback_iterations: AtomicU64,
+    pub total_gathered: AtomicU64,
+}
+
+impl StatsSource for BoundedBacklogStats {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert(
+            "bounded_backlog",
+            "rollback_iterations",
+            self.rollback_iterations.load(Ordering::Relaxed),
+        );
+        result.insert(
+            "bounded_backlog",
+            "gathered_targets",
+            self.total_gathered.load(Ordering::Relaxed),
+        );
     }
 }
 
@@ -190,7 +262,7 @@ mod tests {
             .finish();
 
         let ledger = Arc::new(Ledger::new_null());
-        let backlog = create_backlog(logic, ledger);
+        let mut backlog = create_backlog(logic, ledger);
 
         backlog.run_loop();
 
@@ -209,13 +281,13 @@ mod tests {
         ledger.process_one(&block).unwrap();
         assert_eq!(ledger.backlog_size(), 1);
 
-        let backlog = create_backlog(logic, ledger);
+        let mut backlog = create_backlog(logic, ledger);
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
         assert_eq!(logic.block_count(), 2);
         assert_eq!(logic.confirmed_count(), 1);
-        assert_eq!(backlog.rollback_iterations.load(Ordering::Relaxed), 0);
+        assert_eq!(backlog.stats.rollback_iterations.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -231,7 +303,7 @@ mod tests {
                 .bootstrap_weights_max_blocks(MAX_BLOCKS)
                 .finish(),
         );
-        let backlog = create_backlog(logic, ledger);
+        let mut backlog = create_backlog(logic, ledger);
 
         backlog.run_loop();
 
@@ -258,11 +330,11 @@ mod tests {
         ledger.process_one(&block1).unwrap();
         ledger.process_one(&block2).unwrap();
         ledger.process_one(&block3).unwrap();
-        let backlog = create_backlog(logic, ledger);
+        let mut backlog = create_backlog(logic, ledger);
 
         backlog.run_loop();
 
-        assert!(backlog.should_throttle_block_processor());
+        assert!(backlog.should_throttle.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -290,13 +362,13 @@ mod tests {
             .wait(|l| l.stop())
             .finish();
 
-        let backlog = create_backlog(logic, ledger.clone());
+        let mut backlog = create_backlog(logic, ledger.clone());
         backlog.run_loop();
 
         let logic = backlog.logic.lock();
         assert_eq!(logic.backlog_size(), 2);
         assert_eq!(logic.block_count(), 3);
-        assert_eq!(backlog.rollback_iterations.load(Ordering::Relaxed), 1);
+        assert_eq!(backlog.stats.rollback_iterations.load(Ordering::Relaxed), 1);
         assert_ne!(ledger.backlog_size(), 2);
     }
 
@@ -333,8 +405,11 @@ mod tests {
     #[test]
     fn collects_stats() {
         let backlog = BoundedBacklog::new_null();
-        backlog.rollback_iterations.store(10, Ordering::Relaxed);
-        backlog.total_gathered.store(11, Ordering::Relaxed);
+        backlog
+            .stats
+            .rollback_iterations
+            .store(10, Ordering::Relaxed);
+        backlog.stats.total_gathered.store(11, Ordering::Relaxed);
 
         let mut result = StatsCollection::new();
         backlog.collect_stats(&mut result);
@@ -424,7 +499,6 @@ mod tests {
 
     #[test]
     fn unconfirmed_found_inserts_blocks() {
-        let logic = NullableCondvarMutex::new(BoundedBacklogLogic::default());
         let ledger = Arc::new(Ledger::new_null());
 
         let account_key = PrivateKey::from(123);
@@ -434,7 +508,11 @@ mod tests {
         ledger.process_one(&genesis_send).unwrap();
         let saved_open = ledger.process_one(&open).unwrap();
 
-        let backlog = create_backlog(logic, ledger);
+        let backlog = BoundedBacklog::new_impl(
+            BoundedBacklogConfig::default(),
+            ledger,
+            ThreadFactory::new_null(),
+        );
 
         let info = UnconfirmedInfo {
             account: saved_open.account(),
@@ -457,13 +535,13 @@ mod tests {
     fn create_backlog(
         logic: NullableCondvarMutex<BoundedBacklogLogic>,
         ledger: Arc<Ledger>,
-    ) -> BoundedBacklog {
-        BoundedBacklog {
-            logic,
+    ) -> BoundedBacklogLoop {
+        let should_throttle = Arc::new(AtomicBool::new(false));
+        BoundedBacklogLoop::new(
+            Arc::new(logic),
             ledger,
-            should_throttle: AtomicBool::new(false),
-            rollback_iterations: AtomicU64::new(0),
-            total_gathered: AtomicU64::new(0),
-        }
+            should_throttle,
+            Arc::new(BoundedBacklogStats::default()),
+        )
     }
 }

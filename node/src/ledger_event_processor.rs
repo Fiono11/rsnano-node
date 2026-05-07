@@ -1,27 +1,27 @@
 use std::{
     sync::{
+        Arc, RwLock,
         atomic::{AtomicU64, Ordering},
         mpsc::SyncSender,
-        Arc, RwLock,
     },
     time::Instant,
 };
 
 use rsnano_types::NetworkType;
 use rsnano_utils::{
-    stats::{StatsCollection, StatsSource},
     BackpressureHandlerRegistry, EventHandlerRegistry,
+    stats::{StatsCollection, StatsSource},
 };
 
 use crate::{
+    NodeEvent,
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
-        election_schedulers::ElectionSchedulers, AecCooldownReason, AecService,
-        DependentElectionsConfirmer, ForkCache, ForkCacheUpdater, LocalVoteHistory,
+        AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        LocalVoteHistory, election_schedulers::ElectionSchedulers,
     },
     utils::BackpressureEventProcessor,
-    NodeEvent,
 };
 use rsnano_ledger::{Ledger, LedgerEvent};
 
