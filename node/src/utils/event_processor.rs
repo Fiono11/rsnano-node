@@ -1,15 +1,15 @@
-use crate::block_processing::backlog_scan::UnconfirmedInfo;
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-    EventHandlerMut,
-};
 use std::{
     sync::{
         atomic::{AtomicIsize, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     thread::JoinHandle,
+};
+
+use rsnano_utils::{
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{StatsCollection, StatsSource},
+    EventHandlerMut,
 };
 
 pub(crate) struct EventProcessor {
@@ -31,13 +31,13 @@ impl EventProcessor {
         }
     }
 
-    pub fn start(
+    pub fn start<T: Send + 'static>(
         &self,
         thread_name: impl Into<String>,
-        mut handle: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static,
-    ) -> EventSender<Vec<UnconfirmedInfo>> {
+        mut handle: impl EventHandlerMut<T> + 'static,
+    ) -> EventSender<T> {
         let stats = self.stats.clone();
-        let (tx_event, rx_event) = mpsc::sync_channel::<Vec<UnconfirmedInfo>>(128);
+        let (tx_event, rx_event) = mpsc::sync_channel::<T>(128);
 
         let ev_processor_thread = std::thread::Builder::new()
             .name(thread_name.into())
@@ -127,8 +127,8 @@ impl StatsSource for EventProcessorStats {
             self.overfill.load(Ordering::Relaxed),
         );
         result.insert(
+            "ev_proc_duration",
             self.queue_name,
-            "proc_duration",
             self.process_duration.load(Ordering::Relaxed),
         );
     }
