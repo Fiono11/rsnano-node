@@ -1,20 +1,21 @@
 use std::{
     cmp::max,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard,
         atomic::{AtomicU64, Ordering},
-        mpsc,
+        Arc, Condvar, Mutex, MutexGuard,
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
+use crate::utils::event_processor::EventProcessor;
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
-    EventHandlerMut,
+    container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
+    EventHandlerMut,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -50,7 +51,6 @@ impl BacklogScanConfig {
 /// Continuously scan the ledger for unconfirmed blocks and activate them
 pub struct BacklogScan {
     stats: Arc<BacklogScanStats>,
-    queue_stats: Arc<UnconfirmedQueueStats>,
     flags: Arc<Mutex<BacklogScanFlags>>,
     ledger: Arc<Ledger>,
     config: BacklogScanConfig,
@@ -58,7 +58,7 @@ pub struct BacklogScan {
     /** Thread that runs the backlog implementation logic. The thread always runs, even if
      *  backlog population is disabled, so that it can service a manual trigger (e.g. via RPC). */
     scan_thread: Mutex<Option<JoinHandle<()>>>,
-    queue_thread: Mutex<Option<JoinHandle<()>>>,
+    event_processor: EventProcessor,
 }
 
 impl BacklogScan {
@@ -70,62 +70,26 @@ impl BacklogScan {
 
         Self {
             stats: Arc::new(BacklogScanStats::default()),
-            queue_stats: Arc::new(UnconfirmedQueueStats::default()),
             flags,
             ledger,
             config,
             condition: Arc::new(Condvar::new()),
             scan_thread: Mutex::new(None),
-            queue_thread: Mutex::new(None),
+            event_processor: EventProcessor::new("backlog_scan_queue"),
         }
     }
 
-    pub fn start(
-        &self,
-        mut unconfirmed_handler: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static,
-    ) {
-        let queue_stats = self.queue_stats.clone();
-        let (unconfirmed_tx, unconfirmed_rx) =
-            std::sync::mpsc::sync_channel::<Vec<UnconfirmedInfo>>(128);
-        let queue_thread = std::thread::Builder::new()
-            .name("unconfirmed queue".to_string())
-            .spawn(move || {
-                while let Ok(i) = unconfirmed_rx.recv() {
-                    let start = std::time::Instant::now();
-                    unconfirmed_handler.handle(&i);
-                    queue_stats
-                        .process_duration
-                        .fetch_add(start.elapsed().as_millis() as u64, Ordering::Relaxed);
-                }
-            })
-            .unwrap();
-
-        *self.queue_thread.lock().unwrap() = Some(queue_thread);
-
-        let queue_stats = self.queue_stats.clone();
-        let publish: Box<dyn Fn(Vec<UnconfirmedInfo>) + Send + Sync> =
-            Box::new(move |unconfirmed| {
-                let unconfirmed_len = unconfirmed.len() as u64;
-                match unconfirmed_tx.try_send(unconfirmed) {
-                    Ok(()) => {
-                        queue_stats.enqueued.fetch_add(1, Ordering::Relaxed);
-                        queue_stats
-                            .enqueued_total
-                            .fetch_add(unconfirmed_len, Ordering::Relaxed);
-                    }
-                    Err(mpsc::TrySendError::Full(_)) => {
-                        queue_stats.overfill.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(mpsc::TrySendError::Disconnected(_)) => {
-                        unreachable!("Unconfirmed queue should be open")
-                    }
-                }
-            });
+    pub fn start(&self, unconfirmed_handler: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static) {
+        let unconfirmed_tx = self
+            .event_processor
+            .start("backlog scan proc", unconfirmed_handler);
 
         let scan_loop = BacklogScanLoop {
             ledger: self.ledger.clone(),
             stats: self.stats.clone(),
-            publish,
+            publish: Box::new(move |unconfirmed| {
+                unconfirmed_tx.try_send(unconfirmed);
+            }),
             limiter: Mutex::new(TokenBucket::new(self.config.rate_limit)),
             config: self.config.clone(),
             flags: self.flags.clone(),
@@ -152,9 +116,7 @@ impl BacklogScan {
         if let Some(handle) = handle {
             handle.join().unwrap()
         }
-        if let Some(handle) = self.queue_thread.lock().unwrap().take() {
-            handle.join().expect("unconfirmed thread should join");
-        }
+        self.event_processor.join();
     }
 
     /** Manually trigger backlog population */
@@ -170,7 +132,15 @@ impl BacklogScan {
 impl StatsSource for BacklogScan {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.stats.collect_stats(result);
-        self.queue_stats.collect_stats(result);
+        self.event_processor.collect_stats(result);
+    }
+}
+
+impl ContainerInfoProvider for BacklogScan {
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .node("ev_proc", self.event_processor.container_info())
+            .finish()
     }
 }
 
@@ -346,39 +316,6 @@ impl StatsSource for BacklogScanStats {
             "backlog_scan",
             "activated",
             self.activated.load(Ordering::Relaxed),
-        );
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct UnconfirmedQueueStats {
-    pub enqueued: AtomicU64,
-    pub enqueued_total: AtomicU64,
-    pub overfill: AtomicU64,
-    pub process_duration: AtomicU64,
-}
-
-impl StatsSource for UnconfirmedQueueStats {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert(
-            "unconfirmed_queue",
-            "enqueued",
-            self.enqueued.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "unconfirmed_queue",
-            "enqueued_total",
-            self.enqueued_total.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "unconfirmed_queue",
-            "overfill",
-            self.overfill.load(Ordering::Relaxed),
-        );
-        result.insert(
-            "unconfirmed_queue",
-            "dur_process",
-            self.process_duration.load(Ordering::Relaxed),
         );
     }
 }

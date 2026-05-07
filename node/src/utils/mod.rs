@@ -1,17 +1,18 @@
 mod backpressure_event_processor;
+pub(crate) mod event_processor;
 mod processing_queue;
 mod rate_calculator;
 
 use std::{net::Ipv6Addr, sync::LazyLock};
 
 use blake2::{
-    Blake2bVar,
     digest::{Update, VariableOutput},
+    Blake2bVar,
 };
 use rand::Rng;
 
 pub(crate) use backpressure_event_processor::{
-    BackpressureEventProcessor, spawn_backpressure_processor,
+    spawn_backpressure_processor, BackpressureEventProcessor,
 };
 pub use processing_queue::*;
 pub use rate_calculator::RateCalculator;
