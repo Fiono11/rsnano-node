@@ -37,7 +37,7 @@ pub struct LmdbConfig {
 impl Default for LmdbConfig {
     fn default() -> Self {
         Self {
-            sync: SyncStrategy::Always,
+            sync: SyncStrategy::NosyncUnsafe,
             max_databases: 128,
             map_size: 256 * 1024 * 1024 * 1024,
             mem_init: false,
