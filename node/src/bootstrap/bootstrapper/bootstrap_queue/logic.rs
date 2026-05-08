@@ -607,7 +607,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO"]
     fn priority_cant_be_changed_if_account_isnt_enqueued() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
