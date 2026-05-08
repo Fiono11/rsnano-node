@@ -28,6 +28,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
+use crate::bootstrap::bootstrapper::bootstrap_queue::logic::TrimCount;
 use stats::BootstrapQueueStats;
 
 pub(crate) struct BootstrapQueue {
@@ -55,15 +56,19 @@ impl BootstrapQueue {
     }
 
     pub fn insert(&self, account: Account) {
-        let prio_result;
-        let trim_count;
+        let inserted;
+        let mut trim_count = TrimCount::default();
         {
             let mut logic = self.logic.lock().unwrap();
-            prio_result = logic.priority_up_to(&account, Priority::INITIAL);
-            trim_count = logic.trim_overflow();
+            inserted = logic.insert(account, Priority::INITIAL);
+            if inserted {
+                trim_count = logic.trim_overflow();
+            }
         }
-        self.stats.add_prio_set_result(&prio_result);
-        self.stats.add_trim_count(&trim_count);
+        if inserted {
+            self.stats.inserted.fetch_add(1, Relaxed);
+            self.stats.add_trim_count(&trim_count);
+        }
     }
 
     pub fn priority_up(&self, account: &Account) {
