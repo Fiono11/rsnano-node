@@ -361,6 +361,9 @@ impl Bootstrapper {
 
     fn inspect_blocks(&self, batch: &[ProcessResult]) {
         self.block_inspector.inspect(batch);
+
+        // TODO don't use this hack to wake up the requester
+        self.stopped.notify_all();
     }
 
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
