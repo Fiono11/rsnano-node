@@ -122,16 +122,6 @@ impl BootstrapQueueLogic {
         result
     }
 
-    pub fn priority_up_to(
-        &mut self,
-        account: &Account,
-        new_priority: Priority,
-    ) -> PriorityUpResult {
-        let result = self.priorities.priority_up_to(account, new_priority);
-        self.handle_priority_up_result(account, &result);
-        result
-    }
-
     fn handle_priority_up_result(&mut self, account: &Account, result: &PriorityUpResult) {
         match result {
             PriorityUpResult::Inserted(priority) => {
@@ -226,19 +216,19 @@ impl BootstrapQueueLogic {
         &mut self,
         dependency: &BlockHash,
         dependency_account: Account,
-    ) -> (usize, PriorityUpResult) {
+    ) -> (usize, bool) {
         let updated = self
             .blocked
             .modify_dependency_account(dependency, dependency_account)
             .len();
 
-        let prio_result = if updated > 0 && !self.queue_full() {
-            self.priority_up(&dependency_account)
+        let dep_inserted = if updated > 0 && !self.queue_full() {
+            self.insert(dependency_account, Priority::INITIAL)
         } else {
-            PriorityUpResult::Unchanged
+            false
         };
 
-        (updated, prio_result)
+        (updated, dep_inserted)
     }
 
     /// Erase the oldest entries
@@ -616,6 +606,16 @@ mod tests {
         assert_eq!(queue.priority(&Account::from(1)), Priority::ZERO);
     }
 
+    #[test]
+    #[ignore = "TODO"]
+    fn priority_cant_be_changed_if_account_isnt_enqueued() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.priority_up(&account);
+        assert!(!queue.contains(&account));
+        assert_eq!(queue.priority(&account), Priority::ZERO);
+    }
+
     /*
      * Increasing priority
      */
@@ -625,6 +625,7 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
 
+        queue.insert(account, Priority::INITIAL);
         for _ in 0..100 {
             queue.priority_up(&account);
         }
