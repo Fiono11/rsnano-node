@@ -30,4 +30,7 @@ pub(crate) fn view_ledger_stats(ui: &mut Ui, stats: &LedgerStats) {
     ui.add_space(10.0);
     ui.label("confirmed:");
     ui.label(formatted_number(stats.confirmed_blocks));
+    ui.add_space(10.0);
+    ui.label("accounts:");
+    ui.label(formatted_number(stats.accounts));
 }

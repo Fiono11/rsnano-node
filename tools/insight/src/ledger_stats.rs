@@ -3,6 +3,7 @@ use rsnano_node::Node;
 pub(crate) struct LedgerStats {
     pub total_blocks: u64,
     pub confirmed_blocks: u64,
+    pub accounts: u64,
     pub bps: i64,
     pub cps: i64,
 }
@@ -12,6 +13,7 @@ impl LedgerStats {
         Self {
             total_blocks: 0,
             confirmed_blocks: 0,
+            accounts: 0,
             bps: 0,
             cps: 0,
         }
@@ -20,6 +22,7 @@ impl LedgerStats {
     pub(crate) fn update(&mut self, node: &Node) {
         self.total_blocks = node.ledger.block_count();
         self.confirmed_blocks = node.ledger.confirmed_count();
+        self.accounts = node.ledger.account_count();
         self.bps = node.block_rates.bps();
         self.cps = node.block_rates.cps();
     }
