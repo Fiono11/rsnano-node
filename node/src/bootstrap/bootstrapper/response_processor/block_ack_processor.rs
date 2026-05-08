@@ -41,7 +41,7 @@ impl BlockAckProcessor {
             }
             VerifyResult::Invalid => {
                 self.bootstrap_queue
-                    .download_finished(&query.account, VecDeque::new());
+                    .download_finished(&query.account, VecDeque::new(), true);
                 self.stats.invalid.fetch_add(1, Relaxed);
                 false
             }
@@ -55,6 +55,7 @@ impl BlockAckProcessor {
             .fetch_add(response.blocks().len() as u64, Relaxed);
 
         let mut blocks = response.take_blocks();
+        let should_cool_down = blocks.len() < query.count;
 
         if query.query_type == QueryType::BlocksByHash {
             // Avoid re-processing the block we already have
@@ -62,14 +63,13 @@ impl BlockAckProcessor {
         }
 
         self.bootstrap_queue
-            .download_finished(&query.account, blocks);
+            .download_finished(&query.account, blocks, should_cool_down);
     }
 
     fn process_empty_response(&self, query: &RunningQuery) {
         self.stats.nothing_new.fetch_add(1, Relaxed);
         self.bootstrap_queue
-            .download_finished(&query.account, VecDeque::new());
-        self.bootstrap_queue.priority_down(&query.account);
+            .download_finished(&query.account, VecDeque::new(), true);
     }
 }
 

@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
+    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
-    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -91,7 +91,7 @@ pub(crate) struct BootstrapQueueLogic {
 }
 
 impl BootstrapQueueLogic {
-    pub const MAX_FAILS: usize = 3;
+    pub const MAX_FAILS: usize = 2;
 
     pub fn new(config: BootstrapQueueConfig) -> Self {
         Self {
@@ -127,16 +127,10 @@ impl BootstrapQueueLogic {
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
-        let mut result = self.priorities.priority_down(account);
+        let result = self.priorities.priority_down(account);
         match result {
             PriorityDownResult::Deprioritized(_, new_prio) => {
-                let fails = self.get_fails(account);
-                if fails as f64 > new_prio.as_f64() {
-                    self.remove(account);
-                    result = PriorityDownResult::Removed;
-                } else {
-                    self.download_queue.change_priority(account, new_prio);
-                }
+                self.download_queue.change_priority(account, new_prio);
             }
             PriorityDownResult::Removed => {
                 self.remove(account);
@@ -146,10 +140,6 @@ impl BootstrapQueueLogic {
 
         self.revision += 1;
         result
-    }
-
-    fn get_fails(&self, account: &Account) -> usize {
-        self.fails.get(account).copied().unwrap_or(0)
     }
 
     pub fn remove(&mut self, account: &Account) -> bool {
@@ -286,22 +276,38 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn download_finished(&mut self, account: &Account, blocks: VecDeque<Block>) -> bool {
+    pub fn download_finished(
+        &mut self,
+        account: &Account,
+        blocks: VecDeque<Block>,
+        should_cool_down: bool,
+    ) -> bool {
         if !self.downloading.remove(account) {
             return false;
         }
 
-        if blocks.is_empty() {
+        let fails = if should_cool_down {
             let fails = self.fails.entry(*account).or_default();
             *fails += 1;
-            if *fails >= Self::MAX_FAILS {
+            let fails = *fails;
+            if self.priority_down(account) == PriorityDownResult::Removed {
+                return true;
+            };
+            fails
+        } else {
+            self.fails.remove(account);
+            0
+        };
+
+        if blocks.is_empty() {
+            // try to reenqueue for download
+            if fails >= Self::MAX_FAILS {
                 self.remove(account);
             } else {
                 let priority = self.priorities.get(account).unwrap();
                 self.download_queue.insert(*account, priority);
             }
         } else {
-            self.fails.remove(account);
             self.block_processing.enqueue(*account, blocks);
         }
 
@@ -1000,7 +1006,7 @@ mod tests {
         .into();
         queue.insert(account, Priority::INITIAL);
         queue.download_started(&account, blocked_at);
-        queue.download_finished(&account, [receive].into());
+        queue.download_finished(&account, [receive].into(), false);
         let next = queue.take_next_block_for_processing().unwrap();
         queue.block(&next.hash(), dependency, blocked_at);
     }

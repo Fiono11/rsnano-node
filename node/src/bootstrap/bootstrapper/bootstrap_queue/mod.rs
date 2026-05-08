@@ -18,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{atomic::Ordering::Relaxed, Mutex},
+    sync::{Mutex, atomic::Ordering::Relaxed},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -81,11 +81,6 @@ impl BootstrapQueue {
         }
         self.stats.add_prio_set_result(&prio_result);
         self.stats.add_trim_count(&trim_count);
-    }
-
-    pub fn priority_down(&self, account: &Account) {
-        let result = self.logic.lock().unwrap().priority_down(account);
-        self.stats.add_prio_down_result(&result);
     }
 
     #[cfg(test)]
@@ -206,12 +201,17 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn download_finished(&self, account: &Account, blocks: VecDeque<Block>) {
-        let finished = self
-            .logic
-            .lock()
-            .unwrap()
-            .download_finished(account, blocks);
+    pub fn download_finished(
+        &self,
+        account: &Account,
+        blocks: VecDeque<Block>,
+        should_cool_down: bool,
+    ) {
+        let finished =
+            self.logic
+                .lock()
+                .unwrap()
+                .download_finished(account, blocks, should_cool_down);
         if finished {
             self.stats.download_finished.fetch_add(1, Relaxed);
         } else {

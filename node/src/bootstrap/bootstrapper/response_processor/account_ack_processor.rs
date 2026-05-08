@@ -64,7 +64,6 @@ impl StatsSource for AccountAckStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrap::bootstrapper::Priority;
     use rsnano_types::{Account, Block, BlockHash, PrivateKey, StateBlockArgs};
 
     #[test]
@@ -111,7 +110,7 @@ mod tests {
 
         queue.insert(blocked_account);
         queue.download_started(&blocked_account);
-        queue.download_finished(&blocked_account, [receive].into());
+        queue.download_finished(&blocked_account, [receive].into(), false);
         let next = queue.take_next_block_for_processing().unwrap();
 
         queue.block(&next.hash(), unknown_source);

@@ -194,12 +194,12 @@ impl BlockedAccounts {
         removed
     }
 
-    pub fn unblock(&mut self, dependency: &BlockHash) -> Vec<Account>{
+    pub fn unblock(&mut self, dependency: &BlockHash) -> Vec<Account> {
         let Some(accounts) = self.by_dependency.remove(dependency) else {
             return Vec::new();
         };
 
-        for account in &accounts{
+        for account in &accounts {
             self.remove(account);
         }
 
@@ -212,7 +212,7 @@ impl BlockedAccounts {
         };
         self.requested_dependencies.remove(&dep_block);
 
-        if let Some(dep_accounts) = self.by_dependency.get_mut(&dep_block){
+        if let Some(dep_accounts) = self.by_dependency.get_mut(&dep_block) {
             if dep_accounts.len() > 1 {
                 dep_accounts.retain(|i| i != account);
             } else {
@@ -221,7 +221,7 @@ impl BlockedAccounts {
         }
 
         let dep_account = dep_account.unwrap_or_default();
-        if let Some(dep_accounts) = self.by_dependency_account.get_mut(&dep_account){
+        if let Some(dep_accounts) = self.by_dependency_account.get_mut(&dep_account) {
             if dep_accounts.len() > 1 {
                 dep_accounts.remove(account);
             } else {
