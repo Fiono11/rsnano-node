@@ -28,9 +28,9 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -280,12 +280,16 @@ impl Bootstrapper {
 
     pub fn enqueue(&self, account: Account) {
         self.bootstrap_queue.insert(account);
+        // TODO don't use this hack to wake up the requester
+        self.stopped.notify_all();
     }
 
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         for account in accounts {
             self.bootstrap_queue.insert(account);
         }
+        // TODO don't use this hack to wake up the requester
+        self.stopped.notify_all();
     }
 
     pub fn clear_blocked_accounts(&self) {
@@ -350,6 +354,9 @@ impl Bootstrapper {
                 }
             }
         }
+
+        // TODO don't use this hack to wake up the requester
+        self.stopped.notify_all();
     }
 
     fn inspect_blocks(&self, batch: &[ProcessResult]) {

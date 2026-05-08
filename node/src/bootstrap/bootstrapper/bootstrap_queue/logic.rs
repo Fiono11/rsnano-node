@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
-    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
+    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -206,6 +206,7 @@ impl BootstrapQueueLogic {
 
     pub fn dependency_account_not_found(&mut self, dependency: &BlockHash) {
         self.blocked.dependency_account_not_found(dependency);
+        self.revision += 1;
     }
 
     /// Sets information about the account chain that contains the block hash.
@@ -225,6 +226,7 @@ impl BootstrapQueueLogic {
         } else {
             false
         };
+        self.revision += 1;
 
         (updated, dep_inserted)
     }
