@@ -37,6 +37,14 @@ pub(super) struct AccountPriorityTracker {
 }
 
 impl AccountPriorityTracker {
+    pub fn insert(&mut self, account: Account, priority: Priority) -> bool {
+        if account.is_zero() || self.priorities.contains_key(&account) {
+            return false;
+        }
+        self.priorities.insert(account, priority);
+        true
+    }
+
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         if account.is_zero() {
             return PriorityUpResult::InvalidAccount;

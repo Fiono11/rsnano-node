@@ -42,10 +42,7 @@ impl<'a> FrontierWorker<'a> {
         self.stats2.add(&outdated);
 
         for account in &outdated.accounts {
-            // Use lowest possible priority here, because an account found by the frontier scan is
-            // probably not an account that need immediate bootstrapping
-            self.bootstrap_queue
-                .priority_up_to(account, Priority::CUTOFF);
+            self.bootstrap_queue.insert(*account);
         }
     }
 
@@ -116,7 +113,7 @@ mod tests {
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 
         assert_eq!(bootstrap_queue.info().download_queue, 1);
-        assert_eq!(bootstrap_queue.priority(&account), Priority::CUTOFF);
+        assert_eq!(bootstrap_queue.priority(&account), Priority::INITIAL);
         assert_eq!(stats2.outdated_accounts_found.load(Relaxed), 1);
         assert_eq!(stats2.processed_frontiers.load(Relaxed), 1);
     }

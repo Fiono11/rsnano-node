@@ -54,12 +54,12 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn priority_up_to(&self, account: &Account, new_priority: Priority) {
+    pub fn insert(&self, account: Account) {
         let prio_result;
         let trim_count;
         {
             let mut logic = self.logic.lock().unwrap();
-            prio_result = logic.priority_up_to(account, new_priority);
+            prio_result = logic.priority_up_to(&account, Priority::INITIAL);
             trim_count = logic.trim_overflow();
         }
         self.stats.add_prio_set_result(&prio_result);

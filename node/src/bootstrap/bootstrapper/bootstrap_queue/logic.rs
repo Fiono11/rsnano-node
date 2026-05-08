@@ -106,6 +106,15 @@ impl BootstrapQueueLogic {
         }
     }
 
+    pub fn insert(&mut self, account: Account, priority: Priority) -> bool {
+        if self.priorities.insert(account, priority) {
+            self.download_queue.insert(account, priority);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         let result = self.priorities.priority_up(account);
         self.handle_priority_up_result(account, &result);
@@ -353,7 +362,7 @@ impl BootstrapQueueLogic {
             if self.queue_full() {
                 break;
             }
-            self.priority_up_to(&account, Priority::INITIAL);
+            self.insert(account, Priority::INITIAL);
             inserted += 1;
         }
 
@@ -579,21 +588,23 @@ mod tests {
         let account = Account::from(1);
         let prio = Priority::new(10.0);
 
-        queue.priority_up_to(&account, prio);
+        queue.insert(account, prio);
 
         assert!(queue.contains(&account));
         assert_eq!(queue.priority(&account), prio);
     }
 
     #[test]
-    fn priority_set_fails_for_blocked_account() {
+    fn priority_can_be_changed_for_blocked_account() {
         let mut queue = BootstrapQueueLogic::default();
         let account_key = PrivateKey::from(42);
         let account = account_key.account();
         let dependency = BlockHash::from(2);
         make_blocked_account(&mut queue, &account_key, dependency);
-        queue.priority_up_to(&account, Priority::new(42.0));
+        let old_prio = queue.priority(&account);
+        queue.priority_up(&account);
 
+        assert_eq!(queue.priority(&account), old_prio.increase());
         assert_eq!(queue.info().blocked, 1);
         assert_eq!(queue.info().download_queue, 0);
     }
@@ -995,7 +1006,7 @@ mod tests {
             ..StateBlockArgs::new_test_instance()
         }
         .into();
-        queue.priority_up_to(&account, Priority::INITIAL);
+        queue.insert(account, Priority::INITIAL);
         queue.download_started(&account, blocked_at);
         queue.download_finished(&account, [receive].into());
         let next = queue.take_next_block_for_processing().unwrap();

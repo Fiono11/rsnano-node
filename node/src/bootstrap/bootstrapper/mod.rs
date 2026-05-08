@@ -279,14 +279,12 @@ impl Bootstrapper {
     }
 
     pub fn enqueue(&self, account: Account) {
-        self.bootstrap_queue
-            .priority_up_to(&account, Priority::INITIAL);
+        self.bootstrap_queue.insert(account);
     }
 
     pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         for account in accounts {
-            self.bootstrap_queue
-                .priority_up_to(&account, Priority::INITIAL);
+            self.bootstrap_queue.insert(account);
         }
     }
 

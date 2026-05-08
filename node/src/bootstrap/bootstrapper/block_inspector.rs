@@ -73,6 +73,7 @@ impl BlockInspector {
                 let account = saved_block.account();
                 // If we've inserted any block in to an account, unmark it as blocked
                 // TODO: do this inside processing_finished
+                // TODO only unblock if correct send hash processed
                 self.bootstrap_queue.unblock(account);
 
                 // Progress blocks from live traffic don't need further bootstrapping
@@ -84,9 +85,9 @@ impl BlockInspector {
                 if let Some(destination) = saved_block.destination()
                     && !destination.is_zero()
                 {
+                    // TODO only unblock if correct send hash processed
                     self.bootstrap_queue.unblock(destination);
-                    self.bootstrap_queue
-                        .priority_up_to(&destination, Priority::INITIAL);
+                    self.bootstrap_queue.insert(destination);
                 }
             }
             Err(error) => {
@@ -124,8 +125,7 @@ impl BlockInspector {
                         {
                             let dep_account = result.block.account_field().unwrap();
                             if !dep_account.is_zero() {
-                                self.bootstrap_queue
-                                    .priority_up_to(&dep_account, Priority::INITIAL);
+                                self.bootstrap_queue.insert(dep_account);
                             }
                         }
                     }

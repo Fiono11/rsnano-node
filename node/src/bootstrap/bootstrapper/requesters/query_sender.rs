@@ -138,7 +138,7 @@ mod tests {
 
         let spec = AscPullQuerySpec::new_test_instance();
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
-        bootstrap_queue.priority_up(&spec.account);
+        bootstrap_queue.insert(spec.account);
 
         fixture.query_sender.send(spec.clone());
 

@@ -109,7 +109,7 @@ mod tests {
             ..AccountInfoAckPayload::new_test_instance()
         };
 
-        queue.priority_up_to(&blocked_account, Priority::INITIAL);
+        queue.insert(blocked_account);
         queue.download_started(&blocked_account);
         queue.download_finished(&blocked_account, [receive].into());
         let next = queue.take_next_block_for_processing().unwrap();
