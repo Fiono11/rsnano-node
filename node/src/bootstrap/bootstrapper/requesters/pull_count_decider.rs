@@ -18,7 +18,7 @@ impl PullCountDecider {
 
     pub fn pull_count(&self, priority: Priority) -> u8 {
         // Decide how many blocks to request
-        const MIN_PULL_COUNT: u8 = 2;
+        const MIN_PULL_COUNT: u8 = 4;
 
         let pull_count = clamp(
             f64::from(priority) as u8,
@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn min_count() {
-        assert_pull_count(Priority::ZERO, 2);
+        assert_pull_count(Priority::ZERO, 4);
     }
 
     #[test]
