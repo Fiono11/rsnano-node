@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use rustc_hash::FxHashMap;
 
 use rsnano_types::Account;
@@ -9,8 +7,6 @@ use crate::bootstrap::bootstrapper::Priority;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PriorityUpResult {
-    //TODO: delete
-    Inserted(Priority),
     Upgraded(Priority, Priority),
     Unchanged,
     NotFound,

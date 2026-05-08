@@ -28,9 +28,9 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::{
@@ -358,7 +358,7 @@ impl Bootstrapper {
 
     fn unblock_batch(&self, accounts: impl IntoIterator<Item = Account>) {
         for account in accounts {
-            self.bootstrap_queue.unblock(account);
+            self.bootstrap_queue.unblock_account(account);
         }
     }
 

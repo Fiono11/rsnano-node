@@ -34,7 +34,6 @@ pub(crate) struct BootstrapQueueStats {
 impl BootstrapQueueStats {
     pub fn add_prio_set_result(&self, result: &PriorityUpResult) {
         match result {
-            PriorityUpResult::Inserted(_) => self.inserted.fetch_add(1, Relaxed),
             PriorityUpResult::Upgraded(_, _) => self.upgraded.fetch_add(1, Relaxed),
             PriorityUpResult::Unchanged => 0,
             PriorityUpResult::NotFound => self.not_found.fetch_add(1, Relaxed),

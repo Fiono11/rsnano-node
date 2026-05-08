@@ -18,7 +18,7 @@ use logic::BootstrapQueueLogic;
 
 use std::{
     collections::VecDeque,
-    sync::{Mutex, atomic::Ordering::Relaxed},
+    sync::{atomic::Ordering::Relaxed, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -115,7 +115,21 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().blocked(account)
     }
 
-    pub fn unblock(&self, account: Account) {
+    pub fn unblock_hash(&self, dependency_hash: &BlockHash) {
+        let unblocked;
+        let trim_count;
+        {
+            let mut logic = self.logic.lock().unwrap();
+            unblocked = logic.unblock_hash(dependency_hash);
+            trim_count = logic.trim_overflow();
+        }
+        if unblocked {
+            self.stats.unblocked.fetch_add(1, Relaxed);
+        }
+        self.stats.add_trim_count(&trim_count);
+    }
+
+    pub fn unblock_account(&self, account: Account) {
         let unblocked;
         let trim_count;
         {

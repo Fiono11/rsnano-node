@@ -6,7 +6,7 @@ use rsnano_types::BlockType;
 
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
-    bootstrap::bootstrapper::{Priority, bootstrap_queue::BootstrapQueue},
+    bootstrap::bootstrapper::{bootstrap_queue::BootstrapQueue},
 };
 
 /// Inspects a processed block and adjusts the bootstrap state accordingly
@@ -71,10 +71,6 @@ impl BlockInspector {
                     .processing_finished(&saved_block.hash());
 
                 let account = saved_block.account();
-                // If we've inserted any block in to an account, unmark it as blocked
-                // TODO: do this inside processing_finished
-                // TODO only unblock if correct send hash processed
-                self.bootstrap_queue.unblock(account);
 
                 // Progress blocks from live traffic don't need further bootstrapping
                 if source == BlockSource::Bootstrap {
@@ -85,8 +81,7 @@ impl BlockInspector {
                 if let Some(destination) = saved_block.destination()
                     && !destination.is_zero()
                 {
-                    // TODO only unblock if correct send hash processed
-                    self.bootstrap_queue.unblock(destination);
+                    self.bootstrap_queue.unblock_hash(&hash);
                     self.bootstrap_queue.insert(destination);
                 }
             }

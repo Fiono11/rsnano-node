@@ -194,25 +194,39 @@ impl BlockedAccounts {
         removed
     }
 
+    pub fn unblock(&mut self, dependency: &BlockHash) -> Vec<Account>{
+        let Some(accounts) = self.by_dependency.remove(dependency) else {
+            return Vec::new();
+        };
+
+        for account in &accounts{
+            self.remove(account);
+        }
+
+        accounts
+    }
+
     pub fn remove(&mut self, account: &Account) -> bool {
         let Some((dep_block, dep_account, blocked_at)) = self.by_account.remove(account) else {
             return false;
         };
         self.requested_dependencies.remove(&dep_block);
 
-        let dep_accounts = self.by_dependency.get_mut(&dep_block).unwrap();
-        if dep_accounts.len() > 1 {
-            dep_accounts.retain(|i| i != account);
-        } else {
-            self.by_dependency.remove(&dep_block);
+        if let Some(dep_accounts) = self.by_dependency.get_mut(&dep_block){
+            if dep_accounts.len() > 1 {
+                dep_accounts.retain(|i| i != account);
+            } else {
+                self.by_dependency.remove(&dep_block);
+            }
         }
 
         let dep_account = dep_account.unwrap_or_default();
-        let dep_accounts = self.by_dependency_account.get_mut(&dep_account).unwrap();
-        if dep_accounts.len() > 1 {
-            dep_accounts.remove(account);
-        } else {
-            self.by_dependency_account.remove(&dep_account);
+        if let Some(dep_accounts) = self.by_dependency_account.get_mut(&dep_account){
+            if dep_accounts.len() > 1 {
+                dep_accounts.remove(account);
+            } else {
+                self.by_dependency_account.remove(&dep_account);
+            }
         }
 
         let removed = self.by_timestamp.remove(&(blocked_at, *account));

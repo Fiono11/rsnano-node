@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
-    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
+    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -118,22 +118,12 @@ impl BootstrapQueueLogic {
 
     pub fn priority_up(&mut self, account: &Account) -> PriorityUpResult {
         let result = self.priorities.priority_up(account);
-        self.handle_priority_up_result(account, &result);
-        result
-    }
-
-    fn handle_priority_up_result(&mut self, account: &Account, result: &PriorityUpResult) {
-        match result {
-            PriorityUpResult::Inserted(priority) => {
-                self.download_queue.insert(*account, *priority);
-            }
-            PriorityUpResult::Upgraded(_, new_prio) => {
-                self.download_queue.change_priority(account, *new_prio);
-            }
-            _ => {}
+        if let PriorityUpResult::Upgraded(_, new_prio) = result {
+            self.download_queue.change_priority(account, new_prio);
         }
 
         self.revision += 1;
+        result
     }
 
     pub fn priority_down(&mut self, account: &Account) -> PriorityDownResult {
@@ -186,6 +176,24 @@ impl BootstrapQueueLogic {
         } else {
             false
         }
+    }
+
+    pub fn unblock_hash(&mut self, dependency_hash: &BlockHash) -> bool {
+        let accounts = self.blocked.unblock(dependency_hash);
+        if accounts.is_empty() {
+            return false;
+        }
+
+        for account in accounts {
+            let first_hash = self.block_processing.resume(account);
+            if first_hash.is_none() {
+                let priority = self.priorities.get(&account).unwrap();
+                self.download_queue.insert(account, priority);
+            }
+        }
+
+        self.revision += 1;
+        true
     }
 
     pub fn unblock(&mut self, account: Account) -> bool {
@@ -734,18 +742,17 @@ mod tests {
         let account = key.account();
         make_blocked_account(&mut queue, &key, dependency);
 
-        assert!(queue.unblock(account));
+        assert!(queue.unblock_hash(&dependency));
 
         assert_eq!(queue.blocked(&account), false);
         assert_eq!(queue.info().ready_to_process, 1);
     }
 
     #[test]
-    fn unblock_unknown_account() {
+    fn unblock_unknown_dependency() {
         let mut queue = BootstrapQueueLogic::default();
-        let account = Account::from(1);
-        assert!(!queue.unblock(account));
-        assert!(!queue.contains(&account));
+        let dependency = BlockHash::from(1);
+        assert!(!queue.unblock_hash(&dependency));
     }
 
     #[test]
@@ -757,7 +764,7 @@ mod tests {
         queue.insert(key.account(), priority);
         make_blocked_account(&mut queue, &key, hash);
 
-        queue.unblock(key.account());
+        queue.unblock_hash(&hash);
 
         assert_eq!(queue.priority(&key.account()), priority);
     }
