@@ -8,7 +8,6 @@ use rsnano_network::Network;
 use rsnano_utils::stats::Stats;
 
 use crate::{
-    block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
@@ -41,7 +40,6 @@ impl RequesterLoop {
         stats2: Arc<BootstrapRequesterStats>,
         network: Arc<RwLock<Network>>,
         ledger: Arc<Ledger>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         frontier_scan: Arc<FrontierScan>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
@@ -58,7 +56,6 @@ impl RequesterLoop {
                 stats2,
                 network,
                 ledger,
-                block_processor_queue,
                 bootstrap_queue.clone(),
                 frontier_scan,
                 query_tracker,

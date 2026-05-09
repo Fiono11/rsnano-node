@@ -2,21 +2,18 @@ use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
 use rand::RngCore;
 
-use rsnano_ledger::{AnySet, BlockSource, ConfirmedSet, Ledger, LedgerSet};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
 
-use crate::{
-    block_processing::BlockProcessorQueue,
-    bootstrap::bootstrapper::{
-        AscPullQuerySpec, BootstrapConfig,
-        bootstrap_queue::BootstrapQueue,
-        frontier_scan::FrontierScan,
-        query_tracker::QueryTracker,
-        requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
-    },
+use crate::bootstrap::bootstrapper::{
+    AscPullQuerySpec, BootstrapConfig,
+    bootstrap_queue::BootstrapQueue,
+    frontier_scan::FrontierScan,
+    query_tracker::QueryTracker,
+    requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
 };
 
 pub(crate) struct QueryFactory {
@@ -24,7 +21,6 @@ pub(crate) struct QueryFactory {
     stats: Arc<BootstrapRequesterStats>,
     network: Arc<RwLock<Network>>,
     request_limiter: TokenBucket,
-    block_processor_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
     query_tracker: Arc<QueryTracker>,
     rng_factory: NullableRngFactory,
@@ -41,7 +37,6 @@ impl QueryFactory {
         stats: Arc<BootstrapRequesterStats>,
         network: Arc<RwLock<Network>>,
         ledger: Arc<Ledger>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         frontier_scan: Arc<FrontierScan>,
         query_tracker: Arc<QueryTracker>,
@@ -53,7 +48,6 @@ impl QueryFactory {
             stats,
             network,
             request_limiter: limiter,
-            block_processor_queue,
             bootstrap_queue,
             query_tracker,
             rng_factory: NullableRngFactory::default(),
@@ -90,11 +84,6 @@ impl QueryFactory {
             self.stats.rate_limit.fetch_add(1, Relaxed);
             return None;
         }
-        if !self.block_processor_free() {
-            self.stats.wait_block_processor.fetch_add(1, Relaxed);
-            return None;
-        }
-        let query_id = self.rng_factory.rng().next_u64();
         let Some((next_account, next_prio)) = self.bootstrap_queue.next_download_target() else {
             self.stats.wait_next_download.fetch_add(1, Relaxed);
             return None;
@@ -111,6 +100,7 @@ impl QueryFactory {
 
         let channel = self.acquire_channel()?;
         let channel_id = channel.channel_id();
+        let query_id = self.rng_factory.rng().next_u64();
         let query = AscPullQuerySpec {
             query_id,
             channel: channel,
@@ -139,11 +129,11 @@ impl QueryFactory {
 
         let channel = self.acquire_channel()?;
         let channel_id = channel.channel_id();
-        let query_id = self.rng_factory.rng().next_u64();
         let Some(next_hash) = self.bootstrap_queue.next_unknown_blocking_hash() else {
             self.stats.wait_dependency_missing.fetch_add(1, Relaxed);
             return None;
         };
+        let query_id = self.rng_factory.rng().next_u64();
         let spec = AscPullQuerySpec {
             query_id,
             channel: channel.clone(),
@@ -200,11 +190,6 @@ impl QueryFactory {
             self.stats.no_channel.fetch_add(1, Relaxed);
         }
         channel
-    }
-
-    fn block_processor_free(&self) -> bool {
-        self.block_processor_queue.queue_len(BlockSource::Bootstrap)
-            < self.config.block_processor_threshold
     }
 
     fn create_frontier_query_spec(

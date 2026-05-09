@@ -7,12 +7,12 @@ use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
+    Priority, PriorityDownResult, PriorityUpResult,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
-    Priority, PriorityDownResult, PriorityUpResult,
 };
 
 #[derive(Default)]
@@ -48,6 +48,7 @@ pub struct BootstrappingAccountInfo {
 pub struct BootstrapQueueConfig {
     pub max_unblocked_accounts: usize,
     pub max_blocked_accounts: usize,
+    pub max_ready_to_process: usize,
 
     /// A blocked account is removed if it has been blocked for blocked_decay
     pub blocked_decay: Duration,
@@ -63,6 +64,7 @@ impl Default for BootstrapQueueConfig {
         Self {
             max_unblocked_accounts: 256 * 1024,
             max_blocked_accounts: 256 * 1024,
+            max_ready_to_process: 8 * 1024,
             blocked_decay: Duration::from_hours(1),
             account_cooldown: Duration::from_secs(3),
         }
@@ -259,6 +261,9 @@ impl BootstrapQueueLogic {
     }
 
     pub fn next_download_target(&self) -> Option<(Account, Priority)> {
+        if self.block_processing.ready_to_process_len() > self.config.max_ready_to_process {
+            return None;
+        }
         self.download_queue.iter().next().map(|(p, a)| (*a, p))
     }
 

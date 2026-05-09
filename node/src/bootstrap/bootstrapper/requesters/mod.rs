@@ -18,7 +18,6 @@ use rsnano_network::Network;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
 use crate::{
-    block_processing::BlockProcessorQueue,
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
@@ -38,7 +37,6 @@ pub(crate) struct Requesters {
     query_tracker: Arc<QueryTracker>,
     thread: Mutex<Option<JoinHandle<()>>>,
     ledger: Arc<Ledger>,
-    block_processor_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
@@ -53,7 +51,6 @@ impl Requesters {
         message_sender: MessageSender,
         query_tracker: Arc<QueryTracker>,
         ledger: Arc<Ledger>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
         bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
         frontier_scan: Arc<FrontierScan>,
@@ -64,7 +61,6 @@ impl Requesters {
             message_sender,
             query_tracker,
             ledger,
-            block_processor_queue,
             bootstrap_queue,
             network,
             thread: Mutex::new(None),
@@ -89,7 +85,6 @@ impl Requesters {
             requester_stats,
             self.network.clone(),
             self.ledger.clone(),
-            self.block_processor_queue.clone(),
             self.bootstrap_queue.clone(),
             self.frontier_scan.clone(),
             self.stopped.clone(),

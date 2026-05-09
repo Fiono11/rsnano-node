@@ -28,9 +28,9 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::{
@@ -99,7 +99,6 @@ pub struct BootstrapConfig {
     pub request_timeout: Duration,
     pub throttle_coefficient: usize,
     pub throttle_wait: Duration,
-    pub block_processor_threshold: usize,
     /** Minimum accepted protocol version used when bootstrapping */
     pub min_protocol_version: u8,
     pub max_requests: usize,
@@ -124,7 +123,6 @@ impl Default for BootstrapConfig {
             request_timeout: Duration::from_secs(15),
             throttle_coefficient: 8 * 1024,
             throttle_wait: Duration::from_millis(100),
-            block_processor_threshold: 1024 * 8,
             min_protocol_version: 0x14, // TODO don't hard code
             max_requests: 1024,
             optimistic_request_percentage: 75,
@@ -231,7 +229,7 @@ impl Bootstrapper {
         let block_inspector = BlockInspector::new(
             bootstrap_queue.clone(),
             ledger.clone(),
-            block_processor_queue.clone(),
+            block_processor_queue,
         );
 
         let requesters = Requesters::new(
@@ -240,7 +238,6 @@ impl Bootstrapper {
             message_sender.clone(),
             query_tracker.clone(),
             ledger.clone(),
-            block_processor_queue,
             bootstrap_queue.clone(),
             network,
             frontier_scan.clone(),
