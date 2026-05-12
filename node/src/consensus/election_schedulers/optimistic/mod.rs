@@ -13,6 +13,7 @@ use rsnano_utils::{
 };
 
 use crate::{
+    block_processing::backlog_scan::UnconfirmedInfo,
     cementation::ConfirmingSet,
     consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
 };
@@ -69,6 +70,16 @@ impl OptimisticScheduler {
     /// Notify about changes in AEC vacancy
     pub fn notify(&self) {
         self.logic.notify_all();
+    }
+
+    pub fn activate_batch(&self, unconfirmed: &[UnconfirmedInfo]) {
+        for info in unconfirmed {
+            self.activate(
+                &info.account,
+                info.account_info.block_count,
+                info.conf_info.height,
+            );
+        }
     }
 
     /// Called from backlog population to process accounts with unconfirmed blocks

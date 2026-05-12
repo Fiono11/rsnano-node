@@ -95,6 +95,7 @@ impl ElectionSchedulers {
             config.priority_bucket.clone(),
             stats.clone(),
             active_elections.clone(),
+            ledger.clone(),
             clock,
         ));
 
@@ -262,15 +263,7 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
 
 impl EventHandler<Vec<UnconfirmedInfo>> for ElectionSchedulers {
     fn handle(&self, unconfirmed: &Vec<UnconfirmedInfo>) {
-        let any = self.ledger.any();
-        for info in unconfirmed {
-            self.optimistic.activate(
-                &info.account,
-                info.account_info.block_count,
-                info.conf_info.height,
-            );
-            self.priority
-                .activate_with_info(&any, &info.account_info, &info.conf_info);
-        }
+        self.optimistic.activate_batch(unconfirmed);
+        self.priority.activate_batch(unconfirmed);
     }
 }

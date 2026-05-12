@@ -3,7 +3,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{AnySet, ConfirmedSet};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo};
@@ -13,10 +13,13 @@ use rsnano_utils::{
 };
 
 use super::{PriorityBucketConfig, prio_bucket_count};
-use crate::consensus::{
-    AecService,
-    election_schedulers::priority::{
-        BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
+use crate::{
+    block_processing::backlog_scan::UnconfirmedInfo,
+    consensus::{
+        AecService,
+        election_schedulers::priority::{
+            BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
+        },
     },
 };
 
@@ -28,6 +31,7 @@ pub struct PriorityScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
+    ledger: Arc<Ledger>,
     activate_listener: OutputListenerMt<Account>,
 }
 
@@ -36,6 +40,7 @@ impl PriorityScheduler {
         config: PriorityBucketConfig,
         stats: Arc<Stats>,
         active_elections: Arc<AecService>,
+        ledger: Arc<Ledger>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let buckets = PriorityBuckets::new(prio_bucket_count(), config);
@@ -46,6 +51,7 @@ impl PriorityScheduler {
             condition: Condvar::new(),
             buckets: Mutex::new(buckets),
             stats,
+            ledger,
             clock,
             aec: active_elections,
             activate_listener: Default::default(),
@@ -89,6 +95,13 @@ impl PriorityScheduler {
 
         self.stats
             .inc(StatType::ElectionScheduler, DetailType::ActivateSkip);
+    }
+
+    pub fn activate_batch(&self, unconfirmed: &[UnconfirmedInfo]) {
+        let any = self.ledger.any();
+        for info in unconfirmed {
+            self.activate_with_info(&any, &info.account_info, &info.conf_info);
+        }
     }
 
     pub fn activate_with_info(
