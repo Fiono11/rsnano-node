@@ -34,7 +34,6 @@ pub struct BootstrapQueueInfo {
     pub unknown_dependencies: usize,
     pub unique_blocking_accounts: usize,
     pub cached_blocks: usize,
-    pub discarded_blocks: usize,
 }
 
 pub struct BootstrappingAccountInfo {
@@ -89,7 +88,6 @@ pub(crate) struct BootstrapQueueLogic {
     block_processing: BlockHandoffQueue,
     blocked: BlockedAccounts,
     revision: u64,
-    discarded_blocks: usize,
 }
 
 impl BootstrapQueueLogic {
@@ -105,7 +103,6 @@ impl BootstrapQueueLogic {
             downloading: Default::default(),
             block_processing: Default::default(),
             revision: 0,
-            discarded_blocks: 0,
         }
     }
 
@@ -135,7 +132,7 @@ impl BootstrapQueueLogic {
                 self.download_queue.change_priority(account, new_prio);
             }
             PriorityDownResult::Removed => {
-                self.remove(account);
+                self.dequeue(account);
             }
             _ => {}
         }
@@ -144,7 +141,9 @@ impl BootstrapQueueLogic {
         result
     }
 
-    pub fn remove(&mut self, account: &Account) -> bool {
+    /// Removes the account from all queues but the block processing queue, so that
+    /// the already downloaded blocks can still be processed
+    pub fn dequeue(&mut self, account: &Account) -> bool {
         let mut to_remove = VecDeque::new();
         to_remove.push_back(*account);
         while let Some(account) = to_remove.pop_front() {
@@ -153,8 +152,6 @@ impl BootstrapQueueLogic {
             self.download_queue.remove(&account);
             self.downloading.remove(&account);
             to_remove.extend(self.blocked.remove_account_and_dependents(&account));
-            let discarded = self.block_processing.remove(&account);
-            self.discarded_blocks += discarded;
         }
         self.revision += 1;
         true
@@ -242,13 +239,13 @@ impl BootstrapQueueLogic {
 
         while self.needs_trimming() {
             let account = self.download_queue.pop_lowest_prio().unwrap();
-            self.remove(&account);
+            self.dequeue(&account);
             trim_count.download_queue += 1;
         }
 
         while self.blocked.len() > self.config.max_blocked_accounts {
             let to_remove = *self.blocked.oldest().unwrap();
-            self.remove(&to_remove);
+            self.dequeue(&to_remove);
             trim_count.blocked += 1;
         }
 
@@ -311,7 +308,7 @@ impl BootstrapQueueLogic {
             // try to reenqueue for download
             if fails >= Self::MAX_FAILS {
                 // TODO stats
-                self.remove(account);
+                self.dequeue(account);
             } else {
                 let priority = self.priorities.get(account).unwrap();
                 self.download_queue.insert(*account, priority);
@@ -347,7 +344,7 @@ impl BootstrapQueueLogic {
         let Some(account) = self.block_processing.processing_failed(block_hash) else {
             return;
         };
-        self.remove(&account);
+        self.dequeue(&account);
     }
 
     pub fn next_unknown_blocking_hash(&self) -> Option<BlockHash> {
@@ -468,7 +465,6 @@ impl BootstrapQueueLogic {
             unknown_dependencies: self.blocked.len() - self.blocked.known_dependencies(),
             unique_blocking_accounts: self.blocked.unique_dependency_accounts(),
             cached_blocks: self.block_processing.cached_block_count(),
-            discarded_blocks: self.discarded_blocks,
         }
     }
 
@@ -512,7 +508,7 @@ impl BootstrapQueueLogic {
     pub fn clear_blocked_accounts(&mut self) {
         let to_remove: Vec<_> = self.blocked.iter_by_timestamp().copied().collect();
         for account in to_remove {
-            self.remove(&account);
+            self.dequeue(&account);
         }
         self.revision += 1;
     }
@@ -545,7 +541,7 @@ impl BootstrapQueueLogic {
         self.revision += 1;
         let removed = self.blocked.remove_older_than(cutoff);
         for account in &removed {
-            self.remove(account);
+            self.dequeue(account);
         }
         removed.len()
     }
@@ -795,7 +791,7 @@ mod tests {
         let account2 = Account::from(2);
         queue.insert(account1, Priority::INITIAL);
         queue.insert(account2, Priority::INITIAL);
-        let removed = queue.remove(&account1);
+        let removed = queue.dequeue(&account1);
         assert!(removed);
         assert!(!queue.contains(&account1));
         assert!(queue.contains(&account2));

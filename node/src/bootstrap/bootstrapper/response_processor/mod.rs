@@ -20,7 +20,7 @@ use crate::{
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
         frontier_scan::FrontierScan,
-        query_tracker::{ProcessError, ProcessInfo, RunningQuery},
+        query_tracker::{ProcessError, ProcessInfo, QueryType, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
         },
@@ -90,6 +90,11 @@ impl ResponseProcessor {
     ) -> Result<(), ProcessError> {
         let ok = match response.pull_type {
             AscPullAckType::Blocks(blocks) => {
+                tracing::error!(
+                    account = query.account.encode_account(),
+                    blocks = blocks.blocks().len(),
+                    "Got blocks response"
+                );
                 self.response_blocks.fetch_add(1, Relaxed);
                 self.block_ack_processor.process(query, blocks)
             }

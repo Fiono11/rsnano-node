@@ -55,7 +55,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn insert(&self, account: Account) {
+    pub fn insert(&self, account: Account) -> bool {
         let inserted;
         let mut trim_count = TrimCount::default();
         {
@@ -69,6 +69,7 @@ impl BootstrapQueue {
             self.stats.inserted.fetch_add(1, Relaxed);
             self.stats.add_trim_count(&trim_count);
         }
+        inserted
     }
 
     pub fn priority_up(&self, account: &Account) {

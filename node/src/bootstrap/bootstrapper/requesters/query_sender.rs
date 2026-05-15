@@ -76,7 +76,13 @@ impl QuerySender {
                 .try_send(&spec.channel, &message, TrafficType::BootstrapRequests);
 
         if sent {
-            trace!(query_id = id, ?query_type, ?channel_id, "Pull request sent");
+            trace!(
+                query_id = id,
+                ?query_type,
+                ?channel_id,
+                account = spec.account.encode_account(),
+                "Pull request sent"
+            );
             self.stats.inc(StatType::Bootstrap, DetailType::Request);
             self.stats
                 .inc(StatType::BootstrapRequest, query_type.into());

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rsnano_ledger::{AnySet, BlockError, BlockSource, Ledger, ProcessResult};
 use rsnano_network::ChannelId;
-use rsnano_types::BlockType;
+use rsnano_types::{BlockType, SavedBlock};
 
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
@@ -67,30 +67,17 @@ impl BlockInspector {
             Ok(()) => {
                 let source = result.source;
                 let saved_block = result.saved_block.as_ref().unwrap();
-                self.bootstrap_queue
-                    .processing_finished(&saved_block.hash());
-
-                let account = saved_block.account();
-
-                // Progress blocks from live traffic don't need further bootstrapping
-                if source == BlockSource::Bootstrap {
-                    // TODO: do this inside processing_finished
-                    self.bootstrap_queue.priority_up(&account);
-                }
-
-                if let Some(destination) = saved_block.destination()
-                    && !destination.is_zero()
-                {
-                    self.bootstrap_queue.unblock_hash(&hash);
-                    self.bootstrap_queue.insert(destination);
-                }
+                self.handle_processed_block(saved_block, source);
             }
             Err(error) => {
                 match error {
-                    BlockError::Old(_) => {
+                    BlockError::Old(existing_block) => {
                         // Can happen due to pull type "safe" which will redownload blocks that we
-                        // have already processed
-                        self.bootstrap_queue.processing_finished(&hash);
+                        // have already processed.
+                        // It can also happen due duplicate blocks in the block processor queue and
+                        // the parallel block processing can cause the old error before we see the
+                        // success case...
+                        self.handle_processed_block(existing_block, result.source);
                     }
                     BlockError::GapSource => {
                         let source = result.block.source_or_link();
@@ -135,6 +122,28 @@ impl BlockInspector {
                         // we should penalize the peer that sent them
                     }
                 }
+            }
+        }
+    }
+
+    fn handle_processed_block(&self, saved_block: &SavedBlock, source: BlockSource) {
+        self.bootstrap_queue
+            .processing_finished(&saved_block.hash());
+
+        let account = saved_block.account();
+
+        // Progress blocks from live traffic don't need further bootstrapping
+        if source == BlockSource::Bootstrap {
+            // TODO: do this inside processing_finished
+            self.bootstrap_queue.priority_up(&account);
+        }
+
+        if let Some(destination) = saved_block.destination()
+            && !destination.is_zero()
+        {
+            self.bootstrap_queue.unblock_hash(&saved_block.hash());
+            if matches!(source, BlockSource::Bootstrap | BlockSource::Unchecked) {
+                self.bootstrap_queue.insert(destination);
             }
         }
     }

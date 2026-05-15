@@ -28,6 +28,12 @@ impl<'a> ExplorerView<'a> {
             ui.heading(format!("Block {}", self.model.hash));
             ui.add_space(20.0);
             Grid::new("block_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Destination: ");
+                if ui.link(&self.model.destination).clicked() {
+                    self.app.search(&self.model.destination);
+                }
+                ui.end_row();
+
                 ui.label("Raw data: ");
                 ui.label(&self.model.block);
                 ui.end_row();
@@ -70,6 +76,7 @@ pub(crate) struct BlockViewModel {
     pub height: String,
     pub timestamp: String,
     pub subtype: &'static str,
+    pub destination: String,
 }
 
 impl BlockViewModel {
@@ -82,5 +89,9 @@ impl BlockViewModel {
         self.confirmed = block.confirmed.to_string();
         self.timestamp = block.block.timestamp().utc().to_string();
         self.subtype = block.block.subtype().as_str();
+        self.destination = match block.block.destination() {
+            Some(dest) => dest.encode_account(),
+            None => String::new(),
+        }
     }
 }
