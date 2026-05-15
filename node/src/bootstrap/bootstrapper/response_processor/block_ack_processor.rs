@@ -41,7 +41,7 @@ impl BlockAckProcessor {
             }
             VerifyResult::Invalid => {
                 self.bootstrap_queue
-                    .download_finished(&query.account, VecDeque::new(), true);
+                    .download_finished(&query.account, VecDeque::new(), false);
                 self.stats.invalid.fetch_add(1, Relaxed);
                 false
             }

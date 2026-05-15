@@ -297,9 +297,10 @@ impl BootstrapQueueLogic {
             let fails = self.fails.entry(*account).or_default();
             *fails += 1;
             let fails = *fails;
-            if self.priority_down(account) == PriorityDownResult::Removed {
+            // TODO stats
+            if blocks.is_empty() && self.priority_down(account) == PriorityDownResult::Removed {
                 return true;
-            };
+            }
             fails
         } else {
             self.fails.remove(account);
@@ -309,6 +310,7 @@ impl BootstrapQueueLogic {
         if blocks.is_empty() {
             // try to reenqueue for download
             if fails >= Self::MAX_FAILS {
+                // TODO stats
                 self.remove(account);
             } else {
                 let priority = self.priorities.get(account).unwrap();
