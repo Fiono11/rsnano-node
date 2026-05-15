@@ -2,8 +2,8 @@ mod account_ack_processor;
 mod block_ack_processor;
 
 use std::sync::{
-    Arc,
     atomic::{AtomicU64, Ordering::Relaxed},
+    Arc,
 };
 
 use tracing::trace;
@@ -90,11 +90,6 @@ impl ResponseProcessor {
     ) -> Result<(), ProcessError> {
         let ok = match response.pull_type {
             AscPullAckType::Blocks(blocks) => {
-                tracing::error!(
-                    account = query.account.encode_account(),
-                    blocks = blocks.blocks().len(),
-                    "Got blocks response"
-                );
                 self.response_blocks.fetch_add(1, Relaxed);
                 self.block_ack_processor.process(query, blocks)
             }
