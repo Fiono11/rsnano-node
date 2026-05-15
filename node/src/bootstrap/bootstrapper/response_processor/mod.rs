@@ -20,7 +20,7 @@ use crate::{
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
         frontier_scan::FrontierScan,
-        query_tracker::{ProcessError, ProcessInfo, QueryType, RunningQuery},
+        query_tracker::{ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
         },

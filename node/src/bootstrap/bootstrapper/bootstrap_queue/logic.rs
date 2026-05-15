@@ -296,12 +296,7 @@ impl BootstrapQueueLogic {
         let fails = if should_cool_down {
             let fails = self.fails.entry(*account).or_default();
             *fails += 1;
-            let fails = *fails;
-            // TODO stats
-            if blocks.is_empty() && self.priority_down(account) == PriorityDownResult::Removed {
-                return true;
-            }
-            fails
+            *fails
         } else {
             self.fails.remove(account);
             0

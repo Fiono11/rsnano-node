@@ -72,18 +72,6 @@ impl BootstrapQueue {
         inserted
     }
 
-    pub fn priority_up(&self, account: &Account) {
-        let prio_result;
-        let trim_count;
-        {
-            let mut logic = self.logic.lock().unwrap();
-            prio_result = logic.priority_up(account);
-            trim_count = logic.trim_overflow();
-        }
-        self.stats.add_prio_set_result(&prio_result);
-        self.stats.add_trim_count(&trim_count);
-    }
-
     #[cfg(test)]
     pub fn priority(&self, account: &Account) -> Priority {
         self.logic.lock().unwrap().priority(account)
@@ -208,15 +196,33 @@ impl BootstrapQueue {
         blocks: VecDeque<Block>,
         should_cool_down: bool,
     ) {
-        let finished =
-            self.logic
-                .lock()
-                .unwrap()
-                .download_finished(account, blocks, should_cool_down);
+        let finished;
+        let mut prio_up_result = None;
+        let mut prio_down_result = None;
+        {
+            let has_blocks = !blocks.is_empty();
+            let mut logic = self.logic.lock().unwrap();
+            finished = logic.download_finished(account, blocks, should_cool_down);
+            if finished {
+                if should_cool_down {
+                    prio_down_result = Some(logic.priority_down(account));
+                } else if has_blocks {
+                    prio_up_result = Some(logic.priority_up(account));
+                }
+            }
+        }
+
         if finished {
             self.stats.download_finished.fetch_add(1, Relaxed);
         } else {
             self.stats.download_finished_failed.fetch_add(1, Relaxed);
+        }
+
+        if let Some(result) = prio_up_result {
+            self.stats.add_prio_up_result(&result);
+        }
+        if let Some(result) = prio_down_result {
+            self.stats.add_prio_down_result(&result);
         }
     }
 
