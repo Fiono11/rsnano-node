@@ -59,7 +59,11 @@ impl FrontierHead {
         self.last_request_sent = now
     }
 
-    pub fn process(&mut self, response: &[Frontier]) -> bool {
+    pub fn process(&mut self, start: &Account, response: &[Frontier]) -> bool {
+        if *start != self.next {
+            // A late response, that should be ignored
+            return false;
+        }
         self.requests_completed += 1;
         self.insert_candidates(response);
         self.trim_candidates();

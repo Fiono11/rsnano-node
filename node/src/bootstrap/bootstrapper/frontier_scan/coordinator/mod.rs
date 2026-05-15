@@ -1,5 +1,4 @@
 mod frontier_head;
-mod frontier_scan;
 mod heads_container;
 
 use rsnano_nullable_clock::Timestamp;
@@ -18,7 +17,7 @@ pub struct FrontierScanCoordinator {
 
 impl FrontierScanCoordinator {
     pub fn new(config: FrontierScanConfig) -> Self {
-        assert!(!config.parallelism > 0);
+        assert!(config.parallelism > 0);
         Self {
             heads: HeadsContainer::with_heads(config),
         }
@@ -59,7 +58,7 @@ impl FrontierScanCoordinator {
 
         let mut done = false;
         self.heads.modify(range_start, |head| {
-            done = head.process(response);
+            done = head.process(&start, response);
         });
 
         done
@@ -157,6 +156,37 @@ mod tests {
 
         // Head should advance to next account and start subsequent scan from there
         assert_eq!(scan.next(now), Account::from(3));
+    }
+
+    #[test]
+    fn ignore_outdated_responses() {
+        let config = FrontierScanConfig {
+            parallelism: 1,
+            consideration_count: 3,
+            candidates: 5,
+            ..Default::default()
+        };
+        let mut scan = FrontierScanCoordinator::new(config);
+        let now = Timestamp::new_test_instance();
+
+        // Get initial account to scan
+        let start = scan.next(now);
+        assert_eq!(start, Account::from(1));
+
+        // Create response with some frontiers
+        let response = [
+            Frontier::new(Account::from(2), BlockHash::from(1)),
+            Frontier::new(Account::from(3), BlockHash::from(2)),
+        ];
+
+        scan.process(start, &response);
+        scan.process(start, &response);
+        scan.process(start, &response);
+
+        // This should be ignored, because the scan has already advanced
+        scan.process(start, &response);
+
+        assert_eq!(scan.total_requests_completed(), 0);
     }
 
     #[test]
@@ -307,14 +337,15 @@ mod tests {
         // Let the head advance
         let response = [Frontier::new(Account::from(2), BlockHash::from(1))];
         assert!(scan.process(start, &response));
-        assert_eq!(scan.next(now), Account::from(2));
+        let next = Account::from(2);
+        assert_eq!(scan.next(now), next);
 
         // However, after receiving enough empty responses, head should wrap around to the start
-        assert!(!scan.process(start, &[]));
-        assert!(!scan.process(start, &[]));
-        assert!(!scan.process(start, &[]));
+        assert!(!scan.process(next, &[]));
+        assert!(!scan.process(next, &[]));
+        assert!(!scan.process(next, &[]));
         assert_eq!(scan.next(now), Account::from(2));
-        assert!(scan.process(start, &[]));
+        assert!(scan.process(next, &[]));
         // Wraps around:
         assert_eq!(scan.next(now), Account::from(1));
     }

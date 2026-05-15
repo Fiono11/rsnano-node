@@ -51,8 +51,10 @@ impl FrontierScanLogic {
 
     pub fn process(&mut self, query: &RunningQuery, frontiers: Vec<Frontier>) -> VerifyResult {
         let result = verify_frontiers(query, &frontiers);
-        if result == VerifyResult::Ok {
+        if result != VerifyResult::Invalid {
             self.frontier_scan.process(query.start.into(), &frontiers);
+        }
+        if result == VerifyResult::Ok {
             self.received_frontiers.push_back(frontiers);
         };
 
