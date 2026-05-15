@@ -5,6 +5,10 @@ edition = "2024"
 
 [features]
 ledger_snapshots = []
+banano = [
+	"rsnano_types/banano",
+	"rsnano_messages/banano",
+]
 
 [dependencies]
 rsnano_types = { path = "../../types" }

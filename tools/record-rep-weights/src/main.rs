@@ -4,6 +4,7 @@ use std::{fmt::Write, str::FromStr};
 use clap::Parser;
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_messages::{RepresentativesArgs, RepresentativesResponse};
+use rsnano_types::currency_constants::CURRENCY_NAME;
 use rsnano_types::{Amount, NetworkType};
 
 const CUTOFF: u64 = 250_000;
@@ -88,7 +89,11 @@ fn write_file(network: NetworkType, rep_file: RepsFile) -> std::io::Result<()> {
     let output_path = output_path(network)?;
     std::fs::write(output_path.clone(), rep_file.content)?;
     println!("wrote {} rep weights", rep_file.rep_count);
-    println!("max supply {} nano", rep_file.supply_max.format_balance(0));
+    println!(
+        "max supply {} {}",
+        rep_file.supply_max.format_balance(0),
+        CURRENCY_NAME
+    );
     println!("weight file generated: {:?}", output_path);
     Ok(())
 }
@@ -110,6 +115,16 @@ fn output_path(network: NetworkType) -> std::io::Result<PathBuf> {
     path.pop();
     path.pop();
     path.push("node");
-    path.push(format!("rep_weights_{}.txt", network.as_str()));
+    path.push("rep_weights");
+    #[cfg(feature = "banano")]
+    {
+        path.push("Banano")
+    }
+    #[cfg(not(feature = "banano"))]
+    {
+        path.push("Nano")
+    }
+
+    path.push(format!("{}.txt", network.as_str()));
     Ok(path)
 }

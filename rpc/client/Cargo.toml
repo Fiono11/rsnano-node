@@ -3,6 +3,12 @@ name = "rsnano_rpc_client"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+banano = [
+	"rsnano_types/banano",
+	"rsnano_rpc_messages/banano",
+]
+
 [dependencies]
 rsnano_types = { path = "../../types" }
 rsnano_rpc_messages = { path = "../messages" }

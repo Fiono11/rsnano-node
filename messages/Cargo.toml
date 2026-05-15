@@ -6,6 +6,9 @@ edition = "2024"
 
 [features]
 ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
+banano = [
+	"rsnano_types/banano",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
