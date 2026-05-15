@@ -239,6 +239,7 @@ impl MainViewModel {
             unique_blocking_accounts: info.unique_blocking_accounts,
             unknown_dependencies: info.unknown_dependencies,
             cached_blocks: formatted_number(info.cached_blocks),
+            discarded_blocks: formatted_number(info.discarded_blocks),
             download_queue,
             downloading,
             blocked,

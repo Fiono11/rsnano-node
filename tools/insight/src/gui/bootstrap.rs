@@ -34,6 +34,9 @@ pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app
                         strip.cell(|ui| {
                             ui.label(format!("Cached blocks: {}", model.cached_blocks));
                         });
+                        strip.cell(|ui| {
+                            ui.label(format!("Discarded blocks: {}", model.discarded_blocks));
+                        });
                     });
             });
 
@@ -197,6 +200,7 @@ pub(crate) struct BootstrapViewModel {
     pub unique_blocking_accounts: usize,
     pub unknown_dependencies: usize,
     pub cached_blocks: String,
+    pub discarded_blocks: String,
     pub download_queue: Vec<AccountViewModel>,
     pub downloading: Vec<AccountViewModel>,
     pub blocked: Vec<AccountViewModel>,

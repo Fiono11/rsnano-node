@@ -2,8 +2,8 @@ mod account_ack_processor;
 mod block_ack_processor;
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering::Relaxed},
     Arc,
+    atomic::{AtomicU64, Ordering::Relaxed},
 };
 
 use tracing::trace;
