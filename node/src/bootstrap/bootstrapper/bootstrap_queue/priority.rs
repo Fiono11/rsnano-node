@@ -10,8 +10,8 @@ pub struct Priority(OrderedFloat<f64>);
 
 impl Priority {
     const MAX_PRIORITY: f64 = 128.0;
-    pub const INITIAL: Priority = Priority::new(2.0);
-    pub const INCREASE: Priority = Priority::new(2.0);
+    pub const INITIAL: Priority = Priority::new(1.0);
+    pub const INCREASE: Priority = Priority::new(8.0);
     pub const DIVIDE: f64 = 2.0;
     pub const MAX: Priority = Priority::new(Self::MAX_PRIORITY);
     pub const CUTOFF: Priority = Priority::new(0.15);
