@@ -90,6 +90,7 @@ pub struct BootstrapToml {
     pub optimistic_request_percentage: Option<u8>,
     pub account_sets: Option<AccountSetsToml>,
     pub frontier_scan: Option<FrontierScanToml>,
+    pub inspect_live_traffic: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -339,6 +340,9 @@ impl NodeConfig {
             if let Some(percent) = boot_toml.optimistic_request_percentage {
                 config.optimistic_request_percentage = percent;
             }
+            if let Some(inspect) = boot_toml.inspect_live_traffic {
+                config.inspect_live_traffic = inspect;
+            }
         }
         if let Some(toml) = &toml.bootstrap_server {
             self.bootstrap_server = toml.into();
@@ -578,6 +582,7 @@ impl From<&NodeConfig> for NodeToml {
                     config.bootstrap.bootstrap_queue.max_ready_to_process,
                 ),
                 max_requests: Some(config.bootstrap.max_requests),
+                inspect_live_traffic: Some(config.bootstrap.inspect_live_traffic),
                 optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
                 account_sets: Some(AccountSetsToml {
                     priorities_max: Some(config.bootstrap.bootstrap_queue.max_unblocked_accounts),
@@ -663,6 +668,7 @@ mod tests {
             throttle_wait: Some(105),
             request_timeout: Some(106),
             max_requests: Some(107),
+            inspect_live_traffic: Some(true),
             optimistic_request_percentage: Some(42),
             database_warmup_ratio: Some(108),
             account_sets: Some(sets_toml),

@@ -105,6 +105,7 @@ pub struct BootstrapConfig {
     pub optimistic_request_percentage: u8,
     pub bootstrap_queue: BootstrapQueueConfig,
     pub frontier_scan: FrontierScanConfig,
+    pub inspect_live_traffic: bool,
 }
 
 impl Default for BootstrapConfig {
@@ -128,6 +129,7 @@ impl Default for BootstrapConfig {
             optimistic_request_percentage: 75,
             bootstrap_queue: Default::default(),
             frontier_scan: Default::default(),
+            inspect_live_traffic: true,
         }
     }
 }
@@ -226,11 +228,13 @@ impl Bootstrapper {
             frontier_scan.clone(),
         );
 
-        let block_inspector = BlockInspector::new(
+        let mut block_inspector = BlockInspector::new(
             bootstrap_queue.clone(),
             ledger.clone(),
             block_processor_queue,
         );
+
+        block_inspector.inspect_live_traffic = config.inspect_live_traffic;
 
         let requesters = Requesters::new(
             config.clone(),

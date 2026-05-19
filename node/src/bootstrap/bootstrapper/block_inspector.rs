@@ -14,6 +14,7 @@ pub(super) struct BlockInspector {
     bootstrap_queue: Arc<BootstrapQueue>,
     ledger: Arc<Ledger>,
     block_processor_queue: Arc<BlockProcessorQueue>,
+    pub inspect_live_traffic: bool,
 }
 
 impl BlockInspector {
@@ -26,6 +27,7 @@ impl BlockInspector {
             bootstrap_queue,
             ledger,
             block_processor_queue,
+            inspect_live_traffic: true,
         }
     }
 
@@ -99,15 +101,17 @@ impl BlockInspector {
                     }
                     BlockError::GapPrevious => {
                         self.bootstrap_queue.processing_failed(&hash);
-                        // Prevent live traffic from evicting accounts from the priority list
-                        if result.source == BlockSource::Live
-                            && !self.bootstrap_queue.queue_half_full()
-                            && !self.bootstrap_queue.blocked_half_full()
-                            && result.block.block_type() == BlockType::State
-                        {
-                            let dep_account = result.block.account_field().unwrap();
-                            if !dep_account.is_zero() {
-                                self.bootstrap_queue.insert(dep_account);
+                        if self.inspect_live_traffic {
+                            // Prevent live traffic from evicting accounts from the priority list
+                            if result.source == BlockSource::Live
+                                && !self.bootstrap_queue.queue_half_full()
+                                && !self.bootstrap_queue.blocked_half_full()
+                                && result.block.block_type() == BlockType::State
+                            {
+                                let dep_account = result.block.account_field().unwrap();
+                                if !dep_account.is_zero() {
+                                    self.bootstrap_queue.insert(dep_account);
+                                }
                             }
                         }
                     }

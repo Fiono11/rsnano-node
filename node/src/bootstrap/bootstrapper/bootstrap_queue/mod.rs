@@ -30,6 +30,7 @@ use rsnano_utils::{
 
 use crate::bootstrap::bootstrapper::bootstrap_queue::logic::TrimCount;
 use stats::BootstrapQueueStats;
+use tracing::trace;
 
 pub(crate) struct BootstrapQueue {
     logic: Mutex<BootstrapQueueLogic>,
@@ -66,6 +67,7 @@ impl BootstrapQueue {
             }
         }
         if inserted {
+            trace!(account = account.encode_account(), "Account inserted");
             self.stats.inserted.fetch_add(1, Relaxed);
             self.stats.add_trim_count(&trim_count);
         }
@@ -87,6 +89,11 @@ impl BootstrapQueue {
             trim_count = logic.trim_overflow();
         }
         if blocked {
+            trace!(
+                block = block_hash.encode_hex(),
+                dependency = dependency.encode_hex(),
+                "Blocked"
+            );
             self.stats.blocked.fetch_add(1, Relaxed);
         } else {
             self.stats.block_failed.fetch_add(1, Relaxed);
@@ -108,6 +115,7 @@ impl BootstrapQueue {
             trim_count = logic.trim_overflow();
         }
         if unblocked {
+            trace!(dependency = dependency_hash.encode_hex(), "Unblocked");
             self.stats.unblocked.fetch_add(1, Relaxed);
         }
         self.stats.add_trim_count(&trim_count);
@@ -122,6 +130,7 @@ impl BootstrapQueue {
             trim_count = logic.trim_overflow();
         }
         if unblocked {
+            trace!(account = account.encode_account(), "Account unblocked");
             self.stats.unblocked.fetch_add(1, Relaxed);
         }
         self.stats.add_trim_count(&trim_count);
@@ -134,6 +143,10 @@ impl BootstrapQueue {
             .unwrap()
             .dependency_account_requested(dependency, now);
         self.stats.dependency_requested.fetch_add(1, Relaxed);
+        trace!(
+            dependency = dependency.encode_hex(),
+            "Dependency account requested"
+        );
     }
 
     pub fn dependency_account_not_found(&self, dependency: &BlockHash) {
@@ -141,6 +154,11 @@ impl BootstrapQueue {
             .lock()
             .unwrap()
             .dependency_account_not_found(dependency);
+
+        trace!(
+            dependency = dependency.encode_hex(),
+            "Dependency account not found"
+        );
     }
 
     /// Sets information about the account chain that contains the block hash
@@ -154,6 +172,11 @@ impl BootstrapQueue {
             if dep_inserted {
                 self.stats.inserted.fetch_add(1, Relaxed);
             }
+            trace!(
+                dependency = dependency.encode_hex(),
+                dependency_account = dependency_account.encode_account(),
+                "Dependency updated"
+            );
         }
     }
 
@@ -184,6 +207,7 @@ impl BootstrapQueue {
         let now = self.clock.now();
         let started = self.logic.lock().unwrap().download_started(account, now);
         if started {
+            trace!(account = account.encode_account(), "Download started");
             self.stats.download_started.fetch_add(1, Relaxed);
         } else {
             self.stats.download_start_failed.fetch_add(1, Relaxed);
@@ -199,14 +223,14 @@ impl BootstrapQueue {
         let finished;
         let mut prio_up_result = None;
         let mut prio_down_result = None;
+        let block_count = blocks.len();
         {
-            let has_blocks = !blocks.is_empty();
             let mut logic = self.logic.lock().unwrap();
             finished = logic.download_finished(account, blocks, should_cool_down);
             if finished {
                 if should_cool_down {
                     prio_down_result = Some(logic.priority_down(account));
-                } else if has_blocks {
+                } else if block_count > 0 {
                     prio_up_result = Some(logic.priority_up(account));
                 }
             }
@@ -214,15 +238,33 @@ impl BootstrapQueue {
 
         if finished {
             self.stats.download_finished.fetch_add(1, Relaxed);
+            trace!(
+                account = account.encode_account(),
+                block_count, "Download finished"
+            );
         } else {
             self.stats.download_finished_failed.fetch_add(1, Relaxed);
+            trace!(
+                account = account.encode_account(),
+                block_count, "Finished download couldn't be processed!"
+            );
         }
 
         if let Some(result) = prio_up_result {
             self.stats.add_prio_up_result(&result);
+            trace!(
+                ?result,
+                account = account.encode_account(),
+                "Priority increased"
+            );
         }
         if let Some(result) = prio_down_result {
             self.stats.add_prio_down_result(&result);
+            trace!(
+                ?result,
+                account = account.encode_account(),
+                "Priority decreased"
+            );
         }
     }
 
@@ -230,6 +272,7 @@ impl BootstrapQueue {
         let finished = self.logic.lock().unwrap().processing_finished(block_hash);
         if finished {
             self.stats.processing_finished.fetch_add(1, Relaxed);
+            trace!(block = block_hash.encode_hex(), "Processing finished");
         } else {
             self.stats.processing_finished_failed.fetch_add(1, Relaxed);
         }

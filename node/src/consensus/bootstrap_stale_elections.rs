@@ -1,8 +1,8 @@
 use std::{
     any::Any,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -11,7 +11,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use super::{election::Election, AecService, AecTickerPlugin};
+use super::{AecService, AecTickerPlugin, election::Election};
 use crate::bootstrap::bootstrapper::Bootstrapper;
 
 /// If an election isn't confirmed within "stale_threshold", then try to bootstrap
