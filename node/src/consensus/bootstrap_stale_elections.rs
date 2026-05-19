@@ -1,8 +1,8 @@
 use std::{
     any::Any,
     sync::{
-        Arc,
         atomic::{AtomicU64, Ordering},
+        Arc,
     },
     time::Duration,
 };
@@ -11,7 +11,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use super::{AecService, AecTickerPlugin, election::Election};
+use super::{election::Election, AecService, AecTickerPlugin};
 use crate::bootstrap::bootstrapper::Bootstrapper;
 
 /// If an election isn't confirmed within "stale_threshold", then try to bootstrap
@@ -57,6 +57,10 @@ impl BootstrapStaleElections {
 
 impl AecTickerPlugin for BootstrapStaleElections {
     fn run(&mut self, aec: &AecService) {
+        // The implemenation is bad, because it causes to reinsert stale elections on every AEC
+        // tick! That's why it is disabled right now until there is a better implemenation.
+        return;
+
         let now = self.clock.now();
 
         let is_stale = |election: &&Election| election.start().elapsed(now) >= self.stale_threshold;
@@ -113,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored because this feature is currently disabled"]
     fn bootstrap_stale_election() {
         let bootstrapper = Arc::new(Bootstrapper::new_null());
         let clock = Arc::new(SteadyClock::new_null());
