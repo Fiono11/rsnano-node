@@ -1,6 +1,8 @@
 mod peer_score;
 mod peer_score_container;
 
+use std::sync::Mutex;
+
 use rand::seq::SliceRandom;
 
 use rsnano_network::ChannelId;
@@ -10,45 +12,50 @@ use peer_score_container::PeerScoreContainer;
 
 /// Container for tracking and scoring peers with respect to bootstrapping
 pub(crate) struct PeerScoring {
-    scoring: PeerScoreContainer,
+    scoring: Mutex<PeerScoreContainer>,
     channel_limit: usize,
 }
 
 impl PeerScoring {
     pub fn new(channel_limit: usize) -> Self {
         Self {
-            scoring: PeerScoreContainer::default(),
+            scoring: Mutex::new(PeerScoreContainer::default()),
             channel_limit,
         }
     }
 
-    pub fn received_message(&mut self, channel_id: ChannelId) {
-        self.scoring.modify(channel_id, |i| i.got_response());
+    pub fn received_message(&self, channel_id: ChannelId) {
+        self.scoring
+            .lock()
+            .unwrap()
+            .modify(channel_id, |i| i.got_response());
     }
 
-    pub fn channel(&mut self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
+    pub fn channel(&self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
         candidates.shuffle(&mut rand::rng());
+        let scoring = self.scoring.lock().unwrap();
         candidates
             .iter()
-            .find(|channel_id| self.scoring.running_queries(**channel_id) < self.channel_limit)
+            .find(|channel_id| scoring.running_queries(**channel_id) < self.channel_limit)
             .cloned()
     }
 
-    pub fn add_query(&mut self, channel_id: ChannelId) {
-        self.scoring.add_query(channel_id);
+    pub fn add_query(&self, channel_id: ChannelId) {
+        self.scoring.lock().unwrap().add_query(channel_id);
     }
 
     pub fn len(&self) -> usize {
-        self.scoring.len()
+        self.scoring.lock().unwrap().len()
     }
 
-    pub fn decay(&mut self) {
-        self.scoring.modify_all(|i| i.decay());
+    pub fn decay(&self) {
+        self.scoring.lock().unwrap().modify_all(|i| i.decay());
     }
 
-    pub fn clean_up_dead_channels(&mut self, dead_channel_ids: &[ChannelId]) {
+    pub fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
+        let mut scoring = self.scoring.lock().unwrap();
         for channel_id in dead_channel_ids {
-            self.scoring.remove(*channel_id);
+            scoring.remove(*channel_id);
         }
     }
 
@@ -64,7 +71,7 @@ mod tests {
     #[test]
     fn received_message_decrements_running_queries_to_zero() {
         let channel_id = ChannelId::from(1);
-        let mut scoring = PeerScoring::new(16);
+        let scoring = PeerScoring::new(16);
         scoring.add_query(channel_id);
 
         // Send one query — running_queries becomes 1
@@ -73,7 +80,8 @@ mod tests {
         // Receive the response — running_queries should drop to 0
         scoring.received_message(channel_id);
 
-        let score = scoring.scoring.get(channel_id).unwrap();
+        let inner = scoring.scoring.lock().unwrap();
+        let score = inner.get(channel_id).unwrap();
         assert_eq!(score.running_queries, 0);
         assert_eq!(score.response_count_total, 1);
     }
