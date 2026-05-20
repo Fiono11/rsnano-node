@@ -1,8 +1,6 @@
-mod peer_scoring;
 mod running_query;
 mod running_query_container;
 
-pub(crate) use peer_scoring::PeerScoring;
 pub(crate) use running_query::*;
 pub(crate) use running_query_container::*;
 

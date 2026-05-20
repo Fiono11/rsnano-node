@@ -3,6 +3,7 @@ pub mod query_tracker;
 mod block_inspector;
 mod bootstrap_queue;
 mod frontier_scan;
+mod peer_scoring;
 mod requesters;
 mod response_processor;
 
@@ -35,7 +36,6 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    bootstrap::bootstrapper::query_tracker::PeerScoring,
     transport::MessageSender,
 };
 
@@ -43,6 +43,7 @@ use block_inspector::BlockInspector;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
 use frontier_scan::FrontierScan;
+use peer_scoring::PeerScoring;
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
 use response_processor::ResponseProcessor;

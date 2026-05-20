@@ -12,7 +12,8 @@ use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
     bootstrap_queue::BootstrapQueue,
     frontier_scan::FrontierScan,
-    query_tracker::{PeerScoring, QueryTracker},
+    peer_scoring::PeerScoring,
+    query_tracker::QueryTracker,
     requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
 };
 
