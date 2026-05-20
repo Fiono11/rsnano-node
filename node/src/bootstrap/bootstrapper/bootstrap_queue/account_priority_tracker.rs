@@ -188,7 +188,7 @@ mod tests {
         let account = Account::from(1);
         tracker.insert(account, Priority::INITIAL);
         let mut success = false;
-        for i in 0..20 {
+        for _ in 0..20 {
             if tracker.priority_down(&account) == PriorityDownResult::Removed {
                 success = true;
                 break;

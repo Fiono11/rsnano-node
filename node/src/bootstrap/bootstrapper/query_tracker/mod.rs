@@ -99,13 +99,13 @@ impl ContainerInfoProvider for QueryTracker {
 
 pub(crate) struct QueryTrackerLogic {
     stats: Arc<Stats>,
-    scoring: PeerScoring,
+    scoring: Arc<PeerScoring>,
     running_queries: RunningQueryContainer,
 }
 
 impl QueryTrackerLogic {
     pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
-        let scoring = PeerScoring::new(config.channel_limit);
+        let scoring = Arc::new(PeerScoring::new(config.channel_limit));
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),

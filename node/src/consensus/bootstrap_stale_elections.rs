@@ -56,9 +56,11 @@ impl BootstrapStaleElections {
 }
 
 impl AecTickerPlugin for BootstrapStaleElections {
+    #[allow(unreachable_code)]
+    #[allow(unused)]
     fn run(&mut self, aec: &AecService) {
-        // The implemenation is bad, because it causes to reinsert stale elections on every AEC
-        // tick! That's why it is disabled right now until there is a better implemenation.
+        // The implemenation is bad, because it causes reinsertions of stale elections on every AEC tick!
+        // That's why it is disabled right now until there is a better implemenation.
         return;
 
         let now = self.clock.now();

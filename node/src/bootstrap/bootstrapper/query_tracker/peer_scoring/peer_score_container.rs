@@ -18,8 +18,8 @@ impl PeerScoreContainer {
     }
 
     #[cfg(test)]
-    pub fn insert(&mut self, score: PeerScore) -> Option<PeerScore> {
-        self.by_channel.insert(score.channel_id, score)
+    pub fn insert(&mut self, channel_id: ChannelId, score: PeerScore) -> Option<PeerScore> {
+        self.by_channel.insert(channel_id, score)
     }
 
     pub fn running_queries(&self, channel_id: ChannelId) -> usize {
@@ -30,10 +30,7 @@ impl PeerScoreContainer {
     }
 
     pub fn add_query(&mut self, channel_id: ChannelId) {
-        self.by_channel
-            .entry(channel_id)
-            .or_insert_with(|| PeerScore::new(channel_id))
-            .add_query();
+        self.by_channel.entry(channel_id).or_default().add_query();
     }
 
     pub fn modify(&mut self, channel_id: ChannelId, mut f: impl FnMut(&mut PeerScore)) -> bool {
@@ -71,7 +68,7 @@ mod tests {
     fn insert() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        container.insert(PeerScore::new(channel_id));
+        container.insert(channel_id, PeerScore::default());
         assert_eq!(container.len(), 1);
         assert!(container.get(channel_id).is_some())
     }
@@ -81,8 +78,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(PeerScore::new(channel_id));
-        container.insert(PeerScore::new(another_channel_id));
+        container.insert(channel_id, PeerScore::default());
+        container.insert(another_channel_id, PeerScore::default());
 
         container.remove(channel_id);
 
@@ -111,8 +108,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(PeerScore::new(channel_id));
-        container.insert(PeerScore::new(another_channel_id));
+        container.insert(channel_id, PeerScore::default());
+        container.insert(another_channel_id, PeerScore::default());
         let modified = container.modify(channel_id, |i| {
             i.running_queries = 1000;
         });
@@ -129,8 +126,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(PeerScore::new(channel_id));
-        container.insert(PeerScore::new(another_channel_id));
+        container.insert(channel_id, PeerScore::default());
+        container.insert(another_channel_id, PeerScore::default());
         container.modify_all(|i| {
             i.running_queries = 1000;
         });
