@@ -12,7 +12,7 @@ use crate::{
         BootstrapConfig, StoppedFlag,
         bootstrap_queue::BootstrapQueue,
         frontier_scan::FrontierScan,
-        query_tracker::QueryTracker,
+        query_tracker::{PeerScoring, QueryTracker},
         requesters::{query_factory::QueryFactory, query_sender::QuerySender},
     },
     transport::MessageSender,
@@ -34,6 +34,7 @@ impl RequesterLoop {
 
     pub(super) fn new(
         query_tracker: Arc<QueryTracker>,
+        peer_scoring: Arc<PeerScoring>,
         config: BootstrapConfig,
         message_sender: MessageSender,
         stats: Arc<Stats>,
@@ -59,6 +60,7 @@ impl RequesterLoop {
                 bootstrap_queue.clone(),
                 frontier_scan,
                 query_tracker,
+                peer_scoring,
             ),
             bootstrap_queue,
             stopped,

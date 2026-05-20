@@ -12,7 +12,7 @@ use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
     bootstrap_queue::BootstrapQueue,
     frontier_scan::FrontierScan,
-    query_tracker::QueryTracker,
+    query_tracker::{PeerScoring, QueryTracker},
     requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
 };
 
@@ -23,6 +23,7 @@ pub(crate) struct QueryFactory {
     request_limiter: TokenBucket,
     bootstrap_queue: Arc<BootstrapQueue>,
     query_tracker: Arc<QueryTracker>,
+    peer_scoring: Arc<PeerScoring>,
     rng_factory: NullableRngFactory,
     frontiers_limiter: TokenBucket,
     pull_type_decider: PullTypeDecider,
@@ -40,6 +41,7 @@ impl QueryFactory {
         bootstrap_queue: Arc<BootstrapQueue>,
         frontier_scan: Arc<FrontierScan>,
         query_tracker: Arc<QueryTracker>,
+        peer_scoring: Arc<PeerScoring>,
     ) -> Self {
         let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
@@ -50,6 +52,7 @@ impl QueryFactory {
             request_limiter: limiter,
             bootstrap_queue,
             query_tracker,
+            peer_scoring,
             rng_factory: NullableRngFactory::default(),
             frontiers_limiter: TokenBucket::new(config.frontier_rate_limit),
             config,
@@ -111,7 +114,7 @@ impl QueryFactory {
         tracing::trace!(query_id, ?pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1);
-        self.query_tracker.add_query_for_channel(channel_id);
+        self.peer_scoring.add_query(channel_id);
         self.bootstrap_queue.download_started(&next_account);
 
         Some(query)
@@ -142,7 +145,7 @@ impl QueryFactory {
             hash: next_hash,
         };
         self.request_limiter.consume(1);
-        self.query_tracker.add_query_for_channel(channel_id);
+        self.peer_scoring.add_query(channel_id);
         self.bootstrap_queue
             .dependency_account_requested(&spec.hash);
         Some(spec)
@@ -166,8 +169,7 @@ impl QueryFactory {
         let start = self.frontier_scan.next_account_to_query();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
-            self.query_tracker
-                .add_query_for_channel(channel.channel_id());
+            self.peer_scoring.add_query(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {

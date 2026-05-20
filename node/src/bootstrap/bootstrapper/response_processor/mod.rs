@@ -20,7 +20,7 @@ use crate::{
     bootstrap::bootstrapper::{
         bootstrap_queue::BootstrapQueue,
         frontier_scan::FrontierScan,
-        query_tracker::{ProcessError, ProcessInfo, RunningQuery},
+        query_tracker::{PeerScoring, ProcessError, ProcessInfo, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
         },
@@ -29,6 +29,7 @@ use crate::{
 
 pub(crate) struct ResponseProcessor {
     query_tracker: Arc<QueryTracker>,
+    peer_scoring: Arc<PeerScoring>,
     frontier_scan: Arc<FrontierScan>,
     block_proc_queue: Arc<BlockProcessorQueue>,
     bootstrap_queue: Arc<BootstrapQueue>,
@@ -42,6 +43,7 @@ pub(crate) struct ResponseProcessor {
 impl ResponseProcessor {
     pub(crate) fn new(
         query_tracker: Arc<QueryTracker>,
+        peer_scoring: Arc<PeerScoring>,
         bootstrap_queue: Arc<BootstrapQueue>,
         block_queue: Arc<BlockProcessorQueue>,
         frontier_scan: Arc<FrontierScan>,
@@ -51,6 +53,7 @@ impl ResponseProcessor {
 
         Self {
             query_tracker,
+            peer_scoring,
             frontier_scan,
             block_proc_queue: block_queue,
             bootstrap_queue,
@@ -70,9 +73,9 @@ impl ResponseProcessor {
     ) -> Result<ProcessInfo, ProcessError> {
         trace!(query_id = response.id, ?channel_id, "Process response");
 
-        let query = self
-            .query_tracker
-            .take_running_query_for(&response, channel_id)?;
+        let query = self.query_tracker.take_running_query_for(&response)?;
+
+        self.peer_scoring.received_message(channel_id);
 
         let process_info = self
             .process_response_for_query(&query, response)

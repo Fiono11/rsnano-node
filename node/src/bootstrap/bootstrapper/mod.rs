@@ -35,6 +35,7 @@ use rsnano_utils::{
 
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
+    bootstrap::bootstrapper::query_tracker::PeerScoring,
     transport::MessageSender,
 };
 
@@ -219,10 +220,12 @@ impl Bootstrapper {
         clock: Arc<SteadyClock>,
         stopped: NullableCondvarMutex<StoppedFlag>,
     ) -> Self {
-        let query_tracker = Arc::new(QueryTracker::new(config.clone(), stats.clone()));
+        let peer_scoring = Arc::new(PeerScoring::new(config.channel_limit));
+        let query_tracker = Arc::new(QueryTracker::new(stats.clone(), peer_scoring.clone()));
 
         let response_handler = ResponseProcessor::new(
             query_tracker.clone(),
+            peer_scoring.clone(),
             bootstrap_queue.clone(),
             block_processor_queue.clone(),
             frontier_scan.clone(),
@@ -241,6 +244,7 @@ impl Bootstrapper {
             stats.clone(),
             message_sender.clone(),
             query_tracker.clone(),
+            peer_scoring,
             ledger.clone(),
             bootstrap_queue.clone(),
             network,

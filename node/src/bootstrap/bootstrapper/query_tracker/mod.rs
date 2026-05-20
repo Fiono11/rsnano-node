@@ -19,8 +19,6 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
-use super::BootstrapConfig;
-
 /// Keeps track of all currently running bootstrap queries
 pub(crate) struct QueryTracker {
     logic: Mutex<QueryTrackerLogic>,
@@ -28,26 +26,20 @@ pub(crate) struct QueryTracker {
 }
 
 impl QueryTracker {
-    pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
+    pub fn new(stats: Arc<Stats>, scoring: Arc<PeerScoring>) -> Self {
         Self {
-            logic: Mutex::new(QueryTrackerLogic::new(config, stats)),
+            logic: Mutex::new(QueryTrackerLogic::new(stats, scoring)),
             clock: SteadyClock::default(),
         }
     }
 
     #[cfg(test)]
     pub fn new_null() -> Self {
+        let scoring = Arc::new(PeerScoring::new(16));
         Self {
-            logic: Mutex::new(QueryTrackerLogic::new(
-                Default::default(),
-                Arc::new(Stats::default()),
-            )),
+            logic: Mutex::new(QueryTrackerLogic::new(Arc::new(Stats::default()), scoring)),
             clock: SteadyClock::new_null(),
         }
-    }
-
-    pub fn add_query_for_channel(&self, channel_id: ChannelId) {
-        self.logic.lock().unwrap().add_query_for_channel(channel_id);
     }
 
     pub fn find_channel(&self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
@@ -66,12 +58,8 @@ impl QueryTracker {
     pub fn take_running_query_for(
         &self,
         response: &AscPullAck,
-        channel_id: ChannelId,
     ) -> Result<RunningQuery, ProcessError> {
-        self.logic
-            .lock()
-            .unwrap()
-            .take_running_query_for(response, channel_id)
+        self.logic.lock().unwrap().take_running_query_for(response)
     }
 
     pub fn timeout(&self) {
@@ -104,17 +92,12 @@ pub(crate) struct QueryTrackerLogic {
 }
 
 impl QueryTrackerLogic {
-    pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
-        let scoring = Arc::new(PeerScoring::new(config.channel_limit));
+    pub fn new(stats: Arc<Stats>, scoring: Arc<PeerScoring>) -> Self {
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),
             stats,
         }
-    }
-
-    pub fn add_query_for_channel(&mut self, channel_id: ChannelId) {
-        self.scoring.add_query(channel_id);
     }
 
     pub fn find_channel(&mut self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
@@ -133,7 +116,6 @@ impl QueryTrackerLogic {
     pub fn take_running_query_for(
         &mut self,
         response: &AscPullAck,
-        channel_id: ChannelId,
     ) -> Result<RunningQuery, ProcessError> {
         // Only process messages that have a known running query
         let Some(query) = self.running_queries.remove(response.id) else {
@@ -143,8 +125,6 @@ impl QueryTrackerLogic {
         if !query.is_valid_response_type(response) {
             return Err(ProcessError::InvalidResponseType);
         }
-
-        self.scoring.received_message(channel_id);
 
         Ok(query)
     }
