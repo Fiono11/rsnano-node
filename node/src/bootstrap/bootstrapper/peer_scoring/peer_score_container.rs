@@ -2,12 +2,21 @@ use super::peer_score::PeerScore;
 use rsnano_network::ChannelId;
 use std::collections::HashMap;
 
-#[derive(Default)]
 pub(super) struct PeerScoreContainer {
     by_channel: HashMap<ChannelId, PeerScore>,
+    channel_limit: usize,
 }
 
 impl PeerScoreContainer {
+    pub const DEFAULT_CHANNEL_LIMIT: usize = 16;
+
+    pub fn new(channel_limit: usize) -> Self {
+        Self {
+            by_channel: HashMap::new(),
+            channel_limit,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.by_channel.len()
     }
@@ -53,6 +62,12 @@ impl PeerScoreContainer {
 
     pub fn remove(&mut self, channel_id: ChannelId) {
         self.by_channel.remove(&channel_id);
+    }
+}
+
+impl Default for PeerScoreContainer {
+    fn default() -> Self {
+        Self::new(Self::DEFAULT_CHANNEL_LIMIT)
     }
 }
 

@@ -19,7 +19,7 @@ pub(crate) struct PeerScoring {
 impl PeerScoring {
     pub fn new(channel_limit: usize) -> Self {
         Self {
-            scoring: Mutex::new(PeerScoreContainer::default()),
+            scoring: Mutex::new(PeerScoreContainer::new(channel_limit)),
             channel_limit,
         }
     }
@@ -63,7 +63,7 @@ impl PeerScoring {
 
 impl Default for PeerScoring {
     fn default() -> Self {
-        Self::new(16)
+        Self::new(PeerScoreContainer::DEFAULT_CHANNEL_LIMIT)
     }
 }
 
