@@ -139,6 +139,7 @@ pub struct Bootstrapper {
     stats: Arc<Stats>,
     cleanup_thread: Mutex<Option<JoinHandle<()>>>,
     query_tracker: Arc<QueryTracker>,
+    peer_scoring: Arc<PeerScoring>,
     bootstrap_queue: Arc<BootstrapQueue>,
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
@@ -221,7 +222,7 @@ impl Bootstrapper {
         stopped: NullableCondvarMutex<StoppedFlag>,
     ) -> Self {
         let peer_scoring = Arc::new(PeerScoring::new(config.channel_limit));
-        let query_tracker = Arc::new(QueryTracker::new(stats.clone(), peer_scoring.clone()));
+        let query_tracker = Arc::new(QueryTracker::new(stats.clone()));
 
         let response_handler = ResponseProcessor::new(
             query_tracker.clone(),
@@ -244,7 +245,7 @@ impl Bootstrapper {
             stats.clone(),
             message_sender.clone(),
             query_tracker.clone(),
-            peer_scoring,
+            peer_scoring.clone(),
             ledger.clone(),
             bootstrap_queue.clone(),
             network,
@@ -254,6 +255,7 @@ impl Bootstrapper {
         Self {
             cleanup_thread: Mutex::new(None),
             query_tracker,
+            peer_scoring,
             config,
             stats,
             clock,
@@ -382,6 +384,7 @@ impl Bootstrapper {
         let mut last_sync = self.clock.now();
         while !stopped.stopped {
             self.query_tracker.timeout();
+            self.peer_scoring.decay();
             self.bootstrap_queue.timeout();
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
@@ -422,6 +425,7 @@ impl ContainerInfoProvider for Bootstrapper {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("query_tracker", self.query_tracker.container_info())
+            .node("peer_scoring", self.peer_scoring.container_info())
             .node("bootstrap_queue", self.bootstrap_queue.container_info())
             .node("frontiers", self.frontier_scan.container_info())
             .finish()
@@ -462,13 +466,9 @@ impl BootstrapExt for Arc<Bootstrapper> {
     }
 }
 
-pub(crate) struct BootstrapperCleanup(pub Arc<Bootstrapper>);
-
-impl DeadChannelCleanupStep for BootstrapperCleanup {
+impl DeadChannelCleanupStep for Bootstrapper {
     fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        self.0
-            .query_tracker
-            .clean_up_dead_channels(dead_channel_ids);
+        self.peer_scoring.clean_up_dead_channels(dead_channel_ids);
     }
 }
 

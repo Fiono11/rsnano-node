@@ -61,7 +61,7 @@ use crate::{
     },
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
-        bootstrapper::{BootstrapExt, Bootstrapper, BootstrapperCleanup},
+        bootstrapper::{BootstrapExt, Bootstrapper},
         responder::{BootstrapResponder, BootstrapResponderCleanup},
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
@@ -927,7 +927,7 @@ impl Node {
         dead_channel_cleanup.add_step(RequestAggregatorCleanup::new(
             request_aggregator.state.clone(),
         ));
-        dead_channel_cleanup.add_step(BootstrapperCleanup(bootstrapper.clone()));
+        dead_channel_cleanup.add_step(bootstrapper.clone());
 
         #[cfg(feature = "ledger_snapshots")]
         let ledger_snapshots = {

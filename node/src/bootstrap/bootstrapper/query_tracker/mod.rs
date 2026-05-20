@@ -12,7 +12,6 @@ use std::{
 };
 
 use rsnano_messages::AscPullAck;
-use rsnano_network::ChannelId;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -26,24 +25,19 @@ pub(crate) struct QueryTracker {
 }
 
 impl QueryTracker {
-    pub fn new(stats: Arc<Stats>, scoring: Arc<PeerScoring>) -> Self {
+    pub fn new(stats: Arc<Stats>) -> Self {
         Self {
-            logic: Mutex::new(QueryTrackerLogic::new(stats, scoring)),
+            logic: Mutex::new(QueryTrackerLogic::new(stats)),
             clock: SteadyClock::default(),
         }
     }
 
     #[cfg(test)]
     pub fn new_null() -> Self {
-        let scoring = Arc::new(PeerScoring::new(16));
         Self {
-            logic: Mutex::new(QueryTrackerLogic::new(Arc::new(Stats::default()), scoring)),
+            logic: Mutex::new(QueryTrackerLogic::new(Arc::new(Stats::default()))),
             clock: SteadyClock::new_null(),
         }
-    }
-
-    pub fn find_channel(&self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
-        self.logic.lock().unwrap().find_channel(candidates)
     }
 
     pub fn insert(&self, query: RunningQuery) {
@@ -70,13 +64,6 @@ impl QueryTracker {
     pub fn query_count(&self) -> usize {
         self.logic.lock().unwrap().query_count()
     }
-
-    pub fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        self.logic
-            .lock()
-            .unwrap()
-            .clean_up_dead_channels(dead_channel_ids);
-    }
 }
 
 impl ContainerInfoProvider for QueryTracker {
@@ -87,21 +74,15 @@ impl ContainerInfoProvider for QueryTracker {
 
 pub(crate) struct QueryTrackerLogic {
     stats: Arc<Stats>,
-    scoring: Arc<PeerScoring>,
     running_queries: RunningQueryContainer,
 }
 
 impl QueryTrackerLogic {
-    pub fn new(stats: Arc<Stats>, scoring: Arc<PeerScoring>) -> Self {
+    pub fn new(stats: Arc<Stats>) -> Self {
         Self {
-            scoring,
             running_queries: RunningQueryContainer::default(),
             stats,
         }
-    }
-
-    pub fn find_channel(&mut self, candidates: Vec<ChannelId>) -> Option<ChannelId> {
-        self.scoring.channel(candidates)
     }
 
     pub fn insert(&mut self, query: RunningQuery) {
@@ -130,15 +111,6 @@ impl QueryTrackerLogic {
     }
 
     pub fn timeout(&mut self, now: Timestamp) {
-        self.scoring.decay();
-        self.erase_timed_out_requests(now);
-    }
-
-    pub fn query_count(&self) -> usize {
-        self.running_queries.len()
-    }
-
-    fn erase_timed_out_requests(&mut self, now: Timestamp) {
         let should_timeout = |query: &RunningQuery| query.response_cutoff < now;
 
         while let Some(front) = self.running_queries.front() {
@@ -153,8 +125,8 @@ impl QueryTrackerLogic {
         }
     }
 
-    pub fn clean_up_dead_channels(&mut self, dead_channel_ids: &[ChannelId]) {
-        self.scoring.clean_up_dead_channels(dead_channel_ids);
+    pub fn query_count(&self) -> usize {
+        self.running_queries.len()
     }
 }
 
@@ -162,11 +134,10 @@ impl ContainerInfoProvider for QueryTrackerLogic {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf(
-                "tags",
+                "running_queries",
                 self.running_queries.len(),
                 RunningQueryContainer::ELEMENT_SIZE,
             )
-            .node("peers", self.scoring.container_info())
             .finish()
     }
 }

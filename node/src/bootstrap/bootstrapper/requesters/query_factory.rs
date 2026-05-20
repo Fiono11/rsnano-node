@@ -183,7 +183,7 @@ impl QueryFactory {
             .available_channels(TrafficType::BootstrapRequests)
             .map(|c| c.channel_id())
             .collect();
-        let Some(channel_id) = self.query_tracker.find_channel(candidate_channels) else {
+        let Some(channel_id) = self.peer_scoring.channel(candidate_channels) else {
             self.stats.no_channel.fetch_add(1, Relaxed);
             return None;
         };
