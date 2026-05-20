@@ -45,7 +45,9 @@ impl OptimisticSchedulerLogic {
         }
 
         let gap = self.get_gap(block_count, confirmation_height);
-        if gap < self.params.gap_threshold {
+        // We allow an account below gap_threshold if that account is fully unconfirmed,
+        // so that we can optimistically confirm long chains of unconfirmed accounts
+        if confirmation_height > 0 && gap < self.params.gap_threshold {
             return false;
         }
 
@@ -125,7 +127,7 @@ mod tests {
     #[test]
     fn try_activate_adds_when_account_fully_unconfirmed() {
         let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
+        assert!(logic.try_activate(&Account::from(1), 2, 0, now()));
         assert_eq!(logic.candidate_count(), 1);
     }
 
