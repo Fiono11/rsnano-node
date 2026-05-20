@@ -50,7 +50,8 @@ impl ResponseProcessor {
         frontier_scan: Arc<FrontierScan>,
     ) -> Self {
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
-        let block_ack_processor = BlockAckProcessor::new(bootstrap_queue.clone());
+        let block_ack_processor =
+            BlockAckProcessor::new(bootstrap_queue.clone(), peer_scoring.clone());
 
         Self {
             query_tracker,
@@ -76,7 +77,7 @@ impl ResponseProcessor {
 
         let query = self.query_tracker.take_running_query_for(&response)?;
 
-        self.peer_scoring.received_message(channel_id);
+        self.peer_scoring.response_received(channel_id);
 
         let process_info = self
             .process_response_for_query(&query, response)

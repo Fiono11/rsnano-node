@@ -12,18 +12,21 @@ use rsnano_utils::stats::{StatsCollection, StatsSource};
 use crate::bootstrap::bootstrapper::{
     VerifyResult,
     bootstrap_queue::BootstrapQueue,
+    peer_scoring::PeerScoring,
     query_tracker::{QueryType, RunningQuery},
 };
 
 pub(crate) struct BlockAckProcessor {
     bootstrap_queue: Arc<BootstrapQueue>,
+    peer_scoring: Arc<PeerScoring>,
     stats: BlockAckStats,
 }
 
 impl BlockAckProcessor {
-    pub fn new(bootstrap_queue: Arc<BootstrapQueue>) -> Self {
+    pub fn new(bootstrap_queue: Arc<BootstrapQueue>, peer_scoring: Arc<PeerScoring>) -> Self {
         Self {
             bootstrap_queue,
+            peer_scoring,
             stats: Default::default(),
         }
     }
@@ -114,7 +117,8 @@ mod tests {
     #[test]
     fn response_doesnt_match_query() {
         let queue = Arc::new(BootstrapQueue::new_null());
-        let processor = BlockAckProcessor::new(queue.clone());
+        let scoring = Arc::new(PeerScoring::default());
+        let processor = BlockAckProcessor::new(queue.clone(), scoring);
 
         let query = RunningQuery::new_test_instance();
         let response = BlocksAckPayload::new_test_instance();
@@ -126,7 +130,8 @@ mod tests {
     #[test]
     fn handle_empty_response() {
         let queue = Arc::new(BootstrapQueue::default());
-        let processor = BlockAckProcessor::new(queue.clone());
+        let scoring = Arc::new(PeerScoring::default());
+        let processor = BlockAckProcessor::new(queue.clone(), scoring);
         let account = Account::from(42);
 
         let query = RunningQuery {

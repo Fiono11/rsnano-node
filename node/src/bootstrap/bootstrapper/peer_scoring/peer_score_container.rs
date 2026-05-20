@@ -29,23 +29,25 @@ impl PeerScoreContainer {
             .unwrap_or_default()
     }
 
-    pub fn add_query(&mut self, channel_id: ChannelId) {
-        self.by_channel.entry(channel_id).or_default().add_query();
+    pub fn request_sent(&mut self, channel_id: ChannelId) {
+        self.by_channel
+            .entry(channel_id)
+            .or_default()
+            .request_sent();
     }
 
-    pub fn modify(&mut self, channel_id: ChannelId, mut f: impl FnMut(&mut PeerScore)) -> bool {
+    pub fn got_response(&mut self, channel_id: ChannelId) -> bool {
         if let Some(scoring) = self.by_channel.get_mut(&channel_id) {
-            f(scoring);
+            scoring.got_response();
             true
         } else {
             false
         }
     }
 
-    pub fn modify_all(&mut self, mut f: impl FnMut(&mut PeerScore)) {
-        let channel_ids: Vec<ChannelId> = self.by_channel.keys().cloned().collect();
-        for id in channel_ids {
-            self.modify(id, &mut f);
+    pub fn decay(&mut self) {
+        for peer in self.by_channel.values_mut() {
+            peer.decay();
         }
     }
 
@@ -96,45 +98,48 @@ mod tests {
     }
 
     #[test]
-    fn modify_nothing() {
+    fn got_response_is_noop_if_channel_unknown() {
         let mut container = PeerScoreContainer::default();
-        let modified = container.modify(ChannelId::from(42), |_| unreachable!());
+        let modified = container.got_response(ChannelId::from(42));
         assert!(!modified);
         assert_eq!(container.len(), 0);
     }
 
     #[test]
-    fn modify() {
+    fn got_response() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
         container.insert(channel_id, PeerScore::default());
         container.insert(another_channel_id, PeerScore::default());
-        let modified = container.modify(channel_id, |i| {
-            i.running_queries = 1000;
-        });
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
+        let modified = container.got_response(channel_id);
         assert!(modified);
-        assert_eq!(container.get(channel_id).unwrap().running_queries, 1000);
-        assert_ne!(
+        assert_eq!(container.get(channel_id).unwrap().running_queries, 1);
+        assert_eq!(
             container.get(another_channel_id).unwrap().running_queries,
-            1000
+            0
         );
     }
 
     #[test]
-    fn modify_all() {
+    fn decay() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
         container.insert(channel_id, PeerScore::default());
         container.insert(another_channel_id, PeerScore::default());
-        container.modify_all(|i| {
-            i.running_queries = 1000;
-        });
-        assert_eq!(container.get(channel_id).unwrap().running_queries, 1000);
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
+        container.request_sent(another_channel_id);
+
+        container.decay();
+
+        assert_eq!(container.get(channel_id).unwrap().running_queries, 1);
         assert_eq!(
             container.get(another_channel_id).unwrap().running_queries,
-            1000
+            0
         );
     }
 }

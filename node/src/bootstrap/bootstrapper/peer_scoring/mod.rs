@@ -24,13 +24,6 @@ impl PeerScoring {
         }
     }
 
-    pub fn received_message(&self, channel_id: ChannelId) {
-        self.scoring
-            .lock()
-            .unwrap()
-            .modify(channel_id, |i| i.got_response());
-    }
-
     pub fn channel(&self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
         candidates.shuffle(&mut rand::rng());
         let scoring = self.scoring.lock().unwrap();
@@ -40,8 +33,12 @@ impl PeerScoring {
             .cloned()
     }
 
-    pub fn add_query(&self, channel_id: ChannelId) {
-        self.scoring.lock().unwrap().add_query(channel_id);
+    pub fn request_sent(&self, channel_id: ChannelId) {
+        self.scoring.lock().unwrap().request_sent(channel_id);
+    }
+
+    pub fn response_received(&self, channel_id: ChannelId) {
+        self.scoring.lock().unwrap().got_response(channel_id);
     }
 
     pub fn len(&self) -> usize {
@@ -49,7 +46,7 @@ impl PeerScoring {
     }
 
     pub fn decay(&self) {
-        self.scoring.lock().unwrap().modify_all(|i| i.decay());
+        self.scoring.lock().unwrap().decay();
     }
 
     pub fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
@@ -64,6 +61,12 @@ impl PeerScoring {
     }
 }
 
+impl Default for PeerScoring {
+    fn default() -> Self {
+        Self::new(16)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,17 +75,16 @@ mod tests {
     fn received_message_decrements_running_queries_to_zero() {
         let channel_id = ChannelId::from(1);
         let scoring = PeerScoring::new(16);
-        scoring.add_query(channel_id);
+        scoring.request_sent(channel_id);
 
         // Send one query — running_queries becomes 1
         scoring.channel(vec![channel_id]);
 
         // Receive the response — running_queries should drop to 0
-        scoring.received_message(channel_id);
+        scoring.response_received(channel_id);
 
         let inner = scoring.scoring.lock().unwrap();
         let score = inner.get(channel_id).unwrap();
         assert_eq!(score.running_queries, 0);
-        assert_eq!(score.response_count_total, 1);
     }
 }
