@@ -43,6 +43,7 @@ impl BlockAckProcessor {
                 self.bootstrap_queue
                     .download_finished(&query.account, VecDeque::new(), false);
                 self.stats.invalid.fetch_add(1, Relaxed);
+                // TODO: disconnect and ban node?
                 false
             }
         }

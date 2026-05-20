@@ -105,8 +105,7 @@ pub(crate) struct QueryTrackerLogic {
 
 impl QueryTrackerLogic {
     pub fn new(config: BootstrapConfig, stats: Arc<Stats>) -> Self {
-        let mut scoring = PeerScoring::new();
-        scoring.set_channel_limit(config.channel_limit);
+        let scoring = PeerScoring::new(config.channel_limit);
         Self {
             scoring,
             running_queries: RunningQueryContainer::default(),
