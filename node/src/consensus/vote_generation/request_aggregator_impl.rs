@@ -84,3 +84,69 @@ pub(super) struct AggregateResult {
     pub remaining_normal: Vec<SavedBlock>,
     pub remaining_final: Vec<SavedBlock>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_ledger::{Ledger, test_helpers::UnsavedBlockLatticeBuilder};
+
+    #[test]
+    fn generates_final_vote_for_confirmed_block() {
+        let ledger = Ledger::new_null();
+
+        let block = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let root = block.root();
+        ledger.process_one(&block).unwrap();
+        ledger.confirm(block.hash());
+
+        let result = run_aggregator(&ledger, &[(block.hash(), root)]);
+
+        assert_eq!(result.remaining_final.len(), 1);
+        assert_eq!(result.remaining_final[0].hash(), block.hash());
+    }
+
+    #[test]
+    fn generates_final_vote_for_previously_final_voted_block() {
+        let ledger = Ledger::new_null();
+
+        let block = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let root = block.root();
+        ledger.process_one(&block).unwrap();
+        ledger.confirm(block.hash());
+        ledger.verify_votes([(root, block.hash())].into(), true);
+
+        let result = run_aggregator(&ledger, &[(block.hash(), root)]);
+
+        assert_eq!(result.remaining_final.len(), 1);
+        assert_eq!(result.remaining_final[0].hash(), block.hash());
+    }
+
+    #[test]
+    fn generates_final_vote_for_previously_final_voted_fork() {
+        let ledger = Ledger::new_null();
+
+        let fork_a = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let fork_b = UnsavedBlockLatticeBuilder::new().genesis().send(200, 1);
+        let root = fork_a.root();
+        ledger.process_one(&fork_a).unwrap();
+        ledger.confirm(fork_a.hash());
+        ledger.verify_votes([(root, fork_a.hash())].into(), true);
+
+        let result = run_aggregator(&ledger, &[(fork_b.hash(), root)]);
+
+        assert_eq!(result.remaining_final.len(), 1);
+        assert_eq!(result.remaining_final[0].hash(), fork_a.hash());
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn run_aggregator(ledger: &Ledger, requests: &[(BlockHash, Root)]) -> AggregateResult {
+        let stats = Stats::default();
+        let any = ledger.any();
+        let mut aggregator = RequestAggregatorImpl::new(&stats, &any);
+        aggregator.add_votes(requests);
+        aggregator.get_result()
+    }
+}
