@@ -44,15 +44,15 @@ To just build and run the rsnano_node:
     git clone https://github.com/simpago/rsnano-node.git
     cd rsnano-node
     git switch releases/v2
-    cargo run --release --bin rsnano_node -- --network=live node run
+    cargo run --release --bin rsnano -- --network=live node run
 
 To install and run the rsnano_node executable:
 
     git clone https://github.com/simpago/rsnano-node.git
     cd rsnano-node
     git switch releases/v2
-    cargo install --path main
-    rsnano_node --network=live node run
+    cargo install --path main_nano
+    rsnano --network=live node run
 
 ## Running it with a GUI
 
@@ -67,7 +67,7 @@ Run this command:
 
 RsNano can be compiled to be a Banano node too! Use the feature "banano" like this:
 
-    cargo run --release --features banano --bin rsnano_node -- node run
+    cargo run --release --features banano --bin rsban -- node run
 
 
 ### Contact us
