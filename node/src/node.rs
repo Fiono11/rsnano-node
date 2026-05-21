@@ -1245,6 +1245,7 @@ impl Node {
             aec_fork_inserter,
             stats: stats.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
+            bootstrapper: bootstrapper.clone(),
         };
 
         spawn_backpressure_processor("AEC ev proc", aec_rx, aec_fact_processor);
@@ -1790,6 +1791,8 @@ mod tests {
     #[test]
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
+        // simulate high block count so that the node thinks it isn't bootstapping
+        node.ledger.simulate_block_count(1000 * 1000 * 1000);
         let broadcast_tracker = node.winner_block_broadcaster.lock().unwrap().track();
         let election = ConfirmedElection::new_test_instance();
         let winner_hash = election.winner.hash();

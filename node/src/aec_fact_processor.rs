@@ -12,6 +12,7 @@ use rsnano_utils::stats::{Sample, Stats};
 use crate::{
     NodeEvent,
     block_processing::{BlockContext, BlockProcessorQueue},
+    bootstrap::bootstrapper::Bootstrapper,
     cementation::ConfirmingSet,
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
@@ -45,6 +46,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) stats: Arc<Stats>,
     pub(crate) aec_fork_inserter: Arc<AecForkInserter>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub(crate) bootstrapper: Arc<Bootstrapper>,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -72,11 +74,15 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::ElectionConfirmed(election) => {
                 self.confirming_set.add(election.clone());
-                // Ensure election winner is broadcasted
-                self.winner_block_broadcaster
-                    .lock()
-                    .unwrap()
-                    .try_broadcast_winner(&election.winner, &election.votes);
+                // We don't rebroadcast winners during bootstrap, because it would just
+                // spam the network with blocks that the other nodes already have
+                if !self.bootstrapper.is_bootstrapping() {
+                    // Ensure election winner is broadcasted
+                    self.winner_block_broadcaster
+                        .lock()
+                        .unwrap()
+                        .try_broadcast_winner(&election.winner, &election.votes);
+                }
             }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
