@@ -165,4 +165,9 @@ impl InsightApp {
     pub fn show_election(&mut self, root: QualifiedRoot) {
         self.selected_election = Some(root);
     }
+
+    pub fn close_election(&mut self) {
+        self.selected_election = None;
+        self.election_details = None;
+    }
 }

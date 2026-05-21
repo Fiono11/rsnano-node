@@ -1,7 +1,9 @@
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
-use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError};
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_types::{
+    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
+};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -14,23 +16,26 @@ use super::{
 };
 use crate::consensus::{
     ElectionCandidateSource,
-    election::{ConfirmedElection, Election, ElectionBehavior},
+    election::{ConfirmedElection, Election, ElectionBehavior, ElectionState},
 };
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
+    clock: SteadyClock,
 }
 
 impl AecService {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
+            clock: SteadyClock::default(),
         }
     }
 
     pub fn new_null() -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
+            clock: SteadyClock::new_null(),
         }
     }
 
@@ -194,7 +199,8 @@ impl AecService {
     }
 
     pub fn snapshot(&self) -> AecSnapshot {
-        self.aec.read().unwrap().snapshot()
+        let now = self.clock.now();
+        self.aec.read().unwrap().snapshot(now)
     }
 }
 
@@ -226,4 +232,9 @@ pub struct ElectionSnapshot {
     pub non_final_tally: Amount,
     pub final_tally: Amount,
     pub root: QualifiedRoot,
+    pub account: Account,
+    pub state: ElectionState,
+    pub candidate_blocks: Vec<BlockHash>,
+    pub is_final: bool,
+    pub elapsed: Duration,
 }

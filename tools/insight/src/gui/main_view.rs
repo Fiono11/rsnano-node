@@ -85,7 +85,7 @@ impl eframe::App for MainView {
             NavItem::BlockProcessor => view_block_processor(ctx),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
-                    view_election_details(ctx, details)
+                    view_election_details(ctx, details, &mut self.model.app)
                 } else {
                     view_elections(ctx, self.model.elections(), &mut self.model.app)
                 }
@@ -261,11 +261,29 @@ impl MainViewModel {
         self.app
             .election_details
             .as_ref()
-            .map(|d| ElectionDetailsViewModel {
-                winner_hash: d.winner().hash().encode_hex(),
-                non_final_tally: d.winner_tally().to_string_dec(),
-                final_tally: d.winner_final_tally().to_string_dec(),
-                root: d.qualified_root().encode_hex(),
+            .map(|e| ElectionDetailsViewModel {
+                winner_hash: e.winner().hash().encode_hex(),
+                non_final_tally: e.winner_tally().to_string_dec(),
+                final_tally: e.winner_final_tally().to_string_dec(),
+                root: e.qualified_root().encode_hex(),
+                behavior: e.behavior().as_str(),
+                account: e.account().encode_account(),
+                state: e.state().as_str(),
+                candidate_blocks: e
+                    .candidate_blocks()
+                    .keys()
+                    .map(|h| h.encode_hex())
+                    .collect(),
+                vote_count: e.vote_count().to_string(),
+                phase: if e.is_final() {
+                    "final voting"
+                } else {
+                    "non-final voting"
+                },
+                elapsed: format!(
+                    "{} seconds",
+                    e.start().elapsed(self.app.clock.now()).as_secs()
+                ),
             })
     }
 

@@ -4,7 +4,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use strum_macros::{EnumCount, EnumIter};
+use strum_macros::{Display, EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{

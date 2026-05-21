@@ -500,8 +500,8 @@ impl ActiveElectionsContainer {
         self.notify(event);
     }
 
-    pub fn snapshot(&self) -> AecSnapshot {
-        self.roots.snapshot()
+    pub fn snapshot(&self, now: Timestamp) -> AecSnapshot {
+        self.roots.snapshot(now)
     }
 
     fn notify(&self, event: AecFact) {

@@ -10,6 +10,7 @@ use crate::consensus::{
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
 };
+use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub(crate) struct Entry {
@@ -254,7 +255,7 @@ impl RootContainer {
         self.bucket_infos.len()
     }
 
-    pub fn snapshot(&self) -> AecSnapshot {
+    pub fn snapshot(&self, now: Timestamp) -> AecSnapshot {
         AecSnapshot {
             buckets: self
                 .buckets
@@ -269,10 +270,19 @@ impl RootContainer {
                         .map(|entry| {
                             let election = &self.by_root.get(&entry.root).unwrap().election;
                             ElectionSnapshot {
+                                account: election.account(),
                                 winner_hash: election.winner().hash(),
                                 non_final_tally: election.winner_tally(),
                                 final_tally: election.winner_final_tally(),
                                 root: election.qualified_root().clone(),
+                                state: election.state(),
+                                candidate_blocks: election
+                                    .candidate_blocks()
+                                    .keys()
+                                    .cloned()
+                                    .collect(),
+                                is_final: election.is_final(),
+                                elapsed: election.start().elapsed(now),
                             }
                         })
                         .collect(),

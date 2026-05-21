@@ -1,5 +1,5 @@
 use crate::app::InsightApp;
-use eframe::egui::{self, CentralPanel, FontId, RichText, Ui};
+use eframe::egui::{self, CentralPanel, FontId, Grid, RichText, Ui};
 use egui_extras::{Size, StripBuilder};
 use rsnano_types::QualifiedRoot;
 
@@ -37,18 +37,65 @@ fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, app: &mut Insi
     }
 }
 
-pub(crate) fn view_election_details(ctx: &egui::Context, model: ElectionDetailsViewModel) {
+pub(crate) fn view_election_details(
+    ctx: &egui::Context,
+    model: ElectionDetailsViewModel,
+    app: &mut InsightApp,
+) {
     CentralPanel::default().show(ctx, |ui| {
-        ui.heading(model.winner_hash);
-        ui.separator();
-        ui.label("qualified root:");
-        ui.label(model.root);
-        ui.separator();
-        ui.label("non final tally:");
-        ui.label(model.non_final_tally);
-        ui.separator();
-        ui.label("final tally:");
-        ui.label(model.final_tally);
+        ui.horizontal(|ui| {
+            if ui.link("Elections").clicked() {
+                app.close_election();
+            };
+            ui.label(" > ");
+            ui.label(&model.winner_hash);
+        });
+        ui.add_space(16.0);
+        ui.heading(format!("Block {}", model.winner_hash));
+
+        Grid::new("election_grid").num_columns(2).show(ui, |ui| {
+            ui.label("Account ");
+            ui.label(model.account);
+            ui.end_row();
+
+            ui.label("Qualified root ");
+            ui.label(model.root);
+            ui.end_row();
+
+            ui.label("Behavior ");
+            ui.label(model.behavior);
+            ui.end_row();
+
+            ui.label("State ");
+            ui.label(model.state);
+            ui.end_row();
+
+            ui.label("Vote count ");
+            ui.label(model.vote_count);
+            ui.end_row();
+
+            ui.label("Phase ");
+            ui.label(model.phase);
+            ui.end_row();
+
+            ui.label("Elapsed ");
+            ui.label(model.elapsed);
+            ui.end_row();
+
+            ui.label("Non final tally ");
+            ui.label(model.non_final_tally);
+            ui.end_row();
+
+            ui.label("Final tally ");
+            ui.label(model.final_tally);
+            ui.end_row();
+
+            for (i, block) in model.candidate_blocks.iter().enumerate() {
+                ui.label(format!("Candidate {} ", i));
+                ui.label(block);
+                ui.end_row();
+            }
+        });
     });
 }
 
@@ -76,4 +123,11 @@ pub(crate) struct ElectionDetailsViewModel {
     pub non_final_tally: String,
     pub final_tally: String,
     pub root: String,
+    pub behavior: &'static str,
+    pub account: String,
+    pub state: &'static str,
+    pub candidate_blocks: Vec<String>,
+    pub vote_count: String,
+    pub phase: &'static str,
+    pub elapsed: String,
 }
