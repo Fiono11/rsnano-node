@@ -413,6 +413,10 @@ impl Bootstrapper {
     pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {
         self.frontier_scan.snapshot()
     }
+
+    pub fn is_bootstrapping(&self) -> bool {
+        self.ledger.rep_weights.use_bootstrap_weights()
+    }
 }
 
 impl Drop for Bootstrapper {

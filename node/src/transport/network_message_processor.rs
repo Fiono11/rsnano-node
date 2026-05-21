@@ -120,11 +120,17 @@ impl NetworkMessageProcessor {
 
                     trace!(block_hash = ?publish.block.hash(), channel_id = ?channel.channel_id(), "Received publish");
 
-                    ok = self.block_processor_queue.push(BlockContext::new(
-                        publish.block,
-                        source,
-                        channel.channel_id(),
-                    ));
+                    if self.bootstrapper.is_bootstrapping() {
+                        // We ignore live blocks during bootstrap, so that those live blocks won't
+                        // fill up the bootstrap queue
+                        ok = false;
+                    } else {
+                        ok = self.block_processor_queue.push(BlockContext::new(
+                            publish.block,
+                            source,
+                            channel.channel_id(),
+                        ));
+                    }
                 }
 
                 if !ok {
