@@ -1,5 +1,5 @@
 [package]
-name = "rsnano_node_main"
+name = "rsnano_cli"
 version = "0.1.0"
 authors = ["Gustav Schauwecker <service@simpago.com>"]
 edition = "2024"
@@ -13,15 +13,6 @@ banano = [
 	"rsnano_node/banano",
 	"rsnano_daemon/banano",
 ]
-
-[[bin]]
-name = "rsnano_node"
-path = "src/bin.rs"
-
-[[bin]]
-name = "rsban_node"
-path = "src/bin.rs"
-required-features = ["banano"]
 
 [dependencies]
 rsnano_types = { path = "../types" }

@@ -4078,6 +4078,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsban"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rsnano_cli",
+]
+
+[[package]]
+name = "rsnano"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rsnano_cli",
+]
+
+[[package]]
 name = "rsnano-insight"
 version = "0.1.0"
 dependencies = [
@@ -4101,6 +4117,34 @@ dependencies = [
  "serde_json",
  "strum",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rsnano_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "rand 0.9.2",
+ "rsnano_daemon",
+ "rsnano_ledger",
+ "rsnano_messages",
+ "rsnano_node",
+ "rsnano_nullable_console",
+ "rsnano_nullable_fs",
+ "rsnano_nullable_lmdb",
+ "rsnano_nullable_tracing_subscriber",
+ "rsnano_rpc_server",
+ "rsnano_store_lmdb",
+ "rsnano_types",
+ "rsnano_utils",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tokio",
+ "toml",
  "tracing",
 ]
 
@@ -4268,34 +4312,6 @@ dependencies = [
  "tracing",
  "tracing-test",
  "uuid",
-]
-
-[[package]]
-name = "rsnano_node_main"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "clap",
- "rand 0.9.2",
- "rsnano_daemon",
- "rsnano_ledger",
- "rsnano_messages",
- "rsnano_node",
- "rsnano_nullable_console",
- "rsnano_nullable_fs",
- "rsnano_nullable_lmdb",
- "rsnano_nullable_tracing_subscriber",
- "rsnano_rpc_server",
- "rsnano_store_lmdb",
- "rsnano_types",
- "rsnano_utils",
- "serde",
- "serde_derive",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
 ]
 
 [[package]]

@@ -1,0 +1,14 @@
+[package]
+name = "rsban"
+version = "0.1.0"
+authors = ["Gustav Schauwecker <service@simpago.com>"]
+edition = "2024"
+
+[features]
+default = ["banano"]
+ledger_snapshots = ["rsnano_cli/ledger_snapshots"]
+banano = [ "rsnano_cli/banano" ]
+
+[dependencies]
+rsnano_cli = { path = "../cli" }
+anyhow = "1.0.100"
