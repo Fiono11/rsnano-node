@@ -6,13 +6,16 @@ mod download_queue;
 mod downloading;
 mod logic;
 mod priority;
+mod pull_type;
 mod stats;
 
 pub use account_priority_tracker::{PriorityDownResult, PriorityUpResult};
 pub use logic::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
+    DownloadTarget,
 };
 pub use priority::Priority;
+pub use pull_type::PullType;
 
 use logic::BootstrapQueueLogic;
 
@@ -57,11 +60,21 @@ impl BootstrapQueue {
     }
 
     pub fn insert(&self, account: Account) -> bool {
+        self.insert_pull_type(account, PullType::Optimistic)
+    }
+
+    /// Inserts an account or updates the already inserted account to
+    /// use the safe pull strategy
+    pub fn insert_safe(&self, account: Account) -> bool {
+        self.insert_pull_type(account, PullType::Safe)
+    }
+
+    fn insert_pull_type(&self, account: Account, pull_type: PullType) -> bool {
         let inserted;
         let mut trim_count = TrimCount::default();
         {
             let mut logic = self.logic.lock().unwrap();
-            inserted = logic.insert(account, Priority::INITIAL);
+            inserted = logic.insert_pull_type(account, Priority::INITIAL, pull_type);
             if inserted {
                 trim_count = logic.trim_overflow();
             }
@@ -180,7 +193,7 @@ impl BootstrapQueue {
         }
     }
 
-    pub fn next_download_target(&self) -> Option<(Account, Priority)> {
+    pub fn next_download_target(&self) -> Option<DownloadTarget> {
         self.logic.lock().unwrap().next_download_target()
     }
 

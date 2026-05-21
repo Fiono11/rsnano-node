@@ -104,7 +104,6 @@ pub struct BootstrapConfig {
     /** Minimum accepted protocol version used when bootstrapping */
     pub min_protocol_version: u8,
     pub max_requests: usize,
-    pub optimistic_request_percentage: u8,
     pub bootstrap_queue: BootstrapQueueConfig,
     pub frontier_scan: FrontierScanConfig,
     pub inspect_live_traffic: bool,
@@ -128,7 +127,6 @@ impl Default for BootstrapConfig {
             throttle_wait: Duration::from_millis(100),
             min_protocol_version: 0x14, // TODO don't hard code
             max_requests: 1024,
-            optimistic_request_percentage: 75,
             bootstrap_queue: Default::default(),
             frontier_scan: Default::default(),
             inspect_live_traffic: true,
@@ -292,9 +290,9 @@ impl Bootstrapper {
         self.stopped.notify_all();
     }
 
-    pub fn enqueue_batch(&self, accounts: impl IntoIterator<Item = Account>) {
+    pub fn enqueue_safe(&self, accounts: impl IntoIterator<Item = Account>) {
         for account in accounts {
-            self.bootstrap_queue.insert(account);
+            self.bootstrap_queue.insert_safe(account);
         }
         // TODO don't use this hack to wake up the requester
         self.stopped.notify_all();

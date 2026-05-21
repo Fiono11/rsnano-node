@@ -10,11 +10,11 @@ use rsnano_types::{Account, BlockHash, HashOrAccount};
 
 use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
-    bootstrap_queue::BootstrapQueue,
+    bootstrap_queue::{BootstrapQueue, PullType},
     frontier_scan::FrontierScan,
     peer_scoring::PeerScoring,
     query_tracker::QueryTracker,
-    requesters::{PullCountDecider, PullType, PullTypeDecider, stats::BootstrapRequesterStats},
+    requesters::{PullCountDecider, stats::BootstrapRequesterStats},
 };
 
 pub(crate) struct QueryFactory {
@@ -27,7 +27,6 @@ pub(crate) struct QueryFactory {
     peer_scoring: Arc<PeerScoring>,
     rng_factory: NullableRngFactory,
     frontiers_limiter: TokenBucket,
-    pull_type_decider: PullTypeDecider,
     pull_count_decider: PullCountDecider,
     ledger: Arc<Ledger>,
     frontier_scan: Arc<FrontierScan>,
@@ -44,7 +43,6 @@ impl QueryFactory {
         query_tracker: Arc<QueryTracker>,
         peer_scoring: Arc<PeerScoring>,
     ) -> Self {
-        let pull_type_decider = PullTypeDecider::new(config.optimistic_request_percentage);
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
         let limiter = TokenBucket::new(config.rate_limit);
         Self {
@@ -58,7 +56,6 @@ impl QueryFactory {
             frontiers_limiter: TokenBucket::new(config.frontier_rate_limit),
             config,
             pull_count_decider,
-            pull_type_decider,
             ledger,
             frontier_scan,
         }
@@ -88,18 +85,17 @@ impl QueryFactory {
             self.stats.rate_limit.fetch_add(1, Relaxed);
             return None;
         }
-        let Some((next_account, next_prio)) = self.bootstrap_queue.next_download_target() else {
+        let Some(target) = self.bootstrap_queue.next_download_target() else {
             self.stats.wait_next_download.fetch_add(1, Relaxed);
             return None;
         };
 
-        let (head, confirmed_frontier) = self.get_account_info(&next_account);
-        let pull_type = self.pull_type_decider.decide_pull_type();
-        let pull_start = PullStart::new(pull_type, next_account, head, confirmed_frontier);
+        let (head, confirmed_frontier) = self.get_account_info(&target.account);
+        let pull_start = PullStart::new(target.pull_type, target.account, head, confirmed_frontier);
         let req_type = AscPullReqType::Blocks(BlocksReqPayload {
             start_type: pull_start.start_type,
             start: pull_start.start,
-            count: self.pull_count_decider.pull_count(next_prio),
+            count: self.pull_count_decider.pull_count(target.priority),
         });
 
         let channel = self.acquire_channel()?;
@@ -110,13 +106,13 @@ impl QueryFactory {
             channel: channel,
             req_type,
             hash: pull_start.hash,
-            account: next_account,
+            account: target.account,
         };
-        tracing::trace!(query_id, ?pull_type, "Created pull query spec");
+        tracing::trace!(query_id, pull_type = ?target.pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1);
         self.peer_scoring.request_sent(channel_id);
-        self.bootstrap_queue.download_started(&next_account);
+        self.bootstrap_queue.download_started(&target.account);
 
         Some(query)
     }

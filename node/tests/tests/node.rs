@@ -304,6 +304,9 @@ fn bootstrap_fork_open() {
     node_config.enable_hinted_scheduler = false;
     node_config.enable_optimistic_scheduler = false;
 
+    // Force immediate safe pulls of stale elections
+    node_config.bootstrap_stale_threshold = Duration::from_secs(0);
+
     let node0 = system.build_node().config(node_config.clone()).finish();
     node_config.network.listening_port = get_available_port();
     let node1 = system.build_node().config(node_config).finish();
@@ -427,6 +430,8 @@ fn fork_bootstrap_flip() {
     let mut config2 = System::default_config();
     // Reduce cooldown to speed up fork resolution
     config2.bootstrap.bootstrap_queue.account_cooldown = Duration::from_millis(100);
+    // Force immediate safe pulls of stale elections
+    config2.bootstrap_stale_threshold = Duration::from_secs(0);
     let node2 = system.build_node().config(config2).disconnected().finish();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();

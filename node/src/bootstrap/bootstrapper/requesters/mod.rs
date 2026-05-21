@@ -1,12 +1,10 @@
 mod pull_count_decider;
-mod pull_type_decider;
 mod query_factory;
 mod query_sender;
 mod requester_loop;
 mod stats;
 
 pub(crate) use pull_count_decider::PullCountDecider;
-pub(crate) use pull_type_decider::{PullType, PullTypeDecider};
 
 use std::{
     sync::{Arc, Mutex, RwLock},

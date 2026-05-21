@@ -87,7 +87,6 @@ pub struct BootstrapToml {
     pub throttle_wait: Option<u64>,
     pub request_timeout: Option<u64>,
     pub max_requests: Option<usize>,
-    pub optimistic_request_percentage: Option<u8>,
     pub account_sets: Option<AccountSetsToml>,
     pub frontier_scan: Option<FrontierScanToml>,
     pub inspect_live_traffic: Option<bool>,
@@ -337,9 +336,6 @@ impl NodeConfig {
             if let Some(max) = boot_toml.max_requests {
                 config.max_requests = max;
             }
-            if let Some(percent) = boot_toml.optimistic_request_percentage {
-                config.optimistic_request_percentage = percent;
-            }
             if let Some(inspect) = boot_toml.inspect_live_traffic {
                 config.inspect_live_traffic = inspect;
             }
@@ -583,7 +579,6 @@ impl From<&NodeConfig> for NodeToml {
                 ),
                 max_requests: Some(config.bootstrap.max_requests),
                 inspect_live_traffic: Some(config.bootstrap.inspect_live_traffic),
-                optimistic_request_percentage: Some(config.bootstrap.optimistic_request_percentage),
                 account_sets: Some(AccountSetsToml {
                     priorities_max: Some(config.bootstrap.bootstrap_queue.max_unblocked_accounts),
                     blocking_max: Some(config.bootstrap.bootstrap_queue.max_blocked_accounts),
@@ -669,7 +664,6 @@ mod tests {
             request_timeout: Some(106),
             max_requests: Some(107),
             inspect_live_traffic: Some(true),
-            optimistic_request_percentage: Some(42),
             database_warmup_ratio: Some(108),
             account_sets: Some(sets_toml),
             frontier_scan: None,
@@ -698,7 +692,6 @@ mod tests {
         assert_eq!(ascending.throttle_wait, Duration::from_millis(105));
         assert_eq!(ascending.request_timeout, Duration::from_millis(106));
         assert_eq!(ascending.max_requests, 107);
-        assert_eq!(ascending.optimistic_request_percentage, 42);
         assert_eq!(ascending.database_warmup_ratio, 108);
 
         let sets = &cfg.bootstrap.bootstrap_queue;
@@ -726,7 +719,6 @@ mod tests {
         assert_eq!(ascending_toml.throttle_wait, Some(100));
         assert_eq!(ascending_toml.request_timeout, Some(15000));
         assert_eq!(ascending_toml.max_requests, Some(1024));
-        assert_eq!(ascending_toml.optimistic_request_percentage, Some(75));
 
         let sets_toml = ascending_toml.account_sets.as_ref().unwrap();
         assert_eq!(sets_toml.consideration_count, Some(4));

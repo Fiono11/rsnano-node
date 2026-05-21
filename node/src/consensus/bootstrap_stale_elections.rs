@@ -51,18 +51,12 @@ impl BootstrapStaleElections {
             .bootstrap_stale
             .fetch_add(self.stale_accounts.len() as u64, Ordering::Relaxed);
         self.bootstrapper
-            .enqueue_batch(self.stale_accounts.drain(..));
+            .enqueue_safe(self.stale_accounts.drain(..));
     }
 }
 
 impl AecTickerPlugin for BootstrapStaleElections {
-    #[allow(unreachable_code)]
-    #[allow(unused)]
     fn run(&mut self, aec: &AecService) {
-        // The implemenation is bad, because it causes reinsertions of stale elections on every AEC tick!
-        // That's why it is disabled right now until there is a better implemenation.
-        return;
-
         let now = self.clock.now();
 
         let is_stale = |election: &&Election| election.start().elapsed(now) >= self.stale_threshold;
@@ -119,7 +113,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Ignored because this feature is currently disabled"]
     fn bootstrap_stale_election() {
         let bootstrapper = Arc::new(Bootstrapper::new_null());
         let clock = Arc::new(SteadyClock::new_null());

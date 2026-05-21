@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, time::Duration};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::{
-    Priority, PriorityDownResult, PriorityUpResult,
+    Priority, PriorityDownResult, PriorityUpResult, PullType,
     account_priority_tracker::AccountPriorityTracker,
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
@@ -42,6 +42,13 @@ pub struct BootstrappingAccountInfo {
     pub priority: Priority,
     pub dependency_block: BlockHash,
     pub dependency_account: Account,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DownloadTarget {
+    pub account: Account,
+    pub priority: Priority,
+    pub pull_type: PullType,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -88,6 +95,7 @@ pub(crate) struct BootstrapQueueLogic {
     downloading: DownloadingAccounts,
     block_processing: BlockHandoffQueue,
     blocked: BlockedAccounts,
+    safe_accounts: FxHashSet<Account>,
     revision: u64,
     discarded_blocks: usize,
 }
@@ -104,6 +112,7 @@ impl BootstrapQueueLogic {
             blocked: Default::default(),
             downloading: Default::default(),
             block_processing: Default::default(),
+            safe_accounts: Default::default(),
             revision: 0,
             discarded_blocks: 0,
         }
@@ -115,6 +124,27 @@ impl BootstrapQueueLogic {
             true
         } else {
             false
+        }
+    }
+
+    pub fn insert_pull_type(
+        &mut self,
+        account: Account,
+        priority: Priority,
+        pull_type: PullType,
+    ) -> bool {
+        let inserted = self.insert(account, priority);
+        if pull_type == PullType::Safe && self.priorities.contains(&account) {
+            self.safe_accounts.insert(account);
+        }
+        inserted
+    }
+
+    pub fn pull_type(&self, account: &Account) -> PullType {
+        if self.safe_accounts.contains(account) {
+            PullType::Safe
+        } else {
+            PullType::Optimistic
         }
     }
 
@@ -152,6 +182,7 @@ impl BootstrapQueueLogic {
             self.fails.remove(&account);
             self.download_queue.remove(&account);
             self.downloading.remove(&account);
+            self.safe_accounts.remove(&account);
             to_remove.extend(self.blocked.remove_account_and_dependents(&account));
             let discarded = self.block_processing.remove(&account);
             self.discarded_blocks += discarded;
@@ -260,11 +291,18 @@ impl BootstrapQueueLogic {
             && self.unblocked_count() > self.config.max_unblocked_accounts
     }
 
-    pub fn next_download_target(&self) -> Option<(Account, Priority)> {
+    pub fn next_download_target(&self) -> Option<DownloadTarget> {
         if self.block_processing.ready_to_process_len() > self.config.max_ready_to_process {
             return None;
         }
-        self.download_queue.iter().next().map(|(p, a)| (*a, p))
+        self.download_queue
+            .iter()
+            .next()
+            .map(|(priority, account)| DownloadTarget {
+                account: *account,
+                priority,
+                pull_type: self.pull_type(account),
+            })
     }
 
     pub fn take_next_block_for_processing(&mut self) -> Option<Block> {
@@ -292,6 +330,8 @@ impl BootstrapQueueLogic {
         if !self.downloading.remove(account) {
             return false;
         }
+
+        self.safe_accounts.remove(account);
 
         let fails = if should_cool_down {
             let fails = self.fails.entry(*account).or_default();
@@ -557,6 +597,7 @@ impl BootstrapQueueLogic {
             .leaf("blocked_unknown", blocked_unknown, 0)
             .leaf("unblocked", self.unblocked_count(), 0)
             .leaf("downloading", self.downloading.len(), 0)
+            .leaf("optimistic", self.safe_accounts.len(), 0)
             .leaf("fails", self.fails.len(), 0)
             .node("processing", self.block_processing.container_info())
             .node("priorities", self.priorities.container_info())
@@ -780,6 +821,72 @@ mod tests {
     }
 
     /*
+     * Insert optimistic
+     */
+
+    #[test]
+    fn insert_safe_inserts_new_account() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+
+        let inserted = queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+
+        assert!(inserted);
+        let target = queue.next_download_target().unwrap();
+        assert_eq!(target.account, account);
+        assert_eq!(target.pull_type, PullType::Safe);
+    }
+
+    #[test]
+    fn insert_safe_promotes_existing_account() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.insert(account, Priority::INITIAL);
+        assert_eq!(queue.pull_type(&account), PullType::Optimistic);
+
+        let inserted = queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+
+        assert!(!inserted);
+        assert_eq!(queue.pull_type(&account), PullType::Safe);
+    }
+
+    #[test]
+    fn download_finished_resets_pull_type_to_optimistic() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+        let now = Timestamp::new_test_instance();
+        queue.download_started(&account, now);
+
+        queue.download_finished(&account, VecDeque::new(), false);
+
+        assert_eq!(queue.pull_type(&account), PullType::Optimistic);
+    }
+
+    #[test]
+    fn download_finished_no_op_does_not_reset_flag() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+
+        let finished = queue.download_finished(&account, VecDeque::new(), false);
+
+        assert!(!finished);
+        assert_eq!(queue.pull_type(&account), PullType::Safe);
+    }
+
+    #[test]
+    fn remove_clears_pull_type() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+
+        queue.remove(&account);
+
+        assert_eq!(queue.pull_type(&account), PullType::Optimistic);
+    }
+
+    /*
      * Misc
      */
 
@@ -808,9 +915,10 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         queue.insert(account, Priority::INITIAL);
-        let (next_account, next_prio) = queue.next_download_target().unwrap();
-        assert_eq!(next_account, account);
-        assert_eq!(next_prio, Priority::INITIAL);
+        let target = queue.next_download_target().unwrap();
+        assert_eq!(target.account, account);
+        assert_eq!(target.priority, Priority::INITIAL);
+        assert_eq!(target.pull_type, PullType::Optimistic);
     }
 
     #[test]
