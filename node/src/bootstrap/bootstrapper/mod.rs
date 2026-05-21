@@ -1,8 +1,8 @@
 pub mod query_tracker;
 
-mod block_inspector;
 mod bootstrap_queue;
 mod frontier_scan;
+mod ledger_observer;
 mod peer_scoring;
 mod requesters;
 mod response_processor;
@@ -39,10 +39,10 @@ use crate::{
     transport::MessageSender,
 };
 
-use block_inspector::LedgerObserver;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
 use frontier_scan::FrontierScan;
+use ledger_observer::LedgerObserver;
 use peer_scoring::PeerScoring;
 use query_tracker::{ProcessError, QueryTracker, QueryType};
 use requesters::Requesters;
