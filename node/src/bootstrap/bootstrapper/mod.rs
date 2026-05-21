@@ -39,7 +39,7 @@ use crate::{
     transport::MessageSender,
 };
 
-use block_inspector::BlockInspector;
+use block_inspector::LedgerObserver;
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
 use frontier_scan::FrontierScan;
@@ -145,7 +145,7 @@ pub struct Bootstrapper {
     config: BootstrapConfig,
     clock: Arc<SteadyClock>,
     response_handler: ResponseProcessor,
-    block_inspector: BlockInspector,
+    ledger_observer: LedgerObserver,
     requesters: Requesters,
     ledger: Arc<Ledger>,
     frontier_scan: Arc<FrontierScan>,
@@ -233,13 +233,13 @@ impl Bootstrapper {
             frontier_scan.clone(),
         );
 
-        let mut block_inspector = BlockInspector::new(
+        let mut ledger_observer = LedgerObserver::new(
             bootstrap_queue.clone(),
             ledger.clone(),
             block_processor_queue,
         );
 
-        block_inspector.inspect_live_traffic = config.inspect_live_traffic;
+        ledger_observer.inspect_live_traffic = config.inspect_live_traffic;
 
         let requesters = Requesters::new(
             config.clone(),
@@ -261,7 +261,7 @@ impl Bootstrapper {
             stats,
             clock,
             response_handler,
-            block_inspector,
+            ledger_observer,
             requesters,
             ledger,
             bootstrap_queue,
@@ -368,7 +368,7 @@ impl Bootstrapper {
     }
 
     fn inspect_blocks(&self, batch: &[ProcessResult]) {
-        self.block_inspector.inspect(batch);
+        self.ledger_observer.inspect(batch);
 
         // TODO don't use this hack to wake up the requester
         self.stopped.notify_all();

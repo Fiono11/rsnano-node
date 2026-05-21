@@ -9,15 +9,15 @@ use crate::{
     bootstrap::bootstrapper::bootstrap_queue::BootstrapQueue,
 };
 
-/// Inspects a processed block and adjusts the bootstrap state accordingly
-pub(super) struct BlockInspector {
+/// Inspects results from the block processor and adjusts the bootstrap state accordingly
+pub(super) struct LedgerObserver {
     bootstrap_queue: Arc<BootstrapQueue>,
     ledger: Arc<Ledger>,
     block_processor_queue: Arc<BlockProcessorQueue>,
     pub inspect_live_traffic: bool,
 }
 
-impl BlockInspector {
+impl LedgerObserver {
     pub(super) fn new(
         bootstrap_queue: Arc<BootstrapQueue>,
         ledger: Arc<Ledger>,
@@ -34,7 +34,7 @@ impl BlockInspector {
     pub fn inspect(&self, batch: &[ProcessResult]) {
         let any = self.ledger.any();
         for result in batch {
-            self.inspect_block(result, &any);
+            self.inspect_result(result, &any);
         }
         self.enqueue_next_blocks();
     }
@@ -62,7 +62,7 @@ impl BlockInspector {
     /// Inspects a block that has been processed by the block processor
     /// - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
     /// - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
-    fn inspect_block(&self, result: &ProcessResult, any: &dyn AnySet) {
+    fn inspect_result(&self, result: &ProcessResult, any: &dyn AnySet) {
         let hash = result.block.hash();
 
         match &result.status {
