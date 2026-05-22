@@ -1,8 +1,8 @@
-FROM ubuntu:22.04 as builder
+FROM alpine:3.23 as builder
 
 # Install build dependencies
 COPY ./tools/scripts/ci/prepare/linux /tmp/prepare
-RUN /tmp/prepare/prepare.sh
+RUN /tmp/prepare/prepare-alpine.sh
 
 COPY ./ /tmp/src
 WORKDIR /tmp/src
@@ -11,15 +11,12 @@ WORKDIR /tmp/src
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN cargo build --release --bin rsnano
 
-# Nun node
-FROM ubuntu:22.04
+# Run node
+FROM alpine:3.23
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gosu && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk update && apk add --no-cache gosu
 
-RUN groupadd --gid 1000 nanocurrency && \
-    useradd --uid 1000 --gid nanocurrency --shell /bin/bash --create-home nanocurrency
+RUN adduser -D nanocurrency nanocurrency
 
 COPY --from=builder /tmp/src/target/release/rsnano /usr/bin
 
