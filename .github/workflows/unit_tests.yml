@@ -19,6 +19,11 @@ jobs:
       - name: Prepare
         run: tools/scripts/ci/prepare/macos/prepare.sh
 
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-tests
+
       - name: Build Tests
         id: build
         run: cargo build --all-targets
@@ -42,6 +47,11 @@ jobs:
 
       - name: Prepare
         run: sudo -E tools/scripts/ci/prepare/linux/prepare.sh
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-tests
 
       - name: Build Tests
         id: build

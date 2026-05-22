@@ -13,6 +13,10 @@ jobs:
         run: rustup update stable
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
       - name: Generate code coverage
         run: cargo llvm-cov --lib --workspace --lcov --output-path lcov.info
       - name: Upload coverage to Codecov
