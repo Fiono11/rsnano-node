@@ -4,7 +4,7 @@ use egui_extras::{Size, StripBuilder};
 use rsnano_node::bootstrap::bootstrapper::BootstrappingAccountInfo;
 use rsnano_types::Account;
 
-use crate::app::InsightApp;
+use crate::insight::app::InsightApp;
 
 use super::main_view::truncate_text;
 

@@ -1,7 +1,7 @@
 use eframe::egui::{Grid, ScrollArea, Ui};
 use rsnano_network::ChannelDirection;
 
-use crate::message_collection::RecordedMessage;
+use crate::insight::message_collection::RecordedMessage;
 
 pub(crate) struct MessageView<'a> {
     model: &'a MessageViewModel,

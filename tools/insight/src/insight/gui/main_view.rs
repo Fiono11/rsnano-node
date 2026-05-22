@@ -2,6 +2,9 @@ use eframe::egui::{
     self, CentralPanel, TopBottomPanel, global_theme_preference_switch, warn_if_debug_build,
 };
 
+use rsnano_node::consensus::BucketSnapshot;
+use rsnano_types::Amount;
+
 use super::{
     BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
@@ -10,7 +13,7 @@ use super::{
     formatted_number, view_frontier_scan, view_ledger_stats, view_message_recorder_controls,
     view_message_tab, view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
-use crate::{
+use crate::insight::{
     app::InsightApp,
     explorer::ExplorerState,
     gui::{
@@ -22,8 +25,6 @@ use crate::{
     },
     navigator::NavItem,
 };
-use rsnano_node::consensus::BucketSnapshot;
-use rsnano_types::Amount;
 
 pub(crate) struct MainView {
     model: MainViewModel,

@@ -1,6 +1,6 @@
 use eframe::egui::{TextEdit, Ui};
 
-use crate::app::InsightApp;
+use crate::insight::app::InsightApp;
 
 pub(crate) fn view_search_bar(ui: &mut Ui, input: &mut String, app: &mut InsightApp) {
     let response = ui.add(

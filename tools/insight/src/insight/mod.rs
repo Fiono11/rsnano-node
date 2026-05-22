@@ -17,7 +17,7 @@ use eframe::egui;
 use gui::MainView;
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 
-fn main() -> eframe::Result {
+pub(crate) fn run_insight_app(app_name: &'static str) -> eframe::Result {
     TracingInitializer::default().init();
 
     let options = eframe::NativeOptions {
@@ -25,7 +25,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "RsNano Insight",
+        app_name,
         options,
         Box::new(|_| Ok(Box::new(MainView::new()))),
     )

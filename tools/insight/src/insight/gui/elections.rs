@@ -1,7 +1,9 @@
-use crate::app::InsightApp;
 use eframe::egui::{self, CentralPanel, FontId, Grid, RichText, Ui};
 use egui_extras::{Size, StripBuilder};
+
 use rsnano_types::QualifiedRoot;
+
+use crate::insight::app::InsightApp;
 
 pub(crate) fn view_elections(ctx: &egui::Context, model: ElectionsViewModel, app: &mut InsightApp) {
     CentralPanel::default().show(ctx, |ui| {

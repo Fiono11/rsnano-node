@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, TimeZone, Utc};
+
 use rsnano_messages::{AscPullAckType, AscPullReqType, HashType, Message, MessageType};
 use rsnano_network::{ChannelDirection, ChannelId};
 use rsnano_types::{Account, BlockHash};
-use std::collections::HashMap;
 
 #[derive(Clone)]
 pub(crate) struct RecordedMessage {

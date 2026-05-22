@@ -5,7 +5,7 @@ use std::sync::{
 
 use rsnano_nullable_clock::Timestamp;
 
-use crate::{
+use crate::insight::{
     message_collection::{MessageCollection, RecordedMessage},
     message_rate_calculator::{MessageRates, MessageRatesCalculator},
 };

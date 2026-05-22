@@ -4,7 +4,7 @@ use eframe::egui::Ui;
 use egui_extras::{Size, StripBuilder};
 use num_format::{Locale, ToFormattedString};
 
-use crate::message_recorder::MessageRecorder;
+use crate::insight::message_recorder::MessageRecorder;
 
 pub(crate) struct MessageStatsView<'a>(MessageStatsViewModel<'a>);
 

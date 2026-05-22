@@ -1,6 +1,7 @@
-use crate::node_runner::NodeRunner;
 use eframe::egui::{Button, RadioButton, TextEdit, Ui};
 use rsnano_types::NetworkType;
+
+use crate::insight::node_runner::NodeRunner;
 
 pub(crate) fn view_node_runner(ui: &mut Ui, runner: &mut NodeRunner) {
     NodeRunnerView::new(runner).show(ui);

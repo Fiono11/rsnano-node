@@ -1,8 +1,9 @@
 use eframe::egui::{self, CentralPanel, ProgressBar, ScrollArea};
 use egui_extras::{Size, StripBuilder};
+
 use rsnano_types::Account;
 
-use crate::{app::InsightApp, frontier_scan::FrontierScanInfo};
+use crate::insight::{app::InsightApp, frontier_scan::FrontierScanInfo};
 
 use super::formatted_number;
 

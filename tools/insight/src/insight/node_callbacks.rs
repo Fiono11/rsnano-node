@@ -5,7 +5,7 @@ use rsnano_network::ChannelDirection;
 use rsnano_node::NodeCallbacks;
 use rsnano_nullable_clock::SteadyClock;
 
-use crate::{message_collection::RecordedMessage, message_recorder::MessageRecorder};
+use crate::insight::{message_collection::RecordedMessage, message_recorder::MessageRecorder};
 
 pub(crate) struct NodeCallbackFactory {
     recorder: Arc<MessageRecorder>,

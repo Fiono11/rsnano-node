@@ -1,6 +1,6 @@
 use eframe::egui::Ui;
 
-use crate::navigator::{NavItem, Navigator};
+use crate::insight::navigator::{NavItem, Navigator};
 
 pub(crate) fn view_tabs(ui: &mut Ui, tabs: &[TabViewModel], navigator: &mut Navigator) {
     ui.horizontal(|ui| {

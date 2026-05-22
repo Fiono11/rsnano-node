@@ -1,5 +1,6 @@
-use crate::message_recorder::MessageRecorder;
 use eframe::egui::Ui;
+
+use crate::insight::message_recorder::MessageRecorder;
 
 pub(crate) fn view_message_recorder_controls(ui: &mut Ui, recorder: &MessageRecorder) {
     MessageRecorderControlsView::new(recorder).view(ui);

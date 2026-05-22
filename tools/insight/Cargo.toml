@@ -18,11 +18,11 @@ banano = [
 
 [[bin]]
 name = "rsnano-insight"
-path = "src/main.rs"
+path = "src/main_nano.rs"
 
 [[bin]]
 name = "rsban-insight"
-path = "src/main.rs"
+path = "src/main_banano.rs"
 required-features = ["banano"]
 
 [dependencies]

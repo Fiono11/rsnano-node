@@ -1,7 +1,7 @@
 use eframe::egui::{self, CentralPanel, Grid, TextEdit};
 use rsnano_types::DetailedBlock;
 
-use crate::app::InsightApp;
+use crate::insight::app::InsightApp;
 
 pub(crate) struct ExplorerView<'a> {
     model: &'a BlockViewModel,

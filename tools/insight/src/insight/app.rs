@@ -12,7 +12,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, BlockHash, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
 
-use crate::{
+use crate::insight::{
     bootstrap::BootstrapInfo,
     channels::Channels,
     explorer::Explorer,

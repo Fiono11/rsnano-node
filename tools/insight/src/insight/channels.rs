@@ -1,4 +1,4 @@
-use crate::message_collection::MessageCollection;
+use crate::insight::message_collection::MessageCollection;
 use rsnano_messages::TelemetryData;
 use rsnano_network::{Channel, ChannelDirection, ChannelId};
 use rsnano_node::representatives::PeeredRepInfo;
@@ -154,7 +154,7 @@ impl Channels {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message_collection::{MessageCollection, MessageFilter};
+    use crate::insight::message_collection::{MessageCollection, MessageFilter};
     use std::{collections::HashMap, sync::RwLock};
 
     #[test]

@@ -1,8 +1,3 @@
-use num::FromPrimitive;
-use num_derive::FromPrimitive;
-use rsnano_daemon::DaemonBuilder;
-use rsnano_node::{Node, working_path_for};
-use rsnano_types::NetworkType;
 use std::{
     path::PathBuf,
     sync::{
@@ -10,9 +5,16 @@ use std::{
         atomic::{AtomicU8, Ordering},
     },
 };
+
+use num::FromPrimitive;
+use num_derive::FromPrimitive;
 use tracing::error;
 
-use crate::node_callbacks::NodeCallbackFactory;
+use rsnano_daemon::DaemonBuilder;
+use rsnano_node::{Node, working_path_for};
+use rsnano_types::NetworkType;
+
+use crate::insight::node_callbacks::NodeCallbackFactory;
 
 #[derive(FromPrimitive, PartialEq, Eq, Debug)]
 pub enum NodeState {

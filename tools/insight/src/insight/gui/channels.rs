@@ -1,10 +1,11 @@
 use eframe::egui::{Align, Label, Layout, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
+
+use rsnano_messages::TelemetryData;
 use rsnano_network::ChannelDirection;
 
 use super::{formatted_number, view_rep_state};
-use crate::channels::{Channels, RepState};
-use rsnano_messages::TelemetryData;
+use crate::insight::channels::{Channels, RepState};
 
 pub(crate) struct ChannelsView<'a> {
     model: ChannelsViewModel<'a>,
