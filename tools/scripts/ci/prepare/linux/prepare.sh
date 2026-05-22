@@ -1,10 +1,6 @@
 #!/bin/bash
 set -euox pipefail
 
-COMPILER=${COMPILER:-gcc}
-
-echo "Compiler: '${COMPILER}'"
-
 # Common dependencies needed for building & testing
 DEBIAN_FRONTEND=noninteractive apt-get update -qq
 

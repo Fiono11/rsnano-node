@@ -27,13 +27,13 @@ network, this makes Nano ideal for everyday transactions.
 
 ## Option 1: Run the official docker image
 
-    docker run -p 7075:7075 -v ~/Nano:/root/Nano simpago/rsnano:V2.0 --network=live node run
+    docker run -p 7075:7075 -v ~/Nano:/root/Nano simpago/rsnano:V2.0 node run
 
 ## Option 2: Build your own docker image
 
-    docker build -f tools/scripts/docker/node/Dockerfile -t rsnano-node https://github.com/simpago/rsnano-node.git#releases/v2
+    docker build -f tools/scripts/docker/node/Dockerfile -t rsnano https://github.com/simpago/rsnano-node.git#develop
 
-    docker run -p 7075:7075 -v ~/Nano:/root/Nano rsnano-node:latest --network=live node run
+    docker run -p 7075:7075 -v ~/Nano:/home/nanocurrency/Nano rsnano:latest node run
 
 ## Option 3: Build from source
 
@@ -43,7 +43,7 @@ To just build and run the rsnano_node:
 
     git clone https://github.com/simpago/rsnano-node.git
     cd rsnano-node
-    cargo run --release --bin rsnano -- --network=live node run
+    cargo run --release --bin rsnano -- node run
 
 To install and run the rsnano_node executable:
 
