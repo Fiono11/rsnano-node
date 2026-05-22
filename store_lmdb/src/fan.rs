@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use rsnano_types::RawKey;
 
 /// The fan spreads a key out over the heap to decrease the likelihood of it being recovered by memory inspection

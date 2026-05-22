@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::Rng;
+use rand::RngExt;
 
 use rsnano_messages::Cookie;
 use rsnano_types::{Account, Signature};

@@ -9,7 +9,7 @@ use blake2::{
     Blake2bVar,
     digest::{Update, VariableOutput},
 };
-use rand::Rng;
+use rand::RngExt;
 
 pub(crate) use backpressure_event_processor::{
     BackpressureEventProcessor, spawn_backpressure_processor,

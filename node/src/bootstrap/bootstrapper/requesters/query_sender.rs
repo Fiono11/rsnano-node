@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use rand::RngCore;
+use rand::Rng;
 
 use rsnano_messages::{AscPullReq, Message};
 use rsnano_network::TrafficType;

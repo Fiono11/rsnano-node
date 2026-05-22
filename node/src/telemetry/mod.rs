@@ -311,7 +311,7 @@ const NODE_NAME: &str = "RsBan";
 pub fn rsnano_version_string() -> String {
     let version = &build_info().crate_info.version;
     if version.pre.is_empty() {
-        { format!("{} V{}.{}", NODE_NAME, version.major, version.minor) }
+        format!("{} V{}.{}", NODE_NAME, version.major, version.minor)
     } else {
         format!(
             "{} V{}.{}-{}",

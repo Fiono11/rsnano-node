@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use siphasher::{prelude::*, sip128::SipHasher};
 use std::sync::{
     Mutex, MutexGuard,

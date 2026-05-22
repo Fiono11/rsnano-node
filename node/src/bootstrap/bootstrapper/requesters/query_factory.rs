@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, atomic::Ordering::Relaxed};
 
-use rand::RngCore;
+use rand::Rng;
 
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};

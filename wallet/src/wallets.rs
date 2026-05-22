@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex, mpsc},
 };
 
-use rand::{Rng, seq::IndexedRandom};
+use rand::{RngExt, seq::IndexedRandom};
 use tracing::{debug, info, warn};
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};

@@ -1,4 +1,6 @@
-use rand::{CryptoRng, RngCore, rng};
+use std::convert::Infallible;
+
+use rand::{Rng, TryCryptoRng, TryRng, rng};
 
 pub struct NullableRng {
     strategy: RngStrategy,
@@ -28,26 +30,29 @@ impl NullableRng {
     }
 }
 
-impl RngCore for NullableRng {
-    fn next_u32(&mut self) -> u32 {
-        match &mut self.strategy {
+impl TryRng for NullableRng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(match &mut self.strategy {
             RngStrategy::Thread => rng().next_u32(),
             RngStrategy::Nulled(i) => i.next_u32(),
-        }
+        })
     }
 
-    fn next_u64(&mut self) -> u64 {
-        match &mut self.strategy {
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(match &mut self.strategy {
             RngStrategy::Thread => rng().next_u64(),
             RngStrategy::Nulled(i) => i.next_u64(),
-        }
+        })
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         match &mut self.strategy {
             RngStrategy::Thread => rng().fill_bytes(dest),
             RngStrategy::Nulled(i) => i.fill_bytes(dest),
         }
+        Ok(())
     }
 }
 
@@ -56,7 +61,7 @@ enum RngStrategy {
     Nulled(RngStub),
 }
 
-impl CryptoRng for NullableRng {}
+impl TryCryptoRng for NullableRng {}
 
 struct RngStub {
     data: Vec<u8>,
@@ -67,9 +72,7 @@ impl RngStub {
     pub fn new(data: Vec<u8>) -> Self {
         Self { data, index: 0 }
     }
-}
 
-impl RngCore for RngStub {
     fn next_u32(&mut self) -> u32 {
         let mut buf = [0u8; 4];
         self.fill_bytes(&mut buf);

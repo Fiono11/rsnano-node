@@ -5,7 +5,7 @@ use blake2::{
     Blake2bVar,
     digest::{Update, VariableOutput},
 };
-use rand::Rng;
+use rand::RngExt;
 
 u256_struct!(Blake2Hash);
 serialize_32_byte_string!(Blake2Hash);

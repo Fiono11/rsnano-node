@@ -1,6 +1,6 @@
 use crate::{serialize_32_byte_string, u256_struct};
 use ctr::cipher::{KeyIvInit, StreamCipher};
-use rand::Rng;
+use rand::RngExt;
 use std::ops::BitXorAssign;
 
 type Aes256Ctr = ctr::Ctr64BE<aes::Aes256>;

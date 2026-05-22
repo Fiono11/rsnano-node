@@ -4,7 +4,7 @@ use std::{
 };
 
 use bitvec::prelude::BitArray;
-use rand::Rng;
+use rand::RngExt;
 use serde::ser::SerializeStruct;
 
 use rsnano_types::{

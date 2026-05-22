@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 
 use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 

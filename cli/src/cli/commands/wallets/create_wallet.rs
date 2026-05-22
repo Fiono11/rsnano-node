@@ -1,7 +1,7 @@
 use crate::cli::{GlobalArgs, build_node};
 use anyhow::anyhow;
 use clap::Parser;
-use rand::Rng;
+use rand::RngExt;
 use rsnano_types::{RawKey, WalletId};
 
 #[derive(Parser, PartialEq, Debug)]

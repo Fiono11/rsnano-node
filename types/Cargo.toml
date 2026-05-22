@@ -10,12 +10,12 @@ banano = []
 
 [dependencies]
 rsnano_nullable_random = { path = "../nullables/random" }
-rand = { version = "0.9.2" }
+rand = { version = "0.10.1" }
 aes = "0"
 blake2 = "0"
 ctr = "0"
 #ed25519-dalek = { git = "https://github.com/rsnano-node/ed25519-dalek.git", rev = "1f9d706d7033d34bdc1ed7c1789498c82ec0df10", features = ["legacy_compatibility", "rand_core"] }
-ed25519-dalek = { git = "https://github.com/rsnano-node/curve25519-dalek.git", rev = "e5024ec03ca3cc445dedb2af60106ff514c52674", features = ["legacy_compatibility", "rand_core"] }
+ed25519-dalek = { git = "https://github.com/rsnano-node/curve25519-dalek.git", rev = "eb3b931ba16569f9cce8989cc1e6167d567018db", features = ["legacy_compatibility", "rand_core"] }
 hex = "0"
 num = "0"
 num-traits = "0"

@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::anyhow;
 use num_format::{Locale, ToFormattedString};
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
     select,

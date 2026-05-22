@@ -1,5 +1,5 @@
 use super::WorkRng;
-use rand::Rng;
+use rand::RngExt;
 
 pub(crate) struct XorShift1024Star {
     s: [u64; 16],
