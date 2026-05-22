@@ -31,8 +31,7 @@ network, this makes Nano ideal for everyday transactions.
 
 ## Option 2: Build your own docker image
 
-    docker build -f tools/scripts/docker/node/Dockerfile -t rsnano https://github.com/simpago/rsnano-node.git#develop
-
+    docker build -f tools/scripts/docker/nano/Dockerfile -t rsnano https://github.com/simpago/rsnano-node.git#develop
     docker run -p 7075:7075 -v ~/Nano:/home/nanocurrency/Nano rsnano:latest node run
 
 ## Option 3: Build from source
@@ -70,6 +69,11 @@ RsNano can be compiled to be a Banano node too! Use the feature "banano" like th
 Or run it with the graphical interface:
 
     cargo run --release --features banano --bin rsban-insight
+
+Or create a docker image:
+
+    docker build -f tools/scripts/docker/banano/Dockerfile -t rsban https://github.com/simpago/rsnano-node.git#develop
+    docker run -p 7071:7071 -v ~/Banano:/home/bananocurrency/Banano rsban:latest node run
 
 
 ### Contact us
