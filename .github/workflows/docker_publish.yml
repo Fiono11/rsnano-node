@@ -56,7 +56,7 @@ jobs:
         with:
           images: ${{ matrix.images }}
           tags: |
-            type=ref,event=branch
+            type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
       - name: Build and push
@@ -93,7 +93,7 @@ jobs:
       - name: Delete old versions from ghcr.io
         uses: actions/delete-package-versions@v5
         with:
-          owner: simpago
+          owner: rsnano-node
           package-name: ${{ matrix.ghcr_package }}
           package-type: container
           min-versions-to-keep: 20
