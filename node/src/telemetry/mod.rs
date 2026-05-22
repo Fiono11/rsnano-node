@@ -302,14 +302,20 @@ impl Telemetry {
 
 build_info::build_info!(fn build_info);
 
+#[cfg(not(feature = "banano"))]
+const NODE_NAME: &str = "RsNano";
+
+#[cfg(feature = "banano")]
+const NODE_NAME: &str = "RsBan";
+
 pub fn rsnano_version_string() -> String {
     let version = &build_info().crate_info.version;
     if version.pre.is_empty() {
-        format!("RsNano V{}.{}", version.major, version.minor)
+        { format!("{} V{}.{}", NODE_NAME, version.major, version.minor) }
     } else {
         format!(
-            "RsNano V{}.{}-{}",
-            version.major, version.minor, version.pre
+            "{} V{}.{}-{}",
+            NODE_NAME, version.major, version.minor, version.pre
         )
     }
 }
