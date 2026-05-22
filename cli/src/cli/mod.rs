@@ -14,6 +14,13 @@ use std::{path::PathBuf, str::FromStr};
 
 mod commands;
 
+pub(crate) fn run_cli() -> anyhow::Result<()> {
+    let args = CommandLineArgs::parse();
+    let mut infra = CliInfrastructure::default();
+    Cli {}.run(&mut infra, args)?;
+    Ok(())
+}
+
 #[derive(Parser, PartialEq, Debug, Default)]
 pub(crate) struct CommandLineArgs {
     /// Uses the supplied network (live, test, beta or dev)

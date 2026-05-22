@@ -1,5 +1,6 @@
+mod cli;
 use anyhow::Result;
-use rsnano_cli::run_cli;
+use cli::run_cli;
 
 #[cfg(not(feature = "banano"))]
 compile_error!("The \"banano\" feature must be enabled to build rsban.");

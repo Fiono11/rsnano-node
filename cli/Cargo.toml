@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Gustav Schauwecker <service@simpago.com>"]
 edition = "2024"
 
+[[bin]]
+name = "rsnano"
+path = "src/main_nano.rs"
+
+[[bin]]
+name = "rsban"
+path = "src/main_banano.rs"
+required-features = ["banano"]
+
 [features]
 ledger_snapshots = ["rsnano_node/ledger_snapshots", "rsnano_rpc_server/ledger_snapshots"]
 banano = [
