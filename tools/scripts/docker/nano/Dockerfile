@@ -20,8 +20,8 @@ RUN adduser -D nanocurrency nanocurrency
 
 COPY --from=builder /tmp/src/target/release/rsnano /usr/bin
 
-COPY tools/scripts/docker/node/config /usr/share/nano/config
-COPY tools/scripts/docker/node/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY tools/scripts/docker/nano/config /usr/share/nano/config
+COPY tools/scripts/docker/nano/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN ldconfig
 
@@ -35,5 +35,5 @@ ENV PATH="${PATH}:/usr/bin"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["node", "run"]
 
-ARG REPOSITORY=simpago/rsnano-node
+ARG REPOSITORY=rsnano-node/rsnano-node
 LABEL org.opencontainers.image.source https://github.com/$REPOSITORY
