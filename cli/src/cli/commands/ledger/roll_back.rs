@@ -16,12 +16,9 @@ pub(crate) fn roll_back(global_args: GlobalArgs, args: HashArgs) -> anyhow::Resu
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        CommandLineArgs,
-        cli::{
-            Commands,
-            commands::ledger::{HashArgs, LedgerCommand, LedgerSubcommands},
-        },
+    use crate::cli::{
+        CommandLineArgs, Commands,
+        commands::ledger::{HashArgs, LedgerCommand, LedgerSubcommands},
     };
     use clap::Parser;
 

@@ -96,7 +96,7 @@ fn create_key_pair(infra: &mut CliInfrastructure) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Cli, CommandLineArgs, cli::CliInfrastructure};
+    use crate::cli::{Cli, CliInfrastructure, CommandLineArgs};
     use clap::Parser;
 
     #[test]
