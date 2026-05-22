@@ -1,4 +1,4 @@
-use eframe::egui::{self, CentralPanel, ScrollArea, TextEdit};
+use eframe::egui::{CentralPanel, ScrollArea, TextEdit, Ui};
 use egui_extras::{Size, StripBuilder};
 
 use rsnano_node::bootstrap::bootstrapper::BootstrappingAccountInfo;
@@ -8,8 +8,8 @@ use crate::insight::app::InsightApp;
 
 use super::main_view::truncate_text;
 
-pub(crate) fn view_bootstrap(ctx: &egui::Context, model: BootstrapViewModel, app: &mut InsightApp) {
-    CentralPanel::default().show(ctx, |ui| {
+pub(crate) fn view_bootstrap(ui: &mut Ui, model: BootstrapViewModel, app: &mut InsightApp) {
+    CentralPanel::default().show_inside(ui, |ui| {
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.heading("Bootstrap Queue");
             ui.add_space(16.0);

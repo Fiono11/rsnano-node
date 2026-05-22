@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use eframe::egui::{
-    Align, CentralPanel, Color32, Label, Layout, Sense, TextEdit, TextWrapMode, TopBottomPanel, Ui,
+    Align, CentralPanel, Color32, Label, Layout, Panel, Sense, TextEdit, TextWrapMode, Ui,
 };
 use egui_extras::{Column, TableBuilder};
 
@@ -22,7 +22,7 @@ impl<'a> MessageTableView<'a> {
     }
 
     pub(crate) fn view(&mut self, ui: &mut Ui) {
-        TopBottomPanel::bottom("message_filter_panel").show_inside(ui, |ui| {
+        Panel::bottom("message_filter_panel").show_inside(ui, |ui| {
             self.show_message_type_labels(ui);
             self.show_hash_input(ui);
             self.show_account_input(ui);

@@ -1,4 +1,4 @@
-use eframe::egui::{self, CentralPanel, Grid, TextEdit};
+use eframe::egui::{CentralPanel, Grid, TextEdit, Ui};
 use rsnano_types::DetailedBlock;
 
 use crate::insight::app::InsightApp;
@@ -13,8 +13,8 @@ impl<'a> ExplorerView<'a> {
         Self { model, app }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
-        CentralPanel::default().show(ctx, |ui| {
+    pub fn show(&mut self, ui: &mut Ui) {
+        CentralPanel::default().show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add(
                     TextEdit::singleline(&mut self.app.rollback_hash)

@@ -1,11 +1,11 @@
-use eframe::egui::{self, Align, CentralPanel, Label, Layout, Sense, Ui};
+use eframe::egui::{Align, CentralPanel, Label, Layout, Sense, Ui};
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
 use super::{ChannelsViewModel, PaletteColor, badge::Badge};
 use crate::insight::channels::RepState;
 
-pub(crate) fn view_peers(ctx: &egui::Context, model: ChannelsViewModel) {
-    CentralPanel::default().show(ctx, |ui| {
+pub(crate) fn view_peers(ui: &mut Ui, model: ChannelsViewModel) {
+    CentralPanel::default().show_inside(ui, |ui| {
         if model.channel_count() == 0 {
             view_no_connected_peers(ui);
         } else {

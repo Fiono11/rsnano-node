@@ -1,5 +1,5 @@
 use eframe::egui::{
-    self, CentralPanel, TopBottomPanel, global_theme_preference_switch, warn_if_debug_build,
+    self, CentralPanel, Panel, Ui, global_theme_preference_switch, warn_if_debug_build,
 };
 
 use rsnano_node::consensus::BucketSnapshot;
@@ -38,8 +38,8 @@ impl MainView {
 }
 
 impl MainView {
-    fn view_controls_panel(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::top("controls_panel").show(ctx, |ui| {
+    fn view_controls_panel(&mut self, ui: &mut Ui) {
+        Panel::top("controls_panel").show_inside(ui, |ui| {
             ui.add_space(1.0);
             ui.horizontal(|ui| {
                 view_node_runner(ui, &mut self.model.app.node_runner);
@@ -52,14 +52,14 @@ impl MainView {
         });
     }
 
-    fn view_tabs(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::top("tabs_panel").show(ctx, |ui| {
+    fn view_tabs(&mut self, ui: &mut Ui) {
+        Panel::top("tabs_panel").show_inside(ui, |ui| {
             view_tabs(ui, &self.model.tabs(), &mut self.model.app.navigator);
         });
     }
 
-    fn view_stats(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+    fn view_stats(&mut self, ui: &mut Ui) {
+        Panel::bottom("bottom_panel").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 global_theme_preference_switch(ui);
                 ui.separator();
@@ -73,40 +73,40 @@ impl MainView {
 }
 
 impl eframe::App for MainView {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.model.update();
-        self.view_controls_panel(ctx);
-        self.view_tabs(ctx);
-        self.view_stats(ctx);
+        self.view_controls_panel(ui);
+        self.view_tabs(ui);
+        self.view_stats(ui);
 
         match self.model.app.navigator.current {
-            NavItem::Peers => view_peers(ctx, self.model.channels()),
-            NavItem::Messages => view_message_tab(ctx, &mut self.model),
-            NavItem::Queues => view_queues(ctx, self.model.queue_groups()),
-            NavItem::BlockProcessor => view_block_processor(ctx),
+            NavItem::Peers => view_peers(ui, self.model.channels()),
+            NavItem::Messages => view_message_tab(ui, &mut self.model),
+            NavItem::Queues => view_queues(ui, self.model.queue_groups()),
+            NavItem::BlockProcessor => view_block_processor(ui),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
-                    view_election_details(ctx, details, &mut self.model.app)
+                    view_election_details(ui, details, &mut self.model.app)
                 } else {
-                    view_elections(ctx, self.model.elections(), &mut self.model.app)
+                    view_elections(ui, self.model.elections(), &mut self.model.app)
                 }
             }
-            NavItem::Bootstrap => view_bootstrap(ctx, self.model.bootstrap(), &mut self.model.app),
+            NavItem::Bootstrap => view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app),
             NavItem::FrontierScan => {
-                view_frontier_scan(ctx, self.model.frontier_scan(), &mut self.model.app)
+                view_frontier_scan(ui, self.model.frontier_scan(), &mut self.model.app)
             }
             NavItem::Explorer => {
-                ExplorerView::new(&self.model.explorer(), &mut self.model.app).show(ctx)
+                ExplorerView::new(&self.model.explorer(), &mut self.model.app).show(ui)
             }
         }
 
         // Repaint to show the continuously increasing current block and message counters
-        ctx.request_repaint();
+        ui.request_repaint();
     }
 }
 
-fn view_queues(ctx: &egui::Context, groups: Vec<QueueGroupViewModel>) {
-    CentralPanel::default().show(ctx, |ui| {
+fn view_queues(ui: &mut Ui, groups: Vec<QueueGroupViewModel>) {
+    CentralPanel::default().show_inside(ui, |ui| {
         for group in groups {
             view_queue_group(ui, group);
             ui.add_space(10.0);

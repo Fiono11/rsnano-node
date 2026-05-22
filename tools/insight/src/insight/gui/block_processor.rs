@@ -1,7 +1,7 @@
-use eframe::egui::{self, CentralPanel};
+use eframe::egui::{CentralPanel, Ui};
 
-pub(crate) fn view_block_processor(ctx: &egui::Context) {
-    CentralPanel::default().show(ctx, |ui| {
+pub(crate) fn view_block_processor(ui: &mut Ui) {
+    CentralPanel::default().show_inside(ui, |ui| {
         ui.label("TODO");
     });
 }

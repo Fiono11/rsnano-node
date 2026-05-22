@@ -38,13 +38,13 @@ rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
 rsnano_nullable_fs = { path = "../nullables/fs" }
 tracing = "0.1"
 clap = { version = "4", features = ["derive"] }
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 rand = { version = "0.10" }
 tokio = { version = "1", features = ["signal"] }
-toml = "0.9.11"
-serde_json = "1.0.149"
+toml = "1.1.2"
+serde_json = "1.0.150"
 serde = "1.0.228"
 serde_derive = "1.0.228"
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
+assert_cmd = "2.2.2"

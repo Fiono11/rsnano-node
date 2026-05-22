@@ -1,12 +1,12 @@
-use eframe::egui::{self, CentralPanel, FontId, Grid, RichText, Ui};
+use eframe::egui::{CentralPanel, FontId, Grid, RichText, Ui};
 use egui_extras::{Size, StripBuilder};
 
 use rsnano_types::QualifiedRoot;
 
 use crate::insight::app::InsightApp;
 
-pub(crate) fn view_elections(ctx: &egui::Context, model: ElectionsViewModel, app: &mut InsightApp) {
-    CentralPanel::default().show(ctx, |ui| {
+pub(crate) fn view_elections(ui: &mut Ui, model: ElectionsViewModel, app: &mut InsightApp) {
+    CentralPanel::default().show_inside(ui, |ui| {
         StripBuilder::new(ui)
             .size(Size::remainder())
             .size(Size::remainder())
@@ -40,11 +40,11 @@ fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, app: &mut Insi
 }
 
 pub(crate) fn view_election_details(
-    ctx: &egui::Context,
+    ui: &mut Ui,
     model: ElectionDetailsViewModel,
     app: &mut InsightApp,
 ) {
-    CentralPanel::default().show(ctx, |ui| {
+    CentralPanel::default().show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.link("Elections").clicked() {
                 app.close_election();

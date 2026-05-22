@@ -1,4 +1,4 @@
-use eframe::egui::{self, CentralPanel, ProgressBar, ScrollArea};
+use eframe::egui::{CentralPanel, ProgressBar, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
 
 use rsnano_types::Account;
@@ -7,12 +7,8 @@ use crate::insight::{app::InsightApp, frontier_scan::FrontierScanInfo};
 
 use super::formatted_number;
 
-pub(crate) fn view_frontier_scan(
-    ctx: &egui::Context,
-    model: FrontierScanViewModel,
-    app: &mut InsightApp,
-) {
-    FrontierScanView::new(model, app).show(ctx)
+pub(crate) fn view_frontier_scan(ui: &mut Ui, model: FrontierScanViewModel, app: &mut InsightApp) {
+    FrontierScanView::new(model, app).show(ui)
 }
 
 struct FrontierScanView<'a> {
@@ -25,8 +21,8 @@ impl<'a> FrontierScanView<'a> {
         Self { model, app }
     }
 
-    fn show(self, ctx: &egui::Context) {
-        CentralPanel::default().show(ctx, |ui| {
+    fn show(self, ui: &mut Ui) {
+        CentralPanel::default().show_inside(ui, |ui| {
             ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading(self.model.frontiers_rate);
