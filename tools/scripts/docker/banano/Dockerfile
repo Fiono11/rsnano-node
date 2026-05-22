@@ -1,36 +1,37 @@
-FROM alpine:3.23 as builder
+FROM lukemathwalker/cargo-chef:latest-rust-alpine AS chef
+RUN apk add --no-cache \
+    build-base \
+    openssl-dev \
+    musl-dev \
+    cmake \
+    linux-headers \
+    pkgconfig \
+    bash \
+    git
+WORKDIR /app
 
-# Install build dependencies
-COPY ./tools/scripts/ci/prepare/linux /tmp/prepare
-RUN /tmp/prepare/prepare-alpine.sh
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-COPY ./ /tmp/src
-WORKDIR /tmp/src
-
-# Build node
-ENV PATH="/root/.cargo/bin:${PATH}"
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --features banano --recipe-path recipe.json
+COPY . .
 RUN cargo build --release --bin rsban --features banano
 
-# Run node
 FROM alpine:3.23
-
 RUN apk update && apk add --no-cache gosu
-
 RUN adduser -D bananocurrency bananocurrency
-
-COPY --from=builder /tmp/src/target/release/rsban /usr/bin
-
+COPY --from=builder /app/target/release/rsban /usr/bin
 COPY tools/scripts/docker/banano/config /usr/share/banano/config
 COPY tools/scripts/docker/banano/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN ldconfig
-
 RUN mkdir -p /home/bananocurrency/Banano && \
-	chown -R bananocurrency:bananocurrency /home/bananocurrency
+    chown -R bananocurrency:bananocurrency /home/bananocurrency
 VOLUME /home/bananocurrency/Banano
-
 WORKDIR /home/bananocurrency
-
 ENV PATH="${PATH}:/usr/bin"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["node", "run"]
