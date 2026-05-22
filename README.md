@@ -70,6 +70,10 @@ Or run it with the graphical interface:
 
     cargo run --release --features banano --bin rsban-insight
 
+Or run it with the official docker image:
+
+    docker run -p 7071:7071 -v ~/Banano:/home/bananocurrency/Banano rsnano/rsban-dev:latest node run
+
 Or create a docker image:
 
     docker build -f tools/scripts/docker/banano/Dockerfile -t rsban https://github.com/simpago/rsnano-node.git#develop
