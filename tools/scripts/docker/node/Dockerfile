@@ -22,7 +22,7 @@ ARG SANITIZER
 
 # Build node
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN cd main && cargo build --release
+RUN cargo build --release --bin rsnano
 RUN echo ${NANO_NETWORK} >/etc/nano-network
 
 FROM ubuntu:22.04
@@ -30,7 +30,7 @@ FROM ubuntu:22.04
 RUN groupadd --gid 1000 nanocurrency && \
     useradd --uid 1000 --gid nanocurrency --shell /bin/bash --create-home nanocurrency
 
-COPY --from=builder /tmp/src/target/release/rsnano_node /usr/bin
+COPY --from=builder /tmp/src/target/release/rsnano /usr/bin
 COPY --from=builder /etc/nano-network /etc
 
 COPY tools/scripts/docker/node/config /usr/share/nano/config
@@ -40,7 +40,7 @@ WORKDIR /root
 USER root
 
 ENV PATH="${PATH}:/usr/bin"
-ENTRYPOINT ["/usr/bin/rsnano_node"]
+ENTRYPOINT ["/usr/bin/rsnano"]
 CMD ["node", "run"]
 
 ARG REPOSITORY=simpago/rsnano-node
