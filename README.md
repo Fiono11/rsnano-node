@@ -27,7 +27,7 @@ network, this makes Nano ideal for everyday transactions.
 
 ## Option 1: Run the official docker image
 
-    docker run -p 7075:7075 -v ~/Nano:/root/Nano simpago/rsnano:V2.0 node run
+    docker run -p 7075:7075 -v ~/Nano:/home/nanocurrency/Nano rsnano/rsnano-dev:latest node run
 
 ## Option 2: Build your own docker image
 
