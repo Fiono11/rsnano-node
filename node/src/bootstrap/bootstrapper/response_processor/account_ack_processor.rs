@@ -64,6 +64,7 @@ impl StatsSource for AccountAckStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_network::ChannelId;
     use rsnano_types::{Account, Block, BlockHash, PrivateKey, StateBlockArgs};
 
     #[test]
@@ -110,7 +111,12 @@ mod tests {
 
         queue.insert(blocked_account);
         queue.download_started(&blocked_account);
-        queue.download_finished(&blocked_account, [receive].into(), false);
+        queue.download_finished(
+            &blocked_account,
+            [receive].into(),
+            false,
+            ChannelId::from(1),
+        );
         let next = queue.take_next_block_for_processing().unwrap();
 
         queue.block(&next.hash(), unknown_source);

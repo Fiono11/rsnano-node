@@ -43,8 +43,12 @@ impl BlockAckProcessor {
                 true
             }
             VerifyResult::Invalid => {
-                self.bootstrap_queue
-                    .download_finished(&query.account, VecDeque::new(), false);
+                self.bootstrap_queue.download_finished(
+                    &query.account,
+                    VecDeque::new(),
+                    false,
+                    query.channel_id,
+                );
                 self.stats.invalid.fetch_add(1, Relaxed);
                 // TODO: disconnect and ban node?
                 self.peer_scoring.out_of_date(query.channel_id);
@@ -67,15 +71,25 @@ impl BlockAckProcessor {
             blocks.pop_front();
         }
 
-        self.bootstrap_queue
-            .download_finished(&query.account, blocks, should_cool_down);
+        if let Some(out_of_date_channel) = self.bootstrap_queue.download_finished(
+            &query.account,
+            blocks,
+            should_cool_down,
+            query.channel_id,
+        ) {
+            self.peer_scoring.out_of_date(out_of_date_channel);
+        }
         self.peer_scoring.blocks_received(query.channel_id);
     }
 
     fn process_empty_response(&self, query: &RunningQuery) {
         self.stats.nothing_new.fetch_add(1, Relaxed);
-        self.bootstrap_queue
-            .download_finished(&query.account, VecDeque::new(), true);
+        self.bootstrap_queue.download_finished(
+            &query.account,
+            VecDeque::new(),
+            true,
+            query.channel_id,
+        );
     }
 }
 

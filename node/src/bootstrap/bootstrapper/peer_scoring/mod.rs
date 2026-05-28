@@ -22,6 +22,11 @@ impl PeerScoring {
         }
     }
 
+    #[cfg(test)]
+    pub fn insert(&self, channel_id: ChannelId) {
+        self.scoring.lock().unwrap().insert(channel_id);
+    }
+
     pub fn channel(&self) -> Option<ChannelId> {
         let scoring = self.scoring.lock().unwrap();
         scoring.usable().choose(&mut rand::rng()).cloned()
@@ -128,10 +133,10 @@ mod tests {
     fn received_message_decrements_running_queries_to_zero() {
         let channel_id = ChannelId::from(1);
         let scoring = PeerScoring::new(16);
-        scoring.request_sent(channel_id);
+        scoring.insert(channel_id);
 
         // Send one query — running_queries becomes 1
-        scoring.channel();
+        scoring.request_sent(channel_id);
 
         // Receive the response — running_queries should drop to 0
         scoring.response_received(channel_id);

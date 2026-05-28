@@ -32,6 +32,7 @@ use rsnano_utils::{
 };
 
 use crate::bootstrap::bootstrapper::bootstrap_queue::logic::TrimCount;
+use rsnano_network::ChannelId;
 use stats::BootstrapQueueStats;
 use tracing::trace;
 
@@ -227,19 +228,23 @@ impl BootstrapQueue {
         }
     }
 
+    /// If an outdated channel is detected its id is returned
     pub fn download_finished(
         &self,
         account: &Account,
         blocks: VecDeque<Block>,
         should_cool_down: bool,
-    ) {
+        channel_id: ChannelId,
+    ) -> Option<ChannelId> {
         let finished;
+        let mut outdated_channel: Option<ChannelId> = None;
         let mut prio_up_result = None;
         let mut prio_down_result = None;
         let block_count = blocks.len();
         {
             let mut logic = self.logic.lock().unwrap();
-            finished = logic.download_finished(account, blocks, should_cool_down);
+            (finished, outdated_channel) =
+                logic.download_finished(account, blocks, should_cool_down, channel_id);
             if finished {
                 if should_cool_down {
                     prio_down_result = Some(logic.priority_down(account));
@@ -279,6 +284,8 @@ impl BootstrapQueue {
                 "Priority decreased"
             );
         }
+
+        outdated_channel
     }
 
     pub fn processing_finished(&self, block_hash: &BlockHash) {

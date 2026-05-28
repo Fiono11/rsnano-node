@@ -43,7 +43,6 @@ impl PeerScore {
     }
 
     pub fn decay(&mut self) {
-        self.remove_query();
         self.priority *= 0.99;
     }
 

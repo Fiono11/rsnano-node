@@ -14,6 +14,7 @@ use super::{
     download_queue::DownloadQueue,
     downloading::DownloadingAccounts,
 };
+use rsnano_network::ChannelId;
 
 #[derive(Default)]
 pub struct BootstrapQueueSnapshot {
@@ -84,13 +85,18 @@ pub(crate) struct TrimCount {
     pub blocked: usize,
 }
 
+struct FailEntry {
+    pub fail_count: usize,
+    pub last_failed_channel: ChannelId,
+}
+
 /// A prioritized queue of accounts which should bootstrapped.
 /// Accounts can be blocked, because a dependency block is missing. Blocked accounts
 /// are put on hold.
 pub(crate) struct BootstrapQueueLogic {
     config: BootstrapQueueConfig,
     priorities: AccountPriorityTracker,
-    fails: FxHashMap<Account, usize>,
+    fails: FxHashMap<Account, FailEntry>,
     download_queue: DownloadQueue,
     downloading: DownloadingAccounts,
     block_processing: BlockHandoffQueue,
@@ -326,19 +332,29 @@ impl BootstrapQueueLogic {
         account: &Account,
         blocks: VecDeque<Block>,
         should_cool_down: bool,
-    ) -> bool {
+        channel_id: ChannelId,
+    ) -> (bool, Option<ChannelId>) {
+        let mut out_of_date_channel = None;
         if !self.downloading.remove(account) {
-            return false;
+            return (false, out_of_date_channel);
         }
 
-        self.safe_accounts.remove(account);
+        let was_safe = self.safe_accounts.remove(account);
 
         let fails = if should_cool_down {
-            let fails = self.fails.entry(*account).or_default();
-            *fails += 1;
-            *fails
+            let fails = self.fails.entry(*account).or_insert_with(|| FailEntry {
+                fail_count: 0,
+                last_failed_channel: channel_id,
+            });
+            fails.fail_count += 1;
+            fails.last_failed_channel = channel_id;
+            fails.fail_count
         } else {
-            self.fails.remove(account);
+            if let Some(failed) = self.fails.remove(account) {
+                if !was_safe {
+                    out_of_date_channel = Some(failed.last_failed_channel);
+                }
+            }
             0
         };
 
@@ -355,7 +371,7 @@ impl BootstrapQueueLogic {
             self.block_processing.enqueue(*account, blocks);
         }
 
-        true
+        (true, out_of_date_channel)
     }
 
     pub fn reprocess(&mut self, block_hash: &BlockHash) -> bool {
@@ -858,7 +874,7 @@ mod tests {
         let now = Timestamp::new_test_instance();
         queue.download_started(&account, now);
 
-        queue.download_finished(&account, VecDeque::new(), false);
+        queue.download_finished(&account, VecDeque::new(), false, ChannelId::from(1));
 
         assert_eq!(queue.pull_type(&account), PullType::Optimistic);
     }
@@ -869,7 +885,8 @@ mod tests {
         let account = Account::from(1);
         queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
 
-        let finished = queue.download_finished(&account, VecDeque::new(), false);
+        let (finished, _) =
+            queue.download_finished(&account, VecDeque::new(), false, ChannelId::from(1));
 
         assert!(!finished);
         assert_eq!(queue.pull_type(&account), PullType::Safe);
@@ -1118,7 +1135,7 @@ mod tests {
         .into();
         queue.insert(account, Priority::INITIAL);
         queue.download_started(&account, blocked_at);
-        queue.download_finished(&account, [receive].into(), false);
+        queue.download_finished(&account, [receive].into(), false, ChannelId::from(1));
         let next = queue.take_next_block_for_processing().unwrap();
         queue.block(&next.hash(), dependency, blocked_at);
     }
