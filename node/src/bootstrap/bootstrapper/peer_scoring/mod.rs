@@ -3,7 +3,7 @@ mod peer_score_container;
 
 use std::sync::Mutex;
 
-use rand::seq::{IndexedRandom, SliceRandom};
+use rand::seq::IndexedRandom;
 
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_utils::{EventHandler, container_info::ContainerInfo};
@@ -14,14 +14,12 @@ use peer_score_container::PeerScoreContainer;
 /// Container for tracking and scoring peers with respect to bootstrapping
 pub(crate) struct PeerScoring {
     scoring: Mutex<PeerScoreContainer>,
-    channel_limit: usize,
 }
 
 impl PeerScoring {
     pub fn new(channel_limit: usize) -> Self {
         Self {
             scoring: Mutex::new(PeerScoreContainer::new(channel_limit)),
-            channel_limit,
         }
     }
 
@@ -51,15 +49,21 @@ impl PeerScoring {
     }
 
     pub fn snapshot(&self) -> Vec<PeerScoreSnapshot> {
-        self.scoring
+        let mut snapshots: Vec<_> = self
+            .scoring
             .lock()
             .unwrap()
             .iter()
             .map(|(channel_id, score)| PeerScoreSnapshot {
                 channel_id: *channel_id,
                 running_queries: score.running_queries,
+                priority: 0.0,
             })
-            .collect()
+            .collect();
+
+        snapshots.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));
+
+        snapshots
     }
 }
 
@@ -85,9 +89,11 @@ impl EventHandler<ChannelEvent> for PeerScoring {
     }
 }
 
+#[derive(Clone)]
 pub struct PeerScoreSnapshot {
     pub channel_id: ChannelId,
     pub running_queries: usize,
+    pub priority: f32,
 }
 
 #[cfg(test)]

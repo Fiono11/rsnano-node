@@ -19,7 +19,7 @@ use crate::insight::{
     explorer::ExplorerState,
     gui::{
         QueueViewModel,
-        bootstrap::{BootstrapViewModel, PeerScoreViewModel, PeerScoresViewModel},
+        bootstrap::{BootstrapViewModel, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             view_election_details, view_elections,
@@ -251,15 +251,7 @@ impl MainViewModel {
                 })
             }
             BootstrapViewType::PeerScores => BootstrapViewModel::PeerScores(PeerScoresViewModel {
-                peers: self
-                    .app
-                    .peer_scores
-                    .iter()
-                    .map(|p| PeerScoreViewModel {
-                        channel_id: p.channel_id.to_string(),
-                        running_queries: p.running_queries.to_string(),
-                    })
-                    .collect(),
+                peers: self.app.peer_scores.clone(),
             }),
         }
     }

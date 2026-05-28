@@ -1,7 +1,10 @@
-use eframe::egui::{CentralPanel, Panel, ScrollArea, TextEdit, Ui};
-use egui_extras::{Size, StripBuilder};
+use eframe::egui::{
+    Align, CentralPanel, Color32, Label, Layout, Panel, RichText, ScrollArea, TextEdit, Ui,
+    accesskit::Color,
+};
+use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
-use rsnano_node::bootstrap::bootstrapper::BootstrappingAccountInfo;
+use rsnano_node::bootstrap::bootstrapper::{BootstrappingAccountInfo, PeerScoreSnapshot};
 use rsnano_types::Account;
 
 use crate::insight::{app::InsightApp, bootstrap::BootstrapViewType};
@@ -273,19 +276,50 @@ impl From<&BootstrappingAccountInfo> for AccountViewModel {
 
 pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
     ui.heading("Peer Scores");
-    for peer in model.peers {
-        ui.label(format!(
-            "channel {}: {}",
-            peer.channel_id, peer.running_queries
-        ));
-    }
+    TableBuilder::new(ui)
+        .striped(true)
+        .resizable(false)
+        .cell_layout(Layout::left_to_right(Align::Center))
+        .auto_shrink(false)
+        .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::remainder())
+        .header(20.0, |mut header| {
+            header.col(|ui| {
+                ui.strong("Channel");
+            });
+            header.col(|ui| {
+                ui.strong("Running Queries");
+            });
+            header.col(|ui| {
+                ui.strong("Priority");
+            });
+        })
+        .body(|body| {
+            body.rows(20.0, model.peers.len(), |mut row| {
+                let peer = &model.peers[row.index()];
+                row.col(|ui| {
+                    ui.add(Label::new(peer.channel_id.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(&peer.running_queries.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    if peer.priority < 0.0 {
+                        ui.add(
+                            Label::new(
+                                RichText::new(format!("{:.1}", peer.priority)).color(Color32::RED),
+                            )
+                            .selectable(false),
+                        );
+                    } else {
+                        ui.add(Label::new(format!("{:.1}", peer.priority)).selectable(false));
+                    }
+                });
+            })
+        });
 }
 
 pub(crate) struct PeerScoresViewModel {
-    pub peers: Vec<PeerScoreViewModel>,
-}
-
-pub(crate) struct PeerScoreViewModel {
-    pub channel_id: String,
-    pub running_queries: String,
+    pub peers: Vec<PeerScoreSnapshot>,
 }
