@@ -383,7 +383,10 @@ impl Bootstrapper {
         let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
         while !stopped.stopped {
-            self.query_tracker.timeout();
+            let timed_out_channels = self.query_tracker.timeout();
+            for channel_id in timed_out_channels {
+                self.peer_scoring.timed_out(channel_id);
+            }
             self.peer_scoring.decay();
             self.bootstrap_queue.timeout();
 

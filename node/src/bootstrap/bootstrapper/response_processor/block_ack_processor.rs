@@ -47,6 +47,7 @@ impl BlockAckProcessor {
                     .download_finished(&query.account, VecDeque::new(), false);
                 self.stats.invalid.fetch_add(1, Relaxed);
                 // TODO: disconnect and ban node?
+                self.peer_scoring.out_of_date(query.channel_id);
                 false
             }
         }
@@ -68,6 +69,7 @@ impl BlockAckProcessor {
 
         self.bootstrap_queue
             .download_finished(&query.account, blocks, should_cool_down);
+        self.peer_scoring.blocks_received(query.channel_id);
     }
 
     fn process_empty_response(&self, query: &RunningQuery) {

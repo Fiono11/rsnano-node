@@ -1,6 +1,5 @@
 use eframe::egui::{
     Align, CentralPanel, Color32, Label, Layout, Panel, RichText, ScrollArea, TextEdit, Ui,
-    accesskit::Color,
 };
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
@@ -283,6 +282,12 @@ pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
         .auto_shrink(false)
         .column(Column::auto())
         .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::auto())
+        .column(Column::auto())
         .column(Column::remainder())
         .header(20.0, |mut header| {
             header.col(|ui| {
@@ -293,6 +298,24 @@ pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
             });
             header.col(|ui| {
                 ui.strong("Priority");
+            });
+            header.col(|ui| {
+                ui.strong("Timeouts");
+            });
+            header.col(|ui| {
+                ui.strong("Requests");
+            });
+            header.col(|ui| {
+                ui.strong("Responses");
+            });
+            header.col(|ui| {
+                ui.strong("Channel Full");
+            });
+            header.col(|ui| {
+                ui.strong("Blocks received");
+            });
+            header.col(|ui| {
+                ui.strong("Out of date");
             });
         })
         .body(|body| {
@@ -315,6 +338,24 @@ pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
                     } else {
                         ui.add(Label::new(format!("{:.1}", peer.priority)).selectable(false));
                     }
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.timeouts.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.requests.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.responses.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.channel_full.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.blocks_received.to_string()).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(peer.out_of_date.to_string()).selectable(false));
                 });
             })
         });

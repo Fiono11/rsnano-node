@@ -6,6 +6,7 @@ use rsnano_types::{Account, BlockHash, HashOrAccount};
 use rsnano_utils::stats::DetailType;
 
 use crate::bootstrap::bootstrapper::{AscPullQuerySpec, VerifyResult};
+use rsnano_network::ChannelId;
 
 #[derive(Default, PartialEq, Eq, Debug, Clone, Copy)]
 pub enum QueryType {
@@ -48,6 +49,7 @@ pub(crate) struct RunningQuery {
     pub count: usize,
     pub sent: Timestamp,
     pub response_cutoff: Timestamp,
+    pub channel_id: ChannelId,
 }
 
 impl RunningQuery {
@@ -63,6 +65,7 @@ impl RunningQuery {
             response_cutoff: Timestamp::new_test_instance() + Duration::from_secs(30),
             sent: Timestamp::new_test_instance(),
             id: 42,
+            channel_id: ChannelId::from(99),
         }
     }
 
@@ -106,6 +109,7 @@ impl RunningQuery {
             id,
             sent: now,
             response_cutoff: Self::initial_response_cutoff(now, timeout),
+            channel_id: spec.channel.channel_id(),
         }
     }
 

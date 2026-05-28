@@ -11,6 +11,7 @@ use rsnano_utils::stats::{DetailType, StatType, Stats};
 use crate::{
     bootstrap::bootstrapper::{
         AscPullQuerySpec,
+        peer_scoring::PeerScoring,
         query_tracker::{QueryTracker, RunningQuery},
     },
     transport::MessageSender,
@@ -25,6 +26,7 @@ pub(crate) struct QuerySender {
     stats: Arc<Stats>,
     send_listener: OutputListenerMt<AscPullQuerySpec>,
     query_tracker: Arc<QueryTracker>,
+    peer_scoring: Arc<PeerScoring>,
 }
 
 impl QuerySender {
@@ -32,20 +34,30 @@ impl QuerySender {
         message_sender: MessageSender,
         stats: Arc<Stats>,
         query_tracker: Arc<QueryTracker>,
+        peer_scoring: Arc<PeerScoring>,
     ) -> Self {
-        Self::new_impl(message_sender, SteadyClock::default(), stats, query_tracker)
+        Self::new_impl(
+            message_sender,
+            SteadyClock::default(),
+            stats,
+            query_tracker,
+            peer_scoring,
+        )
     }
+
     fn new_impl(
         message_sender: MessageSender,
         clock: SteadyClock,
         stats: Arc<Stats>,
         query_tracker: Arc<QueryTracker>,
+        peer_scoring: Arc<PeerScoring>,
     ) -> Self {
         Self {
             message_sender,
             clock,
             stats,
             query_tracker,
+            peer_scoring,
             request_timeout: Duration::from_secs(15),
             send_listener: OutputListenerMt::new(),
         }
@@ -90,6 +102,7 @@ impl QuerySender {
             // After the request has been sent, the peer has a limited time to respond
             query.response_cutoff = now + self.request_timeout;
             self.query_tracker.insert(query);
+            self.peer_scoring.request_sent(channel_id);
 
             true
         } else {
@@ -102,6 +115,7 @@ impl QuerySender {
 
             self.stats
                 .inc(StatType::Bootstrap, DetailType::RequestFailed);
+            self.peer_scoring.channel_full(channel_id);
             false
         }
     }
@@ -193,6 +207,7 @@ mod tests {
             clock,
             Arc::new(Stats::default()),
             query_tracker.clone(),
+            PeerScoring::default().into(),
         );
 
         Fixture {

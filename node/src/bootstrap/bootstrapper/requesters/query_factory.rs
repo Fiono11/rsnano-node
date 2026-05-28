@@ -111,7 +111,6 @@ impl QueryFactory {
         tracing::trace!(query_id, pull_type = ?target.pull_type, "Created pull query spec");
 
         self.request_limiter.consume(1);
-        self.peer_scoring.request_sent(channel_id);
         self.bootstrap_queue.download_started(&target.account);
 
         Some(query)
@@ -142,7 +141,6 @@ impl QueryFactory {
             hash: next_hash,
         };
         self.request_limiter.consume(1);
-        self.peer_scoring.request_sent(channel_id);
         self.bootstrap_queue
             .dependency_account_requested(&spec.hash);
         Some(spec)
@@ -166,7 +164,6 @@ impl QueryFactory {
         let start = self.frontier_scan.next_account_to_query();
         if !start.is_zero() {
             self.frontiers_limiter.consume(1);
-            self.peer_scoring.request_sent(channel.channel_id());
             let id = self.rng_factory.rng().next_u64();
             Some(Self::create_frontier_query_spec(&channel, start, id))
         } else {

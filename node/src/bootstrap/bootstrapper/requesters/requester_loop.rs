@@ -46,8 +46,12 @@ impl RequesterLoop {
         frontier_scan: Arc<FrontierScan>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
     ) -> Self {
-        let mut query_sender =
-            QuerySender::new(message_sender, stats.clone(), query_tracker.clone());
+        let mut query_sender = QuerySender::new(
+            message_sender,
+            stats.clone(),
+            query_tracker.clone(),
+            peer_scoring.clone(),
+        );
         query_sender.set_request_timeout(config.request_timeout);
 
         Self {

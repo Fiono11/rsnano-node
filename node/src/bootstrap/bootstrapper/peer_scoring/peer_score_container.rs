@@ -1,5 +1,4 @@
 use super::peer_score::PeerScore;
-use chrono::format::Item;
 use rsnano_network::ChannelId;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -29,8 +28,9 @@ impl PeerScoreContainer {
         self.scores.get(&channel_id)
     }
 
-    pub fn insert(&mut self, channel_id: ChannelId, score: PeerScore) {
-        self.scores.insert(channel_id, score);
+    pub fn insert(&mut self, channel_id: ChannelId) {
+        self.scores
+            .insert(channel_id, PeerScore::new(self.channel_limit));
         self.usable.insert(channel_id);
     }
 
@@ -38,33 +38,72 @@ impl PeerScoreContainer {
         self.usable.as_slice()
     }
 
-    pub fn request_sent(&mut self, channel_id: ChannelId) {
-        let score = self.scores.entry(channel_id).or_default();
-        score.request_sent();
-        if score.running_queries >= self.channel_limit {
+    fn change_score<F>(&mut self, channel_id: ChannelId, f: F) -> bool
+    where
+        F: FnOnce(&mut PeerScore),
+    {
+        let Some(score) = self.scores.get_mut(&channel_id) else {
+            return false;
+        };
+        f(score);
+        if score.is_good() {
+            self.usable.insert(channel_id);
+        } else {
             self.usable.remove(channel_id);
         }
+        true
+    }
+
+    pub fn channel_full(&mut self, channel_id: ChannelId) {
+        self.change_score(channel_id, |score| {
+            score.priority_down(16.0);
+            score.channel_full += 1;
+        });
+    }
+
+    pub fn request_sent(&mut self, channel_id: ChannelId) {
+        self.change_score(channel_id, |score| {
+            score.request_sent();
+            score.priority_down(1.0);
+        });
     }
 
     pub fn got_response(&mut self, channel_id: ChannelId) -> bool {
-        if let Some(score) = self.scores.get_mut(&channel_id) {
+        self.change_score(channel_id, |score| {
             score.got_response();
-            if score.running_queries < self.channel_limit {
-                self.usable.insert(channel_id);
-            }
-            true
-        } else {
-            false
-        }
+            score.priority_up(1.0);
+        })
+    }
+
+    pub fn blocks_received(&mut self, channel_id: ChannelId) {
+        self.change_score(channel_id, |score| {
+            score.priority_up(1.0);
+            score.blocks_received += 1;
+        });
+    }
+
+    pub fn out_of_date(&mut self, channel_id: ChannelId) {
+        self.change_score(channel_id, |score| {
+            score.priority_down(64.0);
+            score.out_of_date += 1;
+        });
     }
 
     pub fn decay(&mut self) {
         for (channel_id, score) in self.scores.iter_mut() {
             score.decay();
-            if score.running_queries < self.channel_limit {
+            if score.is_good() {
                 self.usable.insert(*channel_id);
             }
         }
+    }
+
+    pub fn timed_out(&mut self, channel_id: ChannelId) {
+        self.change_score(channel_id, |score| {
+            score.remove_query();
+            score.priority_down(16.0);
+            score.timeouts += 1;
+        });
     }
 
     pub fn remove(&mut self, channel_id: ChannelId) {
@@ -139,7 +178,7 @@ mod tests {
     fn insert() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        container.insert(channel_id, PeerScore::default());
+        container.insert(channel_id);
         assert_eq!(container.len(), 1);
         assert!(container.get(channel_id).is_some());
         assert!(container.usable.contains(channel_id));
@@ -150,8 +189,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(channel_id, PeerScore::default());
-        container.insert(another_channel_id, PeerScore::default());
+        container.insert(channel_id);
+        container.insert(another_channel_id);
 
         container.remove(channel_id);
 
@@ -181,8 +220,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(channel_id, PeerScore::default());
-        container.insert(another_channel_id, PeerScore::default());
+        container.insert(channel_id);
+        container.insert(another_channel_id);
         container.request_sent(channel_id);
         container.request_sent(channel_id);
         let modified = container.got_response(channel_id);
@@ -199,8 +238,8 @@ mod tests {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         let another_channel_id = ChannelId::from(100);
-        container.insert(channel_id, PeerScore::default());
-        container.insert(another_channel_id, PeerScore::default());
+        container.insert(channel_id);
+        container.insert(another_channel_id);
         container.request_sent(channel_id);
         container.request_sent(channel_id);
         container.request_sent(another_channel_id);
@@ -218,7 +257,7 @@ mod tests {
     fn channel_becomes_unusable_if_it_has_too_many_open_requests() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        container.insert(channel_id, PeerScore::default());
+        container.insert(channel_id);
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT - 1 {
             container.request_sent(channel_id);
         }
@@ -231,7 +270,7 @@ mod tests {
     fn channel_becomes_usable_again_if_its_open_requests_fall_below_the_limit() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        container.insert(channel_id, PeerScore::default());
+        container.insert(channel_id);
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
             container.request_sent(channel_id);
         }
@@ -244,7 +283,7 @@ mod tests {
     fn channel_becomes_usable_again_if_its_open_requests_decay() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        container.insert(channel_id, PeerScore::default());
+        container.insert(channel_id);
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
             container.request_sent(channel_id);
         }

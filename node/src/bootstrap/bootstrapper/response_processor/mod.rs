@@ -76,7 +76,6 @@ impl ResponseProcessor {
         trace!(query_id = response.id, ?channel_id, "Process response");
 
         let query = self.query_tracker.take_running_query_for(&response)?;
-
         self.peer_scoring.response_received(channel_id);
 
         let process_info = self

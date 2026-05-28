@@ -10,6 +10,7 @@ use std::{
 };
 
 use rsnano_messages::AscPullAck;
+use rsnano_network::ChannelId;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -54,9 +55,9 @@ impl QueryTracker {
         self.logic.lock().unwrap().take_running_query_for(response)
     }
 
-    pub fn timeout(&self) {
+    pub fn timeout(&self) -> Vec<ChannelId> {
         let now = self.clock.now();
-        self.logic.lock().unwrap().timeout(now);
+        self.logic.lock().unwrap().timeout(now)
     }
 
     pub fn query_count(&self) -> usize {
@@ -108,7 +109,8 @@ impl QueryTrackerLogic {
         Ok(query)
     }
 
-    pub fn timeout(&mut self, now: Timestamp) {
+    pub fn timeout(&mut self, now: Timestamp) -> Vec<ChannelId> {
+        let mut timed_out_channels = Vec::new();
         let should_timeout = |query: &RunningQuery| query.response_cutoff < now;
 
         while let Some(front) = self.running_queries.front() {
@@ -119,8 +121,11 @@ impl QueryTrackerLogic {
             self.stats.inc(StatType::Bootstrap, DetailType::Timeout);
             self.stats
                 .inc(StatType::BootstrapTimeout, front.query_type.into());
-            self.running_queries.pop_front();
+            let front = self.running_queries.pop_front().unwrap();
+            timed_out_channels.push(front.channel_id);
         }
+
+        timed_out_channels
     }
 
     pub fn query_count(&self) -> usize {
