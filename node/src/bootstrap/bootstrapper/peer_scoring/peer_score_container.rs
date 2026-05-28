@@ -1,4 +1,5 @@
 use super::peer_score::PeerScore;
+use chrono::format::Item;
 use rsnano_network::ChannelId;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -69,6 +70,10 @@ impl PeerScoreContainer {
     pub fn remove(&mut self, channel_id: ChannelId) {
         self.scores.remove(&channel_id);
         self.usable.remove(channel_id);
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ChannelId, &PeerScore)> {
+        self.scores.iter()
     }
 }
 

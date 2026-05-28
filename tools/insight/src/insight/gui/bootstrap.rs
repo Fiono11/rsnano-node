@@ -1,14 +1,38 @@
-use eframe::egui::{CentralPanel, ScrollArea, TextEdit, Ui};
+use eframe::egui::{CentralPanel, Panel, ScrollArea, TextEdit, Ui};
 use egui_extras::{Size, StripBuilder};
 
 use rsnano_node::bootstrap::bootstrapper::BootstrappingAccountInfo;
 use rsnano_types::Account;
 
-use crate::insight::app::InsightApp;
+use crate::insight::{app::InsightApp, bootstrap::BootstrapViewType};
 
 use super::main_view::truncate_text;
 
-pub(crate) fn view_bootstrap(ui: &mut Ui, model: BootstrapViewModel, app: &mut InsightApp) {
+pub(crate) fn view_bootstrap(ui: &mut Ui, view_model: BootstrapViewModel, app: &mut InsightApp) {
+    Panel::top("bootstr_menu").show_inside(ui, |ui| {
+        ui.horizontal(|ui| {
+            for i in BootstrapViewType::all() {
+                let selected = i == view_model.view_type();
+                if ui.selectable_label(selected, i.as_str()).clicked() {
+                    app.select_bootstrap_view(i);
+                };
+            }
+        });
+    });
+
+    CentralPanel::default().show_inside(ui, |ui| match view_model {
+        BootstrapViewModel::BootstrapQueue(view_model) => {
+            view_bootstrap_queue(ui, view_model, app);
+        }
+        BootstrapViewModel::PeerScores(view_model) => view_peer_scores(ui, view_model),
+    });
+}
+
+pub(crate) fn view_bootstrap_queue(
+    ui: &mut Ui,
+    model: BootstrapQueueViewModel,
+    app: &mut InsightApp,
+) {
     CentralPanel::default().show_inside(ui, |ui| {
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.heading("Bootstrap Queue");
@@ -190,7 +214,20 @@ pub(crate) fn view_bootstrap(ui: &mut Ui, model: BootstrapViewModel, app: &mut I
     });
 }
 
-pub(crate) struct BootstrapViewModel {
+pub enum BootstrapViewModel {
+    BootstrapQueue(BootstrapQueueViewModel),
+    PeerScores(PeerScoresViewModel),
+}
+impl BootstrapViewModel {
+    fn view_type(&self) -> BootstrapViewType {
+        match self {
+            BootstrapViewModel::BootstrapQueue(_) => BootstrapViewType::BootstrapQueue,
+            BootstrapViewModel::PeerScores(_) => BootstrapViewType::PeerScores,
+        }
+    }
+}
+
+pub(crate) struct BootstrapQueueViewModel {
     pub download_queue_len: String,
     pub blocked_accounts: String,
     pub unblocked_accounts: String,
@@ -232,4 +269,23 @@ impl From<&BootstrappingAccountInfo> for AccountViewModel {
             dependency_account_val: e.dependency_account,
         }
     }
+}
+
+pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
+    ui.heading("Peer Scores");
+    for peer in model.peers {
+        ui.label(format!(
+            "channel {}: {}",
+            peer.channel_id, peer.running_queries
+        ));
+    }
+}
+
+pub(crate) struct PeerScoresViewModel {
+    pub peers: Vec<PeerScoreViewModel>,
+}
+
+pub(crate) struct PeerScoreViewModel {
+    pub channel_id: String,
+    pub running_queries: String,
 }

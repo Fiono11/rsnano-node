@@ -12,6 +12,7 @@ pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
 };
+pub use peer_scoring::PeerScoreSnapshot;
 
 use std::{
     sync::{Arc, Mutex, RwLock},
@@ -406,6 +407,10 @@ impl Bootstrapper {
 
     pub fn queue_snapshot(&self, limit: usize, filter: Option<Account>) -> BootstrapQueueSnapshot {
         self.bootstrap_queue.snapshot(limit, filter)
+    }
+
+    pub fn peer_score_snapshot(&self) -> Vec<PeerScoreSnapshot> {
+        self.peer_scoring.snapshot()
     }
 
     pub fn frontier_scan_snapshot(&self) -> FrontierScanSnapshot {

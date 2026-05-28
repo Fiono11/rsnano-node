@@ -5,6 +5,7 @@ use std::{
 
 use rsnano_ledger::BlockSource;
 use rsnano_node::{
+    bootstrap::bootstrapper::PeerScoreSnapshot,
     cementation::ConfirmingSetInfo,
     consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
 };
@@ -13,7 +14,7 @@ use rsnano_types::{Account, BlockHash, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
 
 use crate::insight::{
-    bootstrap::BootstrapInfo,
+    bootstrap::{BootstrapInfo, BootstrapViewType},
     channels::Channels,
     explorer::Explorer,
     frontier_scan::FrontierScanInfo,
@@ -47,6 +48,8 @@ pub(crate) struct InsightApp {
     pub rollback_hash: String,
     selected_election: Option<QualifiedRoot>,
     pub election_details: Option<Election>,
+    bootstrap_view_type: BootstrapViewType,
+    pub peer_scores: Vec<PeerScoreSnapshot>,
 }
 
 impl InsightApp {
@@ -78,6 +81,8 @@ impl InsightApp {
             elections: AecSnapshot::default(),
             selected_election: None,
             election_details: None,
+            bootstrap_view_type: BootstrapViewType::BootstrapQueue,
+            peer_scores: Vec::new(),
         }
     }
 
@@ -121,6 +126,7 @@ impl InsightApp {
                 let node = self.node_runner.node()?;
                 node.aec.election_for_root(root)
             });
+            self.peer_scores = node.bootstrapper.peer_score_snapshot();
         }
 
         self.last_update = Some(now);
@@ -169,5 +175,13 @@ impl InsightApp {
     pub fn close_election(&mut self) {
         self.selected_election = None;
         self.election_details = None;
+    }
+
+    pub fn select_bootstrap_view(&mut self, view_type: BootstrapViewType) {
+        self.bootstrap_view_type = view_type;
+    }
+
+    pub fn bootstrap_view(&self) -> BootstrapViewType {
+        self.bootstrap_view_type
     }
 }

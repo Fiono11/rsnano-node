@@ -49,6 +49,18 @@ impl PeerScoring {
     pub fn container_info(&self) -> ContainerInfo {
         [("scores", self.len(), 0)].into()
     }
+
+    pub fn snapshot(&self) -> Vec<PeerScoreSnapshot> {
+        self.scoring
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(channel_id, score)| PeerScoreSnapshot {
+                channel_id: *channel_id,
+                running_queries: score.running_queries,
+            })
+            .collect()
+    }
 }
 
 impl Default for PeerScoring {
@@ -71,6 +83,11 @@ impl EventHandler<ChannelEvent> for PeerScoring {
             }
         }
     }
+}
+
+pub struct PeerScoreSnapshot {
+    pub channel_id: ChannelId,
+    pub running_queries: usize,
 }
 
 #[cfg(test)]

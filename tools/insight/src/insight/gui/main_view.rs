@@ -9,15 +9,17 @@ use super::{
     BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
     block_processor::view_block_processor,
-    bootstrap::{AccountViewModel, BootstrapViewModel, view_bootstrap},
+    bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
     formatted_number, view_frontier_scan, view_ledger_stats, view_message_recorder_controls,
     view_message_tab, view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::insight::{
     app::InsightApp,
+    bootstrap::BootstrapViewType,
     explorer::ExplorerState,
     gui::{
         QueueViewModel,
+        bootstrap::{BootstrapViewModel, PeerScoreViewModel, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             view_election_details, view_elections,
@@ -202,48 +204,63 @@ impl MainViewModel {
     }
 
     pub fn bootstrap(&self) -> BootstrapViewModel {
-        let download_queue = self
-            .app
-            .bootstrap
-            .snapshot
-            .download_queue
-            .iter()
-            .map(|e| AccountViewModel::from(e))
-            .collect();
+        match self.app.bootstrap_view() {
+            BootstrapViewType::BootstrapQueue => {
+                let download_queue = self
+                    .app
+                    .bootstrap
+                    .snapshot
+                    .download_queue
+                    .iter()
+                    .map(|e| AccountViewModel::from(e))
+                    .collect();
 
-        let blocked = self
-            .app
-            .bootstrap
-            .snapshot
-            .blocked
-            .iter()
-            .map(|e| AccountViewModel::from(e))
-            .collect();
+                let blocked = self
+                    .app
+                    .bootstrap
+                    .snapshot
+                    .blocked
+                    .iter()
+                    .map(|e| AccountViewModel::from(e))
+                    .collect();
 
-        let downloading = self
-            .app
-            .bootstrap
-            .snapshot
-            .downloading
-            .iter()
-            .map(|e| AccountViewModel::from(e))
-            .collect();
+                let downloading = self
+                    .app
+                    .bootstrap
+                    .snapshot
+                    .downloading
+                    .iter()
+                    .map(|e| AccountViewModel::from(e))
+                    .collect();
 
-        let info = &self.app.bootstrap.snapshot.info;
-        BootstrapViewModel {
-            download_queue_len: formatted_number(info.download_queue),
-            downloading_count: formatted_number(info.downloading),
-            blocked_accounts: formatted_number(info.blocked),
-            unblocked_accounts: formatted_number(info.unblocked),
-            process_queue: formatted_number(info.ready_to_process),
-            processing: formatted_number(info.processing),
-            unique_blocking_accounts: info.unique_blocking_accounts,
-            unknown_dependencies: info.unknown_dependencies,
-            cached_blocks: formatted_number(info.cached_blocks),
-            discarded_blocks: formatted_number(info.discarded_blocks),
-            download_queue,
-            downloading,
-            blocked,
+                let info = &self.app.bootstrap.snapshot.info;
+                BootstrapViewModel::BootstrapQueue(BootstrapQueueViewModel {
+                    download_queue_len: formatted_number(info.download_queue),
+                    downloading_count: formatted_number(info.downloading),
+                    blocked_accounts: formatted_number(info.blocked),
+                    unblocked_accounts: formatted_number(info.unblocked),
+                    process_queue: formatted_number(info.ready_to_process),
+                    processing: formatted_number(info.processing),
+                    unique_blocking_accounts: info.unique_blocking_accounts,
+                    unknown_dependencies: info.unknown_dependencies,
+                    cached_blocks: formatted_number(info.cached_blocks),
+                    discarded_blocks: formatted_number(info.discarded_blocks),
+                    download_queue,
+                    downloading,
+                    blocked,
+                })
+            }
+            BootstrapViewType::PeerScores => BootstrapViewModel::PeerScores(PeerScoresViewModel {
+                peers: self
+                    .app
+                    .peer_scores
+                    .iter()
+                    .map(|p| PeerScoreViewModel {
+                        channel_id: p.channel_id.to_string(),
+                        running_queries: p.running_queries.to_string(),
+                    })
+                    .collect(),
+            }),
         }
     }
 
