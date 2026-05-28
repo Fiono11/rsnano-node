@@ -175,15 +175,11 @@ impl QueryFactory {
     }
 
     fn acquire_channel(&mut self) -> Option<Arc<Channel>> {
-        let network = self.network.read().unwrap();
-        let candidate_channels: Vec<_> = network
-            .available_channels(TrafficType::BootstrapRequests)
-            .map(|c| c.channel_id())
-            .collect();
-        let Some(channel_id) = self.peer_scoring.channel(candidate_channels) else {
+        let Some(channel_id) = self.peer_scoring.channel() else {
             self.stats.no_channel.fetch_add(1, Relaxed);
             return None;
         };
+        let network = self.network.read().unwrap();
         let channel = network.get(channel_id).cloned();
         if channel.is_none() {
             self.stats.no_channel.fetch_add(1, Relaxed);

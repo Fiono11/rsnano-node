@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 pub(super) struct PeerScoreContainer {
     scores: FxHashMap<ChannelId, PeerScore>,
-    usable: FxHashSet<ChannelId>,
+    usable: UsableChannels,
     channel_limit: usize,
 }
 
@@ -14,7 +14,7 @@ impl PeerScoreContainer {
     pub fn new(channel_limit: usize) -> Self {
         Self {
             scores: FxHashMap::default(),
-            usable: FxHashSet::default(),
+            usable: UsableChannels::default(),
             channel_limit,
         }
     }
@@ -33,18 +33,15 @@ impl PeerScoreContainer {
         self.usable.insert(channel_id);
     }
 
-    pub fn running_queries(&self, channel_id: ChannelId) -> usize {
-        self.scores
-            .get(&channel_id)
-            .map(|p| p.running_queries)
-            .unwrap_or_default()
+    pub fn usable(&self) -> &[ChannelId] {
+        self.usable.as_slice()
     }
 
     pub fn request_sent(&mut self, channel_id: ChannelId) {
         let score = self.scores.entry(channel_id).or_default();
         score.request_sent();
         if score.running_queries >= self.channel_limit {
-            self.usable.remove(&channel_id);
+            self.usable.remove(channel_id);
         }
     }
 
@@ -71,13 +68,54 @@ impl PeerScoreContainer {
 
     pub fn remove(&mut self, channel_id: ChannelId) {
         self.scores.remove(&channel_id);
-        self.usable.remove(&channel_id);
+        self.usable.remove(channel_id);
     }
 }
 
 impl Default for PeerScoreContainer {
     fn default() -> Self {
         Self::new(Self::DEFAULT_CHANNEL_LIMIT)
+    }
+}
+
+#[derive(Default)]
+struct UsableChannels {
+    usable: FxHashSet<ChannelId>,
+    usable_vec: Vec<ChannelId>,
+}
+
+impl UsableChannels {
+    pub fn insert(&mut self, channel_id: ChannelId) {
+        if self.usable.insert(channel_id) {
+            self.usable_vec.push(channel_id);
+        }
+    }
+
+    fn remove(&mut self, channel_id: ChannelId) {
+        if self.usable.remove(&channel_id) {
+            if let Some(index) = self.usable_vec.iter().position(|id| *id == channel_id) {
+                self.usable_vec.swap_remove(index);
+            }
+        }
+    }
+
+    pub fn as_slice(&self) -> &[ChannelId] {
+        &self.usable_vec
+    }
+
+    #[allow(dead_code)]
+    pub fn contains(&self, channel_id: ChannelId) -> bool {
+        self.usable.contains(&channel_id)
+    }
+
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.usable_vec.len()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -99,7 +137,7 @@ mod tests {
         container.insert(channel_id, PeerScore::default());
         assert_eq!(container.len(), 1);
         assert!(container.get(channel_id).is_some());
-        assert!(container.usable.contains(&channel_id));
+        assert!(container.usable.contains(channel_id));
     }
 
     #[test]
@@ -115,7 +153,7 @@ mod tests {
         assert_eq!(container.len(), 1);
         assert!(container.get(channel_id).is_none());
         assert!(container.get(another_channel_id).is_some());
-        assert!(!container.usable.contains(&channel_id));
+        assert!(!container.usable.contains(channel_id));
     }
 
     #[test]
@@ -179,9 +217,9 @@ mod tests {
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT - 1 {
             container.request_sent(channel_id);
         }
-        assert!(container.usable.contains(&channel_id));
+        assert!(container.usable.contains(channel_id));
         container.request_sent(channel_id);
-        assert!(!container.usable.contains(&channel_id));
+        assert!(!container.usable.contains(channel_id));
     }
 
     #[test]
@@ -192,9 +230,9 @@ mod tests {
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
             container.request_sent(channel_id);
         }
-        assert!(!container.usable.contains(&channel_id));
+        assert!(!container.usable.contains(channel_id));
         container.got_response(channel_id);
-        assert!(container.usable.contains(&channel_id));
+        assert!(container.usable.contains(channel_id));
     }
 
     #[test]
@@ -205,8 +243,8 @@ mod tests {
         for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
             container.request_sent(channel_id);
         }
-        assert!(!container.usable.contains(&channel_id));
+        assert!(!container.usable.contains(channel_id));
         container.decay();
-        assert!(container.usable.contains(&channel_id));
+        assert!(container.usable.contains(channel_id));
     }
 }

@@ -3,7 +3,7 @@ mod peer_score_container;
 
 use std::sync::Mutex;
 
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_utils::{EventHandler, container_info::ContainerInfo};
@@ -25,13 +25,9 @@ impl PeerScoring {
         }
     }
 
-    pub fn channel(&self, mut candidates: Vec<ChannelId>) -> Option<ChannelId> {
-        candidates.shuffle(&mut rand::rng());
+    pub fn channel(&self) -> Option<ChannelId> {
         let scoring = self.scoring.lock().unwrap();
-        candidates
-            .iter()
-            .find(|channel_id| scoring.running_queries(**channel_id) < self.channel_limit)
-            .cloned()
+        scoring.usable().choose(&mut rand::rng()).cloned()
     }
 
     pub fn request_sent(&self, channel_id: ChannelId) {
@@ -88,7 +84,7 @@ mod tests {
         scoring.request_sent(channel_id);
 
         // Send one query — running_queries becomes 1
-        scoring.channel(vec![channel_id]);
+        scoring.channel();
 
         // Receive the response — running_queries should drop to 0
         scoring.response_received(channel_id);
