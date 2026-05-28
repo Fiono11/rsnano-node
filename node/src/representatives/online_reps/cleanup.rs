@@ -1,6 +1,7 @@
 use super::OnlineReps;
-use rsnano_network::{ChannelId, DeadChannelCleanupStep};
+use rsnano_network::ChannelEvent;
 use rsnano_types::Account;
+use rsnano_utils::EventHandler;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
@@ -13,11 +14,10 @@ impl OnlineRepsCleanup {
     }
 }
 
-impl DeadChannelCleanupStep for OnlineRepsCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut online_reps = self.0.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            let removed_reps = online_reps.remove_peer(*channel_id);
+impl EventHandler<ChannelEvent> for OnlineRepsCleanup {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            let removed_reps = self.0.lock().unwrap().remove_peer(*id);
             for rep in removed_reps {
                 info!(
                     "Evicting representative {} with dead channel",

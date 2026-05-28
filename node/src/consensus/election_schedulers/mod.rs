@@ -29,9 +29,9 @@ use crate::{
     cementation::ConfirmingSet,
     config::NodeConfig,
     representatives::OnlineReps,
-    utils::event_processor::{EventProcessor, EventSender},
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
+use rsnano_utils::{EventProcessor, EventSender};
 
 pub struct ElectionSchedulers {
     pub priority: Arc<PriorityScheduler>,
@@ -42,7 +42,7 @@ pub struct ElectionSchedulers {
     config: NodeConfig,
     ledger: Arc<Ledger>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
-    event_processor: EventProcessor,
+    event_processor: EventProcessor<Account>,
     tx_activate: Mutex<Option<EventSender<Account>>>,
 }
 
@@ -99,6 +99,13 @@ impl ElectionSchedulers {
             clock,
         ));
 
+        let (event_processor, tx_activate) = EventProcessor::new("prio_sched_queue", 1024 * 16);
+        let tx_activate = if config.enable_priority_scheduler {
+            Some(tx_activate)
+        } else {
+            None
+        };
+
         Self {
             priority,
             optimistic,
@@ -108,8 +115,8 @@ impl ElectionSchedulers {
             config,
             ledger,
             optimistic_thread: Mutex::new(None),
-            event_processor: EventProcessor::new("prio_sched_queue"),
-            tx_activate: Mutex::new(None),
+            event_processor,
+            tx_activate: Mutex::new(tx_activate),
         }
     }
 
@@ -155,16 +162,11 @@ impl ElectionSchedulers {
             let priority = self.priority.clone();
             let ledger = self.ledger.clone();
 
-            let tx_account = self.event_processor.start(
-                "prio sched queue",
-                1024 * 16,
-                move |account: &Account| {
+            self.event_processor
+                .start("prio sched queue", move |account: &Account| {
                     let any = ledger.any();
                     priority.activate(&any, account);
-                },
-            );
-
-            *self.tx_activate.lock().unwrap() = Some(tx_account);
+                });
 
             self.priority.start();
         }

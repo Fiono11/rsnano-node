@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_messages::{Keepalive, Message, NetworkFilter};
-use rsnano_network::{DeadChannelCleanup, Network, NetworkConfig, PeerConnector, TrafficType};
+use rsnano_network::{Network, NetworkConfig, PeerConnector, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -28,7 +28,6 @@ pub(crate) struct NetworkThreads {
     network_filter: Arc<NetworkFilter>,
     keepalive_factory: Arc<KeepaliveMessageFactory>,
     latest_keepalives: Arc<Mutex<LatestKeepalives>>,
-    dead_channel_cleanup: Option<DeadChannelCleanup>,
     message_flooder: MessageFlooder,
     clock: Arc<SteadyClock>,
 }
@@ -45,7 +44,6 @@ impl NetworkThreads {
         network_filter: Arc<NetworkFilter>,
         keepalive_factory: Arc<KeepaliveMessageFactory>,
         latest_keepalives: Arc<Mutex<LatestKeepalives>>,
-        dead_channel_cleanup: DeadChannelCleanup,
         message_flooder: MessageFlooder,
         clock: Arc<SteadyClock>,
     ) -> Self {
@@ -64,7 +62,6 @@ impl NetworkThreads {
             network_filter,
             keepalive_factory,
             latest_keepalives,
-            dead_channel_cleanup: Some(dead_channel_cleanup),
             message_flooder,
             clock,
         }
@@ -77,7 +74,8 @@ impl NetworkThreads {
             flags: self.flags.clone(),
             syn_cookies: self.syn_cookies.clone(),
             network_filter: self.network_filter.clone(),
-            dead_channel_cleanup: self.dead_channel_cleanup.take().unwrap(),
+            network: self.network.clone(),
+            clock: self.clock.clone(),
         };
 
         self.cleanup_thread = Some(
@@ -151,7 +149,8 @@ struct CleanupLoop {
     flags: NodeFlags,
     syn_cookies: Arc<SynCookies>,
     network_filter: Arc<NetworkFilter>,
-    dead_channel_cleanup: DeadChannelCleanup,
+    network: Arc<RwLock<Network>>,
+    clock: Arc<SteadyClock>,
 }
 
 impl CleanupLoop {
@@ -171,7 +170,7 @@ impl CleanupLoop {
             drop(stopped);
 
             if !self.flags.disable_connection_cleanup {
-                self.dead_channel_cleanup.clean_up();
+                self.network.write().unwrap().purge(self.clock.now());
             }
 
             self.syn_cookies

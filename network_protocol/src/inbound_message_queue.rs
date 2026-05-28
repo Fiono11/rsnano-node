@@ -9,8 +9,9 @@ use std::{
 use strum::IntoEnumIterator;
 
 use rsnano_messages::{Message, MessageType};
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep};
+use rsnano_network::{Channel, ChannelEvent, ChannelId};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     fair_queue::FairQueue,
     stats::{StatsCollection, StatsSource},
@@ -122,19 +123,11 @@ impl ContainerInfoProvider for InboundMessageQueue {
     }
 }
 
-pub struct InboundMessageQueueCleanup(Arc<InboundMessageQueue>);
-
-impl InboundMessageQueueCleanup {
-    pub fn new(queue: Arc<InboundMessageQueue>) -> Self {
-        Self(queue)
-    }
-}
-
-impl DeadChannelCleanupStep for InboundMessageQueueCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut guard = self.0.state.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            guard.queue.remove(channel_id);
+impl EventHandler<ChannelEvent> for InboundMessageQueue {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            let mut guard = self.state.lock().unwrap();
+            guard.queue.remove(id);
         }
     }
 }

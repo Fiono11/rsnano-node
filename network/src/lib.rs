@@ -4,8 +4,8 @@ extern crate strum_macros;
 pub mod attempt_container;
 pub mod bandwidth_limiter;
 mod channel;
+mod channel_event;
 mod channel_stats;
-mod dead_channel_cleanup;
 mod network;
 mod network_stats;
 mod peer_connector;
@@ -18,7 +18,7 @@ pub mod utils;
 pub mod write_queue;
 
 pub use channel::*;
-pub use dead_channel_cleanup::*;
+pub use channel_event::ChannelEvent;
 pub use network::*;
 pub use peer_connector::*;
 pub use tcp_channel_adapter::*;

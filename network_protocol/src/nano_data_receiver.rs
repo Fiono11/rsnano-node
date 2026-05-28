@@ -129,11 +129,7 @@ impl NanoDataReceiver {
             .unwrap()
             .upgrade_to_established_connection(self.channel.channel_id(), *node_id);
 
-        if let Some((channel, observers)) = result {
-            for observer in observers {
-                observer(channel.clone());
-            }
-
+        if result.is_some() {
             self.stats
                 .inc(StatType::TcpChannels, DetailType::ChannelAccepted);
 

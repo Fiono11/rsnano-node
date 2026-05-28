@@ -42,7 +42,7 @@ impl MessageFlooder {
     }
 
     pub(crate) fn new_null() -> Self {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         // add a channel so that capacity checks succeed
         let (channel, _) = network
             .add(

@@ -6,9 +6,10 @@ use std::{
 
 use strum::IntoEnumIterator;
 
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep};
+use rsnano_network::{Channel, ChannelEvent, ChannelId};
 use rsnano_types::{BlockHash, Vote, VoteSource};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     fair_queue::{FairQueue, FairQueueInfo},
     stats::{DetailType, StatType, Stats},
@@ -179,20 +180,12 @@ impl RepTiersConsumer for VoteProcessorQueue {
     }
 }
 
-pub struct VoteProcessorQueueCleanup(Arc<VoteProcessorQueue>);
-
-impl VoteProcessorQueueCleanup {
-    pub fn new(queue: Arc<VoteProcessorQueue>) -> Self {
-        Self(queue)
-    }
-}
-
-impl DeadChannelCleanupStep for VoteProcessorQueueCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut guard = self.0.data.lock().unwrap();
-        for channel_id in dead_channel_ids {
+impl EventHandler<ChannelEvent> for VoteProcessorQueue {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            let mut guard = self.data.lock().unwrap();
             for tier in RepTier::iter() {
-                guard.queue.remove(&(tier, *channel_id));
+                guard.queue.remove(&(tier, *id));
             }
         }
     }

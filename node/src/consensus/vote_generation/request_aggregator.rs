@@ -4,9 +4,10 @@ use std::{
 };
 
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, TrafficType};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
 use rsnano_types::{BlockHash, Root};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
@@ -47,7 +48,7 @@ pub struct RequestAggregator {
     stats: Arc<Stats>,
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
-    pub(crate) state: Arc<Mutex<RequestAggregatorState>>,
+    state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -189,6 +190,14 @@ impl ContainerInfoProvider for RequestAggregator {
     }
 }
 
+impl EventHandler<ChannelEvent> for RequestAggregator {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            self.state.lock().unwrap().queue.remove(id);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AggregatorRequest {
     pub channel: Arc<Channel>,
@@ -300,24 +309,5 @@ impl RequestAggregatorLoop {
         let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
         aggregator.add_votes(&requests.roots_hashes);
         aggregator.get_result()
-    }
-}
-
-pub(crate) struct RequestAggregatorCleanup {
-    state: Arc<Mutex<RequestAggregatorState>>,
-}
-
-impl RequestAggregatorCleanup {
-    pub(crate) fn new(state: Arc<Mutex<RequestAggregatorState>>) -> Self {
-        Self { state }
-    }
-}
-
-impl DeadChannelCleanupStep for RequestAggregatorCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut guard = self.state.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            guard.queue.remove(channel_id);
-        }
     }
 }

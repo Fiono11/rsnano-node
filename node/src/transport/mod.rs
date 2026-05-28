@@ -1,4 +1,5 @@
 mod block_deserializer;
+mod channel_event_handlers;
 pub mod keepalive;
 mod loopback_channel_adapter;
 mod message_flooder;
@@ -11,6 +12,9 @@ mod peer_cache_updater;
 mod vec_buffer_reader;
 
 pub use block_deserializer::read_block;
+pub(crate) use channel_event_handlers::{
+    KeepaliveOnEstablishedHandler, RepCrawlerOnEstablishedHandler,
+};
 pub(crate) use loopback_channel_adapter::run_loopback_channel_adapter;
 pub use message_flooder::*;
 pub use message_processor::*;

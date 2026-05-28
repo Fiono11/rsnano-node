@@ -19,12 +19,11 @@ use rsnano_ledger::{
 };
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
-    ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
-    TcpListenerExt, TcpNetworkAdapter, TrafficType,
+    ChannelEvent, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt, TcpNetworkAdapter,
 };
 use rsnano_network_protocol::{
-    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
-    LatestKeepalivesCleanup, NanoDataReceiverFactory, SynCookies,
+    HandshakeStats, InboundMessageQueue, LatestKeepalives, LatestKeepalivesCleanup,
+    NanoDataReceiverFactory, SynCookies,
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_nullable_fs::NullableFilesystem;
@@ -37,7 +36,7 @@ use rsnano_types::{
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
-    BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry,
+    BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry, EventProcessor,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
@@ -62,7 +61,7 @@ use crate::{
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{
         bootstrapper::{BootstrapExt, Bootstrapper},
-        responder::{BootstrapResponder, BootstrapResponderCleanup},
+        responder::BootstrapResponder,
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
@@ -70,11 +69,10 @@ use crate::{
         AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
         BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator,
-        RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
-        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
-        WinnerBlockBroadcaster, election::ConfirmedElection,
+        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
+        VoteBroadcaster, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster,
+        WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
         election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
@@ -90,8 +88,9 @@ use crate::{
     },
     tokio_runner::TokioRunner,
     transport::{
-        MessageFlooder, MessageProcessor, MessageSender, NetworkMessageProcessor, NetworkThreads,
-        PeerCacheConnector, PeerCacheUpdater,
+        KeepaliveOnEstablishedHandler, MessageFlooder, MessageProcessor, MessageSender,
+        NetworkMessageProcessor, NetworkThreads, PeerCacheConnector, PeerCacheUpdater,
+        RepCrawlerOnEstablishedHandler,
         keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
         run_loopback_channel_adapter,
     },
@@ -164,6 +163,7 @@ pub struct Node {
     aec_voter: TimerThread<Arc<Mutex<AecVoter>>>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     ticker_pool: TickerPool,
+    channel_event_processor: EventProcessor<ChannelEvent>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -401,7 +401,12 @@ impl Node {
         }
         let inbound_message_queue = Arc::new(inbound_message_queue);
 
-        let network = Network::new(config.network.clone());
+        let mut network = Network::new(config.network.clone());
+
+        let (channel_event_processor, channel_event_sender) =
+            EventProcessor::<ChannelEvent>::new("channel_events", 128);
+
+        network.publish_to(channel_event_sender);
         runtime.spawn(run_loopback_channel_adapter(
             network.loopback().clone(),
             node_id,
@@ -910,24 +915,16 @@ impl Node {
         ));
         block_processor.set_should_throttle(should_throttle_block_processor);
 
-        let mut dead_channel_cleanup =
-            DeadChannelCleanup::new(steady_clock.clone(), network.clone());
-        dead_channel_cleanup.add_step(InboundMessageQueueCleanup::new(
-            inbound_message_queue.clone(),
-        ));
-
-        dead_channel_cleanup.add_step(OnlineRepsCleanup::new(online_reps.clone()));
-        dead_channel_cleanup.add_step(BootstrapResponderCleanup::new(
-            bootstrap_responder.server_impl.clone(),
-        ));
-        dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(vote_processor_queue.clone()));
-        dead_channel_cleanup.add_step(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
-        dead_channel_cleanup.add_step(NetworkCleanup::new(network_adapter.clone()));
-
-        dead_channel_cleanup.add_step(RequestAggregatorCleanup::new(
-            request_aggregator.state.clone(),
-        ));
-        dead_channel_cleanup.add_step(bootstrapper.clone());
+        let mut channel_event_handlers = EventHandlerRegistry::<ChannelEvent>::default();
+        channel_event_handlers.add(inbound_message_queue.clone());
+        channel_event_handlers.add(OnlineRepsCleanup::new(online_reps.clone()));
+        channel_event_handlers.add(bootstrap_responder.clone());
+        channel_event_handlers.add(vote_processor_queue.clone());
+        channel_event_handlers.add(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
+        channel_event_handlers.add(network_adapter.clone());
+        channel_event_handlers.add(request_aggregator.clone());
+        channel_event_handlers.add(bootstrapper.clone());
+        channel_event_handlers.add(telemetry.clone());
 
         #[cfg(feature = "ledger_snapshots")]
         let ledger_snapshots = {
@@ -974,7 +971,6 @@ impl Node {
             network_filter.clone(),
             keepalive_factory.clone(),
             latest_keepalives.clone(),
-            dead_channel_cleanup,
             message_flooder.clone(),
             steady_clock.clone(),
         )));
@@ -985,16 +981,10 @@ impl Node {
             network_message_processor.clone(),
         ));
 
-        let rep_crawler_w = Arc::downgrade(&rep_crawler);
         if !flags.disable_rep_crawler {
-            network
-                .write()
-                .unwrap()
-                .on_new_established_channel(Arc::new(move |channel| {
-                    if let Some(crawler) = rep_crawler_w.upgrade() {
-                        crawler.query_with_priority(channel);
-                    }
-                }));
+            channel_event_handlers.add(RepCrawlerOnEstablishedHandler::new(Arc::downgrade(
+                &rep_crawler,
+            )));
         }
 
         let vote_rebroadcast_queue = Arc::new(
@@ -1012,26 +1002,13 @@ impl Node {
             config.rebroadcast_history.clone(),
         );
 
-        let keepalive_factory_w = Arc::downgrade(&keepalive_factory);
         let message_publisher_l = Arc::new(Mutex::new(message_sender.clone()));
-        let message_publisher_w = Arc::downgrade(&message_publisher_l);
-        network
-            .write()
-            .unwrap()
-            .on_new_established_channel(Arc::new(move |channel| {
-                // Send a keepalive message to the new channel
-                let Some(factory) = keepalive_factory_w.upgrade() else {
-                    return;
-                };
-                let Some(publisher) = message_publisher_w.upgrade() else {
-                    return;
-                };
-                let keepalive = factory.create_keepalive_self();
-                publisher
-                    .lock()
-                    .unwrap()
-                    .try_send(&channel, &keepalive, TrafficType::Keepalive);
-            }));
+        channel_event_handlers.add(KeepaliveOnEstablishedHandler::new(
+            Arc::downgrade(&keepalive_factory),
+            Arc::downgrade(&message_publisher_l),
+        ));
+
+        channel_event_processor.start("channel_ev", channel_event_handlers);
 
         if !work_factory.work_generation_enabled() {
             info!("Work generation is disabled");
@@ -1385,6 +1362,7 @@ impl Node {
             aec_voter: TimerThread::new("AEC voter", Arc::clone(&aec_voter)),
             wallet_reps,
             ticker_pool,
+            channel_event_processor,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -1664,6 +1642,10 @@ impl Node {
         self.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
+        // Network::stop drops its EventSender, which closes the channel and lets the
+        // dispatcher thread exit. Join it before subsystems are dropped so handlers
+        // never call into a half-dropped subsystem.
+        self.channel_event_processor.join();
         self.vote_rebroadcaster.stop();
         self.ledger.drop_publisher();
         self.workers.join();

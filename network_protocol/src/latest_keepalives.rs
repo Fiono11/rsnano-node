@@ -6,7 +6,8 @@ use std::{
 use rand::seq::IteratorRandom;
 
 use rsnano_messages::Keepalive;
-use rsnano_network::{ChannelId, DeadChannelCleanupStep};
+use rsnano_network::{ChannelEvent, ChannelId};
+use rsnano_utils::EventHandler;
 
 /// Keeps the last keepalive message per channel in memory, so that we can
 /// later use that information, when we want to connect to more nodes
@@ -77,11 +78,10 @@ impl LatestKeepalivesCleanup {
     }
 }
 
-impl DeadChannelCleanupStep for LatestKeepalivesCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut keepalives = self.keepalives.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            keepalives.remove(*channel_id);
+impl EventHandler<ChannelEvent> for LatestKeepalivesCleanup {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            self.keepalives.lock().unwrap().remove(*id);
         }
     }
 }

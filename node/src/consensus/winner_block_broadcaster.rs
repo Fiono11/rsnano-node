@@ -51,7 +51,7 @@ impl WinnerBlockBroadcaster {
         let clock = Arc::new(SteadyClock::new_null());
         let networks = NetworkType::NanoLiveNetwork;
         let online_reps = Mutex::new(OnlineReps::default());
-        let network = RwLock::new(Network::new_test_instance());
+        let network = RwLock::new(Network::new_null());
         Self::new(
             clock,
             networks,

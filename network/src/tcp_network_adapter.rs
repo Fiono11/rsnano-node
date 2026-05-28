@@ -12,9 +12,10 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_tcp::TcpStream;
 
 use crate::{
-    Channel, ChannelDirection, ChannelId, DeadChannelCleanupStep, NULL_ENDPOINT, Network,
-    NetworkError, ReceiveResult, TcpChannelAdapter, utils::into_ipv6_socket_address,
+    Channel, ChannelDirection, ChannelEvent, ChannelId, NULL_ENDPOINT, Network, NetworkError,
+    ReceiveResult, TcpChannelAdapter, utils::into_ipv6_socket_address,
 };
+use rsnano_utils::EventHandler;
 
 /// Connects the Network to TcpStreams
 pub struct TcpNetworkAdapter {
@@ -162,7 +163,7 @@ impl TcpNetworkAdapter {
 
     pub fn new_null(handle: tokio::runtime::Handle) -> Self {
         Self::new(
-            Arc::new(RwLock::new(Network::new_test_instance())),
+            Arc::new(RwLock::new(Network::new_null())),
             Arc::new(SteadyClock::new_null()),
             handle,
         )
@@ -181,19 +182,14 @@ impl TcpNetworkAdapter {
     }
 }
 
-pub struct NetworkCleanup(Arc<TcpNetworkAdapter>);
-
-impl NetworkCleanup {
-    pub fn new(network: Arc<TcpNetworkAdapter>) -> Self {
-        Self(network)
-    }
-}
-
-impl DeadChannelCleanupStep for NetworkCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut channels = self.0.channel_adapters.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            channels.remove(channel_id);
+impl EventHandler<ChannelEvent> for TcpNetworkAdapter {
+    fn handle(&self, event: &ChannelEvent) {
+        match event {
+            ChannelEvent::Established(_) => {}
+            ChannelEvent::Removed(channel_id) => {
+                let mut channels = self.channel_adapters.lock().unwrap();
+                channels.remove(channel_id);
+            }
         }
     }
 }

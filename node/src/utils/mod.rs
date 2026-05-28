@@ -1,5 +1,4 @@
 mod backpressure_event_processor;
-pub(crate) mod event_processor;
 mod processing_queue;
 mod rate_calculator;
 

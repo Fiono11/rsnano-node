@@ -5,6 +5,7 @@ mod cancellation_token;
 pub mod container_info;
 pub mod env;
 mod event_handler;
+mod event_processor;
 pub mod fair_queue;
 pub mod stats;
 pub mod sync;
@@ -17,6 +18,7 @@ pub use backpressure_handler::{
 };
 pub use cancellation_token::CancellationToken;
 pub use event_handler::{EventHandler, EventHandlerMut, EventHandlerRegistry};
+pub use event_processor::{EventProcessor, EventSender};
 
 pub fn get_cpu_count() -> usize {
     // Try to read overridden value from environment variable

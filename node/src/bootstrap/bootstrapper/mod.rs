@@ -24,7 +24,7 @@ use tracing::{trace, warn};
 use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
@@ -186,7 +186,7 @@ impl Bootstrapper {
         let block_processor_queue = Arc::new(BlockProcessorQueue::default());
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
-        let network = Arc::new(RwLock::new(Network::new_test_instance()));
+        let network = Arc::new(RwLock::new(Network::new_null()));
         let message_sender = MessageSender::new_null();
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
@@ -469,9 +469,11 @@ impl BootstrapExt for Arc<Bootstrapper> {
     }
 }
 
-impl DeadChannelCleanupStep for Bootstrapper {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        self.peer_scoring.clean_up_dead_channels(dead_channel_ids);
+impl EventHandler<ChannelEvent> for Bootstrapper {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            self.peer_scoring.clean_up_dead_channels(&[*id]);
+        }
     }
 }
 

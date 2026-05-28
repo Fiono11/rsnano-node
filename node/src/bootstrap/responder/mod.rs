@@ -14,11 +14,10 @@ use rsnano_messages::{
     AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
     AscPullReqType, BlocksAckPayload, BlocksReqPayload, FrontiersReqPayload, HashType, Message,
 };
-use rsnano_network::{
-    Channel, ChannelId, DeadChannelCleanupStep, TrafficType, token_bucket::TokenBucket,
-};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType, token_bucket::TokenBucket};
 use rsnano_types::{Block, BlockHash, Frontier};
 use rsnano_utils::{
+    EventHandler,
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
 };
@@ -51,7 +50,7 @@ pub struct BootstrapResponder {
     config: BootstrapResponderConfig,
     stats: Arc<Stats>,
     threads: Mutex<Vec<JoinHandle<()>>>,
-    pub(crate) server_impl: Arc<BootstrapResponderImpl>,
+    server_impl: Arc<BootstrapResponderImpl>,
     running: AtomicBool,
 }
 
@@ -189,7 +188,13 @@ impl Drop for BootstrapResponder {
     }
 }
 
-pub(crate) struct BootstrapResponderImpl {
+impl EventHandler<ChannelEvent> for BootstrapResponder {
+    fn handle(&self, event: &ChannelEvent) {
+        self.server_impl.handle(event);
+    }
+}
+
+struct BootstrapResponderImpl {
     stats: Arc<Stats>,
     ledger: Arc<Ledger>,
     on_response: Arc<Mutex<Option<Box<dyn Fn(&AscPullAck, &Arc<Channel>) + Send + Sync>>>>,
@@ -456,19 +461,10 @@ impl BootstrapResponderImpl {
     }
 }
 
-pub(crate) struct BootstrapResponderCleanup(Arc<BootstrapResponderImpl>);
-
-impl BootstrapResponderCleanup {
-    pub fn new(server: Arc<BootstrapResponderImpl>) -> Self {
-        Self(server)
-    }
-}
-
-impl DeadChannelCleanupStep for BootstrapResponderCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut queue = self.0.queue.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            queue.remove(channel_id);
+impl EventHandler<ChannelEvent> for BootstrapResponderImpl {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            self.queue.lock().unwrap().remove(id);
         }
     }
 }

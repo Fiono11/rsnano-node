@@ -14,11 +14,14 @@ use std::{
 };
 
 use rsnano_messages::{Message, TelemetryAck, TelemetryData};
-use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep, Network, TrafficType};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::BlockHash;
-use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
+use rsnano_utils::{
+    EventHandler,
+    container_info::{ContainerInfo, ContainerInfoProvider},
+};
 
 use crate::{
     config::{DEV_NETWORK_PARAMS, NetworkParams},
@@ -92,7 +95,7 @@ impl Telemetry {
             Stats::default().into(),
             *DEV_GENESIS_HASH,
             DEV_NETWORK_PARAMS.clone(),
-            RwLock::new(Network::new_test_instance()).into(),
+            RwLock::new(Network::new_null()).into(),
             MessageSender::new_null(),
             SteadyClock::new_null().into(),
         )
@@ -300,6 +303,34 @@ impl Telemetry {
     }
 }
 
+impl Drop for Telemetry {
+    fn drop(&mut self) {
+        // Thread must be stopped before destruction
+        debug_assert!(self.thread.lock().unwrap().is_none());
+    }
+}
+
+impl ContainerInfoProvider for Telemetry {
+    fn container_info(&self) -> ContainerInfo {
+        let guard = self.mutex.lock().unwrap();
+        [(
+            "telemetries",
+            guard.telemetries.len(),
+            OrderedTelemetries::ELEMENT_SIZE,
+        )]
+        .into()
+    }
+}
+
+impl EventHandler<ChannelEvent> for Telemetry {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(channel_id) = event {
+            let mut guard = self.mutex.lock().unwrap();
+            guard.telemetries.remove(*channel_id);
+        }
+    }
+}
+
 build_info::build_info!(fn build_info);
 
 #[cfg(not(feature = "banano"))]
@@ -349,25 +380,6 @@ pub fn get_pre_release_version(v: &Version) -> u8 {
             .nth(1)
             .and_then(|s| s.parse::<u8>().ok())
             .unwrap_or(99)
-    }
-}
-
-impl Drop for Telemetry {
-    fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
-    }
-}
-
-impl ContainerInfoProvider for Telemetry {
-    fn container_info(&self) -> ContainerInfo {
-        let guard = self.mutex.lock().unwrap();
-        [(
-            "telemetries",
-            guard.telemetries.len(),
-            OrderedTelemetries::ELEMENT_SIZE,
-        )]
-        .into()
     }
 }
 
@@ -480,22 +492,5 @@ impl OrderedTelemetries {
 
     fn iter(&self) -> impl Iterator<Item = &Entry> {
         self.by_channel_id.values()
-    }
-}
-
-impl DeadChannelCleanupStep for Telemetry {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut guard = self.mutex.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            guard.telemetries.remove(*channel_id);
-        }
-    }
-}
-
-pub struct TelemetryDeadChannelCleanup(pub Arc<Telemetry>);
-
-impl DeadChannelCleanupStep for TelemetryDeadChannelCleanup {
-    fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        self.0.clean_up_dead_channels(dead_channel_ids);
     }
 }

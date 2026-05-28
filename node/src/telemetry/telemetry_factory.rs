@@ -27,7 +27,7 @@ impl TelemetryFactory {
     pub fn new_null() -> Self {
         Self {
             ledger: Ledger::new_null().into(),
-            network: RwLock::new(Network::new_test_instance()).into(),
+            network: RwLock::new(Network::new_null()).into(),
             node_id_key: PrivateKey::from(1),
             unchecked: Mutex::new(UncheckedMap::default()).into(),
             startup_time: Timestamp::new_test_instance(),

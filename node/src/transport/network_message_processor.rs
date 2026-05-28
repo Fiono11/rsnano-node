@@ -280,7 +280,7 @@ mod tests {
     ) -> NetworkMessageProcessor {
         NetworkMessageProcessor::new(
             Stats::default().into(),
-            RwLock::new(Network::new_test_instance()).into(),
+            RwLock::new(Network::new_null()).into(),
             NetworkFilter::default().into(),
             BlockProcessorQueue::new_null().into(),
             Mutex::new(WalletRepresentatives::new_null()).into(),

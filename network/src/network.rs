@@ -12,13 +12,14 @@ use tracing::{debug, warn};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{NetworkType, NodeId, ProtocolInfo};
+use rsnano_utils::EventSender;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::ChannelDirection;
 use crate::{
-    Channel, ChannelId, ChannelMode, DataReceiver, DataReceiverFactory, NullDataReceiverFactory,
-    TrafficType,
+    Channel, ChannelEvent, ChannelId, ChannelMode, DataReceiver, DataReceiverFactory,
+    NullDataReceiverFactory, TrafficType,
     attempt_container::AttemptContainer,
     bandwidth_limiter::{BandwidthLimiter, BandwidthLimiterConfig},
     channel_stats::ChannelStats,
@@ -135,13 +136,13 @@ pub struct Network {
     channel_stats: Arc<ChannelStats>,
     network_stats: NetworkStats,
     stopped: bool,
-    new_established_channel_observers: Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>>,
     attempts: AttemptContainer,
     config: NetworkConfig,
     excluded_peers: PeerExclusion,
     bandwidth_limiter: Arc<BandwidthLimiter>,
     data_receiver_factory: Box<dyn DataReceiverFactory + Send + Sync>,
     loopback: Arc<Channel>,
+    event_sender: Option<EventSender<ChannelEvent>>,
 }
 
 impl Network {
@@ -152,18 +153,22 @@ impl Network {
             channel_stats: Arc::new(ChannelStats::default()),
             network_stats: Default::default(),
             stopped: false,
-            new_established_channel_observers: Vec::new(),
             attempts: Default::default(),
             excluded_peers: PeerExclusion::new(),
             bandwidth_limiter: Arc::new(BandwidthLimiter::new(config.limiter.clone())),
             data_receiver_factory: Box::new(NullDataReceiverFactory::new()),
             loopback: create_loopback_channel(&config),
             config,
+            event_sender: None,
         }
     }
 
-    pub fn new_test_instance() -> Self {
+    pub fn new_null() -> Self {
         Self::new(NetworkConfig::default_for(NetworkType::NanoDevNetwork))
+    }
+
+    pub fn publish_to(&mut self, sender: EventSender<ChannelEvent>) {
+        self.event_sender = Some(sender);
     }
 
     pub fn protocol_info(&self) -> ProtocolInfo {
@@ -179,19 +184,6 @@ impl Network {
         factory: Box<dyn DataReceiverFactory + Send + Sync>,
     ) {
         self.data_receiver_factory = factory;
-    }
-
-    pub fn on_new_established_channel(
-        &mut self,
-        callback: Arc<dyn Fn(Arc<Channel>) + Send + Sync>,
-    ) {
-        self.new_established_channel_observers.push(callback);
-    }
-
-    pub fn new_established_channel_observers(
-        &self,
-    ) -> Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>> {
-        self.new_established_channel_observers.clone()
     }
 
     pub fn is_inbound_slot_available(&self) -> bool {
@@ -432,7 +424,7 @@ impl Network {
             || channel.protocol_version() < self.config.protocol_info.version_min
     }
 
-    /// Removes dead channels and returns their channel ids
+    /// Removes dead channels and returns them. Emits a `Removed` event for each.
     fn remove_dead_channels(&mut self) -> Vec<Arc<Channel>> {
         let dead_channels: Vec<_> = self
             .channels
@@ -442,8 +434,17 @@ impl Network {
             .collect();
 
         for channel in &dead_channels {
-            debug!("Removing dead channel: {}", channel.peer_addr());
+            debug!(
+                remote_addr = ?channel.peer_addr(),
+                channel_id = %channel.channel_id(),
+                mode = ?channel.mode(),
+                version = channel.protocol_version(),
+                "Idle/dead channel closed",
+            );
             self.channels.remove(&channel.channel_id());
+            if let Some(sender) = &self.event_sender {
+                sender.send(ChannelEvent::Removed(channel.channel_id()));
+            }
         }
 
         dead_channels
@@ -619,6 +620,9 @@ impl Network {
             self.channels.clear();
             self.loopback.close();
             self.stopped = true;
+            // Drop the real EventSender so the dispatcher thread's rx returns Err
+            // and the consumer thread exits.
+            self.event_sender = None;
             true
         }
     }
@@ -646,7 +650,7 @@ impl Network {
         &self,
         channel_id: ChannelId,
         node_id: NodeId,
-    ) -> Option<(Arc<Channel>, Vec<Arc<dyn Fn(Arc<Channel>) + Send + Sync>>)> {
+    ) -> Option<Arc<Channel>> {
         if self.is_stopped() {
             return None;
         }
@@ -664,9 +668,12 @@ impl Network {
         channel.set_node_id(node_id);
         channel.set_mode(ChannelMode::Established);
 
-        let observers = self.new_established_channel_observers();
         let channel = channel.clone();
-        Some((channel, observers))
+        if let Some(sender) = &self.event_sender {
+            sender.try_send(ChannelEvent::Established(channel.clone()));
+        }
+
+        Some(channel)
     }
 
     pub fn idle_channels(&self, min_idle_time: Duration, now: Timestamp) -> Vec<Arc<Channel>> {
@@ -770,7 +777,7 @@ mod tests {
 
     #[test]
     fn newly_added_channel_is_not_an_established_channel() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         network
             .add(
                 TEST_ENDPOINT_1,
@@ -784,7 +791,7 @@ mod tests {
 
     #[test]
     fn reserved_ip_is_not_a_peer() {
-        let network = Network::new_test_instance();
+        let network = Network::new_null();
 
         assert!(network.not_a_peer(
             &SocketAddrV6::new(Ipv6Addr::new(0xff00u16, 0, 0, 0, 0, 0, 0, 0), 1000, 0, 0),
@@ -808,7 +815,7 @@ mod tests {
 
     #[test]
     fn upgrade_channel_to_established_channel() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         let (channel, _receiver) = network
             .add(
                 TEST_ENDPOINT_1,
@@ -828,7 +835,7 @@ mod tests {
 
     #[test]
     fn random_fill_peering_endpoints_empty() {
-        let network = Network::new_test_instance();
+        let network = Network::new_null();
         let mut endpoints = [NULL_ENDPOINT; 3];
         network.random_fill_established(&mut endpoints);
         assert_eq!(endpoints, [NULL_ENDPOINT; 3]);
@@ -836,7 +843,7 @@ mod tests {
 
     #[test]
     fn random_fill_peering_endpoints_part() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
         let mut endpoints = [NULL_ENDPOINT; 3];
@@ -848,7 +855,7 @@ mod tests {
 
     #[test]
     fn random_fill_peering_endpoints() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
@@ -861,7 +868,7 @@ mod tests {
 
     #[test]
     fn available_channels() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_1);
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_2);
         add_established_channel_with_peering_addr(&mut network, TEST_ENDPOINT_3);
@@ -1041,7 +1048,7 @@ mod tests {
 
     #[test]
     fn has_loopback_channel() {
-        let network = Network::new_test_instance();
+        let network = Network::new_null();
         let loopback = network.loopback();
         assert_eq!(
             loopback.peer_addr(),
@@ -1059,14 +1066,14 @@ mod tests {
 
     #[test]
     fn can_be_retrieved_by_channel_id() {
-        let network = Network::new_test_instance();
+        let network = Network::new_null();
         let loopback = network.get(ChannelId::LOOPBACK).unwrap();
         assert!(Arc::ptr_eq(loopback, network.loopback()));
     }
 
     #[test]
     fn loopback_gets_stopped() {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         network.stop();
         let loopback = network.loopback();
         assert_eq!(loopback.is_alive(), false);

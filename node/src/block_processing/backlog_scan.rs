@@ -8,12 +8,11 @@ use std::{
     time::Duration,
 };
 
-use crate::utils::event_processor::EventProcessor;
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use rsnano_utils::{
-    EventHandlerMut,
+    EventHandlerMut, EventProcessor, EventSender,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
@@ -58,7 +57,8 @@ pub struct BacklogScan {
     /** Thread that runs the backlog implementation logic. The thread always runs, even if
      *  backlog population is disabled, so that it can service a manual trigger (e.g. via RPC). */
     scan_thread: Mutex<Option<JoinHandle<()>>>,
-    event_processor: EventProcessor,
+    event_processor: EventProcessor<Vec<UnconfirmedInfo>>,
+    unconfirmed_tx: Mutex<Option<EventSender<Vec<UnconfirmedInfo>>>>,
 }
 
 impl BacklogScan {
@@ -68,6 +68,8 @@ impl BacklogScan {
             triggered: false,
         }));
 
+        let (event_processor, unconfirmed_tx) = EventProcessor::new("backlog_scan_queue", 128);
+
         Self {
             stats: Arc::new(BacklogScanStats::default()),
             flags,
@@ -75,14 +77,20 @@ impl BacklogScan {
             config,
             condition: Arc::new(Condvar::new()),
             scan_thread: Mutex::new(None),
-            event_processor: EventProcessor::new("backlog_scan_queue"),
+            event_processor,
+            unconfirmed_tx: Mutex::new(Some(unconfirmed_tx)),
         }
     }
 
     pub fn start(&self, unconfirmed_handler: impl EventHandlerMut<Vec<UnconfirmedInfo>> + 'static) {
-        let unconfirmed_tx =
-            self.event_processor
-                .start("backlog scan proc", 128, unconfirmed_handler);
+        self.event_processor
+            .start("backlog scan proc", unconfirmed_handler);
+        let unconfirmed_tx = self
+            .unconfirmed_tx
+            .lock()
+            .unwrap()
+            .take()
+            .expect("backlog scan should only be started once");
 
         let scan_loop = BacklogScanLoop {
             ledger: self.ledger.clone(),

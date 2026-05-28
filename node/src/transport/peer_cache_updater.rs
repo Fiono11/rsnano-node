@@ -288,7 +288,7 @@ mod tests {
         Vec<SocketAddrV6>,
         Arc<Stats>,
     ) {
-        let mut network = Network::new_test_instance();
+        let mut network = Network::new_null();
         for endpoint in open_channels {
             let (channel, _) = network
                 .add(
