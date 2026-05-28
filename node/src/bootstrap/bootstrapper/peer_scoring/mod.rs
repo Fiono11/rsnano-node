@@ -5,9 +5,10 @@ use std::sync::Mutex;
 
 use rand::seq::SliceRandom;
 
-use rsnano_network::ChannelId;
-use rsnano_utils::container_info::ContainerInfo;
+use rsnano_network::{ChannelEvent, ChannelId};
+use rsnano_utils::{EventHandler, container_info::ContainerInfo};
 
+use crate::bootstrap::bootstrapper::peer_scoring::peer_score::PeerScore;
 use peer_score_container::PeerScoreContainer;
 
 /// Container for tracking and scoring peers with respect to bootstrapping
@@ -49,13 +50,6 @@ impl PeerScoring {
         self.scoring.lock().unwrap().decay();
     }
 
-    pub fn clean_up_dead_channels(&self, dead_channel_ids: &[ChannelId]) {
-        let mut scoring = self.scoring.lock().unwrap();
-        for channel_id in dead_channel_ids {
-            scoring.remove(*channel_id);
-        }
-    }
-
     pub fn container_info(&self) -> ContainerInfo {
         [("scores", self.len(), 0)].into()
     }
@@ -64,6 +58,22 @@ impl PeerScoring {
 impl Default for PeerScoring {
     fn default() -> Self {
         Self::new(PeerScoreContainer::DEFAULT_CHANNEL_LIMIT)
+    }
+}
+
+impl EventHandler<ChannelEvent> for PeerScoring {
+    fn handle(&self, event: &ChannelEvent) {
+        match event {
+            ChannelEvent::Established(channel) => {
+                self.scoring
+                    .lock()
+                    .unwrap()
+                    .insert(channel.channel_id(), PeerScore::default());
+            }
+            ChannelEvent::Removed(channel_id) => {
+                self.scoring.lock().unwrap().remove(*channel_id);
+            }
+        }
     }
 }
 

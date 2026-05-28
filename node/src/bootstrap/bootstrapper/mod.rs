@@ -471,9 +471,7 @@ impl BootstrapExt for Arc<Bootstrapper> {
 
 impl EventHandler<ChannelEvent> for Bootstrapper {
     fn handle(&self, event: &ChannelEvent) {
-        if let ChannelEvent::Removed(id) = event {
-            self.peer_scoring.clean_up_dead_channels(&[*id]);
-        }
+        self.peer_scoring.handle(event);
     }
 }
 

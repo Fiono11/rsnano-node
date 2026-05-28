@@ -1,9 +1,10 @@
 use super::peer_score::PeerScore;
 use rsnano_network::ChannelId;
-use std::collections::HashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 pub(super) struct PeerScoreContainer {
-    by_channel: HashMap<ChannelId, PeerScore>,
+    scores: FxHashMap<ChannelId, PeerScore>,
+    usable: FxHashSet<ChannelId>,
     channel_limit: usize,
 }
 
@@ -12,42 +13,47 @@ impl PeerScoreContainer {
 
     pub fn new(channel_limit: usize) -> Self {
         Self {
-            by_channel: HashMap::new(),
+            scores: FxHashMap::default(),
+            usable: FxHashSet::default(),
             channel_limit,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.by_channel.len()
+        self.scores.len()
     }
 
     #[cfg(test)]
     pub fn get(&self, channel_id: ChannelId) -> Option<&PeerScore> {
-        self.by_channel.get(&channel_id)
+        self.scores.get(&channel_id)
     }
 
-    #[cfg(test)]
-    pub fn insert(&mut self, channel_id: ChannelId, score: PeerScore) -> Option<PeerScore> {
-        self.by_channel.insert(channel_id, score)
+    pub fn insert(&mut self, channel_id: ChannelId, score: PeerScore) {
+        self.scores.insert(channel_id, score);
+        self.usable.insert(channel_id);
     }
 
     pub fn running_queries(&self, channel_id: ChannelId) -> usize {
-        self.by_channel
+        self.scores
             .get(&channel_id)
             .map(|p| p.running_queries)
             .unwrap_or_default()
     }
 
     pub fn request_sent(&mut self, channel_id: ChannelId) {
-        self.by_channel
-            .entry(channel_id)
-            .or_default()
-            .request_sent();
+        let score = self.scores.entry(channel_id).or_default();
+        score.request_sent();
+        if score.running_queries >= self.channel_limit {
+            self.usable.remove(&channel_id);
+        }
     }
 
     pub fn got_response(&mut self, channel_id: ChannelId) -> bool {
-        if let Some(scoring) = self.by_channel.get_mut(&channel_id) {
-            scoring.got_response();
+        if let Some(score) = self.scores.get_mut(&channel_id) {
+            score.got_response();
+            if score.running_queries < self.channel_limit {
+                self.usable.insert(channel_id);
+            }
             true
         } else {
             false
@@ -55,13 +61,17 @@ impl PeerScoreContainer {
     }
 
     pub fn decay(&mut self) {
-        for peer in self.by_channel.values_mut() {
-            peer.decay();
+        for (channel_id, score) in self.scores.iter_mut() {
+            score.decay();
+            if score.running_queries < self.channel_limit {
+                self.usable.insert(*channel_id);
+            }
         }
     }
 
     pub fn remove(&mut self, channel_id: ChannelId) {
-        self.by_channel.remove(&channel_id);
+        self.scores.remove(&channel_id);
+        self.usable.remove(&channel_id);
     }
 }
 
@@ -79,6 +89,7 @@ mod tests {
     fn empty() {
         let container = PeerScoreContainer::default();
         assert_eq!(container.len(), 0);
+        assert_eq!(container.usable.len(), 0);
     }
 
     #[test]
@@ -87,7 +98,8 @@ mod tests {
         let channel_id = ChannelId::from(42);
         container.insert(channel_id, PeerScore::default());
         assert_eq!(container.len(), 1);
-        assert!(container.get(channel_id).is_some())
+        assert!(container.get(channel_id).is_some());
+        assert!(container.usable.contains(&channel_id));
     }
 
     #[test]
@@ -103,6 +115,7 @@ mod tests {
         assert_eq!(container.len(), 1);
         assert!(container.get(channel_id).is_none());
         assert!(container.get(another_channel_id).is_some());
+        assert!(!container.usable.contains(&channel_id));
     }
 
     #[test]
@@ -156,5 +169,44 @@ mod tests {
             container.get(another_channel_id).unwrap().running_queries,
             0
         );
+    }
+
+    #[test]
+    fn channel_becomes_unusable_if_it_has_too_many_open_requests() {
+        let mut container = PeerScoreContainer::default();
+        let channel_id = ChannelId::from(42);
+        container.insert(channel_id, PeerScore::default());
+        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT - 1 {
+            container.request_sent(channel_id);
+        }
+        assert!(container.usable.contains(&channel_id));
+        container.request_sent(channel_id);
+        assert!(!container.usable.contains(&channel_id));
+    }
+
+    #[test]
+    fn channel_becomes_usable_again_if_its_open_requests_fall_below_the_limit() {
+        let mut container = PeerScoreContainer::default();
+        let channel_id = ChannelId::from(42);
+        container.insert(channel_id, PeerScore::default());
+        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
+            container.request_sent(channel_id);
+        }
+        assert!(!container.usable.contains(&channel_id));
+        container.got_response(channel_id);
+        assert!(container.usable.contains(&channel_id));
+    }
+
+    #[test]
+    fn channel_becomes_usable_again_if_its_open_requests_decay() {
+        let mut container = PeerScoreContainer::default();
+        let channel_id = ChannelId::from(42);
+        container.insert(channel_id, PeerScore::default());
+        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
+            container.request_sent(channel_id);
+        }
+        assert!(!container.usable.contains(&channel_id));
+        container.decay();
+        assert!(container.usable.contains(&channel_id));
     }
 }
