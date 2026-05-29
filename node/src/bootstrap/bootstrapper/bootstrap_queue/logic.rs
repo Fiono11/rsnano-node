@@ -346,6 +346,9 @@ impl BootstrapQueueLogic {
                 fail_count: 0,
                 last_failed_channel: channel_id,
             });
+            if fails.fail_count > 0 && !blocks.is_empty() && !was_safe {
+                out_of_date_channel = Some(fails.last_failed_channel);
+            }
             fails.fail_count += 1;
             fails.last_failed_channel = channel_id;
             fails.fail_count

@@ -196,7 +196,7 @@ impl NetworkMessageProcessor {
             Message::AscPullReq(req) => {
                 self.bootstrap_responder.enqueue(req, channel.clone());
             }
-            Message::AscPullAck(ack) => self.bootstrapper.process(ack, channel.channel_id()),
+            Message::AscPullAck(ack) => self.bootstrapper.process(ack),
             Message::FrontierReq(_)
             | Message::BulkPush
             | Message::BulkPull(_)

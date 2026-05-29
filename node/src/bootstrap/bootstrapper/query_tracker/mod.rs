@@ -97,16 +97,12 @@ impl QueryTrackerLogic {
         &mut self,
         response: &AscPullAck,
     ) -> Result<RunningQuery, ProcessError> {
-        // Only process messages that have a known running query
-        let Some(query) = self.running_queries.remove(response.id) else {
-            return Err(ProcessError::NoRunningQueryFound);
-        };
-
-        if !query.is_valid_response_type(response) {
-            return Err(ProcessError::InvalidResponseType);
-        }
-
-        Ok(query)
+        // Only process messages that have a known running query. Response
+        // validation happens in the caller, which must release the peer's
+        // in-flight slot regardless of whether the response is valid.
+        self.running_queries
+            .remove(response.id)
+            .ok_or(ProcessError::NoRunningQueryFound)
     }
 
     pub fn timeout(&mut self, now: Timestamp) -> Vec<ChannelId> {

@@ -3,7 +3,6 @@ pub(super) struct PeerScore {
     pub running_queries: usize,
     pub priority: f32,
     channel_limit: usize,
-    min_priority: f32,
     pub timeouts: usize,
     pub requests: usize,
     pub responses: usize,
@@ -18,7 +17,6 @@ impl PeerScore {
             running_queries: 0,
             priority: 0.0,
             channel_limit,
-            min_priority: (channel_limit as f32) * -1.0,
             timeouts: 0,
             requests: 0,
             responses: 0,
@@ -55,6 +53,6 @@ impl PeerScore {
     }
 
     pub fn is_good(&self) -> bool {
-        self.running_queries < self.channel_limit && self.priority >= self.min_priority
+        self.running_queries < self.channel_limit && self.priority >= -2.0
     }
 }

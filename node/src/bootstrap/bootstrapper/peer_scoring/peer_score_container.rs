@@ -38,22 +38,6 @@ impl PeerScoreContainer {
         self.usable.as_slice()
     }
 
-    fn change_score<F>(&mut self, channel_id: ChannelId, f: F) -> bool
-    where
-        F: FnOnce(&mut PeerScore),
-    {
-        let Some(score) = self.scores.get_mut(&channel_id) else {
-            return false;
-        };
-        f(score);
-        if score.is_good() {
-            self.usable.insert(channel_id);
-        } else {
-            self.usable.remove(channel_id);
-        }
-        true
-    }
-
     pub fn channel_full(&mut self, channel_id: ChannelId) {
         self.change_score(channel_id, |score| {
             score.priority_down(16.0);
@@ -72,6 +56,13 @@ impl PeerScoreContainer {
         self.change_score(channel_id, |score| {
             score.got_response();
             score.priority_up(1.0);
+        })
+    }
+
+    /// Releases an in-flight query slot without counting it as a response.
+    pub fn query_completed(&mut self, channel_id: ChannelId) -> bool {
+        self.change_score(channel_id, |score| {
+            score.remove_query();
         })
     }
 
@@ -113,6 +104,22 @@ impl PeerScoreContainer {
 
     pub fn iter(&self) -> impl Iterator<Item = (&ChannelId, &PeerScore)> {
         self.scores.iter()
+    }
+
+    fn change_score<F>(&mut self, channel_id: ChannelId, f: F) -> bool
+    where
+        F: FnOnce(&mut PeerScore),
+    {
+        let Some(score) = self.scores.get_mut(&channel_id) else {
+            return false;
+        };
+        f(score);
+        if score.is_good() {
+            self.usable.insert(channel_id);
+        } else {
+            self.usable.remove(channel_id);
+        }
+        true
     }
 }
 
@@ -234,61 +241,83 @@ mod tests {
     }
 
     #[test]
-    fn decay() {
+    fn query_completed_releases_slot_without_counting_response() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
-        let another_channel_id = ChannelId::from(100);
         container.insert(channel_id);
-        container.insert(another_channel_id);
         container.request_sent(channel_id);
         container.request_sent(channel_id);
-        container.request_sent(another_channel_id);
+
+        let modified = container.query_completed(channel_id);
+
+        assert!(modified);
+        assert_eq!(container.get(channel_id).unwrap().running_queries, 1);
+        assert_eq!(container.get(channel_id).unwrap().responses, 0);
+    }
+
+    #[test]
+    fn decay_moves_priority_towards_zero_without_touching_running_queries() {
+        let mut container = PeerScoreContainer::default();
+        let channel_id = ChannelId::from(42);
+        container.insert(channel_id);
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
+        let before = container.get(channel_id).unwrap().priority;
 
         container.decay();
 
-        assert_eq!(container.get(channel_id).unwrap().running_queries, 1);
-        assert_eq!(
-            container.get(another_channel_id).unwrap().running_queries,
-            0
-        );
+        let score = container.get(channel_id).unwrap();
+        // decay only nudges the priority back towards zero...
+        assert!(score.priority > before && score.priority < 0.0);
+        // ...it must not change the number of in-flight queries
+        assert_eq!(score.running_queries, 2);
     }
 
     #[test]
-    fn channel_becomes_unusable_if_it_has_too_many_open_requests() {
+    fn channel_becomes_unusable_after_too_many_unanswered_requests() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         container.insert(channel_id);
-        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT - 1 {
-            container.request_sent(channel_id);
-        }
+
+        // Each unanswered request lowers the priority. A couple are still fine...
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
         assert!(container.usable.contains(channel_id));
+
+        // ...but the next one pushes the priority below the threshold.
         container.request_sent(channel_id);
         assert!(!container.usable.contains(channel_id));
     }
 
     #[test]
-    fn channel_becomes_usable_again_if_its_open_requests_fall_below_the_limit() {
+    fn channel_becomes_usable_again_after_a_response() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         container.insert(channel_id);
-        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
-            container.request_sent(channel_id);
-        }
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
         assert!(!container.usable.contains(channel_id));
+
+        // A response both frees a slot and raises the priority back over the threshold.
         container.got_response(channel_id);
         assert!(container.usable.contains(channel_id));
     }
 
     #[test]
-    fn channel_becomes_usable_again_if_its_open_requests_decay() {
+    fn channel_becomes_usable_again_as_priority_decays() {
         let mut container = PeerScoreContainer::default();
         let channel_id = ChannelId::from(42);
         container.insert(channel_id);
-        for _ in 0..PeerScoreContainer::DEFAULT_CHANNEL_LIMIT {
-            container.request_sent(channel_id);
-        }
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
+        container.request_sent(channel_id);
         assert!(!container.usable.contains(channel_id));
-        container.decay();
+
+        // The penalty fades over time until the channel is usable again.
+        for _ in 0..100 {
+            container.decay();
+        }
         assert!(container.usable.contains(channel_id));
     }
 }

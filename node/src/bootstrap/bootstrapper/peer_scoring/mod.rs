@@ -44,6 +44,12 @@ impl PeerScoring {
         self.scoring.lock().unwrap().got_response(channel_id);
     }
 
+    /// Releases a peer's in-flight slot when its running query is consumed
+    /// without counting as a valid response (e.g. wrong response type).
+    pub fn query_completed(&self, channel_id: ChannelId) {
+        self.scoring.lock().unwrap().query_completed(channel_id);
+    }
+
     pub fn blocks_received(&self, channel_id: ChannelId) {
         self.scoring.lock().unwrap().blocks_received(channel_id);
     }

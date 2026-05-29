@@ -70,13 +70,21 @@ impl ResponseProcessor {
     pub fn process(
         &self,
         response: AscPullAck,
-        channel_id: ChannelId,
         now: Timestamp,
     ) -> Result<ProcessInfo, ProcessError> {
-        trace!(query_id = response.id, ?channel_id, "Process response");
+        trace!(query_id = response.id, "Process response");
 
         let query = self.query_tracker.take_running_query_for(&response)?;
-        self.peer_scoring.response_received(channel_id);
+
+        if !query.is_valid_response_type(&response) {
+            // The running query was consumed, so release the peer's in-flight
+            // slot now. Skipping this would leak the slot forever: the query is
+            // gone from the tracker, so it can never time out either.
+            self.peer_scoring.query_completed(query.channel_id);
+            return Err(ProcessError::InvalidResponseType);
+        }
+
+        self.peer_scoring.response_received(query.channel_id);
 
         let process_info = self
             .process_response_for_query(&query, response)
