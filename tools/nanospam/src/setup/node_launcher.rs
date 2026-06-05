@@ -39,7 +39,7 @@ pub(crate) async fn start_nodes(
                 .stderr(Stdio::null());
             cmd
         } else {
-            let mut cmd = Command::new("rsnano_node");
+            let mut cmd = Command::new("rsnano");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .arg("--network")
