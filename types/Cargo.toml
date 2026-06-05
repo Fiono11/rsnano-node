@@ -11,7 +11,7 @@ banano = []
 [dependencies]
 rsnano_nullable_random = { path = "../nullables/random" }
 rand = { version = "0.10.1" }
-aes = "0.9.0"
+aes = "0.9.1"
 blake2 = "0.10.6"
 ctr = "0.10.1"
 #ed25519-dalek = { git = "https://github.com/rsnano-node/ed25519-dalek.git", rev = "1f9d706d7033d34bdc1ed7c1789498c82ec0df10", features = ["legacy_compatibility", "rand_core"] }
@@ -26,7 +26,7 @@ rust-argon2 = "3.0.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 static_assertions = "1.1"
-chrono = "0.4.44"
+chrono = "0.4.45"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 thiserror = "2.0.18"
