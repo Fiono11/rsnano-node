@@ -1,8 +1,4 @@
 #!/bin/sh
 set -e
-
-DATA_DIR=/home/nanocurrency/Nano
-
-chown -R nanocurrency:nanocurrency "$DATA_DIR"
-
+chown -R nanocurrency:nanocurrency /home/nanocurrency
 exec gosu nanocurrency /usr/bin/rsnano "$@"

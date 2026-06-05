@@ -28,9 +28,7 @@ COPY tools/scripts/docker/banano/config /usr/share/banano/config
 COPY tools/scripts/docker/banano/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN ldconfig
-RUN mkdir -p /home/bananocurrency/Banano && \
-    chown -R bananocurrency:bananocurrency /home/bananocurrency
-VOLUME /home/bananocurrency/Banano
+RUN mkdir -p /home/bananocurrency/Banano /home/bananocurrency/BananoBeta /home/bananocurrency/BananoTest 
 WORKDIR /home/bananocurrency
 ENV PATH="${PATH}:/usr/bin"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -28,9 +28,7 @@ COPY tools/scripts/docker/nano/config /usr/share/nano/config
 COPY tools/scripts/docker/nano/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN ldconfig
-RUN mkdir -p /home/nanocurrency/Nano && \
-    chown -R nanocurrency:nanocurrency /home/nanocurrency
-VOLUME /home/nanocurrency/Nano
+RUN mkdir -p /home/nanocurrency/Nano /home/nanocurrency/NanoBeta /home/nanocurrency/NanoTest 
 WORKDIR /home/nanocurrency
 ENV PATH="${PATH}:/usr/bin"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

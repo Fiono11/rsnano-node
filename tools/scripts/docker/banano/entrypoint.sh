@@ -1,8 +1,4 @@
 #!/bin/sh
 set -e
-
-DATA_DIR=/home/bananocurrency/Banano
-
-chown -R bananocurrency:bananocurrency "$DATA_DIR"
-
+chown -R bananocurrency:bananocurrency /home/bananocurrency
 exec gosu bananocurrency /usr/bin/rsban "$@"
