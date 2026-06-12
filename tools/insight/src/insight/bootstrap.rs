@@ -19,6 +19,7 @@ impl BootstrapInfo {
 pub(crate) enum BootstrapViewType {
     BootstrapQueue,
     PeerScores,
+    FrontierScan,
 }
 
 impl BootstrapViewType {
@@ -26,10 +27,11 @@ impl BootstrapViewType {
         match self {
             BootstrapViewType::BootstrapQueue => "Bootstrap Queue",
             BootstrapViewType::PeerScores => "Peer Scores",
+            BootstrapViewType::FrontierScan => "Frontier Scan",
         }
     }
 
-    pub fn all() -> [BootstrapViewType; 2] {
-        [Self::BootstrapQueue, Self::PeerScores]
+    pub fn all() -> [BootstrapViewType; 3] {
+        [Self::BootstrapQueue, Self::PeerScores, Self::FrontierScan]
     }
 }

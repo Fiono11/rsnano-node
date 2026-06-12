@@ -6,7 +6,11 @@ use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 use rsnano_node::bootstrap::bootstrapper::{BootstrappingAccountInfo, PeerScoreSnapshot};
 use rsnano_types::Account;
 
-use crate::insight::{app::InsightApp, bootstrap::BootstrapViewType};
+use crate::insight::{
+    app::InsightApp,
+    bootstrap::BootstrapViewType,
+    gui::{FrontierScanViewModel, view_frontier_scan},
+};
 
 use super::main_view::truncate_text;
 
@@ -27,6 +31,7 @@ pub(crate) fn view_bootstrap(ui: &mut Ui, view_model: BootstrapViewModel, app: &
             view_bootstrap_queue(ui, view_model, app);
         }
         BootstrapViewModel::PeerScores(view_model) => view_peer_scores(ui, view_model),
+        BootstrapViewModel::FrontierScan(view_model) => view_frontier_scan(ui, view_model, app),
     });
 }
 
@@ -219,12 +224,14 @@ pub(crate) fn view_bootstrap_queue(
 pub enum BootstrapViewModel {
     BootstrapQueue(BootstrapQueueViewModel),
     PeerScores(PeerScoresViewModel),
+    FrontierScan(FrontierScanViewModel),
 }
 impl BootstrapViewModel {
     fn view_type(&self) -> BootstrapViewType {
         match self {
             BootstrapViewModel::BootstrapQueue(_) => BootstrapViewType::BootstrapQueue,
             BootstrapViewModel::PeerScores(_) => BootstrapViewType::PeerScores,
+            BootstrapViewModel::FrontierScan(_) => BootstrapViewType::FrontierScan,
         }
     }
 }
