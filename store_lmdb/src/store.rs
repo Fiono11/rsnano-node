@@ -1,5 +1,7 @@
 #[cfg(feature = "ledger_snapshots")]
 use crate::forks_store::LmdbForksStore;
+#[cfg(feature = "ledger_snapshots")]
+use crate::rai_terminal_records_store::LmdbRaiTerminalRecordsStore;
 use crate::{
     LmdbAccountStore, LmdbBlockStore, LmdbConfirmationHeightStore, LmdbFinalVoteStore,
     LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbVersionStore,
@@ -47,6 +49,8 @@ pub struct LmdbStore {
     pub version: LmdbVersionStore,
     #[cfg(feature = "ledger_snapshots")]
     pub forks: LmdbForksStore,
+    #[cfg(feature = "ledger_snapshots")]
+    pub rai_terminal_records: LmdbRaiTerminalRecordsStore,
 }
 
 impl LmdbStore {
@@ -69,6 +73,8 @@ impl LmdbStore {
             version: LmdbVersionStore::new(&env)?,
             #[cfg(feature = "ledger_snapshots")]
             forks: LmdbForksStore::new(&env)?,
+            #[cfg(feature = "ledger_snapshots")]
+            rai_terminal_records: LmdbRaiTerminalRecordsStore::new(&env)?,
             env,
         })
     }

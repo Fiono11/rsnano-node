@@ -1195,11 +1195,8 @@ impl Node {
 
         #[cfg(feature = "ledger_snapshots")]
         {
-            ledger_event_handlers.add_mut(ForkDetector::new(
-                ledger.clone(),
-                ledger_snapshots.clone(),
-                active_elections.clone(),
-            ));
+            ledger_event_handlers
+                .add_mut(ForkDetector::new(ledger.clone(), ledger_snapshots.clone()));
         }
 
         let aec_fact_processor = AecFactProcessor {

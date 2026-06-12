@@ -33,14 +33,8 @@ fn ledger_snapshot_integration_test() {
 
     node1.ledger_snapshots.start_ledger_snapshot();
 
-    assert_message_received(&node1, MessageType::Preproposal, 1);
-    assert_message_received(&node2, MessageType::Preproposal, 1);
-
-    assert_message_received(&node1, MessageType::Proposal, 2);
-    assert_message_received(&node2, MessageType::Proposal, 2);
-
-    assert_message_received(&node1, MessageType::ProposalVote, 2);
-    assert_message_received(&node2, MessageType::ProposalVote, 2);
+    assert_message_received(&node1, MessageType::Rai, 1);
+    assert_message_received(&node2, MessageType::Rai, 1);
 }
 
 // Helper functions:

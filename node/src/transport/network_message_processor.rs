@@ -215,6 +215,10 @@ impl NetworkMessageProcessor {
             Message::SnapshotProposalVote(proposal_vote) => {
                 self.ledger_snapshots.handle_vote(proposal_vote);
             }
+            #[cfg(feature = "ledger_snapshots")]
+            Message::Rai(message) => {
+                self.ledger_snapshots.handle_rai_message(message);
+            }
         }
     }
 }
@@ -273,6 +277,43 @@ mod tests {
         );
 
         assert_eq!(receive_tracker.output(), vec![proposal_vote]);
+    }
+
+    #[test]
+    fn rai_message_is_received() {
+        use rsnano_ledger::{Ledger, LedgerInserter};
+        use rsnano_messages::{RaiElectionId, RaiMessage, RaiProposal, RaiSlot};
+        use rsnano_types::{Account, Amount, Block};
+
+        let ledger = Arc::new(Ledger::new_null());
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(Account::from(42), Amount::raw(1));
+        let election = RaiElectionId::new(RaiSlot::new(send.account(), send.height()), 0);
+        let block: Block = send.into();
+        let proposal_hash = block.hash();
+        let ledger_snapshots = LedgerSnapshots::new(
+            ledger,
+            || None,
+            crate::transport::MessageFlooder::new_null(),
+            Mutex::new(crate::representatives::OnlineReps::default()).into(),
+        );
+        let network_message_processor = create_network_message_processor(ledger_snapshots);
+
+        network_message_processor.process(
+            Message::Rai(RaiMessage::Proposal(RaiProposal::new(election, block))),
+            &Channel::new_test_instance().into(),
+        );
+
+        assert!(
+            network_message_processor
+                .ledger_snapshots
+                .rai()
+                .election(&election)
+                .unwrap()
+                .proposals
+                .contains(&proposal_hash)
+        );
     }
 
     fn create_network_message_processor(

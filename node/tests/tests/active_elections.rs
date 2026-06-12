@@ -1,19 +1,23 @@
-use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
+use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 
+#[cfg(not(feature = "ledger_snapshots"))]
+use rsnano_ledger::BlockError;
 use rsnano_ledger::{
-    BlockError, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet,
-    test_helpers::UnsavedBlockLatticeBuilder,
+    DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_node::{
     bootstrap::bootstrapper::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
     consensus::{FilteredVote, ReceivedVote},
 };
+#[cfg(not(feature = "ledger_snapshots"))]
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
     Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
 };
-use rsnano_utils::stats::{DetailType, Direction, StatType};
+use rsnano_utils::stats::Direction;
+#[cfg(not(feature = "ledger_snapshots"))]
+use rsnano_utils::stats::{DetailType, StatType};
 use test_helpers::{
     System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
@@ -28,6 +32,7 @@ use test_helpers::{
 /// Create 20 more forks of the last send block using the new reps as representatives and produce votes for them
 ///     (9 votes from this batch should survive and replace existing blocks in the election, why not 10?)
 /// Then send winning block and it should replace one of the existing blocks
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_replacement_tally() {
     let mut system = System::new();
@@ -280,6 +285,7 @@ fn non_final() {
     );
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn inactive_votes_cache_fork() {
     let mut system = System::new();
@@ -527,6 +533,7 @@ fn inactive_votes_cache_election_start() {
     assert_timely_eq2(|| node.ledger.confirmed_count(), 7);
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn republish_winner() {
     let mut system = System::new();
@@ -907,6 +914,7 @@ fn confirmation_consistency() {
     }
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_filter_cleanup() {
     let mut system = System::new();
@@ -963,6 +971,7 @@ fn fork_filter_cleanup() {
 }
 
 // Ensures votes are tallied on election::publish even if no vote is inserted through inactive_votes_cache
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn conflicting_block_vote_existing_election() {
     let mut system = System::new();

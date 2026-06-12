@@ -11,9 +11,9 @@ use std::{
 
 use tracing::{debug, info, warn};
 
-use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 #[cfg(feature = "ledger_snapshots")]
-use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
+use rsnano_messages::{RaiElectionId, RaiSlot, RaiTerminalOutcome, RaiTerminalRecord};
+use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
@@ -21,10 +21,16 @@ use rsnano_store_lmdb::{
     MemoryStats,
 };
 #[cfg(feature = "ledger_snapshots")]
+use rsnano_store_lmdb::{
+    forks_store::ConfiguredForksDatabaseBuilder,
+    rai_terminal_records_store::ConfiguredRaiTerminalRecordsDatabaseBuilder,
+};
+#[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
 use rsnano_types::{
-    Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, ConfirmationHeightInfo, Epoch,
-    Link, PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, UnixTimestamp,
+    Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, ConfirmationHeightInfo,
+    DependentBlocks, DetailedBlock, Epoch, Link, PendingInfo, PendingKey, PublicKey, QualifiedRoot,
+    Root, SavedBlock, UnixTimestamp,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -33,9 +39,10 @@ use rsnano_utils::{
 use rsnano_work::WorkThresholds;
 
 use crate::{
-    BlockRollbackPerformer, BlockSource, BootstrapWeights, BorrowingAnySet, BorrowingConfirmedSet,
-    LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
-    OwningUnconfirmedSet, ProcessResult, RepWeightCache, RepWeightsUpdater, RollbackError,
+    AnyReceivableIterator, AnySet, BlockRollbackPerformer, BlockSource, BootstrapWeights,
+    BorrowingAnySet, BorrowingConfirmedSet, LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet,
+    OwningConfirmedSet, OwningUnconfirmedSet, ProcessResult, RepWeightCache, RepWeightsUpdater,
+    RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -115,6 +122,8 @@ pub struct NullLedgerBuilder {
     rep_weights: ConfiguredRepWeightDatabaseBuilder,
     #[cfg(feature = "ledger_snapshots")]
     forks: ConfiguredForksDatabaseBuilder,
+    #[cfg(feature = "ledger_snapshots")]
+    rai_terminal_records: ConfiguredRaiTerminalRecordsDatabaseBuilder,
     confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder,
     min_rep_weight: Amount,
     bootstrap_weights_max_blocks: u64,
@@ -130,6 +139,8 @@ impl NullLedgerBuilder {
             rep_weights: ConfiguredRepWeightDatabaseBuilder::new(),
             #[cfg(feature = "ledger_snapshots")]
             forks: ConfiguredForksDatabaseBuilder::new(),
+            #[cfg(feature = "ledger_snapshots")]
+            rai_terminal_records: ConfiguredRaiTerminalRecordsDatabaseBuilder::new(),
             confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder::new(),
             min_rep_weight: Amount::ZERO,
             bootstrap_weights_max_blocks: 0,
@@ -212,6 +223,13 @@ impl NullLedgerBuilder {
         builder
     }
 
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn rai_terminal_record(mut self, record: RaiTerminalRecord) -> Self {
+        let (key, value) = serialize_rai_terminal_record(record);
+        self.rai_terminal_records = self.rai_terminal_records.record(key, value);
+        self
+    }
+
     pub fn bootstrap_weights_max_blocks(mut self, max_blocks: u64) -> Self {
         self.bootstrap_weights_max_blocks = max_blocks;
         self
@@ -235,7 +253,9 @@ impl NullLedgerBuilder {
             }
             #[cfg(feature = "ledger_snapshots")]
             {
-                env_builder.configured_database(self.forks.build())
+                env_builder
+                    .configured_database(self.forks.build())
+                    .configured_database(self.rai_terminal_records.build())
             }
         };
         let env = env_builder.build();
@@ -972,6 +992,153 @@ impl Ledger {
     }
 
     #[cfg(feature = "ledger_snapshots")]
+    pub fn clear_fork(&self, root: &QualifiedRoot) {
+        let mut txn = self.store.begin_write();
+        self.store.forks.del(&mut txn, root);
+        txn.commit();
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn store_rai_timeout_completion(&self, record: RaiTerminalRecord) {
+        debug_assert_eq!(record.outcome, RaiTerminalOutcome::Timeout);
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn store_rai_terminal_proposal(&self, record: RaiTerminalRecord) {
+        debug_assert!(matches!(record.outcome, RaiTerminalOutcome::Proposal(_)));
+        let (key, value) = serialize_rai_terminal_record(record);
+        let mut txn = self.store.begin_write();
+        self.store.rai_terminal_records.put(&mut txn, &key, &value);
+        txn.commit();
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn rai_terminal_record(&self, slot: &RaiSlot) -> Option<RaiTerminalRecord> {
+        let key = serialize_rai_slot(slot);
+        let txn = self.store.begin_read();
+        self.store
+            .rai_terminal_records
+            .get(&txn, &key)
+            .map(|bytes| deserialize_rai_terminal_record(&bytes))
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn validate_rai_proposal(
+        &self,
+        election: &RaiElectionId,
+        block: &Block,
+    ) -> Result<(), BlockError> {
+        let tx = self.store.begin_read();
+        let any = BorrowingAnySet {
+            constants: &self.constants,
+            store: &self.store,
+            tx: &tx,
+        };
+
+        if self
+            .rai_terminal_record_with_tx(&tx, &election.slot)
+            .is_some_and(|record| matches!(record.outcome, RaiTerminalOutcome::Proposal(_)))
+        {
+            return Err(BlockError::Conflict);
+        }
+
+        let proposal_context = self.rai_proposal_context(&any, block)?;
+        if proposal_context.slot != election.slot {
+            return Err(BlockError::BlockPosition);
+        }
+
+        if let Some(parent) = &proposal_context.previous_block {
+            let parent_slot = RaiSlot::new(proposal_context.slot.account, parent.height());
+            if let Some(parent_record) = self.rai_terminal_record_with_tx(&tx, &parent_slot)
+                && parent_record.outcome != RaiTerminalOutcome::Proposal(parent.hash())
+            {
+                return Err(BlockError::BlockPosition);
+            }
+        }
+
+        let validation_set = RaiProposalValidationSet {
+            inner: any,
+            candidate_hash: block.hash(),
+            account: proposal_context.slot.account,
+            account_info_before_candidate: proposal_context.account_info_before_candidate,
+        };
+        BlockValidatorFactory::new(&validation_set, &self.constants, block)
+            .create_validator()
+            .validate()
+            .map(|_| ())
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    fn rai_terminal_record_with_tx(
+        &self,
+        tx: &dyn Transaction,
+        slot: &RaiSlot,
+    ) -> Option<RaiTerminalRecord> {
+        let key = serialize_rai_slot(slot);
+        self.store
+            .rai_terminal_records
+            .get(tx, &key)
+            .map(|bytes| deserialize_rai_terminal_record(&bytes))
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    fn rai_proposal_context(
+        &self,
+        any: &dyn AnySet,
+        block: &Block,
+    ) -> Result<RaiProposalValidationContext, BlockError> {
+        let previous_block = if block.previous().is_zero() {
+            None
+        } else {
+            Some(
+                any.get_block(&block.previous())
+                    .ok_or(BlockError::GapPrevious)?,
+            )
+        };
+
+        if let Some(previous_block) = &previous_block
+            && block
+                .account_field()
+                .is_some_and(|account| account != previous_block.account())
+        {
+            return Err(BlockError::BlockPosition);
+        }
+
+        let account = block
+            .account_field()
+            .or_else(|| previous_block.as_ref().map(|block| block.account()))
+            .ok_or(BlockError::BlockPosition)?;
+        let slot_index = previous_block
+            .as_ref()
+            .map(|block| block.height() + 1)
+            .unwrap_or(1);
+        let account_info_before_candidate = if let Some(block) = &previous_block {
+            Some(AccountInfo {
+                head: block.hash(),
+                representative: block.representative_field().unwrap_or_default(),
+                open_block: any
+                    .get_account(&account)
+                    .map(|info| info.open_block)
+                    .unwrap_or_default(),
+                balance: block.balance(),
+                modified: block.timestamp().into(),
+                block_count: block.height(),
+                epoch: block.epoch(),
+            })
+        } else if any.block_exists(&block.hash()) {
+            None
+        } else {
+            any.get_account(&account)
+        };
+
+        Ok(RaiProposalValidationContext {
+            slot: RaiSlot::new(account, slot_index),
+            previous_block,
+            account_info_before_candidate,
+        })
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
     pub fn roll_back_forks_older_than(&self, snapshot_number: SnapshotNumber) {
         use tracing::warn;
 
@@ -1050,6 +1217,167 @@ impl ContainerInfoProvider for Ledger {
     }
 }
 
+#[cfg(feature = "ledger_snapshots")]
+struct RaiProposalValidationContext {
+    slot: RaiSlot,
+    previous_block: Option<SavedBlock>,
+    account_info_before_candidate: Option<AccountInfo>,
+}
+
+#[cfg(feature = "ledger_snapshots")]
+struct RaiProposalValidationSet<'a> {
+    inner: BorrowingAnySet<'a>,
+    candidate_hash: BlockHash,
+    account: Account,
+    account_info_before_candidate: Option<AccountInfo>,
+}
+
+#[cfg(feature = "ledger_snapshots")]
+impl LedgerSet for RaiProposalValidationSet<'_> {
+    fn block_exists(&self, hash: &BlockHash) -> bool {
+        *hash != self.candidate_hash && self.inner.block_exists(hash)
+    }
+
+    fn account_receivable(&self, account: &Account) -> Amount {
+        self.inner.account_receivable(account)
+    }
+
+    fn account_balance(&self, account: &Account) -> Amount {
+        if *account == self.account {
+            self.account_info_before_candidate
+                .as_ref()
+                .map(|info| info.balance)
+                .unwrap_or_default()
+        } else {
+            self.inner.account_balance(account)
+        }
+    }
+
+    fn get_account(&self, account: &Account) -> Option<AccountInfo> {
+        if *account == self.account {
+            self.account_info_before_candidate.clone()
+        } else {
+            self.inner.get_account(account)
+        }
+    }
+}
+
+#[cfg(feature = "ledger_snapshots")]
+impl AnySet for RaiProposalValidationSet<'_> {
+    fn should_refresh(&self) -> bool {
+        self.inner.should_refresh()
+    }
+
+    fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock> {
+        if *hash == self.candidate_hash {
+            None
+        } else {
+            self.inner.get_block(hash)
+        }
+    }
+
+    fn receivable_exists(&self, account: Account) -> bool {
+        self.inner.receivable_exists(account)
+    }
+
+    fn confirmed(&self) -> BorrowingConfirmedSet<'_> {
+        self.inner.confirmed()
+    }
+
+    fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks {
+        self.inner.block_dependencies(block)
+    }
+
+    fn dependencies_confirmed(&self, block: &SavedBlock) -> bool {
+        self.inner.dependencies_confirmed(block)
+    }
+
+    fn dependencies_confirmed_for_unsaved_block(&self, block: &Block) -> bool {
+        self.inner.dependencies_confirmed_for_unsaved_block(block)
+    }
+
+    fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash> {
+        self.inner.block_successor(hash)
+    }
+
+    fn block_successor_by_qualified_root(&self, root: &QualifiedRoot) -> Option<BlockHash> {
+        self.inner.block_successor_by_qualified_root(root)
+    }
+
+    fn block_priority(&self, block: &SavedBlock) -> BlockPriority {
+        self.inner.block_priority(block)
+    }
+
+    fn previous_block(&self, block: &SavedBlock) -> Option<SavedBlock> {
+        self.inner.previous_block(block)
+    }
+
+    fn get_pending(&self, key: &PendingKey) -> Option<PendingInfo> {
+        self.inner.get_pending(key)
+    }
+
+    fn account_head(&self, account: &Account) -> Option<BlockHash> {
+        self.get_account(account).map(|info| info.head)
+    }
+
+    fn block_account(&self, hash: &BlockHash) -> Option<Account> {
+        self.inner.block_account(hash)
+    }
+
+    fn representative_block_hash(&self, hash: &BlockHash) -> BlockHash {
+        self.inner.representative_block_hash(hash)
+    }
+
+    fn find_receive_block_by_send_hash(
+        &self,
+        destination: &Account,
+        send_block_hash: &BlockHash,
+    ) -> Option<SavedBlock> {
+        self.inner
+            .find_receive_block_by_send_hash(destination, send_block_hash)
+    }
+
+    fn linked_account(&self, block: &SavedBlock) -> Option<Account> {
+        self.inner.linked_account(block)
+    }
+
+    fn block_amount(&self, hash: &BlockHash) -> Option<Amount> {
+        self.inner.block_amount(hash)
+    }
+
+    fn block_amount_for(&self, block: &SavedBlock) -> Option<Amount> {
+        self.inner.block_amount_for(block)
+    }
+
+    fn detailed_block(&self, hash: &BlockHash) -> Option<DetailedBlock> {
+        self.inner.detailed_block(hash)
+    }
+
+    fn receivable_upper_bound(&self, account: Account) -> AnyReceivableIterator<'_> {
+        self.inner.receivable_upper_bound(account)
+    }
+
+    fn receivable_lower_bound(&self, account: Account) -> AnyReceivableIterator<'_> {
+        self.inner.receivable_lower_bound(account)
+    }
+
+    fn account_receivable_upper_bound(
+        &self,
+        account: Account,
+        hash: BlockHash,
+    ) -> AnyReceivableIterator<'_> {
+        self.inner.account_receivable_upper_bound(account, hash)
+    }
+
+    fn get_final_vote(&self, root: &QualifiedRoot) -> Option<BlockHash> {
+        self.inner.get_final_vote(root)
+    }
+
+    fn is_forked(&self, root: &QualifiedRoot) -> bool {
+        self.inner.is_forked(root)
+    }
+}
+
 pub struct BatchProcessResult {
     pub processed: Vec<(Result<(), BlockError>, Option<SavedBlock>)>,
 }
@@ -1114,6 +1442,30 @@ impl RollbackResult {
     pub fn roots(&self) -> impl Iterator<Item = Root> + use<'_> {
         self.rolled_back.iter().map(|b| b.root())
     }
+}
+
+#[cfg(feature = "ledger_snapshots")]
+fn serialize_rai_terminal_record(record: RaiTerminalRecord) -> (Vec<u8>, Vec<u8>) {
+    let key = serialize_rai_slot(&record.election.slot);
+    let mut value = Vec::new();
+    record
+        .serialize(&mut value)
+        .expect("Rai terminal record serialization to Vec should succeed");
+    (key, value)
+}
+
+#[cfg(feature = "ledger_snapshots")]
+fn serialize_rai_slot(slot: &RaiSlot) -> Vec<u8> {
+    let mut key = Vec::with_capacity(RaiSlot::SERIALIZED_SIZE);
+    slot.serialize(&mut key)
+        .expect("Rai slot serialization to Vec should succeed");
+    key
+}
+
+#[cfg(feature = "ledger_snapshots")]
+fn deserialize_rai_terminal_record(bytes: &[u8]) -> RaiTerminalRecord {
+    let mut bytes = bytes;
+    RaiTerminalRecord::deserialize(&mut bytes).expect("Stored Rai terminal record should be valid")
 }
 
 #[cfg(test)]

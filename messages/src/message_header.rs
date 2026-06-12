@@ -37,6 +37,8 @@ pub enum MessageType {
     Proposal = 0x11,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote = 0x12,
+    #[cfg(feature = "ledger_snapshots")]
+    Rai = 0x13,
 }
 
 impl MessageType {
@@ -63,13 +65,15 @@ impl MessageType {
             MessageType::Proposal => "proposal",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => "proposal_vote",
+            #[cfg(feature = "ledger_snapshots")]
+            MessageType::Rai => "rai",
         }
     }
 
     pub const fn max_id() -> usize {
         #[cfg(feature = "ledger_snapshots")]
         {
-            Self::ProposalVote as usize
+            Self::Rai as usize
         }
         #[cfg(not(feature = "ledger_snapshots"))]
         {
@@ -197,6 +201,8 @@ impl MessageHeader {
             MessageType::Proposal => Proposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
+            #[cfg(feature = "ledger_snapshots")]
+            MessageType::Rai => RaiMessage::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -262,6 +268,8 @@ impl From<MessageType> for DetailType {
             MessageType::Proposal => DetailType::Proposal,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => DetailType::ProposalVote,
+            #[cfg(feature = "ledger_snapshots")]
+            MessageType::Rai => DetailType::Rai,
         }
     }
 }

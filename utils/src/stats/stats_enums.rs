@@ -143,6 +143,8 @@ pub enum DetailType {
     Proposal,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote,
+    #[cfg(feature = "ledger_snapshots")]
+    Rai,
 
     // dropped messages
     ConfirmAckZeroAccount,

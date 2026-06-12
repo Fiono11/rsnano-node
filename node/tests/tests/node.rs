@@ -9,30 +9,37 @@ use rsnano_ledger::{
     AnySet, BlockError, BlockSource, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
     DEV_GENESIS_PUB_KEY, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
 };
-use rsnano_messages::{ConfirmAck, Message, Publish};
+#[cfg(not(feature = "ledger_snapshots"))]
+use rsnano_messages::Publish;
+use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{ChannelId, TrafficType};
+#[cfg(not(feature = "ledger_snapshots"))]
+use rsnano_node::block_processing::BoundedBacklogConfig;
 use rsnano_node::{
-    block_processing::{BlockContext, BoundedBacklogConfig},
+    block_processing::BlockContext,
     config::{NodeConfig, NodeFlags},
     consensus::{
         AecFact, FilteredVote, ReceivedVote,
         election::{ElectionBehavior, VoteType},
     },
 };
+#[cfg(not(feature = "ledger_snapshots"))]
 use rsnano_nullable_tcp::get_available_port;
+#[cfg(not(feature = "ledger_snapshots"))]
+use rsnano_types::PublicKey;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
+    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, Root, Signature,
+    StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
 };
 use rsnano_utils::{
-    BackpressureHandler,
     stats::{DetailType, Direction, StatType},
     sync::backpressure_channel,
 };
+#[cfg(not(feature = "ledger_snapshots"))]
+use test_helpers::establish_tcp;
 use test_helpers::{
     System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
-    start_election,
+    assert_timely_msg, assert_timely2, make_fake_channel, setup_chains, start_election,
 };
 
 #[test]
@@ -288,6 +295,7 @@ fn no_voting() {
 }
 
 // Bootstrapping a forked open block should succeed.
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn bootstrap_fork_open() {
     let mut system = System::new();
@@ -420,6 +428,7 @@ fn rep_self_vote() {
 }
 
 /// Tests that forks are resolved during bootstrap
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_bootstrap_flip() {
     let mut system = System::new();
@@ -464,6 +473,7 @@ fn fork_bootstrap_flip() {
 }
 
 // Test that more than one block can be rolled back
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_multi_flip() {
     let mut system = System::new();
@@ -1326,6 +1336,7 @@ fn fork_no_vote_quorum() {
     assert_eq!(node3.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_open() {
     let mut system = System::new();
@@ -1465,6 +1476,7 @@ fn online_reps_election() {
     );
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn vote_republish() {
     let mut system = System::new();
@@ -1518,6 +1530,7 @@ fn vote_republish() {
 // This test places block send1 onto every node. Then it creates block send2 (which is a fork of send1) and sends it to node1.
 // Then it sends a vote for send2 to node1 and expects node2 to also get the block plus vote and confirm send2.
 // TODO: This test enforces the order block followed by vote on node1, should vote followed by block also work? It doesn't currently.
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn vote_by_hash_republish() {
     let mut system = System::new();
@@ -1554,6 +1567,7 @@ fn vote_by_hash_republish() {
     assert_eq!(node2.block_exists(&send1.hash()), false);
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_election_invalid_block_signature() {
     let mut system = System::new();
@@ -1907,6 +1921,7 @@ fn node_receive_quorum() {
     );
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn fork_open_flip() {
     let mut system = System::new();
@@ -2406,6 +2421,7 @@ fn fork_keep() {
     assert_timely2(|| node2.block_confirmed(&send1.hash()));
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn bounded_backlog() {
     let mut system = System::new();

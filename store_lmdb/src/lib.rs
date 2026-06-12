@@ -16,6 +16,8 @@ mod lmdb_config;
 mod online_weight_store;
 mod peer_store;
 mod pending_store;
+#[cfg(feature = "ledger_snapshots")]
+pub mod rai_terminal_records_store;
 mod rep_weight_store;
 mod store;
 mod successor_store;
@@ -102,6 +104,7 @@ pub const REP_WEIGHT_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(7);
 pub const CONFIRMATION_HEIGHT_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(8);
 pub const PEERS_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(9);
 pub const FORKS_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(10);
+pub const RAI_TERMINAL_RECORDS_TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(11);
 
 #[cfg(test)]
 mod test {

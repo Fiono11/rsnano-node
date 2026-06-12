@@ -92,6 +92,15 @@ impl State {
 
     pub(crate) fn advance_epoch(&mut self) {
         self.current_snapshot_number += 1;
+        self.clear_epoch_state();
+    }
+
+    pub(crate) fn reset_for_epoch(&mut self, snapshot_number: u32) {
+        self.current_snapshot_number = snapshot_number;
+        self.clear_epoch_state();
+    }
+
+    fn clear_epoch_state(&mut self) {
         self.preproposal_aggregator.clear();
         self.proposal_aggregator.clear();
         self.vote_aggregator.clear();

@@ -81,6 +81,7 @@ fn quorum_minimum_confirm_success() {
     assert_timely2(|| node1.block_confirmed(&send1.hash()));
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn quorum_minimum_flip_fail() {
     let mut system = System::new();
@@ -127,6 +128,7 @@ fn quorum_minimum_flip_fail() {
     assert_eq!(node1.block_confirmed(&send2.hash()), false);
 }
 
+#[cfg(not(feature = "ledger_snapshots"))]
 #[test]
 fn quorum_minimum_flip_success() {
     let mut system = System::new();
