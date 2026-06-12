@@ -3,7 +3,6 @@ mod account_priority_tracker;
 mod block_handoff_queue;
 mod blocked;
 mod download_queue;
-mod downloading;
 mod logic;
 mod priority;
 mod pull_type;

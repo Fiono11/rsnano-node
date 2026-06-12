@@ -12,7 +12,6 @@ use super::{
     block_handoff_queue::{BlockHandoffQueue, ProcessingFinished},
     blocked::BlockedAccounts,
     download_queue::DownloadQueue,
-    downloading::DownloadingAccounts,
 };
 use rsnano_network::ChannelId;
 
@@ -98,7 +97,7 @@ pub(crate) struct BootstrapQueueLogic {
     priorities: AccountPriorityTracker,
     fails: FxHashMap<Account, FailEntry>,
     download_queue: DownloadQueue,
-    downloading: DownloadingAccounts,
+    downloading: FxHashSet<Account>,
     block_processing: BlockHandoffQueue,
     blocked: BlockedAccounts,
     safe_accounts: FxHashSet<Account>,
@@ -556,7 +555,7 @@ impl BootstrapQueueLogic {
 
     fn iter_downloading(&self) -> impl Iterator<Item = (Account, Priority)> + '_ {
         self.downloading
-            .iter_accounts()
+            .iter()
             .map(|account| (*account, self.priorities.get(account).unwrap()))
     }
 
@@ -632,7 +631,6 @@ impl BootstrapQueueLogic {
                 "download_queue_detail",
                 self.download_queue.container_info(),
             )
-            .node("downloading_detail", self.downloading.container_info())
             .node("blocked_detail", self.blocked.container_info())
             .finish()
     }
@@ -1090,10 +1088,6 @@ mod tests {
         assert_eq!(
             info.node("download_queue_detail").unwrap(),
             &queue.download_queue.container_info()
-        );
-        assert_eq!(
-            info.node("downloading_detail").unwrap(),
-            &queue.downloading.container_info()
         );
         assert_eq!(
             info.node("blocked_detail").unwrap(),
