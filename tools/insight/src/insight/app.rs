@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -10,7 +11,7 @@ use rsnano_node::{
     consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
 };
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, QualifiedRoot};
+use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
 
 use crate::insight::{
@@ -51,6 +52,8 @@ pub(crate) struct InsightApp {
     pub election_details: Option<Election>,
     bootstrap_view_type: BootstrapViewType,
     pub peer_scores: Vec<PeerScoreSnapshot>,
+    pub representatives: Vec<RepresentativeViewModel>,
+    rep_names: HashMap<PublicKey, &'static str>,
 }
 
 impl InsightApp {
@@ -59,7 +62,8 @@ impl InsightApp {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let msg_recorder = Arc::new(MessageRecorder::new(messages.clone()));
         let callback_factory = NodeCallbackFactory::new(msg_recorder.clone(), clock.clone());
-        let channels = Channels::new(messages.clone(), well_known_rep_names());
+        let rep_names = well_known_rep_names();
+        let channels = Channels::new(messages.clone(), rep_names.clone());
         Self {
             clock,
             messages,
@@ -84,6 +88,8 @@ impl InsightApp {
             election_details: None,
             bootstrap_view_type: BootstrapViewType::BootstrapQueue,
             peer_scores: Vec::new(),
+            representatives: Vec::new(),
+            rep_names,
         }
     }
 
@@ -128,6 +134,22 @@ impl InsightApp {
                 node.aec.election_for_root(root)
             });
             self.peer_scores = node.bootstrapper.peer_score_snapshot();
+            self.representatives = node
+                .online_reps
+                .lock()
+                .unwrap()
+                .online_reps()
+                .map(|i| {
+                    let name = self.rep_names.get(&i.rep_key).unwrap_or(&"");
+                    RepresentativeViewModel {
+                        account: i.rep_key.as_account(),
+                        name: *name,
+                        weight: i.weight,
+                    }
+                })
+                .collect();
+            self.representatives
+                .sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
         }
 
         self.last_update = Some(now);
@@ -185,4 +207,10 @@ impl InsightApp {
     pub fn bootstrap_view(&self) -> BootstrapViewType {
         self.bootstrap_view_type
     }
+}
+
+pub(crate) struct RepresentativeViewModel {
+    pub account: Account,
+    pub name: &'static str,
+    pub weight: Amount,
 }

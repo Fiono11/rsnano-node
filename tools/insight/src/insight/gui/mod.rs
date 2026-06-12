@@ -18,6 +18,7 @@ mod node_runner;
 mod palette;
 mod peers;
 mod queue_group;
+mod representatives;
 mod search_bar;
 mod tab_bar;
 

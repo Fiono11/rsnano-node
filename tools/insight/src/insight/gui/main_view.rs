@@ -24,6 +24,7 @@ use crate::insight::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             view_election_details, view_elections,
         },
+        representatives::{RepresentativesViewModel, view_representatives},
     },
     navigator::NavItem,
 };
@@ -85,6 +86,7 @@ impl eframe::App for MainView {
             NavItem::Peers => view_peers(ui, self.model.channels()),
             NavItem::Messages => view_message_tab(ui, &mut self.model),
             NavItem::Queues => view_queues(ui, self.model.queue_groups()),
+            NavItem::Representatives => view_representatives(ui, self.model.representatives()),
             NavItem::BlockProcessor => view_block_processor(ui),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
@@ -198,6 +200,12 @@ impl MainViewModel {
                 )],
             },
         ]
+    }
+
+    pub fn representatives(&self) -> RepresentativesViewModel<'_> {
+        RepresentativesViewModel {
+            reps: &self.app.representatives,
+        }
     }
 
     pub fn bootstrap(&self) -> BootstrapViewModel {
