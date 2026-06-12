@@ -108,13 +108,9 @@ impl RunningQuery {
             count,
             id,
             sent: now,
-            response_cutoff: Self::initial_response_cutoff(now, timeout),
+            response_cutoff: now + timeout,
             channel_id: spec.channel.channel_id(),
         }
-    }
-
-    fn initial_response_cutoff(now: Timestamp, timeout: Duration) -> Timestamp {
-        now + timeout * 4
     }
 
     pub fn is_valid_response_type(&self, response: &AscPullAck) -> bool {
@@ -210,10 +206,7 @@ mod tests {
         assert_eq!(query.account, spec.account);
         assert_eq!(query.hash, spec.hash);
         assert_eq!(query.sent, now);
-        assert_eq!(
-            query.response_cutoff,
-            RunningQuery::initial_response_cutoff(now, timeout)
-        );
+        assert_eq!(query.response_cutoff, now + timeout);
     }
 
     #[test]
@@ -244,10 +237,7 @@ mod tests {
         assert_eq!(query.account, spec.account);
         assert_eq!(query.hash, spec.hash);
         assert_eq!(query.sent, now);
-        assert_eq!(
-            query.response_cutoff,
-            RunningQuery::initial_response_cutoff(now, timeout)
-        );
+        assert_eq!(query.response_cutoff, now + timeout);
     }
 
     #[test]
@@ -278,10 +268,7 @@ mod tests {
         assert_eq!(query.account, spec.account);
         assert_eq!(query.hash, spec.hash);
         assert_eq!(query.sent, now);
-        assert_eq!(
-            query.response_cutoff,
-            RunningQuery::initial_response_cutoff(now, timeout)
-        );
+        assert_eq!(query.response_cutoff, now + timeout);
     }
 
     #[test]
@@ -310,10 +297,7 @@ mod tests {
         assert_eq!(query.account, spec.account);
         assert_eq!(query.hash, spec.hash);
         assert_eq!(query.sent, now);
-        assert_eq!(
-            query.response_cutoff,
-            RunningQuery::initial_response_cutoff(now, timeout)
-        );
+        assert_eq!(query.response_cutoff, now + timeout);
     }
 
     #[test]

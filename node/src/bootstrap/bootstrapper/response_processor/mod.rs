@@ -21,7 +21,7 @@ use crate::{
         bootstrap_queue::BootstrapQueue,
         frontier_scan::FrontierScan,
         peer_scoring::PeerScoring,
-        query_tracker::{ProcessError, ProcessInfo, RunningQuery},
+        query_tracker::{ProcessError, ProcessInfo, QueryType, RunningQuery},
         response_processor::{
             account_ack_processor::AccountAckProcessor, block_ack_processor::BlockAckProcessor,
         },
@@ -77,10 +77,12 @@ impl ResponseProcessor {
         let query = self.query_tracker.take_running_query_for(&response)?;
 
         if !query.is_valid_response_type(&response) {
-            // The running query was consumed, so release the peer's in-flight
-            // slot now. Skipping this would leak the slot forever: the query is
-            // gone from the tracker, so it can never time out either.
+            // The running query was consumed and is gone from the tracker, so
+            // it can never time out. Release the peer's in-flight slot and the
+            // query's bootstrap queue state now — skipping this would leak
+            // them forever.
             self.peer_scoring.query_completed(query.channel_id);
+            self.requeue_query_target(&query);
             return Err(ProcessError::InvalidResponseType);
         }
 
@@ -93,6 +95,37 @@ impl ResponseProcessor {
         self.enqueue_next_blocks();
         self.frontier_scan.enqueue_frontiers();
         Ok(process_info)
+    }
+
+    /// Removes all timed out queries from the query tracker and releases
+    /// the state they hold in the bootstrap queue, so that their targets
+    /// can be requested again
+    pub fn process_timeouts(&self) {
+        for query in self.query_tracker.timeout() {
+            trace!(
+                query_id = query.id,
+                query_type = ?query.query_type,
+                "Query timed out"
+            );
+            self.peer_scoring.timed_out(query.channel_id);
+            self.requeue_query_target(&query);
+        }
+    }
+
+    /// A query that yielded no usable response still holds state in the
+    /// bootstrap queue (a downloading account or a requested dependency).
+    /// Release that state, so that the target can be requested again.
+    fn requeue_query_target(&self, query: &RunningQuery) {
+        match query.query_type {
+            QueryType::BlocksByHash | QueryType::BlocksByAccount => {
+                self.bootstrap_queue.requeue_download(&query.account);
+            }
+            QueryType::AccountInfoByHash => {
+                self.bootstrap_queue.remove_dependency_request(&query.hash);
+            }
+            // Frontier heads recover via their own cooldown
+            QueryType::Frontiers | QueryType::Invalid => {}
+        }
     }
 
     fn process_response_for_query(
@@ -164,5 +197,157 @@ impl StatsSource for ResponseProcessor {
         );
         self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::{Account, Block, BlockHash, PrivateKey, StateBlockArgs};
+    use std::time::Duration;
+
+    #[test]
+    fn timed_out_blocks_query_requeues_account() {
+        let fixture = create_fixture();
+        let account = Account::from(1);
+        fixture.queue.insert(account);
+        fixture.queue.download_started(&account);
+        fixture.tracker.insert(RunningQuery {
+            query_type: QueryType::BlocksByAccount,
+            account,
+            response_cutoff: Timestamp::new_test_instance() - Duration::from_secs(1),
+            ..RunningQuery::new_test_instance()
+        });
+
+        fixture.processor.process_timeouts();
+
+        assert_eq!(fixture.tracker.query_count(), 0);
+        assert_eq!(fixture.queue.info().downloading, 0);
+        let target = fixture.queue.next_download_target().unwrap();
+        assert_eq!(target.account, account);
+    }
+
+    #[test]
+    fn query_that_is_not_timed_out_is_kept() {
+        let fixture = create_fixture();
+        let account = Account::from(1);
+        fixture.queue.insert(account);
+        fixture.queue.download_started(&account);
+        fixture.tracker.insert(RunningQuery {
+            query_type: QueryType::BlocksByAccount,
+            account,
+            response_cutoff: Timestamp::new_test_instance() + Duration::from_secs(1),
+            ..RunningQuery::new_test_instance()
+        });
+
+        fixture.processor.process_timeouts();
+
+        assert_eq!(fixture.tracker.query_count(), 1);
+        assert_eq!(fixture.queue.info().downloading, 1);
+    }
+
+    #[test]
+    fn timed_out_dependency_query_makes_dependency_requestable_again() {
+        let fixture = create_fixture();
+        let key = PrivateKey::from(42);
+        let dependency = BlockHash::from(100);
+        make_blocked_account(&fixture.queue, &key, dependency);
+        fixture.queue.dependency_account_requested(&dependency);
+        assert_eq!(fixture.queue.next_unknown_blocking_hash(), None);
+        fixture.tracker.insert(RunningQuery {
+            query_type: QueryType::AccountInfoByHash,
+            hash: dependency,
+            response_cutoff: Timestamp::new_test_instance() - Duration::from_secs(1),
+            ..RunningQuery::new_test_instance()
+        });
+
+        fixture.processor.process_timeouts();
+
+        assert_eq!(fixture.tracker.query_count(), 0);
+        assert_eq!(fixture.queue.next_unknown_blocking_hash(), Some(dependency));
+    }
+
+    #[test]
+    fn timed_out_frontier_query_is_dropped() {
+        let fixture = create_fixture();
+        fixture.tracker.insert(RunningQuery {
+            query_type: QueryType::Frontiers,
+            account: Account::ZERO,
+            hash: BlockHash::ZERO,
+            response_cutoff: Timestamp::new_test_instance() - Duration::from_secs(1),
+            ..RunningQuery::new_test_instance()
+        });
+
+        fixture.processor.process_timeouts();
+
+        assert_eq!(fixture.tracker.query_count(), 0);
+    }
+
+    #[test]
+    fn invalid_response_type_requeues_account() {
+        let fixture = create_fixture();
+        let account = Account::from(1);
+        let query_id = 7;
+        fixture.queue.insert(account);
+        fixture.queue.download_started(&account);
+        fixture.tracker.insert(RunningQuery {
+            id: query_id,
+            query_type: QueryType::BlocksByAccount,
+            account,
+            ..RunningQuery::new_test_instance()
+        });
+        let response = AscPullAck {
+            id: query_id,
+            pull_type: AscPullAckType::Frontiers(Vec::new()),
+        };
+
+        let result = fixture
+            .processor
+            .process(response, Timestamp::new_test_instance());
+
+        assert!(matches!(result, Err(ProcessError::InvalidResponseType)));
+        assert_eq!(fixture.queue.info().downloading, 0);
+        let target = fixture.queue.next_download_target().unwrap();
+        assert_eq!(target.account, account);
+    }
+
+    /* Test helpers */
+
+    fn create_fixture() -> Fixture {
+        let tracker = Arc::new(QueryTracker::new_null());
+        let queue = Arc::new(BootstrapQueue::new_null());
+        let processor = ResponseProcessor::new(
+            tracker.clone(),
+            Arc::new(PeerScoring::default()),
+            queue.clone(),
+            Arc::new(BlockProcessorQueue::default()),
+            Arc::new(FrontierScan::new_null()),
+        );
+        Fixture {
+            processor,
+            tracker,
+            queue,
+        }
+    }
+
+    fn make_blocked_account(queue: &BootstrapQueue, key: &PrivateKey, dependency: BlockHash) {
+        let account = key.account();
+        let receive: Block = StateBlockArgs {
+            key,
+            link: dependency.into(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        queue.insert(account);
+        queue.download_started(&account);
+        queue.download_finished(&account, [receive].into(), false, ChannelId::from(1));
+        let next = queue.take_next_block_for_processing().unwrap();
+        queue.block(&next.hash(), dependency);
+    }
+
+    struct Fixture {
+        processor: ResponseProcessor,
+        tracker: Arc<QueryTracker>,
+        queue: Arc<BootstrapQueue>,
     }
 }

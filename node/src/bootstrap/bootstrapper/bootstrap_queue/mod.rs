@@ -151,16 +151,32 @@ impl BootstrapQueue {
     }
 
     pub fn dependency_account_requested(&self, dependency: &BlockHash) {
-        let now = self.clock.now();
         self.logic
             .lock()
             .unwrap()
-            .dependency_account_requested(dependency, now);
+            .dependency_account_requested(dependency);
         self.stats.dependency_requested.fetch_add(1, Relaxed);
         trace!(
             dependency = dependency.encode_hex(),
             "Dependency account requested"
         );
+    }
+
+    /// Removes the request mark for a dependency, so that the dependency
+    /// can be requested again
+    pub fn remove_dependency_request(&self, dependency: &BlockHash) {
+        let removed = self
+            .logic
+            .lock()
+            .unwrap()
+            .remove_dependency_request(dependency);
+        if removed {
+            self.stats.dependency_request_removed.fetch_add(1, Relaxed);
+            trace!(
+                dependency = dependency.encode_hex(),
+                "Dependency request removed"
+            );
+        }
     }
 
     pub fn dependency_account_not_found(&self, dependency: &BlockHash) {
@@ -218,13 +234,22 @@ impl BootstrapQueue {
     }
 
     pub fn download_started(&self, account: &Account) {
-        let now = self.clock.now();
-        let started = self.logic.lock().unwrap().download_started(account, now);
+        let started = self.logic.lock().unwrap().download_started(account);
         if started {
             trace!(account = account.encode_account(), "Download started");
             self.stats.download_started.fetch_add(1, Relaxed);
         } else {
             self.stats.download_start_failed.fetch_add(1, Relaxed);
+        }
+    }
+
+    /// Puts a downloading account back into the download queue, so that it
+    /// can be requested again
+    pub fn requeue_download(&self, account: &Account) {
+        let requeued = self.logic.lock().unwrap().requeue_download(account);
+        if requeued {
+            trace!(account = account.encode_account(), "Download requeued");
+            self.stats.download_requeued.fetch_add(1, Relaxed);
         }
     }
 
@@ -237,7 +262,7 @@ impl BootstrapQueue {
         channel_id: ChannelId,
     ) -> Option<ChannelId> {
         let finished;
-        let mut outdated_channel: Option<ChannelId> = None;
+        let outdated_channel: Option<ChannelId>;
         let mut prio_up_result = None;
         let mut prio_down_result = None;
         let block_count = blocks.len();
@@ -353,13 +378,14 @@ impl BootstrapQueue {
         self.logic.lock().unwrap().processing()
     }
 
-    pub fn timeout(&self) {
+    /// Should be called periodically to remove old entries from the blocked accounts
+    pub fn decay(&self) {
         let now = self.clock.now();
         let decayed;
         let trim_count;
         {
             let mut logic = self.logic.lock().unwrap();
-            decayed = logic.timeout(now);
+            decayed = logic.decay_blocked_accounts(now);
             trim_count = logic.trim_overflow();
         }
         self.stats

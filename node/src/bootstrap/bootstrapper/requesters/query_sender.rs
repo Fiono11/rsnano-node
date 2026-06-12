@@ -67,7 +67,7 @@ impl QuerySender {
         self.request_timeout = timeout;
     }
 
-    pub fn send(&mut self, spec: AscPullQuerySpec) -> bool {
+    pub fn send(&mut self, spec: &AscPullQuerySpec) -> bool {
         if self.send_listener.is_tracked() {
             self.send_listener.emit(spec.clone());
         }
@@ -76,11 +76,12 @@ impl QuerySender {
         let now = self.clock.now();
         let query_type = spec.query_type();
         let channel_id = spec.channel.channel_id();
-        let mut query = RunningQuery::from_spec(id, &spec, now, self.request_timeout);
+        // After the request has been sent, the peer has a limited time to respond
+        let query = RunningQuery::from_spec(id, spec, now, self.request_timeout);
 
         let message = Message::AscPullReq(AscPullReq {
             id,
-            req_type: spec.req_type,
+            req_type: spec.req_type.clone(),
         });
 
         let sent =
@@ -99,8 +100,6 @@ impl QuerySender {
             self.stats
                 .inc(StatType::BootstrapRequest, query_type.into());
 
-            // After the request has been sent, the peer has a limited time to respond
-            query.response_cutoff = now + self.request_timeout;
             self.query_tracker.insert(query);
             self.peer_scoring.request_sent(channel_id);
 
@@ -140,7 +139,7 @@ mod tests {
         let spec = AscPullQuerySpec::new_test_instance();
         let channel_id = spec.channel.channel_id();
 
-        let sent = fixture.query_sender.send(spec);
+        let sent = fixture.query_sender.send(&spec);
         assert!(sent);
 
         let output = fixture.send_tracker.output();
@@ -160,7 +159,7 @@ mod tests {
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         bootstrap_queue.insert(spec.account);
 
-        fixture.query_sender.send(spec.clone());
+        fixture.query_sender.send(&spec);
 
         assert_eq!(fixture.query_tracker.query_count(), 1);
         assert_eq!(
@@ -176,7 +175,7 @@ mod tests {
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
 
         spec.channel.close();
-        let sent = fixture.query_sender.send(spec.clone());
+        let sent = fixture.query_sender.send(&spec);
 
         assert!(!sent);
         assert_eq!(fixture.query_tracker.query_count(), 0);
@@ -190,7 +189,7 @@ mod tests {
         let spec = AscPullQuerySpec::new_test_instance();
 
         let tracker = fixture.query_sender.track();
-        fixture.query_sender.send(spec.clone());
+        fixture.query_sender.send(&spec);
 
         assert_eq!(tracker.output(), [spec]);
     }

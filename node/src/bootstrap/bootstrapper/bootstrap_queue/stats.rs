@@ -18,6 +18,7 @@ pub(crate) struct BootstrapQueueStats {
     pub dependency_update: AtomicU64,
     pub download_started: AtomicU64,
     pub download_start_failed: AtomicU64,
+    pub download_requeued: AtomicU64,
     pub download_finished: AtomicU64,
     pub download_finished_failed: AtomicU64,
     pub processing_started: AtomicU64,
@@ -27,6 +28,7 @@ pub(crate) struct BootstrapQueueStats {
     pub processing_finished: AtomicU64,
     pub processing_finished_failed: AtomicU64,
     pub dependency_requested: AtomicU64,
+    pub dependency_request_removed: AtomicU64,
     pub trim_download_queue: AtomicU64,
     pub trim_blocked: AtomicU64,
 }
@@ -87,6 +89,16 @@ impl StatsSource for BootstrapQueueStats {
             KEY,
             "download_start_failed",
             self.download_start_failed.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "download_requeued",
+            self.download_requeued.load(Relaxed),
+        );
+        result.insert(
+            KEY,
+            "dependency_request_removed",
+            self.dependency_request_removed.load(Relaxed),
         );
         result.insert(
             KEY,

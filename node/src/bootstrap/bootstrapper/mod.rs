@@ -25,7 +25,7 @@ use tracing::{trace, warn};
 use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
-use rsnano_network::{Channel, ChannelEvent, ChannelId, Network};
+use rsnano_network::{Channel, ChannelEvent, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
@@ -383,12 +383,9 @@ impl Bootstrapper {
         let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
         while !stopped.stopped {
-            let timed_out_channels = self.query_tracker.timeout();
-            for channel_id in timed_out_channels {
-                self.peer_scoring.timed_out(channel_id);
-            }
+            self.response_handler.process_timeouts();
             self.peer_scoring.decay();
-            self.bootstrap_queue.timeout();
+            self.bootstrap_queue.decay();
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
                 self.bootstrap_queue.sync_dependencies();

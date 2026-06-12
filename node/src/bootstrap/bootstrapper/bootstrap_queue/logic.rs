@@ -239,13 +239,23 @@ impl BootstrapQueueLogic {
         true
     }
 
-    pub fn dependency_account_requested(&mut self, dependency: &BlockHash, now: Timestamp) {
-        self.blocked.dependency_account_requested(dependency, now);
+    pub fn dependency_account_requested(&mut self, dependency: &BlockHash) {
+        self.blocked.dependency_account_requested(dependency);
     }
 
     pub fn dependency_account_not_found(&mut self, dependency: &BlockHash) {
-        self.blocked.dependency_account_not_found(dependency);
+        self.blocked.remove_dependency_request(dependency);
         self.revision += 1;
+    }
+
+    /// Removes the request mark for a dependency, so that the dependency
+    /// can be requested again
+    pub fn remove_dependency_request(&mut self, dependency: &BlockHash) -> bool {
+        let removed = self.blocked.remove_dependency_request(dependency);
+        if removed {
+            self.revision += 1;
+        }
+        removed
     }
 
     /// Sets information about the account chain that contains the block hash.
@@ -319,11 +329,23 @@ impl BootstrapQueueLogic {
         self.block_processing.revert_processing_started(block_hash)
     }
 
-    pub fn download_started(&mut self, account: &Account, now: Timestamp) -> bool {
+    pub fn download_started(&mut self, account: &Account) -> bool {
         if !self.download_queue.remove(account) {
             return false;
         }
-        self.downloading.insert(*account, now);
+        self.downloading.insert(*account);
+        true
+    }
+
+    /// Puts a downloading account back into the download queue, so that it
+    /// can be requested again
+    pub fn requeue_download(&mut self, account: &Account) -> bool {
+        if !self.downloading.remove(account) {
+            return false;
+        }
+        let priority = self.priorities.get(account).unwrap();
+        self.download_queue.insert(*account, priority);
+        self.revision += 1;
         true
     }
 
@@ -579,22 +601,8 @@ impl BootstrapQueueLogic {
         self.block_processing.processing()
     }
 
-    pub fn timeout(&mut self, now: Timestamp) -> usize {
-        let decayed_blocks = self.decay_blocked_accounts(now);
-        // TODO: make timeout configurable
-        self.blocked
-            .remove_requests_older_than(now - Duration::from_secs(15));
-
-        while let Some(account) = self.downloading.pop_timeout(now) {
-            let priority = self.priorities.get(&account).unwrap();
-            self.download_queue.insert(account, priority);
-        }
-        self.revision += 1;
-        decayed_blocks
-    }
-
     /// Should be called periodically to remove old entries from the blocked accounts
-    fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
+    pub fn decay_blocked_accounts(&mut self, now: Timestamp) -> usize {
         let cutoff = now - self.config.blocked_decay;
         self.revision += 1;
         let removed = self.blocked.remove_older_than(cutoff);
@@ -874,8 +882,7 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
         queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
-        let now = Timestamp::new_test_instance();
-        queue.download_started(&account, now);
+        queue.download_started(&account);
 
         queue.download_finished(&account, VecDeque::new(), false, ChannelId::from(1));
 
@@ -904,6 +911,76 @@ mod tests {
         queue.remove(&account);
 
         assert_eq!(queue.pull_type(&account), PullType::Optimistic);
+    }
+
+    /*
+     * Requeue download
+     */
+
+    #[test]
+    fn requeue_download_puts_account_back_into_download_queue() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        queue.insert(account, Priority::INITIAL);
+        queue.download_started(&account);
+        assert_eq!(queue.next_download_target(), None);
+
+        let requeued = queue.requeue_download(&account);
+
+        assert!(requeued);
+        assert_eq!(queue.info().downloading, 0);
+        assert_eq!(queue.next_download_target().unwrap().account, account);
+    }
+
+    #[test]
+    fn requeue_download_keeps_priority() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        let priority = Priority::new(99.0);
+        queue.insert(account, priority);
+        queue.download_started(&account);
+
+        queue.requeue_download(&account);
+
+        assert_eq!(queue.next_download_target().unwrap().priority, priority);
+    }
+
+    #[test]
+    fn requeue_download_for_unknown_account_does_nothing() {
+        let mut queue = BootstrapQueueLogic::default();
+
+        let requeued = queue.requeue_download(&Account::from(1));
+
+        assert!(!requeued);
+        assert_eq!(queue.info().download_queue, 0);
+    }
+
+    /*
+     * Remove dependency request
+     */
+
+    #[test]
+    fn remove_dependency_request_makes_dependency_requestable_again() {
+        let mut queue = BootstrapQueueLogic::default();
+        let key = PrivateKey::from(42);
+        let dependency = BlockHash::from(2);
+        make_blocked_account(&mut queue, &key, dependency);
+        queue.dependency_account_requested(&dependency);
+        assert_eq!(queue.next_unknown_blocking_hash(), None);
+
+        let removed = queue.remove_dependency_request(&dependency);
+
+        assert!(removed);
+        assert_eq!(queue.next_unknown_blocking_hash(), Some(dependency));
+    }
+
+    #[test]
+    fn remove_dependency_request_for_unknown_dependency_does_nothing() {
+        let mut queue = BootstrapQueueLogic::default();
+
+        let removed = queue.remove_dependency_request(&BlockHash::from(1));
+
+        assert!(!removed);
     }
 
     /*
@@ -968,9 +1045,8 @@ mod tests {
         make_blocked_account(&mut queue, &key1, dependency1);
         make_blocked_account(&mut queue, &key2, dependency2);
         make_blocked_account(&mut queue, &key3, dependency3);
-        let now = Timestamp::new_test_instance();
-        queue.dependency_account_requested(&dependency1, now);
-        queue.dependency_account_requested(&dependency3, now);
+        queue.dependency_account_requested(&dependency1);
+        queue.dependency_account_requested(&dependency3);
         assert_eq!(queue.next_unknown_blocking_hash(), Some(dependency2));
     }
 
@@ -1094,11 +1170,10 @@ mod tests {
         let mut queue = BootstrapQueueLogic::default();
         let queued = Account::from(1);
         let downloading = Account::from(2);
-        let now = Timestamp::new_test_instance();
 
         queue.insert(queued, Priority::INITIAL);
         queue.insert(downloading, Priority::INITIAL);
-        queue.download_started(&downloading, now);
+        queue.download_started(&downloading);
 
         let snap = queue.snapshot(10, None);
 
@@ -1137,7 +1212,7 @@ mod tests {
         }
         .into();
         queue.insert(account, Priority::INITIAL);
-        queue.download_started(&account, blocked_at);
+        queue.download_started(&account);
         queue.download_finished(&account, [receive].into(), false, ChannelId::from(1));
         let next = queue.take_next_block_for_processing().unwrap();
         queue.block(&next.hash(), dependency, blocked_at);

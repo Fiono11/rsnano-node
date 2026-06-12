@@ -61,6 +61,20 @@ impl QueryFactory {
         }
     }
 
+    /// Undoes the bootstrap queue mutations made when the query spec was
+    /// created. Must be called when the query could not be sent, because a
+    /// query that was never sent is not tracked and can never time out, so
+    /// nothing else would release the queue state again.
+    pub fn query_failed(&self, spec: &AscPullQuerySpec) {
+        match &spec.req_type {
+            AscPullReqType::Blocks(_) => self.bootstrap_queue.requeue_download(&spec.account),
+            AscPullReqType::AccountInfo(_) => {
+                self.bootstrap_queue.remove_dependency_request(&spec.hash)
+            }
+            AscPullReqType::Frontiers(_) => {}
+        }
+    }
+
     pub fn try_query(&mut self) -> Option<AscPullQuerySpec> {
         if self.query_tracker.query_count() >= self.config.max_requests {
             self.stats.queries_overfill.fetch_add(1, Relaxed);

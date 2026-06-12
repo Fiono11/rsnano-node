@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, BlockHash};
@@ -15,8 +15,7 @@ pub(super) struct BlockedAccounts {
     by_dependency: BTreeMap<BlockHash, Vec<Account>>,
     by_dependency_account: BTreeMap<Account, FxHashSet<Account>>,
     by_timestamp: BTreeSet<(Timestamp, Account)>,
-    requested_dependencies: FxHashMap<BlockHash, Timestamp>,
-    requested_timestamps: VecDeque<(BlockHash, Timestamp)>,
+    requested_dependencies: FxHashSet<BlockHash>,
 }
 
 impl BlockedAccounts {
@@ -80,7 +79,7 @@ impl BlockedAccounts {
         let accounts = self.by_dependency_account.get(&Account::ZERO)?;
         accounts.iter().find_map(|account| {
             let (dep_block, _, _) = self.by_account.get(account).unwrap();
-            if self.requested_dependencies.contains_key(dep_block) {
+            if self.requested_dependencies.contains(dep_block) {
                 None
             } else {
                 Some(*dep_block)
@@ -88,13 +87,12 @@ impl BlockedAccounts {
         })
     }
 
-    pub fn dependency_account_requested(&mut self, dependency: &BlockHash, now: Timestamp) {
-        self.requested_dependencies.insert(*dependency, now);
-        self.requested_timestamps.push_back((*dependency, now));
+    pub fn dependency_account_requested(&mut self, dependency: &BlockHash) {
+        self.requested_dependencies.insert(*dependency);
     }
 
-    pub fn dependency_account_not_found(&mut self, dependency: &BlockHash) {
-        self.requested_dependencies.remove(dependency);
+    pub fn remove_dependency_request(&mut self, dependency: &BlockHash) -> bool {
+        self.requested_dependencies.remove(dependency)
     }
 
     pub fn modify_dependency_account(
@@ -233,19 +231,6 @@ impl BlockedAccounts {
         debug_assert!(removed);
 
         true
-    }
-
-    pub fn remove_requests_older_than(&mut self, cutoff: Timestamp) {
-        while let Some((_, started)) = self.requested_timestamps.front()
-            && *started < cutoff
-        {
-            let (hash, started) = self.requested_timestamps.pop_front().unwrap();
-            if let Some(t) = self.requested_dependencies.get(&hash)
-                && *t == started
-            {
-                self.requested_dependencies.remove(&hash);
-            }
-        }
     }
 
     #[cfg(test)]

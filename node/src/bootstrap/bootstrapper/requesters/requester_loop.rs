@@ -79,7 +79,11 @@ impl RequesterLoop {
             drop(stopped);
 
             let sent = if let Some(spec) = self.query_factory.try_query() {
-                self.query_sender.send(spec)
+                let sent = self.query_sender.send(&spec);
+                if !sent {
+                    self.query_factory.query_failed(&spec);
+                }
+                sent
             } else {
                 false
             };

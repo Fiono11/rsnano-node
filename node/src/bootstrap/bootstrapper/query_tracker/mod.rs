@@ -10,7 +10,6 @@ use std::{
 };
 
 use rsnano_messages::AscPullAck;
-use rsnano_network::ChannelId;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -55,7 +54,8 @@ impl QueryTracker {
         self.logic.lock().unwrap().take_running_query_for(response)
     }
 
-    pub fn timeout(&self) -> Vec<ChannelId> {
+    /// Removes and returns all queries that have not been answered in time
+    pub fn timeout(&self) -> Vec<RunningQuery> {
         let now = self.clock.now();
         self.logic.lock().unwrap().timeout(now)
     }
@@ -105,8 +105,8 @@ impl QueryTrackerLogic {
             .ok_or(ProcessError::NoRunningQueryFound)
     }
 
-    pub fn timeout(&mut self, now: Timestamp) -> Vec<ChannelId> {
-        let mut timed_out_channels = Vec::new();
+    pub fn timeout(&mut self, now: Timestamp) -> Vec<RunningQuery> {
+        let mut timed_out = Vec::new();
         let should_timeout = |query: &RunningQuery| query.response_cutoff < now;
 
         while let Some(front) = self.running_queries.front() {
@@ -117,11 +117,10 @@ impl QueryTrackerLogic {
             self.stats.inc(StatType::Bootstrap, DetailType::Timeout);
             self.stats
                 .inc(StatType::BootstrapTimeout, front.query_type.into());
-            let front = self.running_queries.pop_front().unwrap();
-            timed_out_channels.push(front.channel_id);
+            timed_out.push(self.running_queries.pop_front().unwrap());
         }
 
-        timed_out_channels
+        timed_out
     }
 
     pub fn query_count(&self) -> usize {
