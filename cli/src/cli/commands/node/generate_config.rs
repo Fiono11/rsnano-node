@@ -28,7 +28,7 @@ impl GenerateConfigArgs {
     pub(crate) fn generate_config(&self) -> Result<()> {
         let (toml_str, config_type) = if self.node {
             let daemon_toml: DaemonToml = (&DaemonConfig::new(
-                &NetworkParams::new(NetworkType::NanoBetaNetwork),
+                &NetworkParams::new(NetworkType::NanoLiveNetwork),
                 get_cpu_count(),
             ))
                 .into();

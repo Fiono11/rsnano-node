@@ -4,7 +4,7 @@ use rand::Rng;
 
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, FrontiersReqPayload, HashType};
-use rsnano_network::{Channel, Network, TrafficType, token_bucket::TokenBucket};
+use rsnano_network::{Channel, Network, token_bucket::TokenBucket};
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
 
@@ -113,7 +113,6 @@ impl QueryFactory {
         });
 
         let channel = self.acquire_channel()?;
-        let channel_id = channel.channel_id();
         let query_id = self.rng_factory.rng().next_u64();
         let query = AscPullQuerySpec {
             query_id,
@@ -141,7 +140,6 @@ impl QueryFactory {
         }
 
         let channel = self.acquire_channel()?;
-        let channel_id = channel.channel_id();
         let Some(next_hash) = self.bootstrap_queue.next_unknown_blocking_hash() else {
             self.stats.wait_dependency_missing.fetch_add(1, Relaxed);
             return None;

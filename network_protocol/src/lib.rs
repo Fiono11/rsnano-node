@@ -1,7 +1,4 @@
 #[macro_use]
-extern crate anyhow;
-
-#[macro_use]
 extern crate strum_macros;
 
 mod handshake_process;

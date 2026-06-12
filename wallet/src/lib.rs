@@ -11,7 +11,7 @@ mod wallets;
 
 use serde::{Deserialize, Serialize};
 
-pub use config::{WalletsConfig, default_preconfigured_representatives_for_live};
+pub use config::WalletsConfig;
 pub use promises::*;
 pub use receivable_search::ReceivableSearch;
 pub use wallet::Wallet;

@@ -3,7 +3,7 @@ use std::time::Duration;
 use rsnano_ledger::DEV_GENESIS_PUB_KEY;
 use rsnano_types::{
     Account, Amount, NetworkType, PublicKey,
-    currency_constants::{PRECONFIGURED_REPRESENTATIVES_BETA, PRECONFIGURED_REPRESENTATIVES_LIVE},
+    currency_constants::PRECONFIGURED_REPRESENTATIVES_BETA, default_preconfigured_representatives,
 };
 
 #[derive(Clone)]
@@ -31,7 +31,9 @@ impl WalletsConfig {
 
     pub fn defaults_live() -> Self {
         Self {
-            preconfigured_representatives: default_preconfigured_representatives_for_live(),
+            preconfigured_representatives: default_preconfigured_representatives(
+                NetworkType::NanoLiveNetwork,
+            ),
             password_fanout: 1024,
             receive_minimum: Amount::micronano(1),
             vote_minimum: Amount::nano(1000),
@@ -72,24 +74,5 @@ impl WalletsConfig {
 impl Default for WalletsConfig {
     fn default() -> Self {
         Self::defaults_live()
-    }
-}
-
-pub fn default_preconfigured_representatives_for_live() -> Vec<PublicKey> {
-    PRECONFIGURED_REPRESENTATIVES_LIVE
-        .iter()
-        .map(|s| Account::parse(s).unwrap().into())
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn print_preconfigured_reps() {
-        for key in default_preconfigured_representatives_for_live() {
-            println!("{}", key.as_account().encode_account());
-        }
     }
 }

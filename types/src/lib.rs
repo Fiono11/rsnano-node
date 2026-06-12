@@ -43,7 +43,7 @@ use std::{
 
 use crate::currency_constants::{
     NETWORK_IDENTIFIER_BETA, NETWORK_IDENTIFIER_DEV, NETWORK_IDENTIFIER_LIVE,
-    NETWORK_IDENTIFIER_TEST,
+    NETWORK_IDENTIFIER_TEST, TEST_GENESIS_JSON,
 };
 pub use account::Account;
 pub use account_info::AccountInfo;
@@ -615,6 +615,35 @@ where
     let mut buffer = [0; 1];
     reader.read_exact(&mut buffer)?;
     Ok(buffer[0])
+}
+
+pub fn default_preconfigured_representatives(network: NetworkType) -> Vec<PublicKey> {
+    match network {
+        NetworkType::Invalid => Vec::new(),
+        NetworkType::NanoDevNetwork => vec![DEV_GENESIS_KEY.public_key()],
+        NetworkType::NanoBetaNetwork => {
+            parse_representatives(&currency_constants::PRECONFIGURED_REPRESENTATIVES_BETA)
+        }
+        NetworkType::NanoLiveNetwork => {
+            parse_representatives(&currency_constants::PRECONFIGURED_REPRESENTATIVES_LIVE)
+        }
+        NetworkType::NanoTestNetwork => {
+            vec![
+                serde_json::from_str::<Block>(TEST_GENESIS_JSON)
+                    .unwrap()
+                    .account_field()
+                    .unwrap()
+                    .into(),
+            ]
+        }
+    }
+}
+
+fn parse_representatives(rep_strs: &[&str]) -> Vec<PublicKey> {
+    rep_strs
+        .iter()
+        .map(|s| Account::parse(s).unwrap().into())
+        .collect()
 }
 
 #[cfg(test)]

@@ -4,12 +4,12 @@ use rsnano_network::NetworkConfig;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
 use rsnano_types::{
-    Account, Amount, Peer, PublicKey,
+    Amount, Peer, PublicKey,
     currency_constants::{
         PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE, PRECONFIGURED_PEERS_TEST,
     },
+    default_preconfigured_representatives,
 };
-use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
 
 use super::{
@@ -142,26 +142,18 @@ impl NodeConfig {
 
         let mut enable_voting = false;
         let mut preconfigured_peers = Vec::new();
-        let mut preconfigured_representatives = Vec::new();
         let default_port = network_params.network.default_node_port;
         let network = network_params.network.current_network;
+        let preconfigured_representatives = default_preconfigured_representatives(network);
         match network {
             NetworkType::NanoDevNetwork => {
                 enable_voting = true;
-                preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
             NetworkType::NanoBetaNetwork => {
                 preconfigured_peers.extend(
                     PRECONFIGURED_PEERS_BETA
                         .iter()
                         .map(|p| Peer::new(*p, default_port)),
-                );
-                preconfigured_representatives.push(
-                    Account::parse(
-                        "nano_1defau1t9off1ine9rep99999999999999999999999999999999wgmuzxxy",
-                    )
-                    .unwrap()
-                    .into(),
                 );
             }
             NetworkType::NanoLiveNetwork => {
@@ -170,8 +162,6 @@ impl NodeConfig {
                         .iter()
                         .map(|p| Peer::new(*p, default_port)),
                 );
-
-                preconfigured_representatives = default_preconfigured_representatives_for_live();
             }
             NetworkType::NanoTestNetwork => {
                 preconfigured_peers.extend(
@@ -179,7 +169,6 @@ impl NodeConfig {
                         .iter()
                         .map(|p| Peer::new(*p, default_port)),
                 );
-                preconfigured_representatives.push(network_params.ledger.genesis_account.into());
             }
             NetworkType::Invalid => panic!("invalid network"),
         }
