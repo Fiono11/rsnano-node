@@ -145,6 +145,7 @@ impl InsightApp {
                         account: i.rep_key.as_account(),
                         name: *name,
                         weight: i.weight,
+                        is_peered: i.is_peered,
                     }
                 })
                 .collect();
@@ -213,4 +214,5 @@ pub(crate) struct RepresentativeViewModel {
     pub account: Account,
     pub name: &'static str,
     pub weight: Amount,
+    pub is_peered: bool,
 }

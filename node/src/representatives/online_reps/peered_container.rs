@@ -29,6 +29,10 @@ impl PeeredContainer {
         }
     }
 
+    pub fn contains(&self, key: &PublicKey) -> bool {
+        self.by_account.contains_key(key)
+    }
+
     pub fn update_or_insert(
         &mut self,
         account: PublicKey,

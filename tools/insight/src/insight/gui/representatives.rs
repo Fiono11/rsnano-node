@@ -15,6 +15,7 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
             .column(Column::exact(150.0)) // name
             .column(Column::exact(80.0)) //rep weight
             .column(Column::auto())
+            .column(Column::remainder())
             .header(20.0, |mut header| {
                 header.col(|ui| {
                     ui.strong("Account");
@@ -24,6 +25,9 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                 });
                 header.col(|ui| {
                     ui.strong("Weight");
+                });
+                header.col(|ui| {
+                    ui.strong("Peered");
                 });
             })
             .body(|body| {
@@ -41,6 +45,11 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                         ui.label(formatted_number(
                             row_model.weight.number() / Amount::nano(1).number(),
                         ));
+                    });
+                    row.col(|ui| {
+                        if row_model.is_peered {
+                            ui.label("peered");
+                        }
                     });
                 })
             });

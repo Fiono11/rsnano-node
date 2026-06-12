@@ -173,6 +173,7 @@ impl OnlineReps {
         self.online_reps.iter().map(|rep_key| OnlineRepInfo {
             rep_key: *rep_key,
             weight: self.rep_weights.weight(rep_key),
+            is_peered: self.peered_reps.contains(rep_key),
         })
     }
 
@@ -332,6 +333,8 @@ pub struct PeeredRepInfo {
 pub struct OnlineRepInfo {
     pub rep_key: PublicKey,
     pub weight: Amount,
+    // Does this node have a direct connection to that rep?
+    pub is_peered: bool,
 }
 
 impl PeeredRepInfo {
