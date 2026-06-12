@@ -717,7 +717,7 @@ mod tests {
         assert_eq!(ascending_toml.channel_limit, Some(16));
         assert_eq!(ascending_toml.throttle_coefficient, Some(1024 * 8));
         assert_eq!(ascending_toml.throttle_wait, Some(100));
-        assert_eq!(ascending_toml.request_timeout, Some(15000));
+        assert_eq!(ascending_toml.request_timeout, Some(20000));
         assert_eq!(ascending_toml.max_requests, Some(1024));
 
         let sets_toml = ascending_toml.account_sets.as_ref().unwrap();

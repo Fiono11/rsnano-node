@@ -123,7 +123,7 @@ impl Default for BootstrapConfig {
             frontier_rate_limit: 8,
             database_warmup_ratio: 10,
             max_pull_count: BlocksAckPayload::MAX_BLOCKS,
-            request_timeout: Duration::from_secs(15),
+            request_timeout: Duration::from_secs(20),
             throttle_coefficient: 8 * 1024,
             throttle_wait: Duration::from_millis(100),
             min_protocol_version: 0x14, // TODO don't hard code

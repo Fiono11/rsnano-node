@@ -58,7 +58,7 @@ impl QuerySender {
             stats,
             query_tracker,
             peer_scoring,
-            request_timeout: Duration::from_secs(15),
+            request_timeout: Duration::from_secs(20),
             send_listener: OutputListenerMt::new(),
         }
     }
