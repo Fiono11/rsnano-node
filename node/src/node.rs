@@ -288,9 +288,8 @@ impl Node {
         let mut stats_collector = StatsCollector::new();
         let mut container_info = ContainerInfoFactory::new();
 
-        let bootstrap_weights = if (network_params.network.is_live_network()
-            || network_params.network.is_beta_network())
-            && !flags.inactive_node
+        let bootstrap_weights = if network_params.network.is_live_network()
+            || network_params.network.is_beta_network()
         {
             get_bootstrap_weights(current_network)
         } else {

@@ -683,7 +683,6 @@ fn confirm_frontier() {
         .build_node()
         .flags(NodeFlags {
             disable_request_loop: true,
-            disable_ongoing_bootstrap: true,
             ..Default::default()
         })
         .config(NodeConfig {
@@ -703,7 +702,6 @@ fn confirm_frontier() {
     let node2 = system
         .build_node()
         .flags(NodeFlags {
-            disable_ongoing_bootstrap: true,
             disable_rep_crawler: true,
             ..Default::default()
         })

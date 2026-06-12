@@ -9,9 +9,6 @@ pub(crate) struct RunDaemonArgs {
     /// Turn off automatic wallet backup process
     #[arg(long)]
     disable_backup: bool,
-    /// Turn off the ability for ongoing bootstraps to occur
-    #[arg(long)]
-    disable_ongoing_bootstrap: bool,
     /// Turn off the request loop
     #[arg(long)]
     disable_request_loop: bool,
@@ -24,18 +21,9 @@ pub(crate) struct RunDaemonArgs {
     /// Disables block republishing by disabling the local_block_broadcaster component
     #[arg(long)]
     disable_block_processor_republishing: bool,
-    /// Allow multiple connections to the same peer in bootstrap attempts
-    #[arg(long)]
-    allow_bootstrap_peers_duplicates: bool,
     /// Enable voting
     #[arg(long)]
     enable_voting: bool,
-    /// Increase bootstrap processor limits to allow more blocks before hitting full state and verify/write more per database call. Also disable deletion of processed unchecked blocks.
-    #[arg(long)]
-    fast_bootstrap: bool,
-    /// Increase batch signature verification size in block processor, default 0 (limited by config signature_checker_threads), unlimited for fast_bootstrap
-    #[arg(long)]
-    block_processor_verification_size: Option<usize>,
     /// Skip ledger consistency check on startup, this is not recommended and should only be used for testing or recovery purposes
     #[arg(long)]
     skip_consistency_check: bool,
@@ -55,14 +43,11 @@ impl RunDaemonArgs {
     pub(crate) fn get_flags(&self) -> NodeFlags {
         let mut flags = NodeFlags::new();
         flags.disable_backup = self.disable_backup;
-        flags.disable_ongoing_bootstrap = self.disable_ongoing_bootstrap;
         flags.disable_rep_crawler = self.disable_rep_crawler;
         flags.disable_request_loop = self.disable_request_loop;
         flags.disable_providing_telemetry_metrics = self.disable_providing_telemetry_metrics;
         flags.disable_block_processor_republishing = self.disable_block_processor_republishing;
-        flags.allow_bootstrap_peers_duplicates = self.allow_bootstrap_peers_duplicates;
         flags.enable_voting = self.enable_voting;
-        flags.fast_bootstrap = self.fast_bootstrap;
         flags.skip_consistency_check = self.skip_consistency_check;
         flags
     }
