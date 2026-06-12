@@ -26,21 +26,21 @@ pub const WORK_THRESHOLD_EPOCH2_RECEIVE: u64 = 0x0000000000000000; // remove rec
 
 pub const WORKING_PATH_PREFIX: &str = "Banano";
 
-pub const PRECONFIGURED_REPRESENTATIVES_LIVE: [&str; 6] = [
+pub const PRECONFIGURED_REPRESENTATIVES_LIVE: [&str; 7] = [
     "ban_1fomoz167m7o38gw4rzt7hz67oq6itejpt4yocrfywujbpatd711cjew8gjj",
     "ban_1cake36ua5aqcq1c5i3dg7k8xtosw7r9r7qbbf5j15sk75csp9okesz87nfn",
     "ban_1bananobh5rat99qfgt1ptpieie5swmoth87thi74qgbfrij7dcgjiij94xr",
     "ban_1creepi89mp48wkyg5fktgap9j6165d8yz6g1fbe5pneinz3by9o54fuq63m",
     "ban_1tipbotgges3ss8pso6xf76gsyqnb69uwcxcyhouym67z7ofefy1jz7kepoy",
     "ban_1ka1ium4pfue3uxtntqsrib8mumxgazsjf58gidh1xeo5te3whsq8z476goo",
+    "ban_1je44e5srozqqbimy94r9uusasw7kjnfabxtqbznbtqnift4irkkrg7fhd9o",
 ];
 
 pub const PRECONFIGURED_REPRESENTATIVES_BETA: [&str; 1] =
     ["ban_1defau1t9off1ine9rep99999999999999999999999999999999wgmuzxxy"];
 
 // Disabled, because livenet.banano.cc still runs an obsolete version
-// pub const PRECONFIGURED_PEERS_LIVE: [&str; 1] = ["livenet.banano.cc"];
-pub const PRECONFIGURED_PEERS_LIVE: [&str; 1] = ["::ffff:d94c:3798"];
+pub const PRECONFIGURED_PEERS_LIVE: [&str; 2] = ["livenet.banano.cc", "banano.rsnano.com"];
 
 pub const PRECONFIGURED_PEERS_BETA: [&str; 1] = ["livenet-beta.banano.cc"];
 pub const PRECONFIGURED_PEERS_TEST: [&str; 1] = ["peering-test.banano.cc"];
