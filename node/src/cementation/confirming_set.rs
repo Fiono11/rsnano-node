@@ -1,8 +1,8 @@
 use std::{
     collections::{HashSet, VecDeque},
     sync::{
-        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -19,7 +19,7 @@ use rsnano_utils::{
 use super::ordered_entries::OrderedEntries;
 use crate::{
     cementation::ConfirmingSetEvent,
-    consensus::{ConfirmedElectionsCache, election::ConfirmedElection},
+    consensus::{election::ConfirmedElection, ConfirmedElectionsCache},
 };
 
 /// A block that is currently cementing
@@ -34,7 +34,6 @@ pub struct ConfirmingSetConfig {
     pub batch_size: usize,
     /// Maximum number of dependent blocks to be stored in memory during processing
     pub max_blocks: usize,
-    pub max_queued_notifications: usize,
 
     /// Maximum number of failed blocks to wait for requeuing
     pub max_deferred: usize,
@@ -47,7 +46,6 @@ impl Default for ConfirmingSetConfig {
         Self {
             batch_size: 256,
             max_blocks: 16 * 1024,
-            max_queued_notifications: 8,
             max_deferred: 16 * 1024,
             deferred_age_cutoff: Duration::from_mins(15),
         }
@@ -73,8 +71,8 @@ impl ConfirmingSet {
                     config: config.clone(),
                     near_full: false,
                     cool_down: false,
-                    near_full_limit: config.max_blocks * 100 / 75,
-                    recovered_limit: config.max_blocks * 100 / 50,
+                    near_full_limit: config.max_blocks * 75 / 100,
+                    recovered_limit: config.max_blocks * 50 / 100,
                     election_cache: ConfirmedElectionsCache::default(),
                 }),
                 stopped: AtomicBool::new(false),
@@ -451,5 +449,21 @@ mod tests {
         let hash = BlockHash::from(1);
         confirming_set.add_block(hash);
         assert!(confirming_set.contains(&hash));
+    }
+
+    #[test]
+    fn queue_limits() {
+        let ledger = Arc::new(Ledger::new_null());
+        let config = ConfirmingSetConfig {
+            max_blocks: 1000,
+            ..Default::default()
+        };
+        let confirming_set = ConfirmingSet::new(config, ledger, Arc::new(Stats::default()));
+        let (near_full, recovered) = {
+            let guard = confirming_set.thread.mutex.lock().unwrap();
+            (guard.near_full_limit, guard.recovered_limit)
+        };
+        assert_eq!(near_full, 750);
+        assert_eq!(recovered, 500);
     }
 }
