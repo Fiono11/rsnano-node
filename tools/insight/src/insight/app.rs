@@ -24,6 +24,7 @@ use crate::insight::{
     navigator::{NavItem, Navigator},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
+    rep_names::well_known_rep_names,
 };
 
 pub(crate) struct InsightApp {
@@ -58,7 +59,7 @@ impl InsightApp {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let msg_recorder = Arc::new(MessageRecorder::new(messages.clone()));
         let callback_factory = NodeCallbackFactory::new(msg_recorder.clone(), clock.clone());
-        let channels = Channels::new(messages.clone());
+        let channels = Channels::new(messages.clone(), well_known_rep_names());
         Self {
             clock,
             messages,

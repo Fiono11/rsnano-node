@@ -2,7 +2,7 @@ use crate::insight::message_collection::MessageCollection;
 use rsnano_messages::TelemetryData;
 use rsnano_network::{Channel, ChannelDirection, ChannelId};
 use rsnano_node::representatives::PeeredRepInfo;
-use rsnano_types::Amount;
+use rsnano_types::{Amount, PublicKey};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddrV6,
@@ -16,6 +16,7 @@ pub(crate) struct ChannelModel {
     pub telemetry: Option<TelemetryData>,
     pub rep_weight: Amount,
     pub rep_state: RepState,
+    pub name: &'static str,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -31,16 +32,21 @@ pub(crate) struct Channels {
     selected: Option<ChannelId>,
     selected_index: Option<usize>,
     messages: Arc<RwLock<MessageCollection>>,
+    rep_names: HashMap<PublicKey, &'static str>,
 }
 
 impl Channels {
-    pub(crate) fn new(messages: Arc<RwLock<MessageCollection>>) -> Self {
+    pub(crate) fn new(
+        messages: Arc<RwLock<MessageCollection>>,
+        rep_names: HashMap<PublicKey, &'static str>,
+    ) -> Self {
         Self {
             sorted_channels: Vec::new(),
             channel_map: HashMap::new(),
             selected: None,
             selected_index: None,
             messages,
+            rep_names,
         }
     }
 
@@ -69,6 +75,7 @@ impl Channels {
                             telemetry: None,
                             rep_weight: Amount::ZERO,
                             rep_state: RepState::NoRep,
+                            name: "",
                         },
                     );
                     inserted = true;
@@ -99,6 +106,7 @@ impl Channels {
                 } else {
                     RepState::NoRep
                 };
+                channel.name = *self.rep_names.get(&rep.rep_key).unwrap_or(&"");
             }
         }
 
@@ -155,12 +163,14 @@ impl Channels {
 mod tests {
     use super::*;
     use crate::insight::message_collection::{MessageCollection, MessageFilter};
+    use rsnano_types::PublicKey;
     use std::{collections::HashMap, sync::RwLock};
 
     #[test]
     fn when_channel_selected_should_set_message_filter() {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
-        let mut channels = Channels::new(messages.clone());
+        let rep_names = HashMap::new();
+        let mut channels = Channels::new(messages.clone(), rep_names);
         channels.update(
             vec![Arc::new(Channel::new_test_instance())],
             HashMap::new(),
@@ -178,7 +188,8 @@ mod tests {
     #[test]
     fn when_channel_deselected_should_clear_message_filter() {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
-        let mut channels = Channels::new(messages.clone());
+        let rep_names = HashMap::new();
+        let mut channels = Channels::new(messages.clone(), rep_names);
         channels.update(
             vec![Arc::new(Channel::new_test_instance())],
             HashMap::new(),
@@ -189,5 +200,24 @@ mod tests {
         channels.select_index(0);
         let guard = messages.read().unwrap();
         assert_eq!(guard.current_filter(), &MessageFilter::all());
+    }
+
+    #[test]
+    fn shows_representative_name() {
+        let messages = Arc::new(RwLock::new(MessageCollection::default()));
+        let rep_key = PublicKey::from(42);
+        let rep_names: HashMap<PublicKey, &'static str> = [(rep_key.clone(), "test rep")].into();
+        let mut channels = Channels::new(messages.clone(), rep_names);
+        let channel = Arc::new(Channel::new_test_instance());
+        let reps = vec![PeeredRepInfo {
+            rep_key,
+            channel: channel.clone(),
+            weight: Amount::nano(1_000_000),
+        }];
+
+        channels.update(vec![channel], HashMap::new(), reps, Amount::ZERO);
+
+        let channel_model = channels.get(0).unwrap();
+        assert_eq!(channel_model.name, "test rep");
     }
 }

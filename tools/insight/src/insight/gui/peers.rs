@@ -38,7 +38,8 @@ fn view_peers_table(ui: &mut Ui, mut model: ChannelsViewModel) {
         .column(Column::auto()) // channel
         .column(Column::auto()) // rep state
         .column(Column::auto()) // in/out
-        .column(Column::exact(300.0)) // addr
+        .column(Column::exact(250.0)) // addr
+        .column(Column::exact(150.0)) // name
         .column(Column::exact(80.0)) //rep weight
         .column(Column::exact(80.0))
         .column(Column::exact(80.0))
@@ -58,6 +59,9 @@ fn view_peers_table(ui: &mut Ui, mut model: ChannelsViewModel) {
             });
             header.col(|ui| {
                 ui.strong("Remote Addr");
+            });
+            header.col(|ui| {
+                ui.strong("Name");
             });
             header.col(|ui| {
                 ui.strong("Rep Weight");
@@ -98,6 +102,9 @@ fn view_peers_table(ui: &mut Ui, mut model: ChannelsViewModel) {
                 });
                 row.col(|ui| {
                     ui.add(Label::new(row_model.remote_addr).selectable(false));
+                });
+                row.col(|ui| {
+                    ui.add(Label::new(row_model.name).selectable(false));
                 });
                 row.col(|ui| {
                     ui.add(Label::new(row_model.rep_weight).selectable(false));

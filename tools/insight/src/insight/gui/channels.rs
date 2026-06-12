@@ -76,6 +76,7 @@ impl<'a> ChannelsViewModel<'a> {
         let mut result = ChannelViewModel {
             channel_id: channel.channel_id.to_string(),
             remote_addr: channel.remote_addr.to_string(),
+            name: channel.name,
             direction: match channel.direction {
                 ChannelDirection::Inbound => "in",
                 ChannelDirection::Outbound => "out",
@@ -137,6 +138,7 @@ fn version_string(telemetry: &TelemetryData) -> String {
 pub(crate) struct ChannelViewModel {
     pub channel_id: String,
     pub remote_addr: String,
+    pub name: &'static str,
     pub direction: &'static str,
     pub is_selected: bool,
     pub block_count: String,
