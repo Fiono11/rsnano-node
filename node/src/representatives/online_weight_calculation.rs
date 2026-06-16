@@ -54,7 +54,7 @@ impl Tickable for OnlineWeightCalculation {
             self.first_run = false;
         } else {
             {
-                let mut online = self.online_reps.lock().unwrap();
+                let online = self.online_reps.lock().unwrap();
                 online.trim(self.clock.now());
                 online.calculate_online_weight();
             }

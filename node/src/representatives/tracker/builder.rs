@@ -5,14 +5,14 @@ use rsnano_types::Amount;
 
 use super::RepresentativeTracker;
 
-pub struct OnlineRepsBuilder {
+pub struct RepresentativeTrackerBuilder {
     rep_weights: Option<Arc<RepWeightCache>>,
     online_weight_minimum: Amount,
     representative_weight_minimum: Amount,
     trended: Option<Amount>,
 }
 
-impl OnlineRepsBuilder {
+impl RepresentativeTrackerBuilder {
     pub(super) fn new() -> Self {
         Self {
             rep_weights: None,
@@ -46,7 +46,7 @@ impl OnlineRepsBuilder {
             .rep_weights
             .unwrap_or_else(|| Arc::new(RepWeightCache::default()));
 
-        let mut online_reps = RepresentativeTracker::new(
+        let online_reps = RepresentativeTracker::new(
             rep_weights,
             self.online_weight_minimum,
             self.representative_weight_minimum,

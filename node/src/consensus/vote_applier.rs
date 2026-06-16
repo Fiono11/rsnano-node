@@ -73,7 +73,7 @@ impl VoteApplier {
         let now = self.clock.now();
 
         let quorum_specs = {
-            let mut online = self.online_reps.lock().unwrap();
+            let online = self.online_reps.lock().unwrap();
             if is_active {
                 // Representative is defined as online if replying to live votes or rep_crawler queries.
                 // The rep weights have to be updated before the votes are processed!

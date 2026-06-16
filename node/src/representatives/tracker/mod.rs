@@ -4,14 +4,17 @@ mod online_container;
 mod peered_container;
 mod peered_rep;
 
-pub use builder::OnlineRepsBuilder;
+pub use builder::RepresentativeTrackerBuilder;
 pub use cleanup::OnlineRepsCleanup;
 pub use peered_container::InsertResult;
 pub use peered_rep::PeeredRep;
 
 use std::{
     cmp::max,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -36,36 +39,7 @@ pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 pub struct RepresentativeTracker {
     rep_weights: Arc<RepWeightCache>,
     state: Mutex<RepresentativeTrackerState>,
-    peered_reps: PeeredContainer,
-    trended_weight: Amount,
-    online_weight: Amount,
-    online_weight_minimum: Amount,
-    representative_weight_minimum: Amount,
-    trim_counter: u64,
-}
-
-struct RepresentativeTrackerState {
-    online_reps: OnlineContainer,
-    peered_reps: PeeredContainer,
-    trended_weight: Amount,
-    online_weight: Amount,
-    online_weight_minimum: Amount,
-    representative_weight_minimum: Amount,
-    trim_counter: u64,
-}
-
-impl RepresentativeTrackerState {
-    pub fn new(online_weight_minimum: Amount, representative_weight_minimum: Amount) -> Self {
-        Self {
-            online_reps: OnlineContainer::new(),
-            peered_reps: PeeredContainer::new(),
-            trended_weight: Amount::ZERO,
-            online_weight: Amount::ZERO,
-            online_weight_minimum,
-            representative_weight_minimum,
-            trim_counter: 0,
-        }
-    }
+    trim_counter: AtomicU64,
 }
 
 impl RepresentativeTracker {
@@ -89,12 +63,7 @@ impl RepresentativeTracker {
                 online_weight_minimum,
                 representative_weight_minimum,
             )),
-            peered_reps: PeeredContainer::new(),
-            trended_weight: Amount::ZERO,
-            online_weight: Amount::ZERO,
-            online_weight_minimum,
-            representative_weight_minimum,
-            trim_counter: 0,
+            trim_counter: AtomicU64::new(0),
         }
     }
 
@@ -104,37 +73,38 @@ impl RepresentativeTracker {
         let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.put(rep, Amount::nano(80_000_000));
 
-        let mut tracker = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
+        let tracker = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
         let channel = Arc::new(Channel::new_test_instance());
         tracker.vote_observed_directly(rep, channel, Timestamp::new_test_instance());
         tracker
     }
 
-    pub fn builder() -> OnlineRepsBuilder {
-        OnlineRepsBuilder::new()
+    pub fn builder() -> RepresentativeTrackerBuilder {
+        RepresentativeTrackerBuilder::new()
     }
 
     pub fn online_weight_minimum(&self) -> Amount {
-        self.online_weight_minimum
+        self.state.lock().unwrap().online_weight_minimum
     }
 
     #[allow(dead_code)]
     fn trended_weight(&self) -> Amount {
-        self.trended_weight
+        self.state.lock().unwrap().trended_weight
     }
 
     pub fn trended_or_minimum_weight(&self) -> Amount {
-        max(self.trended_weight, self.online_weight_minimum)
+        let state = self.state.lock().unwrap();
+        max(state.trended_weight, state.online_weight_minimum)
     }
 
-    pub fn set_trended(&mut self, trended: Amount) {
-        self.trended_weight = trended;
+    pub fn set_trended(&self, trended: Amount) {
+        self.state.lock().unwrap().trended_weight = trended;
     }
 
     /** Returns the current online stake */
     pub fn online_weight(&self) -> Amount {
         // TODO calculate on the fly
-        self.online_weight
+        self.state.lock().unwrap().online_weight
     }
 
     pub fn minimum_principal_weight(&self) -> Amount {
@@ -145,7 +115,10 @@ impl RepresentativeTracker {
     pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
         let min_weight = self.minimum_principal_weight();
         let rep_weights = self.rep_weights.read();
-        self.peered_reps
+        self.state
+            .lock()
+            .unwrap()
+            .peered_reps
             .accounts_by_channel(channel_id)
             .any(|account| rep_weights.get(account).cloned().unwrap_or_default() >= min_weight)
     }
@@ -154,7 +127,8 @@ impl RepresentativeTracker {
     pub fn peered_weight(&self) -> Amount {
         let mut result = Amount::ZERO;
         let weights = self.rep_weights.read();
-        for account in self.peered_reps.accounts() {
+        let state = self.state.lock().unwrap();
+        for account in state.peered_reps.accounts() {
             result += weights.get(account).cloned().unwrap_or_default();
         }
         result
@@ -162,7 +136,7 @@ impl RepresentativeTracker {
 
     /// Total number of peered representatives
     pub fn peered_reps_count(&self) -> usize {
-        self.peered_reps.len()
+        self.state.lock().unwrap().peered_reps.len()
     }
 
     pub fn quorum_percent(&self) -> u8 {
@@ -186,15 +160,22 @@ impl RepresentativeTracker {
         }
     }
 
-    pub fn on_rep_request(&mut self, channel_id: ChannelId, now: Timestamp) {
+    pub fn on_rep_request(&self, channel_id: ChannelId, now: Timestamp) {
         // Find and update the timestamp on all reps available on the endpoint (a single host may have multiple reps)
-        self.peered_reps.modify_by_channel(channel_id, |rep| {
-            rep.last_request = now;
-        });
+        self.state
+            .lock()
+            .unwrap()
+            .peered_reps
+            .modify_by_channel(channel_id, |rep| {
+                rep.last_request = now;
+            });
     }
 
     pub fn last_request_elapsed(&self, channel_id: ChannelId, now: Timestamp) -> Option<Duration> {
-        self.peered_reps
+        self.state
+            .lock()
+            .unwrap()
+            .peered_reps
             .iter_by_channel(channel_id)
             .next()
             .map(|rep| rep.last_request.elapsed(now))
@@ -202,15 +183,16 @@ impl RepresentativeTracker {
 
     /// List of online representatives, both the currently sampling ones and the ones observed in the previous sampling period
     pub fn online_reps(&self) -> Vec<OnlineRepInfo> {
-        self.state
-            .lock()
-            .unwrap()
+        let weight_reader = self.rep_weights.read();
+        let state = self.state.lock().unwrap();
+
+        state
             .online_reps
             .iter()
             .map(|rep_key| OnlineRepInfo {
                 rep_key: *rep_key,
-                weight: self.rep_weights.weight(rep_key),
-                is_peered: self.peered_reps.contains(rep_key),
+                weight: weight_reader.weight(rep_key),
+                is_peered: state.peered_reps.contains(rep_key),
             })
             .collect()
     }
@@ -232,7 +214,8 @@ impl RepresentativeTracker {
 
         {
             let rep_weights = self.rep_weights.read();
-            for rep in self.peered_reps.iter() {
+            let state = self.state.lock().unwrap();
+            for rep in state.peered_reps.iter() {
                 let weight = rep_weights.get(&rep.account).cloned().unwrap_or_default();
                 if weight > min_weight {
                     reps_with_weight.push((rep.clone(), weight));
@@ -255,17 +238,16 @@ impl RepresentativeTracker {
     /// Add voting account rep_account to the set of online representatives.
     /// This can happen for directly connected or indirectly connected reps.
     /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed(&mut self, rep_account: PublicKey, now: Timestamp) -> bool {
-        if self.rep_weights.weight(&rep_account) < self.representative_weight_minimum {
-            return false;
-        }
+    pub fn vote_observed(&self, rep_account: PublicKey, now: Timestamp) -> bool {
+        let weight = self.rep_weights.weight(&rep_account);
+        let new_insert = {
+            let mut state = self.state.lock().unwrap();
+            if weight < state.representative_weight_minimum {
+                return false;
+            }
 
-        let new_insert = self
-            .state
-            .lock()
-            .unwrap()
-            .online_reps
-            .insert(rep_account, now);
+            state.online_reps.insert(rep_account, now)
+        };
 
         if new_insert {
             self.calculate_online_weight();
@@ -273,8 +255,8 @@ impl RepresentativeTracker {
         true
     }
 
-    pub fn trim(&mut self, now: Timestamp) {
-        self.trim_counter += 1;
+    pub fn trim(&self, now: Timestamp) {
+        self.trim_counter.fetch_add(1, Ordering::Relaxed);
         let trimmed = self
             .state
             .lock()
@@ -295,32 +277,37 @@ impl RepresentativeTracker {
         }
     }
 
-    pub fn calculate_online_weight(&mut self) {
+    pub fn calculate_online_weight(&self) {
         let mut current = Amount::ZERO;
         let rep_weights = self.rep_weights.read();
-        for account in self.state.lock().unwrap().online_reps.iter() {
+        let mut state = self.state.lock().unwrap();
+        for account in state.online_reps.iter() {
             current += rep_weights.get(account).cloned().unwrap_or_default();
         }
-        self.online_weight = current;
+        state.online_weight = current;
     }
 
     /// Add rep_account to the set of peered representatives
     pub fn vote_observed_directly(
-        &mut self,
+        &self,
         rep_account: PublicKey,
         channel: Arc<Channel>,
         now: Timestamp,
     ) -> InsertResult {
         let is_rep = self.vote_observed(rep_account, now);
         if is_rep {
-            self.peered_reps.update_or_insert(rep_account, channel, now)
+            self.state
+                .lock()
+                .unwrap()
+                .peered_reps
+                .update_or_insert(rep_account, channel, now)
         } else {
             InsertResult::Updated
         }
     }
 
-    pub fn remove_peer(&mut self, channel_id: ChannelId) -> Vec<PublicKey> {
-        self.peered_reps.remove(channel_id)
+    pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
+        self.state.lock().unwrap().peered_reps.remove(channel_id)
     }
 
     pub fn get_rep_weights(&self) -> RepWeights {
@@ -346,15 +333,16 @@ impl Default for RepresentativeTracker {
 
 impl ContainerInfoProvider for RepresentativeTracker {
     fn container_info(&self) -> ContainerInfo {
+        let state = self.state.lock().unwrap();
         [
             (
                 "online",
-                self.state.lock().unwrap().online_reps.len(),
+                state.online_reps.len(),
                 OnlineContainer::ELEMENT_SIZE,
             ),
             (
                 "peered",
-                self.peered_reps.len(),
+                state.peered_reps.len(),
                 PeeredContainer::ELEMENT_SIZE,
             ),
         ]
@@ -364,7 +352,33 @@ impl ContainerInfoProvider for RepresentativeTracker {
 
 impl StatsSource for RepresentativeTracker {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        result.insert("online_reps", "rep_trim", self.trim_counter);
+        result.insert(
+            "online_reps",
+            "rep_trim",
+            self.trim_counter.load(Ordering::Relaxed),
+        );
+    }
+}
+
+struct RepresentativeTrackerState {
+    online_reps: OnlineContainer,
+    peered_reps: PeeredContainer,
+    trended_weight: Amount,
+    online_weight: Amount,
+    online_weight_minimum: Amount,
+    representative_weight_minimum: Amount,
+}
+
+impl RepresentativeTrackerState {
+    pub fn new(online_weight_minimum: Amount, representative_weight_minimum: Amount) -> Self {
+        Self {
+            online_reps: OnlineContainer::new(),
+            peered_reps: PeeredContainer::new(),
+            trended_weight: Amount::ZERO,
+            online_weight: Amount::ZERO,
+            online_weight_minimum,
+            representative_weight_minimum,
+        }
     }
 }
 
@@ -418,11 +432,13 @@ impl QuorumSpecs {
     }
 }
 
+#[cfg(feature = "ledger_snapshots")]
 pub(crate) struct ConsensusParams {
     pub(crate) rep_weights: RepWeights,
     pub(crate) quorum_weight: Amount,
 }
 
+#[cfg(feature = "ledger_snapshots")]
 impl Default for ConsensusParams {
     fn default() -> Self {
         Self {
@@ -432,8 +448,8 @@ impl Default for ConsensusParams {
     }
 }
 
+#[cfg(feature = "ledger_snapshots")]
 impl ConsensusParams {
-    #[allow(dead_code)]
     pub(crate) fn set_rep_weights(&mut self, rep_weights: RepWeights, quorum_weight: Amount) {
         self.rep_weights = rep_weights;
         self.quorum_weight = quorum_weight;
@@ -479,7 +495,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
         weights.put(account, weight);
-        let mut online_reps = RepresentativeTracker::builder()
+        let online_reps = RepresentativeTracker::builder()
             .rep_weights(weights)
             .finish();
 
@@ -496,7 +512,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
         weights.put(account, weight);
-        let mut online_reps = RepresentativeTracker::builder()
+        let online_reps = RepresentativeTracker::builder()
             .rep_weights(weights)
             .finish();
 
@@ -509,7 +525,7 @@ mod tests {
 
     #[test]
     fn trended_weight() {
-        let mut online_reps = RepresentativeTracker::default();
+        let online_reps = RepresentativeTracker::default();
         online_reps.set_trended(Amount::nano(10_000));
         assert_eq!(online_reps.trended_weight(), Amount::nano(10_000));
         assert_eq!(
@@ -527,7 +543,7 @@ mod tests {
 
     #[test]
     fn minimum_principal_weight() {
-        let mut online_reps = RepresentativeTracker::default();
+        let online_reps = RepresentativeTracker::default();
         assert_eq!(online_reps.minimum_principal_weight(), Amount::nano(60_000));
 
         online_reps.set_trended(Amount::nano(110_000_000));
@@ -542,7 +558,7 @@ mod tests {
     fn is_pr() {
         let clock = SteadyClock::new_null();
         let weights = Arc::new(RepWeightCache::default());
-        let mut online_reps = RepresentativeTracker::builder()
+        let online_reps = RepresentativeTracker::builder()
             .rep_weights(weights.clone())
             .finish();
         let rep_account = PublicKey::from(42);
@@ -565,7 +581,7 @@ mod tests {
     #[test]
     fn quorum_delta() {
         let weights = Arc::new(RepWeightCache::default());
-        let mut online_reps = RepresentativeTracker::builder()
+        let online_reps = RepresentativeTracker::builder()
             .rep_weights(weights.clone())
             .finish();
 
@@ -587,7 +603,7 @@ mod tests {
         weights.put(rep_a, Amount::nano(100_000));
         weights.put(rep_b, Amount::nano(200_000));
         weights.put(rep_c, Amount::nano(400_000));
-        let mut online_reps = RepresentativeTracker::builder()
+        let online_reps = RepresentativeTracker::builder()
             .rep_weights(weights)
             .finish();
 
@@ -620,6 +636,7 @@ mod tests {
         assert_ne!(online_reps.peered_weight(), Amount::ZERO, "peered");
     }
 
+    #[cfg(feature = "ledger_snapshots")]
     #[test]
     fn default_quorum_weight_is_max() {
         let params = ConsensusParams::default();
