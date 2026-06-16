@@ -190,7 +190,7 @@ fn confirmation() {
         let unsaved_block_lattice_builder = UnsavedBlockLatticeBuilder::new();
         let mut lattice = unsaved_block_lattice_builder;
         let key = PrivateKey::new();
-        let send_amount = node1.rep_tracker.quorum_delta() + Amount::raw(1);
+        let send_amount = node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1);
         // Quick-confirm a block, legacy blocks should work without filtering
         let send = lattice.genesis().legacy_send(&key, send_amount);
         node1.process_active(send);
@@ -239,7 +239,7 @@ fn confirmation_options() {
         node1.insert_into_wallet(&DEV_GENESIS_KEY);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
-        let send_amount = node1.rep_tracker.quorum_delta() + Amount::raw(1);
+        let send_amount = node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1);
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send.clone());
         assert_timely2(|| node1.block_confirmed(&send.hash()));
@@ -520,7 +520,7 @@ fn vote_options_representatives() {
 	    // Quick-confirm a block
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
-        let send_amount = node1.rep_tracker.quorum_delta() + Amount::raw(1);
+        let send_amount = node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1);
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send);
 

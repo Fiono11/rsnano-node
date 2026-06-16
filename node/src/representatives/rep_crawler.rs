@@ -314,7 +314,7 @@ impl RepCrawler {
         // normally the rep_crawler only tracks principal reps but it can be made to track
         // reps with less weight by setting rep_crawler_weight_minimum to a low value
         let minimum = std::cmp::min(
-            self.rep_tracker.minimum_principal_weight(),
+            self.rep_tracker.quorum_specs().minimum_principal_weight,
             self.config.rep_crawler_weight_minimum,
         );
 

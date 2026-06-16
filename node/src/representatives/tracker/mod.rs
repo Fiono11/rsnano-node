@@ -83,29 +83,14 @@ impl RepresentativeTracker {
         RepresentativeTrackerBuilder::new()
     }
 
-    pub fn trended_or_minimum_weight(&self) -> Amount {
-        let state = self.state.lock().unwrap();
-        max(state.trended_weight, state.online_weight_minimum)
-    }
-
     pub fn set_trended(&self, trended: Amount) {
         self.state.lock().unwrap().trended_weight = trended;
     }
 
-    /** Returns the current online stake */
-    pub fn online_weight(&self) -> Amount {
-        // TODO calculate on the fly
-        self.state.lock().unwrap().online_weight
-    }
-
-    pub fn minimum_principal_weight(&self) -> Amount {
-        self.trended_or_minimum_weight() / 1000 // 0.1% of trended online weight
-    }
-
     /// Query if a peer manages a principle representative
     pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
-        let min_weight = self.minimum_principal_weight();
         let rep_weights = self.rep_weights.read();
+        let min_weight = self.quorum_specs().minimum_principal_weight;
         self.state
             .lock()
             .unwrap()
@@ -114,45 +99,45 @@ impl RepresentativeTracker {
             .any(|account| rep_weights.get(account).cloned().unwrap_or_default() >= min_weight)
     }
 
-    /// Get total available weight from peered representatives
-    pub fn peered_weight(&self) -> Amount {
-        let mut result = Amount::ZERO;
-        let weights = self.rep_weights.read();
-        let state = self.state.lock().unwrap();
-        for account in state.peered_reps.accounts() {
-            result += weights.get(account).cloned().unwrap_or_default();
-        }
-        result
-    }
-
     /// Total number of peered representatives
     pub fn peered_reps_count(&self) -> usize {
         self.state.lock().unwrap().peered_reps.len()
     }
 
-    pub fn quorum_percent(&self) -> u8 {
-        ONLINE_WEIGHT_QUORUM
-    }
+    pub fn quorum_specs(&self) -> QuorumSpecs {
+        let online_weight_minimum;
+        let online_weight;
+        let trended_or_min_weight;
+        let mut peered_weight = Amount::ZERO;
 
-    /// Returns the quorum required for confirmation
-    pub fn quorum_delta(&self) -> Amount {
-        let weight = max(self.online_weight(), self.trended_or_minimum_weight());
+        let weights = self.rep_weights.read();
+        {
+            let state = self.state.lock().unwrap();
+            online_weight_minimum = state.online_weight_minimum;
+            online_weight = state.online_weight;
+            trended_or_min_weight = max(state.trended_weight, online_weight_minimum);
+            for account in state.peered_reps.accounts() {
+                peered_weight += weights.get(account).cloned().unwrap_or_default();
+            }
+        }
+
+        let weight = max(online_weight, trended_or_min_weight);
+
+        let minimum_principal_weight = trended_or_min_weight / 1000; // 0.1% of trended online weight
 
         // Using a larger container to ensure maximum precision
         let delta =
             U256::from(weight.number()) * U256::from(ONLINE_WEIGHT_QUORUM) / U256::from(100);
-        Amount::raw(delta.as_u128())
-    }
+        let quorum_delta = Amount::raw(delta.as_u128());
 
-    pub fn quorum_specs(&self) -> QuorumSpecs {
-        let online_weight_minimum = self.state.lock().unwrap().online_weight_minimum;
         QuorumSpecs {
-            trended_weight: self.trended_or_minimum_weight(),
-            quorum_delta: self.quorum_delta(),
-            peered_weight: self.peered_weight(),
-            online_weight: self.online_weight(),
+            trended_or_min_weight,
+            quorum_delta,
+            peered_weight,
+            online_weight,
             online_weight_minimum,
-            quorum_percent: self.quorum_percent(),
+            quorum_percent: ONLINE_WEIGHT_QUORUM,
+            minimum_principal_weight,
         }
     }
 
@@ -200,7 +185,8 @@ impl RepresentativeTracker {
 
     /// Request a list of the top known principal representatives in descending order of weight
     pub fn peered_principal_reps(&self) -> Vec<PeeredRepInfo> {
-        self.peered_representatives_filter(self.minimum_principal_weight())
+        let min_weight = self.quorum_specs().minimum_principal_weight;
+        self.peered_representatives_filter(min_weight)
     }
 
     /// Request a list of known representatives in descending order
@@ -313,7 +299,7 @@ impl RepresentativeTracker {
     #[cfg(feature = "ledger_snapshots")]
     pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
         let rep_weights = self.get_rep_weights();
-        let quorum_weight = self.quorum_delta();
+        let quorum_weight = self.quorum_specs().quorum_delta;
         ConsensusParams {
             quorum_weight,
             rep_weights,
@@ -401,21 +387,23 @@ impl PeeredRepInfo {
 
 #[derive(Clone)]
 pub struct QuorumSpecs {
-    pub trended_weight: Amount,
+    pub trended_or_min_weight: Amount,
+    /// The quorum required for confirmation
     pub quorum_delta: Amount,
     pub peered_weight: Amount,
     pub online_weight: Amount,
     pub online_weight_minimum: Amount,
     pub quorum_percent: u8,
+    pub minimum_principal_weight: Amount,
 }
 
 impl QuorumSpecs {
     /// Calculates minimum time delay between subsequent votes when processing non-final votes
     pub fn cooldown_time(&self, rep_weight: Amount) -> Duration {
-        if rep_weight > self.trended_weight / 20 {
+        if rep_weight > self.trended_or_min_weight / 20 {
             // Reps with more than 5% weight
             Duration::from_secs(1)
-        } else if rep_weight > self.trended_weight / 100 {
+        } else if rep_weight > self.trended_or_min_weight / 100 {
             // Reps with more than 1% weight
             Duration::from_secs(5)
         } else {
@@ -426,12 +414,13 @@ impl QuorumSpecs {
 
     pub fn new_test_instance() -> Self {
         QuorumSpecs {
-            trended_weight: Amount::nano(100_000_000),
+            trended_or_min_weight: Amount::nano(100_000_000),
             quorum_delta: Amount::nano(67_000_000),
             online_weight: Amount::nano(100_000_000),
             peered_weight: Amount::nano(90_000_000),
             online_weight_minimum: Amount::nano(60_000_000),
             quorum_percent: 67,
+            minimum_principal_weight: Amount::nano(100_000),
         }
     }
 }
@@ -471,13 +460,17 @@ mod tests {
         let tracker = RepresentativeTracker::default();
         let specs = tracker.quorum_specs();
         assert_eq!(specs.online_weight_minimum, Amount::nano(60_000_000));
-        assert_eq!(specs.trended_weight, Amount::nano(60_000_000), "trended");
+        assert_eq!(
+            specs.trended_or_min_weight,
+            Amount::nano(60_000_000),
+            "trended"
+        );
         assert_eq!(specs.online_weight, Amount::ZERO, "online");
         assert_eq!(specs.peered_weight, Amount::ZERO, "peered");
         assert_eq!(tracker.peered_reps_count(), 0, "peered count");
         assert_eq!(specs.quorum_percent, 67, "quorum percent");
         assert_eq!(specs.quorum_delta, Amount::nano(40_200_000), "quorum delta");
-        assert_eq!(tracker.minimum_principal_weight(), Amount::nano(60_000));
+        assert_eq!(specs.minimum_principal_weight, Amount::nano(60_000));
     }
 
     #[test]
@@ -493,8 +486,9 @@ mod tests {
 
         tracker.vote_observed(account, clock.now());
 
-        assert_eq!(tracker.online_weight(), weight, "online");
-        assert_eq!(tracker.peered_weight(), Amount::ZERO, "peered");
+        let specs = tracker.quorum_specs();
+        assert_eq!(specs.online_weight, weight, "online");
+        assert_eq!(specs.peered_weight, Amount::ZERO, "peered");
     }
 
     #[test]
@@ -510,9 +504,10 @@ mod tests {
 
         let channel = Arc::new(Channel::new_test_instance());
         tracker.vote_observed_directly(account, channel, clock.now());
+        let specs = tracker.quorum_specs();
 
-        assert_eq!(tracker.online_weight(), weight, "online");
-        assert_eq!(tracker.peered_weight(), weight, "peered");
+        assert_eq!(specs.online_weight, weight, "online");
+        assert_eq!(specs.peered_weight, weight, "peered");
     }
 
     #[test]
@@ -520,21 +515,27 @@ mod tests {
         let tracker = RepresentativeTracker::default();
         tracker.set_trended(Amount::nano(10_000));
         let specs = tracker.quorum_specs();
-        assert_eq!(specs.trended_weight, Amount::nano(60_000_000));
+        assert_eq!(specs.trended_or_min_weight, Amount::nano(60_000_000));
 
         tracker.set_trended(Amount::nano(100_000_000));
         let specs = tracker.quorum_specs();
-        assert_eq!(specs.trended_weight, Amount::nano(100_000_000));
+        assert_eq!(specs.trended_or_min_weight, Amount::nano(100_000_000));
     }
 
     #[test]
     fn minimum_principal_weight() {
         let tracker = RepresentativeTracker::default();
-        assert_eq!(tracker.minimum_principal_weight(), Amount::nano(60_000));
+        assert_eq!(
+            tracker.quorum_specs().minimum_principal_weight,
+            Amount::nano(60_000)
+        );
 
         tracker.set_trended(Amount::nano(110_000_000));
         // 0.1% of trended weight
-        assert_eq!(tracker.minimum_principal_weight(), Amount::nano(110_000));
+        assert_eq!(
+            tracker.quorum_specs().minimum_principal_weight,
+            Amount::nano(110_000)
+        );
     }
 
     #[test]
@@ -568,13 +569,19 @@ mod tests {
             .rep_weights(weights.clone())
             .finish();
 
-        assert_eq!(tracker.quorum_delta(), Amount::nano(40_200_000));
+        assert_eq!(
+            tracker.quorum_specs().quorum_delta,
+            Amount::nano(40_200_000)
+        );
 
         let rep_account = PublicKey::from(42);
         weights.put(rep_account, Amount::nano(100_000_000));
         tracker.vote_observed(rep_account, Timestamp::new_test_instance());
 
-        assert_eq!(tracker.quorum_delta(), Amount::nano(67_000_000));
+        assert_eq!(
+            tracker.quorum_specs().quorum_delta,
+            Amount::nano(67_000_000)
+        );
     }
 
     #[test]
@@ -597,7 +604,7 @@ mod tests {
 
         tracker.trim(start + Duration::from_secs(60 * 10 + 1));
 
-        assert_eq!(tracker.online_weight(), Amount::nano(600_000));
+        assert_eq!(tracker.quorum_specs().online_weight, Amount::nano(600_000));
     }
 
     #[test]
@@ -608,7 +615,11 @@ mod tests {
         assert_ne!(specs.quorum_percent, 0, "quorum percent");
         assert_ne!(specs.online_weight_minimum, Amount::ZERO, "online minimum");
         assert_ne!(specs.online_weight, Amount::ZERO, "online weight");
-        assert_ne!(specs.trended_weight, Amount::ZERO, "trended or minimum");
+        assert_ne!(
+            specs.trended_or_min_weight,
+            Amount::ZERO,
+            "trended or minimum"
+        );
         assert_ne!(specs.peered_weight, Amount::ZERO, "peered");
     }
 

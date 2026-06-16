@@ -101,7 +101,7 @@ impl WalletRepresentatives {
     }
 
     pub fn compute_reps(&mut self) {
-        let half_principal_weight = self.rep_tracker.minimum_principal_weight() / 2;
+        let half_principal_weight = self.rep_tracker.quorum_specs().minimum_principal_weight / 2;
         let wallet_keys = self.wallets.get_all_pub_keys();
         self.clear();
         for pub_key in wallet_keys {

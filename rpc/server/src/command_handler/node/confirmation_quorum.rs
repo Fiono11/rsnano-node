@@ -19,10 +19,10 @@ fn create_response(
     let specs = rep_tracker.quorum_specs();
     let mut result = ConfirmationQuorumResponse {
         quorum_delta: specs.quorum_delta,
-        online_weight_quorum_percent: rep_tracker.quorum_percent().into(),
+        online_weight_quorum_percent: specs.quorum_percent.into(),
         online_weight_minimum: specs.online_weight_minimum,
         online_stake_total: specs.online_weight,
-        trended_stake_total: specs.trended_weight,
+        trended_stake_total: specs.trended_or_min_weight,
         peers_stake_total: specs.peered_weight,
         peers: None,
     };
@@ -64,14 +64,14 @@ mod tests {
         let tracker = RepresentativeTracker::new_test_instance();
         let specs = tracker.quorum_specs();
         let response = create_response(ConfirmationQuorumArgs { peer_details: None }, &tracker);
-        assert_eq!(response.quorum_delta, tracker.quorum_delta());
+        assert_eq!(response.quorum_delta, tracker.quorum_specs().quorum_delta);
         assert_eq!(
             response.online_weight_quorum_percent,
-            tracker.quorum_percent().into()
+            specs.quorum_percent.into()
         );
         assert_eq!(response.online_weight_minimum, specs.online_weight_minimum);
         assert_eq!(response.online_stake_total, specs.online_weight);
-        assert_eq!(response.trended_stake_total, specs.trended_weight);
+        assert_eq!(response.trended_stake_total, specs.trended_or_min_weight);
         assert_eq!(response.peers_stake_total, specs.peered_weight);
         assert!(response.peers.is_none());
     }
@@ -85,7 +85,10 @@ mod tests {
             },
             &online_reps,
         );
-        assert_eq!(response.quorum_delta, online_reps.quorum_delta());
+        assert_eq!(
+            response.quorum_delta,
+            online_reps.quorum_specs().quorum_delta
+        );
         let peers = response.peers.unwrap();
         assert_eq!(peers.len(), online_reps.peered_reps().len());
     }

@@ -55,7 +55,7 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        let minimum_pr_weight = self.rep_tracker.minimum_principal_weight();
+        let minimum_pr_weight = self.rep_tracker.quorum_specs().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
         if !self.is_dev_network && voter_weight <= minimum_pr_weight {
@@ -138,7 +138,10 @@ mod tests {
 
         rep_tracker.vote_observed(another_rep.public_key(), clock.now());
 
-        assert_eq!(rep_tracker.quorum_delta(), Amount::nano(43_550_000));
+        assert_eq!(
+            rep_tracker.quorum_specs().quorum_delta,
+            Amount::nano(43_550_000)
+        );
 
         aec.insert(
             AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),

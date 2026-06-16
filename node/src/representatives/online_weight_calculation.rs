@@ -58,7 +58,7 @@ impl Tickable for OnlineWeightCalculation {
                 self.rep_tracker.calculate_online_weight();
             }
             if self.last_sample.elapsed() > Duration::from_secs(60) {
-                let online_weight = self.rep_tracker.online_weight();
+                let online_weight = self.rep_tracker.quorum_specs().online_weight;
                 self.sampler.add_sample(online_weight);
                 self.calculate_trended_weight();
                 self.last_sample = Instant::now();

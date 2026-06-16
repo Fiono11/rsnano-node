@@ -289,12 +289,12 @@ impl HintedScheduler {
     }
 
     fn tally_threshold(&self) -> Amount {
-        (self.rep_tracker.trended_or_minimum_weight() / 100)
+        (self.rep_tracker.quorum_specs().trended_or_min_weight / 100)
             * self.config.hinting_threshold_percent as u128
     }
 
     fn final_tally_threshold(&self) -> Amount {
-        self.rep_tracker.quorum_delta()
+        self.rep_tracker.quorum_specs().quorum_delta
     }
 
     fn cooldown(&self, hash: BlockHash) -> bool {
