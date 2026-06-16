@@ -4,6 +4,11 @@ mod online_container;
 mod peered_container;
 mod peered_rep;
 
+pub use builder::OnlineRepsBuilder;
+pub use cleanup::OnlineRepsCleanup;
+pub use peered_container::InsertResult;
+pub use peered_rep::PeeredRep;
+
 use std::{cmp::max, sync::Arc, time::Duration};
 
 use primitive_types::U256;
@@ -18,10 +23,6 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-pub use builder::OnlineRepsBuilder;
-pub use cleanup::*;
-pub use peered_container::InsertResult;
-pub use peered_rep::PeeredRep;
 use {online_container::OnlineContainer, peered_container::PeeredContainer};
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
