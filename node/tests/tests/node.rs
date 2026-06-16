@@ -173,7 +173,7 @@ fn confirm_quorum() {
         .unwrap();
 
     // Put greater than node.delta() in pending so quorum can't be reached
-    let new_balance = node1.online_reps.lock().unwrap().quorum_delta() - Amount::raw(1);
+    let new_balance = node1.rep_tracker.quorum_delta() - Amount::raw(1);
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice
         .genesis()
@@ -888,10 +888,9 @@ fn quick_confirm() {
         .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send = lattice.genesis().send_all_except(
-        &key,
-        node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1),
-    );
+    let send = lattice
+        .genesis()
+        .send_all_except(&key, node1.rep_tracker.quorum_delta() + Amount::raw(1));
 
     node1.process_active(send.clone());
 
@@ -903,12 +902,12 @@ fn quick_confirm() {
 
     assert_eq!(
         node1.balance(&DEV_GENESIS_ACCOUNT),
-        node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1)
+        node1.rep_tracker.quorum_delta() + Amount::raw(1)
     );
 
     assert_eq!(
         node1.balance(&key.account()),
-        Amount::MAX - (node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1))
+        Amount::MAX - (node1.rep_tracker.quorum_delta() + Amount::raw(1))
     );
 }
 
@@ -1405,26 +1404,17 @@ fn online_reps_rep_crawler() {
     )
     .into();
 
-    assert_eq!(
-        Amount::ZERO,
-        node.online_reps.lock().unwrap().online_weight()
-    );
+    assert_eq!(Amount::ZERO, node.rep_tracker.online_weight());
 
     let _ = node.vote_processor.vote_blocking(&vote);
-    assert_eq!(
-        Amount::ZERO,
-        node.online_reps.lock().unwrap().online_weight()
-    );
+    assert_eq!(Amount::ZERO, node.rep_tracker.online_weight());
 
     // After inserting to rep crawler
     node.rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel.channel_id());
     let _ = node.vote_processor.vote_blocking(&vote);
 
-    assert_timely_eq2(
-        || node.online_reps.lock().unwrap().online_weight(),
-        Amount::MAX,
-    );
+    assert_timely_eq2(|| node.rep_tracker.online_weight(), Amount::MAX);
 }
 
 #[test]
@@ -1449,10 +1439,7 @@ fn online_reps_election() {
         0,
         vec![send1.hash()],
     ));
-    assert_eq!(
-        Amount::ZERO,
-        node.online_reps.lock().unwrap().online_weight()
-    );
+    assert_eq!(Amount::ZERO, node.rep_tracker.online_weight());
 
     let channel = make_fake_channel(&node);
     let _ = node
@@ -1461,7 +1448,7 @@ fn online_reps_election() {
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
-        node.online_reps.lock().unwrap().online_weight()
+        node.rep_tracker.online_weight()
     );
 }
 
@@ -1681,18 +1668,9 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_rep1);
 
-    assert_timely_eq2(
-        || {
-            searching_node
-                .online_reps
-                .lock()
-                .unwrap()
-                .peered_reps_count()
-        },
-        1,
-    );
+    assert_timely_eq2(|| searching_node.rep_tracker.peered_reps_count(), 1);
 
-    let reps = searching_node.online_reps.lock().unwrap().peered_reps();
+    let reps = searching_node.rep_tracker.peered_reps();
     assert_eq!(1, reps.len());
     assert_eq!(rep_weight, searching_node.ledger.weight(&reps[0].rep_key));
     assert_eq!(key_rep1.public_key(), reps[0].rep_key);
@@ -1700,16 +1678,7 @@ fn rep_crawler_rep_remove() {
 
     // When rep1 disconnects then rep1 should not be found anymore
     channel_rep1.close();
-    assert_timely_eq2(
-        || {
-            searching_node
-                .online_reps
-                .lock()
-                .unwrap()
-                .peered_reps_count()
-        },
-        0,
-    );
+    assert_timely_eq2(|| searching_node.rep_tracker.peered_reps_count(), 0);
 
     // Add working node for genesis representative
     let node_genesis_rep = system.make_node();
@@ -1740,16 +1709,7 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_genesis_rep);
 
-    assert_timely_eq2(
-        || {
-            searching_node
-                .online_reps
-                .lock()
-                .unwrap()
-                .peered_reps_count()
-        },
-        1,
-    );
+    assert_timely_eq2(|| searching_node.rep_tracker.peered_reps_count(), 1);
 
     // Start a node for Rep2 and wait until it is connected
     let node_rep2 = system.make_node();
@@ -1787,16 +1747,7 @@ fn rep_crawler_rep_remove() {
 
     searching_node.rep_crawler.force_process2(vote_rep2);
 
-    assert_timely_eq2(
-        || {
-            searching_node
-                .online_reps
-                .lock()
-                .unwrap()
-                .peered_reps_count()
-        },
-        2,
-    );
+    assert_timely_eq2(|| searching_node.rep_tracker.peered_reps_count(), 2);
 
     // TODO rewrite this test and the missing part below this commit
     // ... part missing:

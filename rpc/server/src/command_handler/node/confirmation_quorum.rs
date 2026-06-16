@@ -1,33 +1,33 @@
-use crate::command_handler::RpcCommandHandler;
 use rsnano_node::representatives::RepresentativeTracker;
 use rsnano_rpc_messages::{ConfirmationQuorumArgs, ConfirmationQuorumResponse, PeerDetailsDto};
+
+use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn confirmation_quorum(
         &self,
         args: ConfirmationQuorumArgs,
     ) -> ConfirmationQuorumResponse {
-        let online_reps = self.node.online_reps.lock().unwrap();
-        create_response(args, &online_reps)
+        create_response(args, &self.node.rep_tracker)
     }
 }
 
 fn create_response(
     args: ConfirmationQuorumArgs,
-    online_reps: &RepresentativeTracker,
+    rep_tracker: &RepresentativeTracker,
 ) -> ConfirmationQuorumResponse {
     let mut result = ConfirmationQuorumResponse {
-        quorum_delta: online_reps.quorum_delta(),
-        online_weight_quorum_percent: online_reps.quorum_percent().into(),
-        online_weight_minimum: online_reps.online_weight_minimum(),
-        online_stake_total: online_reps.online_weight(),
-        trended_stake_total: online_reps.trended_or_minimum_weight(),
-        peers_stake_total: online_reps.peered_weight(),
+        quorum_delta: rep_tracker.quorum_delta(),
+        online_weight_quorum_percent: rep_tracker.quorum_percent().into(),
+        online_weight_minimum: rep_tracker.online_weight_minimum(),
+        online_stake_total: rep_tracker.online_weight(),
+        trended_stake_total: rep_tracker.trended_or_minimum_weight(),
+        peers_stake_total: rep_tracker.peered_weight(),
         peers: None,
     };
 
     if args.include_peer_details() {
-        let peers = online_reps
+        let peers = rep_tracker
             .peered_reps()
             .iter()
             .map(|rep| PeerDetailsDto {

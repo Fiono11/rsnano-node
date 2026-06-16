@@ -46,14 +46,14 @@ impl RepresentativeTrackerBuilder {
             .rep_weights
             .unwrap_or_else(|| Arc::new(RepWeightCache::default()));
 
-        let online_reps = RepresentativeTracker::new(
+        let tracker = RepresentativeTracker::new(
             rep_weights,
             self.online_weight_minimum,
             self.representative_weight_minimum,
         );
         if let Some(trended) = self.trended {
-            online_reps.set_trended(trended);
+            tracker.set_trended(trended);
         }
-        online_reps
+        tracker
     }
 }

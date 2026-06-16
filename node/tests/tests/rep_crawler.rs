@@ -37,7 +37,7 @@ fn ignore_rebroadcast() {
 
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.online_reps.lock().unwrap().peered_reps_count(),
+        || node1.rep_tracker.peered_reps_count(),
         0,
     );
 
@@ -63,7 +63,7 @@ fn ignore_rebroadcast() {
     };
 
     assert_never(Duration::from_secs(1), || {
-        tick() || node1.online_reps.lock().unwrap().peered_reps_count() > 0
+        tick() || node1.rep_tracker.peered_reps_count() > 0
     })
 }
 
@@ -89,7 +89,7 @@ fn rep_weight() {
     node1.process_multi(&blocks);
     node2.process_multi(&blocks);
     node3.process_multi(&blocks);
-    assert_eq!(node.online_reps.lock().unwrap().online_reps().len(), 0);
+    assert_eq!(node.rep_tracker.online_reps().len(), 0);
 
     assert_timely_eq2(
         || {
@@ -147,33 +147,24 @@ fn rep_weight() {
     node.rep_crawler.force_process2(vote1);
     node.rep_crawler.force_process2(vote2);
 
-    assert_timely_eq2(|| node.online_reps.lock().unwrap().peered_reps_count(), 2);
+    assert_timely_eq2(|| node.rep_tracker.peered_reps_count(), 2);
     // Make sure we get the rep with the most weight first
-    let rep = node.online_reps.lock().unwrap().peered_reps()[0].clone();
+    let rep = node.rep_tracker.peered_reps()[0].clone();
     assert_eq!(
         node.balance(&DEV_GENESIS_ACCOUNT),
         node.ledger.weight(&rep.rep_key)
     );
     assert_eq!(channel1, rep.channel);
     assert_eq!(
-        node.online_reps
-            .lock()
-            .unwrap()
-            .is_principal_rep(channel1.channel_id()),
+        node.rep_tracker.is_principal_rep(channel1.channel_id()),
         true
     );
     assert_eq!(
-        node.online_reps
-            .lock()
-            .unwrap()
-            .is_principal_rep(channel2.channel_id()),
+        node.rep_tracker.is_principal_rep(channel2.channel_id()),
         false
     );
     assert_eq!(
-        node.online_reps
-            .lock()
-            .unwrap()
-            .is_principal_rep(channel3.channel_id()),
+        node.rep_tracker.is_principal_rep(channel3.channel_id()),
         true
     );
 }
@@ -184,17 +175,17 @@ fn rep_list() {
     let mut system = System::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    assert_eq!(0, node2.online_reps.lock().unwrap().peered_reps_count());
+    assert_eq!(0, node2.rep_tracker.peered_reps_count());
     // Node #1 has a rep
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq(
         Duration::from_secs(5),
-        || node2.online_reps.lock().unwrap().peered_reps_count(),
+        || node2.rep_tracker.peered_reps_count(),
         1,
     );
     assert_eq!(
         *DEV_GENESIS_PUB_KEY,
-        node2.online_reps.lock().unwrap().peered_reps()[0].rep_key
+        node2.rep_tracker.peered_reps()[0].rep_key
     );
 }
 
@@ -207,13 +198,13 @@ fn rep_connection_close() {
     node2.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq(
         Duration::from_secs(10),
-        || node1.online_reps.lock().unwrap().peered_reps_count(),
+        || node1.rep_tracker.peered_reps_count(),
         1,
     );
     system.stop_node(node2);
     assert_timely_eq(
         Duration::from_secs(10),
-        || node1.online_reps.lock().unwrap().peered_reps_count(),
+        || node1.rep_tracker.peered_reps_count(),
         0,
     );
 }
@@ -223,5 +214,5 @@ fn rep_local() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    assert_timely_eq2(|| node.online_reps.lock().unwrap().peered_reps_count(), 1);
+    assert_timely_eq2(|| node.rep_tracker.peered_reps_count(), 1);
 }

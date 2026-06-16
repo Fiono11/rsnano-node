@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -16,7 +16,7 @@ use crate::{consensus::ApplyVoteArgs, representatives::RepresentativeTracker};
 pub(crate) struct VoteApplier {
     active_elections: Arc<AecService>,
     event_senders: RwLock<Vec<Sender<AecFact>>>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
     is_dev_network: bool,
@@ -25,7 +25,7 @@ pub(crate) struct VoteApplier {
 impl VoteApplier {
     pub(crate) fn new(
         active_elections: Arc<AecService>,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
         is_dev_network: bool,
@@ -33,7 +33,7 @@ impl VoteApplier {
         Self {
             active_elections,
             event_senders: RwLock::new(Vec::new()),
-            online_reps,
+            rep_tracker,
             clock,
             rep_weights,
             is_dev_network,
@@ -55,7 +55,7 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        let minimum_pr_weight = self.online_reps.lock().unwrap().minimum_principal_weight();
+        let minimum_pr_weight = self.rep_tracker.minimum_principal_weight();
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
         if !self.is_dev_network && voter_weight <= minimum_pr_weight {
@@ -72,15 +72,12 @@ impl VoteApplier {
 
         let now = self.clock.now();
 
-        let quorum_specs = {
-            let online = self.online_reps.lock().unwrap();
-            if is_active {
-                // Representative is defined as online if replying to live votes or rep_crawler queries.
-                // The rep weights have to be updated before the votes are processed!
-                online.vote_observed(vote.voter, now);
-            }
-            online.quorum_specs()
-        };
+        if is_active {
+            // Representative is defined as online if replying to live votes or rep_crawler queries.
+            // The rep weights have to be updated before the votes are processed!
+            self.rep_tracker.vote_observed(vote.voter, now);
+        }
+        let quorum_specs = self.rep_tracker.quorum_specs();
 
         let results = {
             let rep_weights = self.rep_weights.read();
@@ -132,22 +129,16 @@ mod tests {
         rep_weights.put(another_rep.public_key(), Amount::nano(65_000_000));
 
         let aec = Arc::new(AecService::new_null());
-        let online_reps = Arc::new(Mutex::new(
+        let rep_tracker = Arc::new(
             RepresentativeTracker::builder()
                 .rep_weights(rep_weights.clone())
                 .finish(),
-        ));
+        );
         let clock = Arc::new(SteadyClock::new_null());
 
-        online_reps
-            .lock()
-            .unwrap()
-            .vote_observed(another_rep.public_key(), clock.now());
+        rep_tracker.vote_observed(another_rep.public_key(), clock.now());
 
-        assert_eq!(
-            online_reps.lock().unwrap().quorum_delta(),
-            Amount::nano(43_550_000)
-        );
+        assert_eq!(rep_tracker.quorum_delta(), Amount::nano(43_550_000));
 
         aec.insert(
             AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
@@ -155,7 +146,7 @@ mod tests {
         )
         .unwrap();
 
-        let vote_applier = VoteApplier::new(aec.clone(), online_reps, clock, rep_weights, false);
+        let vote_applier = VoteApplier::new(aec.clone(), rep_tracker, clock, rep_weights, false);
 
         let vote = ReceivedVote::new(
             Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),

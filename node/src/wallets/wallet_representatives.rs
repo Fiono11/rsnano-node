@@ -17,7 +17,7 @@ pub struct WalletRepresentatives {
     vote_minimum: Amount,
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
 }
 
 impl WalletRepresentatives {
@@ -26,7 +26,7 @@ impl WalletRepresentatives {
         vote_minimum: Amount,
         rep_weights: Arc<RepWeightCache>,
         wallets: Arc<Wallets>,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
     ) -> Self {
         Self {
             voting_enabled,
@@ -35,7 +35,7 @@ impl WalletRepresentatives {
             vote_minimum,
             rep_weights,
             wallets,
-            online_reps,
+            rep_tracker,
         }
     }
 
@@ -45,7 +45,7 @@ impl WalletRepresentatives {
             Amount::ZERO,
             Arc::new(RepWeightCache::default()),
             Arc::new(Wallets::new_null()),
-            Arc::new(Mutex::new(RepresentativeTracker::new_test_instance())),
+            Arc::new(RepresentativeTracker::new_test_instance()),
         )
     }
 
@@ -101,7 +101,7 @@ impl WalletRepresentatives {
     }
 
     pub fn compute_reps(&mut self) {
-        let half_principal_weight = self.online_reps.lock().unwrap().minimum_principal_weight() / 2;
+        let half_principal_weight = self.rep_tracker.minimum_principal_weight() / 2;
         let wallet_keys = self.wallets.get_all_pub_keys();
         self.clear();
         for pub_key in wallet_keys {

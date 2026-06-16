@@ -114,10 +114,8 @@ impl InsightApp {
             self.ledger_stats.update(&node);
             let channels = node.network.read().unwrap().sorted_channels();
             let telemetries = node.telemetry.get_all_telemetries();
-            let (peered_reps, min_rep_weight) = {
-                let guard = node.online_reps.lock().unwrap();
-                (guard.peered_reps(), guard.minimum_principal_weight())
-            };
+            let peered_reps = node.rep_tracker.peered_reps();
+            let min_rep_weight = node.rep_tracker.minimum_principal_weight();
             self.channels
                 .update(channels, telemetries, peered_reps, min_rep_weight);
             self.aec_info = node.aec.info();
@@ -135,9 +133,7 @@ impl InsightApp {
             });
             self.peer_scores = node.bootstrapper.peer_score_snapshot();
             self.representatives = node
-                .online_reps
-                .lock()
-                .unwrap()
+                .rep_tracker
                 .online_reps()
                 .into_iter()
                 .map(|i| {

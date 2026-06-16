@@ -122,7 +122,7 @@ pub struct Node {
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
     pub bootstrap_responder: Arc<BootstrapResponder>,
-    pub online_reps: Arc<Mutex<RepresentativeTracker>>,
+    pub rep_tracker: Arc<RepresentativeTracker>,
     pub rep_tiers: Arc<CurrentRepTiers>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub history: Arc<LocalVoteHistory>,
@@ -423,20 +423,20 @@ impl Node {
             config.max_unchecked_blocks as usize,
         )));
 
-        let online_reps = Arc::new(Mutex::new(
+        let rep_tracker = Arc::new(
             RepresentativeTracker::builder()
                 .rep_weights(rep_weights.clone())
                 .online_weight_minimum(config.online_weight_minimum)
                 .representative_weight_minimum(config.representative_vote_weight_minimum)
                 .finish(),
-        ));
+        );
 
         let online_weight_sampler =
             OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
 
         let mut online_weight_calculation = OnlineWeightCalculation::new(
             online_weight_sampler,
-            online_reps.clone(),
+            rep_tracker.clone(),
             steady_clock.clone(),
         );
         // Make sure that online weight is properly calculated from the beginning;
@@ -454,7 +454,7 @@ impl Node {
         }
 
         let message_flooder = MessageFlooder::new(
-            online_reps.clone(),
+            rep_tracker.clone(),
             network.clone(),
             stats.clone(),
             message_sender.clone(),
@@ -596,7 +596,7 @@ impl Node {
             wallets_config.vote_minimum,
             ledger.rep_weights.clone(),
             wallets.clone(),
-            online_reps.clone(),
+            rep_tracker.clone(),
         )));
         wallet_reps.lock().unwrap().compute_reps();
 
@@ -649,7 +649,7 @@ impl Node {
 
         let vote_applier = VoteApplier::new(
             active_elections.clone(),
-            online_reps.clone(),
+            rep_tracker.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
             current_network == NetworkType::NanoDevNetwork,
@@ -676,7 +676,7 @@ impl Node {
             steady_clock.clone(),
             current_network,
             message_flooder.clone(),
-            online_reps.clone(),
+            rep_tracker.clone(),
             network.clone(),
         )));
 
@@ -689,7 +689,7 @@ impl Node {
             stats.clone(),
             vote_cache.clone(),
             confirming_set.clone(),
-            online_reps.clone(),
+            rep_tracker.clone(),
             steady_clock.clone(),
         ));
         ledger_event_handlers.add(election_schedulers.clone());
@@ -753,7 +753,7 @@ impl Node {
         ));
 
         let rep_crawler = Arc::new(RepCrawler::new(
-            online_reps.clone(),
+            rep_tracker.clone(),
             stats.clone(),
             config.rep_crawler_query_timeout,
             config.clone(),
@@ -843,7 +843,7 @@ impl Node {
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
             message_flooder: message_flooder.clone(),
-            online_reps: online_reps.clone(),
+            rep_tracker: rep_tracker.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             confirm_req_sender,
         });
@@ -917,7 +917,7 @@ impl Node {
 
         let mut channel_event_handlers = EventHandlerRegistry::<ChannelEvent>::default();
         channel_event_handlers.add(inbound_message_queue.clone());
-        channel_event_handlers.add(OnlineRepsCleanup::new(online_reps.clone()));
+        channel_event_handlers.add(OnlineRepsCleanup::new(rep_tracker.clone()));
         channel_event_handlers.add(bootstrap_responder.clone());
         channel_event_handlers.add(vote_processor_queue.clone());
         channel_event_handlers.add(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
@@ -940,7 +940,7 @@ impl Node {
                     keys.pop()
                 },
                 message_flooder.clone(),
-                online_reps.clone(),
+                rep_tracker.clone(),
             ))
         };
 
@@ -1087,7 +1087,7 @@ impl Node {
         let monitor = NodeMonitor::new(
             ledger.clone(),
             network.clone(),
-            online_reps.clone(),
+            rep_tracker.clone(),
             active_elections.clone(),
             block_rates.clone(),
         );
@@ -1111,7 +1111,7 @@ impl Node {
 
         let rep_tiers = Arc::new(CurrentRepTiers::new());
         let mut rep_tiers_calculator =
-            RepTiersCalculator::new(rep_weights.clone(), online_reps.clone(), stats.clone());
+            RepTiersCalculator::new(rep_weights.clone(), rep_tracker.clone(), stats.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(rep_tiers.clone());
@@ -1214,7 +1214,7 @@ impl Node {
             vote_processor: vote_processor.clone(),
             block_processor_queue: block_processor_queue.clone(),
             confirming_set: confirming_set.clone(),
-            online_reps: online_reps.clone(),
+            rep_tracker: rep_tracker.clone(),
             active_elections: active_elections.clone(),
             rep_crawler: rep_crawler.clone(),
             clock: steady_clock.clone(),
@@ -1254,7 +1254,7 @@ impl Node {
         vote_processor.add_observer(aec_tx);
 
         stats_collector.add_source(stats.clone());
-        stats_collector.add_source(online_reps.clone());
+        stats_collector.add_source(rep_tracker.clone());
         stats_collector.add_source(fork_cache.clone());
         stats_collector.add_source(active_elections.clone());
         stats_collector.add_source(vote_rebroadcaster.stats.clone());
@@ -1284,7 +1284,7 @@ impl Node {
         container_info.add("vote_cache_processor", vote_cache_processor.clone());
         container_info.add("rep_crawler", rep_crawler.clone());
         container_info.add("block_processor", block_processor_queue.clone());
-        container_info.add("online_reps", online_reps.clone());
+        container_info.add("online_reps", rep_tracker.clone());
         container_info.add("history", vote_history.clone());
         container_info.add("confirming_set", confirming_set.clone());
         container_info.add("request_aggregator", request_aggregator.clone());
@@ -1321,7 +1321,7 @@ impl Node {
             flags,
             runtime,
             bootstrap_responder,
-            online_reps,
+            rep_tracker,
             rep_tiers,
             vote_processor_queue,
             history: vote_history,

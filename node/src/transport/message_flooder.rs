@@ -1,6 +1,6 @@
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use rsnano_messages::{Message, MessageSerializer};
@@ -16,7 +16,7 @@ use crate::representatives::RepresentativeTracker;
 
 /// Floods messages to PRs and non PRs
 pub struct MessageFlooder {
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     network: Arc<RwLock<Network>>,
     stats: Arc<Stats>,
     message_serializer: MessageSerializer,
@@ -26,13 +26,13 @@ pub struct MessageFlooder {
 
 impl MessageFlooder {
     pub fn new(
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         network: Arc<RwLock<Network>>,
         stats: Arc<Stats>,
         sender: MessageSender,
     ) -> Self {
         Self {
-            online_reps,
+            rep_tracker,
             network,
             stats,
             message_serializer: sender.get_serializer(),
@@ -55,7 +55,7 @@ impl MessageFlooder {
         channel.set_mode(rsnano_network::ChannelMode::Established);
 
         Self::new(
-            Arc::new(Mutex::new(RepresentativeTracker::default())),
+            Arc::new(RepresentativeTracker::default()),
             Arc::new(RwLock::new(network)),
             Arc::new(Stats::default()),
             MessageSender::new_null(),
@@ -78,7 +78,7 @@ impl MessageFlooder {
         }
 
         let mut flood_count = FloodCount::default();
-        let peered_prs = self.online_reps.lock().unwrap().peered_principal_reps();
+        let peered_prs = self.rep_tracker.peered_principal_reps();
         for rep in peered_prs {
             if self.sender.try_send(&rep.channel, message, traffic_type) {
                 flood_count.principal_reps += 1;
@@ -104,10 +104,7 @@ impl MessageFlooder {
     }
 
     fn remove_principal_reps(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
-        {
-            let reps = self.online_reps.lock().unwrap();
-            channels.retain(|c| !reps.is_principal_rep(c.channel_id()));
-        }
+        channels.retain(|c| !self.rep_tracker.is_principal_rep(c.channel_id()));
         channels.truncate(count);
     }
 
@@ -159,7 +156,7 @@ impl MessageFlooder {
 impl Clone for MessageFlooder {
     fn clone(&self) -> Self {
         Self {
-            online_reps: self.online_reps.clone(),
+            rep_tracker: self.rep_tracker.clone(),
             network: self.network.clone(),
             stats: self.stats.clone(),
             message_serializer: self.message_serializer.clone(),

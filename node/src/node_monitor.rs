@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     time::Instant,
 };
 
@@ -19,7 +19,7 @@ use crate::{
 pub struct NodeMonitor {
     ledger: Arc<Ledger>,
     network: Arc<RwLock<Network>>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     active_elections: Arc<AecService>,
     block_rates: Arc<CurrentBlockRates>,
     last_time: Option<Instant>,
@@ -29,14 +29,14 @@ impl NodeMonitor {
     pub fn new(
         ledger: Arc<Ledger>,
         network: Arc<RwLock<Network>>,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         active_elections: Arc<AecService>,
         block_rates: Arc<CurrentBlockRates>,
     ) -> Self {
         Self {
             ledger,
             network,
-            online_reps,
+            rep_tracker,
             active_elections,
             block_rates,
             last_time: None,
@@ -54,19 +54,12 @@ impl NodeMonitor {
         );
 
         {
-            let (delta, online, peered) = {
-                let online_reps = self.online_reps.lock().unwrap();
-                (
-                    online_reps.quorum_delta(),
-                    online_reps.online_weight(),
-                    online_reps.peered_weight(),
-                )
-            };
+            let specs = self.rep_tracker.quorum_specs();
             info!(
                 "Quorum: {} (stake peered: {} | online stake: {})",
-                delta.format_balance(0),
-                peered.format_balance(0),
-                online.format_balance(0)
+                specs.quorum_delta.format_balance(0),
+                specs.peered_weight.format_balance(0),
+                specs.online_weight.format_balance(0)
             );
         }
 

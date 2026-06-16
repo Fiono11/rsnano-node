@@ -38,7 +38,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) vote_rebroadcast_queue: Arc<VoteRebroadcastQueue>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
-    pub(crate) online_reps: Arc<Mutex<RepresentativeTracker>>,
+    pub(crate) rep_tracker: Arc<RepresentativeTracker>,
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
@@ -180,10 +180,7 @@ impl AecFactProcessor {
 
         if should_observe {
             // Representative is defined as online if replying to live votes or rep_crawler queries
-            self.online_reps
-                .lock()
-                .unwrap()
-                .vote_observed(vote.voter, self.clock.now());
+            self.rep_tracker.vote_observed(vote.voter, self.clock.now());
         }
     }
 }

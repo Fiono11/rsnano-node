@@ -65,7 +65,7 @@ fn multiple_accounts() {
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
 
-    let quorum_delta = node.online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = node.rep_tracker.quorum_delta();
 
     // Send to all accounts
     let send1 = lattice
@@ -204,7 +204,7 @@ fn send_receive_between_2_accounts() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
 
-    let quorum_delta = node.online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = node.rep_tracker.quorum_delta();
 
     let send1 = lattice
         .genesis()
@@ -273,7 +273,7 @@ fn send_receive_self() {
     let key1 = PrivateKey::new();
     let send4 = lattice
         .genesis()
-        .send_all_except(&key1, node.online_reps.lock().unwrap().quorum_delta());
+        .send_all_except(&key1, node.rep_tracker.quorum_delta());
 
     node.process_multi(&[
         send1.clone(),

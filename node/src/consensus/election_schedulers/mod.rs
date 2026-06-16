@@ -54,7 +54,7 @@ impl ElectionSchedulers {
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -64,7 +64,7 @@ impl ElectionSchedulers {
             stats.clone(),
             vote_cache.clone(),
             confirming_set.clone(),
-            online_reps.clone(),
+            rep_tracker,
             clock.clone(),
         ));
 
@@ -130,7 +130,7 @@ impl ElectionSchedulers {
             stats.clone(),
         )));
         let confirming_set = Arc::new(ConfirmingSet::new_null());
-        let online_reps = Arc::new(Mutex::new(RepresentativeTracker::new_test_instance()));
+        let rep_tracker = Arc::new(RepresentativeTracker::new_test_instance());
         let clock = Arc::new(SteadyClock::new_null());
 
         Self::new(
@@ -140,7 +140,7 @@ impl ElectionSchedulers {
             stats,
             vote_cache,
             confirming_set,
-            online_reps,
+            rep_tracker,
             clock,
         )
     }

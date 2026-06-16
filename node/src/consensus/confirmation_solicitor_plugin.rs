@@ -11,7 +11,7 @@ use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
 
 pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) message_flooder: MessageFlooder,
-    pub(crate) online_reps: Arc<Mutex<RepresentativeTracker>>,
+    pub(crate) rep_tracker: Arc<RepresentativeTracker>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub(crate) confirm_req_sender: ConfirmReqSender,
 }
@@ -21,8 +21,8 @@ impl ConfirmationSolicitorPlugin {
     pub fn new_null() -> Self {
         Self {
             message_flooder: MessageFlooder::new_null(),
-            online_reps: Arc::new(Mutex::new(RepresentativeTracker::new_test_instance())),
-            winner_block_broadcaster: Arc::new(Mutex::new(WinnerBlockBroadcaster::new_null())),
+            rep_tracker: RepresentativeTracker::new_test_instance().into(),
+            winner_block_broadcaster: Mutex::new(WinnerBlockBroadcaster::new_null()).into(),
             confirm_req_sender: ConfirmReqSender::new_null(),
         }
     }
@@ -30,7 +30,7 @@ impl ConfirmationSolicitorPlugin {
 
 impl AecTickerPlugin for ConfirmationSolicitorPlugin {
     fn run(&mut self, aec: &AecService) {
-        let peered_prs = self.online_reps.lock().unwrap().peered_principal_reps();
+        let peered_prs = self.rep_tracker.peered_principal_reps();
 
         // TODO don't clone flooder!'
         let flooder = self.message_flooder.clone();

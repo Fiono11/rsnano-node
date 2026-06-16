@@ -27,7 +27,7 @@ pub struct LedgerSnapshots {
     receive_proposal_listener: OutputListenerMt<Proposal>,
     receive_vote_listener: OutputListenerMt<ProposalVote>,
     state: Mutex<State>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
 }
 
 impl LedgerSnapshots {
@@ -35,7 +35,7 @@ impl LedgerSnapshots {
         ledger: Arc<Ledger>,
         get_private_key: impl Fn() -> Option<PrivateKey> + Send + Sync + 'static,
         flooder: MessageFlooder,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
     ) -> Self {
         Self {
             ledger,
@@ -45,7 +45,7 @@ impl LedgerSnapshots {
             receive_proposal_listener: OutputListenerMt::new(),
             receive_vote_listener: OutputListenerMt::new(),
             state: Default::default(),
-            online_reps,
+            rep_tracker,
         }
     }
 
@@ -54,7 +54,7 @@ impl LedgerSnapshots {
             Ledger::new_null().into(),
             || None,
             MessageFlooder::new_null(),
-            Mutex::new(RepresentativeTracker::default()).into(),
+            RepresentativeTracker::default().into(),
         )
     }
 
@@ -82,7 +82,7 @@ impl LedgerSnapshots {
     pub fn handle_preproposal(&self, preproposal: Preproposal) {
         warn!(snapshot_number = preproposal.snapshot_number, preproposal_hash= ?preproposal.hash(), "Snapshot preproposal received");
         self.receive_preproposal_listener.emit(preproposal.clone());
-        let consensus_params = self.online_reps.lock().unwrap().get_consensus_params();
+        let consensus_params = self.rep_tracker.get_consensus_params();
 
         let mut state = self.state.lock().unwrap();
         if !state.receive_preproposal(preproposal.clone()) {
@@ -129,7 +129,7 @@ impl LedgerSnapshots {
     pub fn handle_proposal(&self, proposal: Proposal) {
         warn!(snapshot_number = proposal.snapshot_number, proposal_hash = ?proposal.hash(), "Snapshot proposal received");
         self.receive_proposal_listener.emit(proposal.clone());
-        let consensus_params = self.online_reps.lock().unwrap().get_consensus_params();
+        let consensus_params = self.rep_tracker.get_consensus_params();
 
         let mut state = self.state.lock().unwrap();
         if !state.receive_proposal(proposal.clone()) {
@@ -168,7 +168,7 @@ impl LedgerSnapshots {
     pub fn handle_vote(&self, vote: ProposalVote) {
         self.receive_vote_listener.emit(vote.clone());
 
-        let consensus_params = self.online_reps.lock().unwrap().get_consensus_params();
+        let consensus_params = self.rep_tracker.get_consensus_params();
         let mut state = self.state.lock().unwrap();
 
         if !state.receive_vote(vote.clone()) {
@@ -620,16 +620,15 @@ mod tests {
             let flooder = MessageFlooder::new_null();
             let flood_tracker = flooder.track_floods();
 
-            let mut online_reps = RepresentativeTracker::new(
+            let rep_tracker = Arc::new(RepresentativeTracker::new(
                 Arc::new(rep_weights.into()),
                 Amount::ZERO,
                 Amount::ZERO,
-            );
-            online_reps.set_trended(quorum_weight / ONLINE_WEIGHT_QUORUM as u128 * 100);
-            let online_reps = Arc::new(Mutex::new(online_reps));
+            ));
+            rep_tracker.set_trended(quorum_weight / ONLINE_WEIGHT_QUORUM as u128 * 100);
 
             let snapshots =
-                LedgerSnapshots::new(ledger.clone(), get_test_key, flooder, online_reps);
+                LedgerSnapshots::new(ledger.clone(), get_test_key, flooder, rep_tracker);
 
             snapshots.state.lock().unwrap().current_snapshot_number = 10;
 

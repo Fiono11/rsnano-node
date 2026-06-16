@@ -67,7 +67,7 @@ pub struct HintedScheduler {
     confirming_set: Arc<ConfirmingSet>,
     stats: Arc<Stats>,
     vote_cache: Arc<Mutex<VoteCache>>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     stopped: AtomicBool,
     stopped_mutex: Mutex<()>,
@@ -84,7 +84,7 @@ impl HintedScheduler {
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
@@ -101,7 +101,7 @@ impl HintedScheduler {
             stats,
             vote_cache,
             confirming_set,
-            online_reps,
+            rep_tracker,
             clock,
             stopped: AtomicBool::new(false),
             stopped_mutex: Mutex::new(()),
@@ -289,12 +289,12 @@ impl HintedScheduler {
     }
 
     fn tally_threshold(&self) -> Amount {
-        (self.online_reps.lock().unwrap().trended_or_minimum_weight() / 100)
+        (self.rep_tracker.trended_or_minimum_weight() / 100)
             * self.config.hinting_threshold_percent as u128
     }
 
     fn final_tally_threshold(&self) -> Amount {
-        self.online_reps.lock().unwrap().quorum_delta()
+        self.rep_tracker.quorum_delta()
     }
 
     fn cooldown(&self, hash: BlockHash) -> bool {

@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -12,7 +12,7 @@ use super::{OnlineWeightSampler, RepresentativeTracker};
 
 pub struct OnlineWeightCalculation {
     sampler: OnlineWeightSampler,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     first_run: bool,
     last_sample: Instant,
@@ -21,12 +21,12 @@ pub struct OnlineWeightCalculation {
 impl OnlineWeightCalculation {
     pub fn new(
         sampler: OnlineWeightSampler,
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
             sampler,
-            online_reps,
+            rep_tracker,
             clock,
             first_run: true,
             last_sample: Instant::now(),
@@ -40,7 +40,7 @@ impl OnlineWeightCalculation {
             result.trended.format_balance(0),
             result.sample_count
         );
-        self.online_reps.lock().unwrap().set_trended(result.trended);
+        self.rep_tracker.set_trended(result.trended);
     }
 }
 
@@ -54,12 +54,11 @@ impl Tickable for OnlineWeightCalculation {
             self.first_run = false;
         } else {
             {
-                let online = self.online_reps.lock().unwrap();
-                online.trim(self.clock.now());
-                online.calculate_online_weight();
+                self.rep_tracker.trim(self.clock.now());
+                self.rep_tracker.calculate_online_weight();
             }
             if self.last_sample.elapsed() > Duration::from_secs(60) {
-                let online_weight = self.online_reps.lock().unwrap().online_weight();
+                let online_weight = self.rep_tracker.online_weight();
                 self.sampler.add_sample(online_weight);
                 self.calculate_trended_weight();
                 self.last_sample = Instant::now();

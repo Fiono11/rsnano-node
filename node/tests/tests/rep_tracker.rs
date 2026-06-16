@@ -7,20 +7,14 @@ use test_helpers::{System, assert_always_eq, assert_timely_eq2};
 fn observe() {
     let mut system = System::new();
     let node = system.make_node();
-    assert_eq!(
-        Amount::ZERO,
-        node.online_reps.lock().unwrap().online_weight()
-    );
+    assert_eq!(Amount::ZERO, node.rep_tracker.online_weight());
 
     // Add genesis representative
     let node_rep = system.make_node();
     node_rep.insert_into_wallet(&DEV_GENESIS_KEY);
 
     // The node should see that weight as online
-    assert_timely_eq2(
-        || node.online_reps.lock().unwrap().online_weight(),
-        Amount::MAX,
-    );
+    assert_timely_eq2(|| node.rep_tracker.online_weight(), Amount::MAX);
 }
 
 // Online weight calculation should include local representative
@@ -29,13 +23,10 @@ fn observe_local() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    assert_timely_eq2(
-        || node.online_reps.lock().unwrap().online_weight(),
-        Amount::MAX,
-    );
+    assert_timely_eq2(|| node.rep_tracker.online_weight(), Amount::MAX);
     assert_always_eq(
         Duration::from_secs(1),
-        || node.online_reps.lock().unwrap().online_weight(),
+        || node.rep_tracker.online_weight(),
         Amount::MAX,
     );
 }

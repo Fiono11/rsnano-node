@@ -34,7 +34,7 @@ use crate::{
 /// random block and observing the corresponding vote.
 pub struct RepCrawler {
     rep_crawler_impl: Mutex<RepCrawlerImpl>,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     stats: Arc<Stats>,
     config: NodeConfig,
     network_params: NetworkParams,
@@ -53,7 +53,7 @@ impl RepCrawler {
     const MAX_RESPONSES: usize = 1024 * 4;
 
     pub(crate) fn new(
-        online_reps: Arc<Mutex<RepresentativeTracker>>,
+        rep_tracker: Arc<RepresentativeTracker>,
         stats: Arc<Stats>,
         query_timeout: Duration,
         config: NodeConfig,
@@ -68,7 +68,7 @@ impl RepCrawler {
     ) -> Self {
         let is_dev_network = network_params.network.is_dev_network();
         Self {
-            online_reps: Arc::clone(&online_reps),
+            rep_tracker: rep_tracker.clone(),
             stats: Arc::clone(&stats),
             config: config.clone(),
             network_params,
@@ -85,7 +85,7 @@ impl RepCrawler {
             rep_crawler_impl: Mutex::new(RepCrawlerImpl {
                 is_dev_network,
                 queries: OrderedQueries::new(),
-                online_reps,
+                rep_tracker,
                 stats,
                 query_timeout,
                 stopped: false,
@@ -218,9 +218,9 @@ impl RepCrawler {
             let current_total_weight;
             let sufficient_weight;
             {
-                let reps = self.online_reps.lock().unwrap();
-                current_total_weight = reps.peered_weight();
-                sufficient_weight = current_total_weight > reps.quorum_delta();
+                let specs = self.rep_tracker.quorum_specs();
+                current_total_weight = specs.peered_weight;
+                sufficient_weight = current_total_weight > specs.quorum_delta;
             }
 
             // If online weight drops below minimum, reach out to preconfigured peers
@@ -314,7 +314,7 @@ impl RepCrawler {
         // normally the rep_crawler only tracks principal reps but it can be made to track
         // reps with less weight by setting rep_crawler_weight_minimum to a low value
         let minimum = std::cmp::min(
-            self.online_reps.lock().unwrap().minimum_principal_weight(),
+            self.rep_tracker.minimum_principal_weight(),
             self.config.rep_crawler_weight_minimum,
         );
 
@@ -333,7 +333,7 @@ impl RepCrawler {
                 continue;
             }
 
-            let result = self.online_reps.lock().unwrap().vote_observed_directly(
+            let result = self.rep_tracker.vote_observed_directly(
                 vote.voter,
                 channel.clone(),
                 self.steady_clock.now(),
@@ -420,7 +420,7 @@ impl ContainerInfoProvider for RepCrawler {
 
 struct RepCrawlerImpl {
     queries: OrderedQueries,
-    online_reps: Arc<Mutex<RepresentativeTracker>>,
+    rep_tracker: Arc<RepresentativeTracker>,
     stats: Arc<Stats>,
     query_timeout: Duration,
     stopped: bool,
@@ -468,9 +468,7 @@ impl RepCrawlerImpl {
 
         random_peers.retain(|channel| {
             let elapsed = self
-                .online_reps
-                .lock()
-                .unwrap()
+                .rep_tracker
                 .last_request_elapsed(channel.channel_id(), now);
 
             match elapsed {
@@ -506,10 +504,7 @@ impl RepCrawlerImpl {
             replies: 0,
         });
         // Find and update the timestamp on all reps available on the endpoint (a single host may have multiple reps)
-        self.online_reps
-            .lock()
-            .unwrap()
-            .on_rep_request(channel_id, now);
+        self.rep_tracker.on_rep_request(channel_id, now);
     }
 
     fn cleanup(&mut self) {

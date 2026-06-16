@@ -12,8 +12,8 @@ impl RpcCommandHandler {
         &self,
         args: RepresentativesOnlineArgs,
     ) -> RepresentativesOnlineResponse {
-        let online_reps = self.node.online_reps.lock().unwrap();
-        ResponseBuilder::new(args).create_response(online_reps.online_reps())
+        let online_reps = self.node.rep_tracker.online_reps();
+        ResponseBuilder::new(args).create_response(online_reps)
     }
 }
 

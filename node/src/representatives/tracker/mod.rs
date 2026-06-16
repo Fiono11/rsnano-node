@@ -155,8 +155,10 @@ impl RepresentativeTracker {
 
     pub fn quorum_specs(&self) -> QuorumSpecs {
         QuorumSpecs {
-            online_weight: self.trended_or_minimum_weight(),
+            trended_weight: self.trended_or_minimum_weight(),
             quorum_delta: self.quorum_delta(),
+            peered_weight: self.peered_weight(),
+            online_weight: self.online_weight(),
         }
     }
 
@@ -405,17 +407,19 @@ impl PeeredRepInfo {
 
 #[derive(Clone)]
 pub struct QuorumSpecs {
-    pub online_weight: Amount,
+    pub trended_weight: Amount,
     pub quorum_delta: Amount,
+    pub peered_weight: Amount,
+    pub online_weight: Amount,
 }
 
 impl QuorumSpecs {
     /// Calculates minimum time delay between subsequent votes when processing non-final votes
     pub fn cooldown_time(&self, rep_weight: Amount) -> Duration {
-        if rep_weight > self.online_weight / 20 {
+        if rep_weight > self.trended_weight / 20 {
             // Reps with more than 5% weight
             Duration::from_secs(1)
-        } else if rep_weight > self.online_weight / 100 {
+        } else if rep_weight > self.trended_weight / 100 {
             // Reps with more than 1% weight
             Duration::from_secs(5)
         } else {
@@ -426,8 +430,10 @@ impl QuorumSpecs {
 
     pub fn new_test_instance() -> Self {
         QuorumSpecs {
-            online_weight: Amount::nano(100_000_000),
+            trended_weight: Amount::nano(100_000_000),
             quorum_delta: Amount::nano(67_000_000),
+            online_weight: Amount::nano(100_000_000),
+            peered_weight: Amount::nano(90_000_000),
         }
     }
 }

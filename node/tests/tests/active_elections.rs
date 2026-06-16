@@ -41,7 +41,7 @@ fn fork_replacement_tally() {
     let keys: Vec<_> = std::iter::repeat_with(|| PrivateKey::new())
         .take(REPS_COUNT)
         .collect();
-    let min_pr_weight = node1.online_reps.lock().unwrap().minimum_principal_weight();
+    let min_pr_weight = node1.rep_tracker.minimum_principal_weight();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
     // Create 20 representatives & confirm blocks
@@ -262,7 +262,7 @@ fn non_final() {
 
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
 
-    let _quorum_delta = node.online_reps.lock().unwrap().quorum_delta();
+    let _quorum_delta = node.rep_tracker.quorum_delta();
     assert_timely_eq2(
         || {
             let election = node.aec.election_for_root(&send.qualified_root()).unwrap();
@@ -327,10 +327,7 @@ fn inactive_votes_cache_existing_vote() {
     node.process(open.clone());
 
     assert_timely2(|| node.is_active_hash(&send.hash()));
-    assert!(
-        node.ledger.weight(&key.public_key())
-            > node.online_reps.lock().unwrap().minimum_principal_weight()
-    );
+    assert!(node.ledger.weight(&key.public_key()) > node.rep_tracker.minimum_principal_weight());
 
     // Insert vote
     let vote1 = Arc::new(Vote::new(
@@ -455,7 +452,7 @@ fn inactive_votes_cache_election_start() {
     let key2 = PrivateKey::new();
 
     // Enough weight to trigger election hinting but not enough to confirm block on its own
-    let amount = ((node.online_reps.lock().unwrap().trended_or_minimum_weight() / 100)
+    let amount = ((node.rep_tracker.trended_or_minimum_weight() / 100)
         * node.config.hinted_scheduler.hinting_threshold_percent as u128)
         / 2
         + Amount::nano(1_000_000);
@@ -655,7 +652,7 @@ fn confirm_election_by_request() {
     assert_eq!(peers.is_empty(), false);
 
     // Add representative (node1) to disabled rep crawler of node2
-    node2.online_reps.lock().unwrap().vote_observed_directly(
+    node2.rep_tracker.vote_observed_directly(
         *DEV_GENESIS_PUB_KEY,
         peers[0].clone(),
         node2.steady_clock.now(),
@@ -717,7 +714,7 @@ fn confirm_frontier() {
     // Add representative to disabled rep crawler
     let peers = node2.network.read().unwrap().sorted_channels();
     assert!(!peers.is_empty());
-    node2.online_reps.lock().unwrap().vote_observed_directly(
+    node2.rep_tracker.vote_observed_directly(
         *DEV_GENESIS_PUB_KEY,
         peers[0].clone(),
         node2.steady_clock.now(),

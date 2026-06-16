@@ -48,7 +48,7 @@ fn ledger_snapshot_integration_test() {
 
 fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
     assert_timely2(|| {
-        node.online_reps
+        node.rep_tracker
             .lock()
             .unwrap()
             .peered_principal_reps()

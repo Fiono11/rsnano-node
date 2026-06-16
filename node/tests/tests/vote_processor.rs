@@ -243,7 +243,7 @@ fn weights() {
 
     // Wait for representatives
     assert_timely2(|| node0.ledger.rep_weights.len() == 4);
-    node0.online_reps.lock().unwrap().set_trended(Amount::MAX);
+    node0.rep_tracker.set_trended(Amount::MAX);
 
     // Wait for rep tiers to be updated
     node0.stats.clear();
