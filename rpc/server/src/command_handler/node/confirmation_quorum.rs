@@ -16,13 +16,14 @@ fn create_response(
     args: ConfirmationQuorumArgs,
     rep_tracker: &RepresentativeTracker,
 ) -> ConfirmationQuorumResponse {
+    let specs = rep_tracker.quorum_specs();
     let mut result = ConfirmationQuorumResponse {
-        quorum_delta: rep_tracker.quorum_delta(),
+        quorum_delta: specs.quorum_delta,
         online_weight_quorum_percent: rep_tracker.quorum_percent().into(),
-        online_weight_minimum: rep_tracker.online_weight_minimum(),
-        online_stake_total: rep_tracker.online_weight(),
-        trended_stake_total: rep_tracker.trended_or_minimum_weight(),
-        peers_stake_total: rep_tracker.peered_weight(),
+        online_weight_minimum: specs.online_weight_minimum,
+        online_stake_total: specs.online_weight,
+        trended_stake_total: specs.trended_weight,
+        peers_stake_total: specs.peered_weight,
         peers: None,
     };
 
@@ -60,23 +61,18 @@ mod tests {
 
     #[test]
     fn quorum_response() {
-        let online_reps = RepresentativeTracker::new_test_instance();
-        let response = create_response(ConfirmationQuorumArgs { peer_details: None }, &online_reps);
-        assert_eq!(response.quorum_delta, online_reps.quorum_delta());
+        let tracker = RepresentativeTracker::new_test_instance();
+        let specs = tracker.quorum_specs();
+        let response = create_response(ConfirmationQuorumArgs { peer_details: None }, &tracker);
+        assert_eq!(response.quorum_delta, tracker.quorum_delta());
         assert_eq!(
             response.online_weight_quorum_percent,
-            online_reps.quorum_percent().into()
+            tracker.quorum_percent().into()
         );
-        assert_eq!(
-            response.online_weight_minimum,
-            online_reps.online_weight_minimum()
-        );
-        assert_eq!(response.online_stake_total, online_reps.online_weight());
-        assert_eq!(
-            response.trended_stake_total,
-            online_reps.trended_or_minimum_weight()
-        );
-        assert_eq!(response.peers_stake_total, online_reps.peered_weight());
+        assert_eq!(response.online_weight_minimum, specs.online_weight_minimum);
+        assert_eq!(response.online_stake_total, specs.online_weight);
+        assert_eq!(response.trended_stake_total, specs.trended_weight);
+        assert_eq!(response.peers_stake_total, specs.peered_weight);
         assert!(response.peers.is_none());
     }
 
