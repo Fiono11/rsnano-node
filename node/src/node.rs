@@ -1705,7 +1705,7 @@ mod tests {
         let node = Node::new_null();
 
         assert_ticker::<PeerCacheUpdater>(&node, Duration::from_secs(15));
-        assert_ticker::<OnlineWeightCalculation>(&node, Duration::from_secs(20));
+        assert_ticker::<OnlineWeightCalculation>(&node, Duration::from_secs(10));
         assert_ticker::<RepTiersCalculator>(&node, Duration::from_secs(10));
         assert_ticker::<PeerCacheConnector>(&node, node.config.network.cached_peer_reachout);
         assert_ticker::<NodeMonitor>(&node, node.config.monitor.interval);

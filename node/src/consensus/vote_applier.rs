@@ -137,6 +137,7 @@ mod tests {
         let clock = Arc::new(SteadyClock::new_null());
 
         rep_tracker.vote_observed(another_rep.public_key(), clock.now());
+        rep_tracker.recalculate();
 
         assert_eq!(
             rep_tracker.quorum_specs().quorum_delta,

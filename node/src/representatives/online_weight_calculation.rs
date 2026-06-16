@@ -33,7 +33,7 @@ impl OnlineWeightCalculation {
         }
     }
 
-    fn calculate_trended_weight(&mut self) {
+    fn update_trended_weight(&mut self) {
         let result = self.sampler.calculate_trend();
         info!(
             "Trended weight updated: {}, samples: {}",
@@ -50,17 +50,15 @@ impl Tickable for OnlineWeightCalculation {
             // Don't sample online weight on first run, because it is always 0
             self.sampler.sanitize();
             self.last_sample = Instant::now();
-            self.calculate_trended_weight();
+            self.update_trended_weight();
             self.first_run = false;
         } else {
-            {
-                self.rep_tracker.trim(self.clock.now());
-                self.rep_tracker.calculate_online_weight();
-            }
+            self.rep_tracker.trim(self.clock.now());
+
             if self.last_sample.elapsed() > Duration::from_secs(60) {
                 let online_weight = self.rep_tracker.quorum_specs().online_weight;
                 self.sampler.add_sample(online_weight);
-                self.calculate_trended_weight();
+                self.update_trended_weight();
                 self.last_sample = Instant::now();
             }
         }
