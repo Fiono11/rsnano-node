@@ -1,10 +1,11 @@
-use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, PublicKey};
 use std::{
     collections::{BTreeMap, HashMap},
     mem::size_of,
     time::Duration,
 };
+
+use rsnano_nullable_clock::Timestamp;
+use rsnano_types::{Account, PublicKey};
 
 /// Collection of all representatives that are currently online
 #[derive(Default)]

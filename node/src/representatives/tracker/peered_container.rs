@@ -1,8 +1,10 @@
-use super::PeeredRep;
+use std::{collections::HashMap, mem::size_of, net::SocketAddrV6, sync::Arc};
+
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Account, PublicKey};
-use std::{collections::HashMap, mem::size_of, net::SocketAddrV6, sync::Arc};
+
+use super::PeeredRep;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InsertResult {

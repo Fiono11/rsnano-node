@@ -89,7 +89,7 @@ fn rep_weight() {
     node1.process_multi(&blocks);
     node2.process_multi(&blocks);
     node3.process_multi(&blocks);
-    assert_eq!(node.online_reps.lock().unwrap().online_reps().count(), 0);
+    assert_eq!(node.online_reps.lock().unwrap().online_reps().len(), 0);
 
     assert_timely_eq2(
         || {

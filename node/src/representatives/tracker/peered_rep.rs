@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::PublicKey;
-use std::sync::Arc;
 
 /// A representative to which we have a direct connection
 #[derive(Clone, Debug, PartialEq, Eq)]

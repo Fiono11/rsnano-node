@@ -139,6 +139,7 @@ impl InsightApp {
                 .lock()
                 .unwrap()
                 .online_reps()
+                .into_iter()
                 .map(|i| {
                     let name = self.rep_names.get(&i.rep_key).unwrap_or(&"");
                     RepresentativeViewModel {
