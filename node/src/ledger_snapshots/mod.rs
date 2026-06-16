@@ -4,7 +4,7 @@ mod state;
 
 use crate::{
     ledger_snapshots::{aggregator::Aggregator, state::State},
-    representatives::OnlineReps,
+    representatives::RepresentativeTracker,
     transport::MessageFlooder,
 };
 use rsnano_ledger::Ledger;
@@ -27,7 +27,7 @@ pub struct LedgerSnapshots {
     receive_proposal_listener: OutputListenerMt<Proposal>,
     receive_vote_listener: OutputListenerMt<ProposalVote>,
     state: Mutex<State>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
 }
 
 impl LedgerSnapshots {
@@ -35,7 +35,7 @@ impl LedgerSnapshots {
         ledger: Arc<Ledger>,
         get_private_key: impl Fn() -> Option<PrivateKey> + Send + Sync + 'static,
         flooder: MessageFlooder,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
     ) -> Self {
         Self {
             ledger,
@@ -54,7 +54,7 @@ impl LedgerSnapshots {
             Ledger::new_null().into(),
             || None,
             MessageFlooder::new_null(),
-            Mutex::new(OnlineReps::default()).into(),
+            Mutex::new(RepresentativeTracker::default()).into(),
         )
     }
 
@@ -620,8 +620,11 @@ mod tests {
             let flooder = MessageFlooder::new_null();
             let flood_tracker = flooder.track_floods();
 
-            let mut online_reps =
-                OnlineReps::new(Arc::new(rep_weights.into()), Amount::ZERO, Amount::ZERO);
+            let mut online_reps = RepresentativeTracker::new(
+                Arc::new(rep_weights.into()),
+                Amount::ZERO,
+                Amount::ZERO,
+            );
             online_reps.set_trended(quorum_weight / ONLINE_WEIGHT_QUORUM as u128 * 100);
             let online_reps = Arc::new(Mutex::new(online_reps));
 

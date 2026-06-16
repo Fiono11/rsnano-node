@@ -18,7 +18,7 @@ use rsnano_utils::{
     ticker::Tickable,
 };
 
-use crate::representatives::OnlineReps;
+use crate::representatives::RepresentativeTracker;
 
 // Higher number means higher priority
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, EnumIter, Hash, Debug, EnumCount)]
@@ -135,7 +135,7 @@ where
 pub struct RepTiersCalculator {
     thread: Mutex<Option<JoinHandle<()>>>,
     rep_weights: Arc<RepWeightCache>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     stats: Arc<Stats>,
     consumers: Vec<Box<dyn RepTiersConsumer + Send + Sync>>,
 }
@@ -143,7 +143,7 @@ pub struct RepTiersCalculator {
 impl RepTiersCalculator {
     pub fn new(
         rep_weights: Arc<RepWeightCache>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         stats: Arc<Stats>,
     ) -> Self {
         Self {

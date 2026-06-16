@@ -5,7 +5,7 @@ use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use rsnano_wallet::Wallets;
 
-use crate::representatives::OnlineReps;
+use crate::representatives::RepresentativeTracker;
 
 #[derive(Clone)]
 pub struct WalletRepresentatives {
@@ -17,7 +17,7 @@ pub struct WalletRepresentatives {
     vote_minimum: Amount,
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
 }
 
 impl WalletRepresentatives {
@@ -26,7 +26,7 @@ impl WalletRepresentatives {
         vote_minimum: Amount,
         rep_weights: Arc<RepWeightCache>,
         wallets: Arc<Wallets>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
     ) -> Self {
         Self {
             voting_enabled,
@@ -45,7 +45,7 @@ impl WalletRepresentatives {
             Amount::ZERO,
             Arc::new(RepWeightCache::default()),
             Arc::new(Wallets::new_null()),
-            Arc::new(Mutex::new(OnlineReps::new_test_instance())),
+            Arc::new(Mutex::new(RepresentativeTracker::new_test_instance())),
         )
     }
 

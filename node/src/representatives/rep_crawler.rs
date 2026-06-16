@@ -20,7 +20,7 @@ use rsnano_utils::{
     stats::{DetailType, Direction, Sample, StatType, Stats},
 };
 
-use super::{InsertResult, OnlineReps};
+use super::{InsertResult, RepresentativeTracker};
 use crate::{
     config::{NetworkParams, NodeConfig},
     consensus::{AecService, ReceivedVote},
@@ -34,7 +34,7 @@ use crate::{
 /// random block and observing the corresponding vote.
 pub struct RepCrawler {
     rep_crawler_impl: Mutex<RepCrawlerImpl>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     stats: Arc<Stats>,
     config: NodeConfig,
     network_params: NetworkParams,
@@ -53,7 +53,7 @@ impl RepCrawler {
     const MAX_RESPONSES: usize = 1024 * 4;
 
     pub(crate) fn new(
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         stats: Arc<Stats>,
         query_timeout: Duration,
         config: NodeConfig,
@@ -420,7 +420,7 @@ impl ContainerInfoProvider for RepCrawler {
 
 struct RepCrawlerImpl {
     queries: OrderedQueries,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     stats: Arc<Stats>,
     query_timeout: Duration,
     stopped: bool,

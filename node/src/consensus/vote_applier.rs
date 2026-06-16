@@ -10,13 +10,13 @@ use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, AecService, FilteredVote, ReceivedVote};
-use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
+use crate::{consensus::ApplyVoteArgs, representatives::RepresentativeTracker};
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
     active_elections: Arc<AecService>,
     event_senders: RwLock<Vec<Sender<AecFact>>>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
     is_dev_network: bool,
@@ -25,7 +25,7 @@ pub(crate) struct VoteApplier {
 impl VoteApplier {
     pub(crate) fn new(
         active_elections: Arc<AecService>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
         is_dev_network: bool,
@@ -133,7 +133,7 @@ mod tests {
 
         let aec = Arc::new(AecService::new_null());
         let online_reps = Arc::new(Mutex::new(
-            OnlineReps::builder()
+            RepresentativeTracker::builder()
                 .rep_weights(rep_weights.clone())
                 .finish(),
         ));

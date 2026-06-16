@@ -11,14 +11,15 @@ use rsnano_network::Network;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use crate::{
-    block_rate_calculator::CurrentBlockRates, consensus::AecService, representatives::OnlineReps,
+    block_rate_calculator::CurrentBlockRates, consensus::AecService,
+    representatives::RepresentativeTracker,
 };
 
 /// Periodically prints info about BPS, CPS, elections, peers,...
 pub struct NodeMonitor {
     ledger: Arc<Ledger>,
     network: Arc<RwLock<Network>>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     active_elections: Arc<AecService>,
     block_rates: Arc<CurrentBlockRates>,
     last_time: Option<Instant>,
@@ -28,7 +29,7 @@ impl NodeMonitor {
     pub fn new(
         ledger: Arc<Ledger>,
         network: Arc<RwLock<Network>>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         active_elections: Arc<AecService>,
         block_rates: Arc<CurrentBlockRates>,
     ) -> Self {

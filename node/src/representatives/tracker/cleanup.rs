@@ -1,4 +1,4 @@
-use super::OnlineReps;
+use super::RepresentativeTracker;
 use rsnano_network::ChannelEvent;
 use rsnano_types::Account;
 use rsnano_utils::EventHandler;
@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use tracing::info;
 
 /// Removes reps with dead channels
-pub struct OnlineRepsCleanup(Arc<Mutex<OnlineReps>>);
+pub struct OnlineRepsCleanup(Arc<Mutex<RepresentativeTracker>>);
 
 impl OnlineRepsCleanup {
-    pub fn new(reps: Arc<Mutex<OnlineReps>>) -> Self {
+    pub fn new(reps: Arc<Mutex<RepresentativeTracker>>) -> Self {
         Self(reps)
     }
 }

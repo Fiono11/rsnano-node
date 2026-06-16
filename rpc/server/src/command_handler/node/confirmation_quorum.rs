@@ -1,5 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_node::representatives::OnlineReps;
+use rsnano_node::representatives::RepresentativeTracker;
 use rsnano_rpc_messages::{ConfirmationQuorumArgs, ConfirmationQuorumResponse, PeerDetailsDto};
 
 impl RpcCommandHandler {
@@ -14,7 +14,7 @@ impl RpcCommandHandler {
 
 fn create_response(
     args: ConfirmationQuorumArgs,
-    online_reps: &OnlineReps,
+    online_reps: &RepresentativeTracker,
 ) -> ConfirmationQuorumResponse {
     let mut result = ConfirmationQuorumResponse {
         quorum_delta: online_reps.quorum_delta(),
@@ -47,7 +47,7 @@ fn create_response(
 mod tests {
     use super::create_response;
     use crate::command_handler::test_rpc_command;
-    use rsnano_node::representatives::OnlineReps;
+    use rsnano_node::representatives::RepresentativeTracker;
     use rsnano_rpc_messages::{ConfirmationQuorumArgs, ConfirmationQuorumResponse, RpcCommand};
     use rsnano_types::Amount;
 
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn quorum_response() {
-        let online_reps = OnlineReps::new_test_instance();
+        let online_reps = RepresentativeTracker::new_test_instance();
         let response = create_response(ConfirmationQuorumArgs { peer_details: None }, &online_reps);
         assert_eq!(response.quorum_delta, online_reps.quorum_delta());
         assert_eq!(
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn quorum_response_with_peers() {
-        let online_reps = OnlineReps::new_test_instance();
+        let online_reps = RepresentativeTracker::new_test_instance();
         let response = create_response(
             ConfirmationQuorumArgs {
                 peer_details: Some(true.into()),

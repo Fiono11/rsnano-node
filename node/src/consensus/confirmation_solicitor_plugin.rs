@@ -7,11 +7,11 @@ use super::{
     AecService, AecTickerPlugin, ConfirmationSolicitor, confirm_req_sender::ConfirmReqSender,
     election::ElectionState, winner_block_broadcaster::WinnerBlockBroadcaster,
 };
-use crate::{representatives::OnlineReps, transport::MessageFlooder};
+use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
 
 pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) message_flooder: MessageFlooder,
-    pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
+    pub(crate) online_reps: Arc<Mutex<RepresentativeTracker>>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub(crate) confirm_req_sender: ConfirmReqSender,
 }
@@ -21,7 +21,7 @@ impl ConfirmationSolicitorPlugin {
     pub fn new_null() -> Self {
         Self {
             message_flooder: MessageFlooder::new_null(),
-            online_reps: Arc::new(Mutex::new(OnlineReps::new_test_instance())),
+            online_reps: Arc::new(Mutex::new(RepresentativeTracker::new_test_instance())),
             winner_block_broadcaster: Arc::new(Mutex::new(WinnerBlockBroadcaster::new_null())),
             confirm_req_sender: ConfirmReqSender::new_null(),
         }

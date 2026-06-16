@@ -28,7 +28,7 @@ pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
 /// Keeps track of all representatives that are online
 /// and all representatives to which we have a direct connection
-pub struct OnlineReps {
+pub struct RepresentativeTracker {
     rep_weights: Arc<RepWeightCache>,
     online_reps: OnlineContainer,
     peered_reps: PeeredContainer,
@@ -39,7 +39,7 @@ pub struct OnlineReps {
     trim_counter: u64,
 }
 
-impl OnlineReps {
+impl RepresentativeTracker {
     pub const DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
 
     pub const fn default_interval_for(network: NetworkType) -> Duration {
@@ -179,17 +179,17 @@ impl OnlineReps {
 
     /// Request a list of the top \p count known representatives in descending order of weight, with at least \p weight_a voting weight, and optionally with a minimum version \p minimum_protocol_version
     pub fn peered_reps(&self) -> Vec<PeeredRepInfo> {
-        self.representatives_filter(Amount::ZERO)
+        self.peered_representatives_filter(Amount::ZERO)
     }
 
     /// Request a list of the top known principal representatives in descending order of weight
     pub fn peered_principal_reps(&self) -> Vec<PeeredRepInfo> {
-        self.representatives_filter(self.minimum_principal_weight())
+        self.peered_representatives_filter(self.minimum_principal_weight())
     }
 
     /// Request a list of known representatives in descending order
     /// of weight, with at least **weight** voting weight
-    pub fn representatives_filter(&self, min_weight: Amount) -> Vec<PeeredRepInfo> {
+    fn peered_representatives_filter(&self, min_weight: Amount) -> Vec<PeeredRepInfo> {
         let mut reps_with_weight = Vec::new();
 
         {
@@ -292,13 +292,13 @@ impl OnlineReps {
     }
 }
 
-impl Default for OnlineReps {
+impl Default for RepresentativeTracker {
     fn default() -> Self {
         Self::builder().finish()
     }
 }
 
-impl ContainerInfoProvider for OnlineReps {
+impl ContainerInfoProvider for RepresentativeTracker {
     fn container_info(&self) -> ContainerInfo {
         [
             (
@@ -316,7 +316,7 @@ impl ContainerInfoProvider for OnlineReps {
     }
 }
 
-impl StatsSource for OnlineReps {
+impl StatsSource for RepresentativeTracker {
     fn collect_stats(&self, result: &mut StatsCollection) {
         result.insert("online_reps", "rep_trim", self.trim_counter);
     }
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let online_reps = OnlineReps::default();
+        let online_reps = RepresentativeTracker::default();
         assert_eq!(
             online_reps.online_weight_minimum(),
             Amount::nano(60_000_000)
@@ -433,7 +433,9 @@ mod tests {
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
         weights.put(account, weight);
-        let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
+        let mut online_reps = RepresentativeTracker::builder()
+            .rep_weights(weights)
+            .finish();
 
         online_reps.vote_observed(account, clock.now());
 
@@ -448,7 +450,9 @@ mod tests {
         let weight = Amount::nano(100_000);
         let weights = Arc::new(RepWeightCache::default());
         weights.put(account, weight);
-        let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
+        let mut online_reps = RepresentativeTracker::builder()
+            .rep_weights(weights)
+            .finish();
 
         let channel = Arc::new(Channel::new_test_instance());
         online_reps.vote_observed_directly(account, channel, clock.now());
@@ -459,7 +463,7 @@ mod tests {
 
     #[test]
     fn trended_weight() {
-        let mut online_reps = OnlineReps::default();
+        let mut online_reps = RepresentativeTracker::default();
         online_reps.set_trended(Amount::nano(10_000));
         assert_eq!(online_reps.trended_weight(), Amount::nano(10_000));
         assert_eq!(
@@ -477,7 +481,7 @@ mod tests {
 
     #[test]
     fn minimum_principal_weight() {
-        let mut online_reps = OnlineReps::default();
+        let mut online_reps = RepresentativeTracker::default();
         assert_eq!(online_reps.minimum_principal_weight(), Amount::nano(60_000));
 
         online_reps.set_trended(Amount::nano(110_000_000));
@@ -492,7 +496,9 @@ mod tests {
     fn is_pr() {
         let clock = SteadyClock::new_null();
         let weights = Arc::new(RepWeightCache::default());
-        let mut online_reps = OnlineReps::builder().rep_weights(weights.clone()).finish();
+        let mut online_reps = RepresentativeTracker::builder()
+            .rep_weights(weights.clone())
+            .finish();
         let rep_account = PublicKey::from(42);
         let channel = Arc::new(Channel::new_test_instance());
         let channel_id = channel.channel_id();
@@ -513,7 +519,9 @@ mod tests {
     #[test]
     fn quorum_delta() {
         let weights = Arc::new(RepWeightCache::default());
-        let mut online_reps = OnlineReps::builder().rep_weights(weights.clone()).finish();
+        let mut online_reps = RepresentativeTracker::builder()
+            .rep_weights(weights.clone())
+            .finish();
 
         assert_eq!(online_reps.quorum_delta(), Amount::nano(40_200_000));
 
@@ -533,7 +541,9 @@ mod tests {
         weights.put(rep_a, Amount::nano(100_000));
         weights.put(rep_b, Amount::nano(200_000));
         weights.put(rep_c, Amount::nano(400_000));
-        let mut online_reps = OnlineReps::builder().rep_weights(weights).finish();
+        let mut online_reps = RepresentativeTracker::builder()
+            .rep_weights(weights)
+            .finish();
 
         let start = SteadyClock::new_null().now();
         online_reps.vote_observed(rep_a, start);
@@ -547,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_instance() {
-        let online_reps = OnlineReps::new_test_instance();
+        let online_reps = RepresentativeTracker::new_test_instance();
         assert_ne!(online_reps.quorum_delta(), Amount::ZERO, "quorum delta");
         assert_ne!(online_reps.quorum_percent(), 0, "quorum percent");
         assert_ne!(

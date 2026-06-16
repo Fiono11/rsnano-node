@@ -28,7 +28,7 @@ use crate::{
     block_processing::{LedgerPipelineEvent, backlog_scan::UnconfirmedInfo},
     cementation::ConfirmingSet,
     config::NodeConfig,
-    representatives::OnlineReps,
+    representatives::RepresentativeTracker,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 use rsnano_utils::{EventProcessor, EventSender};
@@ -54,7 +54,7 @@ impl ElectionSchedulers {
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -130,7 +130,7 @@ impl ElectionSchedulers {
             stats.clone(),
         )));
         let confirming_set = Arc::new(ConfirmingSet::new_null());
-        let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
+        let online_reps = Arc::new(Mutex::new(RepresentativeTracker::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
 
         Self::new(

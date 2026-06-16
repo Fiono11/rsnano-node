@@ -8,11 +8,11 @@ use tracing::info;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
-use super::{OnlineReps, OnlineWeightSampler};
+use super::{OnlineWeightSampler, RepresentativeTracker};
 
 pub struct OnlineWeightCalculation {
     sampler: OnlineWeightSampler,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     clock: Arc<SteadyClock>,
     first_run: bool,
     last_sample: Instant,
@@ -21,7 +21,7 @@ pub struct OnlineWeightCalculation {
 impl OnlineWeightCalculation {
     pub fn new(
         sampler: OnlineWeightSampler,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         Self {

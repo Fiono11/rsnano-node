@@ -80,7 +80,8 @@ use crate::{
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{
-        OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
+        OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
+        RepresentativeTracker,
     },
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
@@ -121,7 +122,7 @@ pub struct Node {
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
     pub bootstrap_responder: Arc<BootstrapResponder>,
-    pub online_reps: Arc<Mutex<OnlineReps>>,
+    pub online_reps: Arc<Mutex<RepresentativeTracker>>,
     pub rep_tiers: Arc<CurrentRepTiers>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub history: Arc<LocalVoteHistory>,
@@ -423,7 +424,7 @@ impl Node {
         )));
 
         let online_reps = Arc::new(Mutex::new(
-            OnlineReps::builder()
+            RepresentativeTracker::builder()
                 .rep_weights(rep_weights.clone())
                 .online_weight_minimum(config.online_weight_minimum)
                 .representative_weight_minimum(config.representative_vote_weight_minimum)
@@ -442,7 +443,7 @@ impl Node {
         online_weight_calculation.tick(&CancellationToken::new());
         ticker_pool.insert(
             online_weight_calculation,
-            OnlineReps::default_interval_for(current_network),
+            RepresentativeTracker::default_interval_for(current_network),
         );
 
         let mut message_sender =

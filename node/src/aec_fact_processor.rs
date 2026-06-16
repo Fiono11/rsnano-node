@@ -21,7 +21,7 @@ use crate::{
         election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineReps, RepCrawler},
+    representatives::{RepCrawler, RepresentativeTracker},
     utils::BackpressureEventProcessor,
 };
 
@@ -38,7 +38,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) vote_rebroadcast_queue: Arc<VoteRebroadcastQueue>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
-    pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
+    pub(crate) online_reps: Arc<Mutex<RepresentativeTracker>>,
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,

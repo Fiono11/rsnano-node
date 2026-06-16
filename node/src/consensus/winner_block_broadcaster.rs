@@ -12,7 +12,7 @@ use rsnano_types::{Block, BlockHash, NetworkType, PublicKey};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::{bounded_hash_map::BoundedHashMap, election::VoteSummary};
-use crate::{representatives::OnlineReps, transport::MessageFlooder};
+use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
 /// Broadcasts the winner block of an election
@@ -22,7 +22,7 @@ pub(crate) struct WinnerBlockBroadcaster {
     message_flooder: MessageFlooder,
     rebroadcast_limiter: TokenBucket,
     broadcast_listener: OutputListenerMt<BlockHash>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     network: Arc<RwLock<Network>>,
 }
 
@@ -31,7 +31,7 @@ impl WinnerBlockBroadcaster {
         clock: Arc<SteadyClock>,
         networks: NetworkType,
         message_flooder: MessageFlooder,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
@@ -50,7 +50,7 @@ impl WinnerBlockBroadcaster {
     pub(crate) fn new_null() -> Self {
         let clock = Arc::new(SteadyClock::new_null());
         let networks = NetworkType::NanoLiveNetwork;
-        let online_reps = Mutex::new(OnlineReps::default());
+        let online_reps = Mutex::new(RepresentativeTracker::default());
         let network = RwLock::new(Network::new_null());
         Self::new(
             clock,

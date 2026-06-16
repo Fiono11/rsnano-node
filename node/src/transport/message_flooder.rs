@@ -12,11 +12,11 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_utils::stats::Stats;
 
 use super::{MessageSender, try_send_serialized_message};
-use crate::representatives::OnlineReps;
+use crate::representatives::RepresentativeTracker;
 
 /// Floods messages to PRs and non PRs
 pub struct MessageFlooder {
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     network: Arc<RwLock<Network>>,
     stats: Arc<Stats>,
     message_serializer: MessageSerializer,
@@ -26,7 +26,7 @@ pub struct MessageFlooder {
 
 impl MessageFlooder {
     pub fn new(
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         network: Arc<RwLock<Network>>,
         stats: Arc<Stats>,
         sender: MessageSender,
@@ -55,7 +55,7 @@ impl MessageFlooder {
         channel.set_mode(rsnano_network::ChannelMode::Established);
 
         Self::new(
-            Arc::new(Mutex::new(OnlineReps::default())),
+            Arc::new(Mutex::new(RepresentativeTracker::default())),
             Arc::new(RwLock::new(network)),
             Arc::new(Stats::default()),
             MessageSender::new_null(),

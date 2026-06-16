@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_ledger::RepWeightCache;
 use rsnano_types::Amount;
 
-use super::OnlineReps;
+use super::RepresentativeTracker;
 
 pub struct OnlineRepsBuilder {
     rep_weights: Option<Arc<RepWeightCache>>,
@@ -16,7 +16,7 @@ impl OnlineRepsBuilder {
     pub(super) fn new() -> Self {
         Self {
             rep_weights: None,
-            online_weight_minimum: OnlineReps::DEFAULT_ONLINE_WEIGHT_MINIMUM,
+            online_weight_minimum: RepresentativeTracker::DEFAULT_ONLINE_WEIGHT_MINIMUM,
             representative_weight_minimum: Amount::ZERO,
             trended: None,
         }
@@ -41,12 +41,12 @@ impl OnlineRepsBuilder {
         self
     }
 
-    pub fn finish(self) -> OnlineReps {
+    pub fn finish(self) -> RepresentativeTracker {
         let rep_weights = self
             .rep_weights
             .unwrap_or_else(|| Arc::new(RepWeightCache::default()));
 
-        let mut online_reps = OnlineReps::new(
+        let mut online_reps = RepresentativeTracker::new(
             rep_weights,
             self.online_weight_minimum,
             self.representative_weight_minimum,

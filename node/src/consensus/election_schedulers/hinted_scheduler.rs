@@ -22,7 +22,7 @@ use super::VoteCache;
 use crate::{
     cementation::ConfirmingSet,
     consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
-    representatives::OnlineReps,
+    representatives::RepresentativeTracker,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,7 +67,7 @@ pub struct HintedScheduler {
     confirming_set: Arc<ConfirmingSet>,
     stats: Arc<Stats>,
     vote_cache: Arc<Mutex<VoteCache>>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    online_reps: Arc<Mutex<RepresentativeTracker>>,
     clock: Arc<SteadyClock>,
     stopped: AtomicBool,
     stopped_mutex: Mutex<()>,
@@ -84,7 +84,7 @@ impl HintedScheduler {
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        online_reps: Arc<Mutex<RepresentativeTracker>>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
