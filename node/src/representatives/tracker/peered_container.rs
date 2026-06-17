@@ -8,10 +8,10 @@ use super::PeeredRep;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InsertResult {
-    Inserted,
+    Inserted(SocketAddrV6),
     Updated,
     /// Returns the old peer addr
-    ChannelChanged(SocketAddrV6),
+    ChannelChanged(SocketAddrV6, SocketAddrV6),
 }
 
 /// Collection of all representatives that we have a direct connection to
@@ -46,25 +46,27 @@ impl PeeredContainer {
             // Update if representative channel was changed
             if rep.channel_id() != channel_id {
                 let old_channel_id = rep.channel_id();
-                let old_peer_addr = rep.channel.peer_addr();
+                let old_peer = rep.channel.peer_addr();
                 let new_channel_id = channel_id;
+                let new_peer = channel.peer_addr();
                 rep.channel = channel;
                 self.remove_channel_id(&account, old_channel_id);
                 self.by_channel_id
                     .entry(new_channel_id)
                     .or_default()
                     .push(account);
-                InsertResult::ChannelChanged(old_peer_addr)
+                InsertResult::ChannelChanged(old_peer, new_peer)
             } else {
                 InsertResult::Updated
             }
         } else {
+            let peer = channel.peer_addr();
             self.by_account
                 .insert(account, PeeredRep::new(account, channel, now));
 
             let by_id = self.by_channel_id.entry(channel_id).or_default();
             by_id.push(account);
-            InsertResult::Inserted
+            InsertResult::Inserted(peer)
         }
     }
 
@@ -146,7 +148,7 @@ mod tests {
         let now = Timestamp::new_test_instance();
         assert_eq!(
             container.update_or_insert(account, channel.clone(), now),
-            InsertResult::Inserted
+            InsertResult::Inserted(channel.peer_addr())
         );
         assert_eq!(container.len(), 1);
 
@@ -181,16 +183,16 @@ mod tests {
         let channel1 = Arc::new(Channel::new_test_instance_with_id(101));
         let channel2 = Arc::new(Channel::new_test_instance_with_id(102));
         assert_eq!(
-            container.update_or_insert(PublicKey::from(100), channel1, now,),
-            InsertResult::Inserted
+            container.update_or_insert(PublicKey::from(100), channel1.clone(), now,),
+            InsertResult::Inserted(channel1.peer_addr())
         );
         assert_eq!(
             container.update_or_insert(
                 PublicKey::from(200),
-                channel2,
+                channel2.clone(),
                 now + Duration::from_secs(1),
             ),
-            InsertResult::Inserted
+            InsertResult::Inserted(channel2.peer_addr())
         );
         assert_eq!(container.len(), 2);
         assert_eq!(container.iter().count(), 2);
@@ -280,7 +282,7 @@ mod tests {
         container.update_or_insert(account, channel_a.clone(), now);
         assert_eq!(
             container.update_or_insert(account, channel_b.clone(), now + Duration::from_secs(2)),
-            InsertResult::ChannelChanged(channel_a.peer_addr())
+            InsertResult::ChannelChanged(channel_a.peer_addr(), channel_b.peer_addr())
         );
         assert_eq!(container.len(), 1);
         assert_eq!(container.iter_by_channel(channel_a.channel_id()).count(), 0);
@@ -297,11 +299,11 @@ mod tests {
         let channel = Arc::new(Channel::new_test_instance());
         assert_eq!(
             container.update_or_insert(account_a, channel.clone(), now),
-            InsertResult::Inserted,
+            InsertResult::Inserted(channel.peer_addr()),
         );
         assert_eq!(
             container.update_or_insert(account_b, channel.clone(), now),
-            InsertResult::Inserted,
+            InsertResult::Inserted(channel.peer_addr()),
         );
 
         assert_eq!(container.len(), 2);

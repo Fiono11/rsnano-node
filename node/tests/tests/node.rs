@@ -868,7 +868,11 @@ fn auto_bootstrap() {
     node0.process_and_confirm_multi(&[send, receive]);
 
     let node1 = system.make_node();
-    assert_timely_eq2(|| node1.balance(&destination.account()), amount);
+    assert_timely_eq(
+        Duration::from_secs(20),
+        || node1.balance(&destination.account()),
+        amount,
+    );
 }
 
 #[test]

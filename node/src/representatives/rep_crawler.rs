@@ -334,7 +334,7 @@ impl RepCrawler {
             }
 
             self.rep_tracker
-                .vote_observed_directly(vote.voter, channel.clone());
+                .vote_observed(vote.voter, vote.delivery, Some(channel.clone()));
         }
     }
 

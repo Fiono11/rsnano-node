@@ -94,7 +94,7 @@ impl RepresentativeTracker {
         let min_rep_weight = Amount::nano(1000);
         let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
         let channel = Arc::new(Channel::new_test_instance());
-        tracker.vote_observed_directly(rep, channel);
+        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
         tracker
     }
 
@@ -214,52 +214,47 @@ impl RepresentativeTracker {
         rep: PublicKey,
         delivery: VoteDelivery,
         channel: Option<Arc<Channel>>,
-    ) -> bool {
+    ) {
         let now = self.clock.now();
-        let weights = self.rep_weights.read();
-        let weight = weights.weight(&rep);
-        let mut state = self.state.lock().unwrap();
-        if weight < state.representative_weight_minimum {
-            return false;
+        let mut result = InsertResult::Updated;
+        {
+            let weights = self.rep_weights.read();
+            let weight = weights.weight(&rep);
+            let mut state = self.state.lock().unwrap();
+            if weight < state.representative_weight_minimum {
+                return;
+            }
+
+            state.online_reps.insert(rep, now);
+
+            if delivery == VoteDelivery::Direct
+                && let Some(channel) = channel
+            {
+                result = state
+                    .peered_reps
+                    .update_or_insert(rep, channel.clone(), now);
+            }
+
+            state.calculate(&weights);
         }
 
-        state.online_reps.insert(rep, now);
-        state.calculate(&weights);
-
-        true
-    }
-
-    /// Add rep_account to the set of peered representatives
-    pub fn vote_observed_directly(&self, rep: PublicKey, channel: Arc<Channel>) {
-        let now = self.clock.now();
-        let is_rep = self.vote_observed(rep, VoteDelivery::Direct, Some(channel.clone()));
-        if is_rep {
-            let weights = self.rep_weights.read();
-            let mut state = self.state.lock().unwrap();
-            let result = state
-                .peered_reps
-                .update_or_insert(rep, channel.clone(), now);
-            // TODO: don't calculate twice here. vote_observed already calculates!
-            state.calculate(&weights);
-
-            match result {
-                InsertResult::Inserted => {
-                    info!(
-                        "Found representative: {} at {}",
-                        rep.as_account().encode_account(),
-                        channel.peer_addr()
-                    );
-                }
-                InsertResult::ChannelChanged(previous_peer) => {
-                    warn!(
-                        "Updated representative: {} at : {} (was at: {})",
-                        rep.as_account().encode_account(),
-                        channel.peer_addr(),
-                        previous_peer
-                    )
-                }
-                InsertResult::Updated => {}
+        match result {
+            InsertResult::Inserted(peer) => {
+                info!(
+                    "Found representative: {} at {}",
+                    rep.as_account().encode_account(),
+                    peer
+                );
             }
+            InsertResult::ChannelChanged(previous_peer, new_peer) => {
+                warn!(
+                    "Updated representative: {} at : {} (was at: {})",
+                    rep.as_account().encode_account(),
+                    new_peer,
+                    previous_peer
+                )
+            }
+            InsertResult::Updated => {}
         }
     }
 
@@ -541,7 +536,7 @@ mod tests {
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
         let channel = Arc::new(Channel::new_test_instance());
-        tracker.vote_observed_directly(rep, channel);
+        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
         let specs = tracker.quorum_specs();
 
         assert_eq!(specs.online_weight, weight, "online");
@@ -589,7 +584,7 @@ mod tests {
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // below PR limit
-        tracker.vote_observed_directly(rep, channel);
+        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // above PR limit
