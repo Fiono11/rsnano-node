@@ -79,10 +79,7 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{
-        OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
-        RepresentativeTracker,
-    },
+    representatives::{OnlineWeightCalculation, RepCrawler, RepCrawlerExt, RepresentativeTracker},
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
         rsnano_version_string,
@@ -913,7 +910,7 @@ impl Node {
 
         let mut channel_event_handlers = EventHandlerRegistry::<ChannelEvent>::default();
         channel_event_handlers.add(inbound_message_queue.clone());
-        channel_event_handlers.add(OnlineRepsCleanup::new(rep_tracker.clone()));
+        channel_event_handlers.add(rep_tracker.clone());
         channel_event_handlers.add(bootstrap_responder.clone());
         channel_event_handlers.add(vote_processor_queue.clone());
         channel_event_handlers.add(LatestKeepalivesCleanup::new(latest_keepalives.clone()));

@@ -1,11 +1,9 @@
 mod builder;
-mod cleanup;
 mod online_container;
 mod peered_container;
 mod peered_rep;
 
 pub use builder::RepresentativeTrackerBuilder;
-pub use cleanup::OnlineRepsCleanup;
 pub use peered_container::InsertResult;
 pub use peered_rep::PeeredRep;
 
@@ -22,10 +20,11 @@ use primitive_types::U256;
 use tracing::{debug, info, warn};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
-use rsnano_network::{Channel, ChannelId};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, NULL_ENDPOINT};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Amount, NetworkType, PublicKey, VoteDelivery};
+use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
@@ -187,7 +186,10 @@ impl RepresentativeTracker {
             let rep_weights = self.rep_weights.read();
             let state = self.state.lock().unwrap();
             for rep in state.peered_reps.iter() {
-                let weight = rep_weights.get(&rep.account).cloned().unwrap_or_default();
+                let weight = rep_weights
+                    .get(&rep.public_key)
+                    .cloned()
+                    .unwrap_or_default();
                 if weight > min_weight {
                     reps_with_weight.push((rep.clone(), weight));
                 }
@@ -199,7 +201,7 @@ impl RepresentativeTracker {
         reps_with_weight
             .drain(..)
             .map(|(rep, weight)| PeeredRepInfo {
-                rep_key: rep.account,
+                rep_key: rep.public_key,
                 channel: rep.channel,
                 weight,
             })
@@ -215,43 +217,27 @@ impl RepresentativeTracker {
         delivery: VoteDelivery,
         channel: Option<Arc<Channel>>,
     ) {
-        let now = self.clock.now();
-        let mut result = InsertResult::Updated;
-        {
+        let result = {
+            let now = self.clock.now();
             let weights = self.rep_weights.read();
-            let weight = weights.weight(&rep);
             let mut state = self.state.lock().unwrap();
-            if weight < state.representative_weight_minimum {
-                return;
-            }
+            state.vote_observed(rep, delivery, channel.clone(), now, &weights)
+        };
 
-            state.online_reps.insert(rep, now);
-
-            if delivery == VoteDelivery::Direct
-                && let Some(channel) = channel
-            {
-                result = state
-                    .peered_reps
-                    .update_or_insert(rep, channel.clone(), now);
-            }
-
-            state.calculate(&weights);
-        }
-
+        let peer = channel.map(|c| c.peer_addr()).unwrap_or(NULL_ENDPOINT);
         match result {
-            InsertResult::Inserted(peer) => {
+            InsertResult::Inserted => {
                 info!(
                     "Found representative: {} at {}",
                     rep.as_account().encode_account(),
                     peer
                 );
             }
-            InsertResult::ChannelChanged(previous_peer, new_peer) => {
+            InsertResult::ChannelChanged => {
                 warn!(
-                    "Updated representative: {} at : {} (was at: {})",
+                    "Representative channel changed: {} at {}",
                     rep.as_account().encode_account(),
-                    new_peer,
-                    previous_peer
+                    peer
                 )
             }
             InsertResult::Updated => {}
@@ -265,10 +251,7 @@ impl RepresentativeTracker {
         {
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
-            trimmed = state
-                .online_reps
-                .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
-            state.calculate(&weights);
+            trimmed = state.trim(now, &weights);
         }
 
         for (rep_key, time) in &trimmed {
@@ -278,11 +261,6 @@ impl RepresentativeTracker {
                 time.elapsed(now).as_secs()
             );
         }
-    }
-
-    pub fn recalculate(&self) {
-        let weights = self.rep_weights.read();
-        self.state.lock().unwrap().calculate(&weights);
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
@@ -339,6 +317,20 @@ impl StatsSource for RepresentativeTracker {
     }
 }
 
+impl EventHandler<ChannelEvent> for RepresentativeTracker {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            let removed_reps = self.remove_peer(*id);
+            for rep in removed_reps {
+                info!(
+                    "Evicting representative {} with dead channel",
+                    Account::from(rep).encode_account(),
+                );
+            }
+        }
+    }
+}
+
 struct RepresentativeTrackerState {
     online_reps: OnlineContainer,
     peered_reps: PeeredContainer,
@@ -368,6 +360,40 @@ impl RepresentativeTrackerState {
                 minimum_principal_weight: online_weight_minimum / 1000,
             },
         }
+    }
+
+    pub fn vote_observed(
+        &mut self,
+        rep: PublicKey,
+        delivery: VoteDelivery,
+        channel: Option<Arc<Channel>>,
+        now: Timestamp,
+        weights: &RepWeights,
+    ) -> InsertResult {
+        let mut result = InsertResult::Updated;
+        let weight = weights.weight(&rep);
+        if weight < self.representative_weight_minimum {
+            return InsertResult::Updated;
+        }
+
+        self.online_reps.insert(rep, now);
+
+        if delivery == VoteDelivery::Direct
+            && let Some(channel) = channel
+        {
+            result = self.peered_reps.update_or_insert(rep, channel.clone(), now);
+        }
+
+        self.calculate(weights);
+        result
+    }
+
+    pub fn trim(&mut self, now: Timestamp, weights: &RepWeights) -> Vec<(PublicKey, Timestamp)> {
+        let trimmed = self
+            .online_reps
+            .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
+        self.calculate(&weights);
+        trimmed
     }
 
     fn calculate(&mut self, weights: &RepWeights) {

@@ -7,15 +7,15 @@ use rsnano_types::PublicKey;
 /// A representative to which we have a direct connection
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeeredRep {
-    pub account: PublicKey,
+    pub public_key: PublicKey,
     pub channel: Arc<Channel>,
     pub last_request: Timestamp,
 }
 
 impl PeeredRep {
-    pub fn new(account: PublicKey, channel: Arc<Channel>, last_request: Timestamp) -> Self {
+    pub fn new(public_key: PublicKey, channel: Arc<Channel>, last_request: Timestamp) -> Self {
         Self {
-            account,
+            public_key,
             channel,
             last_request,
         }
