@@ -1411,6 +1411,7 @@ impl Node {
         self.process_multi(blocks);
         self.confirm_multi(blocks);
     }
+
     pub fn insert_into_wallet(&self, keys: &PrivateKey) {
         let wallet_id = self.wallets.wallet_ids()[0];
         self.wallets

@@ -94,7 +94,7 @@ impl RepresentativeTracker {
         let min_rep_weight = Amount::nano(1000);
         let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
         let channel = Arc::new(Channel::new_test_instance());
-        tracker.vote_observed_directly(rep, channel, Timestamp::new_test_instance());
+        tracker.vote_observed_directly(rep, channel);
         tracker
     }
 
@@ -209,7 +209,8 @@ impl RepresentativeTracker {
     /// Add voting account rep_account to the set of online representatives.
     /// This can happen for directly connected or indirectly connected reps.
     /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed(&self, rep_account: PublicKey, now: Timestamp) -> bool {
+    pub fn vote_observed(&self, rep_account: PublicKey) -> bool {
+        let now = self.clock.now();
         let weights = self.rep_weights.read();
         let weight = weights.weight(&rep_account);
         let mut state = self.state.lock().unwrap();
@@ -221,13 +222,6 @@ impl RepresentativeTracker {
         state.calculate(&weights);
 
         true
-    }
-
-    /// Add voting account rep_account to the set of online representatives.
-    /// This can happen for directly connected or indirectly connected reps.
-    /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed2(&self, rep_account: PublicKey) -> bool {
-        self.vote_observed(rep_account, self.clock.now())
     }
 
     pub fn trim(&self) {
@@ -262,9 +256,9 @@ impl RepresentativeTracker {
         &self,
         rep_account: PublicKey,
         channel: Arc<Channel>,
-        now: Timestamp,
     ) -> InsertResult {
-        let is_rep = self.vote_observed(rep_account, now);
+        let now = self.clock.now();
+        let is_rep = self.vote_observed(rep_account);
         if is_rep {
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
@@ -277,15 +271,6 @@ impl RepresentativeTracker {
         } else {
             InsertResult::Updated
         }
-    }
-
-    /// Add rep_account to the set of peered representatives
-    pub fn vote_observed_directly2(
-        &self,
-        rep_account: PublicKey,
-        channel: Arc<Channel>,
-    ) -> InsertResult {
-        self.vote_observed_directly(rep_account, channel, self.clock.now())
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
@@ -525,7 +510,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed2(rep);
+        tracker.vote_observed(rep);
 
         let specs = tracker.quorum_specs();
         assert_eq!(specs.online_weight, weight, "online");
@@ -539,7 +524,7 @@ mod tests {
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
         let channel = Arc::new(Channel::new_test_instance());
-        tracker.vote_observed_directly2(rep, channel);
+        tracker.vote_observed_directly(rep, channel);
         let specs = tracker.quorum_specs();
 
         assert_eq!(specs.online_weight, weight, "online");
@@ -587,7 +572,7 @@ mod tests {
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // below PR limit
-        tracker.vote_observed_directly2(rep, channel);
+        tracker.vote_observed_directly(rep, channel);
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // above PR limit
@@ -601,7 +586,7 @@ mod tests {
         let weight = Amount::nano(100_000_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed2(rep);
+        tracker.vote_observed(rep);
 
         assert_eq!(
             tracker.quorum_specs().quorum_delta,
@@ -620,11 +605,11 @@ mod tests {
             (rep_c, Amount::nano(400_000)),
         ]);
 
-        tracker.vote_observed2(rep_a);
+        tracker.vote_observed(rep_a);
         tracker.clock.advance(Duration::from_secs(10));
-        tracker.vote_observed2(rep_b);
+        tracker.vote_observed(rep_b);
         tracker.clock.advance(Duration::from_secs(59 * 10 + 1));
-        tracker.vote_observed2(rep_c);
+        tracker.vote_observed(rep_c);
 
         tracker.trim();
 

@@ -333,11 +333,9 @@ impl RepCrawler {
                 continue;
             }
 
-            let result = self.rep_tracker.vote_observed_directly(
-                vote.voter,
-                channel.clone(),
-                self.steady_clock.now(),
-            );
+            let result = self
+                .rep_tracker
+                .vote_observed_directly(vote.voter, channel.clone());
 
             match result {
                 InsertResult::Inserted => {
