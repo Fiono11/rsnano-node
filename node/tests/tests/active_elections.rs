@@ -11,7 +11,8 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
+    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteDelivery,
+    VoteError,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
@@ -89,7 +90,7 @@ fn fork_replacement_tally() {
         ));
         node1
             .vote_processor_queue
-            .enqueue(vote, None, VoteSource::Live, None);
+            .enqueue(vote, None, VoteDelivery::Direct, None);
         assert_timely2(|| node1.vote_cache.lock().unwrap().find(&fork.hash()).len() > 0);
         node1.process_active(fork);
     }
@@ -164,7 +165,7 @@ fn fork_replacement_tally() {
     ));
     node1
         .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
     // ensure vote arrives before the block
     assert_timely_eq2(
         || {
@@ -224,11 +225,14 @@ fn inactive_votes_cache_basic() {
     let send = lattice.genesis().send(&key, Amount::raw(100));
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]));
     node.vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
     node.process_active(send.clone());
     assert_timely2(|| node.block_confirmed(&send.hash()));
-    assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
+    assert_timely_eq2(
+        || node.get_stat("election_vote", "replayed", Direction::In),
+        1,
+    );
 }
 
 // This test case confirms that a non final vote cannot cause an election to become confirmed
@@ -249,7 +253,7 @@ fn non_final() {
         vec![send.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
     assert_timely_eq(
         Duration::from_secs(5),
         || node.vote_cache.lock().unwrap().size(),
@@ -260,7 +264,10 @@ fn non_final() {
 
     assert_timely2(|| node.aec.election_for_root(&send.qualified_root()).is_some());
 
-    assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
+    assert_timely_eq2(
+        || node.get_stat("election_vote", "replayed", Direction::In),
+        1,
+    );
 
     let _quorum_delta = node.rep_tracker.quorum_specs().quorum_delta;
     assert_timely_eq2(
@@ -293,7 +300,7 @@ fn inactive_votes_cache_fork() {
 
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
     node.vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
 
     assert_timely_eq(
         Duration::from_secs(5),
@@ -308,7 +315,10 @@ fn inactive_votes_cache_fork() {
     node.process_active(send1.clone());
 
     assert_timely_eq2(|| node.block_confirmed(&send1.hash()), true);
-    assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1)
+    assert_timely_eq2(
+        || node.get_stat("election_vote", "replayed", Direction::In),
+        1,
+    )
 }
 
 #[test]
@@ -340,7 +350,7 @@ fn inactive_votes_cache_existing_vote() {
         vec![send.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote1.clone(), None, VoteSource::Live, None);
+        .enqueue(vote1.clone(), None, VoteDelivery::Direct, None);
 
     assert_timely_eq2(
         || {
@@ -375,14 +385,14 @@ fn inactive_votes_cache_existing_vote() {
     assert_eq!(cached.len(), 1);
     let _ = node
         .vote_processor
-        .vote_blocking(&ReceivedVote::new(cached[0].clone(), VoteSource::Live, None).into());
+        .vote_blocking(&ReceivedVote::new(cached[0].clone(), VoteDelivery::Direct, None).into());
 
     // Check that election data is not changed
     let election = node.aec.election_for_block(&send.hash()).unwrap();
     assert_eq!(election.vote_count(), 1);
     let last_vote2 = election.votes().get(&key.public_key()).unwrap().clone();
     assert_eq!(send.hash(), last_vote2.hash);
-    assert_eq!(0, node.get_stat("election_vote", "cache", Direction::In));
+    assert_eq!(0, node.get_stat("election_vote", "replayed", Direction::In));
 }
 
 #[test]
@@ -414,7 +424,7 @@ fn inactive_votes_cache_multiple_votes() {
         vec![send1.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote1, None, VoteSource::Live, None);
+        .enqueue(vote1, None, VoteDelivery::Direct, None);
 
     let vote2 = Arc::new(Vote::new(
         &DEV_GENESIS_KEY,
@@ -423,7 +433,7 @@ fn inactive_votes_cache_multiple_votes() {
         vec![send1.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote2, None, VoteSource::Live, None);
+        .enqueue(vote2, None, VoteDelivery::Direct, None);
 
     assert_timely_eq2(
         || node.vote_cache.lock().unwrap().find(&send1.hash()).len(),
@@ -440,7 +450,10 @@ fn inactive_votes_cache_multiple_votes() {
         },
         2,
     );
-    assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 2);
+    assert_timely_eq2(
+        || node.get_stat("election_vote", "replayed", Direction::In),
+        2,
+    );
 }
 
 #[test]
@@ -482,7 +495,7 @@ fn inactive_votes_cache_election_start() {
         vec![open1.hash(), open2.hash(), send4.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote1, None, VoteSource::Live, None);
+        .enqueue(vote1, None, VoteDelivery::Direct, None);
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 3);
     assert_eq!(node.aec.len(), 0);
     assert_eq!(1, node.ledger.confirmed_count());
@@ -495,7 +508,7 @@ fn inactive_votes_cache_election_start() {
         vec![open1.hash(), open2.hash(), send4.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote2, None, VoteSource::Live, None);
+        .enqueue(vote2, None, VoteDelivery::Direct, None);
     // Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
     assert_timely_eq2(|| node.aec.len(), 1);
     assert!(node.is_active_hash(&send1.hash()));
@@ -506,7 +519,7 @@ fn inactive_votes_cache_election_start() {
         vec![open1.hash(), open2.hash(), send4.hash()],
     ));
     node.vote_processor_queue
-        .enqueue(vote0, None, VoteSource::Live, None);
+        .enqueue(vote0, None, VoteDelivery::Direct, None);
     assert_timely_eq2(|| node.aec.len(), 0);
     assert_timely_eq2(|| node.ledger.confirmed_count(), 5);
     // Confirmation on disk may lag behind cemented_count cache
@@ -577,7 +590,7 @@ fn republish_winner() {
 
     node1
         .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
 
     assert_timely2(|| node2.block_confirmed(&fork.hash()));
 }
@@ -985,7 +998,7 @@ fn conflicting_block_vote_existing_election() {
 
     // Vote for conflicting block, but the block does not yet exist in the ledger
     node.vote_processor_queue
-        .enqueue(vote_fork, None, VoteSource::Live, None);
+        .enqueue(vote_fork, None, VoteDelivery::Direct, None);
 
     // Block now gets processed
     assert_eq!(node.process_local(fork.clone()), Err(BlockError::Fork));
@@ -1085,7 +1098,7 @@ fn vote_replays() {
     // First vote is not a replay and confirms the election, second vote should be a replay since the election has confirmed but not yet removed
     let vote_send1: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     )
     .into();
@@ -1102,7 +1115,7 @@ fn vote_replays() {
     // Open new account
     let vote_open1: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     )
     .into();
@@ -1127,7 +1140,7 @@ fn vote_replays() {
     // vote2_send2 is a non final vote with little weight, vote1_send2 is the vote that confirms the election
     let vote1_send2: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     )
     .into();
@@ -1139,7 +1152,7 @@ fn vote_replays() {
             0,
             vec![send2.hash()],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     )
     .into();

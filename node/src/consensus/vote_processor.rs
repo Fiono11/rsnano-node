@@ -11,7 +11,7 @@ use std::{
 use tracing::debug;
 
 use rsnano_network::Channel;
-use rsnano_types::{BlockHash, Vote, VoteError, VoteSource};
+use rsnano_types::{BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     sync::backpressure_channel::Sender,
@@ -43,7 +43,7 @@ impl VoteProcessorConfig {
 }
 
 pub type VoteProcessedCallback2 =
-    Box<dyn Fn(&Arc<Vote>, Option<&Arc<Channel>>, VoteSource, VoteError) + Send + Sync>;
+    Box<dyn Fn(&Arc<Vote>, Option<&Arc<Channel>>, VoteDelivery, VoteError) + Send + Sync>;
 
 pub struct VoteProcessor {
     threads: Mutex<Vec<JoinHandle<()>>>,

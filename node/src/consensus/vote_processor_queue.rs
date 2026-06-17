@@ -7,7 +7,7 @@ use std::{
 use strum::IntoEnumIterator;
 
 use rsnano_network::{Channel, ChannelEvent, ChannelId};
-use rsnano_types::{BlockHash, Vote, VoteSource};
+use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -75,7 +75,7 @@ impl VoteProcessorQueue {
         &self,
         vote: Arc<Vote>,
         channel: Option<Arc<Channel>>,
-        source: VoteSource,
+        source: VoteDelivery,
         filter: Option<BlockHash>,
     ) -> bool {
         let channel_id = match &channel {
@@ -112,7 +112,7 @@ impl VoteProcessorQueue {
         (RepTier, ChannelId),
         (
             Arc<Vote>,
-            VoteSource,
+            VoteDelivery,
             Option<Arc<Channel>>,
             Option<BlockHash>,
         ),
@@ -167,7 +167,7 @@ impl ContainerInfoProvider for VoteProcessorQueue {
             .leaf(
                 "votes",
                 guard.queue.len(),
-                size_of::<(Arc<Vote>, VoteSource)>(),
+                size_of::<(Arc<Vote>, VoteDelivery)>(),
             )
             .node("queue", guard.queue.container_info())
             .finish()
@@ -197,7 +197,7 @@ struct VoteProcessorQueueData {
         (RepTier, ChannelId),
         (
             Arc<Vote>,
-            VoteSource,
+            VoteDelivery,
             Option<Arc<Channel>>,
             Option<BlockHash>, //filter
         ),

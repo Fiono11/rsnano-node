@@ -7,7 +7,7 @@ use tracing::trace;
 
 use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{Channel, Network};
-use rsnano_types::VoteSource;
+use rsnano_types::VoteDelivery;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
@@ -163,8 +163,8 @@ impl NetworkMessageProcessor {
                 }
 
                 let source = match ack.is_rebroadcasted() {
-                    true => VoteSource::Rebroadcast,
-                    false => VoteSource::Live,
+                    true => VoteDelivery::Forwarded,
+                    false => VoteDelivery::Direct,
                 };
 
                 let added = self.vote_processor_queue.enqueue(

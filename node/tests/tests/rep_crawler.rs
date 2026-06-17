@@ -5,7 +5,7 @@ use rsnano_ledger::{
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{ChannelMode, TrafficType};
 use rsnano_node::consensus::ReceivedVote;
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteSource};
+use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteDelivery};
 use std::{sync::Arc, time::Duration};
 use test_helpers::{System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2};
 
@@ -117,7 +117,7 @@ fn rep_weight() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel1.clone()),
     );
 
@@ -128,7 +128,7 @@ fn rep_weight() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel2.clone()),
     );
 
@@ -139,7 +139,7 @@ fn rep_weight() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel3.clone()),
     );
 

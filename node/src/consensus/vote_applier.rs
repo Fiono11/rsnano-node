@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::consensus::{AecInsertRequest, AecService};
     use rsnano_types::{
-        BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
+        BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteDelivery,
     };
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
 
         let vote = ReceivedVote::new(
             Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),
-            VoteSource::Live,
+            VoteDelivery::Direct,
             None,
         );
 

@@ -4,7 +4,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_types::{BlockHash, VoteSource};
+use rsnano_types::{BlockHash, VoteDelivery};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -154,7 +154,7 @@ impl VoteCacheLoop {
             let cached = self.vote_cache.lock().unwrap().find(&hash);
             for cached_vote in cached {
                 self.vote_queue
-                    .enqueue(cached_vote, None, VoteSource::Cache, Some(hash));
+                    .enqueue(cached_vote, None, VoteDelivery::Replayed, Some(hash));
             }
         }
     }

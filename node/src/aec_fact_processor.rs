@@ -6,7 +6,7 @@ use rsnano_ledger::BlockSource;
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Block, VoteError, VoteSource};
+use rsnano_types::{Block, VoteDelivery, VoteError};
 use rsnano_utils::stats::{Sample, Stats};
 
 use crate::{
@@ -127,7 +127,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
-                if vote.source != VoteSource::Cache {
+                if vote.source != VoteDelivery::Replayed {
                     self.vote_cache
                         .lock()
                         .unwrap()
@@ -174,7 +174,7 @@ impl AecFactProcessor {
         );
 
         // Ignore republished votes when rep crawling
-        if vote.source == VoteSource::Live {
+        if vote.source == VoteDelivery::Direct {
             should_observe |= self.rep_crawler.process(vote);
         }
 

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_node::{config::NodeConfig, consensus::ReceivedVote};
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteSource};
+use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteDelivery};
 use test_helpers::{System, assert_timely2};
 
 // checks that block cannot be confirmed if there is no enough votes to reach quorum
@@ -32,7 +32,7 @@ fn quorum_minimum_confirm_fail() {
 
     let vote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     );
     let _ = node1.vote_processor.vote_blocking(&vote.into());
@@ -73,7 +73,7 @@ fn quorum_minimum_confirm_success() {
 
     let vote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     );
     let _ = node1.vote_processor.vote_blocking(&vote.into());
@@ -116,7 +116,7 @@ fn quorum_minimum_flip_fail() {
     // due to the online_weight_minimum being so high
     let vote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     );
     let _ = node1.vote_processor.vote_blocking(&vote.into());
@@ -161,7 +161,7 @@ fn quorum_minimum_flip_success() {
     // Genesis generates a final vote for send2
     let vote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()])),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         None,
     );
     let _ = node1.vote_processor.vote_blocking(&vote.into());

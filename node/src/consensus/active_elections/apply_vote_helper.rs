@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
+use rsnano_types::{Amount, BlockHash, VoteDelivery, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
@@ -97,7 +97,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
-        if self.args.vote.source == VoteSource::Cache {
+        if self.args.vote.source == VoteDelivery::Replayed {
             // Only cooldown live votes
             return false;
         }
@@ -227,7 +227,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(2000), Duration::ZERO);
 
-        let result = fixture.apply_vote_from(VoteSource::Live, UnixMillisTimestamp::new(1000));
+        let result = fixture.apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(1000));
 
         assert_eq!(result, Err(VoteError::Replay));
     }
@@ -237,7 +237,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::from_millis(500));
 
-        let result = fixture.apply_vote_from(VoteSource::Live, UnixMillisTimestamp::new(2000));
+        let result = fixture.apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(2000));
 
         assert_eq!(result, Err(VoteError::Ignored));
     }
@@ -247,7 +247,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::from_secs(15));
 
-        let result = fixture.apply_vote_from(VoteSource::Live, UnixMillisTimestamp::new(1100));
+        let result = fixture.apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(1100));
 
         assert_eq!(result, Ok(()));
     }
@@ -257,7 +257,8 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::ZERO);
 
-        let result = fixture.apply_vote_from(VoteSource::Cache, UnixMillisTimestamp::new(1100));
+        let result =
+            fixture.apply_vote_from(VoteDelivery::Replayed, UnixMillisTimestamp::new(1100));
 
         assert_eq!(result, Ok(()));
     }
@@ -267,7 +268,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::ZERO);
 
-        let result = fixture.apply_final_vote_from(VoteSource::Live);
+        let result = fixture.apply_final_vote_from(VoteDelivery::Direct);
 
         assert_eq!(result, Ok(()));
     }
@@ -277,7 +278,7 @@ mod tests {
         let mut fixture = FixtureForElection::default();
         fixture.election.force_confirm();
 
-        let result = fixture.apply_final_vote_from(VoteSource::Live);
+        let result = fixture.apply_final_vote_from(VoteDelivery::Direct);
 
         assert_eq!(result, Err(VoteError::Late));
     }
@@ -301,7 +302,7 @@ mod tests {
 
         let vote = ReceivedVote::new(
             Vote::new(&key, UnixMillisTimestamp::new(1000), 0, vec![fork.hash()]).into(),
-            VoteSource::Live,
+            VoteDelivery::Direct,
             None,
         );
 
@@ -323,7 +324,7 @@ mod tests {
             .rep_weights
             .put(fixture.rep1_key.public_key(), Amount::MAX);
 
-        fixture.apply_final_vote_from(VoteSource::Live).unwrap();
+        fixture.apply_final_vote_from(VoteDelivery::Direct).unwrap();
 
         assert_eq!(fixture.events.len(), 1);
 
@@ -381,7 +382,8 @@ mod tests {
                 hashes,
             );
 
-            let vote: FilteredVote = ReceivedVote::new(vote.into(), VoteSource::Live, None).into();
+            let vote: FilteredVote =
+                ReceivedVote::new(vote.into(), VoteDelivery::Direct, None).into();
             let quorum_specs = QuorumSpecs::new_test_instance();
 
             let args = ApplyVoteArgs {
@@ -434,7 +436,7 @@ mod tests {
 
         fn apply_vote_from(
             &mut self,
-            source: VoteSource,
+            source: VoteDelivery,
             created: UnixMillisTimestamp,
         ) -> Result<(), VoteError> {
             let vote = ReceivedVote::new(
@@ -446,7 +448,7 @@ mod tests {
             self.apply_vote(vote)
         }
 
-        fn apply_final_vote_from(&mut self, source: VoteSource) -> Result<(), VoteError> {
+        fn apply_final_vote_from(&mut self, source: VoteDelivery) -> Result<(), VoteError> {
             let vote = ReceivedVote::new(
                 Vote::new_final(&self.rep1_key, vec![self.block.hash()]).into(),
                 source,

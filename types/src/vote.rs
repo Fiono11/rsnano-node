@@ -7,18 +7,18 @@ use super::{
 use crate::{DeserializationError, SignatureError};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, EnumCount, EnumIter)]
-pub enum VoteSource {
-    Live,
-    Rebroadcast,
-    Cache,
+pub enum VoteDelivery {
+    Direct,
+    Forwarded,
+    Replayed,
 }
 
-impl VoteSource {
+impl VoteDelivery {
     pub fn as_str(&self) -> &'static str {
         match self {
-            VoteSource::Live => "live",
-            VoteSource::Rebroadcast => "rebroadcast",
-            VoteSource::Cache => "cache",
+            VoteDelivery::Direct => "direct",
+            VoteDelivery::Forwarded => "forwarded",
+            VoteDelivery::Replayed => "replayed",
         }
     }
 }

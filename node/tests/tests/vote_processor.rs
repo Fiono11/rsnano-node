@@ -6,7 +6,7 @@ use std::{
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
 use rsnano_node::consensus::{FilteredVote, ReceivedVote, RepTier};
 use rsnano_types::{
-    Amount, DEV_GENESIS_KEY, PrivateKey, Signature, Vote, VoteError, VoteSource, VoteTimestamp,
+    Amount, DEV_GENESIS_KEY, PrivateKey, Signature, Vote, VoteDelivery, VoteError, VoteTimestamp,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
@@ -32,9 +32,9 @@ fn codes() {
     let mut vote_invalid = vote.clone();
     vote_invalid.signature = Signature::new();
 
-    let vote: FilteredVote = ReceivedVote::new(Arc::new(vote), VoteSource::Live, None).into();
+    let vote: FilteredVote = ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into();
     let vote_invalid: FilteredVote =
-        ReceivedVote::new(Arc::new(vote_invalid), VoteSource::Live, None).into();
+        ReceivedVote::new(Arc::new(vote_invalid), VoteDelivery::Direct, None).into();
 
     // Invalid signature
     assert_eq!(
@@ -92,7 +92,7 @@ fn invalid_signature() {
     start_election(&node, &chain[0].hash());
 
     node.vote_processor_queue
-        .enqueue(vote_invalid, None, VoteSource::Live, None);
+        .enqueue(vote_invalid, None, VoteDelivery::Direct, None);
 
     assert_always_eq(
         Duration::from_millis(500),
@@ -124,7 +124,7 @@ fn overflow() {
     for _ in 0..TOTAL {
         if !node
             .vote_processor_queue
-            .enqueue(vote.clone(), None, VoteSource::Live, None)
+            .enqueue(vote.clone(), None, VoteDelivery::Direct, None)
         {
             not_processed += 1;
         }

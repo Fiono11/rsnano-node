@@ -8,7 +8,7 @@ use rsnano_network::ChannelId;
 use rsnano_node::block_processing::BlockContext;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, PrivateKey, QualifiedRoot,
-    Signature, StateBlockArgs, Vote, VoteError, VoteSource,
+    Signature, StateBlockArgs, Vote, VoteDelivery, VoteError,
 };
 use test_helpers::{System, assert_timely_eq2, assert_timely2, start_elections};
 
@@ -37,7 +37,7 @@ mod votes {
 
         node1
             .vote_processor
-            .vote_blocking(&ReceivedVote::new(vote1.into(), VoteSource::Live, None).into())
+            .vote_blocking(&ReceivedVote::new(vote1.into(), VoteDelivery::Direct, None).into())
             .unwrap();
 
         let vote2 = ReceivedVote::new(
@@ -47,7 +47,7 @@ mod votes {
                 0,
                 vec![send1.hash()],
             )),
-            VoteSource::Live,
+            VoteDelivery::Direct,
             None,
         );
 

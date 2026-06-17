@@ -71,7 +71,7 @@ use serde::de::{Unexpected, Visitor};
 pub use signature::Signature;
 use thiserror::Error;
 pub use timestamp::{UnixMillisTimestamp, UnixTimestamp, milliseconds_since_epoch};
-pub use vote::{TestVoteBuilder, Vote, VoteError, VoteSource};
+pub use vote::{TestVoteBuilder, Vote, VoteDelivery, VoteError};
 pub use vote_timestamp::VoteTimestamp;
 
 pub type SnapshotNumber = u32;

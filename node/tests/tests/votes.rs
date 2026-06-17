@@ -9,7 +9,7 @@ use rsnano_node::{
     consensus::{ReceivedVote, election::VoteType},
 };
 use rsnano_types::{
-    Amount, DEV_GENESIS_KEY, Epoch, PrivateKey, Signature, Vote, VoteError, VoteSource, WalletId,
+    Amount, DEV_GENESIS_KEY, Epoch, PrivateKey, Signature, Vote, VoteDelivery, VoteError, WalletId,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
@@ -33,7 +33,7 @@ fn check_signature() {
     vote1.signature = Signature::new();
     let received_vote1 = ReceivedVote::new(
         Arc::new(vote1.clone()),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel.clone()),
     );
     assert_eq!(
@@ -44,7 +44,7 @@ fn check_signature() {
     vote1.signature = good_signature;
 
     let received_vote2 =
-        ReceivedVote::new(Arc::new(vote1), VoteSource::Live, Some(channel.clone()));
+        ReceivedVote::new(Arc::new(vote1), VoteDelivery::Direct, Some(channel.clone()));
     assert!(
         node.vote_processor
             .vote_blocking(&received_vote2.clone().into())
@@ -74,9 +74,9 @@ fn add_cooldown() {
         vec![send1.hash()],
     ));
     let channel = make_fake_channel(&node);
-    let _ = node
-        .vote_processor
-        .vote_blocking(&ReceivedVote::new(vote1, VoteSource::Live, Some(channel.clone())).into());
+    let _ = node.vote_processor.vote_blocking(
+        &ReceivedVote::new(vote1, VoteDelivery::Direct, Some(channel.clone())).into(),
+    );
 
     let key2 = PrivateKey::new();
     let send2 = fork_lattice.genesis().send_max(&key2);
@@ -89,7 +89,7 @@ fn add_cooldown() {
 
     let _ = node
         .vote_processor
-        .vote_blocking(&ReceivedVote::new(vote2, VoteSource::Live, Some(channel)).into());
+        .vote_blocking(&ReceivedVote::new(vote2, VoteDelivery::Direct, Some(channel)).into());
 
     let election1 = node.aec.election_for_root(&send1.qualified_root()).unwrap();
     assert_eq!(1, election1.vote_count());

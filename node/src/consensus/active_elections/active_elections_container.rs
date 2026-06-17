@@ -564,7 +564,7 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
-    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
+    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteDelivery};
     use std::sync::Arc;
 
     #[test]
@@ -654,7 +654,7 @@ mod tests {
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
         let vote = Arc::new(Vote::new_final(rep_key, vec![block_hash]));
-        ReceivedVote::new(vote, VoteSource::Live, None)
+        ReceivedVote::new(vote, VoteDelivery::Direct, None)
     }
 
     fn test_iter(blocks: &[(&SavedBlock, BlockPriority)], expected: &[&SavedBlock]) {

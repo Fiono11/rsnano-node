@@ -22,7 +22,7 @@ use rsnano_node::{
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
+    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteDelivery, WorkRequest,
 };
 use rsnano_utils::{
     BackpressureHandler,
@@ -1400,7 +1400,7 @@ fn online_reps_rep_crawler() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel.clone()),
     )
     .into();
@@ -1448,7 +1448,7 @@ fn online_reps_election() {
     let channel = make_fake_channel(&node);
     let _ = node
         .vote_processor
-        .vote_blocking(&ReceivedVote::new(vote.into(), VoteSource::Live, Some(channel)).into());
+        .vote_blocking(&ReceivedVote::new(vote.into(), VoteDelivery::Direct, Some(channel)).into());
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
@@ -1488,7 +1488,7 @@ fn vote_republish() {
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
     node1
         .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
 
     // FIXME: there is a race condition here, if the vote arrives before the block then the vote is wasted and the test fails
     // we could resend the vote but then there is a race condition between the vote resending and the election reaching quorum on node1
@@ -1536,7 +1536,7 @@ fn vote_by_hash_republish() {
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
     node1
         .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
 
     // send2 should win on both nodes
     assert_timely2(|| node1.blocks_confirmed(&[send2.clone()]));
@@ -1620,7 +1620,7 @@ fn confirm_back() {
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
 
     node.vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+        .enqueue(vote, None, VoteDelivery::Direct, None);
 
     assert_timely_eq2(|| node.aec.len(), 0);
 }
@@ -1666,7 +1666,7 @@ fn rep_crawler_rep_remove() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel_rep1.clone()),
     );
 
@@ -1707,7 +1707,7 @@ fn rep_crawler_rep_remove() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel_genesis_rep),
     );
 
@@ -1745,7 +1745,7 @@ fn rep_crawler_rep_remove() {
             0,
             vec![*DEV_GENESIS_HASH],
         )),
-        VoteSource::Live,
+        VoteDelivery::Direct,
         Some(channel_rep2),
     );
 
