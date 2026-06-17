@@ -154,7 +154,7 @@ fn rep_weight() {
         node.balance(&DEV_GENESIS_ACCOUNT),
         node.ledger.weight(&rep.rep_key)
     );
-    assert_eq!(channel1.channel_id(), rep.channel_id());
+    assert_eq!(channel1.channel_id(), rep.channel_id);
     assert_eq!(
         node.rep_tracker.is_principal_rep(channel1.channel_id()),
         true

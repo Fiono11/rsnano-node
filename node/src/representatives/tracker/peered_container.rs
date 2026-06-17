@@ -44,10 +44,10 @@ impl PeeredContainer {
         let channel_id = channel.channel_id();
         if let Some(rep) = self.by_account.get_mut(&account) {
             // Update if representative channel was changed
-            if rep.channel_id() != channel_id {
-                let old_channel_id = rep.channel_id();
+            if rep.channel_id != channel_id {
+                let old_channel_id = rep.channel_id;
                 let new_channel_id = channel_id;
-                rep.channel = channel;
+                rep.channel_id = new_channel_id;
                 self.remove_channel_id(&account, old_channel_id);
                 self.by_channel_id
                     .entry(new_channel_id)
@@ -59,7 +59,7 @@ impl PeeredContainer {
             }
         } else {
             self.by_account
-                .insert(account, PeeredRep::new(account, channel, now));
+                .insert(account, PeeredRep::new(account, channel_id, now));
 
             let by_id = self.by_channel_id.entry(channel_id).or_default();
             by_id.push(account);
@@ -151,14 +151,14 @@ mod tests {
 
         assert_eq!(
             container.iter().cloned().collect::<Vec<_>>(),
-            vec![PeeredRep::new(account, channel.clone(), now)]
+            vec![PeeredRep::new(account, channel_id, now)]
         );
         assert_eq!(
             container
                 .iter_by_channel(channel_id)
                 .cloned()
                 .collect::<Vec<_>>(),
-            vec![PeeredRep::new(account, channel, now)]
+            vec![PeeredRep::new(account, channel_id, now)]
         );
         assert_eq!(
             container

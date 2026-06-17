@@ -202,7 +202,7 @@ impl RepresentativeTracker {
             .drain(..)
             .map(|(rep, weight)| PeeredRepInfo {
                 rep_key: rep.public_key,
-                channel: rep.channel,
+                channel_id: rep.channel_id,
                 weight,
             })
             .collect()
@@ -433,7 +433,7 @@ impl RepresentativeTrackerState {
 #[derive(Clone)]
 pub struct PeeredRepInfo {
     pub rep_key: PublicKey,
-    pub channel: Arc<Channel>,
+    pub channel_id: ChannelId,
     pub weight: Amount,
 }
 
@@ -443,12 +443,6 @@ pub struct OnlineRepInfo {
     pub weight: Amount,
     // Does this node have a direct connection to that rep?
     pub is_peered: bool,
-}
-
-impl PeeredRepInfo {
-    pub fn channel_id(&self) -> ChannelId {
-        self.channel.channel_id()
-    }
 }
 
 #[derive(Clone)]

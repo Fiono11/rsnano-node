@@ -38,7 +38,7 @@ fn create_response(
             .map(|rep| PeerDetailsDto {
                 account: rep.rep_key.into(),
                 ip: net
-                    .get(rep.channel_id())
+                    .get(rep.channel_id)
                     .map(|c| c.peer_addr())
                     .unwrap_or(NULL_ENDPOINT),
                 weight: rep.weight,

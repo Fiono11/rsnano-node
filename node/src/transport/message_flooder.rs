@@ -80,7 +80,7 @@ impl MessageFlooder {
         let mut flood_count = FloodCount::default();
         let peered_prs = self.rep_tracker.peered_principal_reps();
         for rep in peered_prs {
-            if self.try_send_channel_id(rep.channel_id(), message, traffic_type) {
+            if self.try_send_channel_id(rep.channel_id, message, traffic_type) {
                 flood_count.principal_reps += 1;
             }
         }

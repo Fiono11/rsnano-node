@@ -1,8 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use rsnano_ledger::{DEV_GENESIS_PUB_KEY, test_helpers::UnsavedBlockLatticeBuilder};
 use rsnano_messages::ConfirmReq;
-use rsnano_network::Channel;
+use rsnano_network::ChannelId;
 use rsnano_node::{
     config::NodeFlags,
     consensus::{
@@ -34,7 +34,7 @@ fn batches() {
     // Solicitor will only solicit from this representative
     let representative = PeeredRepInfo {
         rep_key: *DEV_GENESIS_PUB_KEY,
-        channel: channel1,
+        channel_id: channel1.channel_id(),
         weight: Amount::nano(100_000),
     };
     let representatives = vec![representative];
@@ -84,7 +84,7 @@ fn different_hashes() {
     // Solicitor will only solicit from this representative
     let representative = PeeredRepInfo {
         rep_key: *DEV_GENESIS_PUB_KEY,
-        channel: channel1,
+        channel_id: channel1.channel_id(),
         weight: Amount::nano(100_000),
     };
     let representatives = vec![representative];
@@ -143,7 +143,7 @@ fn bypass_max_requests_cap() {
         // Make a temporary channel associated with node2
         let rep = PeeredRepInfo {
             rep_key: PublicKey::from(i as u64),
-            channel: Arc::new(Channel::new_test_instance_with_id(i)),
+            channel_id: ChannelId::from(i),
             weight: Amount::nano(100_000),
         };
         representatives.push(rep);

@@ -60,7 +60,7 @@ impl ConfirmationSolicitor {
                 false
             };
             if existing_vote.is_none() || !is_final || different_hash {
-                if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id()) {
+                if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id) {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 
                     if !should_drop {

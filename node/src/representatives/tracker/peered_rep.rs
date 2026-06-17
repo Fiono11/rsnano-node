@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use rsnano_network::{Channel, ChannelId};
+use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::PublicKey;
 
@@ -8,20 +6,16 @@ use rsnano_types::PublicKey;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeeredRep {
     pub public_key: PublicKey,
-    pub channel: Arc<Channel>,
+    pub channel_id: ChannelId,
     pub last_request: Timestamp,
 }
 
 impl PeeredRep {
-    pub fn new(public_key: PublicKey, channel: Arc<Channel>, last_request: Timestamp) -> Self {
+    pub fn new(public_key: PublicKey, channel_id: ChannelId, last_request: Timestamp) -> Self {
         Self {
             public_key,
-            channel,
+            channel_id,
             last_request,
         }
-    }
-
-    pub fn channel_id(&self) -> ChannelId {
-        self.channel.channel_id()
     }
 }

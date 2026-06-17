@@ -97,7 +97,7 @@ impl Channels {
         }
 
         for rep in reps {
-            if let Some(channel) = self.channel_map.get_mut(&rep.channel_id()) {
+            if let Some(channel) = self.channel_map.get_mut(&rep.channel_id) {
                 channel.rep_weight = rep.weight;
                 channel.rep_state = if channel.rep_weight > min_rep_weight {
                     RepState::PrincipalRep
@@ -211,7 +211,7 @@ mod tests {
         let channel = Arc::new(Channel::new_test_instance());
         let reps = vec![PeeredRepInfo {
             rep_key,
-            channel: channel.clone(),
+            channel_id: channel.channel_id(),
             weight: Amount::nano(1_000_000),
         }];
 
