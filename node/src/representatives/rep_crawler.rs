@@ -8,7 +8,7 @@ use std::{
 };
 
 use bounded_vec_deque::BoundedVecDeque;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
@@ -20,7 +20,7 @@ use rsnano_utils::{
     stats::{DetailType, Direction, Sample, StatType, Stats},
 };
 
-use super::{InsertResult, RepresentativeTracker};
+use super::RepresentativeTracker;
 use crate::{
     config::{NetworkParams, NodeConfig},
     consensus::{AecService, ReceivedVote},
@@ -333,8 +333,7 @@ impl RepCrawler {
                 continue;
             }
 
-            self
-                .rep_tracker
+            self.rep_tracker
                 .vote_observed_directly(vote.voter, channel.clone());
         }
     }

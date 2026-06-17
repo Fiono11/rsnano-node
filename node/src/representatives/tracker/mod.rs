@@ -12,8 +12,8 @@ pub use peered_rep::PeeredRep;
 use std::{
     cmp::max,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -209,7 +209,12 @@ impl RepresentativeTracker {
     /// Add voting account rep to the set of online representatives.
     /// This can happen for directly connected or indirectly connected reps.
     /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed(&self, rep: PublicKey, delivery: VoteDelivery) -> bool {
+    pub fn vote_observed(
+        &self,
+        rep: PublicKey,
+        delivery: VoteDelivery,
+        channel: Option<Arc<Channel>>,
+    ) -> bool {
         let now = self.clock.now();
         let weights = self.rep_weights.read();
         let weight = weights.weight(&rep);
@@ -227,7 +232,7 @@ impl RepresentativeTracker {
     /// Add rep_account to the set of peered representatives
     pub fn vote_observed_directly(&self, rep: PublicKey, channel: Arc<Channel>) {
         let now = self.clock.now();
-        let is_rep = self.vote_observed(rep, VoteDelivery::Direct);
+        let is_rep = self.vote_observed(rep, VoteDelivery::Direct, Some(channel.clone()));
         if is_rep {
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
@@ -522,7 +527,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed(rep, VoteDelivery::Direct);
+        tracker.vote_observed(rep, VoteDelivery::Direct, None);
 
         let specs = tracker.quorum_specs();
         assert_eq!(specs.online_weight, weight, "online");
@@ -598,7 +603,7 @@ mod tests {
         let weight = Amount::nano(100_000_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed(rep, VoteDelivery::Direct);
+        tracker.vote_observed(rep, VoteDelivery::Direct, None);
 
         assert_eq!(
             tracker.quorum_specs().quorum_delta,
@@ -617,11 +622,11 @@ mod tests {
             (rep_c, Amount::nano(400_000)),
         ]);
 
-        tracker.vote_observed(rep_a, VoteDelivery::Direct);
+        tracker.vote_observed(rep_a, VoteDelivery::Direct, None);
         tracker.clock.advance(Duration::from_secs(10));
-        tracker.vote_observed(rep_b, VoteDelivery::Direct);
+        tracker.vote_observed(rep_b, VoteDelivery::Direct, None);
         tracker.clock.advance(Duration::from_secs(59 * 10 + 1));
-        tracker.vote_observed(rep_c, VoteDelivery::Direct);
+        tracker.vote_observed(rep_c, VoteDelivery::Direct, None);
 
         tracker.trim();
 

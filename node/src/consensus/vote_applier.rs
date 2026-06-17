@@ -63,20 +63,20 @@ impl VoteApplier {
                 .collect();
         }
 
-        let is_active = vote
+        let has_election = vote
             .filtered_blocks()
             .any(|hash| self.active_elections.is_active_hash(hash));
 
-        let now = self.clock.now();
-
-        if is_active {
+        if has_election {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
             // The rep weights have to be updated before the votes are processed!
-            self.rep_tracker.vote_observed(vote.voter, vote.delivery);
+            self.rep_tracker
+                .vote_observed(vote.voter, vote.delivery, vote.channel.clone());
         }
         let quorum_specs = self.rep_tracker.quorum_specs();
 
         let results = {
+            let now = self.clock.now();
             let rep_weights = self.rep_weights.read();
             self.active_elections.apply_vote(ApplyVoteArgs {
                 vote,
@@ -133,7 +133,7 @@ mod tests {
         );
         let clock = Arc::new(SteadyClock::new_null());
 
-        rep_tracker.vote_observed(another_rep.public_key(), VoteDelivery::Direct);
+        rep_tracker.vote_observed(another_rep.public_key(), VoteDelivery::Direct, None);
 
         assert_eq!(
             rep_tracker.quorum_specs().quorum_delta,
