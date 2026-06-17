@@ -918,6 +918,7 @@ impl Node {
         channel_event_handlers.add(request_aggregator.clone());
         channel_event_handlers.add(bootstrapper.clone());
         channel_event_handlers.add(telemetry.clone());
+        channel_event_handlers.add(rep_crawler.clone());
 
         #[cfg(feature = "ledger_snapshots")]
         let ledger_snapshots = {

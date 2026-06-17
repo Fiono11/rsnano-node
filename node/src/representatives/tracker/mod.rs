@@ -129,27 +129,6 @@ impl RepresentativeTracker {
         self.state.lock().unwrap().quorum_specs.clone()
     }
 
-    pub fn on_rep_request(&self, channel_id: ChannelId, now: Timestamp) {
-        // Find and update the timestamp on all reps available on the endpoint (a single host may have multiple reps)
-        self.state
-            .lock()
-            .unwrap()
-            .peered_reps
-            .modify_by_channel(channel_id, |rep| {
-                rep.last_request = now;
-            });
-    }
-
-    pub fn last_request_elapsed(&self, channel_id: ChannelId, now: Timestamp) -> Option<Duration> {
-        self.state
-            .lock()
-            .unwrap()
-            .peered_reps
-            .iter_by_channel(channel_id)
-            .next()
-            .map(|rep| rep.last_request.elapsed(now))
-    }
-
     /// List of online representatives, both the currently sampling ones and the ones observed in the previous sampling period
     pub fn online_reps(&self) -> Vec<OnlineRepInfo> {
         let weight_reader = self.rep_weights.read();
@@ -378,7 +357,7 @@ impl RepresentativeTrackerState {
         if delivery == VoteDelivery::Direct
             && let Some(channel) = channel
         {
-            result = self.peered_reps.update_or_insert(rep, channel, now);
+            result = self.peered_reps.update_or_insert(rep, channel);
         }
 
         self.calculate(weights);

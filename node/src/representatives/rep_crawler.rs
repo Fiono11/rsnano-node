@@ -12,10 +12,11 @@ use tracing::debug;
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
-use rsnano_network::{Channel, ChannelId, Network, TrafficType};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, BlockHash, Root, Vote};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, Sample, StatType, Stats},
 };
@@ -85,13 +86,13 @@ impl RepCrawler {
             rep_crawler_impl: Mutex::new(RepCrawlerImpl {
                 is_dev_network,
                 queries: OrderedQueries::new(),
-                rep_tracker,
                 stats,
                 query_timeout,
                 stopped: false,
                 last_query: None,
                 responses: BoundedVecDeque::new(Self::MAX_RESPONSES),
                 prioritized: Default::default(),
+                last_request_by_channel: HashMap::new(),
             }),
             active_elections,
             tokio,
@@ -395,9 +396,20 @@ impl ContainerInfoProvider for RepCrawler {
     }
 }
 
+impl EventHandler<ChannelEvent> for RepCrawler {
+    fn handle(&self, event: &ChannelEvent) {
+        if let ChannelEvent::Removed(id) = event {
+            self.rep_crawler_impl
+                .lock()
+                .unwrap()
+                .last_request_by_channel
+                .remove(id);
+        }
+    }
+}
+
 struct RepCrawlerImpl {
     queries: OrderedQueries,
-    rep_tracker: Arc<RepresentativeTracker>,
     stats: Arc<Stats>,
     query_timeout: Duration,
     stopped: bool,
@@ -407,6 +419,9 @@ struct RepCrawlerImpl {
     /// Freshly established connections that should be queried asap
     prioritized: Vec<Arc<Channel>>,
     is_dev_network: bool,
+
+    /// Time of the last query sent to a channel, used to throttle repeated queries
+    last_request_by_channel: HashMap<ChannelId, Timestamp>,
 }
 
 impl RepCrawlerImpl {
@@ -445,12 +460,13 @@ impl RepCrawlerImpl {
 
         random_peers.retain(|channel| {
             let elapsed = self
-                .rep_tracker
-                .last_request_elapsed(channel.channel_id(), now);
+                .last_request_by_channel
+                .get(&channel.channel_id())
+                .map(|last| last.elapsed(now));
 
             match elapsed {
                 Some(last_request_elapsed) => {
-                    // Throttle queries to active reps
+                    // Throttle queries to recently queried channels
                     last_request_elapsed >= rep_query_interval
                 }
                 None => {
@@ -480,8 +496,7 @@ impl RepCrawlerImpl {
             time: Instant::now(),
             replies: 0,
         });
-        // Find and update the timestamp on all reps available on the endpoint (a single host may have multiple reps)
-        self.rep_tracker.on_rep_request(channel_id, now);
+        self.last_request_by_channel.insert(channel_id, now);
     }
 
     fn cleanup(&mut self) {
