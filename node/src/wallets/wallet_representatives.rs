@@ -45,7 +45,7 @@ impl WalletRepresentatives {
             Amount::ZERO,
             Arc::new(RepWeightCache::default()),
             Arc::new(Wallets::new_null()),
-            Arc::new(RepresentativeTracker::new_test_instance()),
+            Arc::new(RepresentativeTracker::new_null()),
         )
     }
 

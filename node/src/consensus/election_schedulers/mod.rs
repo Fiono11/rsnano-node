@@ -130,7 +130,7 @@ impl ElectionSchedulers {
             stats.clone(),
         )));
         let confirming_set = Arc::new(ConfirmingSet::new_null());
-        let rep_tracker = Arc::new(RepresentativeTracker::new_test_instance());
+        let rep_tracker = Arc::new(RepresentativeTracker::new_null());
         let clock = Arc::new(SteadyClock::new_null());
 
         Self::new(

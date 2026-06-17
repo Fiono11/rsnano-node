@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn quorum_response() {
-        let tracker = RepresentativeTracker::new_test_instance();
+        let tracker = RepresentativeTracker::new_null();
         let specs = tracker.quorum_specs();
         let response = create_response(ConfirmationQuorumArgs { peer_details: None }, &tracker);
         assert_eq!(response.quorum_delta, tracker.quorum_specs().quorum_delta);
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn quorum_response_with_peers() {
-        let online_reps = RepresentativeTracker::new_test_instance();
+        let online_reps = RepresentativeTracker::new_null();
         let response = create_response(
             ConfirmationQuorumArgs {
                 peer_details: Some(true.into()),

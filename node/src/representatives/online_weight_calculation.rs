@@ -5,7 +5,6 @@ use std::{
 
 use tracing::info;
 
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{OnlineWeightSampler, RepresentativeTracker};
@@ -13,21 +12,15 @@ use super::{OnlineWeightSampler, RepresentativeTracker};
 pub struct OnlineWeightCalculation {
     sampler: OnlineWeightSampler,
     rep_tracker: Arc<RepresentativeTracker>,
-    clock: Arc<SteadyClock>,
     first_run: bool,
     last_sample: Instant,
 }
 
 impl OnlineWeightCalculation {
-    pub fn new(
-        sampler: OnlineWeightSampler,
-        rep_tracker: Arc<RepresentativeTracker>,
-        clock: Arc<SteadyClock>,
-    ) -> Self {
+    pub fn new(sampler: OnlineWeightSampler, rep_tracker: Arc<RepresentativeTracker>) -> Self {
         Self {
             sampler,
             rep_tracker,
-            clock,
             first_run: true,
             last_sample: Instant::now(),
         }
@@ -53,7 +46,7 @@ impl Tickable for OnlineWeightCalculation {
             self.update_trended_weight();
             self.first_run = false;
         } else {
-            self.rep_tracker.trim(self.clock.now());
+            self.rep_tracker.trim();
 
             if self.last_sample.elapsed() > Duration::from_secs(60) {
                 let online_weight = self.rep_tracker.quorum_specs().online_weight;

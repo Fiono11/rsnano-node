@@ -434,11 +434,8 @@ impl Node {
         let online_weight_sampler =
             OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
 
-        let mut online_weight_calculation = OnlineWeightCalculation::new(
-            online_weight_sampler,
-            rep_tracker.clone(),
-            steady_clock.clone(),
-        );
+        let mut online_weight_calculation =
+            OnlineWeightCalculation::new(online_weight_sampler, rep_tracker.clone());
         // Make sure that online weight is properly calculated from the beginning;
         online_weight_calculation.tick(&CancellationToken::new());
         ticker_pool.insert(

@@ -23,7 +23,7 @@ use tracing::debug;
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{Channel, ChannelId};
-use rsnano_nullable_clock::Timestamp;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Amount, NetworkType, PublicKey};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -37,6 +37,7 @@ pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 /// Keeps track of all representatives that are online
 /// and all representatives to which we have a direct connection
 pub struct RepresentativeTracker {
+    clock: SteadyClock,
     rep_weights: Arc<RepWeightCache>,
     state: Mutex<RepresentativeTrackerState>,
     trim_counter: AtomicU64,
@@ -52,12 +53,27 @@ impl RepresentativeTracker {
         }
     }
 
-    pub(crate) fn new(
+    pub fn new(
+        rep_weights: Arc<RepWeightCache>,
+        online_weight_minimum: Amount,
+        representative_weight_minimum: Amount,
+    ) -> Self {
+        Self::new_impl(
+            SteadyClock::default(),
+            rep_weights,
+            online_weight_minimum,
+            representative_weight_minimum,
+        )
+    }
+
+    fn new_impl(
+        clock: SteadyClock,
         rep_weights: Arc<RepWeightCache>,
         online_weight_minimum: Amount,
         representative_weight_minimum: Amount,
     ) -> Self {
         Self {
+            clock,
             rep_weights,
             state: Mutex::new(RepresentativeTrackerState::new(
                 online_weight_minimum,
@@ -67,13 +83,16 @@ impl RepresentativeTracker {
         }
     }
 
-    pub fn new_test_instance() -> Self {
+    pub fn new_null() -> Self {
         let rep = PublicKey::from(1);
 
         let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.put(rep, Amount::nano(80_000_000));
 
-        let tracker = Self::new(rep_weights, Amount::nano(60_000_000), Amount::nano(1000));
+        let clock = SteadyClock::new_null();
+        let min_online = Amount::nano(60_000_000);
+        let min_rep_weight = Amount::nano(1000);
+        let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
         let channel = Arc::new(Channel::new_test_instance());
         tracker.vote_observed_directly(rep, channel, Timestamp::new_test_instance());
         tracker
@@ -204,7 +223,15 @@ impl RepresentativeTracker {
         true
     }
 
-    pub fn trim(&self, now: Timestamp) {
+    /// Add voting account rep_account to the set of online representatives.
+    /// This can happen for directly connected or indirectly connected reps.
+    /// Returns whether it is a rep which has more than min weight
+    pub fn vote_observed2(&self, rep_account: PublicKey) -> bool {
+        self.vote_observed(rep_account, self.clock.now())
+    }
+
+    pub fn trim(&self) {
+        let now = self.clock.now();
         self.trim_counter.fetch_add(1, Ordering::Relaxed);
         let trimmed;
         {
@@ -250,6 +277,15 @@ impl RepresentativeTracker {
         } else {
             InsertResult::Updated
         }
+    }
+
+    /// Add rep_account to the set of peered representatives
+    pub fn vote_observed_directly2(
+        &self,
+        rep_account: PublicKey,
+        channel: Arc<Channel>,
+    ) -> InsertResult {
+        self.vote_observed_directly(rep_account, channel, self.clock.now())
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
@@ -459,39 +495,37 @@ impl ConsensusParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_nullable_clock::SteadyClock;
     use std::time::Duration;
 
     #[test]
     fn empty() {
-        let tracker = RepresentativeTracker::default();
+        let tracker = make_tracker();
+
         let specs = tracker.quorum_specs();
-        assert_eq!(specs.online_weight_minimum, Amount::nano(60_000_000));
+
+        assert_eq!(specs.online_weight_minimum, TEST_MIN_ONLINE_WEIGHT);
         assert_eq!(
-            specs.trended_or_min_weight,
-            Amount::nano(60_000_000),
+            specs.trended_or_min_weight, TEST_MIN_ONLINE_WEIGHT,
             "trended"
         );
         assert_eq!(specs.online_weight, Amount::ZERO, "online");
         assert_eq!(specs.peered_weight, Amount::ZERO, "peered");
         assert_eq!(tracker.peered_reps_count(), 0, "peered count");
         assert_eq!(specs.quorum_percent, 67, "quorum percent");
-        assert_eq!(specs.quorum_delta, Amount::nano(60_000_000), "quorum delta");
-        assert_eq!(specs.minimum_principal_weight, Amount::nano(60_000));
+        assert_eq!(specs.quorum_delta, TEST_MIN_ONLINE_WEIGHT, "quorum delta");
+        assert_eq!(
+            specs.minimum_principal_weight,
+            TEST_MIN_ONLINE_WEIGHT / 1000
+        );
     }
 
     #[test]
     fn observe_vote() {
-        let clock = SteadyClock::new_null();
-        let account = PublicKey::from(1);
+        let rep = PublicKey::from(1);
         let weight = Amount::nano(100_000);
-        let weights = Arc::new(RepWeightCache::default());
-        weights.put(account, weight);
-        let tracker = RepresentativeTracker::builder()
-            .rep_weights(weights)
-            .finish();
+        let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed(account, clock.now());
+        tracker.vote_observed2(rep);
 
         let specs = tracker.quorum_specs();
         assert_eq!(specs.online_weight, weight, "online");
@@ -500,17 +534,12 @@ mod tests {
 
     #[test]
     fn observe_direct_vote() {
-        let clock = SteadyClock::new_null();
-        let account = PublicKey::from(1);
+        let rep = PublicKey::from(1);
         let weight = Amount::nano(100_000);
-        let weights = Arc::new(RepWeightCache::default());
-        weights.put(account, weight);
-        let tracker = RepresentativeTracker::builder()
-            .rep_weights(weights)
-            .finish();
+        let tracker = make_tracker_with_weights([(rep, weight)]);
 
         let channel = Arc::new(Channel::new_test_instance());
-        tracker.vote_observed_directly(account, channel, clock.now());
+        tracker.vote_observed_directly2(rep, channel);
         let specs = tracker.quorum_specs();
 
         assert_eq!(specs.online_weight, weight, "online");
@@ -519,7 +548,7 @@ mod tests {
 
     #[test]
     fn trended_weight() {
-        let tracker = RepresentativeTracker::default();
+        let tracker = make_tracker();
         tracker.set_trended(Amount::nano(10_000));
         let specs = tracker.quorum_specs();
         assert_eq!(specs.trended_or_min_weight, Amount::nano(60_000_000));
@@ -531,7 +560,7 @@ mod tests {
 
     #[test]
     fn minimum_principal_weight() {
-        let tracker = RepresentativeTracker::default();
+        let tracker = make_tracker();
         assert_eq!(
             tracker.quorum_specs().minimum_principal_weight,
             Amount::nano(60_000)
@@ -547,38 +576,32 @@ mod tests {
 
     #[test]
     fn is_pr() {
-        let clock = SteadyClock::new_null();
-        let weights = Arc::new(RepWeightCache::default());
-        let tracker = RepresentativeTracker::builder()
-            .rep_weights(weights.clone())
-            .finish();
-        let rep_account = PublicKey::from(42);
+        let rep = PublicKey::from(42);
+        let weight = Amount::nano(50_000);
         let channel = Arc::new(Channel::new_test_instance());
         let channel_id = channel.channel_id();
-        weights.put(rep_account, Amount::nano(50_000));
+
+        let tracker = make_tracker_with_weights([(rep, weight)]);
 
         // unknown channel
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // below PR limit
-        tracker.vote_observed_directly(rep_account, channel, clock.now());
+        tracker.vote_observed_directly2(rep, channel);
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // above PR limit
-        weights.put(rep_account, Amount::nano(100_000));
+        tracker.rep_weights.put(rep, Amount::nano(100_000));
         assert_eq!(tracker.is_principal_rep(channel_id), true);
     }
 
     #[test]
     fn quorum_delta() {
-        let weights = Arc::new(RepWeightCache::default());
-        let tracker = RepresentativeTracker::builder()
-            .rep_weights(weights.clone())
-            .finish();
+        let rep = PublicKey::from(42);
+        let weight = Amount::nano(100_000_000);
+        let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        let rep_account = PublicKey::from(42);
-        weights.put(rep_account, Amount::nano(100_000_000));
-        tracker.vote_observed(rep_account, Timestamp::new_test_instance());
+        tracker.vote_observed2(rep);
 
         assert_eq!(
             tracker.quorum_specs().quorum_delta,
@@ -591,27 +614,26 @@ mod tests {
         let rep_a = PublicKey::from(1);
         let rep_b = PublicKey::from(2);
         let rep_c = PublicKey::from(3);
-        let weights = Arc::new(RepWeightCache::default());
-        weights.put(rep_a, Amount::nano(100_000));
-        weights.put(rep_b, Amount::nano(200_000));
-        weights.put(rep_c, Amount::nano(400_000));
-        let tracker = RepresentativeTracker::builder()
-            .rep_weights(weights)
-            .finish();
+        let tracker = make_tracker_with_weights([
+            (rep_a, Amount::nano(100_000)),
+            (rep_b, Amount::nano(200_000)),
+            (rep_c, Amount::nano(400_000)),
+        ]);
 
-        let start = SteadyClock::new_null().now();
-        tracker.vote_observed(rep_a, start);
-        tracker.vote_observed(rep_b, start + Duration::from_secs(10));
-        tracker.vote_observed(rep_c, start + Duration::from_secs(60 * 10 + 1));
+        tracker.vote_observed2(rep_a);
+        tracker.clock.advance(Duration::from_secs(10));
+        tracker.vote_observed2(rep_b);
+        tracker.clock.advance(Duration::from_secs(59 * 10 + 1));
+        tracker.vote_observed2(rep_c);
 
-        tracker.trim(start + Duration::from_secs(60 * 10 + 1));
+        tracker.trim();
 
         assert_eq!(tracker.quorum_specs().online_weight, Amount::nano(600_000));
     }
 
     #[test]
-    fn test_instance() {
-        let tracker = RepresentativeTracker::new_test_instance();
+    fn can_be_nulled() {
+        let tracker = RepresentativeTracker::new_null();
         let specs = tracker.quorum_specs();
         assert_ne!(specs.quorum_delta, Amount::ZERO, "quorum delta");
         assert_ne!(specs.quorum_percent, 0, "quorum percent");
@@ -630,5 +652,32 @@ mod tests {
     fn default_quorum_weight_is_max() {
         let params = ConsensusParams::default();
         assert_eq!(params.quorum_weight, Amount::MAX);
+    }
+
+    /*
+     * Test helpers
+     */
+
+    const TEST_MIN_ONLINE_WEIGHT: Amount = Amount::nano(60_000_000);
+    const TEST_MIN_REP_WEIGHT: Amount = Amount::nano(10);
+
+    fn make_tracker() -> RepresentativeTracker {
+        make_tracker_with_weights([])
+    }
+
+    fn make_tracker_with_weights(
+        weights: impl IntoIterator<Item = (PublicKey, Amount)>,
+    ) -> RepresentativeTracker {
+        let clock = SteadyClock::new_null();
+        let weight_cache = Arc::new(RepWeightCache::default());
+        for (rep, weight) in weights {
+            weight_cache.put(rep, weight);
+        }
+        RepresentativeTracker::new_impl(
+            clock,
+            weight_cache,
+            TEST_MIN_ONLINE_WEIGHT,
+            TEST_MIN_REP_WEIGHT,
+        )
     }
 }

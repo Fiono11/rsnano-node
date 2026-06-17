@@ -21,7 +21,7 @@ impl ConfirmationSolicitorPlugin {
     pub fn new_null() -> Self {
         Self {
             message_flooder: MessageFlooder::new_null(),
-            rep_tracker: RepresentativeTracker::new_test_instance().into(),
+            rep_tracker: RepresentativeTracker::new_null().into(),
             winner_block_broadcaster: Mutex::new(WinnerBlockBroadcaster::new_null()).into(),
             confirm_req_sender: ConfirmReqSender::new_null(),
         }
