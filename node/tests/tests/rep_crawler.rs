@@ -118,7 +118,7 @@ fn rep_weight() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel1.clone()),
+        Some(channel1.channel_id()),
     );
 
     let vote1 = ReceivedVote::new(
@@ -129,7 +129,7 @@ fn rep_weight() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel2.clone()),
+        Some(channel2.channel_id()),
     );
 
     let vote2 = ReceivedVote::new(
@@ -140,7 +140,7 @@ fn rep_weight() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel3.clone()),
+        Some(channel3.channel_id()),
     );
 
     node.rep_crawler.force_process2(vote0);

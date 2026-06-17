@@ -113,7 +113,7 @@ impl RepCrawler {
     /// Called when a non-replay vote arrives that might be of interest to rep crawler.
     /// @return true, if the vote was of interest and was processed, this indicates that the rep is likely online and voting
     pub fn process(&self, vote: &ReceivedVote) -> bool {
-        let Some(channel) = vote.channel.clone() else {
+        let Some(channel) = vote.channel_id else {
             return false;
         };
         let mut guard = self.rep_crawler_impl.lock().unwrap();
@@ -123,15 +123,14 @@ impl RepCrawler {
         let x = guard.deref_mut();
         let queries = &mut x.queries;
         let responses = &mut x.responses;
-        queries.modify_for_channel(channel.channel_id(), |query| {
+        queries.modify_for_channel(channel, |query| {
             // TODO: This linear search could be slow, especially with large votes.
             let target_hash = query.hash;
             let found = vote.hashes.contains(&target_hash);
             if found {
                 debug!(
                     "Processing response for block: {} from: {}",
-                    target_hash,
-                    channel.peer_addr()
+                    target_hash, channel
                 );
                 self.stats
                     .inc_dir(StatType::RepCrawler, DetailType::Response, Direction::In);
@@ -320,7 +319,7 @@ impl RepCrawler {
 
         // TODO: Is it really faster to repeatedly lock/unlock the mutex for each response?
         for vote in responses {
-            let Some(channel) = vote.channel_id() else {
+            let Some(channel) = vote.channel_id else {
                 continue;
             };
             let rep_weight = self.ledger.weight(&vote.voter);

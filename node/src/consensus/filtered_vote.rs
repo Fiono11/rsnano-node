@@ -1,4 +1,4 @@
-use rsnano_network::{Channel, ChannelId};
+use rsnano_network::ChannelId;
 use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use std::{ops::Deref, sync::Arc};
 
@@ -6,20 +6,16 @@ use std::{ops::Deref, sync::Arc};
 pub struct ReceivedVote {
     pub vote: Arc<Vote>,
     pub delivery: VoteDelivery,
-    pub channel: Option<Arc<Channel>>,
+    pub channel_id: Option<ChannelId>,
 }
 
 impl ReceivedVote {
-    pub fn new(vote: Arc<Vote>, source: VoteDelivery, channel: Option<Arc<Channel>>) -> Self {
+    pub fn new(vote: Arc<Vote>, source: VoteDelivery, channel_id: Option<ChannelId>) -> Self {
         Self {
             vote,
             delivery: source,
-            channel,
+            channel_id,
         }
-    }
-
-    pub fn channel_id(&self) -> Option<ChannelId> {
-        self.channel.as_ref().map(|c| c.channel_id())
     }
 }
 

@@ -1382,7 +1382,7 @@ fn online_reps_rep_crawler() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel.clone()),
+        Some(channel.channel_id()),
     )
     .into();
 
@@ -1427,9 +1427,14 @@ fn online_reps_election() {
     assert_eq!(Amount::ZERO, node.rep_tracker.quorum_specs().online_weight);
 
     let channel = make_fake_channel(&node);
-    let _ = node
-        .vote_processor
-        .vote_blocking(&ReceivedVote::new(vote.into(), VoteDelivery::Direct, Some(channel)).into());
+    let _ = node.vote_processor.vote_blocking(
+        &ReceivedVote::new(
+            vote.into(),
+            VoteDelivery::Direct,
+            Some(channel.channel_id()),
+        )
+        .into(),
+    );
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
@@ -1648,7 +1653,7 @@ fn rep_crawler_rep_remove() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel_rep1.clone()),
+        Some(channel_rep1.channel_id()),
     );
 
     searching_node.rep_crawler.force_process2(vote_rep1);
@@ -1689,7 +1694,7 @@ fn rep_crawler_rep_remove() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel_genesis_rep),
+        Some(channel_genesis_rep.channel_id()),
     );
 
     searching_node.rep_crawler.force_process2(vote_genesis_rep);
@@ -1727,7 +1732,7 @@ fn rep_crawler_rep_remove() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteDelivery::Direct,
-        Some(channel_rep2),
+        Some(channel_rep2.channel_id()),
     );
 
     searching_node.rep_crawler.force_process2(vote_rep2);

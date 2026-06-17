@@ -118,7 +118,11 @@ impl VoteProcessor {
 
             for (_, (vote, source, channel, filter)) in &batch {
                 let filter = filter.unwrap_or_default();
-                let received_vote = ReceivedVote::new(vote.clone(), *source, channel.clone());
+                let received_vote = ReceivedVote::new(
+                    vote.clone(),
+                    *source,
+                    channel.as_ref().map(|c| c.channel_id()),
+                );
                 let filtered_vote = FilteredVote::new(received_vote.clone(), filter);
                 let _ = self.vote_blocking(&filtered_vote);
             }
