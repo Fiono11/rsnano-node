@@ -381,7 +381,9 @@ impl RepresentativeTrackerState {
         if delivery == VoteDelivery::Direct
             && let Some(channel) = channel
         {
-            result = self.peered_reps.update_or_insert(rep, channel.clone(), now);
+            result = self
+                .peered_reps
+                .update_or_insert(rep, channel.channel_id(), now);
         }
 
         self.calculate(weights);
