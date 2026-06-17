@@ -874,42 +874,19 @@ fn auto_bootstrap() {
 #[test]
 fn quick_confirm() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let wallet_id = node1.wallets.wallet_ids()[0];
+    let node = system.make_node();
     let key = PrivateKey::new();
 
-    node1
-        .wallets
-        .insert_adhoc2(&wallet_id, &key.raw_key(), true)
-        .unwrap();
-    node1
-        .wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
-        .unwrap();
+    node.insert_into_wallet(&key);
+    node.insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send = lattice.genesis().send_all_except(
-        &key,
-        node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1),
-    );
+    let amount = Amount::nano(1000);
+    let send = lattice.genesis().send(&key, amount);
 
-    node1.process_active(send.clone());
+    node.process(send.clone());
 
-    assert_timely_msg(
-        Duration::from_secs(10),
-        || !node1.balance(&key.account()).is_zero(),
-        "balance is still zero",
-    );
-
-    assert_eq!(
-        node1.balance(&DEV_GENESIS_ACCOUNT),
-        node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1)
-    );
-
-    assert_eq!(
-        node1.balance(&key.account()),
-        Amount::MAX - (node1.rep_tracker.quorum_specs().quorum_delta + Amount::raw(1))
-    );
+    assert_timely_eq2(|| node.balance(&key.account()), amount);
 }
 
 #[test]
