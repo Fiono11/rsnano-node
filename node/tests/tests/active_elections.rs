@@ -42,7 +42,7 @@ fn fork_replacement_tally() {
     let keys: Vec<_> = std::iter::repeat_with(|| PrivateKey::new())
         .take(REPS_COUNT)
         .collect();
-    let min_pr_weight = node1.rep_tracker.quorum_specs().minimum_principal_weight;
+    let min_pr_weight = Amount::MAX / 1000;
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
     // Create 20 representatives & confirm blocks

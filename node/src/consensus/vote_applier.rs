@@ -19,7 +19,6 @@ pub(crate) struct VoteApplier {
     rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
-    is_dev_network: bool,
 }
 
 impl VoteApplier {
@@ -28,7 +27,6 @@ impl VoteApplier {
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
-        is_dev_network: bool,
     ) -> Self {
         Self {
             active_elections,
@@ -36,7 +34,6 @@ impl VoteApplier {
             rep_tracker,
             clock,
             rep_weights,
-            is_dev_network,
         }
     }
 
@@ -58,7 +55,7 @@ impl VoteApplier {
         let minimum_pr_weight = self.rep_tracker.quorum_specs().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
-        if !self.is_dev_network && voter_weight <= minimum_pr_weight {
+        if voter_weight <= minimum_pr_weight {
             // Ignore votes from reps below min PR weight!
             return vote
                 .filtered_blocks()
@@ -75,7 +72,7 @@ impl VoteApplier {
         if is_active {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
             // The rep weights have to be updated before the votes are processed!
-            self.rep_tracker.vote_observed(vote.voter, now);
+            self.rep_tracker.vote_observed2(vote.voter);
         }
         let quorum_specs = self.rep_tracker.quorum_specs();
 
@@ -137,7 +134,6 @@ mod tests {
         let clock = Arc::new(SteadyClock::new_null());
 
         rep_tracker.vote_observed(another_rep.public_key(), clock.now());
-        rep_tracker.recalculate();
 
         assert_eq!(
             rep_tracker.quorum_specs().quorum_delta,
@@ -150,7 +146,7 @@ mod tests {
         )
         .unwrap();
 
-        let vote_applier = VoteApplier::new(aec.clone(), rep_tracker, clock, rep_weights, false);
+        let vote_applier = VoteApplier::new(aec.clone(), rep_tracker, clock, rep_weights);
 
         let vote = ReceivedVote::new(
             Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),

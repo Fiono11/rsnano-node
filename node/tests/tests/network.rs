@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, thread::sleep, time::Duration};
+use std::{thread::sleep, time::Duration};
 
 use rsnano_ledger::{
     DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
@@ -134,34 +134,35 @@ fn send_discarded_publish() {
 #[test]
 fn receivable_processor_confirm_insufficient_pos() {
     let mut system = System::new();
-    let node1 = system.make_node();
+    let node = system.make_node();
 
+    let pr_key = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(Account::ZERO, 1);
-    node1.process(send1.clone());
-    assert_timely2(|| node1.is_active_hash(&send1.hash()));
-    let key1 = PrivateKey::new();
-    let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
-    let channel = make_fake_channel(&node1);
-    let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
-        vote.deref().clone(),
-    ));
+    let send_pr = lattice.genesis().send(&pr_key, Amount::nano(1_000_000));
+    let receive_pr = lattice.account(&pr_key).receive(&send_pr);
+    let send_burn = lattice.genesis().send(Account::ZERO, 1);
+    node.process_and_confirm_multi(&[send_pr, receive_pr]);
+
+    node.process(send_burn.clone());
+    assert_timely2(|| node.is_active_hash(&send_burn.hash()));
+
+    let vote = Vote::new_final(&pr_key, vec![send_burn.hash()]);
+    let conf_ack = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(vote));
     assert_eq!(
         0,
-        node1
-            .aec
-            .election_for_block(&send1.hash())
+        node.aec
+            .election_for_block(&send_burn.hash())
             .unwrap()
             .vote_count()
     );
 
-    node1.inbound_message_queue.put(con1, channel);
+    let channel = make_fake_channel(&node);
+    node.inbound_message_queue.put(conf_ack, channel);
 
     assert_timely_eq2(
         || {
-            node1
-                .aec
-                .election_for_block(&send1.hash())
+            node.aec
+                .election_for_block(&send_burn.hash())
                 .unwrap()
                 .vote_count()
         },
@@ -178,11 +179,8 @@ fn receivable_processor_confirm_sufficient_pos() {
     let send1 = lattice.genesis().send(Account::ZERO, 1);
     node1.process(send1.clone());
     assert_timely2(|| node1.is_active_hash(&send1.hash()));
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    let channel = make_fake_channel(&node1);
-    let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
-        vote.deref().clone(),
-    ));
+    let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]);
+    let conf_ack = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(vote));
     assert_eq!(
         0,
         node1
@@ -192,7 +190,8 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    node1.inbound_message_queue.put(con1, channel);
+    let channel = make_fake_channel(&node1);
+    node1.inbound_message_queue.put(conf_ack, channel);
 
     assert_timely2(|| node1.ledger.confirmed().block_exists(&send1.hash()));
 }

@@ -64,12 +64,12 @@ fn add_cooldown() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let send1 = lattice.genesis().send_max(&key1);
+    let send1 = lattice.genesis().send(&key1, 1);
     node.process(send1.clone());
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     let vote1 = Arc::new(Vote::new(
         &DEV_GENESIS_KEY,
-        Vote::TIMESTAMP_MIN * 1,
+        Vote::TIMESTAMP_MIN,
         0,
         vec![send1.hash()],
     ));
@@ -79,7 +79,7 @@ fn add_cooldown() {
     );
 
     let key2 = PrivateKey::new();
-    let send2 = fork_lattice.genesis().send_max(&key2);
+    let send2 = fork_lattice.genesis().send(&key2, 1);
     let vote2 = Arc::new(Vote::new(
         &DEV_GENESIS_KEY,
         Vote::TIMESTAMP_MIN * 2,

@@ -649,7 +649,6 @@ impl Node {
             rep_tracker.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
-            current_network == NetworkType::NanoDevNetwork,
         );
 
         let vote_processor = Arc::new(VoteProcessor::new(
