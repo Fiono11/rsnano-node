@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_messages::{Message, MessageSerializer};
 use rsnano_network::{
-    Channel, ChannelDirection, Network, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TrafficType,
+    Channel, ChannelDirection, ChannelId, Network, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TrafficType,
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -80,7 +80,7 @@ impl MessageFlooder {
         let mut flood_count = FloodCount::default();
         let peered_prs = self.rep_tracker.peered_principal_reps();
         for rep in peered_prs {
-            if self.sender.try_send(&rep.channel, message, traffic_type) {
+            if self.try_send_channel_id(rep.channel_id(), message, traffic_type) {
                 flood_count.principal_reps += 1;
             }
         }
@@ -103,9 +103,25 @@ impl MessageFlooder {
         flood_count
     }
 
+    pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {
+        self.network.read().unwrap().get(channel_id).cloned()
+    }
+
     fn remove_principal_reps(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
         channels.retain(|c| !self.rep_tracker.is_principal_rep(c.channel_id()));
         channels.truncate(count);
+    }
+
+    pub fn try_send_channel_id(
+        &mut self,
+        channel_id: ChannelId,
+        message: &Message,
+        traffic_type: TrafficType,
+    ) -> bool {
+        let Some(channel) = self.network.read().unwrap().get(channel_id).cloned() else {
+            return false;
+        };
+        self.sender.try_send(&channel, message, traffic_type)
     }
 
     pub fn flood(&mut self, message: &Message, traffic_type: TrafficType, scale: f32) -> usize {

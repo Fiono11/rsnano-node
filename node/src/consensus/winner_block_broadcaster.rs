@@ -104,8 +104,11 @@ impl WinnerBlockBroadcaster {
             };
             if should_broadcast {
                 count += 1;
-                self.message_flooder
-                    .try_send(&i.channel, &winner_msg, TrafficType::BlockBroadcast);
+                self.message_flooder.try_send_channel_id(
+                    i.channel_id(),
+                    &winner_msg,
+                    TrafficType::BlockBroadcast,
+                );
             }
         }
 

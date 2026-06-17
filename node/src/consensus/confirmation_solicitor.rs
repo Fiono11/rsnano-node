@@ -60,23 +60,24 @@ impl ConfirmationSolicitor {
                 false
             };
             if existing_vote.is_none() || !is_final || different_hash {
-                let should_drop = rep.channel.should_drop(TrafficType::ConfirmationRequests);
+                if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id()) {
+                    let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 
-                if !should_drop {
-                    let rep_channel = rep.channel.clone();
-                    let (_, request_queue) = self
-                        .requests
-                        .entry(rep_channel.channel_id())
-                        .or_insert_with(|| (rep_channel, Vec::new()));
+                    if !should_drop {
+                        let (_, request_queue) = self
+                            .requests
+                            .entry(rep_channel.channel_id())
+                            .or_insert_with(|| (rep_channel, Vec::new()));
 
-                    request_queue.push((winner.hash(), winner.root()));
+                        request_queue.push((winner.hash(), winner.root()));
 
-                    if !different_hash {
-                        rep_request_count += 1;
+                        if !different_hash {
+                            rep_request_count += 1;
+                        }
+                        added = true;
+                    } else {
+                        full_queue = true;
                     }
-                    added = true;
-                } else {
-                    full_queue = true;
                 }
             }
             if full_queue {
