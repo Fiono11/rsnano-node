@@ -5,7 +5,7 @@ use std::{ops::Deref, sync::Arc};
 #[derive(Clone)]
 pub struct ReceivedVote {
     pub vote: Arc<Vote>,
-    pub source: VoteDelivery,
+    pub delivery: VoteDelivery,
     pub channel: Option<Arc<Channel>>,
 }
 
@@ -13,7 +13,7 @@ impl ReceivedVote {
     pub fn new(vote: Arc<Vote>, source: VoteDelivery, channel: Option<Arc<Channel>>) -> Self {
         Self {
             vote,
-            source,
+            delivery: source,
             channel,
         }
     }

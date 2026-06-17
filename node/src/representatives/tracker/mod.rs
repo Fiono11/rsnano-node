@@ -24,7 +24,7 @@ use tracing::debug;
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Amount, NetworkType, PublicKey};
+use rsnano_types::{Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -206,22 +206,51 @@ impl RepresentativeTracker {
             .collect()
     }
 
-    /// Add voting account rep_account to the set of online representatives.
+    /// Add voting account rep to the set of online representatives.
     /// This can happen for directly connected or indirectly connected reps.
     /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed(&self, rep_account: PublicKey) -> bool {
+    pub fn vote_observed(&self, rep: PublicKey) -> bool {
         let now = self.clock.now();
         let weights = self.rep_weights.read();
-        let weight = weights.weight(&rep_account);
+        let weight = weights.weight(&rep);
         let mut state = self.state.lock().unwrap();
         if weight < state.representative_weight_minimum {
             return false;
         }
 
-        state.online_reps.insert(rep_account, now);
+        state.online_reps.insert(rep, now);
         state.calculate(&weights);
 
         true
+    }
+
+    /// Add voting account rep to the set of online representatives.
+    /// This can happen for directly connected or indirectly connected reps.
+    /// Returns whether it is a rep which has more than min weight
+    pub fn vote_observed2(&self, rep: PublicKey, delivery: VoteDelivery) -> bool {
+        self.vote_observed(rep)
+    }
+
+    /// Add rep_account to the set of peered representatives
+    pub fn vote_observed_directly(
+        &self,
+        rep_account: PublicKey,
+        channel: Arc<Channel>,
+    ) -> InsertResult {
+        let now = self.clock.now();
+        let is_rep = self.vote_observed(rep_account);
+        if is_rep {
+            let weights = self.rep_weights.read();
+            let mut state = self.state.lock().unwrap();
+            let result = state
+                .peered_reps
+                .update_or_insert(rep_account, channel, now);
+            // TODO: don't calculate twice here
+            state.calculate(&weights);
+            result
+        } else {
+            InsertResult::Updated
+        }
     }
 
     pub fn trim(&self) {
@@ -249,28 +278,6 @@ impl RepresentativeTracker {
     pub fn recalculate(&self) {
         let weights = self.rep_weights.read();
         self.state.lock().unwrap().calculate(&weights);
-    }
-
-    /// Add rep_account to the set of peered representatives
-    pub fn vote_observed_directly(
-        &self,
-        rep_account: PublicKey,
-        channel: Arc<Channel>,
-    ) -> InsertResult {
-        let now = self.clock.now();
-        let is_rep = self.vote_observed(rep_account);
-        if is_rep {
-            let weights = self.rep_weights.read();
-            let mut state = self.state.lock().unwrap();
-            let result = state
-                .peered_reps
-                .update_or_insert(rep_account, channel, now);
-            // TODO: don't calculate twice here
-            state.calculate(&weights);
-            result
-        } else {
-            InsertResult::Updated
-        }
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {

@@ -97,7 +97,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
-        if self.args.vote.source == VoteDelivery::Replayed {
+        if self.args.vote.delivery == VoteDelivery::Replayed {
             // Only cooldown live votes
             return false;
         }
@@ -117,7 +117,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.args.vote.timestamp(),
             self.args.now,
         );
-        self.vote_counter.count(self.args.vote.source);
+        self.vote_counter.count(self.args.vote.delivery);
         self.confirm_if_quorum();
     }
 

@@ -127,7 +127,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
-                if vote.source != VoteDelivery::Replayed {
+                if vote.delivery != VoteDelivery::Replayed {
                     self.vote_cache
                         .lock()
                         .unwrap()
@@ -174,13 +174,13 @@ impl AecFactProcessor {
         );
 
         // Ignore republished votes when rep crawling
-        if vote.source == VoteDelivery::Direct {
+        if vote.delivery == VoteDelivery::Direct {
             should_observe |= self.rep_crawler.process(vote);
         }
 
         if should_observe {
             // Representative is defined as online if replying to live votes or rep_crawler queries
-            self.rep_tracker.vote_observed(vote.voter);
+            self.rep_tracker.vote_observed2(vote.voter, vote.delivery);
         }
     }
 }

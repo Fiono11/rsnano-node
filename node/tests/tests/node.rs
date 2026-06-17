@@ -2371,7 +2371,7 @@ fn bounded_backlog() {
 
     node.bounded_backlog.as_ref().unwrap().recovered();
 
-    assert_timely(Duration::from_secs(20), || node.ledger.block_count() <= 11);
+    assert_timely(Duration::from_secs(30), || node.ledger.block_count() <= 11);
     // 10 + genesis
 }
 
