@@ -12,14 +12,14 @@ pub use peered_rep::PeeredRep;
 use std::{
     cmp::max,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
 
 use primitive_types::U256;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{Channel, ChannelId};
@@ -225,24 +225,36 @@ impl RepresentativeTracker {
     }
 
     /// Add rep_account to the set of peered representatives
-    pub fn vote_observed_directly(
-        &self,
-        rep_account: PublicKey,
-        channel: Arc<Channel>,
-    ) -> InsertResult {
+    pub fn vote_observed_directly(&self, rep: PublicKey, channel: Arc<Channel>) {
         let now = self.clock.now();
-        let is_rep = self.vote_observed(rep_account, VoteDelivery::Direct);
+        let is_rep = self.vote_observed(rep, VoteDelivery::Direct);
         if is_rep {
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
             let result = state
                 .peered_reps
-                .update_or_insert(rep_account, channel, now);
-            // TODO: don't calculate twice here
+                .update_or_insert(rep, channel.clone(), now);
+            // TODO: don't calculate twice here. vote_observed already calculates!
             state.calculate(&weights);
-            result
-        } else {
-            InsertResult::Updated
+
+            match result {
+                InsertResult::Inserted => {
+                    info!(
+                        "Found representative: {} at {}",
+                        rep.as_account().encode_account(),
+                        channel.peer_addr()
+                    );
+                }
+                InsertResult::ChannelChanged(previous_peer) => {
+                    warn!(
+                        "Updated representative: {} at : {} (was at: {})",
+                        rep.as_account().encode_account(),
+                        channel.peer_addr(),
+                        previous_peer
+                    )
+                }
+                InsertResult::Updated => {}
+            }
         }
     }
 

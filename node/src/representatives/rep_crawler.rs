@@ -333,28 +333,9 @@ impl RepCrawler {
                 continue;
             }
 
-            let result = self
+            self
                 .rep_tracker
                 .vote_observed_directly(vote.voter, channel.clone());
-
-            match result {
-                InsertResult::Inserted => {
-                    info!(
-                        "Found representative: {} at {}",
-                        Account::from(vote.voter).encode_account(),
-                        channel.peer_addr()
-                    );
-                }
-                InsertResult::ChannelChanged(previous_peer) => {
-                    warn!(
-                        "Updated representative: {} at : {} (was at: {})",
-                        Account::from(vote.voter).encode_account(),
-                        channel.peer_addr(),
-                        previous_peer
-                    )
-                }
-                InsertResult::Updated => {}
-            }
         }
     }
 
