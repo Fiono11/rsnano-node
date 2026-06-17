@@ -71,7 +71,7 @@ impl VoteApplier {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
             // The rep weights have to be updated before the votes are processed!
             self.rep_tracker
-                .vote_observed(vote.voter, vote.delivery, vote.channel.clone());
+                .vote_observed(vote.voter, vote.delivery, vote.channel_id());
         }
         let quorum_specs = self.rep_tracker.quorum_specs();
 

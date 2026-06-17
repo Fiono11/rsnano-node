@@ -320,7 +320,7 @@ impl RepCrawler {
 
         // TODO: Is it really faster to repeatedly lock/unlock the mutex for each response?
         for vote in responses {
-            let Some(channel) = vote.channel.clone() else {
+            let Some(channel) = vote.channel_id() else {
                 continue;
             };
             let rep_weight = self.ledger.weight(&vote.voter);
@@ -334,7 +334,7 @@ impl RepCrawler {
             }
 
             self.rep_tracker
-                .vote_observed(vote.voter, vote.delivery, Some(channel.clone()));
+                .vote_observed(vote.voter, vote.delivery, Some(channel));
         }
     }
 

@@ -1,4 +1,4 @@
-use rsnano_network::Channel;
+use rsnano_network::{Channel, ChannelId};
 use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use std::{ops::Deref, sync::Arc};
 
@@ -16,6 +16,10 @@ impl ReceivedVote {
             delivery: source,
             channel,
         }
+    }
+
+    pub fn channel_id(&self) -> Option<ChannelId> {
+        self.channel.as_ref().map(|c| c.channel_id())
     }
 }
 

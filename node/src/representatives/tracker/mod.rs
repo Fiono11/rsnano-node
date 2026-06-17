@@ -20,7 +20,7 @@ use primitive_types::U256;
 use tracing::{debug, info, warn};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
-use rsnano_network::{Channel, ChannelEvent, ChannelId, NULL_ENDPOINT};
+use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
@@ -92,7 +92,7 @@ impl RepresentativeTracker {
         let min_online = Amount::nano(60_000_000);
         let min_rep_weight = Amount::nano(1000);
         let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
-        let channel = Arc::new(Channel::new_test_instance());
+        let channel = ChannelId::from(42);
         tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
         tracker
     }
@@ -215,29 +215,26 @@ impl RepresentativeTracker {
         &self,
         rep: PublicKey,
         delivery: VoteDelivery,
-        channel: Option<Arc<Channel>>,
+        channel: Option<ChannelId>,
     ) {
         let result = {
             let now = self.clock.now();
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
-            state.vote_observed(rep, delivery, channel.clone(), now, &weights)
+            state.vote_observed(rep, delivery, channel, now, &weights)
         };
 
-        let peer = channel.map(|c| c.peer_addr()).unwrap_or(NULL_ENDPOINT);
         match result {
             InsertResult::Inserted => {
                 info!(
-                    "Found representative: {} at {}",
+                    "Found representative: {}",
                     rep.as_account().encode_account(),
-                    peer
                 );
             }
             InsertResult::ChannelChanged => {
                 warn!(
-                    "Representative channel changed: {} at {}",
+                    "Representative channel changed: {}",
                     rep.as_account().encode_account(),
-                    peer
                 )
             }
             InsertResult::Updated => {}
@@ -366,7 +363,7 @@ impl RepresentativeTrackerState {
         &mut self,
         rep: PublicKey,
         delivery: VoteDelivery,
-        channel: Option<Arc<Channel>>,
+        channel: Option<ChannelId>,
         now: Timestamp,
         weights: &RepWeights,
     ) -> InsertResult {
@@ -381,9 +378,7 @@ impl RepresentativeTrackerState {
         if delivery == VoteDelivery::Direct
             && let Some(channel) = channel
         {
-            result = self
-                .peered_reps
-                .update_or_insert(rep, channel.channel_id(), now);
+            result = self.peered_reps.update_or_insert(rep, channel, now);
         }
 
         self.calculate(weights);
@@ -557,7 +552,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        let channel = Arc::new(Channel::new_test_instance());
+        let channel = ChannelId::from(42);
         tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
         let specs = tracker.quorum_specs();
 
@@ -597,8 +592,7 @@ mod tests {
     fn is_pr() {
         let rep = PublicKey::from(42);
         let weight = Amount::nano(50_000);
-        let channel = Arc::new(Channel::new_test_instance());
-        let channel_id = channel.channel_id();
+        let channel_id = ChannelId::from(999);
 
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
@@ -606,7 +600,7 @@ mod tests {
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // below PR limit
-        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
+        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel_id));
         assert_eq!(tracker.is_principal_rep(channel_id), false);
 
         // above PR limit

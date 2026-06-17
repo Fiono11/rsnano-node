@@ -671,7 +671,7 @@ fn confirm_election_by_request() {
     node2.rep_tracker.vote_observed(
         *DEV_GENESIS_PUB_KEY,
         VoteDelivery::Direct,
-        Some(peers[0].clone()),
+        Some(peers[0].channel_id()),
     );
 
     // Expect a vote to come back
@@ -733,7 +733,7 @@ fn confirm_frontier() {
     node2.rep_tracker.vote_observed(
         *DEV_GENESIS_PUB_KEY,
         VoteDelivery::Direct,
-        Some(peers[0].clone()),
+        Some(peers[0].channel_id()),
     );
 
     node2.process(send.clone());

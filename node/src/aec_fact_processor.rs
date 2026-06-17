@@ -181,7 +181,7 @@ impl AecFactProcessor {
         if should_observe {
             // Representative is defined as online if replying to live votes or rep_crawler queries
             self.rep_tracker
-                .vote_observed(vote.voter, vote.delivery, vote.channel.clone());
+                .vote_observed(vote.voter, vote.delivery, vote.channel_id());
         }
     }
 }
