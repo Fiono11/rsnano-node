@@ -1,5 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_node::representatives::OnlineRepInfo;
+use rsnano_node::representatives::RegisteredRepSnapshot;
 use rsnano_rpc_messages::{
     DetailedRepresentativesOnline, RepWeightDto, RepresentativesOnlineArgs,
     RepresentativesOnlineResponse, SimpleRepresentativesOnline,
@@ -40,7 +40,7 @@ impl ResponseBuilder {
 
     pub fn create_response(
         mut self,
-        online_reps: impl IntoIterator<Item = OnlineRepInfo>,
+        online_reps: impl IntoIterator<Item = RegisteredRepSnapshot>,
     ) -> RepresentativesOnlineResponse {
         for rep in online_reps {
             if self.should_include(&rep.rep_key) {
@@ -58,7 +58,7 @@ impl ResponseBuilder {
         }
     }
 
-    fn add_result(&mut self, rep: OnlineRepInfo) {
+    fn add_result(&mut self, rep: RegisteredRepSnapshot) {
         if self.include_weight {
             self.detailed_result
                 .insert(rep.rep_key.into(), RepWeightDto { weight: rep.weight });
@@ -106,7 +106,7 @@ mod tests {
 
     mod simple_result {
         use super::*;
-        use rsnano_node::representatives::OnlineRepInfo;
+        use rsnano_node::representatives::RegisteredRepSnapshot;
         use rsnano_types::Amount;
 
         #[test]
@@ -118,7 +118,7 @@ mod tests {
         #[test]
         fn one_rep() {
             let response =
-                ResponseBuilder::new(Default::default()).create_response([OnlineRepInfo {
+                ResponseBuilder::new(Default::default()).create_response([RegisteredRepSnapshot {
                     rep_key: 1.into(),
                     weight: Amount::ZERO,
                     channel: None,
@@ -132,7 +132,7 @@ mod tests {
                 weight: None,
                 accounts: Some(Vec::new()),
             })
-            .create_response([OnlineRepInfo {
+            .create_response([RegisteredRepSnapshot {
                 rep_key: 1.into(),
                 weight: Amount::ZERO,
                 channel: None,
@@ -147,22 +147,22 @@ mod tests {
                 accounts: Some(vec![2.into(), 3.into()]),
             })
             .create_response([
-                OnlineRepInfo {
+                RegisteredRepSnapshot {
                     rep_key: 1.into(),
                     weight: Amount::ZERO,
                     channel: None,
                 },
-                OnlineRepInfo {
+                RegisteredRepSnapshot {
                     rep_key: 2.into(),
                     weight: Amount::ZERO,
                     channel: None,
                 },
-                OnlineRepInfo {
+                RegisteredRepSnapshot {
                     rep_key: 3.into(),
                     weight: Amount::ZERO,
                     channel: None,
                 },
-                OnlineRepInfo {
+                RegisteredRepSnapshot {
                     rep_key: 4.into(),
                     weight: Amount::ZERO,
                     channel: None,
@@ -174,7 +174,7 @@ mod tests {
 
     mod detailed_result {
         use super::*;
-        use rsnano_node::representatives::OnlineRepInfo;
+        use rsnano_node::representatives::RegisteredRepSnapshot;
         use rsnano_types::{Amount, PublicKey};
 
         #[test]
@@ -196,7 +196,7 @@ mod tests {
             };
             let rep_key = PublicKey::from(1);
             let weight = Amount::nano(100_000);
-            let response = ResponseBuilder::new(args).create_response([OnlineRepInfo {
+            let response = ResponseBuilder::new(args).create_response([RegisteredRepSnapshot {
                 rep_key,
                 weight,
                 channel: None,
