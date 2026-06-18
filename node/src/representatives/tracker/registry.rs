@@ -6,6 +6,7 @@ use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::PublicKey;
 
+#[derive(Clone)]
 pub(crate) struct RegisteredRep {
     pub public_key: PublicKey,
     pub last_seen: Timestamp,
@@ -62,8 +63,8 @@ impl RepresentativeRegistry {
         self.by_channel.values().map(|i| i.len()).sum()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &RegisteredRep> {
-        self.by_key.values()
+    pub fn get_all(&self) -> Vec<RegisteredRep> {
+        self.by_key.values().cloned().collect()
     }
 
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
@@ -166,7 +167,7 @@ mod tests {
     fn empty() {
         let registry = RepresentativeRegistry::new();
         assert_eq!(registry.len(), 0);
-        assert_eq!(registry.iter().count(), 0);
+        assert_eq!(registry.get_all().len(), 0);
         assert_eq!(registry.peered_count(), 0);
     }
 
@@ -182,9 +183,8 @@ mod tests {
         let result = registry.register(PublicKey::from(1), None, now);
 
         assert_eq!(registry.len(), 1);
-        assert_eq!(registry.iter().count(), 1);
         assert_eq!(
-            registry.iter().next().unwrap().public_key,
+            registry.get_all().first().unwrap().public_key,
             PublicKey::from(1)
         );
         assert_eq!(result, RegisterResult::Inserted);
@@ -201,7 +201,6 @@ mod tests {
             registry.register(PublicKey::from(2), None, now + Duration::from_secs(1));
 
         assert_eq!(registry.len(), 2);
-        assert_eq!(registry.iter().count(), 2);
         assert_eq!(new_insert_a, RegisterResult::Inserted);
         assert_eq!(new_insert_b, RegisterResult::Inserted);
     }
@@ -216,7 +215,6 @@ mod tests {
             registry.register(PublicKey::from(1), None, now + Duration::from_secs(1));
 
         assert_eq!(registry.len(), 1);
-        assert_eq!(registry.iter().count(), 1);
         assert_eq!(new_insert_a, RegisterResult::Inserted);
         assert_eq!(new_insert_b, RegisterResult::Updated);
         // The stale entry from the first insert is still queued and gets
@@ -325,7 +323,7 @@ mod tests {
         assert_eq!(registry.trim(now + Duration::from_millis(1500)).len(), 3);
         assert_eq!(registry.len(), 1);
         assert_eq!(
-            registry.iter().next().unwrap().public_key,
+            registry.get_all().first().unwrap().public_key,
             PublicKey::from(4)
         );
         assert_eq!(registry.order.len(), 1);

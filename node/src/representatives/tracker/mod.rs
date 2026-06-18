@@ -133,7 +133,8 @@ impl RepresentativeTracker {
 
         state
             .registry
-            .iter()
+            .get_all()
+            .into_iter()
             .map(|rep| OnlineRepInfo {
                 rep_key: rep.public_key,
                 weight: weight_reader.weight(&rep.public_key),
@@ -169,7 +170,8 @@ impl RepresentativeTracker {
             let state = self.state.lock().unwrap();
             state
                 .registry
-                .iter()
+                .get_all()
+                .into_iter()
                 .filter_map(|rep| {
                     rep.channel_id.and_then(|id| {
                         let weight = rep_weights
@@ -366,15 +368,15 @@ impl RepresentativeTrackerState {
     }
 
     fn calculate(&mut self, weights: &RepWeights) {
-        self.online_weight = Amount::ZERO;
-        for rep in self.registry.iter() {
-            self.online_weight += weights.get(&rep.public_key).cloned().unwrap_or_default();
-        }
-
         let trended_or_min_weight = max(self.trended_weight, self.online_weight_minimum);
+        self.online_weight = Amount::ZERO;
         let mut peered_weight = Amount::ZERO;
-        for rep in self.registry.iter().filter(|r| r.channel_id.is_some()) {
-            peered_weight += weights.weight(&rep.public_key);
+        for rep in self.registry.get_all() {
+            let weight = weights.weight(&rep.public_key);
+            self.online_weight += weight;
+            if rep.channel_id.is_some() {
+                peered_weight += weight;
+            }
         }
 
         let weight = max(self.online_weight, trended_or_min_weight);
