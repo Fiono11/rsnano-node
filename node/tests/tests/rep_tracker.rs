@@ -7,7 +7,10 @@ use test_helpers::{System, assert_always_eq, assert_timely_eq2};
 fn observe() {
     let mut system = System::new();
     let node = system.make_node();
-    assert_eq!(Amount::ZERO, node.rep_tracker.quorum_specs().online_weight);
+    assert_eq!(
+        Amount::ZERO,
+        node.rep_tracker.quorum_snapshot().online_weight
+    );
 
     // Add genesis representative
     let node_rep = system.make_node();
@@ -15,7 +18,7 @@ fn observe() {
 
     // The node should see that weight as online
     assert_timely_eq2(
-        || node.rep_tracker.quorum_specs().online_weight,
+        || node.rep_tracker.quorum_snapshot().online_weight,
         Amount::MAX,
     );
 }
@@ -27,12 +30,12 @@ fn observe_local() {
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
-        || node.rep_tracker.quorum_specs().online_weight,
+        || node.rep_tracker.quorum_snapshot().online_weight,
         Amount::MAX,
     );
     assert_always_eq(
         Duration::from_secs(1),
-        || node.rep_tracker.quorum_specs().online_weight,
+        || node.rep_tracker.quorum_snapshot().online_weight,
         Amount::MAX,
     );
 }

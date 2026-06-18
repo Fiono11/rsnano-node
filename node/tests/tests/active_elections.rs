@@ -269,7 +269,7 @@ fn non_final() {
         1,
     );
 
-    let _quorum_delta = node.rep_tracker.quorum_specs().quorum_delta;
+    let _quorum_delta = node.rep_tracker.quorum_snapshot().quorum_delta;
     assert_timely_eq2(
         || {
             let election = node.aec.election_for_root(&send.qualified_root()).unwrap();
@@ -339,7 +339,7 @@ fn inactive_votes_cache_existing_vote() {
     assert_timely2(|| node.is_active_hash(&send.hash()));
     assert!(
         node.ledger.weight(&key.public_key())
-            > node.rep_tracker.quorum_specs().minimum_principal_weight
+            > node.rep_tracker.quorum_snapshot().minimum_principal_weight
     );
 
     // Insert vote
@@ -468,7 +468,7 @@ fn inactive_votes_cache_election_start() {
     let key2 = PrivateKey::new();
 
     // Enough weight to trigger election hinting but not enough to confirm block on its own
-    let amount = ((node.rep_tracker.quorum_specs().trended_or_min_weight / 100)
+    let amount = ((node.rep_tracker.quorum_snapshot().trended_or_min_weight / 100)
         * node.config.hinted_scheduler.hinting_threshold_percent as u128)
         / 2
         + Amount::nano(1_000_000);

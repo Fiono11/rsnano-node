@@ -161,7 +161,7 @@ impl RepTiersCalculator {
 
     fn calculate_tiers(&mut self) {
         self.stats.inc(StatType::RepTiers, DetailType::Loop);
-        let trended = self.rep_tracker.quorum_specs().trended_or_min_weight;
+        let trended = self.rep_tracker.quorum_snapshot().trended_or_min_weight;
         let mut new_tier1 = HashSet::new();
         let mut new_tier2 = HashSet::new();
         let mut new_tier3 = HashSet::new();

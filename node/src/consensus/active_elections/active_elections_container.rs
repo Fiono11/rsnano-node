@@ -22,7 +22,7 @@ use crate::{
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
     },
-    representatives::QuorumSpecs,
+    representatives::QuorumSnapshot,
 };
 
 use super::{
@@ -556,7 +556,7 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
 pub struct ApplyVoteArgs<'a> {
     pub vote: &'a FilteredVote,
     pub rep_weights: &'a RepWeights,
-    pub quorum_specs: &'a QuorumSpecs,
+    pub quorum_snapshot: &'a QuorumSnapshot,
     pub now: Timestamp,
 }
 
@@ -616,7 +616,7 @@ mod tests {
         let result = container.apply_vote(ApplyVoteArgs {
             vote: &received_vote.into(),
             rep_weights: &rep_weights,
-            quorum_specs: &QuorumSpecs::new_test_instance(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
             now,
         });
 

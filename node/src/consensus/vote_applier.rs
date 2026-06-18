@@ -52,7 +52,7 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        let minimum_pr_weight = self.rep_tracker.quorum_specs().minimum_principal_weight;
+        let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
         if voter_weight <= minimum_pr_weight {
@@ -73,7 +73,7 @@ impl VoteApplier {
             self.rep_tracker
                 .vote_observed(vote.voter, vote.delivery, vote.channel_id);
         }
-        let quorum_specs = self.rep_tracker.quorum_specs();
+        let quorum_snapshot = self.rep_tracker.quorum_snapshot();
 
         let results = {
             let now = self.clock.now();
@@ -81,7 +81,7 @@ impl VoteApplier {
             self.active_elections.apply_vote(ApplyVoteArgs {
                 vote,
                 rep_weights: &rep_weights,
-                quorum_specs: &quorum_specs,
+                quorum_snapshot: &quorum_snapshot,
                 now,
             })
         };
@@ -136,7 +136,7 @@ mod tests {
         rep_tracker.vote_observed(another_rep.public_key(), VoteDelivery::Direct, None);
 
         assert_eq!(
-            rep_tracker.quorum_specs().quorum_delta,
+            rep_tracker.quorum_snapshot().quorum_delta,
             Amount::nano(43_550_000)
         );
 

@@ -54,7 +54,7 @@ impl NodeMonitor {
         );
 
         {
-            let specs = self.rep_tracker.quorum_specs();
+            let specs = self.rep_tracker.quorum_snapshot();
             info!(
                 "Quorum: {} (stake peered: {} | online stake: {})",
                 specs.quorum_delta.format_balance(0),

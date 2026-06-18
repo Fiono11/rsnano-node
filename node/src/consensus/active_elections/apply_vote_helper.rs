@@ -106,7 +106,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             return false;
         }
 
-        let cooldown = self.args.quorum_specs.cooldown_time(rep_weight);
+        let cooldown = self.args.quorum_snapshot.cooldown_time(rep_weight);
         last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
@@ -124,8 +124,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
 
-        self.election
-            .update_tallies(self.args.rep_weights, self.args.quorum_specs.quorum_delta);
+        self.election.update_tallies(
+            self.args.rep_weights,
+            self.args.quorum_snapshot.quorum_delta,
+        );
 
         self.notify_winner_changed(old_winner);
 
@@ -176,7 +178,7 @@ mod tests {
             FilteredVote, ReceivedVote, active_elections::root_container::Entry,
             election::ElectionBehavior,
         },
-        representatives::QuorumSpecs,
+        representatives::QuorumSnapshot,
     };
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
@@ -384,12 +386,12 @@ mod tests {
 
             let vote: FilteredVote =
                 ReceivedVote::new(vote.into(), VoteDelivery::Direct, None).into();
-            let quorum_specs = QuorumSpecs::new_test_instance();
+            let quorum_snapshot = QuorumSnapshot::new_test_instance();
 
             let args = ApplyVoteArgs {
                 vote: &vote,
                 rep_weights: &self.rep_weights,
-                quorum_specs: &quorum_specs,
+                quorum_snapshot: &quorum_snapshot,
                 now: Timestamp::new_test_instance(),
             };
 
@@ -461,7 +463,7 @@ mod tests {
         fn apply_vote(&mut self, vote: impl Into<FilteredVote>) -> Result<(), VoteError> {
             let vote = vote.into();
 
-            let quorum_specs = QuorumSpecs::new_test_instance();
+            let quorum_snapshot = QuorumSnapshot::new_test_instance();
             let mut recently_confirmed = RecentlyConfirmedCache::default();
             let mut vote_counter = VoteCounter::default();
             let (tx, rx) = channel(1024);
@@ -471,7 +473,7 @@ mod tests {
                     args: &ApplyVoteArgs {
                         vote: &vote,
                         rep_weights: &self.rep_weights,
-                        quorum_specs: &quorum_specs,
+                        quorum_snapshot: &quorum_snapshot,
                         now: Timestamp::new_test_instance(),
                     },
                     recently_confirmed: &mut recently_confirmed,

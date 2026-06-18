@@ -19,7 +19,7 @@ fn create_response(
     rep_tracker: &RepresentativeTracker,
     network: &RwLock<Network>,
 ) -> ConfirmationQuorumResponse {
-    let specs = rep_tracker.quorum_specs();
+    let specs = rep_tracker.quorum_snapshot();
     let mut result = ConfirmationQuorumResponse {
         quorum_delta: specs.quorum_delta,
         online_weight_quorum_percent: specs.quorum_percent.into(),
@@ -71,14 +71,17 @@ mod tests {
     #[test]
     fn quorum_response() {
         let tracker = RepresentativeTracker::new_null();
-        let specs = tracker.quorum_specs();
+        let specs = tracker.quorum_snapshot();
         let network = RwLock::new(Network::new_null());
         let response = create_response(
             ConfirmationQuorumArgs { peer_details: None },
             &tracker,
             &network,
         );
-        assert_eq!(response.quorum_delta, tracker.quorum_specs().quorum_delta);
+        assert_eq!(
+            response.quorum_delta,
+            tracker.quorum_snapshot().quorum_delta
+        );
         assert_eq!(
             response.online_weight_quorum_percent,
             specs.quorum_percent.into()
@@ -103,7 +106,7 @@ mod tests {
         );
         assert_eq!(
             response.quorum_delta,
-            online_reps.quorum_specs().quorum_delta
+            online_reps.quorum_snapshot().quorum_delta
         );
         let peers = response.peers.unwrap();
         assert_eq!(peers.len(), online_reps.peered_reps().len());

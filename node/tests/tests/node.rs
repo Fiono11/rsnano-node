@@ -173,7 +173,7 @@ fn confirm_quorum() {
         .unwrap();
 
     // Put greater than node.delta() in pending so quorum can't be reached
-    let new_balance = node1.rep_tracker.quorum_specs().quorum_delta - Amount::raw(1);
+    let new_balance = node1.rep_tracker.quorum_snapshot().quorum_delta - Amount::raw(1);
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice
         .genesis()
@@ -1386,10 +1386,16 @@ fn online_reps_rep_crawler() {
     )
     .into();
 
-    assert_eq!(Amount::ZERO, node.rep_tracker.quorum_specs().online_weight);
+    assert_eq!(
+        Amount::ZERO,
+        node.rep_tracker.quorum_snapshot().online_weight
+    );
 
     let _ = node.vote_processor.vote_blocking(&vote);
-    assert_eq!(Amount::ZERO, node.rep_tracker.quorum_specs().online_weight);
+    assert_eq!(
+        Amount::ZERO,
+        node.rep_tracker.quorum_snapshot().online_weight
+    );
 
     // After inserting to rep crawler
     node.rep_crawler
@@ -1397,7 +1403,7 @@ fn online_reps_rep_crawler() {
     let _ = node.vote_processor.vote_blocking(&vote);
 
     assert_timely_eq2(
-        || node.rep_tracker.quorum_specs().online_weight,
+        || node.rep_tracker.quorum_snapshot().online_weight,
         Amount::MAX,
     );
 }
@@ -1424,7 +1430,10 @@ fn online_reps_election() {
         0,
         vec![send1.hash()],
     ));
-    assert_eq!(Amount::ZERO, node.rep_tracker.quorum_specs().online_weight);
+    assert_eq!(
+        Amount::ZERO,
+        node.rep_tracker.quorum_snapshot().online_weight
+    );
 
     let channel = make_fake_channel(&node);
     let _ = node.vote_processor.vote_blocking(
@@ -1438,7 +1447,7 @@ fn online_reps_election() {
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
-        node.rep_tracker.quorum_specs().online_weight
+        node.rep_tracker.quorum_snapshot().online_weight
     );
 }
 

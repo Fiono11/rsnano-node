@@ -218,7 +218,7 @@ impl RepCrawler {
             let current_total_weight;
             let sufficient_weight;
             {
-                let specs = self.rep_tracker.quorum_specs();
+                let specs = self.rep_tracker.quorum_snapshot();
                 current_total_weight = specs.peered_weight;
                 sufficient_weight = current_total_weight > specs.quorum_delta;
             }
@@ -315,7 +315,7 @@ impl RepCrawler {
         // normally the rep_crawler only tracks principal reps but it can be made to track
         // reps with less weight by setting rep_crawler_weight_minimum to a low value
         let minimum = std::cmp::min(
-            self.rep_tracker.quorum_specs().minimum_principal_weight,
+            self.rep_tracker.quorum_snapshot().minimum_principal_weight,
             self.config.rep_crawler_weight_minimum,
         );
 
