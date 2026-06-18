@@ -1,17 +1,17 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    mem::size_of,
-    time::Duration,
-};
+use std::{collections::VecDeque, mem::size_of};
+
+use rustc_hash::FxHashMap;
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, PublicKey};
+use rsnano_types::PublicKey;
 
 /// Collection of all representatives that are currently online
 #[derive(Default)]
 pub(super) struct RepresentativeRegistry {
-    by_time: BTreeMap<Timestamp, Vec<PublicKey>>,
-    by_account: HashMap<PublicKey, Timestamp>,
+    /// Insertion order, oldest first. `now` is non-decreasing, so this stays sorted by time.
+    /// An entry is stale (and ignored) once `by_account` no longer agrees with its timestamp.
+    order: VecDeque<(PublicKey, Timestamp)>,
+    by_account: FxHashMap<PublicKey, Timestamp>,
 }
 
 impl RepresentativeRegistry {
@@ -25,22 +25,13 @@ impl RepresentativeRegistry {
 
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn insert(&mut self, rep: PublicKey, now: Timestamp) -> bool {
+        self.order.push_back((rep, now));
+
         if let Some(time) = self.by_account.get_mut(&rep) {
-            let old_time = *time;
             *time = now;
-
-            let accounts_for_old_time = self.by_time.get_mut(&old_time).unwrap();
-            if accounts_for_old_time.len() == 1 {
-                self.by_time.remove(&old_time);
-            } else {
-                accounts_for_old_time.retain(|acc| acc != &rep);
-            }
-            self.by_time.entry(now).or_default().push(rep);
-
             false // not inserted, just updated
         } else {
             self.by_account.insert(rep, now);
-            self.by_time.entry(now).or_default().push(rep);
             true // inserted
         }
     }
@@ -48,14 +39,15 @@ impl RepresentativeRegistry {
     pub fn trim(&mut self, upper_bound: Timestamp) -> Vec<(PublicKey, Timestamp)> {
         let mut trimmed = Vec::new();
 
-        while let Some((time, _)) = self.by_time.first_key_value() {
-            let time = *time;
-            if time >= upper_bound {
+        while let Some((_, time)) = self.order.front() {
+            if *time >= upper_bound {
                 break;
             }
 
-            let (_, accounts) = self.by_time.pop_first().unwrap();
-            for account in accounts {
+            let (account, time) = self.order.pop_front().unwrap();
+            // Only the entry matching the current timestamp in `by_account` is canonical;
+            // older entries left behind by an update are stale and get discarded here.
+            if self.by_account.get(&account) == Some(&time) {
                 self.by_account.remove(&account);
                 trimmed.push((account, time));
             }
@@ -69,12 +61,13 @@ impl RepresentativeRegistry {
     }
 
     pub const ELEMENT_SIZE: usize =
-        size_of::<(Duration, Vec<Account>)>() + size_of::<(Account, Duration)>();
+        size_of::<(PublicKey, Timestamp)>() + size_of::<(PublicKey, Timestamp)>();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn empty_container() {
@@ -135,7 +128,9 @@ mod tests {
         assert_eq!(container.iter().count(), 1);
         assert_eq!(new_insert_a, true);
         assert_eq!(new_insert_b, false);
-        assert_eq!(container.by_time.len(), 1);
+        // The stale entry from the first insert is still queued and gets
+        // discarded lazily once it reaches the front during a trim.
+        assert_eq!(container.order.len(), 2);
     }
 
     #[test]
@@ -175,6 +170,6 @@ mod tests {
         assert_eq!(container.trim(now + Duration::from_millis(1500)).len(), 3);
         assert_eq!(container.len(), 1);
         assert_eq!(container.iter().next().unwrap(), &PublicKey::from(4));
-        assert_eq!(container.by_time.len(), 1);
+        assert_eq!(container.order.len(), 1);
     }
 }
