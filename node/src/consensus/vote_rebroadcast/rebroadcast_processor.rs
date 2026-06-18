@@ -6,16 +6,17 @@ use std::{
     time::Duration,
 };
 
+use strum::{EnumCount, IntoEnumIterator};
+
+use rsnano_ledger::RepWeightCache;
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::Vote;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::history::{RebroadcastError, RebroadcastHistory, RebroadcastHistoryConfig};
 use crate::{consensus::RepTier, transport::MessageFlooder};
-use rsnano_ledger::RepWeightCache;
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use strum::{EnumCount, IntoEnumIterator};
 
 /// Rebroadcasts a given vote if necessary
 pub(super) struct RebroadcastProcessor {

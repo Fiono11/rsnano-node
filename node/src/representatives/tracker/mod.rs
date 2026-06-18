@@ -1,7 +1,7 @@
 mod builder;
-mod online_container;
 mod peered_container;
 mod peered_rep;
+mod registry;
 
 pub use builder::RepresentativeTrackerBuilder;
 pub use peered_container::InsertResult;
@@ -29,7 +29,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use {online_container::OnlineContainer, peered_container::PeeredContainer};
+use {peered_container::PeeredContainer, registry::RepresentativeRegistry};
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
@@ -135,7 +135,7 @@ impl RepresentativeTracker {
         let state = self.state.lock().unwrap();
 
         state
-            .online_reps
+            .registry
             .iter()
             .map(|rep_key| OnlineRepInfo {
                 rep_key: *rep_key,
@@ -278,8 +278,8 @@ impl ContainerInfoProvider for RepresentativeTracker {
         [
             (
                 "online",
-                state.online_reps.len(),
-                OnlineContainer::ELEMENT_SIZE,
+                state.registry.len(),
+                RepresentativeRegistry::ELEMENT_SIZE,
             ),
             (
                 "peered",
@@ -316,7 +316,7 @@ impl EventHandler<ChannelEvent> for RepresentativeTracker {
 }
 
 struct RepresentativeTrackerState {
-    online_reps: OnlineContainer,
+    registry: RepresentativeRegistry,
     peered_reps: PeeredContainer,
     trended_weight: Amount,
     online_weight: Amount,
@@ -328,7 +328,7 @@ struct RepresentativeTrackerState {
 impl RepresentativeTrackerState {
     pub fn new(online_weight_minimum: Amount, representative_weight_minimum: Amount) -> Self {
         Self {
-            online_reps: OnlineContainer::new(),
+            registry: RepresentativeRegistry::new(),
             peered_reps: PeeredContainer::new(),
             trended_weight: Amount::ZERO,
             online_weight: Amount::ZERO,
@@ -360,7 +360,7 @@ impl RepresentativeTrackerState {
             return InsertResult::Updated;
         }
 
-        self.online_reps.insert(rep, now);
+        self.registry.insert(rep, now);
 
         if delivery == VoteDelivery::Direct
             && let Some(channel) = channel
@@ -374,7 +374,7 @@ impl RepresentativeTrackerState {
 
     pub fn trim(&mut self, now: Timestamp, weights: &RepWeights) -> Vec<(PublicKey, Timestamp)> {
         let trimmed = self
-            .online_reps
+            .registry
             .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
         self.calculate(&weights);
         trimmed
@@ -382,7 +382,7 @@ impl RepresentativeTrackerState {
 
     fn calculate(&mut self, weights: &RepWeights) {
         self.online_weight = Amount::ZERO;
-        for account in self.online_reps.iter() {
+        for account in self.registry.iter() {
             self.online_weight += weights.get(account).cloned().unwrap_or_default();
         }
 

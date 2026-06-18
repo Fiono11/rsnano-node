@@ -9,12 +9,12 @@ use rsnano_types::{Account, PublicKey};
 
 /// Collection of all representatives that are currently online
 #[derive(Default)]
-pub(super) struct OnlineContainer {
+pub(super) struct RepresentativeRegistry {
     by_time: BTreeMap<Timestamp, Vec<PublicKey>>,
     by_account: HashMap<PublicKey, Timestamp>,
 }
 
-impl OnlineContainer {
+impl RepresentativeRegistry {
     pub fn new() -> Self {
         Default::default()
     }
@@ -78,14 +78,14 @@ mod tests {
 
     #[test]
     fn empty_container() {
-        let container = OnlineContainer::new();
+        let container = RepresentativeRegistry::new();
         assert_eq!(container.len(), 0);
         assert_eq!(container.iter().count(), 0);
     }
 
     #[test]
     fn insert_one_rep() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
 
         let new_insert = container.insert(PublicKey::from(1), Timestamp::new_test_instance());
 
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn insert_two_reps() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let new_insert_a = container.insert(PublicKey::from(1), now);
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn insert_same_rep_twice_with_same_time() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let new_insert_a = container.insert(PublicKey::from(1), now);
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn insert_same_rep_twice_with_different_time() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let new_insert_a = container.insert(PublicKey::from(1), now);
@@ -140,14 +140,14 @@ mod tests {
 
     #[test]
     fn trimming_empty_container_does_nothing() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         assert_eq!(container.trim(now).len(), 0);
     }
 
     #[test]
     fn dont_trim_if_upper_bound_not_reached() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         container.insert(PublicKey::from(1), now);
         assert_eq!(container.trim(now).len(), 0);
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn trim_if_upper_bound_reached() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         container.insert(PublicKey::from(1), now);
         assert_eq!(container.trim(now + Duration::from_millis(1)).len(), 1);
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn trim_multiple_entries() {
-        let mut container = OnlineContainer::new();
+        let mut container = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         container.insert(PublicKey::from(1), now);
