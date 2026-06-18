@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Mutex};
 
 use rustc_hash::FxHashMap;
 
@@ -24,8 +24,13 @@ pub(crate) enum RegisterResult {
 /// It belongs to the logic layer.
 #[derive(Default)]
 pub(crate) struct RepresentativeRegistry {
+    indexes: Mutex<Indexes>,
+}
+
+#[derive(Default)]
+struct Indexes {
     /// Insertion order, oldest first. `now` is non-decreasing, so this stays sorted by time.
-    /// An entry is stale (and ignored) once `by_account` no longer agrees with its timestamp.
+    /// An entry is stale (and ignored) once `by_key` no longer agrees with its timestamp.
     order: VecDeque<(PublicKey, Timestamp)>,
     by_key: FxHashMap<PublicKey, RegisteredRep>,
     by_channel: FxHashMap<ChannelId, Vec<PublicKey>>,
@@ -38,65 +43,86 @@ impl RepresentativeRegistry {
 
     #[cfg(test)]
     pub fn get(&self, key: &PublicKey) -> Option<RegisteredRep> {
-        self.by_key.get(key).cloned()
+        self.indexes.lock().unwrap().by_key.get(key).cloned()
     }
 
     pub fn with_reps_for_channel<F>(&self, channel_id: ChannelId, mut f: F)
     where
         F: FnMut(&RegisteredRep),
     {
-        let Some(keys) = self.by_channel.get(&channel_id) else {
+        let indexes = self.indexes.lock().unwrap();
+        let Some(keys) = indexes.by_channel.get(&channel_id) else {
             return;
         };
 
-        for rep in keys.iter().filter_map(|k| self.by_key.get(k)) {
+        for rep in keys.iter().filter_map(|k| indexes.by_key.get(k)) {
             f(rep);
         }
     }
 
     #[cfg(test)]
     pub fn contains_key(&self, key: &PublicKey) -> bool {
-        self.by_key.contains_key(key)
+        self.indexes.lock().unwrap().by_key.contains_key(key)
     }
 
     pub fn contains_channel(&self, channel_id: ChannelId) -> bool {
-        self.by_channel.contains_key(&channel_id)
+        self.indexes
+            .lock()
+            .unwrap()
+            .by_channel
+            .contains_key(&channel_id)
     }
 
     pub fn peered_count(&self) -> usize {
-        self.by_channel.values().map(|i| i.len()).sum()
+        self.indexes
+            .lock()
+            .unwrap()
+            .by_channel
+            .values()
+            .map(|i| i.len())
+            .sum()
     }
 
     pub fn get_all(&self) -> Vec<RegisteredRep> {
-        self.by_key.values().cloned().collect()
+        self.indexes
+            .lock()
+            .unwrap()
+            .by_key
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn register(
-        &mut self,
+        &self,
         public_key: PublicKey,
         channel_id: Option<ChannelId>,
         now: Timestamp,
     ) -> RegisterResult {
-        self.order.push_back((public_key, now));
+        let mut indexes = self.indexes.lock().unwrap();
+        indexes.order.push_back((public_key, now));
+        let i = &mut (*indexes);
+        let by_key = &mut i.by_key;
+        let by_channel = &mut i.by_channel;
 
-        if let Some(entry) = self.by_key.get_mut(&public_key) {
+        if let Some(entry) = by_key.get_mut(&public_key) {
             entry.last_seen = now;
 
             if let Some(id) = channel_id
                 && entry.channel_id != channel_id
             {
                 if let Some(old_id) = entry.channel_id
-                    && let Some(keys) = self.by_channel.get_mut(&old_id)
+                    && let Some(keys) = by_channel.get_mut(&old_id)
                     && let Some(i) = keys.iter().position(|k| *k == public_key)
                 {
                     keys.swap_remove(i);
                     if keys.is_empty() {
-                        self.by_channel.remove(&old_id);
+                        by_channel.remove(&old_id);
                     }
                 }
 
-                self.by_channel.entry(id).or_default().push(public_key);
+                by_channel.entry(id).or_default().push(public_key);
 
                 entry.channel_id = channel_id;
                 RegisterResult::ChannelChanged
@@ -104,7 +130,7 @@ impl RepresentativeRegistry {
                 RegisterResult::Updated
             }
         } else {
-            self.by_key.insert(
+            indexes.by_key.insert(
                 public_key,
                 RegisteredRep {
                     public_key,
@@ -113,42 +139,44 @@ impl RepresentativeRegistry {
                 },
             );
             if let Some(id) = channel_id {
-                self.by_channel.entry(id).or_default().push(public_key);
+                indexes.by_channel.entry(id).or_default().push(public_key);
             }
             RegisterResult::Inserted
         }
     }
 
-    pub fn disconnected(&mut self, channel_id: ChannelId) -> Vec<PublicKey> {
-        let Some(keys) = self.by_channel.remove(&channel_id) else {
+    pub fn disconnected(&self, channel_id: ChannelId) -> Vec<PublicKey> {
+        let mut indexes = self.indexes.lock().unwrap();
+        let Some(keys) = indexes.by_channel.remove(&channel_id) else {
             return Vec::new();
         };
         for key in &keys {
-            if let Some(rep) = self.by_key.get_mut(key) {
+            if let Some(rep) = indexes.by_key.get_mut(key) {
                 rep.channel_id = None;
             }
         }
         keys
     }
 
-    pub fn trim(&mut self, upper_bound: Timestamp) -> Vec<(PublicKey, Timestamp)> {
+    pub fn trim(&self, upper_bound: Timestamp) -> Vec<(PublicKey, Timestamp)> {
+        let mut indexes = self.indexes.lock().unwrap();
         let mut trimmed = Vec::new();
 
-        while let Some((_, time)) = self.order.front() {
+        while let Some((_, time)) = indexes.order.front() {
             if *time >= upper_bound {
                 break;
             }
 
-            let (public_key, time) = self.order.pop_front().unwrap();
+            let (public_key, time) = indexes.order.pop_front().unwrap();
             // Only the entry matching the current timestamp in `by_account` is canonical;
             // older entries left behind by an update are stale and get discarded here.
-            if let Some(entry) = self.by_key.get(&public_key)
+            if let Some(entry) = indexes.by_key.get(&public_key)
                 && entry.last_seen == time
             {
                 let channel_id = entry.channel_id;
-                self.by_key.remove(&public_key);
+                indexes.by_key.remove(&public_key);
                 if let Some(id) = channel_id {
-                    self.by_channel.remove(&id);
+                    indexes.by_channel.remove(&id);
                 }
                 trimmed.push((public_key, time));
             }
@@ -158,7 +186,7 @@ impl RepresentativeRegistry {
     }
 
     pub fn len(&self) -> usize {
-        self.by_key.len()
+        self.indexes.lock().unwrap().by_key.len()
     }
 }
 
@@ -181,7 +209,7 @@ mod tests {
 
     #[test]
     fn registers_a_new_rep() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let result = registry.register(PublicKey::from(1), None, now);
@@ -197,7 +225,7 @@ mod tests {
 
     #[test]
     fn registers_multiple_reps() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let new_insert_a = registry.register(PublicKey::from(1), None, now);
@@ -211,7 +239,7 @@ mod tests {
 
     #[test]
     fn register_updates_last_seen_time() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         let new_insert_a = registry.register(PublicKey::from(1), None, now);
@@ -223,12 +251,12 @@ mod tests {
         assert_eq!(new_insert_b, RegisterResult::Updated);
         // The stale entry from the first insert is still queued and gets
         // discarded lazily once it reaches the front during a trim.
-        assert_eq!(registry.order.len(), 2);
+        assert_eq!(registry.indexes.lock().unwrap().order.len(), 2);
     }
 
     #[test]
     fn keeps_track_of_channel_id() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         let key = PublicKey::from(1);
         let channel_id = ChannelId::from(42);
@@ -242,7 +270,7 @@ mod tests {
 
     #[test]
     fn omitted_channel_id_leaves_the_registered_channel_unchanged() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         let key = PublicKey::from(1);
         let channel_id = ChannelId::from(42);
@@ -256,7 +284,7 @@ mod tests {
 
     #[test]
     fn tracks_channel_changes() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         let key = PublicKey::from(1);
         let channel_id = ChannelId::from(42);
@@ -274,7 +302,7 @@ mod tests {
 
     #[test]
     fn removes_disconnected_channel() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         let key = PublicKey::from(1);
         let channel_id = ChannelId::from(42);
@@ -292,14 +320,14 @@ mod tests {
 
     #[test]
     fn trimming_empty_registry_does_nothing() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         assert_eq!(registry.trim(now).len(), 0);
     }
 
     #[test]
     fn dont_trim_if_upper_bound_not_reached() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         registry.register(PublicKey::from(1), None, now);
         assert_eq!(registry.trim(now).len(), 0);
@@ -307,7 +335,7 @@ mod tests {
 
     #[test]
     fn trim_if_upper_bound_reached() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
         let now = Timestamp::new_test_instance();
         registry.register(PublicKey::from(1), None, now);
         assert_eq!(registry.trim(now + Duration::from_millis(1)).len(), 1);
@@ -330,6 +358,6 @@ mod tests {
             registry.get_all().first().unwrap().public_key,
             PublicKey::from(4)
         );
-        assert_eq!(registry.order.len(), 1);
+        assert_eq!(registry.indexes.lock().unwrap().order.len(), 1);
     }
 }
