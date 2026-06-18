@@ -29,7 +29,6 @@ pub(crate) struct RepresentativeRegistry {
     order: VecDeque<(PublicKey, Timestamp)>,
     by_key: FxHashMap<PublicKey, RegisteredRep>,
     by_channel: FxHashMap<ChannelId, Vec<PublicKey>>,
-    empty_result: Vec<PublicKey>,
 }
 
 impl RepresentativeRegistry {
@@ -38,16 +37,21 @@ impl RepresentativeRegistry {
     }
 
     #[cfg(test)]
-    pub fn get(&self, key: &PublicKey) -> Option<&RegisteredRep> {
-        self.by_key.get(key)
+    pub fn get(&self, key: &PublicKey) -> Option<RegisteredRep> {
+        self.by_key.get(key).cloned()
     }
 
-    pub fn get_by_channel(&self, channel_id: ChannelId) -> impl Iterator<Item = &RegisteredRep> {
-        self.by_channel
-            .get(&channel_id)
-            .unwrap_or(&self.empty_result)
-            .iter()
-            .filter_map(|key| self.by_key.get(key))
+    pub fn with_reps_for_channel<F>(&self, channel_id: ChannelId, mut f: F)
+    where
+        F: FnMut(&RegisteredRep),
+    {
+        let Some(keys) = self.by_channel.get(&channel_id) else {
+            return;
+        };
+
+        for rep in keys.iter().filter_map(|k| self.by_key.get(k)) {
+            f(rep);
+        }
     }
 
     #[cfg(test)]

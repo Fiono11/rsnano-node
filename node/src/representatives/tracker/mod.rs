@@ -109,12 +109,20 @@ impl RepresentativeTracker {
     pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
         let weights = self.rep_weights.read();
         let min_weight = self.quorum_specs().minimum_principal_weight;
+        let mut is_pr = false;
+
         self.state
             .lock()
             .unwrap()
             .registry
-            .get_by_channel(channel_id)
-            .any(|rep| weights.weight(&rep.public_key) >= min_weight)
+            .with_reps_for_channel(channel_id, |rep| {
+                let weight = weights.weight(&rep.public_key);
+                if weight >= min_weight {
+                    is_pr = true;
+                }
+            });
+
+        is_pr
     }
 
     /// Total number of peered representatives
