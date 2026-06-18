@@ -7,8 +7,8 @@ pub use quorum::ONLINE_WEIGHT_QUORUM;
 
 use std::{
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -20,9 +20,9 @@ use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
@@ -125,6 +125,11 @@ impl RepresentativeTracker {
         self.registry.peered_count()
     }
 
+    /// Total number of online representatives
+    pub fn online_reps_count(&self) -> usize {
+        self.registry.len()
+    }
+
     pub fn quorum_snapshot(&self) -> QuorumSnapshot {
         self.state.lock().unwrap().quorum_snapshot.clone()
     }
@@ -138,7 +143,7 @@ impl RepresentativeTracker {
             .map(|rep| OnlineRepInfo {
                 rep_key: rep.public_key,
                 weight: weight_reader.weight(&rep.public_key),
-                is_peered: rep.channel_id.is_some(),
+                channel: rep.channel_id.clone(),
             })
             .collect()
     }
@@ -350,8 +355,7 @@ pub struct PeeredRepInfo {
 pub struct OnlineRepInfo {
     pub rep_key: PublicKey,
     pub weight: Amount,
-    // Does this node have a direct connection to that rep?
-    pub is_peered: bool,
+    pub channel: Option<ChannelId>,
 }
 
 #[derive(Clone)]

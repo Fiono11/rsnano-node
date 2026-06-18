@@ -1,13 +1,13 @@
 use rsnano_ledger::{
-    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
-    test_helpers::UnsavedBlockLatticeBuilder,
+    test_helpers::UnsavedBlockLatticeBuilder, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+    DEV_GENESIS_PUB_KEY,
 };
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{ChannelMode, TrafficType};
 use rsnano_node::consensus::ReceivedVote;
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteDelivery};
+use rsnano_types::{Amount, PrivateKey, UnixMillisTimestamp, Vote, VoteDelivery, DEV_GENESIS_KEY};
 use std::{sync::Arc, time::Duration};
-use test_helpers::{System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2};
+use test_helpers::{assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, System};
 
 #[test]
 fn ignore_rebroadcast() {
@@ -89,7 +89,7 @@ fn rep_weight() {
     node1.process_multi(&blocks);
     node2.process_multi(&blocks);
     node3.process_multi(&blocks);
-    assert_eq!(node.rep_tracker.online_reps().len(), 0);
+    assert_eq!(node.rep_tracker.online_reps_count(), 0);
 
     assert_timely_eq2(
         || {

@@ -121,7 +121,7 @@ mod tests {
                 ResponseBuilder::new(Default::default()).create_response([OnlineRepInfo {
                     rep_key: 1.into(),
                     weight: Amount::ZERO,
-                    is_peered: false,
+                    channel: None,
                 }]);
             assert_eq!(simple_response(response), [Account::from(1)]);
         }
@@ -135,7 +135,7 @@ mod tests {
             .create_response([OnlineRepInfo {
                 rep_key: 1.into(),
                 weight: Amount::ZERO,
-                is_peered: false,
+                channel: None,
             }]);
             assert_eq!(simple_response(response), []);
         }
@@ -150,22 +150,22 @@ mod tests {
                 OnlineRepInfo {
                     rep_key: 1.into(),
                     weight: Amount::ZERO,
-                    is_peered: false,
+                    channel: None,
                 },
                 OnlineRepInfo {
                     rep_key: 2.into(),
                     weight: Amount::ZERO,
-                    is_peered: false,
+                    channel: None,
                 },
                 OnlineRepInfo {
                     rep_key: 3.into(),
                     weight: Amount::ZERO,
-                    is_peered: false,
+                    channel: None,
                 },
                 OnlineRepInfo {
                     rep_key: 4.into(),
                     weight: Amount::ZERO,
-                    is_peered: false,
+                    channel: None,
                 },
             ]);
             assert_eq!(simple_response(response), [2.into(), 3.into()]);
@@ -199,7 +199,7 @@ mod tests {
             let response = ResponseBuilder::new(args).create_response([OnlineRepInfo {
                 rep_key,
                 weight,
-                is_peered: false,
+                channel: None,
             }]);
 
             let response = detailed_response(response);

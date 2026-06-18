@@ -142,7 +142,7 @@ impl InsightApp {
                         account: i.rep_key.as_account(),
                         name: *name,
                         weight: i.weight,
-                        is_peered: i.is_peered,
+                        is_peered: i.channel.is_some(),
                     }
                 })
                 .collect();
