@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn trim_multiple_entries() {
-        let mut registry = RepresentativeRegistry::new();
+        let registry = RepresentativeRegistry::new();
 
         let now = Timestamp::new_test_instance();
         registry.register(PublicKey::from(1), None, now);

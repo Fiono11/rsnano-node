@@ -1,10 +1,11 @@
 mod builder;
+mod quorum;
 mod registry;
 
 pub use builder::RepresentativeTrackerBuilder;
+pub use quorum::ONLINE_WEIGHT_QUORUM;
 
 use std::{
-    cmp::max,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -12,12 +13,11 @@ use std::{
     time::Duration,
 };
 
-use primitive_types::U256;
 use tracing::{debug, info, warn};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
     EventHandler,
@@ -25,10 +25,8 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use crate::representatives::tracker::registry::RegisterResult;
+use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
 use registry::RepresentativeRegistry;
-
-pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
 /// Keeps track of all representatives that are online
 /// and all representatives to which we have a direct connection
@@ -37,6 +35,9 @@ pub struct RepresentativeTracker {
     rep_weights: Arc<RepWeightCache>,
     state: Mutex<RepresentativeTrackerState>,
     trim_counter: AtomicU64,
+    representative_weight_minimum: Amount,
+    online_weight_minimum: Amount,
+    registry: RepresentativeRegistry,
 }
 
 impl RepresentativeTracker {
@@ -71,11 +72,11 @@ impl RepresentativeTracker {
         Self {
             clock,
             rep_weights,
-            state: Mutex::new(RepresentativeTrackerState::new(
-                online_weight_minimum,
-                representative_weight_minimum,
-            )),
+            state: Mutex::new(RepresentativeTrackerState::new(online_weight_minimum)),
+            online_weight_minimum,
             trim_counter: AtomicU64::new(0),
+            representative_weight_minimum,
+            registry: RepresentativeRegistry::new(),
         }
     }
 
@@ -99,10 +100,8 @@ impl RepresentativeTracker {
     }
 
     pub fn set_trended(&self, trended: Amount) {
-        let weights = self.rep_weights.read();
-        let mut state = self.state.lock().unwrap();
-        state.trended_weight = trended;
-        state.calculate(&weights);
+        self.state.lock().unwrap().trended_weight = trended;
+        self.recalculate();
     }
 
     /// Query if a peer manages a principle representative
@@ -111,23 +110,19 @@ impl RepresentativeTracker {
         let min_weight = self.quorum_snapshot().minimum_principal_weight;
         let mut is_pr = false;
 
-        self.state
-            .lock()
-            .unwrap()
-            .registry
-            .with_reps_for_channel(channel_id, |rep| {
-                let weight = weights.weight(&rep.public_key);
-                if weight >= min_weight {
-                    is_pr = true;
-                }
-            });
+        self.registry.with_reps_for_channel(channel_id, |rep| {
+            let weight = weights.weight(&rep.public_key);
+            if weight >= min_weight {
+                is_pr = true;
+            }
+        });
 
         is_pr
     }
 
     /// Total number of peered representatives
     pub fn peered_reps_count(&self) -> usize {
-        self.state.lock().unwrap().registry.peered_count()
+        self.registry.peered_count()
     }
 
     pub fn quorum_snapshot(&self) -> QuorumSnapshot {
@@ -137,10 +132,7 @@ impl RepresentativeTracker {
     /// List of online representatives
     pub fn online_reps(&self) -> Vec<OnlineRepInfo> {
         let weight_reader = self.rep_weights.read();
-        let state = self.state.lock().unwrap();
-
-        state
-            .registry
+        self.registry
             .get_all()
             .into_iter()
             .map(|rep| OnlineRepInfo {
@@ -157,11 +149,7 @@ impl RepresentativeTracker {
     }
 
     pub fn is_rep(&self, channel_id: ChannelId) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .registry
-            .contains_channel(channel_id)
+        self.registry.contains_channel(channel_id)
     }
 
     /// Request a list of the top known principal representatives in descending order of weight
@@ -175,9 +163,7 @@ impl RepresentativeTracker {
     fn peered_representatives_filter(&self, min_weight: Amount) -> Vec<PeeredRepInfo> {
         let mut result: Vec<PeeredRepInfo> = {
             let rep_weights = self.rep_weights.read();
-            let state = self.state.lock().unwrap();
-            state
-                .registry
+            self.registry
                 .get_all()
                 .into_iter()
                 .filter_map(|rep| {
@@ -212,14 +198,27 @@ impl RepresentativeTracker {
         &self,
         rep: PublicKey,
         delivery: VoteDelivery,
-        channel: Option<ChannelId>,
+        channel_id: Option<ChannelId>,
     ) {
         let result = {
             let now = self.clock.now();
             let weights = self.rep_weights.read();
-            let mut state = self.state.lock().unwrap();
-            state.vote_observed(rep, delivery, channel, now, &weights)
+            let weight = weights.weight(&rep);
+            if weight < self.representative_weight_minimum {
+                RegisterResult::Updated
+            } else {
+                // ignore forwarded or replayed votes
+                let channel_id = if delivery == VoteDelivery::Direct {
+                    channel_id
+                } else {
+                    None
+                };
+
+                self.registry.register(rep, channel_id, now)
+            }
         };
+
+        self.recalculate();
 
         match result {
             RegisterResult::Inserted => {
@@ -239,14 +238,14 @@ impl RepresentativeTracker {
     }
 
     pub fn trim(&self) {
-        let now = self.clock.now();
         self.trim_counter.fetch_add(1, Ordering::Relaxed);
-        let trimmed;
-        {
-            let weights = self.rep_weights.read();
-            let mut state = self.state.lock().unwrap();
-            trimmed = state.trim(now, &weights);
-        }
+
+        let now = self.clock.now();
+        let trimmed = self
+            .registry
+            .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
+
+        self.recalculate();
 
         for (rep_key, time) in &trimmed {
             debug!(
@@ -258,21 +257,27 @@ impl RepresentativeTracker {
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
-        self.state.lock().unwrap().registry.disconnected(channel_id)
-    }
-
-    pub fn get_rep_weights(&self) -> RepWeights {
-        self.rep_weights.read().clone()
+        let removed = self.registry.disconnected(channel_id);
+        self.recalculate();
+        removed
     }
 
     #[cfg(feature = "ledger_snapshots")]
     pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
-        let rep_weights = self.get_rep_weights();
+        let rep_weights = self.rep_weights.read().clone();
         let quorum_weight = self.quorum_snapshot().quorum_delta;
         ConsensusParams {
             quorum_weight,
             rep_weights,
         }
+    }
+
+    fn recalculate(&self) {
+        let weights = self.rep_weights.read();
+        let reps = self.registry.get_all();
+        let trended = self.state.lock().unwrap().trended_weight;
+        let quorum = calculate_quorum(&reps, trended, self.online_weight_minimum, &weights);
+        self.state.lock().unwrap().quorum_snapshot = quorum;
     }
 }
 
@@ -284,8 +289,7 @@ impl Default for RepresentativeTracker {
 
 impl ContainerInfoProvider for RepresentativeTracker {
     fn container_info(&self) -> ContainerInfo {
-        let state = self.state.lock().unwrap();
-        [("reps", state.registry.len(), 0)].into()
+        [("reps", self.registry.len(), 0)].into()
     }
 }
 
@@ -314,25 +318,14 @@ impl EventHandler<ChannelEvent> for RepresentativeTracker {
 }
 
 struct RepresentativeTrackerState {
-    registry: RepresentativeRegistry,
-
     trended_weight: Amount,
-    online_weight: Amount,
-
-    online_weight_minimum: Amount,
-    representative_weight_minimum: Amount,
-
     quorum_snapshot: QuorumSnapshot,
 }
 
 impl RepresentativeTrackerState {
-    pub fn new(online_weight_minimum: Amount, representative_weight_minimum: Amount) -> Self {
+    pub fn new(online_weight_minimum: Amount) -> Self {
         Self {
-            registry: RepresentativeRegistry::new(),
             trended_weight: Amount::ZERO,
-            online_weight: Amount::ZERO,
-            online_weight_minimum,
-            representative_weight_minimum,
             quorum_snapshot: QuorumSnapshot {
                 trended_or_min_weight: online_weight_minimum,
                 quorum_delta: online_weight_minimum,
@@ -343,72 +336,6 @@ impl RepresentativeTrackerState {
                 minimum_principal_weight: online_weight_minimum / 1000,
             },
         }
-    }
-
-    pub fn vote_observed(
-        &mut self,
-        rep: PublicKey,
-        delivery: VoteDelivery,
-        channel_id: Option<ChannelId>,
-        now: Timestamp,
-        weights: &RepWeights,
-    ) -> RegisterResult {
-        let weight = weights.weight(&rep);
-        if weight < self.representative_weight_minimum {
-            return RegisterResult::Updated;
-        }
-
-        // ignore forwarded or replayed votes
-        let channel_id = if delivery == VoteDelivery::Direct {
-            channel_id
-        } else {
-            None
-        };
-
-        let result = self.registry.register(rep, channel_id, now);
-        self.calculate(weights);
-        result
-    }
-
-    pub fn trim(&mut self, now: Timestamp, weights: &RepWeights) -> Vec<(PublicKey, Timestamp)> {
-        let trimmed = self
-            .registry
-            .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
-        self.calculate(&weights);
-        trimmed
-    }
-
-    fn calculate(&mut self, weights: &RepWeights) {
-        let trended_or_min_weight = max(self.trended_weight, self.online_weight_minimum);
-        self.online_weight = Amount::ZERO;
-        let mut peered_weight = Amount::ZERO;
-        for rep in self.registry.get_all() {
-            let weight = weights.weight(&rep.public_key);
-            self.online_weight += weight;
-            if rep.channel_id.is_some() {
-                peered_weight += weight;
-            }
-        }
-
-        let weight = max(self.online_weight, trended_or_min_weight);
-        let minimum_principal_weight = trended_or_min_weight / 1000; // 0.1% of trended online weight
-
-        // Using a larger container to ensure maximum precision
-        let delta =
-            U256::from(weight.number()) * U256::from(ONLINE_WEIGHT_QUORUM) / U256::from(100);
-        let quorum_delta = Amount::raw(delta.as_u128());
-
-        let quorum_snapshot = QuorumSnapshot {
-            trended_or_min_weight,
-            quorum_delta,
-            peered_weight,
-            online_weight: self.online_weight,
-            online_weight_minimum: self.online_weight_minimum,
-            quorum_percent: ONLINE_WEIGHT_QUORUM,
-            minimum_principal_weight,
-        };
-
-        self.quorum_snapshot = quorum_snapshot;
     }
 }
 
