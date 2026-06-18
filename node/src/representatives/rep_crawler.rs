@@ -461,7 +461,7 @@ impl RepCrawlerImpl {
         );
 
         random_peers.retain(|channel| {
-            let peered_rep = rep_tracker.is_peered_rep(channel.channel_id());
+            let peered_rep = rep_tracker.is_rep(channel.channel_id());
 
             if peered_rep {
                 let elapsed = self

@@ -42,9 +42,3 @@ resolver = "2"
 [profile.release]
 codegen-units = 1
 lto = true
-
-[profile.dev]
-opt-level = 1 # or opt-level = 3 for full optimization, but compile times suffer
-
-[profile.dev.package."*"]
-opt-level = 3  # optimize all dependencies fully

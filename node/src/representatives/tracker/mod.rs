@@ -1,11 +1,7 @@
 mod builder;
-mod peered_container;
-mod peered_rep;
 mod registry;
 
 pub use builder::RepresentativeTrackerBuilder;
-pub use peered_container::InsertResult;
-pub use peered_rep::PeeredRep;
 
 use std::{
     cmp::max,
@@ -29,7 +25,8 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use {peered_container::PeeredContainer, registry::RepresentativeRegistry};
+use crate::representatives::tracker::registry::RegisterResult;
+use registry::RepresentativeRegistry;
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
@@ -110,26 +107,26 @@ impl RepresentativeTracker {
 
     /// Query if a peer manages a principle representative
     pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
-        let rep_weights = self.rep_weights.read();
+        let weights = self.rep_weights.read();
         let min_weight = self.quorum_specs().minimum_principal_weight;
         self.state
             .lock()
             .unwrap()
-            .peered_reps
-            .accounts_by_channel(channel_id)
-            .any(|account| rep_weights.get(account).cloned().unwrap_or_default() >= min_weight)
+            .registry
+            .get_by_channel(channel_id)
+            .any(|rep| weights.weight(&rep.public_key) >= min_weight)
     }
 
     /// Total number of peered representatives
     pub fn peered_reps_count(&self) -> usize {
-        self.state.lock().unwrap().peered_reps.len()
+        self.state.lock().unwrap().registry.peered_count()
     }
 
     pub fn quorum_specs(&self) -> QuorumSpecs {
         self.state.lock().unwrap().quorum_specs.clone()
     }
 
-    /// List of online representatives, both the currently sampling ones and the ones observed in the previous sampling period
+    /// List of online representatives
     pub fn online_reps(&self) -> Vec<OnlineRepInfo> {
         let weight_reader = self.rep_weights.read();
         let state = self.state.lock().unwrap();
@@ -137,10 +134,10 @@ impl RepresentativeTracker {
         state
             .registry
             .iter()
-            .map(|rep_key| OnlineRepInfo {
-                rep_key: *rep_key,
-                weight: weight_reader.weight(rep_key),
-                is_peered: state.peered_reps.contains(rep_key),
+            .map(|rep| OnlineRepInfo {
+                rep_key: rep.public_key,
+                weight: weight_reader.weight(&rep.public_key),
+                is_peered: rep.channel_id.is_some(),
             })
             .collect()
     }
@@ -148,6 +145,14 @@ impl RepresentativeTracker {
     /// Request a list of the top \p count known representatives in descending order of weight, with at least \p weight_a voting weight, and optionally with a minimum version \p minimum_protocol_version
     pub fn peered_reps(&self) -> Vec<PeeredRepInfo> {
         self.peered_representatives_filter(Amount::ZERO)
+    }
+
+    pub fn is_rep(&self, channel_id: ChannelId) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .registry
+            .contains_channel(channel_id)
     }
 
     /// Request a list of the top known principal representatives in descending order of weight
@@ -159,32 +164,35 @@ impl RepresentativeTracker {
     /// Request a list of known representatives in descending order
     /// of weight, with at least **weight** voting weight
     fn peered_representatives_filter(&self, min_weight: Amount) -> Vec<PeeredRepInfo> {
-        let mut reps_with_weight = Vec::new();
-
-        {
+        let mut result: Vec<PeeredRepInfo> = {
             let rep_weights = self.rep_weights.read();
             let state = self.state.lock().unwrap();
-            for rep in state.peered_reps.iter() {
-                let weight = rep_weights
-                    .get(&rep.public_key)
-                    .cloned()
-                    .unwrap_or_default();
-                if weight > min_weight {
-                    reps_with_weight.push((rep.clone(), weight));
-                }
-            }
-        }
+            state
+                .registry
+                .iter()
+                .filter_map(|rep| {
+                    rep.channel_id.and_then(|id| {
+                        let weight = rep_weights
+                            .get(&rep.public_key)
+                            .cloned()
+                            .unwrap_or_default();
 
-        reps_with_weight.sort_by(|a, b| b.1.cmp(&a.1));
+                        if weight > min_weight {
+                            Some(PeeredRepInfo {
+                                rep_key: rep.public_key,
+                                channel_id: id,
+                                weight,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect()
+        };
 
-        reps_with_weight
-            .drain(..)
-            .map(|(rep, weight)| PeeredRepInfo {
-                rep_key: rep.public_key,
-                channel_id: rep.channel_id,
-                weight,
-            })
-            .collect()
+        result.sort_by(|a, b| b.weight.cmp(&a.weight));
+        result
     }
 
     /// Add voting account rep to the set of online representatives.
@@ -204,19 +212,19 @@ impl RepresentativeTracker {
         };
 
         match result {
-            InsertResult::Inserted => {
+            RegisterResult::Inserted => {
                 info!(
                     "Found representative: {}",
                     rep.as_account().encode_account(),
                 );
             }
-            InsertResult::ChannelChanged => {
+            RegisterResult::ChannelChanged => {
                 warn!(
                     "Representative channel changed: {}",
                     rep.as_account().encode_account(),
                 )
             }
-            InsertResult::Updated => {}
+            RegisterResult::Updated => {}
         }
     }
 
@@ -240,19 +248,11 @@ impl RepresentativeTracker {
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
-        self.state.lock().unwrap().peered_reps.remove(channel_id)
+        self.state.lock().unwrap().registry.disconnected(channel_id)
     }
 
     pub fn get_rep_weights(&self) -> RepWeights {
         self.rep_weights.read().clone()
-    }
-
-    pub fn is_peered_rep(&self, channel_id: ChannelId) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .peered_reps
-            .contains_channel(channel_id)
     }
 
     #[cfg(feature = "ledger_snapshots")]
@@ -275,19 +275,7 @@ impl Default for RepresentativeTracker {
 impl ContainerInfoProvider for RepresentativeTracker {
     fn container_info(&self) -> ContainerInfo {
         let state = self.state.lock().unwrap();
-        [
-            (
-                "online",
-                state.registry.len(),
-                RepresentativeRegistry::ELEMENT_SIZE,
-            ),
-            (
-                "peered",
-                state.peered_reps.len(),
-                PeeredContainer::ELEMENT_SIZE,
-            ),
-        ]
-        .into()
+        [("reps", state.registry.len(), 0)].into()
     }
 }
 
@@ -317,7 +305,6 @@ impl EventHandler<ChannelEvent> for RepresentativeTracker {
 
 struct RepresentativeTrackerState {
     registry: RepresentativeRegistry,
-    peered_reps: PeeredContainer,
     trended_weight: Amount,
     online_weight: Amount,
     online_weight_minimum: Amount,
@@ -329,7 +316,6 @@ impl RepresentativeTrackerState {
     pub fn new(online_weight_minimum: Amount, representative_weight_minimum: Amount) -> Self {
         Self {
             registry: RepresentativeRegistry::new(),
-            peered_reps: PeeredContainer::new(),
             trended_weight: Amount::ZERO,
             online_weight: Amount::ZERO,
             online_weight_minimum,
@@ -350,24 +336,23 @@ impl RepresentativeTrackerState {
         &mut self,
         rep: PublicKey,
         delivery: VoteDelivery,
-        channel: Option<ChannelId>,
+        channel_id: Option<ChannelId>,
         now: Timestamp,
         weights: &RepWeights,
-    ) -> InsertResult {
-        let mut result = InsertResult::Updated;
+    ) -> RegisterResult {
         let weight = weights.weight(&rep);
         if weight < self.representative_weight_minimum {
-            return InsertResult::Updated;
+            return RegisterResult::Updated;
         }
 
-        self.registry.insert(rep, now);
+        // ignore forwarded or replayed votes
+        let channel_id = if delivery == VoteDelivery::Direct {
+            channel_id
+        } else {
+            None
+        };
 
-        if delivery == VoteDelivery::Direct
-            && let Some(channel) = channel
-        {
-            result = self.peered_reps.update_or_insert(rep, channel);
-        }
-
+        let result = self.registry.register(rep, channel_id, now);
         self.calculate(weights);
         result
     }
@@ -382,14 +367,14 @@ impl RepresentativeTrackerState {
 
     fn calculate(&mut self, weights: &RepWeights) {
         self.online_weight = Amount::ZERO;
-        for account in self.registry.iter() {
-            self.online_weight += weights.get(account).cloned().unwrap_or_default();
+        for rep in self.registry.iter() {
+            self.online_weight += weights.get(&rep.public_key).cloned().unwrap_or_default();
         }
 
         let trended_or_min_weight = max(self.trended_weight, self.online_weight_minimum);
         let mut peered_weight = Amount::ZERO;
-        for account in self.peered_reps.accounts() {
-            peered_weight += weights.get(account).cloned().unwrap_or_default();
+        for rep in self.registry.iter().filter(|r| r.channel_id.is_some()) {
+            peered_weight += weights.weight(&rep.public_key);
         }
 
         let weight = max(self.online_weight, trended_or_min_weight);
