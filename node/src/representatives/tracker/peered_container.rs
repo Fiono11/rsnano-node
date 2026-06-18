@@ -34,6 +34,10 @@ impl PeeredContainer {
         self.by_account.contains_key(key)
     }
 
+    pub fn contains_channel(&self, channel_id: ChannelId) -> bool {
+        self.by_channel_id.contains_key(&channel_id)
+    }
+
     pub fn update_or_insert(&mut self, account: PublicKey, channel_id: ChannelId) -> InsertResult {
         if let Some(rep) = self.by_account.get_mut(&account) {
             // Update if representative channel was changed

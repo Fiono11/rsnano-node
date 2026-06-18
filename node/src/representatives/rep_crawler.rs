@@ -296,6 +296,7 @@ impl RepCrawler {
                     sufficient_weight,
                     random_peers,
                     self.steady_clock.now(),
+                    &self.rep_tracker,
                 );
                 drop(guard);
                 self.query(targets);
@@ -437,6 +438,7 @@ impl RepCrawlerImpl {
         sufficient_weight: bool,
         mut random_peers: Vec<Arc<Channel>>,
         now: Timestamp,
+        rep_tracker: &RepresentativeTracker,
     ) -> Vec<Arc<Channel>> {
         // TODO: Make these values configurable
         const CONSERVATIVE_MAX_ATTEMPTS: usize = 4;
@@ -459,25 +461,27 @@ impl RepCrawlerImpl {
         );
 
         random_peers.retain(|channel| {
-            let elapsed = self
-                .last_request_by_channel
-                .get(&channel.channel_id())
-                .map(|last| last.elapsed(now));
+            let peered_rep = rep_tracker.is_peered_rep(channel.channel_id());
 
-            match elapsed {
-                Some(last_request_elapsed) => {
-                    // Throttle queries to recently queried channels
-                    last_request_elapsed >= rep_query_interval
+            if peered_rep {
+                let elapsed = self
+                    .last_request_by_channel
+                    .get(&channel.channel_id())
+                    .map(|last| last.elapsed(now));
+
+                // Throttle queries to recently queried representatives
+                match elapsed {
+                    Some(e) => e >= rep_query_interval,
+                    None => true,
                 }
-                None => {
-                    // Avoid querying the same peer multiple times when rep crawler is warmed up
-                    let max_attemts = if sufficient_weight {
-                        CONSERVATIVE_MAX_ATTEMPTS
-                    } else {
-                        AGGRESSIVE_MAX_ATTEMPTS
-                    };
-                    self.queries.count_by_channel(channel.channel_id()) < max_attemts
-                }
+            } else {
+                // Avoid querying the same peer multiple times when rep crawler is warmed up
+                let max_attemts = if sufficient_weight {
+                    CONSERVATIVE_MAX_ATTEMPTS
+                } else {
+                    AGGRESSIVE_MAX_ATTEMPTS
+                };
+                self.queries.count_by_channel(channel.channel_id()) < max_attemts
             }
         });
 

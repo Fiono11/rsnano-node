@@ -247,6 +247,14 @@ impl RepresentativeTracker {
         self.rep_weights.read().clone()
     }
 
+    pub fn is_peered_rep(&self, channel_id: ChannelId) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .peered_reps
+            .contains_channel(channel_id)
+    }
+
     #[cfg(feature = "ledger_snapshots")]
     pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
         let rep_weights = self.get_rep_weights();
