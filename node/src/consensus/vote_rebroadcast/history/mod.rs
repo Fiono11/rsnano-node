@@ -1,7 +1,7 @@
 mod rep_container;
 mod rep_entry;
 
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use strum_macros::{EnumCount, EnumIter};
 
@@ -11,6 +11,7 @@ use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
 use crate::consensus::bounded_hash_map::BoundedHashMap;
 use rep_container::RepresentativeContainer;
 use rep_entry::RepresentativeEntry;
+use rustc_hash::FxHashMap;
 
 /// Keeps track of past rebroadcasts and decides whether a new rebroadcast is necessary
 pub(crate) struct RebroadcastHistory {
@@ -114,7 +115,7 @@ impl RebroadcastHistory {
         }
     }
 
-    pub fn update_weights(&mut self, rep_weights: &HashMap<PublicKey, Amount>) {
+    pub fn update_weights(&mut self, rep_weights: &FxHashMap<PublicKey, Amount>) {
         self.representatives.change_weights(rep_weights);
     }
 }
@@ -424,11 +425,10 @@ mod tests {
             .unwrap();
 
         // Update weight
-        let weights = [
+        let weights = FxHashMap::from_iter([
             (vote1.voter, Amount::from(1000)),
             (vote2.voter, Amount::from(2000)),
-        ]
-        .into();
+        ]);
         history.update_weights(&weights);
 
         // Add new rep with lower weight - should be rejected due to updated weight

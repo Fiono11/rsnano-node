@@ -1,10 +1,14 @@
-use super::RepresentativeEntry;
+use std::collections::BTreeMap;
+
+use rustc_hash::FxHashMap;
+
 use rsnano_types::{Amount, PublicKey};
-use std::collections::{BTreeMap, HashMap};
+
+use super::RepresentativeEntry;
 
 #[derive(Default)]
 pub(crate) struct RepresentativeContainer {
-    entries: HashMap<PublicKey, RepresentativeEntry>,
+    entries: FxHashMap<PublicKey, RepresentativeEntry>,
     by_weight: BTreeMap<Amount, Vec<PublicKey>>,
 }
 
@@ -38,7 +42,7 @@ impl RepresentativeContainer {
         self.entries.values()
     }
 
-    pub fn change_weights(&mut self, rep_weights: &HashMap<PublicKey, Amount>) {
+    pub fn change_weights(&mut self, rep_weights: &FxHashMap<PublicKey, Amount>) {
         for entry in self.entries.values_mut() {
             let new_weight = rep_weights
                 .get(&entry.representative)
@@ -194,7 +198,8 @@ mod tests {
             (rep3, 10.into()),
             (rep4, 75.into()),
         ]
-        .into();
+        .into_iter()
+        .collect();
         container.change_weights(&rep_weights);
 
         container.remove_lowest_weight();

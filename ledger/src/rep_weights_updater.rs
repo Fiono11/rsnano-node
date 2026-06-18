@@ -1,13 +1,11 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_store_lmdb::LmdbRepWeightStore;
 use rsnano_types::{Amount, PublicKey};
 
 use crate::{RepWeightCache, RepWeights};
+use rustc_hash::FxHashMap;
 
 /// Updates the representative weights in the ledger and in the in-memory cache
 pub struct RepWeightsUpdater {
@@ -24,7 +22,7 @@ impl RepWeightsUpdater {
     }
 
     /// Only use this method when loading rep weights from the database table
-    pub fn copy_from(&self, other: &HashMap<PublicKey, Amount>) {
+    pub fn copy_from(&self, other: &FxHashMap<PublicKey, Amount>) {
         let mut cache = self.weight_cache.write().unwrap();
         for (account, amount) in other {
             let prev_amount = self.get(&cache, account);
@@ -139,7 +137,7 @@ impl RepWeightsUpdater {
         }
     }
 
-    fn get(&self, weights: &HashMap<PublicKey, Amount>, account: &PublicKey) -> Amount {
+    fn get(&self, weights: &FxHashMap<PublicKey, Amount>, account: &PublicKey) -> Amount {
         weights.get(account).cloned().unwrap_or_default()
     }
 }

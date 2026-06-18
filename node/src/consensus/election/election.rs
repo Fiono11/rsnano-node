@@ -14,6 +14,7 @@ use rsnano_types::{
 use rsnano_utils::stats::DetailType;
 
 use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::BlockTallies};
+use rustc_hash::FxHashMap;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum VoteType {
@@ -317,7 +318,7 @@ impl Election {
     /// Calculate tallies and try to confirm this election
     pub fn update_tallies(
         &mut self,
-        rep_weights: &HashMap<PublicKey, Amount>,
+        rep_weights: &FxHashMap<PublicKey, Amount>,
         quorum_delta: Amount,
     ) {
         if self.state.has_ended() {
@@ -337,7 +338,7 @@ impl Election {
         self.try_confirm(quorum_delta);
     }
 
-    fn update_vote_weights(&mut self, rep_weights: &HashMap<PublicKey, Amount>) {
+    fn update_vote_weights(&mut self, rep_weights: &FxHashMap<PublicKey, Amount>) {
         for vote in self.votes.values_mut() {
             vote.weight = rep_weights.get(&vote.voter).cloned().unwrap_or_default();
         }

@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     mem::size_of,
     ops::Deref,
     sync::{
@@ -8,13 +7,15 @@ use std::{
     },
 };
 
+use rustc_hash::FxHashMap;
+
 use rsnano_store_lmdb::LedgerCache;
 use rsnano_types::{Account, Amount, PublicKey};
 use rsnano_utils::container_info::ContainerInfo;
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct RepWeights {
-    entries: HashMap<PublicKey, Amount>,
+    entries: FxHashMap<PublicKey, Amount>,
 
     /// Representatives with a weight below this min_weight are discarded
     min_weight: Amount,
@@ -23,7 +24,7 @@ pub struct RepWeights {
 impl RepWeights {
     pub fn new(min_weight: Amount) -> Self {
         Self {
-            entries: HashMap::new(),
+            entries: FxHashMap::default(),
             min_weight,
         }
     }
@@ -42,7 +43,7 @@ impl RepWeights {
 }
 
 impl Deref for RepWeights {
-    type Target = HashMap<PublicKey, Amount>;
+    type Target = FxHashMap<PublicKey, Amount>;
 
     fn deref(&self) -> &Self::Target {
         &self.entries
@@ -129,7 +130,7 @@ impl RepWeightCache {
         self.max_blocks
     }
 
-    pub fn bootstrap_weights(&self) -> HashMap<PublicKey, Amount> {
+    pub fn bootstrap_weights(&self) -> FxHashMap<PublicKey, Amount> {
         self.bootstrap_weights
             .read()
             .unwrap()
