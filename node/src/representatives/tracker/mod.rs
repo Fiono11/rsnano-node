@@ -107,20 +107,16 @@ impl RepresentativeTracker {
     pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
         let weights = self.rep_weights.read();
         let min_weight = self.quorum_snapshot().minimum_principal_weight;
-        let mut is_pr = false;
 
         self.state
             .lock()
             .unwrap()
             .registry
-            .with_reps_for_channel(channel_id, |rep| {
+            .reps_for_channel(channel_id)
+            .any(|rep| {
                 let weight = weights.weight(&rep.public_key);
-                if weight >= min_weight {
-                    is_pr = true;
-                }
-            });
-
-        is_pr
+                weight >= min_weight
+            })
     }
 
     /// Total number of peered representatives
@@ -144,8 +140,7 @@ impl RepresentativeTracker {
             .lock()
             .unwrap()
             .registry
-            .get_all()
-            .into_iter()
+            .iter()
             .map(|rep| RegisteredRepSnapshot {
                 rep_key: rep.public_key,
                 weight: weight_reader.weight(&rep.public_key),
@@ -182,8 +177,7 @@ impl RepresentativeTracker {
                 .lock()
                 .unwrap()
                 .registry
-                .get_all()
-                .into_iter()
+                .iter()
                 .filter_map(|rep| {
                     rep.channel_id.and_then(|id| {
                         let weight = rep_weights
@@ -300,9 +294,13 @@ impl RepresentativeTracker {
 
 fn recalculate(rep_weights: &RepWeightCache, state: &mut RepresentativeTrackerState) {
     let weights = rep_weights.read();
-    let reps = state.registry.get_all();
     let trended = state.trended_weight;
-    let quorum = calculate_quorum(&reps, trended, state.online_weight_minimum, &weights);
+    let quorum = calculate_quorum(
+        &state.registry,
+        trended,
+        state.online_weight_minimum,
+        &weights,
+    );
     state.quorum_snapshot = quorum;
 }
 

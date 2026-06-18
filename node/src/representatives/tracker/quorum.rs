@@ -6,8 +6,8 @@ use std::cmp::max;
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
-pub(crate) fn calculate_quorum(
-    reps: &[RegisteredRep],
+pub(crate) fn calculate_quorum<'a>(
+    reps: impl IntoIterator<Item = &'a RegisteredRep>,
     trended_weight: Amount,
     online_weight_minimum: Amount,
     weights: &RepWeights,

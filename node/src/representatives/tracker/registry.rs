@@ -29,6 +29,7 @@ pub(crate) struct RepresentativeRegistry {
     order: VecDeque<(PublicKey, Timestamp)>,
     by_key: FxHashMap<PublicKey, RegisteredRep>,
     by_channel: FxHashMap<ChannelId, Vec<PublicKey>>,
+    empty: Vec<PublicKey>,
 }
 
 impl RepresentativeRegistry {
@@ -37,21 +38,16 @@ impl RepresentativeRegistry {
     }
 
     #[cfg(test)]
-    pub fn get(&self, key: &PublicKey) -> Option<RegisteredRep> {
-        self.by_key.get(key).cloned()
+    pub fn get(&self, key: &PublicKey) -> Option<&'_ RegisteredRep> {
+        self.by_key.get(key)
     }
 
-    pub fn with_reps_for_channel<F>(&self, channel_id: ChannelId, mut f: F)
-    where
-        F: FnMut(&RegisteredRep),
-    {
-        let Some(keys) = self.by_channel.get(&channel_id) else {
-            return;
-        };
-
-        for rep in keys.iter().filter_map(|k| self.by_key.get(k)) {
-            f(rep);
-        }
+    pub fn reps_for_channel(&self, channel_id: ChannelId) -> impl Iterator<Item = &RegisteredRep> {
+        self.by_channel
+            .get(&channel_id)
+            .unwrap_or(&self.empty)
+            .iter()
+            .filter_map(|k| self.by_key.get(k))
     }
 
     #[cfg(test)]
@@ -67,8 +63,8 @@ impl RepresentativeRegistry {
         self.by_channel.values().map(|i| i.len()).sum()
     }
 
-    pub fn get_all(&self) -> Vec<RegisteredRep> {
-        self.by_key.values().cloned().collect()
+    pub fn iter(&self) -> impl Iterator<Item = &RegisteredRep> {
+        self.by_key.values()
     }
 
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
@@ -164,6 +160,16 @@ impl RepresentativeRegistry {
     }
 }
 
+impl<'a> IntoIterator for &'a RepresentativeRegistry {
+    type Item = &'a RegisteredRep;
+
+    type IntoIter = std::collections::hash_map::Values<'a, PublicKey, RegisteredRep>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.by_key.values()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,7 +179,7 @@ mod tests {
     fn empty() {
         let registry = RepresentativeRegistry::new();
         assert_eq!(registry.len(), 0);
-        assert_eq!(registry.get_all().len(), 0);
+        assert_eq!(registry.iter().count(), 0);
         assert_eq!(registry.peered_count(), 0);
     }
 
@@ -190,7 +196,7 @@ mod tests {
 
         assert_eq!(registry.len(), 1);
         assert_eq!(
-            registry.get_all().first().unwrap().public_key,
+            registry.iter().next().unwrap().public_key,
             PublicKey::from(1)
         );
         assert_eq!(result, RegisterResult::Inserted);
@@ -329,7 +335,7 @@ mod tests {
         assert_eq!(registry.trim(now + Duration::from_millis(1500)).len(), 3);
         assert_eq!(registry.len(), 1);
         assert_eq!(
-            registry.get_all().first().unwrap().public_key,
+            registry.iter().next().unwrap().public_key,
             PublicKey::from(4)
         );
         assert_eq!(registry.order.len(), 1);
