@@ -1,19 +1,22 @@
-use crate::command_handler::RpcCommandHandler;
+use std::collections::{HashMap, HashSet};
+
 use rsnano_node::representatives::RegisteredRepSnapshot;
 use rsnano_rpc_messages::{
     DetailedRepresentativesOnline, RepWeightDto, RepresentativesOnlineArgs,
     RepresentativesOnlineResponse, SimpleRepresentativesOnline,
 };
 use rsnano_types::{Account, PublicKey};
-use std::collections::{HashMap, HashSet};
+
+use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn representatives_online(
         &self,
         args: RepresentativesOnlineArgs,
     ) -> RepresentativesOnlineResponse {
-        let online_reps = self.node.rep_tracker.online_reps();
-        ResponseBuilder::new(args).create_response(online_reps)
+        self.node
+            .rep_tracker
+            .with_snapshot(|s| ResponseBuilder::new(args).create_response(s.iter()))
     }
 }
 
@@ -43,7 +46,7 @@ impl ResponseBuilder {
         online_reps: impl IntoIterator<Item = RegisteredRepSnapshot>,
     ) -> RepresentativesOnlineResponse {
         for rep in online_reps {
-            if self.should_include(&rep.rep_key) {
+            if self.should_include(&rep.public_key) {
                 self.add_result(rep);
             }
         }
@@ -61,9 +64,9 @@ impl ResponseBuilder {
     fn add_result(&mut self, rep: RegisteredRepSnapshot) {
         if self.include_weight {
             self.detailed_result
-                .insert(rep.rep_key.into(), RepWeightDto { weight: rep.weight });
+                .insert(rep.public_key.into(), RepWeightDto { weight: rep.weight });
         } else {
-            self.simple_result.push(rep.rep_key.into());
+            self.simple_result.push(rep.public_key.into());
         };
     }
 
@@ -82,7 +85,7 @@ impl ResponseBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::ResponseBuilder;
+    use super::*;
     use crate::command_handler::test_rpc_command;
     use rsnano_rpc_messages::{
         RepWeightDto, RepresentativesOnlineArgs, RepresentativesOnlineResponse, RpcCommand,
@@ -106,7 +109,8 @@ mod tests {
 
     mod simple_result {
         use super::*;
-        use rsnano_node::representatives::RegisteredRepSnapshot;
+        use rsnano_node::representatives::RegisteredRep;
+        use rsnano_nullable_clock::Timestamp;
         use rsnano_types::Amount;
 
         #[test]
@@ -117,13 +121,10 @@ mod tests {
 
         #[test]
         fn one_rep() {
-            let response =
-                ResponseBuilder::new(Default::default()).create_response([RegisteredRepSnapshot {
-                    rep_key: 1.into(),
-                    weight: Amount::ZERO,
-                    channel: None,
-                }]);
-            assert_eq!(simple_response(response), [Account::from(1)]);
+            let rep = RegisteredRepSnapshot::new_test_instance();
+            let account = rep.public_key.as_account();
+            let response = ResponseBuilder::new(Default::default()).create_response([rep]);
+            assert_eq!(simple_response(response), [account]);
         }
 
         #[test]
@@ -133,40 +134,35 @@ mod tests {
                 accounts: Some(Vec::new()),
             })
             .create_response([RegisteredRepSnapshot {
-                rep_key: 1.into(),
+                rep: RegisteredRep {
+                    public_key: 1.into(),
+                    channel_id: None,
+                    last_seen: Timestamp::new_test_instance(),
+                },
                 weight: Amount::ZERO,
-                channel: None,
             }]);
             assert_eq!(simple_response(response), []);
         }
 
         #[test]
         fn filter_given_accounts() {
+            let make_rep = |key: PublicKey| RegisteredRepSnapshot {
+                rep: RegisteredRep {
+                    public_key: key,
+                    ..RegisteredRep::new_test_instance()
+                },
+                ..RegisteredRepSnapshot::new_test_instance()
+            };
+
             let response = ResponseBuilder::new(RepresentativesOnlineArgs {
                 weight: None,
                 accounts: Some(vec![2.into(), 3.into()]),
             })
             .create_response([
-                RegisteredRepSnapshot {
-                    rep_key: 1.into(),
-                    weight: Amount::ZERO,
-                    channel: None,
-                },
-                RegisteredRepSnapshot {
-                    rep_key: 2.into(),
-                    weight: Amount::ZERO,
-                    channel: None,
-                },
-                RegisteredRepSnapshot {
-                    rep_key: 3.into(),
-                    weight: Amount::ZERO,
-                    channel: None,
-                },
-                RegisteredRepSnapshot {
-                    rep_key: 4.into(),
-                    weight: Amount::ZERO,
-                    channel: None,
-                },
+                make_rep(1.into()),
+                make_rep(2.into()),
+                make_rep(3.into()),
+                make_rep(4.into()),
             ]);
             assert_eq!(simple_response(response), [2.into(), 3.into()]);
         }
@@ -174,8 +170,6 @@ mod tests {
 
     mod detailed_result {
         use super::*;
-        use rsnano_node::representatives::RegisteredRepSnapshot;
-        use rsnano_types::{Amount, PublicKey};
 
         #[test]
         fn empty() {
@@ -194,17 +188,15 @@ mod tests {
                 weight: Some(true.into()),
                 accounts: None,
             };
-            let rep_key = PublicKey::from(1);
-            let weight = Amount::nano(100_000);
-            let response = ResponseBuilder::new(args).create_response([RegisteredRepSnapshot {
-                rep_key,
-                weight,
-                channel: None,
-            }]);
+            let rep = RegisteredRepSnapshot::new_test_instance();
+            let response = ResponseBuilder::new(args).create_response([rep.clone()]);
 
             let response = detailed_response(response);
             assert_eq!(response.len(), 1);
-            assert_eq!(response.get(&rep_key.into()).unwrap().weight, weight);
+            assert_eq!(
+                response.get(&rep.public_key.into()).unwrap().weight,
+                rep.weight
+            );
         }
     }
 

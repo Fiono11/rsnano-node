@@ -108,7 +108,10 @@ impl MessageFlooder {
     }
 
     fn remove_principal_reps(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
-        channels.retain(|c| !self.rep_tracker.is_principal_rep(c.channel_id()));
+        self.rep_tracker.with_snapshot(|snapshot| {
+            channels.retain(|c| !snapshot.is_principal_rep(c.channel_id()));
+        });
+
         channels.truncate(count);
     }
 

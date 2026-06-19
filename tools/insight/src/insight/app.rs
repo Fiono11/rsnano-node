@@ -132,20 +132,19 @@ impl InsightApp {
                 node.aec.election_for_root(root)
             });
             self.peer_scores = node.bootstrapper.peer_score_snapshot();
-            self.representatives = node
-                .rep_tracker
-                .online_reps()
-                .into_iter()
-                .map(|i| {
-                    let name = self.rep_names.get(&i.rep_key).unwrap_or(&"");
-                    RepresentativeViewModel {
-                        account: i.rep_key.as_account(),
-                        name: *name,
-                        weight: i.weight,
-                        is_peered: i.channel.is_some(),
-                    }
-                })
-                .collect();
+            self.representatives = node.rep_tracker.with_snapshot(|s| {
+                s.iter()
+                    .map(|rep| {
+                        let name = self.rep_names.get(&rep.public_key).unwrap_or(&"");
+                        RepresentativeViewModel {
+                            account: rep.public_key.as_account(),
+                            name: *name,
+                            weight: rep.weight,
+                            is_peered: rep.channel_id.is_some(),
+                        }
+                    })
+                    .collect()
+            });
             self.representatives
                 .sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
         }

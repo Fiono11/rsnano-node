@@ -155,18 +155,11 @@ fn rep_weight() {
         node.ledger.weight(&rep.rep_key)
     );
     assert_eq!(channel1.channel_id(), rep.channel_id);
-    assert_eq!(
-        node.rep_tracker.is_principal_rep(channel1.channel_id()),
-        true
-    );
-    assert_eq!(
-        node.rep_tracker.is_principal_rep(channel2.channel_id()),
-        false
-    );
-    assert_eq!(
-        node.rep_tracker.is_principal_rep(channel3.channel_id()),
-        true
-    );
+    node.rep_tracker.with_snapshot(|s| {
+        assert_eq!(s.is_principal_rep(channel1.channel_id()), true);
+        assert_eq!(s.is_principal_rep(channel2.channel_id()), false);
+        assert_eq!(s.is_principal_rep(channel3.channel_id()), true);
+    });
 }
 
 // Test that nodes can track nodes that have rep weight for priority broadcasting

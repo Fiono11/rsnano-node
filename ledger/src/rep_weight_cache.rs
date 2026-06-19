@@ -50,6 +50,15 @@ impl Deref for RepWeights {
     }
 }
 
+impl<const N: usize> From<[(PublicKey, Amount); N]> for RepWeights {
+    fn from(value: [(PublicKey, Amount); N]) -> Self {
+        Self {
+            min_weight: Amount::ZERO,
+            entries: FxHashMap::from_iter(value),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct BootstrapWeights {
     pub weights: RepWeights,

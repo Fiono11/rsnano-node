@@ -7,10 +7,20 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::PublicKey;
 
 #[derive(Clone)]
-pub(crate) struct RegisteredRep {
+pub struct RegisteredRep {
     pub public_key: PublicKey,
     pub last_seen: Timestamp,
     pub channel_id: Option<ChannelId>,
+}
+
+impl RegisteredRep {
+    pub fn new_test_instance() -> Self {
+        Self {
+            public_key: 1.into(),
+            last_seen: Timestamp::new_test_instance(),
+            channel_id: None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

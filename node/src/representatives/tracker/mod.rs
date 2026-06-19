@@ -5,6 +5,7 @@ mod snapshot;
 
 pub use builder::RepresentativeTrackerBuilder;
 pub use quorum::ONLINE_WEIGHT_QUORUM;
+pub use registry::RegisteredRep;
 pub use snapshot::RegisteredRepSnapshot;
 
 use std::{
@@ -17,7 +18,7 @@ use std::{
 
 use tracing::{debug, info, warn};
 
-use rsnano_ledger::{RepWeightCache, RepWeights};
+use rsnano_ledger::RepWeightCache;
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
@@ -27,7 +28,9 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
+use crate::representatives::tracker::{
+    quorum::calculate_quorum, registry::RegisterResult, snapshot::RepRegistrySnapshot,
+};
 use registry::RepresentativeRegistry;
 
 /// Keeps track of all representatives that are online
@@ -103,22 +106,6 @@ impl RepresentativeTracker {
         recalculate(&self.rep_weights, &mut state);
     }
 
-    /// Query if a peer manages a principle representative
-    pub fn is_principal_rep(&self, channel_id: ChannelId) -> bool {
-        let weights = self.rep_weights.read();
-        let min_weight = self.quorum_snapshot().minimum_principal_weight;
-
-        self.state
-            .lock()
-            .unwrap()
-            .registry
-            .reps_for_channel(channel_id)
-            .any(|rep| {
-                let weight = weights.weight(&rep.public_key);
-                weight >= min_weight
-            })
-    }
-
     /// Total number of peered representatives
     pub fn peered_reps_count(&self) -> usize {
         self.state.lock().unwrap().registry.peered_count()
@@ -133,20 +120,14 @@ impl RepresentativeTracker {
         self.state.lock().unwrap().quorum_snapshot.clone()
     }
 
-    /// List of online representatives
-    pub fn online_reps(&self) -> Vec<RegisteredRepSnapshot> {
-        let weight_reader = self.rep_weights.read();
-        self.state
-            .lock()
-            .unwrap()
-            .registry
-            .iter()
-            .map(|rep| RegisteredRepSnapshot {
-                rep_key: rep.public_key,
-                weight: weight_reader.weight(&rep.public_key),
-                channel: rep.channel_id.clone(),
-            })
-            .collect()
+    pub fn with_snapshot<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&RepRegistrySnapshot) -> T,
+    {
+        let weights = self.rep_weights.read();
+        let state = self.state.lock().unwrap();
+        let snapshot = RepRegistrySnapshot::new(&state.registry, &weights, &state.quorum_snapshot);
+        f(&snapshot)
     }
 
     /// Request a list of the top \p count known representatives in descending order of weight, with at least \p weight_a voting weight, and optionally with a minimum version \p minimum_protocol_version
@@ -386,6 +367,19 @@ pub struct QuorumSnapshot {
 }
 
 impl QuorumSnapshot {
+    #[cfg(test)]
+    pub fn new_test_instance() -> Self {
+        Self {
+            trended_or_min_weight: Amount::nano(100_000_000),
+            quorum_delta: Amount::nano(67_000_000),
+            peered_weight: Amount::nano(90_000_000),
+            online_weight: Amount::nano(99_000_000),
+            online_weight_minimum: Amount::nano(60_000_000),
+            quorum_percent: ONLINE_WEIGHT_QUORUM,
+            minimum_principal_weight: Amount::nano(100_000),
+        }
+    }
+
     /// Calculates minimum time delay between subsequent votes when processing non-final votes
     pub fn cooldown_time(&self, rep_weight: Amount) -> Duration {
         if rep_weight > self.trended_or_min_weight / 20 {
@@ -399,23 +393,11 @@ impl QuorumSnapshot {
             Duration::from_secs(15)
         }
     }
-
-    pub fn new_test_instance() -> Self {
-        QuorumSnapshot {
-            trended_or_min_weight: Amount::nano(100_000_000),
-            quorum_delta: Amount::nano(67_000_000),
-            online_weight: Amount::nano(100_000_000),
-            peered_weight: Amount::nano(90_000_000),
-            online_weight_minimum: Amount::nano(60_000_000),
-            quorum_percent: 67,
-            minimum_principal_weight: Amount::nano(100_000),
-        }
-    }
 }
 
 #[cfg(feature = "ledger_snapshots")]
 pub(crate) struct ConsensusParams {
-    pub(crate) rep_weights: RepWeights,
+    pub(crate) rep_weights: rsnano_ledger::RepWeights,
     pub(crate) quorum_weight: Amount,
 }
 
@@ -431,7 +413,12 @@ impl Default for ConsensusParams {
 
 #[cfg(feature = "ledger_snapshots")]
 impl ConsensusParams {
-    pub(crate) fn set_rep_weights(&mut self, rep_weights: RepWeights, quorum_weight: Amount) {
+    #[cfg(test)]
+    pub(crate) fn set_rep_weights(
+        &mut self,
+        rep_weights: rsnano_ledger::RepWeights,
+        quorum_weight: Amount,
+    ) {
         self.rep_weights = rep_weights;
         self.quorum_weight = quorum_weight;
     }
@@ -517,26 +504,6 @@ mod tests {
             tracker.quorum_snapshot().minimum_principal_weight,
             Amount::nano(110_000)
         );
-    }
-
-    #[test]
-    fn is_pr() {
-        let rep = PublicKey::from(42);
-        let weight = Amount::nano(50_000);
-        let channel_id = ChannelId::from(999);
-
-        let tracker = make_tracker_with_weights([(rep, weight)]);
-
-        // unknown channel
-        assert_eq!(tracker.is_principal_rep(channel_id), false);
-
-        // below PR limit
-        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel_id));
-        assert_eq!(tracker.is_principal_rep(channel_id), false);
-
-        // above PR limit
-        tracker.rep_weights.put(rep, Amount::nano(100_000));
-        assert_eq!(tracker.is_principal_rep(channel_id), true);
     }
 
     #[test]
