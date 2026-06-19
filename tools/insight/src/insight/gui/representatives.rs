@@ -44,7 +44,7 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                     ui.strong("Weight");
                 });
                 header.col(|ui| {
-                    ui.strong("Peered");
+                    ui.strong("Channel");
                 });
             })
             .body(|body| {
@@ -62,8 +62,8 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                         ui.label(nano_amount_string(row_model.weight));
                     });
                     row.col(|ui| {
-                        if row_model.is_peered {
-                            ui.label("peered");
+                        if let Some(id) = row_model.channel {
+                            ui.label(id.to_string());
                         }
                     });
                 })

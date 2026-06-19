@@ -28,6 +28,7 @@ use crate::insight::{
     node_runner::NodeRunner,
     rep_names::well_known_rep_names,
 };
+use rsnano_network::ChannelId;
 
 pub(crate) struct InsightApp {
     last_update: Option<Timestamp>,
@@ -145,7 +146,7 @@ impl InsightApp {
                             account: rep.public_key.as_account(),
                             name: *name,
                             weight: rep.weight,
-                            is_peered: rep.channel_id.is_some(),
+                            channel: rep.channel_id.clone(),
                         }
                     })
                     .collect()
@@ -215,5 +216,5 @@ pub(crate) struct RepresentativeViewModel {
     pub account: Account,
     pub name: &'static str,
     pub weight: Amount,
-    pub is_peered: bool,
+    pub channel: Option<ChannelId>,
 }
