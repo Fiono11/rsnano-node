@@ -65,6 +65,10 @@ impl<'a> RepRegistrySnapshot<'a> {
             weight: self.weights.weight(&rep.public_key),
         })
     }
+
+    pub fn quorum(&self) -> &QuorumSnapshot {
+        self.quorum
+    }
 }
 
 pub struct RepRegistrySnapshotStub {

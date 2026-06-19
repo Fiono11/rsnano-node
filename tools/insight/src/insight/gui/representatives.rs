@@ -1,11 +1,28 @@
-use crate::insight::{app::RepresentativeViewModel, gui::formatted_number};
+use crate::insight::{app::RepresentativeViewModel, gui::nano_amount_string};
 use eframe::egui::{Align, CentralPanel, Layout, Ui};
 use egui_extras::{Column, TableBuilder};
-use rsnano_types::Amount;
+use rsnano_node::representatives::QuorumSnapshot;
 
 pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel) {
     CentralPanel::default().show_inside(ui, |ui| {
         ui.heading("Representatives");
+        ui.label(format!(
+            "trended: {}",
+            nano_amount_string(model.quorum.trended_or_min_weight)
+        ));
+        ui.label(format!(
+            "online: {}",
+            nano_amount_string(model.quorum.online_weight)
+        ));
+        ui.label(format!(
+            "peered: {}",
+            nano_amount_string(model.quorum.peered_weight)
+        ));
+        ui.label(format!(
+            "quorum: {}",
+            nano_amount_string(model.quorum.quorum_delta)
+        ));
+        ui.add_space(6.0);
         TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
@@ -13,7 +30,7 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
             .auto_shrink(false)
             .column(Column::exact(350.0)) // account
             .column(Column::exact(150.0)) // name
-            .column(Column::exact(80.0)) //rep weight
+            .column(Column::exact(100.0)) //rep weight
             .column(Column::auto())
             .column(Column::remainder())
             .header(20.0, |mut header| {
@@ -42,9 +59,7 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                         ui.label(row_model.name);
                     });
                     row.col(|ui| {
-                        ui.label(formatted_number(
-                            row_model.weight.number() / Amount::nano(1).number(),
-                        ));
+                        ui.label(nano_amount_string(row_model.weight));
                     });
                     row.col(|ui| {
                         if row_model.is_peered {
@@ -57,5 +72,6 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
 }
 
 pub(crate) struct RepresentativesViewModel<'a> {
+    pub quorum: &'a QuorumSnapshot,
     pub reps: &'a [RepresentativeViewModel],
 }

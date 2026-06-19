@@ -1,9 +1,9 @@
-use eframe::egui::{CentralPanel, FontId, Grid, RichText, Ui};
-use egui_extras::{Size, StripBuilder};
+use eframe::egui::{Align, CentralPanel, FontId, Grid, Layout, RichText, Ui};
+use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
-use rsnano_types::QualifiedRoot;
+use rsnano_types::{Amount, QualifiedRoot};
 
-use crate::insight::app::InsightApp;
+use crate::insight::{app::InsightApp, gui::nano_amount_string};
 
 pub(crate) fn view_elections(ui: &mut Ui, model: ElectionsViewModel, app: &mut InsightApp) {
     CentralPanel::default().show_inside(ui, |ui| {
@@ -85,11 +85,11 @@ pub(crate) fn view_election_details(
             ui.end_row();
 
             ui.label("Non final tally ");
-            ui.label(model.non_final_tally);
+            ui.label(nano_amount_string(model.non_final_tally));
             ui.end_row();
 
             ui.label("Final tally ");
-            ui.label(model.final_tally);
+            ui.label(nano_amount_string(model.final_tally));
             ui.end_row();
 
             for (i, block) in model.candidate_blocks.iter().enumerate() {
@@ -98,6 +98,56 @@ pub(crate) fn view_election_details(
                 ui.end_row();
             }
         });
+
+        ui.add_space(6.0);
+
+        ui.heading("Votes");
+        TableBuilder::new(ui)
+            .striped(true)
+            .resizable(false)
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .auto_shrink(false)
+            .column(Column::exact(350.0)) // account
+            .column(Column::exact(100.0)) //rep weight
+            .column(Column::auto()) // vote
+            .column(Column::remainder())
+            .header(20.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("Representative");
+                });
+                header.col(|ui| {
+                    ui.strong("Weight");
+                });
+                header.col(|ui| {
+                    ui.strong("Voted");
+                });
+                header.col(|ui| {
+                    ui.strong("Final");
+                });
+            })
+            .body(|body| {
+                body.rows(20.0, model.non_final_votes.len(), |mut row| {
+                    let Some(row_model) = model.non_final_votes.get(row.index()) else {
+                        return;
+                    };
+                    row.col(|ui| {
+                        ui.label(&row_model.rep);
+                    });
+                    row.col(|ui| {
+                        ui.label(nano_amount_string(row_model.weight));
+                    });
+                    row.col(|ui| {
+                        if row_model.voted {
+                            ui.label("✔");
+                        }
+                    });
+                    row.col(|ui| {
+                        if row_model.is_final {
+                            ui.label("✔");
+                        }
+                    });
+                })
+            });
     });
 }
 
@@ -122,8 +172,8 @@ pub(crate) struct ElectionViewModel {
 
 pub(crate) struct ElectionDetailsViewModel {
     pub winner_hash: String,
-    pub non_final_tally: String,
-    pub final_tally: String,
+    pub non_final_tally: Amount,
+    pub final_tally: Amount,
     pub root: String,
     pub behavior: &'static str,
     pub account: String,
@@ -132,4 +182,12 @@ pub(crate) struct ElectionDetailsViewModel {
     pub vote_count: String,
     pub phase: &'static str,
     pub elapsed: String,
+    pub non_final_votes: Vec<RepVoteViewModel>,
+}
+
+pub(crate) struct RepVoteViewModel {
+    pub rep: String,
+    pub weight: Amount,
+    pub voted: bool,
+    pub is_final: bool,
 }

@@ -36,8 +36,14 @@ pub(crate) use node_runner::*;
 pub(crate) use palette::PaletteColor;
 pub(crate) use peers::*;
 pub(crate) use queue_group::*;
+use rsnano_types::Amount;
 pub(crate) use search_bar::*;
 pub(crate) use tab_bar::*;
+
+pub(crate) fn nano_amount_string(amount: Amount) -> String {
+    let nanos = amount.number() / Amount::nano(1).number();
+    format!("X {}", formatted_number(nanos))
+}
 
 pub(crate) fn formatted_number(i: impl ToFormattedString) -> String {
     i.to_formatted_string(&Locale::en)

@@ -22,7 +22,7 @@ use crate::insight::{
         bootstrap::{BootstrapViewModel, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
-            view_election_details, view_elections,
+            RepVoteViewModel, view_election_details, view_elections,
         },
         representatives::{RepresentativesViewModel, view_representatives},
     },
@@ -204,6 +204,7 @@ impl MainViewModel {
 
     pub fn representatives(&self) -> RepresentativesViewModel<'_> {
         RepresentativesViewModel {
+            quorum: &self.app.quorum,
             reps: &self.app.representatives,
         }
     }
@@ -281,8 +282,8 @@ impl MainViewModel {
             .as_ref()
             .map(|e| ElectionDetailsViewModel {
                 winner_hash: e.winner().hash().encode_hex(),
-                non_final_tally: e.winner_tally().to_string_dec(),
-                final_tally: e.winner_final_tally().to_string_dec(),
+                non_final_tally: e.winner_tally(),
+                final_tally: e.winner_final_tally(),
                 root: e.qualified_root().encode_hex(),
                 behavior: e.behavior().as_str(),
                 account: e.account().encode_account(),
@@ -302,6 +303,25 @@ impl MainViewModel {
                     "{} seconds",
                     e.start().elapsed(self.app.clock.now()).as_secs()
                 ),
+                non_final_votes: self
+                    .app
+                    .representatives
+                    .iter()
+                    .map(|r| RepVoteViewModel {
+                        rep: if r.name.is_empty() {
+                            r.account.encode_account()
+                        } else {
+                            r.name.to_string()
+                        },
+                        weight: r.weight,
+                        voted: e.votes().contains_key(&r.account.as_key()),
+                        is_final: e
+                            .votes()
+                            .get(&r.account.as_key())
+                            .map(|i| i.is_final_vote())
+                            .unwrap_or(false),
+                    })
+                    .collect(),
             })
     }
 

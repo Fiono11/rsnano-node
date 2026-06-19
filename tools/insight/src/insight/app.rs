@@ -9,6 +9,7 @@ use rsnano_node::{
     bootstrap::bootstrapper::PeerScoreSnapshot,
     cementation::ConfirmingSetInfo,
     consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
+    representatives::QuorumSnapshot,
 };
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
@@ -53,6 +54,7 @@ pub(crate) struct InsightApp {
     bootstrap_view_type: BootstrapViewType,
     pub peer_scores: Vec<PeerScoreSnapshot>,
     pub representatives: Vec<RepresentativeViewModel>,
+    pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
 }
 
@@ -90,6 +92,7 @@ impl InsightApp {
             peer_scores: Vec::new(),
             representatives: Vec::new(),
             rep_names,
+            quorum: QuorumSnapshot::new_test_instance(),
         }
     }
 
@@ -134,6 +137,7 @@ impl InsightApp {
             });
             self.peer_scores = node.bootstrapper.peer_score_snapshot();
             self.representatives = node.rep_tracker.with_snapshot(|s| {
+                self.quorum = s.quorum().clone();
                 s.iter()
                     .map(|rep| {
                         let name = self.rep_names.get(&rep.public_key).unwrap_or(&"");

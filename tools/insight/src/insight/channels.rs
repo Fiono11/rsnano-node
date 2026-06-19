@@ -1,13 +1,15 @@
-use crate::insight::message_collection::MessageCollection;
-use rsnano_messages::TelemetryData;
-use rsnano_network::{Channel, ChannelDirection, ChannelId};
-use rsnano_node::representatives::{PeeredRepInfo, RepRegistrySnapshot};
-use rsnano_types::{Amount, PublicKey};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddrV6,
     sync::{Arc, RwLock},
 };
+
+use rsnano_messages::TelemetryData;
+use rsnano_network::{Channel, ChannelDirection, ChannelId};
+use rsnano_node::representatives::RepRegistrySnapshot;
+use rsnano_types::{Amount, PublicKey};
+
+use crate::insight::message_collection::MessageCollection;
 
 pub(crate) struct ChannelModel {
     pub channel_id: ChannelId,
