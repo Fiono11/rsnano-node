@@ -1,7 +1,7 @@
 use crate::insight::message_collection::MessageCollection;
 use rsnano_messages::TelemetryData;
 use rsnano_network::{Channel, ChannelDirection, ChannelId};
-use rsnano_node::representatives::PeeredRepInfo;
+use rsnano_node::representatives::{PeeredRepInfo, RepRegistrySnapshot};
 use rsnano_types::{Amount, PublicKey};
 use std::{
     collections::{HashMap, HashSet},
@@ -54,7 +54,7 @@ impl Channels {
         &mut self,
         channels: Vec<Arc<Channel>>,
         telemetries: HashMap<SocketAddrV6, TelemetryData>,
-        reps: Vec<PeeredRepInfo>,
+        reps: &RepRegistrySnapshot,
         min_rep_weight: Amount,
     ) {
         let mut inserted = false;
@@ -96,9 +96,16 @@ impl Channels {
             self.sorted_channels.sort_by_key(|c| c.1);
         }
 
-        for rep in reps {
-            if let Some(channel) = self.channel_map.get_mut(&rep.channel_id) {
-                channel.rep_weight = rep.weight;
+        for channel in self.channel_map.values_mut() {
+            channel.rep_weight = Amount::ZERO;
+            channel.rep_state = RepState::NoRep;
+        }
+
+        for rep in reps.iter() {
+            if let Some(channel_id) = rep.channel_id
+                && let Some(channel) = self.channel_map.get_mut(&channel_id)
+            {
+                channel.rep_weight += rep.weight;
                 channel.rep_state = if channel.rep_weight > min_rep_weight {
                     RepState::PrincipalRep
                 } else if channel.rep_weight > Amount::ZERO {
@@ -106,7 +113,7 @@ impl Channels {
                 } else {
                     RepState::NoRep
                 };
-                channel.name = *self.rep_names.get(&rep.rep_key).unwrap_or(&"");
+                channel.name = *self.rep_names.get(&rep.public_key).unwrap_or(&"");
             }
         }
 
@@ -163,6 +170,9 @@ impl Channels {
 mod tests {
     use super::*;
     use crate::insight::message_collection::{MessageCollection, MessageFilter};
+    use rsnano_node::representatives::{
+        RegisteredRep, RegisteredRepSnapshot, RepRegistrySnapshotStub,
+    };
     use rsnano_types::PublicKey;
     use std::{collections::HashMap, sync::RwLock};
 
@@ -171,10 +181,11 @@ mod tests {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let rep_names = HashMap::new();
         let mut channels = Channels::new(messages.clone(), rep_names);
+        let reps = RepRegistrySnapshotStub::new();
         channels.update(
             vec![Arc::new(Channel::new_test_instance())],
             HashMap::new(),
-            Vec::new(),
+            &reps.get(),
             Amount::ZERO,
         );
         channels.select_index(0);
@@ -190,10 +201,11 @@ mod tests {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let rep_names = HashMap::new();
         let mut channels = Channels::new(messages.clone(), rep_names);
+        let reps = RepRegistrySnapshotStub::new();
         channels.update(
             vec![Arc::new(Channel::new_test_instance())],
             HashMap::new(),
-            Vec::new(),
+            &reps.get(),
             Amount::ZERO,
         );
         channels.select_index(0);
@@ -209,13 +221,16 @@ mod tests {
         let rep_names: HashMap<PublicKey, &'static str> = [(rep_key.clone(), "test rep")].into();
         let mut channels = Channels::new(messages.clone(), rep_names);
         let channel = Arc::new(Channel::new_test_instance());
-        let reps = vec![PeeredRepInfo {
-            rep_key,
-            channel_id: channel.channel_id(),
+        let reps = RepRegistrySnapshotStub::from([RegisteredRepSnapshot {
+            rep: RegisteredRep {
+                public_key: rep_key,
+                channel_id: Some(channel.channel_id()),
+                ..RegisteredRep::new_test_instance()
+            },
             weight: Amount::nano(1_000_000),
-        }];
+        }]);
 
-        channels.update(vec![channel], HashMap::new(), reps, Amount::ZERO);
+        channels.update(vec![channel], HashMap::new(), &reps.get(), Amount::ZERO);
 
         let channel_model = channels.get(0).unwrap();
         assert_eq!(channel_model.name, "test rep");

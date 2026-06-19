@@ -67,10 +67,43 @@ impl<'a> RepRegistrySnapshot<'a> {
     }
 }
 
+pub struct RepRegistrySnapshotStub {
+    registry: RepresentativeRegistry,
+    weights: RepWeights,
+    quorum: QuorumSnapshot,
+}
+
+impl RepRegistrySnapshotStub {
+    pub fn new() -> Self {
+        Self {
+            registry: RepresentativeRegistry::new(),
+            weights: RepWeights::default(),
+            quorum: QuorumSnapshot::new_test_instance(),
+        }
+    }
+
+    pub fn get(&self) -> RepRegistrySnapshot<'_> {
+        RepRegistrySnapshot::new(&self.registry, &self.weights, &self.quorum)
+    }
+}
+
+impl<const N: usize> From<[RegisteredRepSnapshot; N]> for RepRegistrySnapshotStub {
+    fn from(value: [RegisteredRepSnapshot; N]) -> Self {
+        let mut stub = Self::new();
+        for rep in value {
+            stub.registry
+                .register(rep.public_key, rep.channel_id, rep.last_seen);
+            stub.weights.put(rep.public_key, rep.weight);
+        }
+        stub
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::PublicKey;
 
     #[test]
     fn checks_channel_for_principal_rep() {

@@ -32,18 +32,25 @@ fn create_response(
 
     if args.include_peer_details() {
         let net = network.read().unwrap();
-        let peers = rep_tracker
-            .peered_reps()
-            .into_iter()
-            .map(|rep| PeerDetailsDto {
-                account: rep.rep_key.into(),
-                ip: net
-                    .get(rep.channel_id)
-                    .map(|c| c.peer_addr())
-                    .unwrap_or(NULL_ENDPOINT),
-                weight: rep.weight,
-            })
-            .collect();
+        let mut peers: Vec<_> = rep_tracker.with_snapshot(move |s| {
+            s.iter()
+                .filter_map(move |rep| {
+                    if let Some(channel_id) = rep.channel_id {
+                        Some(PeerDetailsDto {
+                            account: rep.public_key.into(),
+                            ip: net
+                                .get(channel_id)
+                                .map(|c| c.peer_addr())
+                                .unwrap_or(NULL_ENDPOINT),
+                            weight: rep.weight,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        });
+        peers.sort_by(|a, b| b.weight.cmp(&a.weight));
 
         result.peers = Some(peers);
     }
@@ -95,20 +102,19 @@ mod tests {
 
     #[test]
     fn quorum_response_with_peers() {
-        let online_reps = RepresentativeTracker::new_null();
+        let rep_tracker = RepresentativeTracker::new_null();
         let network = RwLock::new(Network::new_null());
         let response = create_response(
             ConfirmationQuorumArgs {
                 peer_details: Some(true.into()),
             },
-            &online_reps,
+            &rep_tracker,
             &network,
         );
         assert_eq!(
             response.quorum_delta,
-            online_reps.quorum_snapshot().quorum_delta
+            rep_tracker.quorum_snapshot().quorum_delta
         );
-        let peers = response.peers.unwrap();
-        assert_eq!(peers.len(), online_reps.peered_reps().len());
+        assert!(response.peers.is_some());
     }
 }

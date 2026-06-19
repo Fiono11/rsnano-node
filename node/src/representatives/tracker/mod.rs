@@ -6,7 +6,7 @@ mod snapshot;
 pub use builder::RepresentativeTrackerBuilder;
 pub use quorum::ONLINE_WEIGHT_QUORUM;
 pub use registry::RegisteredRep;
-pub use snapshot::RegisteredRepSnapshot;
+pub use snapshot::{RegisteredRepSnapshot, RepRegistrySnapshot, RepRegistrySnapshotStub};
 
 use std::{
     sync::{
@@ -28,9 +28,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
-use crate::representatives::tracker::{
-    quorum::calculate_quorum, registry::RegisterResult, snapshot::RepRegistrySnapshot,
-};
+use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
 use registry::RepresentativeRegistry;
 
 /// Keeps track of all representatives that are online
@@ -367,7 +365,6 @@ pub struct QuorumSnapshot {
 }
 
 impl QuorumSnapshot {
-    #[cfg(test)]
     pub fn new_test_instance() -> Self {
         Self {
             trended_or_min_weight: Amount::nano(100_000_000),
