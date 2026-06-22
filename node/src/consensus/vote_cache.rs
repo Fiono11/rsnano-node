@@ -163,7 +163,7 @@ impl VoteCache {
 
         // Sort by final tally then by normal tally, descending
         results.sort_by(|a, b| {
-            let res = b.final_tally.cmp(&b.final_tally);
+            let res = b.final_tally.cmp(&a.final_tally);
             if res == Ordering::Equal {
                 b.tally.cmp(&a.tally)
             } else {
@@ -316,8 +316,8 @@ impl CacheEntry {
             self.voters
                 .insert(VoterEntry::new(representative, rep_weight, vote.clone()));
 
-            // If we have reached the maximum number of voters, remove the lowest weight voter
-            if self.voters.len() >= max_voters {
+            // If we have exceeded the maximum number of voters, remove the lowest weight voter
+            if self.voters.len() > max_voters {
                 self.voters.remove_lowest_weight();
             }
             return true;
@@ -495,9 +495,13 @@ impl OrderedVoters {
     }
 
     pub fn remove_lowest_weight(&mut self) {
-        if let Some((_, reps)) = self.by_weight.pop_first() {
-            for rep in reps {
+        if let Some((weight, mut reps)) = self.by_weight.pop_first() {
+            // Only remove a single voter, even if multiple reps share the lowest weight
+            if let Some(rep) = reps.pop() {
                 self.by_representative.remove(&rep);
+            }
+            if !reps.is_empty() {
+                self.by_weight.insert(weight, reps);
             }
         }
     }
@@ -553,6 +557,14 @@ mod tests {
 
     fn create_vote_cache() -> VoteCache {
         VoteCache::new(test_config(), Arc::new(Stats::new(Default::default())))
+    }
+
+    fn create_vote_cache_with_max_voters(max_voters: usize) -> VoteCache {
+        let config = VoteCacheConfig {
+            max_voters,
+            ..test_config()
+        };
+        VoteCache::new(config, Arc::new(Stats::new(Default::default())))
     }
 
     #[test]
@@ -939,6 +951,98 @@ mod tests {
             stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
             2
         );
+    }
+
+    /*
+     * Ensure that entries with a higher final tally are ranked above entries with a higher
+     * regular tally (final tally is the primary sort key in `top`).
+     */
+    #[test]
+    fn top_sorted_by_final_tally_first() {
+        let mut cache = create_vote_cache();
+        let hash_regular = BlockHash::from(1);
+        let hash_final = BlockHash::from(2);
+
+        // hash_regular has the higher regular tally, but no final votes
+        add_test_vote(&mut cache, &hash_regular, Amount::raw(10));
+        // hash_final has a lower regular tally, but it is all final weight
+        add_test_final_vote(&mut cache, &hash_final, Amount::raw(5));
+
+        let top = cache.top(0);
+
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].hash, hash_final);
+        assert_eq!(top[0].final_tally, Amount::raw(5));
+        assert_eq!(top[1].hash, hash_regular);
+        assert_eq!(top[1].final_tally, Amount::ZERO);
+    }
+
+    /*
+     * Ensure that a single entry can hold exactly `max_voters` voters (off-by-one regression)
+     * and that once exceeded the lowest weight voter is evicted.
+     */
+    #[test]
+    fn entry_holds_exactly_max_voters() {
+        let max_voters = 3;
+        let mut cache = create_vote_cache_with_max_voters(max_voters);
+        let hash = BlockHash::from(1);
+
+        // Fill the entry up to max_voters
+        for i in 1..=max_voters as u128 {
+            let rep = PrivateKey::new();
+            let vote = create_vote(&rep, &hash, 1);
+            cache.insert(&vote, Amount::raw(i), &HashMap::new());
+        }
+
+        // The entry must hold exactly max_voters voters, not max_voters - 1
+        assert_eq!(cache.find(&hash).len(), max_voters);
+
+        // A higher weight vote evicts the lowest and keeps the count at max_voters
+        let high_rep = PrivateKey::new();
+        let high_vote = create_vote(&high_rep, &hash, 1);
+        cache.insert(&high_vote, Amount::raw(100), &HashMap::new());
+        assert_eq!(cache.find(&hash).len(), max_voters);
+
+        // A vote below the minimum weight is rejected, count stays the same
+        let low_rep = PrivateKey::new();
+        let low_vote = create_vote(&low_rep, &hash, 1);
+        cache.insert(&low_vote, Amount::raw(1), &HashMap::new());
+        assert_eq!(cache.find(&hash).len(), max_voters);
+    }
+
+    /*
+     * Ensure that only a single voter is evicted when several reps share the lowest weight,
+     * instead of dropping the whole weight bucket.
+     */
+    #[test]
+    fn evicts_only_one_voter_on_tie() {
+        let max_voters = 2;
+        let mut cache = create_vote_cache_with_max_voters(max_voters);
+        let hash = BlockHash::from(1);
+
+        // Two reps tie at the lowest weight
+        let rep1 = PrivateKey::new();
+        cache.insert(
+            &create_vote(&rep1, &hash, 1),
+            Amount::raw(5),
+            &HashMap::new(),
+        );
+        let rep2 = PrivateKey::new();
+        cache.insert(
+            &create_vote(&rep2, &hash, 1),
+            Amount::raw(5),
+            &HashMap::new(),
+        );
+        assert_eq!(cache.find(&hash).len(), 2);
+
+        // A higher weight vote exceeds capacity and must evict exactly one of the tied voters
+        let rep3 = PrivateKey::new();
+        cache.insert(
+            &create_vote(&rep3, &hash, 1),
+            Amount::raw(10),
+            &HashMap::new(),
+        );
+        assert_eq!(cache.find(&hash).len(), 2);
     }
 
     fn add_test_vote(cache: &mut VoteCache, hash: &BlockHash, rep_weight: Amount) {
