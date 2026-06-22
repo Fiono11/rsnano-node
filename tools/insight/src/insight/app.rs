@@ -118,8 +118,8 @@ impl InsightApp {
             self.ledger_stats.update(&node);
             let channels = node.network.read().unwrap().sorted_channels();
             let telemetries = node.telemetry.get_all_telemetries();
-            let min_rep_weight = node.rep_tracker.quorum_snapshot().minimum_principal_weight;
             node.rep_tracker.with_snapshot(|s| {
+                let min_rep_weight = s.quorum().minimum_principal_weight;
                 self.channels
                     .update(channels, telemetries, s, min_rep_weight);
             });

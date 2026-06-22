@@ -18,7 +18,7 @@ use std::{
 
 use tracing::{debug, info, warn};
 
-use rsnano_ledger::RepWeightCache;
+use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
@@ -99,9 +99,10 @@ impl RepresentativeTracker {
     }
 
     pub fn set_trended(&self, trended: Amount) {
+        let weights = self.rep_weights.read();
         let mut state = self.state.lock().unwrap();
         state.trended_weight = trended;
-        recalculate(&self.rep_weights, &mut state);
+        recalculate(&weights, &mut state);
     }
 
     /// Total number of peered representatives
@@ -210,7 +211,7 @@ impl RepresentativeTracker {
 
             result = state.registry.register(rep, channel_id, now);
 
-            recalculate(&self.rep_weights, &mut state);
+            recalculate(&weights, &mut state);
         }
 
         match result {
@@ -236,12 +237,13 @@ impl RepresentativeTracker {
         let now = self.clock.now();
         let trimmed;
         {
+            let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
             trimmed = state
                 .registry
                 .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
 
-            recalculate(&self.rep_weights, &mut state);
+            recalculate(&weights, &mut state);
         }
 
         for (rep_key, time) in &trimmed {
@@ -254,9 +256,10 @@ impl RepresentativeTracker {
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
+        let weights = self.rep_weights.read();
         let mut state = self.state.lock().unwrap();
         let removed = state.registry.disconnected(channel_id);
-        recalculate(&self.rep_weights, &mut state);
+        recalculate(&weights, &mut state);
         removed
     }
 
@@ -271,8 +274,7 @@ impl RepresentativeTracker {
     }
 }
 
-fn recalculate(rep_weights: &RepWeightCache, state: &mut RepresentativeTrackerState) {
-    let weights = rep_weights.read();
+fn recalculate(weights: &RepWeights, state: &mut RepresentativeTrackerState) {
     let trended = state.trended_weight;
     let quorum = calculate_quorum(
         &state.registry,
