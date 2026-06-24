@@ -82,7 +82,8 @@ impl VotedBlock {
     }
 
     /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
-    /// returns true if current tally changed, false otherwise
+    /// Returns true if the vote was accepted (new representative, or a newer vote from an
+    /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
         let inserted = self.insert(CachedVote::new(vote, rep_weight));
         if inserted {
@@ -175,5 +176,396 @@ impl VotedBlock {
         if !reps.is_empty() {
             self.by_weight.insert(weight, reps);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::{PrivateKey, UnixMillisTimestamp};
+
+    #[test]
+    fn new_stores_first_vote_and_initializes_tally() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let vote = create_vote(&rep, &hash, 1);
+        let now = Timestamp::new(1);
+
+        let block = VotedBlock::new(7, hash, 64, vote.clone(), Amount::raw(5), now);
+
+        assert_eq!(block.id, 7);
+        assert_eq!(*block.block_hash(), hash);
+        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.final_tally(), Amount::ZERO);
+        assert_eq!(block.votes(), vec![vote]);
+        assert_eq!(block.last_modified(), now);
+    }
+
+    #[test]
+    fn new_with_final_vote_counts_towards_final_tally() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+
+        let block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_final_vote(&rep, &hash),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.final_tally(), Amount::raw(5));
+    }
+
+    #[test]
+    fn vote_from_new_representative_increases_tally_and_voter_count() {
+        let hash = BlockHash::from(1);
+        let rep1 = PrivateKey::from(1);
+        let rep2 = PrivateKey::from(2);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_vote(&rep1, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        let changed = block.vote(
+            create_vote(&rep2, &hash, 1),
+            Amount::raw(7),
+            Timestamp::new(2),
+        );
+
+        assert!(changed);
+        assert_eq!(block.tally(), Amount::raw(12));
+        assert_eq!(block.votes().len(), 2);
+    }
+
+    #[test]
+    fn final_tally_only_includes_final_votes() {
+        let hash = BlockHash::from(1);
+        let final_rep = PrivateKey::from(1);
+        let normal_rep = PrivateKey::from(2);
+
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_final_vote(&final_rep, &hash),
+            Amount::raw(10),
+            Timestamp::new(1),
+        );
+        block.vote(
+            create_vote(&normal_rep, &hash, 1),
+            Amount::raw(7),
+            Timestamp::new(1),
+        );
+
+        assert_eq!(block.tally(), Amount::raw(17));
+        assert_eq!(block.final_tally(), Amount::raw(10));
+    }
+
+    #[test]
+    fn duplicate_vote_with_same_timestamp_is_ignored() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_vote(&rep, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        // Same timestamp, even with a different weight, must be ignored
+        let changed = block.vote(
+            create_vote(&rep, &hash, 1),
+            Amount::raw(9),
+            Timestamp::new(2),
+        );
+
+        assert!(!changed);
+        assert_eq!(block.votes().len(), 1);
+        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.last_modified(), Timestamp::new(1));
+    }
+
+    #[test]
+    fn newer_vote_from_same_representative_replaces_old_vote() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_vote(&rep, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        let newer_vote = create_final_vote(&rep, &hash);
+        let changed = block.vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
+
+        assert!(changed);
+        assert_eq!(block.votes(), vec![newer_vote]);
+        assert_eq!(block.final_tally(), Amount::raw(5));
+        assert_eq!(block.last_modified(), Timestamp::new(2));
+    }
+
+    #[test]
+    fn older_vote_from_same_representative_is_ignored() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let current_vote = create_vote(&rep, &hash, 5);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            current_vote.clone(),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        let changed = block.vote(
+            create_vote(&rep, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(2),
+        );
+
+        assert!(!changed);
+        assert_eq!(block.votes(), vec![current_vote]);
+        assert_eq!(block.last_modified(), Timestamp::new(1));
+    }
+
+    #[test]
+    fn weight_change_from_same_representative_replaces_rather_than_adds() {
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            create_vote(&rep, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        block.vote(
+            create_vote(&rep, &hash, 2),
+            Amount::raw(100),
+            Timestamp::new(2),
+        );
+
+        assert_eq!(block.tally(), Amount::raw(100));
+        assert_eq!(block.votes().len(), 1);
+    }
+
+    /*
+     * Regression test: when an existing representative's weight changes, the internal
+     * weight->representative index must move with it, so that a later eviction picks the
+     * actual lowest-weight voter rather than one that merely used to be the lowest.
+     */
+    #[test]
+    fn weight_change_is_reflected_in_eviction_order() {
+        let hash = BlockHash::from(1);
+        let max_voters = 3;
+
+        let rep_a = PrivateKey::from(1);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            max_voters,
+            create_vote(&rep_a, &hash, 1),
+            Amount::raw(1),
+            Timestamp::new(1),
+        );
+        let rep_b = PrivateKey::from(2);
+        block.vote(
+            create_vote(&rep_b, &hash, 1),
+            Amount::raw(10),
+            Timestamp::new(1),
+        );
+        let rep_c = PrivateKey::from(3);
+        block.vote(
+            create_vote(&rep_c, &hash, 1),
+            Amount::raw(20),
+            Timestamp::new(1),
+        );
+
+        // rep_a, originally the lowest weight voter, now becomes the highest
+        block.vote(
+            create_vote(&rep_a, &hash, 2),
+            Amount::raw(1000),
+            Timestamp::new(2),
+        );
+
+        // A new voter arrives with a weight between rep_b and rep_c, exceeding capacity
+        let rep_d = PrivateKey::from(4);
+        block.vote(
+            create_vote(&rep_d, &hash, 1),
+            Amount::raw(15),
+            Timestamp::new(3),
+        );
+
+        // rep_b now holds the lowest weight (10) and must be the one evicted, not rep_a
+        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        assert!(voters.contains(&rep_a.public_key()));
+        assert!(!voters.contains(&rep_b.public_key()));
+        assert!(voters.contains(&rep_c.public_key()));
+        assert!(voters.contains(&rep_d.public_key()));
+        assert_eq!(block.tally(), Amount::raw(1000 + 20 + 15));
+    }
+
+    #[test]
+    fn entry_can_hold_exactly_max_voters() {
+        let hash = BlockHash::from(1);
+        let (block, _reps) = full_block(hash, &[1, 2, 3]);
+
+        assert_eq!(block.votes().len(), 3);
+    }
+
+    #[test]
+    fn vote_with_higher_weight_evicts_lowest_weight_voter_when_full() {
+        let hash = BlockHash::from(1);
+        let (mut block, reps) = full_block(hash, &[10, 20, 30]);
+
+        let rep4 = PrivateKey::from(4);
+        let changed = block.vote(
+            create_vote(&rep4, &hash, 1),
+            Amount::raw(100),
+            Timestamp::new(2),
+        );
+
+        assert!(changed);
+        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        assert_eq!(voters.len(), 3);
+        assert!(!voters.contains(&reps[0].public_key()));
+        assert!(voters.contains(&rep4.public_key()));
+        assert_eq!(block.tally(), Amount::raw(20 + 30 + 100));
+    }
+
+    #[test]
+    fn vote_below_min_weight_is_rejected_when_full() {
+        let hash = BlockHash::from(1);
+        let (mut block, _reps) = full_block(hash, &[10, 20, 30]);
+        let tally_before = block.tally();
+
+        let rep4 = PrivateKey::from(4);
+        let changed = block.vote(
+            create_vote(&rep4, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(2),
+        );
+
+        assert!(!changed);
+        assert_eq!(block.votes().len(), 3);
+        assert_eq!(block.tally(), tally_before);
+        assert!(!block.votes().iter().any(|v| v.voter == rep4.public_key()));
+    }
+
+    #[test]
+    fn vote_tied_with_min_weight_is_rejected_when_full() {
+        let hash = BlockHash::from(1);
+        let (mut block, _reps) = full_block(hash, &[10, 20, 30]);
+
+        let rep4 = PrivateKey::from(4);
+        let changed = block.vote(
+            create_vote(&rep4, &hash, 1),
+            Amount::raw(10),
+            Timestamp::new(2),
+        );
+
+        assert!(!changed);
+        assert_eq!(block.votes().len(), 3);
+        assert!(!block.votes().iter().any(|v| v.voter == rep4.public_key()));
+    }
+
+    #[test]
+    fn only_one_tied_voter_is_evicted_on_overflow() {
+        let hash = BlockHash::from(1);
+        let max_voters = 2;
+        let rep1 = PrivateKey::from(1);
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            max_voters,
+            create_vote(&rep1, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+        let rep2 = PrivateKey::from(2);
+        block.vote(
+            create_vote(&rep2, &hash, 1),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        let rep3 = PrivateKey::from(3);
+        block.vote(
+            create_vote(&rep3, &hash, 1),
+            Amount::raw(10),
+            Timestamp::new(2),
+        );
+
+        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        assert_eq!(voters.len(), max_voters);
+        assert!(voters.contains(&rep3.public_key()));
+        let tied_survivors = [rep1.public_key(), rep2.public_key()]
+            .into_iter()
+            .filter(|k| voters.contains(k))
+            .count();
+        assert_eq!(tied_survivors, 1);
+    }
+
+    #[test]
+    fn cached_vote_is_newer_than_uses_strict_greater_than() {
+        let rep = PrivateKey::from(1);
+        let hash = BlockHash::from(1);
+        let older = CachedVote::new(create_vote(&rep, &hash, 1), Amount::raw(1));
+        let newer = CachedVote::new(create_vote(&rep, &hash, 2), Amount::raw(1));
+        let same_timestamp = CachedVote::new(create_vote(&rep, &hash, 1), Amount::raw(1));
+
+        assert!(newer.is_newer_than(&older));
+        assert!(!older.is_newer_than(&newer));
+        assert!(!same_timestamp.is_newer_than(&older));
+    }
+
+    /* Test helpers */
+
+    fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
+        let timestamp = UnixMillisTimestamp::new(timestamp_offset * 1024 * 1024);
+        Arc::new(Vote::new(rep, timestamp, 0, vec![*hash]))
+    }
+
+    fn create_final_vote(rep: &PrivateKey, hash: &BlockHash) -> Arc<Vote> {
+        Arc::new(Vote::new_final(rep, vec![*hash]))
+    }
+
+    /// Builds a `VotedBlock` that already holds exactly `weights.len()` voters, one per weight.
+    fn full_block(hash: BlockHash, weights: &[u128]) -> (VotedBlock, Vec<PrivateKey>) {
+        let max_voters = weights.len();
+        let reps: Vec<PrivateKey> = (0..max_voters)
+            .map(|i| PrivateKey::from((i + 1) as u64))
+            .collect();
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            max_voters,
+            create_vote(&reps[0], &hash, 1),
+            Amount::raw(weights[0]),
+            Timestamp::new(1),
+        );
+        for (rep, weight) in reps.iter().zip(weights.iter()).skip(1) {
+            block.vote(
+                create_vote(rep, &hash, 1),
+                Amount::raw(*weight),
+                Timestamp::new(1),
+            );
+        }
+        (block, reps)
     }
 }

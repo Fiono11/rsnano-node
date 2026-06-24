@@ -48,6 +48,7 @@ After finishing editing source files:
 ## Code Style
 
 - Prefer `use` statements at the top of a file over inline fully-qualified paths (e.g. `use std::time::Duration` rather than `std::time::Duration` inline).
+- In unit tests, use deterministic keys (e.g. `PrivateKey::from(1)`, `PrivateKey::from(2)`) instead of randomly generated ones (e.g. `PrivateKey::new()`), so tests are reproducible and failures are easy to debug.
 
 ## Architecture
 
