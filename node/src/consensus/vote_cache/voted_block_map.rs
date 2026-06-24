@@ -19,13 +19,16 @@ impl VotedBlockMap {
     }
 
     pub fn insert(&mut self, entry: VotedBlock) {
-        let old = self.sequential.insert(entry.id, entry.hash);
+        let old = self.sequential.insert(entry.id, *entry.block_hash());
         debug_assert!(old.is_none());
 
         let tally = entry.tally().into();
-        self.by_tally.entry(tally).or_default().insert(entry.hash);
+        self.by_tally
+            .entry(tally)
+            .or_default()
+            .insert(*entry.block_hash());
 
-        let old = self.by_hash.insert(entry.hash, entry);
+        let old = self.by_hash.insert(*entry.block_hash(), entry);
         debug_assert!(old.is_none());
     }
 
@@ -37,7 +40,7 @@ impl VotedBlockMap {
             let old_tally = entry.tally();
             f(entry);
             let new_tally = entry.tally();
-            let hash = entry.hash;
+            let hash = *entry.block_hash();
             self.update_tally(hash, old_tally, new_tally);
             true
         } else {

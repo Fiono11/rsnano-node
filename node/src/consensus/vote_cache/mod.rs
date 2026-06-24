@@ -1,16 +1,9 @@
-mod cached_vote_map;
 mod voted_block;
 mod voted_block_map;
-
-#[cfg(not(test))]
-use std::time::Instant;
 
 use std::{
     cmp::Ordering, collections::HashMap, fmt::Debug, mem::size_of, sync::Arc, time::Duration,
 };
-
-#[cfg(test)]
-use mock_instant::thread_local::Instant;
 
 use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 use rsnano_utils::{
@@ -18,6 +11,7 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use voted_block::VotedBlock;
 use voted_block_map::VotedBlockMap;
 
@@ -46,18 +40,24 @@ pub struct VoteCache {
     config: VoteCacheConfig,
     blocks: VotedBlockMap,
     next_id: usize,
-    last_cleanup: Instant,
+    last_cleanup: Timestamp,
     stats: Arc<Stats>,
+    clock: SteadyClock,
 }
 
 impl VoteCache {
     pub fn new(config: VoteCacheConfig, stats: Arc<Stats>) -> Self {
+        Self::new_impl(config, stats, SteadyClock::default())
+    }
+
+    fn new_impl(config: VoteCacheConfig, stats: Arc<Stats>, clock: SteadyClock) -> Self {
         VoteCache {
-            last_cleanup: Instant::now(),
+            last_cleanup: clock.now(),
             config,
             blocks: VotedBlockMap::default(),
             next_id: 0,
             stats,
+            clock,
         }
     }
 
@@ -82,7 +82,7 @@ impl VoteCache {
             }
         } else {
             for (hash, code) in results {
-                // Cache votes with a corresponding active election (indicated by `vote_code::vote`) in case that election gets dropped
+                // Cache votes with a corresponding election in case that election gets dropped
                 if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
                     self.insert_impl(vote, hash, rep_weight)
                 }
@@ -93,15 +93,23 @@ impl VoteCache {
     fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
         let cache_entry_exists = self.blocks.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
-            existing.vote(vote.clone(), rep_weight);
+            let now = self.clock.now();
+            existing.vote(vote.clone(), rep_weight, now);
         });
 
         if !cache_entry_exists {
             self.stats.inc(StatType::VoteCache, DetailType::Insert);
             let id = self.next_id;
             self.next_id += 1;
-            let mut block = VotedBlock::new(id, *hash, self.config.max_voters);
-            block.vote(vote.clone(), rep_weight);
+            let now = self.clock.now();
+            let block = VotedBlock::new(
+                id,
+                *hash,
+                self.config.max_voters,
+                vote.clone(),
+                rep_weight,
+                now,
+            );
             self.blocks.insert(block);
 
             // Remove the oldest entry if we have reached the capacity limit
@@ -144,9 +152,10 @@ impl VoteCache {
     pub fn top(&mut self, min_tally: impl Into<Amount>) -> Vec<TopEntry> {
         let min_tally = min_tally.into();
         self.stats.inc(StatType::VoteCache, DetailType::Top);
-        if self.last_cleanup.elapsed() >= self.config.age_cutoff / 2 {
+        let now = self.clock.now();
+        if self.last_cleanup.elapsed(now) >= self.config.age_cutoff / 2 {
             self.cleanup();
-            self.last_cleanup = Instant::now();
+            self.last_cleanup = now;
         }
 
         let mut results = Vec::new();
@@ -156,7 +165,7 @@ impl VoteCache {
                 break;
             }
             results.push(TopEntry {
-                hash: entry.hash,
+                hash: *entry.block_hash(),
                 tally,
                 final_tally: entry.final_tally(),
             })
@@ -177,11 +186,12 @@ impl VoteCache {
 
     fn cleanup(&mut self) {
         self.stats.inc(StatType::VoteCache, DetailType::Cleanup);
+        let now = self.clock.now();
         let to_delete: Vec<_> = self
             .blocks
             .iter()
-            .filter(|i| i.last_vote.elapsed() >= self.config.age_cutoff)
-            .map(|i| i.hash)
+            .filter(|i| i.last_modified().elapsed(now) >= self.config.age_cutoff)
+            .map(|i| *i.block_hash())
             .collect();
         for hash in to_delete {
             self.blocks.remove_by_hash(&hash);
@@ -205,7 +215,6 @@ pub struct TopEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mock_instant::thread_local::MockClock;
     use rsnano_types::{PrivateKey, UnixMillisTimestamp};
     use rsnano_utils::stats::Direction;
 
@@ -602,21 +611,22 @@ mod tests {
 
     #[test]
     fn top_age_cutoff() {
+        let clock = SteadyClock::new_null();
         let stats = Arc::new(Stats::new(Default::default()));
-        let mut cache = VoteCache::new(test_config(), Arc::clone(&stats));
+        let mut cache = VoteCache::new_impl(test_config(), Arc::clone(&stats), clock);
         let hash = BlockHash::from(1);
         add_test_vote(&mut cache, &hash, Amount::raw(1));
         assert_eq!(
             stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
             0
         );
-        MockClock::advance(Duration::from_secs(150));
+        cache.clock.advance(Duration::from_secs(150));
         assert_eq!(cache.top(0).len(), 1);
         assert_eq!(
             stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
             1
         );
-        MockClock::advance(Duration::from_secs(150));
+        cache.clock.advance(Duration::from_secs(150));
         assert_eq!(cache.top(0).len(), 0);
         assert_eq!(
             stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
