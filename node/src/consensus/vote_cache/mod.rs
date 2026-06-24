@@ -18,7 +18,6 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
-use cached_vote_map::CachedVoteMap;
 use voted_block::VotedBlock;
 use voted_block_map::VotedBlockMap;
 
@@ -94,16 +93,16 @@ impl VoteCache {
     fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
         let cache_entry_exists = self.blocks.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
-            existing.vote(vote, rep_weight, self.config.max_voters);
+            existing.vote(vote, rep_weight);
         });
 
         if !cache_entry_exists {
             self.stats.inc(StatType::VoteCache, DetailType::Insert);
             let id = self.next_id;
             self.next_id += 1;
-            let mut cache_entry = VotedBlock::new(id, *hash);
-            cache_entry.vote(vote, rep_weight, self.config.max_voters);
-            self.blocks.insert(cache_entry);
+            let mut block = VotedBlock::new(id, *hash, self.config.max_voters);
+            block.vote(vote, rep_weight);
+            self.blocks.insert(block);
 
             // Remove the oldest entry if we have reached the capacity limit
             if self.blocks.len() > self.config.max_size {
@@ -201,18 +200,6 @@ pub struct TopEntry {
     pub hash: BlockHash,
     pub tally: Amount,
     pub final_tally: Amount,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CachedVote {
-    pub vote: Arc<Vote>,
-    pub weight: Amount,
-}
-
-impl CachedVote {
-    pub fn new(vote: Arc<Vote>, weight: Amount) -> Self {
-        Self { vote, weight }
-    }
 }
 
 #[cfg(test)]

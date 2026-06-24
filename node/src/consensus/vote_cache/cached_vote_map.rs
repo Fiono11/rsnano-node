@@ -4,16 +4,39 @@ use rustc_hash::FxHashMap;
 
 use rsnano_types::{Amount, PublicKey, Vote};
 
-use crate::consensus::vote_cache::CachedVote;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CachedVote {
+    pub vote: Arc<Vote>,
+    pub weight: Amount,
+}
 
-#[derive(Default, Clone)]
+impl CachedVote {
+    pub fn new(vote: Arc<Vote>, weight: Amount) -> Self {
+        Self { vote, weight }
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct CachedVoteMap {
     by_representative: FxHashMap<PublicKey, CachedVote>,
     by_weight: BTreeMap<Amount, Vec<PublicKey>>,
+    max_votes: usize,
 }
 
 impl CachedVoteMap {
-    pub fn insert(&mut self, vote: CachedVote) {
+    pub fn new(max_votes: usize) -> Self {
+        Self {
+            by_representative: FxHashMap::default(),
+            by_weight: BTreeMap::new(),
+            max_votes,
+        }
+    }
+
+    pub fn insert(&mut self, vote: CachedVote) -> bool {
+        if !self.can_insert(&vote) {
+            return false;
+        }
+
         let weight = vote.weight;
         let rep_key = vote.vote.voter;
         if let Some(existing) = self.by_representative.get_mut(&rep_key) {
@@ -24,9 +47,35 @@ impl CachedVoteMap {
             self.by_representative.insert(rep_key, vote);
         }
         self.add_by_weight(weight, rep_key);
+
+        // If we have exceeded the maximum number of voters, remove the lowest weight voter
+        if self.by_representative.len() > self.max_votes {
+            self.remove_lowest_weight();
+        }
+        true
     }
 
-    pub fn iter_unordered(&self) -> impl Iterator<Item = &CachedVote> {
+    fn can_insert(&self, vote: &CachedVote) -> bool {
+        self.has_capacity() || vote.weight > self.min_weight().unwrap_or_default()
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.by_representative.len() < self.max_votes
+    }
+
+    fn remove_lowest_weight(&mut self) {
+        if let Some((weight, mut reps)) = self.by_weight.pop_first() {
+            // Only remove a single voter, even if multiple reps share the lowest weight
+            if let Some(rep) = reps.pop() {
+                self.by_representative.remove(&rep);
+            }
+            if !reps.is_empty() {
+                self.by_weight.insert(weight, reps);
+            }
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &CachedVote> {
         self.by_representative.values()
     }
 
@@ -52,24 +101,8 @@ impl CachedVoteMap {
             .map(|(weight, _reps)| *weight)
     }
 
-    pub fn remove_lowest_weight(&mut self) {
-        if let Some((weight, mut reps)) = self.by_weight.pop_first() {
-            // Only remove a single voter, even if multiple reps share the lowest weight
-            if let Some(rep) = reps.pop() {
-                self.by_representative.remove(&rep);
-            }
-            if !reps.is_empty() {
-                self.by_weight.insert(weight, reps);
-            }
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.by_representative.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_representative.is_empty()
     }
 
     fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
