@@ -43,7 +43,7 @@ impl Default for VoteCacheConfig {
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
     config: VoteCacheConfig,
-    cache: CacheEntryCollection,
+    cache: VotedBlockCollection,
     next_id: usize,
     last_cleanup: Instant,
     stats: Arc<Stats>,
@@ -54,7 +54,7 @@ impl VoteCache {
         VoteCache {
             last_cleanup: Instant::now(),
             config,
-            cache: CacheEntryCollection::default(),
+            cache: VotedBlockCollection::default(),
             next_id: 0,
             stats,
         }
@@ -99,7 +99,7 @@ impl VoteCache {
             self.stats.inc(StatType::VoteCache, DetailType::Insert);
             let id = self.next_id;
             self.next_id += 1;
-            let mut cache_entry = CacheEntry::new(id, *hash);
+            let mut cache_entry = VotedBlock::new(id, *hash);
             cache_entry.vote(vote, rep_weight, self.config.max_voters);
             self.cache.insert(cache_entry);
 
@@ -190,7 +190,7 @@ impl VoteCache {
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
-        [("cache", self.size(), size_of::<CacheEntry>())].into()
+        [("cache", self.size(), size_of::<VotedBlock>())].into()
     }
 }
 
@@ -203,23 +203,23 @@ pub struct TopEntry {
 
 /// Stores votes associated with a single block hash
 #[derive(Clone)]
-pub struct CacheEntry {
+pub struct VotedBlock {
     id: usize,
     pub hash: BlockHash,
-    pub voters: OrderedVoters,
+    pub votes: CachedVoteMap,
     pub last_vote: Instant,
     tally: Amount,
     final_tally: Amount,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VoterEntry {
+pub struct CachedVote {
     pub representative: PublicKey,
     pub weight: Amount,
     pub vote: Arc<Vote>,
 }
 
-impl VoterEntry {
+impl CachedVote {
     pub fn new(representative: PublicKey, weight: Amount, vote: Arc<Vote>) -> Self {
         Self {
             representative,
@@ -237,12 +237,12 @@ impl VoterEntry {
     }
 }
 
-impl CacheEntry {
+impl VotedBlock {
     pub fn new(id: usize, hash: BlockHash) -> Self {
-        CacheEntry {
+        VotedBlock {
             id,
             hash,
-            voters: OrderedVoters::default(),
+            votes: CachedVoteMap::default(),
             last_vote: Instant::now(),
             tally: Amount::ZERO,
             final_tally: Amount::ZERO,
@@ -252,7 +252,7 @@ impl CacheEntry {
     fn calculate_tally(&mut self) -> (Amount, Amount) {
         let mut tally = Amount::ZERO;
         let mut final_tally = Amount::ZERO;
-        for voter in self.voters.iter_unordered() {
+        for voter in self.votes.iter_unordered() {
             tally = tally.wrapping_add(voter.weight);
             if voter.vote.is_final() {
                 final_tally = final_tally.wrapping_add(voter.weight);
@@ -270,7 +270,7 @@ impl CacheEntry {
     }
 
     pub fn votes(&self) -> Vec<Arc<Vote>> {
-        self.voters
+        self.votes
             .iter_unordered()
             .map(|i| Arc::clone(&i.vote))
             .collect()
@@ -290,13 +290,13 @@ impl CacheEntry {
     fn vote_impl(&mut self, vote: &Arc<Vote>, rep_weight: Amount, max_voters: usize) -> bool {
         let representative = vote.voter;
 
-        if let Some(existing) = self.voters.find(&representative) {
+        if let Some(existing) = self.votes.find(&representative) {
             // We already have a vote from this rep
             // Update timestamp if newer but tally remains unchanged as we already counted this rep weight
             // It is not essential to keep tally up to date if rep voting weight changes, elections do tally calculations independently, so in the worst case scenario only our queue ordering will be a bit off
             if vote.timestamp() > existing.vote.timestamp() {
                 let was_final = existing.vote.is_final();
-                self.voters
+                self.votes
                     .modify(&representative, Arc::clone(vote), rep_weight);
                 return !was_final && vote.is_final(); // Tally changed only if the vote became final
             } else {
@@ -304,21 +304,21 @@ impl CacheEntry {
             }
         }
 
-        let should_add = if self.voters.len() < max_voters {
+        let should_add = if self.votes.len() < max_voters {
             true
         } else {
-            let min_weight = self.voters.min_weight().expect("voters must not be empty");
+            let min_weight = self.votes.min_weight().expect("voters must not be empty");
             rep_weight > min_weight
         };
 
         // Vote from a new representative, add it to the list and update tally
         if should_add {
-            self.voters
-                .insert(VoterEntry::new(representative, rep_weight, vote.clone()));
+            self.votes
+                .insert(CachedVote::new(representative, rep_weight, vote.clone()));
 
             // If we have exceeded the maximum number of voters, remove the lowest weight voter
-            if self.voters.len() > max_voters {
-                self.voters.remove_lowest_weight();
+            if self.votes.len() > max_voters {
+                self.votes.remove_lowest_weight();
             }
             return true;
         }
@@ -326,23 +326,23 @@ impl CacheEntry {
     }
 
     pub fn size(&self) -> usize {
-        self.voters.len()
+        self.votes.len()
     }
 }
 
 #[derive(Default)]
-pub struct CacheEntryCollection {
+pub struct VotedBlockCollection {
     sequential: BTreeMap<usize, BlockHash>,
-    by_hash: FxHashMap<BlockHash, CacheEntry>,
+    by_hash: FxHashMap<BlockHash, VotedBlock>,
     by_tally: BTreeMap<DescTallyKey, FxHashSet<BlockHash>>,
 }
 
-impl CacheEntryCollection {
+impl VotedBlockCollection {
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
     }
 
-    pub fn insert(&mut self, entry: CacheEntry) {
+    pub fn insert(&mut self, entry: VotedBlock) {
         let old = self.sequential.insert(entry.id, entry.hash);
         debug_assert!(old.is_none());
 
@@ -355,7 +355,7 @@ impl CacheEntryCollection {
 
     pub fn modify_by_hash<F>(&mut self, hash: &BlockHash, f: F) -> bool
     where
-        F: FnOnce(&mut CacheEntry),
+        F: FnOnce(&mut VotedBlock),
     {
         if let Some(entry) = self.by_hash.get_mut(hash) {
             let old_tally = entry.tally();
@@ -390,7 +390,7 @@ impl CacheEntryCollection {
         }
     }
 
-    pub fn pop_front(&mut self) -> Option<CacheEntry> {
+    pub fn pop_front(&mut self) -> Option<VotedBlock> {
         match self.sequential.pop_first() {
             Some((_, front_hash)) => {
                 let entry = self.by_hash.remove(&front_hash).unwrap();
@@ -401,11 +401,11 @@ impl CacheEntryCollection {
         }
     }
 
-    pub fn get_by_hash(&self, hash: &BlockHash) -> Option<&CacheEntry> {
+    pub fn get_by_hash(&self, hash: &BlockHash) -> Option<&VotedBlock> {
         self.by_hash.get(hash)
     }
 
-    pub fn remove_by_hash(&mut self, hash: &BlockHash) -> Option<CacheEntry> {
+    pub fn remove_by_hash(&mut self, hash: &BlockHash) -> Option<VotedBlock> {
         match self.by_hash.remove(hash) {
             Some(entry) => {
                 self.sequential.remove(&entry.id);
@@ -416,11 +416,11 @@ impl CacheEntryCollection {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &CacheEntry> {
+    pub fn iter(&self) -> impl Iterator<Item = &VotedBlock> {
         self.by_hash.values()
     }
 
-    pub fn iter_by_tally_desc(&self) -> impl Iterator<Item = &CacheEntry> {
+    pub fn iter_by_tally_desc(&self) -> impl Iterator<Item = &VotedBlock> {
         self.by_tally
             .values()
             .flat_map(|hashes| hashes.iter().map(|hash| self.by_hash.get(hash).unwrap()))
@@ -442,34 +442,34 @@ impl CacheEntryCollection {
 }
 
 #[derive(Default, Clone)]
-pub struct OrderedVoters {
-    by_representative: FxHashMap<PublicKey, VoterEntry>,
+pub struct CachedVoteMap {
+    by_representative: FxHashMap<PublicKey, CachedVote>,
     by_weight: BTreeMap<Amount, Vec<PublicKey>>,
 }
 
-impl OrderedVoters {
-    pub fn insert(&mut self, entry: VoterEntry) {
-        let weight = entry.weight;
-        let rep = entry.representative;
-        if let Some(existing) = self.by_representative.get_mut(&rep) {
+impl CachedVoteMap {
+    pub fn insert(&mut self, vote: CachedVote) {
+        let weight = vote.weight;
+        let rep_key = vote.vote.voter;
+        if let Some(existing) = self.by_representative.get_mut(&rep_key) {
             let old_weight = existing.weight;
-            *existing = entry;
-            self.remove_by_weight(&old_weight, &rep);
+            *existing = vote;
+            self.remove_by_weight(&old_weight, &rep_key);
         } else {
-            self.by_representative.insert(rep, entry);
+            self.by_representative.insert(rep_key, vote);
         }
-        self.add_by_weight(weight, rep);
+        self.add_by_weight(weight, rep_key);
     }
 
-    pub fn iter_unordered(&self) -> impl Iterator<Item = &VoterEntry> {
+    pub fn iter_unordered(&self) -> impl Iterator<Item = &CachedVote> {
         self.by_representative.values()
     }
 
-    pub fn find(&self, representative: &PublicKey) -> Option<&VoterEntry> {
+    pub fn find(&self, representative: &PublicKey) -> Option<&CachedVote> {
         self.by_representative.get(representative)
     }
 
-    pub fn first(&self) -> Option<&VoterEntry> {
+    pub fn first(&self) -> Option<&CachedVote> {
         self.by_weight
             .first_key_value()
             .and_then(|(_, reps)| reps.first())
