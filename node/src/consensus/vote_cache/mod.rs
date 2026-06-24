@@ -1,24 +1,26 @@
+mod cached_vote_map;
+mod voted_block;
+mod voted_block_map;
+
 #[cfg(not(test))]
 use std::time::Instant;
 
 use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap},
-    fmt::Debug,
-    mem::size_of,
-    sync::Arc,
-    time::Duration,
+    cmp::Ordering, collections::HashMap, fmt::Debug, mem::size_of, sync::Arc, time::Duration,
 };
 
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
-use rustc_hash::{FxHashMap, FxHashSet};
 
-use rsnano_types::{Amount, BlockHash, DescTallyKey, PublicKey, Vote, VoteError};
+use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
+
+use cached_vote_map::CachedVoteMap;
+use voted_block::VotedBlock;
+use voted_block_map::VotedBlockMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoteCacheConfig {
@@ -43,7 +45,7 @@ impl Default for VoteCacheConfig {
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
     config: VoteCacheConfig,
-    cache: VotedBlockCollection,
+    blocks: VotedBlockMap,
     next_id: usize,
     last_cleanup: Instant,
     stats: Arc<Stats>,
@@ -54,14 +56,14 @@ impl VoteCache {
         VoteCache {
             last_cleanup: Instant::now(),
             config,
-            cache: VotedBlockCollection::default(),
+            blocks: VotedBlockMap::default(),
             next_id: 0,
             stats,
         }
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.cache.contains(hash)
+        self.blocks.contains(hash)
     }
 
     /// Adds a new vote to cache
@@ -90,7 +92,7 @@ impl VoteCache {
     }
 
     fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
-        let cache_entry_exists = self.cache.modify_by_hash(hash, |existing| {
+        let cache_entry_exists = self.blocks.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
             existing.vote(vote, rep_weight, self.config.max_voters);
         });
@@ -101,26 +103,26 @@ impl VoteCache {
             self.next_id += 1;
             let mut cache_entry = VotedBlock::new(id, *hash);
             cache_entry.vote(vote, rep_weight, self.config.max_voters);
-            self.cache.insert(cache_entry);
+            self.blocks.insert(cache_entry);
 
             // Remove the oldest entry if we have reached the capacity limit
-            if self.cache.len() > self.config.max_size {
-                self.cache.pop_front();
+            if self.blocks.len() > self.config.max_size {
+                self.blocks.pop_front();
             }
         }
     }
 
     pub fn empty(&self) -> bool {
-        self.cache.is_empty()
+        self.blocks.is_empty()
     }
 
     pub fn size(&self) -> usize {
-        self.cache.len()
+        self.blocks.len()
     }
 
     /// Tries to find an entry associated with block hash
     pub fn find(&self, hash: &BlockHash) -> Vec<Arc<Vote>> {
-        self.cache
+        self.blocks
             .get_by_hash(hash)
             .map(|entry| entry.votes())
             .unwrap_or_default()
@@ -129,11 +131,11 @@ impl VoteCache {
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
     pub fn erase(&mut self, hash: &BlockHash) -> bool {
-        self.cache.remove_by_hash(hash).is_some()
+        self.blocks.remove_by_hash(hash).is_some()
     }
 
     pub fn clear(&mut self) {
-        self.cache.clear()
+        self.blocks.clear()
     }
 
     /// Returns blocks with highest observed tally, greater than `min_tally`
@@ -149,7 +151,7 @@ impl VoteCache {
         }
 
         let mut results = Vec::new();
-        for entry in self.cache.iter_by_tally_desc() {
+        for entry in self.blocks.iter_by_tally_desc() {
             let tally = entry.tally();
             if tally < min_tally {
                 break;
@@ -177,13 +179,13 @@ impl VoteCache {
     fn cleanup(&mut self) {
         self.stats.inc(StatType::VoteCache, DetailType::Cleanup);
         let to_delete: Vec<_> = self
-            .cache
+            .blocks
             .iter()
             .filter(|i| i.last_vote.elapsed() >= self.config.age_cutoff)
             .map(|i| i.hash)
             .collect();
         for hash in to_delete {
-            self.cache.remove_by_hash(&hash);
+            self.blocks.remove_by_hash(&hash);
         }
     }
 }
@@ -201,333 +203,15 @@ pub struct TopEntry {
     pub final_tally: Amount,
 }
 
-/// Stores votes associated with a single block hash
-#[derive(Clone)]
-pub struct VotedBlock {
-    id: usize,
-    pub hash: BlockHash,
-    pub votes: CachedVoteMap,
-    pub last_vote: Instant,
-    tally: Amount,
-    final_tally: Amount,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CachedVote {
-    pub representative: PublicKey,
-    pub weight: Amount,
+pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
+    pub weight: Amount,
 }
 
 impl CachedVote {
-    pub fn new(representative: PublicKey, weight: Amount, vote: Arc<Vote>) -> Self {
-        Self {
-            representative,
-            weight,
-            vote,
-        }
-    }
-
-    pub fn final_weight(&self) -> Amount {
-        if self.vote.is_final() {
-            self.weight
-        } else {
-            Amount::ZERO
-        }
-    }
-}
-
-impl VotedBlock {
-    pub fn new(id: usize, hash: BlockHash) -> Self {
-        VotedBlock {
-            id,
-            hash,
-            votes: CachedVoteMap::default(),
-            last_vote: Instant::now(),
-            tally: Amount::ZERO,
-            final_tally: Amount::ZERO,
-        }
-    }
-
-    fn calculate_tally(&mut self) -> (Amount, Amount) {
-        let mut tally = Amount::ZERO;
-        let mut final_tally = Amount::ZERO;
-        for voter in self.votes.iter_unordered() {
-            tally = tally.wrapping_add(voter.weight);
-            if voter.vote.is_final() {
-                final_tally = final_tally.wrapping_add(voter.weight);
-            }
-        }
-        (tally, final_tally)
-    }
-
-    pub fn tally(&self) -> Amount {
-        self.tally
-    }
-
-    pub fn final_tally(&self) -> Amount {
-        self.final_tally
-    }
-
-    pub fn votes(&self) -> Vec<Arc<Vote>> {
-        self.votes
-            .iter_unordered()
-            .map(|i| Arc::clone(&i.vote))
-            .collect()
-    }
-
-    /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
-    /// returns true if current tally changed, false otherwise
-    pub fn vote(&mut self, vote: &Arc<Vote>, rep_weight: Amount, max_voters: usize) -> bool {
-        let updated = self.vote_impl(vote, rep_weight, max_voters);
-        if updated {
-            (self.tally, self.final_tally) = self.calculate_tally();
-            self.last_vote = Instant::now();
-        }
-        updated
-    }
-
-    fn vote_impl(&mut self, vote: &Arc<Vote>, rep_weight: Amount, max_voters: usize) -> bool {
-        let representative = vote.voter;
-
-        if let Some(existing) = self.votes.find(&representative) {
-            // We already have a vote from this rep
-            // Update timestamp if newer but tally remains unchanged as we already counted this rep weight
-            // It is not essential to keep tally up to date if rep voting weight changes, elections do tally calculations independently, so in the worst case scenario only our queue ordering will be a bit off
-            if vote.timestamp() > existing.vote.timestamp() {
-                let was_final = existing.vote.is_final();
-                self.votes
-                    .modify(&representative, Arc::clone(vote), rep_weight);
-                return !was_final && vote.is_final(); // Tally changed only if the vote became final
-            } else {
-                return false;
-            }
-        }
-
-        let should_add = if self.votes.len() < max_voters {
-            true
-        } else {
-            let min_weight = self.votes.min_weight().expect("voters must not be empty");
-            rep_weight > min_weight
-        };
-
-        // Vote from a new representative, add it to the list and update tally
-        if should_add {
-            self.votes
-                .insert(CachedVote::new(representative, rep_weight, vote.clone()));
-
-            // If we have exceeded the maximum number of voters, remove the lowest weight voter
-            if self.votes.len() > max_voters {
-                self.votes.remove_lowest_weight();
-            }
-            return true;
-        }
-        false
-    }
-
-    pub fn size(&self) -> usize {
-        self.votes.len()
-    }
-}
-
-#[derive(Default)]
-pub struct VotedBlockCollection {
-    sequential: BTreeMap<usize, BlockHash>,
-    by_hash: FxHashMap<BlockHash, VotedBlock>,
-    by_tally: BTreeMap<DescTallyKey, FxHashSet<BlockHash>>,
-}
-
-impl VotedBlockCollection {
-    pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.by_hash.contains_key(hash)
-    }
-
-    pub fn insert(&mut self, entry: VotedBlock) {
-        let old = self.sequential.insert(entry.id, entry.hash);
-        debug_assert!(old.is_none());
-
-        let tally = entry.tally().into();
-        self.by_tally.entry(tally).or_default().insert(entry.hash);
-
-        let old = self.by_hash.insert(entry.hash, entry);
-        debug_assert!(old.is_none());
-    }
-
-    pub fn modify_by_hash<F>(&mut self, hash: &BlockHash, f: F) -> bool
-    where
-        F: FnOnce(&mut VotedBlock),
-    {
-        if let Some(entry) = self.by_hash.get_mut(hash) {
-            let old_tally = entry.tally();
-            f(entry);
-            let new_tally = entry.tally();
-            let hash = entry.hash;
-            self.update_tally(hash, old_tally, new_tally);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn update_tally(&mut self, hash: BlockHash, old_tally: Amount, new_tally: Amount) {
-        if old_tally == new_tally {
-            return;
-        }
-        self.remove_by_tally(&hash, old_tally);
-        self.by_tally
-            .entry(new_tally.into())
-            .or_default()
-            .insert(hash);
-    }
-
-    fn remove_by_tally(&mut self, hash: &BlockHash, tally: Amount) {
-        let key = DescTallyKey::from(tally);
-        let hashes = self.by_tally.get_mut(&key).unwrap();
-        if hashes.len() == 1 {
-            self.by_tally.remove(&key);
-        } else {
-            hashes.remove(hash);
-        }
-    }
-
-    pub fn pop_front(&mut self) -> Option<VotedBlock> {
-        match self.sequential.pop_first() {
-            Some((_, front_hash)) => {
-                let entry = self.by_hash.remove(&front_hash).unwrap();
-                self.remove_by_tally(&front_hash, entry.tally());
-                Some(entry)
-            }
-            None => None,
-        }
-    }
-
-    pub fn get_by_hash(&self, hash: &BlockHash) -> Option<&VotedBlock> {
-        self.by_hash.get(hash)
-    }
-
-    pub fn remove_by_hash(&mut self, hash: &BlockHash) -> Option<VotedBlock> {
-        match self.by_hash.remove(hash) {
-            Some(entry) => {
-                self.sequential.remove(&entry.id);
-                self.remove_by_tally(hash, entry.tally());
-                Some(entry)
-            }
-            None => None,
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &VotedBlock> {
-        self.by_hash.values()
-    }
-
-    pub fn iter_by_tally_desc(&self) -> impl Iterator<Item = &VotedBlock> {
-        self.by_tally
-            .values()
-            .flat_map(|hashes| hashes.iter().map(|hash| self.by_hash.get(hash).unwrap()))
-    }
-
-    pub fn len(&self) -> usize {
-        self.sequential.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.sequential.is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        self.sequential.clear();
-        self.by_hash.clear();
-        self.by_tally.clear();
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct CachedVoteMap {
-    by_representative: FxHashMap<PublicKey, CachedVote>,
-    by_weight: BTreeMap<Amount, Vec<PublicKey>>,
-}
-
-impl CachedVoteMap {
-    pub fn insert(&mut self, vote: CachedVote) {
-        let weight = vote.weight;
-        let rep_key = vote.vote.voter;
-        if let Some(existing) = self.by_representative.get_mut(&rep_key) {
-            let old_weight = existing.weight;
-            *existing = vote;
-            self.remove_by_weight(&old_weight, &rep_key);
-        } else {
-            self.by_representative.insert(rep_key, vote);
-        }
-        self.add_by_weight(weight, rep_key);
-    }
-
-    pub fn iter_unordered(&self) -> impl Iterator<Item = &CachedVote> {
-        self.by_representative.values()
-    }
-
-    pub fn find(&self, representative: &PublicKey) -> Option<&CachedVote> {
-        self.by_representative.get(representative)
-    }
-
-    pub fn first(&self) -> Option<&CachedVote> {
-        self.by_weight
-            .first_key_value()
-            .and_then(|(_, reps)| reps.first())
-            .and_then(|rep| self.by_representative.get(rep))
-    }
-
-    pub fn modify(&mut self, representative: &PublicKey, vote: Arc<Vote>, new_weight: Amount) {
-        if let Some(entry) = self.by_representative.get_mut(representative) {
-            let old_weight = entry.weight;
-            entry.vote = vote;
-            entry.weight = new_weight;
-            if old_weight != new_weight {
-                self.remove_by_weight(&old_weight, representative);
-                self.add_by_weight(new_weight, *representative);
-            }
-        }
-    }
-
-    pub fn min_weight(&self) -> Option<Amount> {
-        self.by_weight
-            .first_key_value()
-            .map(|(weight, _reps)| *weight)
-    }
-
-    pub fn remove_lowest_weight(&mut self) {
-        if let Some((weight, mut reps)) = self.by_weight.pop_first() {
-            // Only remove a single voter, even if multiple reps share the lowest weight
-            if let Some(rep) = reps.pop() {
-                self.by_representative.remove(&rep);
-            }
-            if !reps.is_empty() {
-                self.by_weight.insert(weight, reps);
-            }
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.by_representative.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_representative.is_empty()
-    }
-
-    fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
-        if let Some(mut accounts) = self.by_weight.remove(weight)
-            && accounts.len() > 1
-        {
-            accounts.retain(|a| a != representative);
-            self.by_weight.insert(*weight, accounts);
-        }
-    }
-
-    fn add_by_weight(&mut self, weight: Amount, representative: PublicKey) {
-        self.by_weight
-            .entry(weight)
-            .or_default()
-            .push(representative);
+    pub fn new(vote: Arc<Vote>, weight: Amount) -> Self {
+        Self { vote, weight }
     }
 }
 

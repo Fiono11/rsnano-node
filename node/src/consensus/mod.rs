@@ -45,7 +45,7 @@ pub(crate) use local_votes_remover::LocalVotesRemover;
 pub use rep_tiers::*;
 pub(crate) use vote_applier::*;
 pub use vote_broadcaster::*;
-pub use vote_cache::{CachedVote, TopEntry, VoteCache, VoteCacheConfig, VotedBlock};
+pub use vote_cache::{TopEntry, VoteCache, VoteCacheConfig};
 pub(crate) use vote_cache_processor::*;
 pub use vote_generation::*;
 pub use vote_processor::*;
