@@ -33,6 +33,19 @@ impl CachedVoteMap {
     }
 
     pub fn insert(&mut self, vote: CachedVote) -> bool {
+        let representative = vote.vote.voter;
+        if let Some(existing) = self.find(&representative) {
+            // We already have a vote from this rep
+            // Update timestamp if newer but tally remains unchanged as we already counted this rep weight
+            // It is not essential to keep tally up to date if rep voting weight changes, elections do tally calculations independently, so in the worst case scenario only our queue ordering will be a bit off
+            if vote.vote.timestamp() > existing.vote.timestamp() {
+                self.modify(&representative, vote.vote.clone(), vote.weight);
+                return true;
+            } else {
+                return false;
+            }
+        }
+
         if !self.can_insert(&vote) {
             return false;
         }
@@ -56,10 +69,10 @@ impl CachedVoteMap {
     }
 
     fn can_insert(&self, vote: &CachedVote) -> bool {
-        self.has_capacity() || vote.weight > self.min_weight().unwrap_or_default()
+        self.has_free_capacity() || vote.weight > self.min_weight().unwrap_or_default()
     }
 
-    fn has_capacity(&self) -> bool {
+    fn has_free_capacity(&self) -> bool {
         self.by_representative.len() < self.max_votes
     }
 
@@ -101,10 +114,6 @@ impl CachedVoteMap {
             .map(|(weight, _reps)| *weight)
     }
 
-    pub fn len(&self) -> usize {
-        self.by_representative.len()
-    }
-
     fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
         if let Some(mut accounts) = self.by_weight.remove(weight)
             && accounts.len() > 1
@@ -119,5 +128,17 @@ impl CachedVoteMap {
             .entry(weight)
             .or_default()
             .push(representative);
+    }
+
+    pub fn calculate_tally(&self) -> (Amount, Amount) {
+        let mut tally = Amount::ZERO;
+        let mut final_tally = Amount::ZERO;
+        for vote in self.by_representative.values() {
+            tally = tally.wrapping_add(vote.weight);
+            if vote.vote.is_final() {
+                final_tally = final_tally.wrapping_add(vote.weight);
+            }
+        }
+        (tally, final_tally)
     }
 }
