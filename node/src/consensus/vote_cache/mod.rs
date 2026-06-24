@@ -93,7 +93,7 @@ impl VoteCache {
     fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
         let cache_entry_exists = self.blocks.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
-            existing.vote(vote, rep_weight);
+            existing.vote(vote.clone(), rep_weight);
         });
 
         if !cache_entry_exists {
@@ -101,7 +101,7 @@ impl VoteCache {
             let id = self.next_id;
             self.next_id += 1;
             let mut block = VotedBlock::new(id, *hash, self.config.max_voters);
-            block.vote(vote, rep_weight);
+            block.vote(vote.clone(), rep_weight);
             self.blocks.insert(block);
 
             // Remove the oldest entry if we have reached the capacity limit

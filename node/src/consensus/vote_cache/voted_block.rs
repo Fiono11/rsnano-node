@@ -14,10 +14,10 @@ use super::cached_vote_map::{CachedVote, CachedVoteMap};
 pub(crate) struct VotedBlock {
     pub id: usize,
     pub hash: BlockHash,
-    pub votes: CachedVoteMap,
+    votes: CachedVoteMap,
     pub last_vote: Instant,
-    pub tally: Amount,
-    pub final_tally: Amount,
+    tally: Amount,
+    final_tally: Amount,
 }
 
 impl VotedBlock {
@@ -46,8 +46,8 @@ impl VotedBlock {
 
     /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
     /// returns true if current tally changed, false otherwise
-    pub fn vote(&mut self, vote: &Arc<Vote>, rep_weight: Amount) -> bool {
-        let inserted = self.votes.insert(CachedVote::new(vote.clone(), rep_weight));
+    pub fn vote(&mut self, vote: Arc<Vote>, rep_weight: Amount) -> bool {
+        let inserted = self.votes.insert(CachedVote::new(vote, rep_weight));
         if inserted {
             (self.tally, self.final_tally) = self.votes.calculate_tally();
             self.last_vote = Instant::now();
