@@ -186,7 +186,12 @@ impl VotedBlockMap {
     /// The blocks are sorted in descending order by final tally, then by tally
     /// @param min_tally minimum tally threshold, entries below with their voting weight
     /// below this will be ignore
-    pub fn top(&mut self, min_tally: impl Into<Amount>, now: Timestamp) -> Vec<TopEntry> {
+    pub fn top(
+        &mut self,
+        results: &mut Vec<TopEntry>,
+        min_tally: impl Into<Amount>,
+        now: Timestamp,
+    ) {
         let min_tally = min_tally.into();
         if let Some(last) = self.last_cleanup {
             if last.elapsed(now) >= self.config.age_cutoff / 2 {
@@ -197,7 +202,6 @@ impl VotedBlockMap {
             self.last_cleanup = Some(now);
         }
 
-        let mut results = Vec::new();
         for entry in self.iter_by_tally_desc() {
             let tally = entry.non_final_tally();
             if tally < min_tally {
@@ -219,8 +223,6 @@ impl VotedBlockMap {
                 res
             }
         });
-
-        results
     }
 
     pub fn len(&self) -> usize {
@@ -570,7 +572,9 @@ mod tests {
     fn top_empty() {
         let mut cache = make_block_map();
         let now = Timestamp::new_test_instance();
-        assert_eq!(cache.top(0, now), Vec::new());
+        let mut top = Vec::new();
+        cache.top(&mut top, 0, now);
+        assert_eq!(top, Vec::new());
     }
 
     #[test]
@@ -579,9 +583,11 @@ mod tests {
         let now = Timestamp::new_test_instance();
         let hash = BlockHash::from(1);
         add_test_vote(&mut cache, &PrivateKey::from(1), &hash, Amount::raw(1), now);
+        let mut top = Vec::new();
+        cache.top(&mut top, 0, now);
 
         assert_eq!(
-            cache.top(0, now),
+            top,
             vec![TopEntry {
                 hash,
                 tally: Amount::raw(1),
@@ -633,7 +639,8 @@ mod tests {
             now,
         );
 
-        let top = cache.top(0, now);
+        let mut top = Vec::new();
+        cache.top(&mut top, 0, now);
 
         assert_eq!(top.len(), 3);
         assert_eq!(top[0].hash, hash2);
@@ -670,7 +677,8 @@ mod tests {
             now,
         );
 
-        let top = cache.top(2, now);
+        let mut top = Vec::new();
+        cache.top(&mut top, 2, now);
         assert_eq!(top.len(), 2);
         assert_eq!(top[0].hash, hash3);
         assert_eq!(top[1].hash, hash2);
@@ -688,8 +696,12 @@ mod tests {
             Amount::raw(1),
             start,
         );
-        assert_eq!(cache.top(0, start + Duration::from_secs(150)).len(), 1);
-        assert_eq!(cache.top(0, start + Duration::from_secs(300)).len(), 0);
+        let mut top = Vec::new();
+        cache.top(&mut top, 0, start + Duration::from_secs(150));
+        assert_eq!(top.len(), 1);
+        top.clear();
+        cache.top(&mut top, 0, start + Duration::from_secs(300));
+        assert_eq!(top.len(), 0);
     }
 
     /*
@@ -720,7 +732,8 @@ mod tests {
             now,
         );
 
-        let top = cache.top(0, now);
+        let mut top = Vec::new();
+        cache.top(&mut top, 0, now);
 
         assert_eq!(top.len(), 2);
         assert_eq!(top[0].hash, hash_final);

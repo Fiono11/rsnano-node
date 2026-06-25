@@ -108,10 +108,10 @@ impl VoteCache {
     /// The blocks are sorted in descending order by final tally, then by tally
     /// @param min_tally minimum tally threshold, entries below with their voting weight
     /// below this will be ignore
-    pub fn top(&mut self, min_tally: impl Into<Amount>) -> Vec<TopEntry> {
+    pub fn top(&mut self, result: &mut Vec<TopEntry>, min_tally: impl Into<Amount>) {
         self.stats.top.fetch_add(1, Ordering::Relaxed);
         let now = self.clock.now();
-        self.blocks.top(min_tally, now)
+        self.blocks.top(result, min_tally, now);
     }
 
     pub fn get_non_final_tally(&self, hash: &BlockHash) -> Amount {
@@ -181,7 +181,9 @@ mod tests {
     #[test]
     fn top_empty() {
         let mut cache = make_vote_cache();
-        assert_eq!(cache.top(0), Vec::new());
+        let mut top = Vec::new();
+        cache.top(&mut top, 0);
+        assert_eq!(top, Vec::new());
     }
 
     #[test]
@@ -192,8 +194,11 @@ mod tests {
         let vote = create_vote(&rep, &hash, 0);
         cache.process(vote, Amount::raw(1), &HashMap::new());
 
+        let mut top = Vec::new();
+        cache.top(&mut top, 0);
+
         assert_eq!(
-            cache.top(0),
+            top,
             vec![TopEntry {
                 hash,
                 tally: Amount::raw(1),

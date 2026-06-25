@@ -231,8 +231,14 @@ impl HintedScheduler {
         let minimum_tally = self.tally_threshold();
         let minimum_final_tally = self.final_tally_threshold();
 
+        // TODO: reuse buffer
+        let mut tops = Vec::new();
+
         // Get the list before db transaction starts to avoid unnecessary slowdowns
-        let tops = self.vote_cache.lock().unwrap().top(minimum_tally);
+        self.vote_cache
+            .lock()
+            .unwrap()
+            .top(&mut tops, minimum_tally);
 
         let mut any = self.ledger.any();
 
