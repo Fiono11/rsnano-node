@@ -214,7 +214,7 @@ fn vote_cache_election_start() {
     let send3 = lattice.genesis().send(Account::from(2), 1);
     let send4 = lattice.genesis().send(Account::from(3), 1);
 
-    // Inactive votes
+    // Cached votes
     let vote1 = Arc::new(Vote::new(
         &key1,
         UnixMillisTimestamp::ZERO,

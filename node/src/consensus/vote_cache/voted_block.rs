@@ -86,19 +86,10 @@ impl VotedBlock {
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
-        let inserted = self.insert(CachedVote::new(vote, rep_weight));
-        if inserted {
-            self.calculate_tallies();
-            self.last_modified = now;
-            true
-        } else {
-            false
-        }
-    }
+        let rep_key = vote.voter;
+        let new_weight = rep_weight;
+        let vote = CachedVote::new(vote, rep_weight);
 
-    fn insert(&mut self, vote: CachedVote) -> bool {
-        let rep_key = vote.vote.voter;
-        let new_weight = vote.weight;
         if let Some(existing) = self.by_representative.get_mut(&rep_key) {
             if !vote.is_newer_than(existing) {
                 return false;
@@ -109,19 +100,21 @@ impl VotedBlock {
                 self.remove_by_weight(&old_weight, &rep_key);
                 self.add_by_weight(new_weight, rep_key);
             }
-            return true;
+        } else {
+            if !self.can_insert(&vote) {
+                return false;
+            }
+
+            self.by_representative.insert(rep_key, vote);
+            self.add_by_weight(new_weight, rep_key);
+
+            if self.by_representative.len() > self.max_voters {
+                self.remove_lowest_weight();
+            }
         }
 
-        if !self.can_insert(&vote) {
-            return false;
-        }
-
-        self.by_representative.insert(rep_key, vote);
-        self.add_by_weight(new_weight, rep_key);
-
-        if self.by_representative.len() > self.max_voters {
-            self.remove_lowest_weight();
-        }
+        self.calculate_tallies();
+        self.last_modified = now;
         true
     }
 
