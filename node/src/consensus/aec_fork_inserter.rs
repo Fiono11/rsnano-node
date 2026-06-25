@@ -21,10 +21,7 @@ impl AecForkInserter {
         Self {
             fork_cache: Arc::new(RwLock::new(ForkCache::new())),
             active_elections: Arc::new(AecService::new_null()),
-            vote_cache: Arc::new(Mutex::new(VoteCache::new(
-                Default::default(),
-                Arc::new(Stats::default()),
-            ))),
+            vote_cache: Arc::new(Mutex::new(VoteCache::new(Default::default()))),
         }
     }
 

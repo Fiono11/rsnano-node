@@ -505,10 +505,7 @@ impl Node {
                 .expect("channel should be open");
         }));
 
-        let vote_cache = Arc::new(Mutex::new(VoteCache::new(
-            config.vote_cache.clone(),
-            stats.clone(),
-        )));
+        let vote_cache = Arc::new(Mutex::new(VoteCache::new(config.vote_cache.clone())));
 
         let fork_cache = Arc::new(RwLock::new(ForkCache::with(
             config.fork_cache_max_size,
@@ -1265,6 +1262,7 @@ impl Node {
         stats_collector.add_source(unchecked.clone());
         stats_collector.add_source(unchecked_reenqueuer.stats().clone());
         stats_collector.add_source(ledger_event_processor_stats);
+        stats_collector.add_source(vote_cache.clone());
 
         container_info.add("work", work_factory.clone());
         container_info.add("ledger", ledger.clone());

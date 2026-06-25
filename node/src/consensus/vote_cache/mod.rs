@@ -1,18 +1,25 @@
+mod stats;
 mod tally_index;
 mod voted_block;
 mod voted_block_map;
 
 pub use voted_block_map::TopEntry;
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{DetailType, StatType, Stats},
+    stats::{StatsCollection, StatsSource},
 };
 
+use stats::VoteCacheStats;
 use voted_block_map::VotedBlockMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,19 +45,19 @@ impl Default for VoteCacheConfig {
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
     blocks: VotedBlockMap,
-    stats: Arc<Stats>,
+    stats: VoteCacheStats,
     clock: SteadyClock,
 }
 
 impl VoteCache {
-    pub fn new(config: VoteCacheConfig, stats: Arc<Stats>) -> Self {
-        Self::new_impl(config, stats, SteadyClock::default())
+    pub fn new(config: VoteCacheConfig) -> Self {
+        Self::new_impl(config, SteadyClock::default())
     }
 
-    fn new_impl(config: VoteCacheConfig, stats: Arc<Stats>, clock: SteadyClock) -> Self {
+    fn new_impl(config: VoteCacheConfig, clock: SteadyClock) -> Self {
         VoteCache {
             blocks: VotedBlockMap::new(config),
-            stats,
+            stats: VoteCacheStats::default(),
             clock,
         }
     }
@@ -70,8 +77,7 @@ impl VoteCache {
         let inserted = self
             .blocks
             .process_vote_results(vote, rep_weight, results, now);
-        self.stats
-            .add(StatType::VoteCache, DetailType::Insert, inserted);
+        self.stats.inserted.fetch_add(inserted, Ordering::Relaxed);
     }
 
     pub fn empty(&self) -> bool {
@@ -109,7 +115,7 @@ impl VoteCache {
     /// @param min_tally minimum tally threshold, entries below with their voting weight
     /// below this will be ignore
     pub fn top(&mut self, min_tally: impl Into<Amount>) -> Vec<TopEntry> {
-        self.stats.inc(StatType::VoteCache, DetailType::Top);
+        self.stats.top.fetch_add(1, Ordering::Relaxed);
         let now = self.clock.now();
         self.blocks.top(min_tally, now)
     }
@@ -128,11 +134,16 @@ impl ContainerInfoProvider for VoteCache {
     }
 }
 
+impl StatsSource for VoteCache {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        self.stats.collect_stats(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rsnano_types::{PrivateKey, UnixMillisTimestamp};
-    use rsnano_utils::stats::Direction;
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
         let timestamp = UnixMillisTimestamp::new(timestamp_offset * 1024 * 1024);
@@ -152,7 +163,7 @@ mod tests {
     }
 
     fn create_vote_cache() -> VoteCache {
-        VoteCache::new(test_config(), Arc::new(Stats::new(Default::default())))
+        VoteCache::new(test_config())
     }
 
     fn create_vote_cache_with_max_voters(max_voters: usize) -> VoteCache {
@@ -160,7 +171,7 @@ mod tests {
             max_voters,
             ..test_config()
         };
-        VoteCache::new(config, Arc::new(Stats::new(Default::default())))
+        VoteCache::new(config)
     }
 
     #[test]
@@ -528,14 +539,9 @@ mod tests {
     #[test]
     fn top_age_cutoff() {
         let clock = SteadyClock::new_null();
-        let stats = Arc::new(Stats::new(Default::default()));
-        let mut cache = VoteCache::new_impl(test_config(), Arc::clone(&stats), clock);
+        let mut cache = VoteCache::new_impl(test_config(), clock);
         let hash = BlockHash::from(1);
         add_test_vote(&mut cache, &PrivateKey::from(1), &hash, Amount::raw(1));
-        assert_eq!(
-            stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
-            0
-        );
         cache.clock.advance(Duration::from_secs(150));
         assert_eq!(cache.top(0).len(), 1);
         cache.clock.advance(Duration::from_secs(150));
