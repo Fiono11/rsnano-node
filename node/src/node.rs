@@ -66,7 +66,7 @@ use crate::{
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
+        AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
         BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
@@ -505,7 +505,9 @@ impl Node {
                 .expect("channel should be open");
         }));
 
+        let mut aec_event_handlers = EventHandlerRegistry::<AecFact>::default();
         let vote_cache = Arc::new(VoteCache::new(config.vote_cache.clone()));
+        aec_event_handlers.add(vote_cache.clone());
 
         let fork_cache = Arc::new(RwLock::new(ForkCache::with(
             config.fork_cache_max_size,
@@ -1199,7 +1201,6 @@ impl Node {
             network_filter: network_filter.clone(),
             bootstrap_election_activator,
             recently_cemented_inserter,
-            vote_cache: vote_cache.clone(),
             vote_rebroadcast_queue: vote_rebroadcast_queue.clone(),
             vote_processor: vote_processor.clone(),
             block_processor_queue: block_processor_queue.clone(),
@@ -1213,6 +1214,7 @@ impl Node {
             stats: stats.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             bootstrapper: bootstrapper.clone(),
+            plugins: aec_event_handlers,
         };
 
         spawn_backpressure_processor("AEC ev proc", aec_rx, aec_fact_processor);

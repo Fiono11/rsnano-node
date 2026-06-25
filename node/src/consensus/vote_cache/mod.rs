@@ -13,12 +13,14 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Amount, BlockHash, Vote, VoteError};
+use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
+use crate::consensus::AecFact;
 use stats::VoteCacheStats;
 use voted_block_map::VotedBlockMap;
 
@@ -134,13 +136,27 @@ impl VoteCache {
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
-        [("vote_cache", self.len(), 0)].into()
+        [("blocks", self.len(), 0)].into()
     }
 }
 
 impl StatsSource for VoteCache {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.stats.collect_stats(result)
+    }
+}
+
+impl EventHandler<AecFact> for VoteCache {
+    fn handle(&self, event: &AecFact) {
+        match event {
+            AecFact::VoteProcessed(vote, voter_weight, results) => {
+                // Cache the votes that didn't match any election
+                if vote.delivery != VoteDelivery::Replayed {
+                    self.process(vote.vote.clone(), *voter_weight, results);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

@@ -7,7 +7,10 @@ use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, VoteDelivery, VoteError};
-use rsnano_utils::stats::{Sample, Stats};
+use rsnano_utils::{
+    EventHandlerMut, EventHandlerRegistry,
+    stats::{Sample, Stats},
+};
 
 use crate::{
     NodeEvent,
@@ -16,9 +19,8 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
-        LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor, VoteProcessor,
-        VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
-        election_schedulers::ElectionSchedulers,
+        LocalVotesRemover, ReceivedVote, VoteCacheProcessor, VoteProcessor, VoteRebroadcastQueue,
+        WinnerBlockBroadcaster, aggregate_vote_results, election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{RepCrawler, RepresentativeTracker},
@@ -29,7 +31,6 @@ use crate::{
 pub(crate) struct AecFactProcessor {
     pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub(crate) vote_processor: Arc<VoteProcessor>,
-    pub(crate) vote_cache: Arc<VoteCache>,
     pub(crate) node_observer: Option<SyncSender<NodeEvent>>,
     pub(crate) election_schedulers: Arc<ElectionSchedulers>,
     pub(crate) network_filter: Arc<NetworkFilter>,
@@ -47,6 +48,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) aec_fork_inserter: Arc<AecForkInserter>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub(crate) bootstrapper: Arc<Bootstrapper>,
+    pub(crate) plugins: EventHandlerRegistry<AecFact>,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -63,6 +65,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     }
 
     fn process(&mut self, event: AecFact) {
+        self.plugins.handle(&event);
         match event {
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
@@ -126,12 +129,6 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 ));
             }
             AecFact::VoteProcessed(vote, voter_weight, results) => {
-                // Cache the votes that didn't match any election
-                if vote.delivery != VoteDelivery::Replayed {
-                    self.vote_cache
-                        .process(vote.vote.clone(), voter_weight, &results);
-                }
-
                 self.vote_rebroadcast_queue
                     .try_enqueue(&vote.vote, &results);
 
