@@ -17,6 +17,7 @@ mod rep_crawler;
 mod rep_tracker;
 mod request_aggregator;
 mod telemetry;
+mod vote_cache;
 mod vote_processor;
 mod votes;
 mod wallet;

@@ -1,13 +1,14 @@
 use std::{
     collections::{HashSet, VecDeque},
     sync::{Arc, Condvar, Mutex, MutexGuard, atomic::Ordering},
-    thread::JoinHandle,
 };
 
 use rsnano_types::{BlockHash, Vote, VoteDelivery};
+use rsnano_utils::thread_factory::{JoinHandle, ThreadFactory};
 
 use super::{stats::VoteCacheStats, voted_block_map::VotedBlockMap};
 use crate::consensus::VoteProcessorQueue;
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,
@@ -16,6 +17,8 @@ pub(crate) struct VoteCacheProcessor {
     cache: Arc<Mutex<VotedBlockMap>>,
     vote_queue: Arc<VoteProcessorQueue>,
     max_triggered: usize,
+    thread_factory: ThreadFactory,
+    trigger_listener: OutputListenerMt<BlockHash>,
 }
 
 impl VoteCacheProcessor {
@@ -24,6 +27,7 @@ impl VoteCacheProcessor {
         vote_queue: Arc<VoteProcessorQueue>,
         stats: Arc<VoteCacheStats>,
         max_triggered: usize,
+        thread_factory: ThreadFactory,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State {
@@ -36,11 +40,11 @@ impl VoteCacheProcessor {
             vote_queue,
             cache,
             max_triggered,
+            thread_factory,
+            trigger_listener: OutputListenerMt::new(),
         }
     }
-}
 
-impl VoteCacheProcessor {
     pub fn start(&self) {
         debug_assert!(self.state.lock().unwrap().thread.is_none());
         let cache_loop = VoteCacheLoop {
@@ -52,10 +56,8 @@ impl VoteCacheProcessor {
         };
 
         self.state.lock().unwrap().thread = Some(
-            std::thread::Builder::new()
-                .name("Vote cache proc".to_owned())
-                .spawn(move || cache_loop.run())
-                .unwrap(),
+            self.thread_factory
+                .spawn("Vote cache proc", move || cache_loop.run()),
         );
     }
 
@@ -73,7 +75,12 @@ impl VoteCacheProcessor {
         }
     }
 
-    pub fn trigger(&self, hash: BlockHash) {
+    pub fn track_trigger(&self) -> Arc<OutputTrackerMt<BlockHash>> {
+        self.trigger_listener.track()
+    }
+
+    pub fn trigger(&self, block_hash: BlockHash) {
+        self.trigger_listener.emit(block_hash);
         {
             let mut state = self.state.lock().unwrap();
             if state.triggered.len() > self.max_triggered {
@@ -82,7 +89,7 @@ impl VoteCacheProcessor {
                     .processor_overfill
                     .fetch_add(1, Ordering::Relaxed);
             }
-            state.triggered.push_back(hash);
+            state.triggered.push_back(block_hash);
         }
         self.condition.notify_all();
         self.stats.triggered.fetch_add(1, Ordering::Relaxed);
@@ -100,7 +107,7 @@ impl Drop for VoteCacheProcessor {
 }
 
 struct State {
-    thread: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle>,
     stopped: bool,
     triggered: VecDeque<BlockHash>,
 }

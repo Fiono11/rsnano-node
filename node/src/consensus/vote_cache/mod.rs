@@ -19,6 +19,7 @@ use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
+    thread_factory::ThreadFactory,
 };
 
 use crate::consensus::{AecFact, VoteProcessorQueue};
@@ -55,7 +56,12 @@ pub struct VoteCache {
 
 impl VoteCache {
     pub fn new(config: VoteCacheConfig, vote_queue: Arc<VoteProcessorQueue>) -> Self {
-        Self::new_impl(config, vote_queue, SteadyClock::default())
+        Self::new_impl(
+            config,
+            vote_queue,
+            SteadyClock::default(),
+            ThreadFactory::default(),
+        )
     }
 
     pub fn new_null() -> Self {
@@ -64,6 +70,7 @@ impl VoteCache {
             VoteCacheConfig::default(),
             vote_queue,
             SteadyClock::new_null(),
+            ThreadFactory::new_null(),
         )
     }
 
@@ -71,10 +78,17 @@ impl VoteCache {
         config: VoteCacheConfig,
         vote_queue: Arc<VoteProcessorQueue>,
         clock: SteadyClock,
+        thread_factory: ThreadFactory,
     ) -> Self {
         let blocks = Arc::new(Mutex::new(VotedBlockMap::new(config)));
         let stats = Arc::new(VoteCacheStats::default());
-        let processor = VoteCacheProcessor::new(blocks.clone(), vote_queue, stats.clone(), 16384);
+        let processor = VoteCacheProcessor::new(
+            blocks.clone(),
+            vote_queue,
+            stats.clone(),
+            16384,
+            thread_factory,
+        );
 
         VoteCache {
             blocks,
@@ -193,7 +207,7 @@ impl EventHandler<AecFact> for VoteCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{PrivateKey, UnixMillisTimestamp};
+    use rsnano_types::{PrivateKey, QualifiedRoot, UnixMillisTimestamp};
 
     #[test]
     fn construction() {
@@ -263,13 +277,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn enqueues_cached_vote_when_election_started() {
+        let cache = make_vote_cache();
+        let trigger_tracker = cache.processor.track_trigger();
+
+        let block_hash = BlockHash::from(1);
+        cache.handle(&AecFact::ElectionStarted(
+            block_hash,
+            QualifiedRoot::new_test_instance(),
+        ));
+
+        let triggers = trigger_tracker.output();
+        assert_eq!(triggers, vec![block_hash]);
+    }
+
     /*
      * Test helpers
      */
 
     fn make_vote_cache() -> VoteCache {
         let vote_queue = Arc::new(VoteProcessorQueue::new_null());
-        VoteCache::new_impl(Default::default(), vote_queue, SteadyClock::new_null())
+        VoteCache::new_impl(
+            Default::default(),
+            vote_queue,
+            SteadyClock::new_null(),
+            ThreadFactory::new_null(),
+        )
     }
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
