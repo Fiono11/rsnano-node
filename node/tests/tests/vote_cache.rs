@@ -107,7 +107,7 @@ fn vote_cache_existing_vote() {
 
     assert_eq!(send.hash(), last_vote1.hash);
 
-    // Attempt to change vote with inactive_votes_cache
+    // Attempt to change vote with vote_cache
     node.vote_cache.process(vote1, rep_weight, &HashMap::new());
 
     let mut cached = Vec::new();

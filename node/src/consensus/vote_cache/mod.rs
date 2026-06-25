@@ -207,6 +207,7 @@ impl EventHandler<AecFact> for VoteCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consensus::ReceivedVote;
     use rsnano_types::{PrivateKey, QualifiedRoot, UnixMillisTimestamp};
 
     #[test]
@@ -290,6 +291,34 @@ mod tests {
 
         let triggers = trigger_tracker.output();
         assert_eq!(triggers, vec![block_hash]);
+    }
+
+    #[test]
+    fn enqueues_cached_vote_when_block_added_to_election() {
+        let cache = make_vote_cache();
+        let trigger_tracker = cache.processor.track_trigger();
+
+        let block_hash = BlockHash::from(1);
+        cache.handle(&AecFact::BlockAddedToElection(block_hash));
+
+        let triggers = trigger_tracker.output();
+        assert_eq!(triggers, vec![block_hash]);
+    }
+
+    #[test]
+    fn adds_processed_vote_to_cache() {
+        let cache = make_vote_cache();
+        let block_hash = BlockHash::from(1);
+        let vote = Arc::new(Vote::build_test_instance().blocks([block_hash]).finish());
+        let recv_vote = ReceivedVote::new(vote, VoteDelivery::Direct, None);
+
+        cache.handle(&AecFact::VoteProcessed(
+            recv_vote,
+            Amount::nano(1000),
+            HashMap::new(),
+        ));
+
+        assert_eq!(cache.vote_count(&block_hash), 1);
     }
 
     /*
