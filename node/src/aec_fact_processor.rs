@@ -21,7 +21,6 @@ use crate::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, ReceivedVote, VoteProcessor, VoteRebroadcastQueue,
         WinnerBlockBroadcaster, aggregate_vote_results, election_schedulers::ElectionSchedulers,
-        vote_cache::VoteCacheProcessor,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{RepCrawler, RepresentativeTracker},
@@ -30,7 +29,6 @@ use crate::{
 
 /// Processes facts from the active election container (AEC)
 pub(crate) struct AecFactProcessor {
-    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub(crate) vote_processor: Arc<VoteProcessor>,
     pub(crate) node_observer: Option<SyncSender<NodeEvent>>,
     pub(crate) election_schedulers: Arc<ElectionSchedulers>,
@@ -71,7 +69,6 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
                 self.bootstrap_election_activator.election_started(hash);
-                self.vote_cache_processor.trigger(hash);
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::ElectionStarted(hash)).unwrap();
                 }
@@ -113,7 +110,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     }
                 }
             }
-            AecFact::BlockAddedToElection(hash) => self.vote_cache_processor.trigger(hash),
+            AecFact::BlockAddedToElection(_) => {}
             AecFact::BlockDiscarded(block) => {
                 self.clear_network_filter(&block);
             }
@@ -129,7 +126,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     ChannelId::LOOPBACK,
                 ));
             }
-            AecFact::VoteProcessed(vote, voter_weight, results) => {
+            AecFact::VoteProcessed(vote, _weight, results) => {
                 self.vote_rebroadcast_queue
                     .try_enqueue(&vote.vote, &results);
 

@@ -5,17 +5,15 @@ use std::{
 };
 
 use rsnano_types::{BlockHash, Vote, VoteDelivery};
-use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::VoteCache;
-use crate::consensus::VoteProcessorQueue;
+use crate::consensus::{VoteProcessorQueue, vote_cache::voted_block_map::VotedBlockMap};
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,
     condition: Arc<Condvar>,
     stats: Arc<Stats>,
-    vote_cache: Arc<VoteCache>,
+    cache: Arc<Mutex<VotedBlockMap>>,
     vote_queue: Arc<VoteProcessorQueue>,
     max_triggered: usize,
 }
@@ -23,7 +21,7 @@ pub(crate) struct VoteCacheProcessor {
 impl VoteCacheProcessor {
     pub(crate) fn new(
         stats: Arc<Stats>,
-        vote_cache: Arc<VoteCache>,
+        cache: Arc<Mutex<VotedBlockMap>>,
         vote_queue: Arc<VoteProcessorQueue>,
         max_triggered: usize,
     ) -> Self {
@@ -36,7 +34,7 @@ impl VoteCacheProcessor {
             condition: Arc::new(Condvar::new()),
             stats,
             vote_queue,
-            vote_cache,
+            cache,
             max_triggered,
         }
     }
@@ -49,7 +47,7 @@ impl VoteCacheProcessor {
             state: self.state.clone(),
             condition: self.condition.clone(),
             stats: self.stats.clone(),
-            vote_cache: self.vote_cache.clone(),
+            cache: self.cache.clone(),
             vote_queue: self.vote_queue.clone(),
         };
 
@@ -97,13 +95,7 @@ impl VoteCacheProcessor {
 
 impl Drop for VoteCacheProcessor {
     fn drop(&mut self) {
-        debug_assert!(self.state.lock().unwrap().thread.is_none())
-    }
-}
-
-impl ContainerInfoProvider for VoteCacheProcessor {
-    fn container_info(&self) -> ContainerInfo {
-        [("triggered", self.len(), std::mem::size_of::<BlockHash>())].into()
+        self.stop();
     }
 }
 
@@ -117,7 +109,7 @@ struct VoteCacheLoop {
     state: Arc<Mutex<State>>,
     condition: Arc<Condvar>,
     stats: Arc<Stats>,
-    vote_cache: Arc<VoteCache>,
+    cache: Arc<Mutex<VotedBlockMap>>,
     vote_queue: Arc<VoteProcessorQueue>,
 }
 
@@ -153,7 +145,7 @@ impl VoteCacheLoop {
         );
 
         for hash in hashes {
-            self.vote_cache.collect_votes(vote_buffer, &hash);
+            self.cache.lock().unwrap().collect_votes(vote_buffer, &hash);
 
             for vote in vote_buffer.drain(..) {
                 self.vote_queue

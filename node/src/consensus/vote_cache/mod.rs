@@ -6,25 +6,24 @@ mod voted_block_map;
 
 pub use voted_block_map::TopEntry;
 
-pub(crate) use vote_cache_processor::VoteCacheProcessor;
-
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{atomic::Ordering, Arc, Mutex},
     time::Duration,
 };
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
+    stats::{Stats, StatsCollection, StatsSource},
+    EventHandler,
 };
 
-use crate::consensus::AecFact;
+use crate::consensus::{AecFact, VoteProcessorQueue};
 use stats::VoteCacheStats;
+use vote_cache_processor::VoteCacheProcessor;
 use voted_block_map::VotedBlockMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,30 +44,63 @@ impl Default for VoteCacheConfig {
 }
 
 /// A container holding votes that do not match any active or recently finished elections.
-/// It keeps track of votes in two internal structures: cache and queue.
-/// Cache: Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
+/// Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
-    blocks: Mutex<VotedBlockMap>,
+    blocks: Arc<Mutex<VotedBlockMap>>,
     stats: VoteCacheStats,
     clock: SteadyClock,
+    processor: Arc<VoteCacheProcessor>,
 }
 
 impl VoteCache {
-    pub fn new(config: VoteCacheConfig) -> Self {
-        Self::new_impl(config, SteadyClock::default())
+    pub fn new(
+        config: VoteCacheConfig,
+        vote_queue: Arc<VoteProcessorQueue>,
+        stats: Arc<Stats>,
+    ) -> Self {
+        Self::new_impl(config, vote_queue, stats, SteadyClock::default())
     }
 
     pub fn new_null() -> Self {
-        Self::new_impl(VoteCacheConfig::default(), SteadyClock::new_null())
+        let vote_queue = Arc::new(VoteProcessorQueue::new_null());
+        let stats = Arc::new(Stats::default());
+        Self::new_impl(
+            VoteCacheConfig::default(),
+            vote_queue,
+            stats,
+            SteadyClock::new_null(),
+        )
     }
 
-    fn new_impl(config: VoteCacheConfig, clock: SteadyClock) -> Self {
+    fn new_impl(
+        config: VoteCacheConfig,
+        vote_queue: Arc<VoteProcessorQueue>,
+        stats: Arc<Stats>,
+        clock: SteadyClock,
+    ) -> Self {
+        let blocks = Arc::new(Mutex::new(VotedBlockMap::new(config)));
+        let processor = Arc::new(VoteCacheProcessor::new(
+            stats,
+            blocks.clone(),
+            vote_queue,
+            16384,
+        ));
+
         VoteCache {
-            blocks: Mutex::new(VotedBlockMap::new(config)),
-            stats: VoteCacheStats::default(),
+            blocks,
             clock,
+            processor,
+            stats: VoteCacheStats::default(),
         }
+    }
+
+    pub fn start(&self) {
+        self.processor.start();
+    }
+
+    pub fn stop(&self) {
+        self.processor.stop();
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
@@ -139,7 +171,11 @@ impl VoteCache {
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
-        [("blocks", self.len(), 0)].into()
+        [
+            ("blocks", self.len(), 0),
+            ("processor", self.processor.len(), 0),
+        ]
+        .into()
     }
 }
 
@@ -152,6 +188,8 @@ impl StatsSource for VoteCache {
 impl EventHandler<AecFact> for VoteCache {
     fn handle(&self, event: &AecFact) {
         match event {
+            AecFact::ElectionStarted(hash, _root) => self.processor.trigger(*hash),
+            AecFact::BlockAddedToElection(hash) => self.processor.trigger(*hash),
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
                 if vote.delivery != VoteDelivery::Replayed {
@@ -241,7 +279,14 @@ mod tests {
      */
 
     fn make_vote_cache() -> VoteCache {
-        VoteCache::new_impl(Default::default(), SteadyClock::new_null())
+        let vote_queue = Arc::new(VoteProcessorQueue::new_null());
+        let stats = Arc::new(Stats::default());
+        VoteCache::new_impl(
+            Default::default(),
+            vote_queue,
+            stats,
+            SteadyClock::new_null(),
+        )
     }
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {

@@ -72,10 +72,8 @@ use crate::{
         LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
         VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
         VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
-        election::ConfirmedElection,
-        election_schedulers::ElectionSchedulers,
-        get_bootstrap_weights, log_bootstrap_weights,
-        vote_cache::{VoteCache, VoteCacheProcessor},
+        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
+        get_bootstrap_weights, log_bootstrap_weights, vote_cache::VoteCache,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
@@ -133,7 +131,6 @@ pub struct Node {
     pub vote_generators: Arc<VoteGenerators>,
     pub aec: Arc<AecService>,
     pub vote_processor: Arc<VoteProcessor>,
-    vote_cache_processor: Arc<VoteCacheProcessor>,
     pub rep_crawler: Arc<RepCrawler>,
     pub tcp_listener: Arc<TcpListener>,
     pub election_schedulers: Arc<ElectionSchedulers>,
@@ -508,7 +505,11 @@ impl Node {
         }));
 
         let mut aec_event_handlers = EventHandlerRegistry::<AecFact>::default();
-        let vote_cache = Arc::new(VoteCache::new(config.vote_cache.clone()));
+        let vote_cache = Arc::new(VoteCache::new(
+            config.vote_cache.clone(),
+            vote_processor_queue.clone(),
+            stats.clone(),
+        ));
         aec_event_handlers.add(vote_cache.clone());
 
         let fork_cache = Arc::new(RwLock::new(ForkCache::with(
@@ -653,13 +654,6 @@ impl Node {
             vote_processor_queue.clone(),
             vote_applier,
             stats.clone(),
-        ));
-
-        let vote_cache_processor = Arc::new(VoteCacheProcessor::new(
-            stats.clone(),
-            vote_cache.clone(),
-            vote_processor_queue.clone(),
-            config.vote_processor.max_triggered,
         ));
 
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
@@ -1197,7 +1191,6 @@ impl Node {
         }
 
         let aec_fact_processor = AecFactProcessor {
-            vote_cache_processor: vote_cache_processor.clone(),
             node_observer: node_observer.clone(),
             election_schedulers: election_schedulers.clone(),
             network_filter: network_filter.clone(),
@@ -1276,7 +1269,6 @@ impl Node {
         container_info.add("telemetry", telemetry.clone());
         container_info.add("wallets", wallets.clone());
         container_info.add("vote_processor", vote_processor_queue.clone());
-        container_info.add("vote_cache_processor", vote_cache_processor.clone());
         container_info.add("rep_crawler", rep_crawler.clone());
         container_info.add("block_processor", block_processor_queue.clone());
         container_info.add("online_reps", rep_tracker.clone());
@@ -1328,7 +1320,6 @@ impl Node {
             vote_generators,
             aec: active_elections,
             vote_processor,
-            vote_cache_processor,
             rep_crawler,
             tcp_listener,
             election_schedulers,
@@ -1559,7 +1550,7 @@ impl Node {
         if self.config.enable_vote_processor {
             self.vote_processor.start();
         }
-        self.vote_cache_processor.start();
+        self.vote_cache.start();
         self.block_processor
             .start(self.config.block_processor_threads);
         if !self.flags.disable_request_loop {
@@ -1625,7 +1616,7 @@ impl Node {
         self.rep_crawler.stop();
         self.block_processor.stop();
         self.request_aggregator.stop();
-        self.vote_cache_processor.stop();
+        self.vote_cache.stop();
         self.vote_processor.stop();
         self.election_schedulers.stop();
         self.aec_ticker.stop();
