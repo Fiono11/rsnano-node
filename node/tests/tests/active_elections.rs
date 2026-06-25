@@ -379,7 +379,7 @@ fn inactive_votes_cache_existing_vote() {
     node.vote_cache
         .lock()
         .unwrap()
-        .insert(&vote1, rep_weight, &HashMap::new());
+        .insert(vote1, rep_weight, &HashMap::new());
 
     let cached = node.vote_cache.lock().unwrap().find(&send.hash());
     assert_eq!(cached.len(), 1);

@@ -27,7 +27,7 @@ pub(crate) struct VotedBlock {
     pub id: usize,
     block_hash: BlockHash,
     last_modified: Timestamp,
-    tally: Amount,
+    non_final_tally: Amount,
     final_tally: Amount,
     max_voters: usize,
     by_representative: FxHashMap<PublicKey, CachedVote>,
@@ -46,7 +46,7 @@ impl VotedBlock {
         let mut block = VotedBlock {
             id,
             block_hash: hash,
-            tally: Amount::ZERO,
+            non_final_tally: Amount::ZERO,
             final_tally: Amount::ZERO,
             max_voters,
             by_representative: FxHashMap::default(),
@@ -62,8 +62,8 @@ impl VotedBlock {
         &self.block_hash
     }
 
-    pub fn tally(&self) -> Amount {
-        self.tally
+    pub fn non_final_tally(&self) -> Amount {
+        self.non_final_tally
     }
 
     pub fn final_tally(&self) -> Amount {
@@ -139,10 +139,10 @@ impl VotedBlock {
     }
 
     fn calculate_tallies(&mut self) {
-        self.tally = Amount::ZERO;
+        self.non_final_tally = Amount::ZERO;
         self.final_tally = Amount::ZERO;
         for vote in self.by_representative.values() {
-            self.tally = self.tally.wrapping_add(vote.weight);
+            self.non_final_tally = self.non_final_tally.wrapping_add(vote.weight);
             if vote.vote.is_final() {
                 self.final_tally = self.final_tally.wrapping_add(vote.weight);
             }
@@ -195,7 +195,7 @@ mod tests {
 
         assert_eq!(block.id, 7);
         assert_eq!(*block.block_hash(), hash);
-        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.final_tally(), Amount::ZERO);
         assert_eq!(block.votes(), vec![vote]);
         assert_eq!(block.last_modified(), now);
@@ -215,7 +215,7 @@ mod tests {
             Timestamp::new(1),
         );
 
-        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.final_tally(), Amount::raw(5));
     }
 
@@ -240,7 +240,7 @@ mod tests {
         );
 
         assert!(changed);
-        assert_eq!(block.tally(), Amount::raw(12));
+        assert_eq!(block.non_final_tally(), Amount::raw(12));
         assert_eq!(block.votes().len(), 2);
     }
 
@@ -264,7 +264,7 @@ mod tests {
             Timestamp::new(1),
         );
 
-        assert_eq!(block.tally(), Amount::raw(17));
+        assert_eq!(block.non_final_tally(), Amount::raw(17));
         assert_eq!(block.final_tally(), Amount::raw(10));
     }
 
@@ -290,7 +290,7 @@ mod tests {
 
         assert!(!changed);
         assert_eq!(block.votes().len(), 1);
-        assert_eq!(block.tally(), Amount::raw(5));
+        assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(1));
     }
 
@@ -360,7 +360,7 @@ mod tests {
             Timestamp::new(2),
         );
 
-        assert_eq!(block.tally(), Amount::raw(100));
+        assert_eq!(block.non_final_tally(), Amount::raw(100));
         assert_eq!(block.votes().len(), 1);
     }
 
@@ -417,7 +417,7 @@ mod tests {
         assert!(!voters.contains(&rep_b.public_key()));
         assert!(voters.contains(&rep_c.public_key()));
         assert!(voters.contains(&rep_d.public_key()));
-        assert_eq!(block.tally(), Amount::raw(1000 + 20 + 15));
+        assert_eq!(block.non_final_tally(), Amount::raw(1000 + 20 + 15));
     }
 
     #[test]
@@ -445,14 +445,14 @@ mod tests {
         assert_eq!(voters.len(), 3);
         assert!(!voters.contains(&reps[0].public_key()));
         assert!(voters.contains(&rep4.public_key()));
-        assert_eq!(block.tally(), Amount::raw(20 + 30 + 100));
+        assert_eq!(block.non_final_tally(), Amount::raw(20 + 30 + 100));
     }
 
     #[test]
     fn vote_below_min_weight_is_rejected_when_full() {
         let hash = BlockHash::from(1);
         let (mut block, _reps) = full_block(hash, &[10, 20, 30]);
-        let tally_before = block.tally();
+        let tally_before = block.non_final_tally();
 
         let rep4 = PrivateKey::from(4);
         let changed = block.vote(
@@ -463,7 +463,7 @@ mod tests {
 
         assert!(!changed);
         assert_eq!(block.votes().len(), 3);
-        assert_eq!(block.tally(), tally_before);
+        assert_eq!(block.non_final_tally(), tally_before);
         assert!(!block.votes().iter().any(|v| v.voter == rep4.public_key()));
     }
 

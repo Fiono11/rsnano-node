@@ -1165,7 +1165,6 @@ impl Node {
         };
 
         let aec_fork_inserter = Arc::new(AecForkInserter {
-            rep_weights: rep_weights.clone(),
             fork_cache: fork_cache.clone(),
             active_elections: active_elections.clone(),
             vote_cache: vote_cache.clone(),

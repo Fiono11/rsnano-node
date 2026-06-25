@@ -63,32 +63,14 @@ impl VoteCache {
     /// Adds a new vote to cache
     pub fn insert(
         &mut self,
-        vote: &Arc<Vote>,
+        vote: Arc<Vote>,
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
         let now = self.clock.now();
-
-        let mut inserted = 0;
-        // Results map should be empty or have the same hashes as the vote
-        debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
-
-        // If results map is empty, insert all hashes (meant for testing)
-        if results.is_empty() {
-            for hash in &vote.hashes {
-                self.blocks.insert_vote(vote.clone(), hash, rep_weight, now);
-                inserted += 1;
-            }
-        } else {
-            for (hash, code) in results {
-                // Cache votes with a corresponding election in case that election gets dropped
-                if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
-                    self.blocks.insert_vote(vote.clone(), hash, rep_weight, now);
-                    inserted += 1;
-                }
-            }
-        }
-
+        let inserted = self
+            .blocks
+            .process_vote_results(vote, rep_weight, results, now);
         self.stats
             .add(StatType::VoteCache, DetailType::Insert, inserted);
     }
@@ -134,7 +116,7 @@ impl VoteCache {
 
         let mut results = Vec::new();
         for entry in self.blocks.iter_by_tally_desc() {
-            let tally = entry.tally();
+            let tally = entry.non_final_tally();
             if tally < min_tally {
                 break;
             }
@@ -156,6 +138,13 @@ impl VoteCache {
         });
 
         results
+    }
+
+    pub fn get_non_final_tally(&self, hash: &BlockHash) -> Amount {
+        self.blocks
+            .get_by_hash(hash)
+            .map(|b| b.non_final_tally())
+            .unwrap_or_default()
     }
 
     fn cleanup(&mut self) {
@@ -237,7 +226,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let vote = create_vote(&rep, &hash, 1);
 
-        cache.insert(&vote, Amount::raw(7), &HashMap::new());
+        cache.insert(vote.clone(), Amount::raw(7), &HashMap::new());
 
         assert_eq!(cache.size(), 1);
         let peek = cache.find(&hash);
@@ -254,7 +243,7 @@ mod tests {
 
         assert_eq!(cache.contains(&hash), false);
 
-        cache.insert(&vote, Amount::raw(7), &HashMap::new());
+        cache.insert(vote, Amount::raw(7), &HashMap::new());
 
         assert_eq!(cache.contains(&hash), true);
     }
@@ -276,9 +265,9 @@ mod tests {
         let vote2 = create_vote(&rep2, &hash, 2);
         let vote3 = create_vote(&rep3, &hash, 3);
 
-        cache.insert(&vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(&vote3, Amount::raw(11), &HashMap::new());
+        cache.insert(vote1, Amount::raw(7), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote3, Amount::raw(11), &HashMap::new());
         // We have 3 votes but for a single hash, so just one entry in vote cache
         assert_eq!(cache.size(), 1);
         let votes = cache.find(&hash);
@@ -307,9 +296,9 @@ mod tests {
         let vote4 = create_vote(&rep4, &hash1, 1);
 
         // Insert first 3 votes in cache
-        cache.insert(&vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(&vote3, Amount::raw(11), &HashMap::new());
+        cache.insert(vote1, Amount::raw(7), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote3, Amount::raw(11), &HashMap::new());
 
         // Ensure all of those are properly inserted
         assert_eq!(cache.size(), 3);
@@ -318,7 +307,7 @@ mod tests {
         assert_eq!(cache.find(&hash3).len(), 1);
 
         // Now add a vote from rep4 with the highest voting weight
-        cache.insert(&vote4, Amount::raw(13), &HashMap::new());
+        cache.insert(vote4, Amount::raw(13), &HashMap::new());
 
         let pop1 = cache.find(&hash1);
         assert_eq!(pop1.len(), 2);
@@ -339,8 +328,8 @@ mod tests {
         let vote1 = create_vote(&rep, &hash, 1);
         let vote2 = create_vote(&rep, &hash, 1);
 
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote1, Amount::raw(9), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
 
         assert_eq!(cache.size(), 1)
     }
@@ -355,7 +344,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let rep = PrivateKey::from(1);
         let vote1 = create_vote(&rep, &hash, 1);
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
+        cache.insert(vote1, Amount::raw(9), &HashMap::new());
 
         let vote2 = Arc::new(Vote::new(
             &rep,
@@ -363,7 +352,7 @@ mod tests {
             Vote::DURATION_MAX,
             vec![hash],
         ));
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
 
         let peek2 = cache.find(&hash);
         assert_eq!(peek2.len(), 1);
@@ -379,11 +368,11 @@ mod tests {
         let hash = BlockHash::from(1);
         let rep = PrivateKey::from(1);
         let vote1 = create_vote(&rep, &hash, 2);
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
+        cache.insert(vote1, Amount::raw(9), &HashMap::new());
         let peek1 = cache.find(&hash);
 
         let vote2 = create_vote(&rep, &hash, 1);
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
         let peek2 = cache.find(&hash);
 
         assert_eq!(cache.size(), 1);
@@ -412,9 +401,9 @@ mod tests {
         let vote2 = create_vote(&rep2, &hash2, 1);
         let vote3 = create_vote(&rep3, &hash3, 1);
 
-        cache.insert(&vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(&vote3, Amount::raw(11), &HashMap::new());
+        cache.insert(vote1, Amount::raw(7), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote3, Amount::raw(11), &HashMap::new());
 
         assert_eq!(cache.size(), 3);
         assert_eq!(cache.find(&hash1).len(), 1);
@@ -452,16 +441,16 @@ mod tests {
         let rep4 = PrivateKey::from(4);
 
         let vote1 = create_vote(&rep1, &hash1, 1);
-        cache.insert(&vote1, Amount::raw(1), &HashMap::new());
+        cache.insert(vote1, Amount::raw(1), &HashMap::new());
 
         let vote2 = create_vote(&rep2, &hash2, 1);
-        cache.insert(&vote2, Amount::raw(2), &HashMap::new());
+        cache.insert(vote2, Amount::raw(2), &HashMap::new());
 
         let vote3 = create_vote(&rep3, &hash3, 1);
-        cache.insert(&vote3, Amount::raw(3), &HashMap::new());
+        cache.insert(vote3, Amount::raw(3), &HashMap::new());
 
         let vote4 = create_vote(&rep4, &hash4, 1);
-        cache.insert(&vote4, Amount::raw(4), &HashMap::new());
+        cache.insert(vote4, Amount::raw(4), &HashMap::new());
 
         assert_eq!(cache.size(), 3);
 
@@ -482,15 +471,15 @@ mod tests {
 
         let rep1 = PrivateKey::from(1);
         let vote1 = create_vote(&rep1, &hash, 1);
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
+        cache.insert(vote1, Amount::raw(9), &HashMap::new());
 
         let rep2 = PrivateKey::from(2);
         let vote2 = create_vote(&rep2, &hash, 1);
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        cache.insert(vote2, Amount::raw(9), &HashMap::new());
 
         let rep3 = PrivateKey::from(3);
         let vote3 = create_vote(&rep3, &hash, 1);
-        cache.insert(&vote3, Amount::raw(9), &HashMap::new());
+        cache.insert(vote3, Amount::raw(9), &HashMap::new());
 
         assert_eq!(cache.size(), 1);
     }
@@ -503,8 +492,8 @@ mod tests {
         let rep = PrivateKey::from(1);
         let vote = create_vote(&rep, &hash, 1);
         let final_vote = create_final_vote(&rep, &hash);
-        cache.insert(&vote, Amount::raw(9), &HashMap::new());
-        cache.insert(&final_vote, Amount::raw(9), &HashMap::new());
+        cache.insert(vote, Amount::raw(9), &HashMap::new());
+        cache.insert(final_vote, Amount::raw(9), &HashMap::new());
 
         let votes = cache.find(&hash);
         let vote = votes.first().unwrap();
@@ -518,7 +507,7 @@ mod tests {
 
         let rep = PrivateKey::from(1);
         let vote = create_final_vote(&rep, &hash);
-        cache.insert(&vote, Amount::raw(9), &HashMap::new());
+        cache.insert(vote, Amount::raw(9), &HashMap::new());
 
         let votes = cache.find(&hash);
         let vote = votes.first().unwrap();
@@ -656,7 +645,7 @@ mod tests {
         for i in 1..=max_voters as u64 {
             let rep = PrivateKey::from(i);
             let vote = create_vote(&rep, &hash, 1);
-            cache.insert(&vote, Amount::raw(i as u128), &HashMap::new());
+            cache.insert(vote, Amount::raw(i as u128), &HashMap::new());
         }
 
         // The entry must hold exactly max_voters voters, not max_voters - 1
@@ -665,13 +654,13 @@ mod tests {
         // A higher weight vote evicts the lowest and keeps the count at max_voters
         let high_rep = PrivateKey::from(max_voters as u64 + 1);
         let high_vote = create_vote(&high_rep, &hash, 1);
-        cache.insert(&high_vote, Amount::raw(100), &HashMap::new());
+        cache.insert(high_vote, Amount::raw(100), &HashMap::new());
         assert_eq!(cache.find(&hash).len(), max_voters);
 
         // A vote below the minimum weight is rejected, count stays the same
         let low_rep = PrivateKey::from(max_voters as u64 + 2);
         let low_vote = create_vote(&low_rep, &hash, 1);
-        cache.insert(&low_vote, Amount::raw(1), &HashMap::new());
+        cache.insert(low_vote, Amount::raw(1), &HashMap::new());
         assert_eq!(cache.find(&hash).len(), max_voters);
     }
 
@@ -688,13 +677,13 @@ mod tests {
         // Two reps tie at the lowest weight
         let rep1 = PrivateKey::from(1);
         cache.insert(
-            &create_vote(&rep1, &hash, 1),
+            create_vote(&rep1, &hash, 1),
             Amount::raw(5),
             &HashMap::new(),
         );
         let rep2 = PrivateKey::from(2);
         cache.insert(
-            &create_vote(&rep2, &hash, 1),
+            create_vote(&rep2, &hash, 1),
             Amount::raw(5),
             &HashMap::new(),
         );
@@ -703,7 +692,7 @@ mod tests {
         // A higher weight vote exceeds capacity and must evict exactly one of the tied voters
         let rep3 = PrivateKey::from(3);
         cache.insert(
-            &create_vote(&rep3, &hash, 1),
+            create_vote(&rep3, &hash, 1),
             Amount::raw(10),
             &HashMap::new(),
         );
@@ -717,7 +706,7 @@ mod tests {
         rep_weight: Amount,
     ) {
         let vote = create_vote(rep, hash, 0);
-        cache.insert(&vote, rep_weight, &HashMap::new());
+        cache.insert(vote, rep_weight, &HashMap::new());
     }
 
     fn add_test_final_vote(
@@ -727,6 +716,6 @@ mod tests {
         rep_weight: Amount,
     ) {
         let vote = create_final_vote(rep, hash);
-        cache.insert(&vote, rep_weight, &HashMap::new());
+        cache.insert(vote, rep_weight, &HashMap::new());
     }
 }

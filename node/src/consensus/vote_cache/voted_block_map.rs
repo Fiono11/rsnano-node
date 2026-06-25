@@ -1,8 +1,11 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use rsnano_types::{Amount, BlockHash, DescTallyKey, Vote};
+use rsnano_types::{Amount, BlockHash, DescTallyKey, Vote, VoteError};
 
 use super::voted_block::VotedBlock;
 use crate::consensus::VoteCacheConfig;
@@ -29,6 +32,35 @@ impl VotedBlockMap {
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
+    }
+
+    pub fn process_vote_results(
+        &mut self,
+        vote: Arc<Vote>,
+        rep_weight: Amount,
+        results: &HashMap<BlockHash, Result<(), VoteError>>,
+        now: Timestamp,
+    ) -> u64 {
+        let mut inserted = 0;
+        // Results map should be empty or have the same hashes as the vote
+        debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
+
+        // If results map is empty, insert all hashes (meant for testing)
+        if results.is_empty() {
+            for hash in &vote.hashes {
+                self.insert_vote(vote.clone(), hash, rep_weight, now);
+                inserted += 1;
+            }
+        } else {
+            for (hash, code) in results {
+                // Cache votes with a corresponding election in case that election gets dropped
+                if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
+                    self.insert_vote(vote.clone(), hash, rep_weight, now);
+                    inserted += 1;
+                }
+            }
+        }
+        inserted
     }
 
     pub fn insert_vote(
@@ -59,7 +91,7 @@ impl VotedBlockMap {
         let old = self.sequential.insert(entry.id, *entry.block_hash());
         debug_assert!(old.is_none());
 
-        let tally = entry.tally().into();
+        let tally = entry.non_final_tally().into();
         self.by_tally
             .entry(tally)
             .or_default()
@@ -74,9 +106,9 @@ impl VotedBlockMap {
         F: FnOnce(&mut VotedBlock),
     {
         if let Some(entry) = self.by_hash.get_mut(hash) {
-            let old_tally = entry.tally();
+            let old_tally = entry.non_final_tally();
             f(entry);
-            let new_tally = entry.tally();
+            let new_tally = entry.non_final_tally();
             let hash = *entry.block_hash();
             self.update_tally(hash, old_tally, new_tally);
             true
@@ -110,7 +142,7 @@ impl VotedBlockMap {
         match self.sequential.pop_first() {
             Some((_, front_hash)) => {
                 let entry = self.by_hash.remove(&front_hash).unwrap();
-                self.remove_by_tally(&front_hash, entry.tally());
+                self.remove_by_tally(&front_hash, entry.non_final_tally());
                 Some(entry)
             }
             None => None,
@@ -125,7 +157,7 @@ impl VotedBlockMap {
         match self.by_hash.remove(hash) {
             Some(entry) => {
                 self.sequential.remove(&entry.id);
-                self.remove_by_tally(hash, entry.tally());
+                self.remove_by_tally(hash, entry.non_final_tally());
                 Some(entry)
             }
             None => None,

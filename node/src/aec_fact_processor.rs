@@ -128,10 +128,11 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
                 if vote.delivery != VoteDelivery::Replayed {
-                    self.vote_cache
-                        .lock()
-                        .unwrap()
-                        .insert(&vote.vote, voter_weight, &results);
+                    self.vote_cache.lock().unwrap().insert(
+                        vote.vote.clone(),
+                        voter_weight,
+                        &results,
+                    );
                 }
 
                 self.vote_rebroadcast_queue
