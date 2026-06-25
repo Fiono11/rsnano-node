@@ -8,7 +8,7 @@ use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::{VoteCache, VoteProcessorConfig, VoteProcessorQueue};
+use super::{VoteCache, VoteProcessorQueue};
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,
@@ -16,7 +16,7 @@ pub(crate) struct VoteCacheProcessor {
     stats: Arc<Stats>,
     vote_cache: Arc<VoteCache>,
     vote_queue: Arc<VoteProcessorQueue>,
-    config: VoteProcessorConfig,
+    max_triggered: usize,
 }
 
 impl VoteCacheProcessor {
@@ -24,7 +24,7 @@ impl VoteCacheProcessor {
         stats: Arc<Stats>,
         vote_cache: Arc<VoteCache>,
         vote_queue: Arc<VoteProcessorQueue>,
-        config: VoteProcessorConfig,
+        max_triggered: usize,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(State {
@@ -36,7 +36,7 @@ impl VoteCacheProcessor {
             stats,
             vote_queue,
             vote_cache,
-            config,
+            max_triggered,
         }
     }
 }
@@ -77,7 +77,7 @@ impl VoteCacheProcessor {
     pub fn trigger(&self, hash: BlockHash) {
         {
             let mut state = self.state.lock().unwrap();
-            if state.triggered.len() > self.config.max_triggered {
+            if state.triggered.len() > self.max_triggered {
                 state.triggered.pop_front();
                 self.stats
                     .inc(StatType::VoteCacheProcessor, DetailType::Overfill);

@@ -657,7 +657,7 @@ impl Node {
             stats.clone(),
             vote_cache.clone(),
             vote_processor_queue.clone(),
-            config.vote_processor.clone(),
+            config.vote_processor.max_triggered,
         ));
 
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
