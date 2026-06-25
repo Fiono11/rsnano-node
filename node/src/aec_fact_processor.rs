@@ -19,8 +19,9 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
-        LocalVotesRemover, ReceivedVote, VoteCacheProcessor, VoteProcessor, VoteRebroadcastQueue,
+        LocalVotesRemover, ReceivedVote, VoteProcessor, VoteRebroadcastQueue,
         WinnerBlockBroadcaster, aggregate_vote_results, election_schedulers::ElectionSchedulers,
+        vote_cache::VoteCacheProcessor,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{RepCrawler, RepresentativeTracker},

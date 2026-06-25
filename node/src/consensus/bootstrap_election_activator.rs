@@ -3,7 +3,8 @@ use std::sync::Arc;
 use rsnano_types::BlockHash;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::{AecService, VoteCache};
+use super::AecService;
+use crate::consensus::vote_cache::VoteCache;
 
 /// Skip passive phase for blocks without cached votes to avoid bootstrap delays
 pub(crate) struct BootstrapElectionActivator {

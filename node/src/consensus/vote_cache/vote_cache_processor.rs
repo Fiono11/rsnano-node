@@ -8,7 +8,8 @@ use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::{VoteCache, VoteProcessorQueue};
+use super::VoteCache;
+use crate::consensus::VoteProcessorQueue;
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,

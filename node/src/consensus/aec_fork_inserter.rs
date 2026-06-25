@@ -6,8 +6,8 @@ use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult};
 use rsnano_types::{Block, QualifiedRoot};
 use rsnano_utils::EventHandlerMut;
 
-use super::{AecService, ForkCache, VoteCache};
-use crate::block_processing::LedgerPipelineEvent;
+use super::{AecService, ForkCache};
+use crate::{block_processing::LedgerPipelineEvent, consensus::vote_cache::VoteCache};
 
 pub(crate) struct AecForkInserter {
     pub(crate) fork_cache: Arc<RwLock<ForkCache>>,

@@ -25,8 +25,9 @@ use crate::{
     cementation::ConfirmingSetConfig,
     consensus::{
         ActiveElectionsConfig, BootstrapStaleElections, ForkCache, RebroadcastHistoryConfig,
-        RequestAggregatorConfig, VoteCacheConfig, VoteProcessorConfig, VoteRebroadcastQueue,
+        RequestAggregatorConfig, VoteProcessorConfig, VoteRebroadcastQueue,
         election_schedulers::{HintedSchedulerConfig, priority::PriorityBucketConfig},
+        vote_cache::VoteCacheConfig,
     },
     transport::MessageProcessorConfig,
 };

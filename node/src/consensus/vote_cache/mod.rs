@@ -1,9 +1,12 @@
 mod stats;
 mod tally_index;
+mod vote_cache_processor;
 mod voted_block;
 mod voted_block_map;
 
 pub use voted_block_map::TopEntry;
+
+pub(crate) use vote_cache_processor::VoteCacheProcessor;
 
 use std::{
     collections::HashMap,

@@ -23,11 +23,12 @@ use rsnano_utils::{
     stats::{Stats, StatsCollection, StatsSource},
 };
 
-use super::{AecService, VoteCache};
+use super::AecService;
 use crate::{
     block_processing::{LedgerPipelineEvent, backlog_scan::UnconfirmedInfo},
     cementation::ConfirmingSet,
     config::NodeConfig,
+    consensus::vote_cache::VoteCache,
     representatives::RepresentativeTracker,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};

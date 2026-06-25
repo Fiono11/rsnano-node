@@ -9,9 +9,9 @@ use rustc_hash::FxHashMap;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 
+use super::VoteCacheConfig;
 use super::tally_index::TallyIndex;
 use super::voted_block::VotedBlock;
-use crate::consensus::VoteCacheConfig;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct TopEntry {

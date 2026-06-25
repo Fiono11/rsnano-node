@@ -1,4 +1,4 @@
-use crate::consensus::VoteCacheConfig;
+use crate::consensus::vote_cache::VoteCacheConfig;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
