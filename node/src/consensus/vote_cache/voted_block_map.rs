@@ -3,19 +3,20 @@ use std::{
     sync::Arc,
 };
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
-use rsnano_types::{Amount, BlockHash, DescTallyKey, Vote, VoteError};
+use rsnano_nullable_clock::Timestamp;
+use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 
+use super::tally_index::TallyIndex;
 use super::voted_block::VotedBlock;
 use crate::consensus::VoteCacheConfig;
-use rsnano_nullable_clock::Timestamp;
 
 pub(crate) struct VotedBlockMap {
     config: VoteCacheConfig,
     sequential: BTreeMap<usize, BlockHash>,
     by_hash: FxHashMap<BlockHash, VotedBlock>,
-    by_tally: BTreeMap<DescTallyKey, FxHashSet<BlockHash>>,
+    by_tally: TallyIndex,
     next_id: usize,
 }
 
@@ -92,10 +93,7 @@ impl VotedBlockMap {
         debug_assert!(old.is_none());
 
         let tally = entry.non_final_tally().into();
-        self.by_tally
-            .entry(tally)
-            .or_default()
-            .insert(*entry.block_hash());
+        self.by_tally.insert(tally, *entry.block_hash());
 
         let old = self.by_hash.insert(*entry.block_hash(), entry);
         debug_assert!(old.is_none());
@@ -110,31 +108,10 @@ impl VotedBlockMap {
             f(entry);
             let new_tally = entry.non_final_tally();
             let hash = *entry.block_hash();
-            self.update_tally(hash, old_tally, new_tally);
+            self.by_tally.update(hash, old_tally, new_tally);
             true
         } else {
             false
-        }
-    }
-
-    fn update_tally(&mut self, hash: BlockHash, old_tally: Amount, new_tally: Amount) {
-        if old_tally == new_tally {
-            return;
-        }
-        self.remove_by_tally(&hash, old_tally);
-        self.by_tally
-            .entry(new_tally.into())
-            .or_default()
-            .insert(hash);
-    }
-
-    fn remove_by_tally(&mut self, hash: &BlockHash, tally: Amount) {
-        let key = DescTallyKey::from(tally);
-        let hashes = self.by_tally.get_mut(&key).unwrap();
-        if hashes.len() == 1 {
-            self.by_tally.remove(&key);
-        } else {
-            hashes.remove(hash);
         }
     }
 
@@ -142,10 +119,16 @@ impl VotedBlockMap {
         match self.sequential.pop_first() {
             Some((_, front_hash)) => {
                 let entry = self.by_hash.remove(&front_hash).unwrap();
-                self.remove_by_tally(&front_hash, entry.non_final_tally());
+                self.by_tally.remove(&front_hash, entry.non_final_tally());
                 Some(entry)
             }
             None => None,
+        }
+    }
+
+    pub fn collect_votes<'a>(&self, result: &mut Vec<Arc<Vote>>, hash: &BlockHash) {
+        if let Some(block) = self.by_hash.get(hash) {
+            result.extend(block.iter_votes().cloned());
         }
     }
 
@@ -157,7 +140,7 @@ impl VotedBlockMap {
         match self.by_hash.remove(hash) {
             Some(entry) => {
                 self.sequential.remove(&entry.id);
-                self.remove_by_tally(hash, entry.non_final_tally());
+                self.by_tally.remove(hash, entry.non_final_tally());
                 Some(entry)
             }
             None => None,
@@ -170,8 +153,8 @@ impl VotedBlockMap {
 
     pub fn iter_by_tally_desc(&self) -> impl Iterator<Item = &VotedBlock> {
         self.by_tally
-            .values()
-            .flat_map(|hashes| hashes.iter().map(|hash| self.by_hash.get(hash).unwrap()))
+            .iter_desc()
+            .flat_map(|hash| self.by_hash.get(hash))
     }
 
     pub fn len(&self) -> usize {
@@ -186,5 +169,17 @@ impl VotedBlockMap {
         self.sequential.clear();
         self.by_hash.clear();
         self.by_tally.clear();
+    }
+
+    pub fn cleanup(&mut self, now: Timestamp) {
+        let to_delete: Vec<_> = self
+            .iter()
+            .filter(|i| i.last_modified().elapsed(now) >= self.config.age_cutoff)
+            .map(|i| *i.block_hash())
+            .collect();
+
+        for hash in to_delete {
+            self.remove_by_hash(&hash);
+        }
     }
 }

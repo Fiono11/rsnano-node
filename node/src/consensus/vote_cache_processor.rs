@@ -4,7 +4,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use rsnano_types::{BlockHash, VoteDelivery};
+use rsnano_types::{BlockHash, Vote, VoteDelivery};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -122,10 +122,11 @@ struct VoteCacheLoop {
 
 impl VoteCacheLoop {
     fn run(&self) {
+        let mut vote_buffer: Vec<Arc<Vote>> = Vec::new();
         let mut guard = self.state.lock().unwrap();
         while !guard.stopped {
             if !guard.triggered.is_empty() {
-                self.run_batch(guard);
+                self.run_batch(guard, &mut vote_buffer);
                 guard = self.state.lock().unwrap();
             } else {
                 guard = self
@@ -136,7 +137,7 @@ impl VoteCacheLoop {
         }
     }
 
-    fn run_batch(&self, mut state: MutexGuard<'_, State>) {
+    fn run_batch(&self, mut state: MutexGuard<'_, State>, vote_buffer: &mut Vec<Arc<Vote>>) {
         let mut triggered = VecDeque::new();
         std::mem::swap(&mut triggered, &mut state.triggered);
         drop(state);
@@ -151,10 +152,14 @@ impl VoteCacheLoop {
         );
 
         for hash in hashes {
-            let cached = self.vote_cache.lock().unwrap().find(&hash);
-            for cached_vote in cached {
+            self.vote_cache
+                .lock()
+                .unwrap()
+                .collect_votes(vote_buffer, &hash);
+
+            for vote in vote_buffer.drain(..) {
                 self.vote_queue
-                    .enqueue(cached_vote, None, VoteDelivery::Replayed, Some(hash));
+                    .enqueue(vote, None, VoteDelivery::Replayed, Some(hash));
             }
         }
     }

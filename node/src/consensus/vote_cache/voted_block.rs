@@ -77,6 +77,10 @@ impl VotedBlock {
             .collect()
     }
 
+    pub fn iter_votes<'a>(&'a self) -> impl Iterator<Item = &'a Arc<Vote>> {
+        self.by_representative.values().map(|i| &i.vote)
+    }
+
     pub fn last_modified(&self) -> Timestamp {
         self.last_modified
     }

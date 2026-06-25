@@ -1,3 +1,4 @@
+mod tally_index;
 mod voted_block;
 mod voted_block_map;
 
@@ -83,6 +84,10 @@ impl VoteCache {
         self.blocks.len()
     }
 
+    pub fn collect_votes<'a>(&self, result: &mut Vec<Arc<Vote>>, hash: &BlockHash) {
+        self.blocks.collect_votes(result, hash);
+    }
+
     /// Tries to find an entry associated with block hash
     pub fn find(&self, hash: &BlockHash) -> Vec<Arc<Vote>> {
         self.blocks
@@ -150,15 +155,7 @@ impl VoteCache {
     fn cleanup(&mut self) {
         self.stats.inc(StatType::VoteCache, DetailType::Cleanup);
         let now = self.clock.now();
-        let to_delete: Vec<_> = self
-            .blocks
-            .iter()
-            .filter(|i| i.last_modified().elapsed(now) >= self.config.age_cutoff)
-            .map(|i| *i.block_hash())
-            .collect();
-        for hash in to_delete {
-            self.blocks.remove_by_hash(&hash);
-        }
+        self.blocks.cleanup(now);
     }
 }
 
