@@ -8,7 +8,7 @@ pub use voted_block_map::TopEntry;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, atomic::Ordering},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 
@@ -44,7 +44,7 @@ impl Default for VoteCacheConfig {
 /// Cache: Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
-    blocks: VotedBlockMap,
+    blocks: Mutex<VotedBlockMap>,
     stats: VoteCacheStats,
     clock: SteadyClock,
 }
@@ -54,68 +54,78 @@ impl VoteCache {
         Self::new_impl(config, SteadyClock::default())
     }
 
+    pub fn new_null() -> Self {
+        Self::new_impl(VoteCacheConfig::default(), SteadyClock::new_null())
+    }
+
     fn new_impl(config: VoteCacheConfig, clock: SteadyClock) -> Self {
         VoteCache {
-            blocks: VotedBlockMap::new(config),
+            blocks: Mutex::new(VotedBlockMap::new(config)),
             stats: VoteCacheStats::default(),
             clock,
         }
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.blocks.contains(hash)
+        self.blocks.lock().unwrap().contains(hash)
     }
 
     /// Adds a new vote to cache
     pub fn process(
-        &mut self,
+        &self,
         vote: Arc<Vote>,
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
         let now = self.clock.now();
-        let inserted = self.blocks.process(vote, rep_weight, results, now);
+        let inserted = self
+            .blocks
+            .lock()
+            .unwrap()
+            .process(vote, rep_weight, results, now);
         self.stats.inserted.fetch_add(inserted, Ordering::Relaxed);
     }
 
-    pub fn empty(&self) -> bool {
-        self.blocks.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.blocks.lock().unwrap().is_empty()
     }
 
-    pub fn size(&self) -> usize {
-        self.blocks.len()
+    pub fn len(&self) -> usize {
+        self.blocks.lock().unwrap().len()
     }
 
     pub fn collect_votes<'a>(&self, result: &mut Vec<Arc<Vote>>, hash: &BlockHash) {
-        self.blocks.collect_votes(result, hash);
+        self.blocks.lock().unwrap().collect_votes(result, hash);
     }
 
     pub fn vote_count(&self, hash: &BlockHash) -> usize {
-        self.blocks.vote_count(hash)
+        self.blocks.lock().unwrap().vote_count(hash)
     }
 
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
-    pub fn remove(&mut self, hash: &BlockHash) -> bool {
-        self.blocks.remove(hash).is_some()
+    pub fn remove(&self, hash: &BlockHash) -> bool {
+        self.blocks.lock().unwrap().remove(hash).is_some()
     }
 
-    pub fn clear(&mut self) {
-        self.blocks.clear()
+    pub fn clear(&self) {
+        self.blocks.lock().unwrap().clear()
     }
 
     /// Returns blocks with highest observed tally, greater than `min_tally`
     /// The blocks are sorted in descending order by final tally, then by tally
     /// @param min_tally minimum tally threshold, entries below with their voting weight
     /// below this will be ignore
-    pub fn top(&mut self, result: &mut Vec<TopEntry>, min_tally: impl Into<Amount>) {
+    pub fn top(&self, result: &mut Vec<TopEntry>, min_tally: impl Into<Amount>) {
         self.stats.top.fetch_add(1, Ordering::Relaxed);
         let now = self.clock.now();
-        self.blocks.top(result, min_tally, now);
+        self.blocks.lock().unwrap().top(result, min_tally, now);
     }
 
     pub fn get_non_final_tally(&self, hash: &BlockHash) -> Amount {
         self.blocks
+            .lock()
+            .unwrap()
             .get(hash)
             .map(|b| b.non_final_tally())
             .unwrap_or_default()
@@ -124,7 +134,7 @@ impl VoteCache {
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
-        [("vote_cache", self.size(), 0)].into()
+        [("vote_cache", self.len(), 0)].into()
     }
 }
 
@@ -142,22 +152,22 @@ mod tests {
     #[test]
     fn construction() {
         let cache = make_vote_cache();
-        assert_eq!(cache.size(), 0);
-        assert!(cache.empty());
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
         let hash = BlockHash::random();
         assert_eq!(cache.vote_count(&hash), 0);
     }
 
     #[test]
     fn insert_one_hash() {
-        let mut cache = make_vote_cache();
+        let cache = make_vote_cache();
         let rep = PrivateKey::from(1);
         let hash = BlockHash::from(1);
         let vote = create_vote(&rep, &hash, 1);
 
         cache.process(vote.clone(), Amount::raw(7), &HashMap::new());
 
-        assert_eq!(cache.size(), 1);
+        assert_eq!(cache.len(), 1);
         let mut votes = Vec::new();
         cache.collect_votes(&mut votes, &hash);
         assert_eq!(votes.len(), 1);
@@ -167,7 +177,7 @@ mod tests {
 
     #[test]
     fn remove() {
-        let mut cache = make_vote_cache();
+        let cache = make_vote_cache();
         let hash1 = BlockHash::from(1);
         let rep1 = PrivateKey::from(1);
         let vote1 = create_vote(&rep1, &hash1, 1);
@@ -175,12 +185,12 @@ mod tests {
 
         cache.remove(&hash1);
 
-        assert_eq!(cache.size(), 0);
+        assert_eq!(cache.len(), 0);
     }
 
     #[test]
     fn top_empty() {
-        let mut cache = make_vote_cache();
+        let cache = make_vote_cache();
         let mut top = Vec::new();
         cache.top(&mut top, 0);
         assert_eq!(top, Vec::new());
@@ -188,7 +198,7 @@ mod tests {
 
     #[test]
     fn top_one_entry() {
-        let mut cache = make_vote_cache();
+        let cache = make_vote_cache();
         let hash = BlockHash::from(1);
         let rep = PrivateKey::from(1);
         let vote = create_vote(&rep, &hash, 0);

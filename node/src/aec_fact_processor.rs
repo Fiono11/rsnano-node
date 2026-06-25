@@ -29,7 +29,7 @@ use crate::{
 pub(crate) struct AecFactProcessor {
     pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub(crate) vote_processor: Arc<VoteProcessor>,
-    pub(crate) vote_cache: Arc<Mutex<VoteCache>>,
+    pub(crate) vote_cache: Arc<VoteCache>,
     pub(crate) node_observer: Option<SyncSender<NodeEvent>>,
     pub(crate) election_schedulers: Arc<ElectionSchedulers>,
     pub(crate) network_filter: Arc<NetworkFilter>,
@@ -128,11 +128,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
                 if vote.delivery != VoteDelivery::Replayed {
-                    self.vote_cache.lock().unwrap().process(
-                        vote.vote.clone(),
-                        voter_weight,
-                        &results,
-                    );
+                    self.vote_cache
+                        .process(vote.vote.clone(), voter_weight, &results);
                 }
 
                 self.vote_rebroadcast_queue

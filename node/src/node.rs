@@ -124,7 +124,7 @@ pub struct Node {
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub history: Arc<LocalVoteHistory>,
     pub confirming_set: Arc<ConfirmingSet>,
-    pub vote_cache: Arc<Mutex<VoteCache>>,
+    pub vote_cache: Arc<VoteCache>,
     pub block_processor: Arc<BlockProcessor>,
     pub block_processor_queue: Arc<BlockProcessorQueue>,
     pub wallets: Arc<Wallets>,
@@ -505,7 +505,7 @@ impl Node {
                 .expect("channel should be open");
         }));
 
-        let vote_cache = Arc::new(Mutex::new(VoteCache::new(config.vote_cache.clone())));
+        let vote_cache = Arc::new(VoteCache::new(config.vote_cache.clone()));
 
         let fork_cache = Arc::new(RwLock::new(ForkCache::with(
             config.fork_cache_max_size,
@@ -865,7 +865,7 @@ impl Node {
 
         ledger.set_can_roll_back(move |hash| {
             if let Some(i) = vote_cache_w.upgrade()
-                && i.lock().unwrap().contains(hash)
+                && i.contains(hash)
             {
                 return false;
             }

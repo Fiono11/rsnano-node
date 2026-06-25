@@ -48,9 +48,9 @@ fn codes() {
         node.vote_processor.vote_blocking(&vote)
     );
 
-    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
+    assert_timely_eq2(|| node.vote_cache.len(), 1);
     // Clear vote cache before starting election
-    node.vote_cache.lock().unwrap().clear();
+    node.vote_cache.clear();
 
     // First vote from an account for an ongoing election
     start_election(&node, &blocks[0].hash());

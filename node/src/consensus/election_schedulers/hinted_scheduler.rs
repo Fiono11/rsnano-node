@@ -66,7 +66,7 @@ pub struct HintedScheduler {
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     stats: Arc<Stats>,
-    vote_cache: Arc<Mutex<VoteCache>>,
+    vote_cache: Arc<VoteCache>,
     rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     stopped: AtomicBool,
@@ -82,7 +82,7 @@ impl HintedScheduler {
         active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
-        vote_cache: Arc<Mutex<VoteCache>>,
+        vote_cache: Arc<VoteCache>,
         confirming_set: Arc<ConfirmingSet>,
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
@@ -183,7 +183,7 @@ impl HintedScheduler {
                 if is_confirmed && !forked {
                     self.stats
                         .inc(StatType::Hinting, DetailType::AlreadyConfirmed);
-                    self.vote_cache.lock().unwrap().remove(&current_hash); // Remove from vote cache
+                    self.vote_cache.remove(&current_hash); // Remove from vote cache
                     continue; // Move on to the next item in the stack
                 }
 
@@ -235,10 +235,7 @@ impl HintedScheduler {
         let mut tops = Vec::new();
 
         // Get the list before db transaction starts to avoid unnecessary slowdowns
-        self.vote_cache
-            .lock()
-            .unwrap()
-            .top(&mut tops, minimum_tally);
+        self.vote_cache.top(&mut tops, minimum_tally);
 
         let mut any = self.ledger.any();
 

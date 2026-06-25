@@ -52,7 +52,7 @@ impl ElectionSchedulers {
         active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
-        vote_cache: Arc<Mutex<VoteCache>>,
+        vote_cache: Arc<VoteCache>,
         confirming_set: Arc<ConfirmingSet>,
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
@@ -125,7 +125,7 @@ impl ElectionSchedulers {
         let active_elections = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
-        let vote_cache = Arc::new(Mutex::new(VoteCache::new(Default::default())));
+        let vote_cache = Arc::new(VoteCache::new_null());
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let rep_tracker = Arc::new(RepresentativeTracker::new_null());
         let clock = Arc::new(SteadyClock::new_null());

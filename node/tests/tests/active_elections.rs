@@ -91,7 +91,7 @@ fn fork_replacement_tally() {
         node1
             .vote_processor_queue
             .enqueue(vote, None, VoteDelivery::Direct, None);
-        assert_timely2(|| node1.vote_cache.lock().unwrap().vote_count(&fork.hash()) > 0);
+        assert_timely2(|| node1.vote_cache.vote_count(&fork.hash()) > 0);
         node1.process_active(fork);
     }
 
@@ -167,16 +167,7 @@ fn fork_replacement_tally() {
         .vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
     // ensure vote arrives before the block
-    assert_timely_eq2(
-        || {
-            node1
-                .vote_cache
-                .lock()
-                .unwrap()
-                .vote_count(&send_last.hash())
-        },
-        1,
-    );
+    assert_timely_eq2(|| node1.vote_cache.vote_count(&send_last.hash()), 1);
     node1.network_filter.clear_all();
     node2
         .local_block_broadcaster
@@ -225,7 +216,7 @@ fn inactive_votes_cache_basic() {
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]));
     node.vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
-    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
+    assert_timely_eq2(|| node.vote_cache.len(), 1);
     node.process_active(send.clone());
     assert_timely2(|| node.block_confirmed(&send.hash()));
     assert_timely_eq2(
@@ -253,11 +244,7 @@ fn non_final() {
     ));
     node.vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || node.vote_cache.lock().unwrap().size(),
-        1,
-    );
+    assert_timely_eq(Duration::from_secs(5), || node.vote_cache.len(), 1);
 
     node.process_active(send.clone());
 
@@ -301,11 +288,7 @@ fn inactive_votes_cache_fork() {
     node.vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
 
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || node.vote_cache.lock().unwrap().size(),
-        1,
-    );
+    assert_timely_eq(Duration::from_secs(5), || node.vote_cache.len(), 1);
 
     node.process_active(send2.clone());
 
@@ -375,16 +358,10 @@ fn inactive_votes_cache_existing_vote() {
     assert_eq!(send.hash(), last_vote1.hash);
 
     // Attempt to change vote with inactive_votes_cache
-    node.vote_cache
-        .lock()
-        .unwrap()
-        .process(vote1, rep_weight, &HashMap::new());
+    node.vote_cache.process(vote1, rep_weight, &HashMap::new());
 
     let mut cached = Vec::new();
-    node.vote_cache
-        .lock()
-        .unwrap()
-        .collect_votes(&mut cached, &send.hash());
+    node.vote_cache.collect_votes(&mut cached, &send.hash());
     assert_eq!(cached.len(), 1);
     let _ = node
         .vote_processor
@@ -438,11 +415,8 @@ fn inactive_votes_cache_multiple_votes() {
     node.vote_processor_queue
         .enqueue(vote2, None, VoteDelivery::Direct, None);
 
-    assert_timely_eq2(
-        || node.vote_cache.lock().unwrap().vote_count(&send1.hash()),
-        2,
-    );
-    assert_eq!(1, node.vote_cache.lock().unwrap().size());
+    assert_timely_eq2(|| node.vote_cache.vote_count(&send1.hash()), 2);
+    assert_eq!(1, node.vote_cache.len());
     start_election(&node, &send1.hash());
     assert_timely_eq2(
         || {
@@ -499,7 +473,7 @@ fn inactive_votes_cache_election_start() {
     ));
     node.vote_processor_queue
         .enqueue(vote1, None, VoteDelivery::Direct, None);
-    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 3);
+    assert_timely_eq2(|| node.vote_cache.len(), 3);
     assert_eq!(node.aec.len(), 0);
     assert_eq!(1, node.ledger.confirmed_count());
 
@@ -532,7 +506,7 @@ fn inactive_votes_cache_election_start() {
 
     // A late block arrival also checks the inactive votes cache
     assert_eq!(node.aec.len(), 0);
-    let send4_cache = node.vote_cache.lock().unwrap().vote_count(&send4.hash());
+    let send4_cache = node.vote_cache.vote_count(&send4.hash());
     assert_eq!(3, send4_cache);
     node.process_active(send3.clone());
     // An election is started for send6 but does not
