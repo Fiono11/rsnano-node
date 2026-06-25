@@ -9,16 +9,16 @@ pub use voted_block_map::TopEntry;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{Stats, StatsCollection, StatsSource},
     EventHandler,
+    container_info::{ContainerInfo, ContainerInfoProvider},
+    stats::{StatsCollection, StatsSource},
 };
 
 use crate::consensus::{AecFact, VoteProcessorQueue};
@@ -48,27 +48,21 @@ impl Default for VoteCacheConfig {
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
     blocks: Arc<Mutex<VotedBlockMap>>,
-    stats: VoteCacheStats,
+    stats: Arc<VoteCacheStats>,
     clock: SteadyClock,
-    processor: Arc<VoteCacheProcessor>,
+    processor: VoteCacheProcessor,
 }
 
 impl VoteCache {
-    pub fn new(
-        config: VoteCacheConfig,
-        vote_queue: Arc<VoteProcessorQueue>,
-        stats: Arc<Stats>,
-    ) -> Self {
-        Self::new_impl(config, vote_queue, stats, SteadyClock::default())
+    pub fn new(config: VoteCacheConfig, vote_queue: Arc<VoteProcessorQueue>) -> Self {
+        Self::new_impl(config, vote_queue, SteadyClock::default())
     }
 
     pub fn new_null() -> Self {
         let vote_queue = Arc::new(VoteProcessorQueue::new_null());
-        let stats = Arc::new(Stats::default());
         Self::new_impl(
             VoteCacheConfig::default(),
             vote_queue,
-            stats,
             SteadyClock::new_null(),
         )
     }
@@ -76,22 +70,17 @@ impl VoteCache {
     fn new_impl(
         config: VoteCacheConfig,
         vote_queue: Arc<VoteProcessorQueue>,
-        stats: Arc<Stats>,
         clock: SteadyClock,
     ) -> Self {
         let blocks = Arc::new(Mutex::new(VotedBlockMap::new(config)));
-        let processor = Arc::new(VoteCacheProcessor::new(
-            stats,
-            blocks.clone(),
-            vote_queue,
-            16384,
-        ));
+        let stats = Arc::new(VoteCacheStats::default());
+        let processor = VoteCacheProcessor::new(blocks.clone(), vote_queue, stats.clone(), 16384);
 
         VoteCache {
             blocks,
             clock,
             processor,
-            stats: VoteCacheStats::default(),
+            stats,
         }
     }
 
@@ -280,13 +269,7 @@ mod tests {
 
     fn make_vote_cache() -> VoteCache {
         let vote_queue = Arc::new(VoteProcessorQueue::new_null());
-        let stats = Arc::new(Stats::default());
-        VoteCache::new_impl(
-            Default::default(),
-            vote_queue,
-            stats,
-            SteadyClock::new_null(),
-        )
+        VoteCache::new_impl(Default::default(), vote_queue, SteadyClock::new_null())
     }
 
     fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {

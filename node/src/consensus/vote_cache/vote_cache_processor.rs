@@ -1,18 +1,18 @@
 use std::{
     collections::{HashSet, VecDeque},
-    sync::{Arc, Condvar, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard, atomic::Ordering},
     thread::JoinHandle,
 };
 
 use rsnano_types::{BlockHash, Vote, VoteDelivery};
-use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use crate::consensus::{VoteProcessorQueue, vote_cache::voted_block_map::VotedBlockMap};
+use super::{stats::VoteCacheStats, voted_block_map::VotedBlockMap};
+use crate::consensus::VoteProcessorQueue;
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,
     condition: Arc<Condvar>,
-    stats: Arc<Stats>,
+    stats: Arc<VoteCacheStats>,
     cache: Arc<Mutex<VotedBlockMap>>,
     vote_queue: Arc<VoteProcessorQueue>,
     max_triggered: usize,
@@ -20,9 +20,9 @@ pub(crate) struct VoteCacheProcessor {
 
 impl VoteCacheProcessor {
     pub(crate) fn new(
-        stats: Arc<Stats>,
         cache: Arc<Mutex<VotedBlockMap>>,
         vote_queue: Arc<VoteProcessorQueue>,
+        stats: Arc<VoteCacheStats>,
         max_triggered: usize,
     ) -> Self {
         Self {
@@ -79,13 +79,13 @@ impl VoteCacheProcessor {
             if state.triggered.len() > self.max_triggered {
                 state.triggered.pop_front();
                 self.stats
-                    .inc(StatType::VoteCacheProcessor, DetailType::Overfill);
+                    .processor_overfill
+                    .fetch_add(1, Ordering::Relaxed);
             }
             state.triggered.push_back(hash);
         }
         self.condition.notify_all();
-        self.stats
-            .inc(StatType::VoteCacheProcessor, DetailType::Triggered);
+        self.stats.triggered.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn len(&self) -> usize {
@@ -108,7 +108,7 @@ struct State {
 struct VoteCacheLoop {
     state: Arc<Mutex<State>>,
     condition: Arc<Condvar>,
-    stats: Arc<Stats>,
+    stats: Arc<VoteCacheStats>,
     cache: Arc<Mutex<VotedBlockMap>>,
     vote_queue: Arc<VoteProcessorQueue>,
 }
@@ -138,11 +138,9 @@ impl VoteCacheLoop {
         //deduplicate
         let hashes: HashSet<BlockHash> = triggered.drain(..).collect();
 
-        self.stats.add(
-            StatType::VoteCacheProcessor,
-            DetailType::Processed,
-            hashes.len() as u64,
-        );
+        self.stats
+            .processed
+            .fetch_add(hashes.len() as u64, Ordering::Relaxed);
 
         for hash in hashes {
             self.cache.lock().unwrap().collect_votes(vote_buffer, &hash);

@@ -505,10 +505,10 @@ impl Node {
         }));
 
         let mut aec_event_handlers = EventHandlerRegistry::<AecFact>::default();
+
         let vote_cache = Arc::new(VoteCache::new(
             config.vote_cache.clone(),
             vote_processor_queue.clone(),
-            stats.clone(),
         ));
         aec_event_handlers.add(vote_cache.clone());
 
