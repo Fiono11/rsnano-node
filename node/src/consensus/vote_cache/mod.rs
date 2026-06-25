@@ -1,9 +1,7 @@
 mod voted_block;
 mod voted_block_map;
 
-use std::{
-    cmp::Ordering, collections::HashMap, fmt::Debug, mem::size_of, sync::Arc, time::Duration,
-};
+use std::{cmp::Ordering, collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
 use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 use rsnano_utils::{
@@ -12,7 +10,6 @@ use rsnano_utils::{
 };
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use voted_block::VotedBlock;
 use voted_block_map::VotedBlockMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,7 +36,6 @@ impl Default for VoteCacheConfig {
 pub struct VoteCache {
     config: VoteCacheConfig,
     blocks: VotedBlockMap,
-    next_id: usize,
     last_cleanup: Timestamp,
     stats: Arc<Stats>,
     clock: SteadyClock,
@@ -53,11 +49,10 @@ impl VoteCache {
     fn new_impl(config: VoteCacheConfig, stats: Arc<Stats>, clock: SteadyClock) -> Self {
         VoteCache {
             last_cleanup: clock.now(),
-            config,
-            blocks: VotedBlockMap::default(),
-            next_id: 0,
+            blocks: VotedBlockMap::new(config.clone()),
             stats,
             clock,
+            config,
         }
     }
 
@@ -72,51 +67,30 @@ impl VoteCache {
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
+        let now = self.clock.now();
+
+        let mut inserted = 0;
         // Results map should be empty or have the same hashes as the vote
         debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
 
         // If results map is empty, insert all hashes (meant for testing)
         if results.is_empty() {
             for hash in &vote.hashes {
-                self.insert_impl(vote, hash, rep_weight);
+                self.blocks.insert_vote(vote.clone(), hash, rep_weight, now);
+                inserted += 1;
             }
         } else {
             for (hash, code) in results {
                 // Cache votes with a corresponding election in case that election gets dropped
                 if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
-                    self.insert_impl(vote, hash, rep_weight)
+                    self.blocks.insert_vote(vote.clone(), hash, rep_weight, now);
+                    inserted += 1;
                 }
             }
         }
-    }
 
-    fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
-        let cache_entry_exists = self.blocks.modify_by_hash(hash, |existing| {
-            self.stats.inc(StatType::VoteCache, DetailType::Update);
-            let now = self.clock.now();
-            existing.vote(vote.clone(), rep_weight, now);
-        });
-
-        if !cache_entry_exists {
-            self.stats.inc(StatType::VoteCache, DetailType::Insert);
-            let id = self.next_id;
-            self.next_id += 1;
-            let now = self.clock.now();
-            let block = VotedBlock::new(
-                id,
-                *hash,
-                self.config.max_voters,
-                vote.clone(),
-                rep_weight,
-                now,
-            );
-            self.blocks.insert(block);
-
-            // Remove the oldest entry if we have reached the capacity limit
-            if self.blocks.len() > self.config.max_size {
-                self.blocks.pop_front();
-            }
-        }
+        self.stats
+            .add(StatType::VoteCache, DetailType::Insert, inserted);
     }
 
     pub fn empty(&self) -> bool {
@@ -201,7 +175,7 @@ impl VoteCache {
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
-        [("cache", self.size(), size_of::<VotedBlock>())].into()
+        [("vote_cache", self.size(), 0)].into()
     }
 }
 

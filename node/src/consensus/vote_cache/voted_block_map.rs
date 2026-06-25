@@ -1,24 +1,61 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use rsnano_types::{Amount, BlockHash, DescTallyKey};
+use rsnano_types::{Amount, BlockHash, DescTallyKey, Vote};
 
 use super::voted_block::VotedBlock;
+use crate::consensus::VoteCacheConfig;
+use rsnano_nullable_clock::Timestamp;
 
-#[derive(Default)]
 pub(crate) struct VotedBlockMap {
+    config: VoteCacheConfig,
     sequential: BTreeMap<usize, BlockHash>,
     by_hash: FxHashMap<BlockHash, VotedBlock>,
     by_tally: BTreeMap<DescTallyKey, FxHashSet<BlockHash>>,
+    next_id: usize,
 }
 
 impl VotedBlockMap {
+    pub fn new(config: VoteCacheConfig) -> Self {
+        Self {
+            config,
+            sequential: Default::default(),
+            by_hash: Default::default(),
+            by_tally: Default::default(),
+            next_id: Default::default(),
+        }
+    }
+
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.by_hash.contains_key(hash)
     }
 
-    pub fn insert(&mut self, entry: VotedBlock) {
+    pub fn insert_vote(
+        &mut self,
+        vote: Arc<Vote>,
+        hash: &BlockHash,
+        rep_weight: Amount,
+        now: Timestamp,
+    ) {
+        let cache_entry_exists = self.modify_by_hash(hash, |existing| {
+            existing.vote(vote.clone(), rep_weight, now);
+        });
+
+        if !cache_entry_exists {
+            let id = self.next_id;
+            self.next_id += 1;
+            let block = VotedBlock::new(id, *hash, self.config.max_voters, vote, rep_weight, now);
+            self.insert_block(block);
+
+            // Remove the oldest entry if we have reached the capacity limit
+            if self.len() > self.config.max_size {
+                self.pop_front();
+            }
+        }
+    }
+
+    pub fn insert_block(&mut self, entry: VotedBlock) {
         let old = self.sequential.insert(entry.id, *entry.block_hash());
         debug_assert!(old.is_none());
 
