@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
@@ -12,12 +13,20 @@ use super::tally_index::TallyIndex;
 use super::voted_block::VotedBlock;
 use crate::consensus::VoteCacheConfig;
 
+#[derive(PartialEq, Eq, Debug)]
+pub struct TopEntry {
+    pub hash: BlockHash,
+    pub tally: Amount,
+    pub final_tally: Amount,
+}
+
 pub(crate) struct VotedBlockMap {
     config: VoteCacheConfig,
     sequential: BTreeMap<usize, BlockHash>,
     by_hash: FxHashMap<BlockHash, VotedBlock>,
     by_tally: TallyIndex,
     next_id: usize,
+    last_cleanup: Option<Timestamp>,
 }
 
 impl VotedBlockMap {
@@ -28,6 +37,7 @@ impl VotedBlockMap {
             by_hash: Default::default(),
             by_tally: Default::default(),
             next_id: Default::default(),
+            last_cleanup: None,
         }
     }
 
@@ -155,6 +165,47 @@ impl VotedBlockMap {
         self.by_tally
             .iter_desc()
             .flat_map(|hash| self.by_hash.get(hash))
+    }
+
+    /// Returns blocks with highest observed tally, greater than `min_tally`
+    /// The blocks are sorted in descending order by final tally, then by tally
+    /// @param min_tally minimum tally threshold, entries below with their voting weight
+    /// below this will be ignore
+    pub fn top(&mut self, min_tally: impl Into<Amount>, now: Timestamp) -> Vec<TopEntry> {
+        let min_tally = min_tally.into();
+        if let Some(last) = self.last_cleanup {
+            if last.elapsed(now) >= self.config.age_cutoff / 2 {
+                self.cleanup(now);
+                self.last_cleanup = Some(now);
+            }
+        } else {
+            self.last_cleanup = Some(now);
+        }
+
+        let mut results = Vec::new();
+        for entry in self.iter_by_tally_desc() {
+            let tally = entry.non_final_tally();
+            if tally < min_tally {
+                break;
+            }
+            results.push(TopEntry {
+                hash: *entry.block_hash(),
+                tally,
+                final_tally: entry.final_tally(),
+            })
+        }
+
+        // Sort by final tally then by normal tally, descending
+        results.sort_by(|a, b| {
+            let res = b.final_tally.cmp(&a.final_tally);
+            if res == Ordering::Equal {
+                b.tally.cmp(&a.tally)
+            } else {
+                res
+            }
+        });
+
+        results
     }
 
     pub fn len(&self) -> usize {

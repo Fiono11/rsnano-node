@@ -2,15 +2,17 @@ mod tally_index;
 mod voted_block;
 mod voted_block_map;
 
-use std::{cmp::Ordering, collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+pub use voted_block_map::TopEntry;
 
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+
+use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteError};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
 
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use voted_block_map::VotedBlockMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -35,9 +37,7 @@ impl Default for VoteCacheConfig {
 /// Cache: Stores votes associated with a particular block hash with a bounded maximum number of votes per hash.
 /// When cache size exceeds `max_size` oldest entries are evicted first.
 pub struct VoteCache {
-    config: VoteCacheConfig,
     blocks: VotedBlockMap,
-    last_cleanup: Timestamp,
     stats: Arc<Stats>,
     clock: SteadyClock,
 }
@@ -49,11 +49,9 @@ impl VoteCache {
 
     fn new_impl(config: VoteCacheConfig, stats: Arc<Stats>, clock: SteadyClock) -> Self {
         VoteCache {
-            last_cleanup: clock.now(),
-            blocks: VotedBlockMap::new(config.clone()),
+            blocks: VotedBlockMap::new(config),
             stats,
             clock,
-            config,
         }
     }
 
@@ -111,38 +109,9 @@ impl VoteCache {
     /// @param min_tally minimum tally threshold, entries below with their voting weight
     /// below this will be ignore
     pub fn top(&mut self, min_tally: impl Into<Amount>) -> Vec<TopEntry> {
-        let min_tally = min_tally.into();
         self.stats.inc(StatType::VoteCache, DetailType::Top);
         let now = self.clock.now();
-        if self.last_cleanup.elapsed(now) >= self.config.age_cutoff / 2 {
-            self.cleanup();
-            self.last_cleanup = now;
-        }
-
-        let mut results = Vec::new();
-        for entry in self.blocks.iter_by_tally_desc() {
-            let tally = entry.non_final_tally();
-            if tally < min_tally {
-                break;
-            }
-            results.push(TopEntry {
-                hash: *entry.block_hash(),
-                tally,
-                final_tally: entry.final_tally(),
-            })
-        }
-
-        // Sort by final tally then by normal tally, descending
-        results.sort_by(|a, b| {
-            let res = b.final_tally.cmp(&a.final_tally);
-            if res == Ordering::Equal {
-                b.tally.cmp(&a.tally)
-            } else {
-                res
-            }
-        });
-
-        results
+        self.blocks.top(min_tally, now)
     }
 
     pub fn get_non_final_tally(&self, hash: &BlockHash) -> Amount {
@@ -151,25 +120,12 @@ impl VoteCache {
             .map(|b| b.non_final_tally())
             .unwrap_or_default()
     }
-
-    fn cleanup(&mut self) {
-        self.stats.inc(StatType::VoteCache, DetailType::Cleanup);
-        let now = self.clock.now();
-        self.blocks.cleanup(now);
-    }
 }
 
 impl ContainerInfoProvider for VoteCache {
     fn container_info(&self) -> ContainerInfo {
         [("vote_cache", self.size(), 0)].into()
     }
-}
-
-#[derive(PartialEq, Eq, Debug)]
-pub struct TopEntry {
-    pub hash: BlockHash,
-    pub tally: Amount,
-    pub final_tally: Amount,
 }
 
 #[cfg(test)]
@@ -582,16 +538,8 @@ mod tests {
         );
         cache.clock.advance(Duration::from_secs(150));
         assert_eq!(cache.top(0).len(), 1);
-        assert_eq!(
-            stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
-            1
-        );
         cache.clock.advance(Duration::from_secs(150));
         assert_eq!(cache.top(0).len(), 0);
-        assert_eq!(
-            stats.count(StatType::VoteCache, DetailType::Cleanup, Direction::In),
-            2
-        );
     }
 
     /*
