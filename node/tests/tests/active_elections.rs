@@ -91,7 +91,7 @@ fn fork_replacement_tally() {
         node1
             .vote_processor_queue
             .enqueue(vote, None, VoteDelivery::Direct, None);
-        assert_timely2(|| node1.vote_cache.lock().unwrap().find(&fork.hash()).len() > 0);
+        assert_timely2(|| node1.vote_cache.lock().unwrap().vote_count(&fork.hash()) > 0);
         node1.process_active(fork);
     }
 
@@ -173,8 +173,7 @@ fn fork_replacement_tally() {
                 .vote_cache
                 .lock()
                 .unwrap()
-                .find(&send_last.hash())
-                .len()
+                .vote_count(&send_last.hash())
         },
         1,
     );
@@ -379,9 +378,13 @@ fn inactive_votes_cache_existing_vote() {
     node.vote_cache
         .lock()
         .unwrap()
-        .insert(vote1, rep_weight, &HashMap::new());
+        .process(vote1, rep_weight, &HashMap::new());
 
-    let cached = node.vote_cache.lock().unwrap().find(&send.hash());
+    let mut cached = Vec::new();
+    node.vote_cache
+        .lock()
+        .unwrap()
+        .collect_votes(&mut cached, &send.hash());
     assert_eq!(cached.len(), 1);
     let _ = node
         .vote_processor
@@ -436,7 +439,7 @@ fn inactive_votes_cache_multiple_votes() {
         .enqueue(vote2, None, VoteDelivery::Direct, None);
 
     assert_timely_eq2(
-        || node.vote_cache.lock().unwrap().find(&send1.hash()).len(),
+        || node.vote_cache.lock().unwrap().vote_count(&send1.hash()),
         2,
     );
     assert_eq!(1, node.vote_cache.lock().unwrap().size());
@@ -529,8 +532,8 @@ fn inactive_votes_cache_election_start() {
 
     // A late block arrival also checks the inactive votes cache
     assert_eq!(node.aec.len(), 0);
-    let send4_cache = node.vote_cache.lock().unwrap().find(&send4.hash());
-    assert_eq!(3, send4_cache.len());
+    let send4_cache = node.vote_cache.lock().unwrap().vote_count(&send4.hash());
+    assert_eq!(3, send4_cache);
     node.process_active(send3.clone());
     // An election is started for send6 but does not
     assert_eq!(node.ledger.confirmed().block_exists(&send3.hash()), false);

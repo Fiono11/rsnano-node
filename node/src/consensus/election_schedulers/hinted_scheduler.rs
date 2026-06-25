@@ -183,7 +183,7 @@ impl HintedScheduler {
                 if is_confirmed && !forked {
                     self.stats
                         .inc(StatType::Hinting, DetailType::AlreadyConfirmed);
-                    self.vote_cache.lock().unwrap().erase(&current_hash); // Remove from vote cache
+                    self.vote_cache.lock().unwrap().remove(&current_hash); // Remove from vote cache
                     continue; // Move on to the next item in the stack
                 }
 

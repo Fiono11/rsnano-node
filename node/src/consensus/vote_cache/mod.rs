@@ -67,16 +67,14 @@ impl VoteCache {
     }
 
     /// Adds a new vote to cache
-    pub fn insert(
+    pub fn process(
         &mut self,
         vote: Arc<Vote>,
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
         let now = self.clock.now();
-        let inserted = self
-            .blocks
-            .process_vote_results(vote, rep_weight, results, now);
+        let inserted = self.blocks.process(vote, rep_weight, results, now);
         self.stats.inserted.fetch_add(inserted, Ordering::Relaxed);
     }
 
@@ -92,18 +90,14 @@ impl VoteCache {
         self.blocks.collect_votes(result, hash);
     }
 
-    /// Tries to find an entry associated with block hash
-    pub fn find(&self, hash: &BlockHash) -> Vec<Arc<Vote>> {
-        self.blocks
-            .get_by_hash(hash)
-            .map(|entry| entry.votes())
-            .unwrap_or_default()
+    pub fn vote_count(&self, hash: &BlockHash) -> usize {
+        self.blocks.vote_count(hash)
     }
 
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
-    pub fn erase(&mut self, hash: &BlockHash) -> bool {
-        self.blocks.remove_by_hash(hash).is_some()
+    pub fn remove(&mut self, hash: &BlockHash) -> bool {
+        self.blocks.remove(hash).is_some()
     }
 
     pub fn clear(&mut self) {
@@ -122,7 +116,7 @@ impl VoteCache {
 
     pub fn get_non_final_tally(&self, hash: &BlockHash) -> Amount {
         self.blocks
-            .get_by_hash(hash)
+            .get(hash)
             .map(|b| b.non_final_tally())
             .unwrap_or_default()
     }
@@ -145,350 +139,58 @@ mod tests {
     use super::*;
     use rsnano_types::{PrivateKey, UnixMillisTimestamp};
 
-    fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
-        let timestamp = UnixMillisTimestamp::new(timestamp_offset * 1024 * 1024);
-        Arc::new(Vote::new(&rep, timestamp, 0, vec![*hash]))
-    }
-
-    fn create_final_vote(rep: &PrivateKey, hash: &BlockHash) -> Arc<Vote> {
-        Arc::new(Vote::new_final(rep, vec![*hash]))
-    }
-
-    fn test_config() -> VoteCacheConfig {
-        VoteCacheConfig {
-            max_size: 3,
-            max_voters: 80,
-            age_cutoff: Duration::from_mins(5),
-        }
-    }
-
-    fn create_vote_cache() -> VoteCache {
-        VoteCache::new(test_config())
-    }
-
-    fn create_vote_cache_with_max_voters(max_voters: usize) -> VoteCache {
-        let config = VoteCacheConfig {
-            max_voters,
-            ..test_config()
-        };
-        VoteCache::new(config)
-    }
-
     #[test]
     fn construction() {
-        let cache = create_vote_cache();
+        let cache = make_vote_cache();
         assert_eq!(cache.size(), 0);
         assert!(cache.empty());
         let hash = BlockHash::random();
-        assert!(cache.find(&hash).is_empty());
+        assert_eq!(cache.vote_count(&hash), 0);
     }
 
     #[test]
     fn insert_one_hash() {
-        let mut cache = create_vote_cache();
+        let mut cache = make_vote_cache();
         let rep = PrivateKey::from(1);
         let hash = BlockHash::from(1);
         let vote = create_vote(&rep, &hash, 1);
 
-        cache.insert(vote.clone(), Amount::raw(7), &HashMap::new());
+        cache.process(vote.clone(), Amount::raw(7), &HashMap::new());
 
         assert_eq!(cache.size(), 1);
-        let peek = cache.find(&hash);
-        assert_eq!(peek.len(), 1);
-        assert_eq!(peek.first(), Some(&vote));
-    }
-
-    #[test]
-    fn contains() {
-        let mut cache = create_vote_cache();
-        let rep = PrivateKey::from(1);
-        let hash = BlockHash::from(1);
-        let vote = create_vote(&rep, &hash, 1);
-
-        assert_eq!(cache.contains(&hash), false);
-
-        cache.insert(vote, Amount::raw(7), &HashMap::new());
-
+        let mut votes = Vec::new();
+        cache.collect_votes(&mut votes, &hash);
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes.first(), Some(&vote));
         assert_eq!(cache.contains(&hash), true);
     }
 
-    /*
-     * Inserts multiple votes for single hash
-     * Ensures all of them can be retrieved and that tally is properly accumulated
-     */
     #[test]
-    fn insert_one_hash_many_votes() {
-        let mut cache = create_vote_cache();
-
-        let hash = BlockHash::random();
-        let rep1 = PrivateKey::from(1);
-        let rep2 = PrivateKey::from(2);
-        let rep3 = PrivateKey::from(3);
-
-        let vote1 = create_vote(&rep1, &hash, 1);
-        let vote2 = create_vote(&rep2, &hash, 2);
-        let vote3 = create_vote(&rep3, &hash, 3);
-
-        cache.insert(vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(vote3, Amount::raw(11), &HashMap::new());
-        // We have 3 votes but for a single hash, so just one entry in vote cache
-        assert_eq!(cache.size(), 1);
-        let votes = cache.find(&hash);
-        assert_eq!(votes.len(), 3);
-    }
-
-    #[test]
-    fn insert_many_hashes_many_votes() {
-        let mut cache = create_vote_cache();
-
-        // There will be 3 hashes to vote for
+    fn remove() {
+        let mut cache = make_vote_cache();
         let hash1 = BlockHash::from(1);
-        let hash2 = BlockHash::from(2);
-        let hash3 = BlockHash::from(3);
-
-        // There will be 4 reps with different weights
         let rep1 = PrivateKey::from(1);
-        let rep2 = PrivateKey::from(2);
-        let rep3 = PrivateKey::from(3);
-        let rep4 = PrivateKey::from(4);
-
-        // Votes: rep1 > hash1, rep2 > hash2, rep3 > hash3, rep4 > hash1 (the same as rep1)
         let vote1 = create_vote(&rep1, &hash1, 1);
-        let vote2 = create_vote(&rep2, &hash2, 1);
-        let vote3 = create_vote(&rep3, &hash3, 1);
-        let vote4 = create_vote(&rep4, &hash1, 1);
+        cache.process(vote1, Amount::raw(7), &HashMap::new());
 
-        // Insert first 3 votes in cache
-        cache.insert(vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(vote3, Amount::raw(11), &HashMap::new());
+        cache.remove(&hash1);
 
-        // Ensure all of those are properly inserted
-        assert_eq!(cache.size(), 3);
-        assert_eq!(cache.find(&hash1).len(), 1);
-        assert_eq!(cache.find(&hash2).len(), 1);
-        assert_eq!(cache.find(&hash3).len(), 1);
-
-        // Now add a vote from rep4 with the highest voting weight
-        cache.insert(vote4, Amount::raw(13), &HashMap::new());
-
-        let pop1 = cache.find(&hash1);
-        assert_eq!(pop1.len(), 2);
-
-        let pop2 = cache.find(&hash3);
-        assert_eq!(pop2.len(), 1);
-    }
-
-    /*
-     * Ensure that duplicate votes are ignored
-     */
-    #[test]
-    fn insert_duplicate() {
-        let mut cache = create_vote_cache();
-
-        let hash = BlockHash::from(1);
-        let rep = PrivateKey::from(1);
-        let vote1 = create_vote(&rep, &hash, 1);
-        let vote2 = create_vote(&rep, &hash, 1);
-
-        cache.insert(vote1, Amount::raw(9), &HashMap::new());
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-
-        assert_eq!(cache.size(), 1)
-    }
-
-    /*
-     * Ensure that when processing vote from a representative that is already cached, we always update to the vote with the highest timestamp
-     */
-    #[test]
-    fn insert_newer() {
-        let mut cache = create_vote_cache();
-
-        let hash = BlockHash::from(1);
-        let rep = PrivateKey::from(1);
-        let vote1 = create_vote(&rep, &hash, 1);
-        cache.insert(vote1, Amount::raw(9), &HashMap::new());
-
-        let vote2 = Arc::new(Vote::new(
-            &rep,
-            Vote::TIMESTAMP_MAX,
-            Vote::DURATION_MAX,
-            vec![hash],
-        ));
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-
-        let peek2 = cache.find(&hash);
-        assert_eq!(peek2.len(), 1);
-        assert!(peek2.first().unwrap().is_final());
-    }
-
-    /*
-     * Ensure that when processing vote from a representative that is already cached, votes with older timestamp are ignored
-     */
-    #[test]
-    fn insert_older() {
-        let mut cache = create_vote_cache();
-        let hash = BlockHash::from(1);
-        let rep = PrivateKey::from(1);
-        let vote1 = create_vote(&rep, &hash, 2);
-        cache.insert(vote1, Amount::raw(9), &HashMap::new());
-        let peek1 = cache.find(&hash);
-
-        let vote2 = create_vote(&rep, &hash, 1);
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-        let peek2 = cache.find(&hash);
-
-        assert_eq!(cache.size(), 1);
-        assert_eq!(peek2.len(), 1);
-        assert_eq!(
-            peek2.first().unwrap().timestamp(),
-            peek1.first().unwrap().timestamp()
-        );
-    }
-
-    /*
-     * Ensure that erase functionality works
-     */
-    #[test]
-    fn erase() {
-        let mut cache = create_vote_cache();
-        let hash1 = BlockHash::from(1);
-        let hash2 = BlockHash::from(2);
-        let hash3 = BlockHash::from(3);
-
-        let rep1 = PrivateKey::from(1);
-        let rep2 = PrivateKey::from(2);
-        let rep3 = PrivateKey::from(3);
-
-        let vote1 = create_vote(&rep1, &hash1, 1);
-        let vote2 = create_vote(&rep2, &hash2, 1);
-        let vote3 = create_vote(&rep3, &hash3, 1);
-
-        cache.insert(vote1, Amount::raw(7), &HashMap::new());
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-        cache.insert(vote3, Amount::raw(11), &HashMap::new());
-
-        assert_eq!(cache.size(), 3);
-        assert_eq!(cache.find(&hash1).len(), 1);
-        assert_eq!(cache.find(&hash2).len(), 1);
-        assert_eq!(cache.find(&hash3).len(), 1);
-
-        cache.erase(&hash2);
-
-        assert_eq!(cache.size(), 2);
-        assert_eq!(cache.contains(&hash2), false);
-        assert_eq!(cache.find(&hash1).len(), 1);
-        assert_eq!(cache.find(&hash2).len(), 0);
-        assert_eq!(cache.find(&hash3).len(), 1);
-        cache.erase(&hash1);
-        cache.erase(&hash3);
-
-        assert!(cache.empty());
-    }
-
-    /*
-     * Ensure that when cache is overfilled, we remove the oldest entries first
-     */
-    #[test]
-    fn overfill() {
-        let mut cache = create_vote_cache();
-
-        let hash1 = BlockHash::from(1);
-        let hash2 = BlockHash::from(2);
-        let hash3 = BlockHash::from(3);
-        let hash4 = BlockHash::from(4);
-
-        let rep1 = PrivateKey::from(1);
-        let rep2 = PrivateKey::from(2);
-        let rep3 = PrivateKey::from(3);
-        let rep4 = PrivateKey::from(4);
-
-        let vote1 = create_vote(&rep1, &hash1, 1);
-        cache.insert(vote1, Amount::raw(1), &HashMap::new());
-
-        let vote2 = create_vote(&rep2, &hash2, 1);
-        cache.insert(vote2, Amount::raw(2), &HashMap::new());
-
-        let vote3 = create_vote(&rep3, &hash3, 1);
-        cache.insert(vote3, Amount::raw(3), &HashMap::new());
-
-        let vote4 = create_vote(&rep4, &hash4, 1);
-        cache.insert(vote4, Amount::raw(4), &HashMap::new());
-
-        assert_eq!(cache.size(), 3);
-
-        // Check that oldest votes are dropped first
-        assert_eq!(cache.find(&hash4).len(), 1);
-        assert_eq!(cache.find(&hash3).len(), 1);
-        assert_eq!(cache.find(&hash2).len(), 1);
-        assert_eq!(cache.find(&hash1).len(), 0);
-    }
-
-    /*
-     * Check that when a single vote cache entry is overfilled, it ignores any new votes
-     */
-    #[test]
-    fn overfill_entry() {
-        let mut cache = create_vote_cache();
-        let hash = BlockHash::from(1);
-
-        let rep1 = PrivateKey::from(1);
-        let vote1 = create_vote(&rep1, &hash, 1);
-        cache.insert(vote1, Amount::raw(9), &HashMap::new());
-
-        let rep2 = PrivateKey::from(2);
-        let vote2 = create_vote(&rep2, &hash, 1);
-        cache.insert(vote2, Amount::raw(9), &HashMap::new());
-
-        let rep3 = PrivateKey::from(3);
-        let vote3 = create_vote(&rep3, &hash, 1);
-        cache.insert(vote3, Amount::raw(9), &HashMap::new());
-
-        assert_eq!(cache.size(), 1);
-    }
-
-    #[test]
-    fn change_vote_to_final_vote() {
-        let mut cache = create_vote_cache();
-        let hash = BlockHash::from(1);
-
-        let rep = PrivateKey::from(1);
-        let vote = create_vote(&rep, &hash, 1);
-        let final_vote = create_final_vote(&rep, &hash);
-        cache.insert(vote, Amount::raw(9), &HashMap::new());
-        cache.insert(final_vote, Amount::raw(9), &HashMap::new());
-
-        let votes = cache.find(&hash);
-        let vote = votes.first().unwrap();
-        assert!(vote.is_final());
-    }
-
-    #[test]
-    fn add_final_vote() {
-        let mut cache = create_vote_cache();
-        let hash = BlockHash::from(1);
-
-        let rep = PrivateKey::from(1);
-        let vote = create_final_vote(&rep, &hash);
-        cache.insert(vote, Amount::raw(9), &HashMap::new());
-
-        let votes = cache.find(&hash);
-        let vote = votes.first().unwrap();
-        assert!(vote.is_final());
+        assert_eq!(cache.size(), 0);
     }
 
     #[test]
     fn top_empty() {
-        let mut cache = create_vote_cache();
+        let mut cache = make_vote_cache();
         assert_eq!(cache.top(0), Vec::new());
     }
 
     #[test]
     fn top_one_entry() {
-        let mut cache = create_vote_cache();
+        let mut cache = make_vote_cache();
         let hash = BlockHash::from(1);
-        add_test_vote(&mut cache, &PrivateKey::from(1), &hash, Amount::raw(1));
+        let rep = PrivateKey::from(1);
+        let vote = create_vote(&rep, &hash, 0);
+        cache.process(vote, Amount::raw(1), &HashMap::new());
 
         assert_eq!(
             cache.top(0),
@@ -500,173 +202,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn top_multiple_entries_sorted_by_tally() {
-        let mut cache = create_vote_cache();
-        let hash1 = BlockHash::from(1);
-        let hash2 = BlockHash::from(2);
-        let hash3 = BlockHash::from(3);
-        add_test_vote(&mut cache, &PrivateKey::from(1), &hash1, Amount::raw(1));
-        add_test_vote(&mut cache, &PrivateKey::from(2), &hash2, Amount::raw(4));
-        add_test_vote(&mut cache, &PrivateKey::from(3), &hash3, Amount::raw(3));
-        add_test_final_vote(&mut cache, &PrivateKey::from(4), &hash2, Amount::raw(5));
-        add_test_final_vote(&mut cache, &PrivateKey::from(5), &hash3, Amount::raw(5));
-
-        let top = cache.top(0);
-
-        assert_eq!(top.len(), 3);
-        assert_eq!(top[0].hash, hash2);
-        assert_eq!(top[1].hash, hash3);
-        assert_eq!(top[2].hash, hash1);
-    }
-
-    #[test]
-    fn top_min_tally() {
-        let mut cache = create_vote_cache();
-        let hash1 = BlockHash::from(1);
-        let hash2 = BlockHash::from(2);
-        let hash3 = BlockHash::from(3);
-        add_test_vote(&mut cache, &PrivateKey::from(1), &hash1, Amount::raw(1));
-        add_test_vote(&mut cache, &PrivateKey::from(2), &hash2, Amount::raw(2));
-        add_test_vote(&mut cache, &PrivateKey::from(3), &hash3, Amount::raw(3));
-
-        let top = cache.top(2);
-        assert_eq!(top.len(), 2);
-        assert_eq!(top[0].hash, hash3);
-        assert_eq!(top[1].hash, hash2);
-    }
-
-    #[test]
-    fn top_age_cutoff() {
-        let clock = SteadyClock::new_null();
-        let mut cache = VoteCache::new_impl(test_config(), clock);
-        let hash = BlockHash::from(1);
-        add_test_vote(&mut cache, &PrivateKey::from(1), &hash, Amount::raw(1));
-        cache.clock.advance(Duration::from_secs(150));
-        assert_eq!(cache.top(0).len(), 1);
-        cache.clock.advance(Duration::from_secs(150));
-        assert_eq!(cache.top(0).len(), 0);
-    }
-
     /*
-     * Ensure that entries with a higher final tally are ranked above entries with a higher
-     * regular tally (final tally is the primary sort key in `top`).
+     * Test helpers
      */
-    #[test]
-    fn top_sorted_by_final_tally_first() {
-        let mut cache = create_vote_cache();
-        let hash_regular = BlockHash::from(1);
-        let hash_final = BlockHash::from(2);
 
-        // hash_regular has the higher regular tally, but no final votes
-        add_test_vote(
-            &mut cache,
-            &PrivateKey::from(1),
-            &hash_regular,
-            Amount::raw(10),
-        );
-        // hash_final has a lower regular tally, but it is all final weight
-        add_test_final_vote(
-            &mut cache,
-            &PrivateKey::from(2),
-            &hash_final,
-            Amount::raw(5),
-        );
-
-        let top = cache.top(0);
-
-        assert_eq!(top.len(), 2);
-        assert_eq!(top[0].hash, hash_final);
-        assert_eq!(top[0].final_tally, Amount::raw(5));
-        assert_eq!(top[1].hash, hash_regular);
-        assert_eq!(top[1].final_tally, Amount::ZERO);
+    fn make_vote_cache() -> VoteCache {
+        VoteCache::new_impl(Default::default(), SteadyClock::new_null())
     }
 
-    /*
-     * Ensure that a single entry can hold exactly `max_voters` voters (off-by-one regression)
-     * and that once exceeded the lowest weight voter is evicted.
-     */
-    #[test]
-    fn entry_holds_exactly_max_voters() {
-        let max_voters = 3;
-        let mut cache = create_vote_cache_with_max_voters(max_voters);
-        let hash = BlockHash::from(1);
-
-        // Fill the entry up to max_voters
-        for i in 1..=max_voters as u64 {
-            let rep = PrivateKey::from(i);
-            let vote = create_vote(&rep, &hash, 1);
-            cache.insert(vote, Amount::raw(i as u128), &HashMap::new());
-        }
-
-        // The entry must hold exactly max_voters voters, not max_voters - 1
-        assert_eq!(cache.find(&hash).len(), max_voters);
-
-        // A higher weight vote evicts the lowest and keeps the count at max_voters
-        let high_rep = PrivateKey::from(max_voters as u64 + 1);
-        let high_vote = create_vote(&high_rep, &hash, 1);
-        cache.insert(high_vote, Amount::raw(100), &HashMap::new());
-        assert_eq!(cache.find(&hash).len(), max_voters);
-
-        // A vote below the minimum weight is rejected, count stays the same
-        let low_rep = PrivateKey::from(max_voters as u64 + 2);
-        let low_vote = create_vote(&low_rep, &hash, 1);
-        cache.insert(low_vote, Amount::raw(1), &HashMap::new());
-        assert_eq!(cache.find(&hash).len(), max_voters);
-    }
-
-    /*
-     * Ensure that only a single voter is evicted when several reps share the lowest weight,
-     * instead of dropping the whole weight bucket.
-     */
-    #[test]
-    fn evicts_only_one_voter_on_tie() {
-        let max_voters = 2;
-        let mut cache = create_vote_cache_with_max_voters(max_voters);
-        let hash = BlockHash::from(1);
-
-        // Two reps tie at the lowest weight
-        let rep1 = PrivateKey::from(1);
-        cache.insert(
-            create_vote(&rep1, &hash, 1),
-            Amount::raw(5),
-            &HashMap::new(),
-        );
-        let rep2 = PrivateKey::from(2);
-        cache.insert(
-            create_vote(&rep2, &hash, 1),
-            Amount::raw(5),
-            &HashMap::new(),
-        );
-        assert_eq!(cache.find(&hash).len(), 2);
-
-        // A higher weight vote exceeds capacity and must evict exactly one of the tied voters
-        let rep3 = PrivateKey::from(3);
-        cache.insert(
-            create_vote(&rep3, &hash, 1),
-            Amount::raw(10),
-            &HashMap::new(),
-        );
-        assert_eq!(cache.find(&hash).len(), 2);
-    }
-
-    fn add_test_vote(
-        cache: &mut VoteCache,
-        rep: &PrivateKey,
-        hash: &BlockHash,
-        rep_weight: Amount,
-    ) {
-        let vote = create_vote(rep, hash, 0);
-        cache.insert(vote, rep_weight, &HashMap::new());
-    }
-
-    fn add_test_final_vote(
-        cache: &mut VoteCache,
-        rep: &PrivateKey,
-        hash: &BlockHash,
-        rep_weight: Amount,
-    ) {
-        let vote = create_final_vote(rep, hash);
-        cache.insert(vote, rep_weight, &HashMap::new());
+    fn create_vote(rep: &PrivateKey, hash: &BlockHash, timestamp_offset: u64) -> Arc<Vote> {
+        let timestamp = UnixMillisTimestamp::new(timestamp_offset * 1024 * 1024);
+        Arc::new(Vote::new(&rep, timestamp, 0, vec![*hash]))
     }
 }

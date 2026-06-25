@@ -54,7 +54,7 @@ impl VotedBlock {
             last_modified: now,
         };
 
-        block.vote(vote, rep_weight, now);
+        block.add_vote(vote, rep_weight, now);
         block
     }
 
@@ -70,15 +70,12 @@ impl VotedBlock {
         self.final_tally
     }
 
-    pub fn votes(&self) -> Vec<Arc<Vote>> {
-        self.by_representative
-            .values()
-            .map(|i| Arc::clone(&i.vote))
-            .collect()
-    }
-
     pub fn iter_votes<'a>(&'a self) -> impl Iterator<Item = &'a Arc<Vote>> {
         self.by_representative.values().map(|i| &i.vote)
+    }
+
+    pub fn vote_count(&self) -> usize {
+        self.by_representative.len()
     }
 
     pub fn last_modified(&self) -> Timestamp {
@@ -88,7 +85,7 @@ impl VotedBlock {
     /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
-    pub fn vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
+    pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
         let inserted = self.insert(CachedVote::new(vote, rep_weight));
         if inserted {
             self.calculate_tallies();
@@ -201,7 +198,7 @@ mod tests {
         assert_eq!(*block.block_hash(), hash);
         assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.final_tally(), Amount::ZERO);
-        assert_eq!(block.votes(), vec![vote]);
+        assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&vote]);
         assert_eq!(block.last_modified(), now);
     }
 
@@ -237,7 +234,7 @@ mod tests {
             Timestamp::new(1),
         );
 
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep2, &hash, 1),
             Amount::raw(7),
             Timestamp::new(2),
@@ -245,7 +242,7 @@ mod tests {
 
         assert!(changed);
         assert_eq!(block.non_final_tally(), Amount::raw(12));
-        assert_eq!(block.votes().len(), 2);
+        assert_eq!(block.vote_count(), 2);
     }
 
     #[test]
@@ -262,7 +259,7 @@ mod tests {
             Amount::raw(10),
             Timestamp::new(1),
         );
-        block.vote(
+        block.add_vote(
             create_vote(&normal_rep, &hash, 1),
             Amount::raw(7),
             Timestamp::new(1),
@@ -286,14 +283,14 @@ mod tests {
         );
 
         // Same timestamp, even with a different weight, must be ignored
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep, &hash, 1),
             Amount::raw(9),
             Timestamp::new(2),
         );
 
         assert!(!changed);
-        assert_eq!(block.votes().len(), 1);
+        assert_eq!(block.vote_count(), 1);
         assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(1));
     }
@@ -312,10 +309,10 @@ mod tests {
         );
 
         let newer_vote = create_final_vote(&rep, &hash);
-        let changed = block.vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
+        let changed = block.add_vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
 
         assert!(changed);
-        assert_eq!(block.votes(), vec![newer_vote]);
+        assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&newer_vote]);
         assert_eq!(block.final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(2));
     }
@@ -334,14 +331,14 @@ mod tests {
             Timestamp::new(1),
         );
 
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep, &hash, 1),
             Amount::raw(5),
             Timestamp::new(2),
         );
 
         assert!(!changed);
-        assert_eq!(block.votes(), vec![current_vote]);
+        assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&current_vote]);
         assert_eq!(block.last_modified(), Timestamp::new(1));
     }
 
@@ -358,14 +355,14 @@ mod tests {
             Timestamp::new(1),
         );
 
-        block.vote(
+        block.add_vote(
             create_vote(&rep, &hash, 2),
             Amount::raw(100),
             Timestamp::new(2),
         );
 
         assert_eq!(block.non_final_tally(), Amount::raw(100));
-        assert_eq!(block.votes().len(), 1);
+        assert_eq!(block.vote_count(), 1);
     }
 
     /*
@@ -388,20 +385,20 @@ mod tests {
             Timestamp::new(1),
         );
         let rep_b = PrivateKey::from(2);
-        block.vote(
+        block.add_vote(
             create_vote(&rep_b, &hash, 1),
             Amount::raw(10),
             Timestamp::new(1),
         );
         let rep_c = PrivateKey::from(3);
-        block.vote(
+        block.add_vote(
             create_vote(&rep_c, &hash, 1),
             Amount::raw(20),
             Timestamp::new(1),
         );
 
         // rep_a, originally the lowest weight voter, now becomes the highest
-        block.vote(
+        block.add_vote(
             create_vote(&rep_a, &hash, 2),
             Amount::raw(1000),
             Timestamp::new(2),
@@ -409,14 +406,14 @@ mod tests {
 
         // A new voter arrives with a weight between rep_b and rep_c, exceeding capacity
         let rep_d = PrivateKey::from(4);
-        block.vote(
+        block.add_vote(
             create_vote(&rep_d, &hash, 1),
             Amount::raw(15),
             Timestamp::new(3),
         );
 
         // rep_b now holds the lowest weight (10) and must be the one evicted, not rep_a
-        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        let voters: Vec<_> = block.iter_votes().map(|v| v.voter).collect();
         assert!(voters.contains(&rep_a.public_key()));
         assert!(!voters.contains(&rep_b.public_key()));
         assert!(voters.contains(&rep_c.public_key()));
@@ -429,7 +426,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let (block, _reps) = full_block(hash, &[1, 2, 3]);
 
-        assert_eq!(block.votes().len(), 3);
+        assert_eq!(block.vote_count(), 3);
     }
 
     #[test]
@@ -438,14 +435,14 @@ mod tests {
         let (mut block, reps) = full_block(hash, &[10, 20, 30]);
 
         let rep4 = PrivateKey::from(4);
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep4, &hash, 1),
             Amount::raw(100),
             Timestamp::new(2),
         );
 
         assert!(changed);
-        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        let voters: Vec<_> = block.iter_votes().map(|v| v.voter).collect();
         assert_eq!(voters.len(), 3);
         assert!(!voters.contains(&reps[0].public_key()));
         assert!(voters.contains(&rep4.public_key()));
@@ -459,16 +456,16 @@ mod tests {
         let tally_before = block.non_final_tally();
 
         let rep4 = PrivateKey::from(4);
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep4, &hash, 1),
             Amount::raw(5),
             Timestamp::new(2),
         );
 
         assert!(!changed);
-        assert_eq!(block.votes().len(), 3);
+        assert_eq!(block.vote_count(), 3);
         assert_eq!(block.non_final_tally(), tally_before);
-        assert!(!block.votes().iter().any(|v| v.voter == rep4.public_key()));
+        assert!(!block.iter_votes().any(|v| v.voter == rep4.public_key()));
     }
 
     #[test]
@@ -477,15 +474,15 @@ mod tests {
         let (mut block, _reps) = full_block(hash, &[10, 20, 30]);
 
         let rep4 = PrivateKey::from(4);
-        let changed = block.vote(
+        let changed = block.add_vote(
             create_vote(&rep4, &hash, 1),
             Amount::raw(10),
             Timestamp::new(2),
         );
 
         assert!(!changed);
-        assert_eq!(block.votes().len(), 3);
-        assert!(!block.votes().iter().any(|v| v.voter == rep4.public_key()));
+        assert_eq!(block.vote_count(), 3);
+        assert!(!block.iter_votes().any(|v| v.voter == rep4.public_key()));
     }
 
     #[test]
@@ -502,20 +499,20 @@ mod tests {
             Timestamp::new(1),
         );
         let rep2 = PrivateKey::from(2);
-        block.vote(
+        block.add_vote(
             create_vote(&rep2, &hash, 1),
             Amount::raw(5),
             Timestamp::new(1),
         );
 
         let rep3 = PrivateKey::from(3);
-        block.vote(
+        block.add_vote(
             create_vote(&rep3, &hash, 1),
             Amount::raw(10),
             Timestamp::new(2),
         );
 
-        let voters: Vec<_> = block.votes().iter().map(|v| v.voter).collect();
+        let voters: Vec<_> = block.iter_votes().map(|v| v.voter).collect();
         assert_eq!(voters.len(), max_voters);
         assert!(voters.contains(&rep3.public_key()));
         let tied_survivors = [rep1.public_key(), rep2.public_key()]
@@ -564,7 +561,7 @@ mod tests {
             Timestamp::new(1),
         );
         for (rep, weight) in reps.iter().zip(weights.iter()).skip(1) {
-            block.vote(
+            block.add_vote(
                 create_vote(rep, &hash, 1),
                 Amount::raw(*weight),
                 Timestamp::new(1),
