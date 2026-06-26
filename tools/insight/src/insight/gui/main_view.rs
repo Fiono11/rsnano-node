@@ -257,7 +257,7 @@ impl MainViewModel {
                 })
             }
             BootstrapViewType::PeerScores => BootstrapViewModel::PeerScores(PeerScoresViewModel {
-                peers: self.app.peer_scores.clone(),
+                peers: self.app.snapshot.peer_scores.clone(),
             }),
             BootstrapViewType::FrontierScan => {
                 BootstrapViewModel::FrontierScan(self.frontier_scan())
@@ -266,10 +266,10 @@ impl MainViewModel {
     }
 
     pub fn elections(&self) -> ElectionsViewModel {
-        if self.app.elections.buckets.len() < 33 {
+        if self.app.snapshot.elections.buckets.len() < 33 {
             return Default::default();
         }
-        let (col1, col2) = self.app.elections.buckets.split_at(33);
+        let (col1, col2) = self.app.snapshot.elections.buckets.split_at(33);
         ElectionsViewModel {
             bucket_col1: create_bucket_column(col1),
             bucket_col2: create_bucket_column(col2),

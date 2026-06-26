@@ -5,8 +5,7 @@ use std::{
 };
 
 use rsnano_node::{
-    bootstrap::bootstrapper::PeerScoreSnapshot,
-    consensus::{AecSnapshot, election::Election},
+    consensus::election::Election,
     representatives::QuorumSnapshot,
 };
 use super::snapshot::{InsightSnapshot, take_snapshot};
@@ -41,12 +40,10 @@ pub(crate) struct InsightApp {
     pub snapshot: InsightSnapshot,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
-    pub elections: AecSnapshot,
     pub rollback_hash: String,
     selected_election: Option<QualifiedRoot>,
     pub election_details: Option<Election>,
     bootstrap_view_type: BootstrapViewType,
-    pub peer_scores: Vec<PeerScoreSnapshot>,
     pub representatives: Vec<RepresentativeViewModel>,
     pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
@@ -74,11 +71,9 @@ impl InsightApp {
             last_update: None,
             bootstrap: Default::default(),
             rollback_hash: String::new(),
-            elections: AecSnapshot::default(),
             selected_election: None,
             election_details: None,
             bootstrap_view_type: BootstrapViewType::BootstrapQueue,
-            peer_scores: Vec::new(),
             representatives: Vec::new(),
             rep_names,
             quorum: QuorumSnapshot::new_test_instance(),
@@ -115,12 +110,10 @@ impl InsightApp {
             self.snapshot = snapshot;
             self.frontier_scan.update(&node.bootstrapper, now);
             self.bootstrap.update(&node.bootstrapper);
-            self.elections = node.aec.snapshot();
             self.election_details = self.selected_election.as_ref().and_then(|root| {
                 let node = self.node_runner.node()?;
                 node.aec.election_for_root(root)
             });
-            self.peer_scores = node.bootstrapper.peer_score_snapshot();
             self.representatives = node.rep_tracker.with_snapshot(|s| {
                 self.quorum = s.quorum().clone();
                 s.iter()

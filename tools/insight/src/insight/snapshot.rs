@@ -1,7 +1,8 @@
 use rsnano_node::{
     Node,
+    bootstrap::bootstrapper::PeerScoreSnapshot,
     cementation::ConfirmingSetInfo,
-    consensus::{ActiveElectionsInfo, RepTier},
+    consensus::{ActiveElectionsInfo, AecSnapshot, RepTier},
 };
 use rsnano_ledger::BlockSource;
 use rsnano_utils::fair_queue::FairQueueInfo;
@@ -14,6 +15,8 @@ pub(crate) struct InsightSnapshot {
     pub confirming_set: ConfirmingSetInfo,
     pub block_processor_info: FairQueueInfo<BlockSource>,
     pub vote_processor_info: FairQueueInfo<RepTier>,
+    pub elections: AecSnapshot,
+    pub peer_scores: Vec<PeerScoreSnapshot>,
 }
 
 pub(crate) fn take_snapshot(node: &Node) -> InsightSnapshot {
@@ -24,5 +27,7 @@ pub(crate) fn take_snapshot(node: &Node) -> InsightSnapshot {
         confirming_set: node.confirming_set.info(),
         block_processor_info: node.block_processor_queue.info(),
         vote_processor_info: node.vote_processor_queue.info(),
+        elections: node.aec.snapshot(),
+        peer_scores: node.bootstrapper.peer_score_snapshot(),
     }
 }
