@@ -3,25 +3,22 @@ use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
 use rsnano_types::{Amount, QualifiedRoot};
 
-use crate::insight::{
-    app::{InsightApp, InsightCommand},
-    gui::nano_amount_string,
-};
+use crate::insight::{app::InsightCommand, gui::nano_amount_string};
 use std::sync::mpsc::Sender;
 
-pub(crate) fn view_elections(ui: &mut Ui, model: ElectionsViewModel, app: &mut InsightApp) {
+pub(crate) fn view_elections(ui: &mut Ui, model: ElectionsViewModel, tx: &Sender<InsightCommand>) {
     CentralPanel::default().show_inside(ui, |ui| {
         StripBuilder::new(ui)
             .size(Size::remainder())
             .size(Size::remainder())
             .horizontal(|mut strip| {
-                strip.cell(|ui| view_bucket_column(ui, model.bucket_col1, app));
-                strip.cell(|ui| view_bucket_column(ui, model.bucket_col2, app));
+                strip.cell(|ui| view_bucket_column(ui, model.bucket_col1, tx));
+                strip.cell(|ui| view_bucket_column(ui, model.bucket_col2, tx));
             });
     });
 }
 
-fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, app: &mut InsightApp) {
+fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, tx: &Sender<InsightCommand>) {
     for bucket in buckets {
         ui.horizontal(|ui| {
             ui.label(
@@ -36,7 +33,7 @@ fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, app: &mut Insi
                     ))
                     .clicked()
                 {
-                    app.show_election(election.root);
+                    let _ = tx.send(InsightCommand::ShowElection(election.root));
                 }
             }
         });

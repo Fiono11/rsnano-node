@@ -6,7 +6,7 @@ use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
+    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
     block_processor::view_block_processor,
     bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
@@ -16,7 +16,6 @@ use super::{
 use crate::insight::{
     app::{InsightApp, InsightCommand},
     bootstrap::BootstrapViewType,
-    explorer::ExplorerState,
     gui::{
         QueueViewModel,
         bootstrap::{BootstrapDetails, PeerScoresViewModel},
@@ -101,14 +100,14 @@ impl eframe::App for MainView {
                 if let Some(details) = self.model.election_details() {
                     view_election_details(ui, details, &self.tx)
                 } else {
-                    view_elections(ui, self.model.elections(), &mut self.model.app)
+                    view_elections(ui, self.model.elections(), &self.tx)
                 }
             }
             NavItem::Bootstrap => {
                 view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
             }
             NavItem::Explorer => {
-                ExplorerView::new(&self.model.explorer(), &mut self.model.app, &self.tx).show(ui)
+                ExplorerView::new(&mut self.model.app.explorer_model, &self.tx).show(ui)
             }
         }
 
@@ -337,14 +336,6 @@ impl MainViewModel {
                     })
                     .collect(),
             })
-    }
-
-    pub fn explorer(&self) -> BlockViewModel {
-        let mut view_model = BlockViewModel::default();
-        if let ExplorerState::Block(b) = self.app.explorer.state() {
-            view_model.show(b);
-        }
-        view_model
     }
 
     pub fn frontier_scan(&self) -> FrontierScanViewModel {

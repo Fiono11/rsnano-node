@@ -12,7 +12,7 @@ use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 use crate::insight::{
     bootstrap::{BootstrapInfo, BootstrapViewType},
     channels::Channels,
-    explorer::Explorer,
+    explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
@@ -32,27 +32,28 @@ pub(crate) enum InsightCommand {
     NavigateBootstrap(BootstrapViewType),
     CloseElection,
     RollBack,
+    ShowElection(QualifiedRoot),
 }
 
 pub(crate) struct InsightApp {
-    last_update: Option<Timestamp>,
+    pub explorer_model: ExplorerViewModel,
+
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
     pub msg_recorder: Arc<MessageRecorder>,
     pub node_runner: NodeRunner,
     pub channels: Channels,
-    pub explorer: Explorer,
     pub navigator: Navigator,
     pub snapshot: InsightSnapshot,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
-    pub rollback_hash: String,
     selected_election: Option<QualifiedRoot>,
     pub election_details: Option<Election>,
     bootstrap_view_type: BootstrapViewType,
     pub representatives: Vec<RepresentativeViewModel>,
     pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
+    last_update: Option<Timestamp>,
     rx: Receiver<InsightCommand>,
 }
 
@@ -65,19 +66,18 @@ impl InsightApp {
         let rep_names = well_known_rep_names();
         let channels = Channels::new(messages.clone(), rep_names.clone());
         Self {
+            explorer_model: Default::default(),
             rx,
             clock,
             messages,
             msg_recorder,
             node_runner: NodeRunner::new(callback_factory),
             channels,
-            explorer: Explorer::new(),
             navigator: Navigator::new(),
             snapshot: InsightSnapshot::default(),
             frontier_scan: FrontierScanInfo::default(),
             last_update: None,
             bootstrap: Default::default(),
-            rollback_hash: String::new(),
             selected_election: None,
             election_details: None,
             bootstrap_view_type: BootstrapViewType::BootstrapQueue,
@@ -146,10 +146,6 @@ impl InsightApp {
         }
     }
 
-    pub fn show_election(&mut self, root: QualifiedRoot) {
-        self.selected_election = Some(root);
-    }
-
     pub fn bootstrap_view(&self) -> BootstrapViewType {
         self.bootstrap_view_type
     }
@@ -167,6 +163,7 @@ impl InsightApp {
                 self.election_details = None;
             }
             InsightCommand::RollBack => self.roll_back(),
+            InsightCommand::ShowElection(root) => self.selected_election = Some(root),
         }
     }
 
@@ -199,15 +196,13 @@ impl InsightApp {
 
     fn search(&mut self, input: &str) {
         if let Some(node) = self.node_runner.node() {
-            let has_result = self.explorer.search(&node.ledger, input);
-            if has_result {
-                self.navigator.current = NavItem::Explorer;
-            }
+            search_ledger(&node.ledger, input, &mut self.explorer_model);
+            self.navigator.current = NavItem::Explorer;
         }
     }
 
     fn roll_back(&self) {
-        if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
+        if let Some(hash) = BlockHash::decode_hex(&self.explorer_model.rollback_hash)
             && let Some(node) = self.node_runner.node()
         {
             let _ = node.ledger.roll_back(&hash);
