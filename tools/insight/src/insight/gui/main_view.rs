@@ -26,8 +26,9 @@ use crate::insight::{
             RepVoteViewModel, view_election_details, view_elections,
         },
         representatives::view_representatives,
+        vote_cache::view_vote_cache,
     },
-    navigator::{NavItem, TabViewModel},
+    navigator::NavItem,
 };
 
 pub(crate) struct MainView {
@@ -99,6 +100,7 @@ impl eframe::App for MainView {
                     view_elections(ui, self.model.elections(), &self.tx)
                 }
             }
+            NavItem::VoteCache => view_vote_cache(ui, &mut self.model.app.vote_cache),
             NavItem::Bootstrap => {
                 view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
             }

@@ -9,17 +9,17 @@ pub use voted_block_map::TopEntry;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{atomic::Ordering, Arc, Mutex},
     time::Duration,
 };
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
     thread_factory::ThreadFactory,
+    EventHandler,
 };
 
 use crate::consensus::{AecFact, VoteProcessorQueue};
@@ -108,6 +108,14 @@ impl VoteCache {
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.blocks.lock().unwrap().contains(hash)
+    }
+
+    pub fn get(&self, hash: &BlockHash) -> Vec<Arc<Vote>> {
+        let blocks = self.blocks.lock().unwrap();
+        let Some(block) = blocks.get(hash) else {
+            return Vec::new();
+        };
+        block.iter_votes().cloned().collect()
     }
 
     /// Adds a new vote to cache

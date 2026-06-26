@@ -22,6 +22,7 @@ use crate::insight::{
     node_runner::NodeRunner,
     rep_names::well_known_rep_names,
     representatives::{RepresentativeViewModel, RepresentativesViewModel},
+    vote_cache::{VoteCacheViewModel, VoteViewModel},
 };
 
 pub(crate) enum InsightCommand {
@@ -43,6 +44,7 @@ pub(crate) struct InsightApp {
     pub representatives: RepresentativesViewModel,
     pub tabs: Vec<TabViewModel>,
     pub current_tab: NavItem,
+    pub vote_cache: VoteCacheViewModel,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -84,6 +86,7 @@ impl InsightApp {
             explorer: Default::default(),
             block_processor: Default::default(),
             current_tab: NavItem::Peers,
+            vote_cache: Default::default(),
             tabs,
             rx_cmd: rx,
             clock,
@@ -119,6 +122,20 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             let snapshot = take_snapshot(&node);
+            self.vote_cache.cached_blocks = node.vote_cache.len();
+            self.vote_cache.block_votes.clear();
+            if let Some(block_hash) = BlockHash::decode_hex(&self.vote_cache.search) {
+                let votes = node.vote_cache.get(&block_hash);
+                let rep_weights = node.ledger.rep_weights.read();
+                self.vote_cache
+                    .block_votes
+                    .extend(votes.iter().map(|v| VoteViewModel {
+                        rep_key: v.voter,
+                        is_final: v.is_final(),
+                        weight: rep_weights.weight(&v.voter),
+                    }));
+            }
+
             let channels = node.network.read().unwrap().sorted_channels();
             let telemetries = node.telemetry.get_all_telemetries();
             node.rep_tracker.with_snapshot(|s| {

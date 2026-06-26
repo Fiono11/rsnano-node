@@ -15,6 +15,7 @@ mod nullable_runtime;
 mod rep_names;
 mod representatives;
 mod snapshot;
+mod vote_cache;
 
 use eframe::egui;
 use gui::MainView;

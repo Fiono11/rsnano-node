@@ -21,6 +21,7 @@ mod queue_group;
 mod representatives;
 mod search_bar;
 mod tab_bar;
+mod vote_cache;
 
 pub(crate) use channels::*;
 pub(crate) use explorer::*;
