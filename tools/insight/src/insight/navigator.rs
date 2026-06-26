@@ -26,7 +26,7 @@ impl NavItem {
     }
 }
 
-static NAV_ORDER: [NavItem; 8] = [
+pub(crate) static NAV_ORDER: [NavItem; 8] = [
     NavItem::Peers,
     NavItem::Messages,
     NavItem::Queues,
@@ -37,16 +37,8 @@ static NAV_ORDER: [NavItem; 8] = [
     NavItem::Explorer,
 ];
 
-pub(crate) struct Navigator {
-    pub current: NavItem,
-    pub all: Vec<NavItem>,
-}
-
-impl Navigator {
-    pub(crate) fn new() -> Self {
-        Self {
-            current: NavItem::Peers,
-            all: NAV_ORDER.into(),
-        }
-    }
+pub(crate) struct TabViewModel {
+    pub selected: bool,
+    pub label: &'static str,
+    pub value: NavItem,
 }

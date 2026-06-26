@@ -17,7 +17,7 @@ use crate::insight::{
     frontier_scan::FrontierScanInfo,
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
-    navigator::{NavItem, Navigator},
+    navigator::{NAV_ORDER, NavItem, TabViewModel},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
     rep_names::well_known_rep_names,
@@ -34,19 +34,21 @@ pub(crate) enum InsightCommand {
     CloseElection,
     RollBack,
     ShowElection(QualifiedRoot),
+    Navigate(NavItem),
 }
 
 pub(crate) struct InsightApp {
     pub explorer: ExplorerViewModel,
     pub block_processor: BlockProcessorViewModel,
     pub representatives: RepresentativesViewModel,
+    pub tabs: Vec<TabViewModel>,
+    pub current_tab: NavItem,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
     pub msg_recorder: Arc<MessageRecorder>,
     pub node_runner: NodeRunner,
     pub channels: Channels,
-    pub navigator: Navigator,
     pub snapshot: InsightSnapshot,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
@@ -68,16 +70,27 @@ impl InsightApp {
         let rep_names = well_known_rep_names();
         let channels = Channels::new(messages.clone(), rep_names.clone());
         let (tx_node_ev, rx_node_ev) = std::sync::mpsc::channel::<NodeEvent>();
+
+        let tabs = NAV_ORDER
+            .iter()
+            .map(|i| TabViewModel {
+                selected: false,
+                label: i.name(),
+                value: *i,
+            })
+            .collect();
+
         Self {
             explorer: Default::default(),
             block_processor: Default::default(),
+            current_tab: NavItem::Peers,
+            tabs,
             rx_cmd: rx,
             clock,
             messages,
             msg_recorder,
             node_runner: NodeRunner::new(callback_factory, tx_node_ev),
             channels,
-            navigator: Navigator::new(),
             snapshot: InsightSnapshot::default(),
             frontier_scan: FrontierScanInfo::default(),
             last_update: None,
@@ -174,7 +187,15 @@ impl InsightApp {
             }
             InsightCommand::RollBack => self.roll_back(),
             InsightCommand::ShowElection(root) => self.selected_election = Some(root),
+            InsightCommand::Navigate(target) => self.navigate(target),
         }
+    }
+
+    fn navigate(&mut self, target: NavItem) {
+        for t in &mut self.tabs {
+            t.selected = t.value == target;
+        }
+        self.current_tab = target;
     }
 
     fn add_priority_account(&mut self) {
@@ -207,7 +228,7 @@ impl InsightApp {
     fn search(&mut self, input: &str) {
         if let Some(node) = self.node_runner.node() {
             search_ledger(&node.ledger, input, &mut self.explorer);
-            self.navigator.current = NavItem::Explorer;
+            self.navigate(NavItem::Explorer);
         }
     }
 

@@ -9,7 +9,7 @@ use rsnano_types::Amount;
 
 use super::{
     ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
-    MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
+    MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel,
     block_processor::view_block_processor,
     bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
     formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
@@ -27,7 +27,7 @@ use crate::insight::{
         },
         representatives::view_representatives,
     },
-    navigator::NavItem,
+    navigator::{NavItem, TabViewModel},
 };
 
 pub(crate) struct MainView {
@@ -61,12 +61,7 @@ impl MainView {
 
     fn view_tabs(&mut self, ui: &mut Ui) {
         Panel::top("tabs_panel").show_inside(ui, |ui| {
-            view_tabs(
-                ui,
-                &self.model.tabs(),
-                &mut self.model.app.navigator,
-                &self.tx,
-            );
+            view_tabs(ui, &self.model.app.tabs, &self.tx);
         });
     }
 
@@ -91,7 +86,7 @@ impl eframe::App for MainView {
         self.view_tabs(ui);
         self.view_stats(ui);
 
-        match self.model.app.navigator.current {
+        match self.model.app.current_tab {
             NavItem::Peers => view_peers(ui, self.model.channels()),
             NavItem::Messages => view_message_tab(ui, &mut self.model),
             NavItem::Queues => view_queues(ui, self.model.queue_groups()),
@@ -147,19 +142,6 @@ impl MainViewModel {
         }
 
         self.message_table.update_message_counts();
-    }
-
-    pub(crate) fn tabs(&self) -> Vec<TabViewModel> {
-        self.app
-            .navigator
-            .all
-            .iter()
-            .map(|i| TabViewModel {
-                selected: *i == self.app.navigator.current,
-                label: i.name(),
-                value: *i,
-            })
-            .collect()
     }
 
     pub(crate) fn message_stats(&self) -> MessageStatsViewModel<'_> {
