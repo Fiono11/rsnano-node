@@ -4,16 +4,14 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::BlockSource;
 use rsnano_node::{
     bootstrap::bootstrapper::PeerScoreSnapshot,
-    consensus::{AecSnapshot, RepTier, election::Election},
+    consensus::{AecSnapshot, election::Election},
     representatives::QuorumSnapshot,
 };
 use super::snapshot::{InsightSnapshot, take_snapshot};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
-use rsnano_utils::fair_queue::FairQueueInfo;
 
 use crate::insight::{
     bootstrap::{BootstrapInfo, BootstrapViewType},
@@ -41,8 +39,6 @@ pub(crate) struct InsightApp {
     pub navigator: Navigator,
     pub ledger_stats: LedgerStats,
     pub snapshot: InsightSnapshot,
-    pub block_processor_info: FairQueueInfo<BlockSource>,
-    pub vote_processor_info: FairQueueInfo<RepTier>,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
     pub elections: AecSnapshot,
@@ -74,8 +70,6 @@ impl InsightApp {
             navigator: Navigator::new(),
             ledger_stats: LedgerStats::new(),
             snapshot: InsightSnapshot::default(),
-            block_processor_info: Default::default(),
-            vote_processor_info: Default::default(),
             frontier_scan: FrontierScanInfo::default(),
             last_update: None,
             bootstrap: Default::default(),
@@ -119,8 +113,6 @@ impl InsightApp {
                     .update(channels, telemetries, s, min_rep_weight);
             });
             self.snapshot = snapshot;
-            self.block_processor_info = node.block_processor_queue.info();
-            self.vote_processor_info = node.vote_processor_queue.info();
             self.frontier_scan.update(&node.bootstrapper, now);
             self.bootstrap.update(&node.bootstrapper);
             self.elections = node.aec.snapshot();

@@ -189,8 +189,8 @@ impl MainViewModel {
                     ),
                 ],
             },
-            QueueGroupViewModel::for_fair_queue("Block Processor", &self.app.block_processor_info),
-            QueueGroupViewModel::for_fair_queue("Vote Processor", &self.app.vote_processor_info),
+            QueueGroupViewModel::for_fair_queue("Block Processor", &self.app.snapshot.block_processor_info),
+            QueueGroupViewModel::for_fair_queue("Vote Processor", &self.app.snapshot.vote_processor_info),
             QueueGroupViewModel {
                 heading: "Miscellaneous".to_string(),
                 queues: vec![QueueViewModel::new(
