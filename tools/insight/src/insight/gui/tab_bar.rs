@@ -1,8 +1,17 @@
 use eframe::egui::Ui;
 
-use crate::insight::navigator::{NavItem, Navigator};
+use crate::insight::{
+    app::InsightCommand,
+    navigator::{NavItem, Navigator},
+};
+use std::sync::mpsc::Sender;
 
-pub(crate) fn view_tabs(ui: &mut Ui, tabs: &[TabViewModel], navigator: &mut Navigator) {
+pub(crate) fn view_tabs(
+    ui: &mut Ui,
+    tabs: &[TabViewModel],
+    navigator: &mut Navigator,
+    tx: &Sender<InsightCommand>,
+) {
     ui.horizontal(|ui| {
         for tab in tabs {
             if ui.selectable_label(tab.selected, tab.label).clicked() {

@@ -7,14 +7,20 @@ use rsnano_node::bootstrap::bootstrapper::{BootstrappingAccountInfo, PeerScoreSn
 use rsnano_types::Account;
 
 use crate::insight::{
-    app::InsightApp,
+    app::{InsightApp, InsightCommand},
     bootstrap::BootstrapViewType,
     gui::{FrontierScanViewModel, view_frontier_scan},
 };
 
 use super::main_view::truncate_text;
+use std::sync::mpsc::Sender;
 
-pub(crate) fn view_bootstrap(ui: &mut Ui, view_model: BootstrapViewModel, app: &mut InsightApp) {
+pub(crate) fn view_bootstrap(
+    ui: &mut Ui,
+    view_model: BootstrapViewModel,
+    app: &mut InsightApp,
+    tx: &Sender<InsightCommand>,
+) {
     Panel::top("bootstr_menu").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             for i in BootstrapViewType::all() {
@@ -28,7 +34,7 @@ pub(crate) fn view_bootstrap(ui: &mut Ui, view_model: BootstrapViewModel, app: &
 
     CentralPanel::default().show_inside(ui, |ui| match view_model {
         BootstrapViewModel::BootstrapQueue(view_model) => {
-            view_bootstrap_queue(ui, view_model, app);
+            view_bootstrap_queue(ui, view_model, app, tx);
         }
         BootstrapViewModel::PeerScores(view_model) => view_peer_scores(ui, view_model),
         BootstrapViewModel::FrontierScan(view_model) => view_frontier_scan(ui, view_model, app),
@@ -39,6 +45,7 @@ pub(crate) fn view_bootstrap_queue(
     ui: &mut Ui,
     model: BootstrapQueueViewModel,
     app: &mut InsightApp,
+    tx: &Sender<InsightCommand>,
 ) {
     CentralPanel::default().show_inside(ui, |ui| {
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -84,7 +91,7 @@ pub(crate) fn view_bootstrap_queue(
                         .desired_width(300.0),
                 );
                 if ui.button("add account").clicked() {
-                    app.add_priority_account();
+                    let _ = tx.send(InsightCommand::AddAccountToBootstrapQueue);
                 }
             });
 
@@ -163,13 +170,13 @@ pub(crate) fn view_bootstrap_queue(
                         });
                         ui.horizontal(|ui| {
                             if ui.button("clear blocked accounts").clicked() {
-                                app.clear_blocked_accounts();
+                                let _ = tx.send(InsightCommand::ClearBlockedBootstrapAccounts);
                             }
                             if ui.button("verify").clicked() {
-                                app.verify_blocked_accounts();
+                                let _ = tx.send(InsightCommand::VerifyBlockedBootstrapAccounts);
                             }
                             if ui.button("print processing").clicked() {
-                                app.print_processing();
+                                let _ = tx.send(InsightCommand::PrintProcessingBootstrapBlocks);
                             }
                         });
 

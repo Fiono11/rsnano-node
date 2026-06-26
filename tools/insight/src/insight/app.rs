@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, mpsc::Receiver},
     time::Duration,
 };
 
@@ -23,6 +23,13 @@ use crate::insight::{
 };
 use rsnano_network::ChannelId;
 
+pub(crate) enum InsightCommand {
+    AddAccountToBootstrapQueue,
+    ClearBlockedBootstrapAccounts,
+    VerifyBlockedBootstrapAccounts,
+    PrintProcessingBootstrapBlocks,
+}
+
 pub(crate) struct InsightApp {
     last_update: Option<Timestamp>,
     pub clock: Arc<SteadyClock>,
@@ -42,10 +49,11 @@ pub(crate) struct InsightApp {
     pub representatives: Vec<RepresentativeViewModel>,
     pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
+    rx: Receiver<InsightCommand>,
 }
 
 impl InsightApp {
-    pub fn new() -> Self {
+    pub fn new(rx: Receiver<InsightCommand>) -> Self {
         let clock = Arc::new(SteadyClock::default());
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let msg_recorder = Arc::new(MessageRecorder::new(messages.clone()));
@@ -53,6 +61,7 @@ impl InsightApp {
         let rep_names = well_known_rep_names();
         let channels = Channels::new(messages.clone(), rep_names.clone());
         Self {
+            rx,
             clock,
             messages,
             msg_recorder,
@@ -84,10 +93,11 @@ impl InsightApp {
     }
 
     pub(crate) fn update(&mut self) -> bool {
-        let now = self.clock.now();
-        if let Some(last_update) = self.last_update
-            && now - last_update < Duration::from_millis(500)
-        {
+        while let Ok(cmd) = self.rx.try_recv() {
+            self.process_command(cmd);
+        }
+
+        if !self.should_update() {
             return false;
         }
 
@@ -101,7 +111,8 @@ impl InsightApp {
                     .update(channels, telemetries, s, min_rep_weight);
             });
             self.snapshot = snapshot;
-            self.frontier_scan.update(&node.bootstrapper, now);
+            self.frontier_scan
+                .update(&node.bootstrapper, self.clock.now());
             self.bootstrap.update(&node.bootstrapper);
             self.election_details = self.selected_election.as_ref().and_then(|root| {
                 let node = self.node_runner.node()?;
@@ -125,16 +136,18 @@ impl InsightApp {
                 .sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
         }
 
-        self.last_update = Some(now);
         true
     }
 
-    pub(crate) fn add_priority_account(&mut self) {
-        if let Some(account) = Account::parse(&self.bootstrap.add_account) {
-            self.bootstrap.add_account.clear();
-            if let Some(node) = self.node_runner.node() {
-                node.bootstrapper.enqueue(account);
-            }
+    fn should_update(&mut self) -> bool {
+        let now = self.clock.now();
+        if let Some(last_update) = self.last_update
+            && now - last_update < Duration::from_millis(500)
+        {
+            false
+        } else {
+            self.last_update = Some(now);
+            true
         }
     }
 
@@ -143,24 +156,6 @@ impl InsightApp {
             && let Some(node) = self.node_runner.node()
         {
             let _ = node.ledger.roll_back(&hash);
-        }
-    }
-
-    pub fn clear_blocked_accounts(&self) {
-        if let Some(node) = self.node_runner.node() {
-            node.bootstrapper.clear_blocked_accounts();
-        }
-    }
-
-    pub fn verify_blocked_accounts(&self) {
-        if let Some(node) = self.node_runner.node() {
-            node.bootstrapper.verify_blocked_accounts();
-        }
-    }
-
-    pub fn print_processing(&self) {
-        if let Some(node) = self.node_runner.node() {
-            node.bootstrapper.print_processing();
         }
     }
 
@@ -179,6 +174,42 @@ impl InsightApp {
 
     pub fn bootstrap_view(&self) -> BootstrapViewType {
         self.bootstrap_view_type
+    }
+
+    fn process_command(&mut self, cmd: InsightCommand) {
+        match cmd {
+            InsightCommand::AddAccountToBootstrapQueue => self.add_priority_account(),
+            InsightCommand::ClearBlockedBootstrapAccounts => self.clear_blocked_accounts(),
+            InsightCommand::VerifyBlockedBootstrapAccounts => self.verify_blocked_accounts(),
+            InsightCommand::PrintProcessingBootstrapBlocks => self.print_processing(),
+        }
+    }
+
+    fn add_priority_account(&mut self) {
+        if let Some(account) = Account::parse(&self.bootstrap.add_account) {
+            self.bootstrap.add_account.clear();
+            if let Some(node) = self.node_runner.node() {
+                node.bootstrapper.enqueue(account);
+            }
+        }
+    }
+
+    fn clear_blocked_accounts(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.clear_blocked_accounts();
+        }
+    }
+
+    fn verify_blocked_accounts(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.verify_blocked_accounts();
+        }
+    }
+
+    fn print_processing(&self) {
+        if let Some(node) = self.node_runner.node() {
+            node.bootstrapper.print_processing();
+        }
     }
 }
 

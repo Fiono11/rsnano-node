@@ -14,7 +14,7 @@ use super::{
     view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::insight::{
-    app::InsightApp,
+    app::{InsightApp, InsightCommand},
     bootstrap::BootstrapViewType,
     explorer::ExplorerState,
     gui::{
@@ -28,15 +28,19 @@ use crate::insight::{
     },
     navigator::NavItem,
 };
+use std::sync::mpsc::Sender;
 
 pub(crate) struct MainView {
     model: MainViewModel,
+    tx: Sender<InsightCommand>,
 }
 
 impl MainView {
     pub(crate) fn new() -> Self {
-        let model = MainViewModel::new();
-        Self { model }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let app = InsightApp::new(rx);
+        let model = MainViewModel::new(app);
+        Self { model, tx }
     }
 }
 
@@ -57,7 +61,12 @@ impl MainView {
 
     fn view_tabs(&mut self, ui: &mut Ui) {
         Panel::top("tabs_panel").show_inside(ui, |ui| {
-            view_tabs(ui, &self.model.tabs(), &mut self.model.app.navigator);
+            view_tabs(
+                ui,
+                &self.model.tabs(),
+                &mut self.model.app.navigator,
+                &self.tx,
+            );
         });
     }
 
@@ -95,7 +104,9 @@ impl eframe::App for MainView {
                     view_elections(ui, self.model.elections(), &mut self.model.app)
                 }
             }
-            NavItem::Bootstrap => view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app),
+            NavItem::Bootstrap => {
+                view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
+            }
             NavItem::Explorer => {
                 ExplorerView::new(&self.model.explorer(), &mut self.model.app).show(ui)
             }
@@ -122,12 +133,7 @@ pub(crate) struct MainViewModel {
 }
 
 impl MainViewModel {
-    pub(crate) fn new() -> Self {
-        let app = InsightApp::new();
-        Self::for_app(app)
-    }
-
-    pub(crate) fn for_app(app: InsightApp) -> Self {
+    pub(crate) fn new(app: InsightApp) -> Self {
         let message_table = MessageTableViewModel::new(app.messages.clone());
 
         Self {
