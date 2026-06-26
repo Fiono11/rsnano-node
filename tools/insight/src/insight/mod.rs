@@ -1,4 +1,5 @@
 mod app;
+mod block_processor;
 mod bootstrap;
 mod channels;
 mod explorer;

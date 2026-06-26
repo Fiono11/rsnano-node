@@ -95,7 +95,7 @@ impl eframe::App for MainView {
             NavItem::Messages => view_message_tab(ui, &mut self.model),
             NavItem::Queues => view_queues(ui, self.model.queue_groups()),
             NavItem::Representatives => view_representatives(ui, self.model.representatives()),
-            NavItem::BlockProcessor => view_block_processor(ui),
+            NavItem::BlockProcessor => view_block_processor(ui, &self.model.app.block_processor),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
                     view_election_details(ui, details, &self.tx)
@@ -106,9 +106,7 @@ impl eframe::App for MainView {
             NavItem::Bootstrap => {
                 view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
             }
-            NavItem::Explorer => {
-                ExplorerView::new(&mut self.model.app.explorer_model, &self.tx).show(ui)
-            }
+            NavItem::Explorer => ExplorerView::new(&mut self.model.app.explorer, &self.tx).show(ui),
         }
 
         // Repaint to show the continuously increasing current block and message counters

@@ -3,6 +3,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicU8, Ordering},
+        mpsc::Sender,
     },
 };
 
@@ -11,7 +12,7 @@ use num_derive::FromPrimitive;
 use tracing::error;
 
 use rsnano_daemon::DaemonBuilder;
-use rsnano_node::{Node, working_path_for};
+use rsnano_node::{Node, NodeEvent, working_path_for};
 use rsnano_types::NetworkType;
 
 use crate::insight::node_callbacks::NodeCallbackFactory;
@@ -31,10 +32,14 @@ pub(crate) struct NodeRunner {
     state: Arc<AtomicU8>,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
     callback_factory: NodeCallbackFactory,
+    tx_node_ev: Sender<NodeEvent>,
 }
 
 impl NodeRunner {
-    pub(crate) fn new(callback_factory: NodeCallbackFactory) -> Self {
+    pub(crate) fn new(
+        callback_factory: NodeCallbackFactory,
+        tx_node_ev: Sender<NodeEvent>,
+    ) -> Self {
         let mut runner = Self {
             network: NetworkType::Invalid,
             data_path: String::new(),
@@ -42,16 +47,9 @@ impl NodeRunner {
             state: Arc::new(AtomicU8::new(NodeState::Stopped as u8)),
             stop: None,
             callback_factory,
+            tx_node_ev,
         };
         runner.set_network(NetworkType::NanoLiveNetwork);
-        runner
-    }
-
-    #[allow(dead_code)]
-    pub fn new_null_with(node: Arc<Node>) -> Self {
-        let runner = Self::new(NodeCallbackFactory::new_null());
-        *runner.node.lock().unwrap() = Some(node);
-        runner.set_state(NodeState::Started);
         runner
     }
 
@@ -74,6 +72,7 @@ impl NodeRunner {
         let state2 = self.state.clone();
         let data_path: PathBuf = self.data_path.clone().into();
         let network = self.network;
+        let tx = self.tx_node_ev.clone();
         let callbacks = self.callback_factory.make_node_callbacks();
 
         std::thread::spawn(move || {
@@ -90,6 +89,9 @@ impl NodeRunner {
                 .data_path(data_path)
                 .callbacks(callbacks)
                 .on_node_started(on_started)
+                .on_node_event(move |ev| {
+                    let _ = tx.send(ev.clone());
+                })
                 .run(shutdown_signal)
             {
                 error!("Error running node: {:?}", e);
@@ -147,18 +149,5 @@ impl Drop for NodeRunner {
         if let Some(tx_stop) = self.stop.take() {
             let _ = tx_stop.send(());
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn can_be_nulled() {
-        let node = Arc::new(Node::new_null());
-        let runner = NodeRunner::new_null_with(node.clone());
-        assert!(Arc::ptr_eq(&node, &runner.node().unwrap()));
-        assert_eq!(runner.state(), NodeState::Started);
     }
 }

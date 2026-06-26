@@ -2,16 +2,16 @@ mod http_callbacks;
 
 use http_callbacks::HttpCallbacks;
 use rsnano_node::{
-    CompositeNodeEventHandler, Node, NodeBuilder, NodeCallbacks,
     config::{DaemonConfig, NetworkType, NodeFlags},
+    CompositeNodeEventHandler, Node, NodeBuilder, NodeCallbacks, NodeEvent, NodeEventHandler,
 };
-use rsnano_rpc_server::{RpcServerConfig, run_rpc_server};
+use rsnano_rpc_server::{run_rpc_server, RpcServerConfig};
 use rsnano_utils::get_cpu_count;
-use rsnano_websocket_server::{WebsocketListenerExt, create_websocket_server};
+use rsnano_websocket_server::{create_websocket_server, WebsocketListenerExt};
 use std::{
     future::Future,
     path::PathBuf,
-    sync::{Arc, mpsc::sync_channel},
+    sync::{mpsc::sync_channel, Arc},
     thread::available_parallelism,
 };
 use tokio::{net::TcpListener, sync::oneshot};
@@ -21,6 +21,7 @@ pub struct DaemonBuilder {
     network: NetworkType,
     node_builder: NodeBuilder,
     node_started: Option<Box<dyn FnMut(Arc<Node>) + Send>>,
+    event_handler: Option<Box<dyn FnMut(&NodeEvent) + Send>>,
 }
 
 impl DaemonBuilder {
@@ -29,6 +30,7 @@ impl DaemonBuilder {
             network,
             node_builder: NodeBuilder::new(network),
             node_started: None,
+            event_handler: None,
         }
     }
 
@@ -52,7 +54,12 @@ impl DaemonBuilder {
         self
     }
 
-    pub fn run<F>(self, shutdown: F) -> anyhow::Result<()>
+    pub fn on_node_event(mut self, callback: impl FnMut(&NodeEvent) + Send + 'static) -> Self {
+        self.event_handler = Some(Box::new(callback));
+        self
+    }
+
+    pub fn run<F>(mut self, shutdown: F) -> anyhow::Result<()>
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -75,7 +82,7 @@ impl DaemonBuilder {
         let mut websocket_server = None;
         let mut node;
 
-        if websocket_enabled || http_callback_enabled {
+        if websocket_enabled || http_callback_enabled || self.event_handler.is_some() {
             let (ev_sender, ev_receiver) = sync_channel(1024 * 16);
             node = self.node_builder.event_sink(ev_sender).finish()?;
             let mut event_processor = CompositeNodeEventHandler::new(ev_receiver);
@@ -106,6 +113,10 @@ impl DaemonBuilder {
                     callback_url,
                 };
                 event_processor.add(http_callbacks);
+            }
+
+            if let Some(event_handler) = self.event_handler.take() {
+                event_processor.add(ForwardNodeEvent(event_handler))
             }
 
             std::thread::Builder::new()
@@ -147,6 +158,14 @@ impl DaemonBuilder {
         let node = Arc::get_mut(&mut node).expect("No exclusive access to node!");
         node.stop();
         Ok(())
+    }
+}
+
+struct ForwardNodeEvent(Box<dyn FnMut(&NodeEvent) + Send>);
+
+impl NodeEventHandler for ForwardNodeEvent {
+    fn handle(&mut self, event: &NodeEvent) {
+        (self.0)(event);
     }
 }
 

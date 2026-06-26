@@ -1641,6 +1641,7 @@ impl Node {
     }
 }
 
+#[derive(Clone)]
 pub enum NodeEvent {
     ElectionStarted(BlockHash),
     ElectionStopped(BlockHash),

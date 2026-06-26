@@ -5,11 +5,13 @@ use std::{
 };
 
 use super::snapshot::{InsightSnapshot, take_snapshot};
-use rsnano_node::{consensus::election::Election, representatives::QuorumSnapshot};
+use rsnano_network::ChannelId;
+use rsnano_node::{NodeEvent, consensus::election::Election, representatives::QuorumSnapshot};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 
 use crate::insight::{
+    block_processor::BlockProcessorViewModel,
     bootstrap::{BootstrapInfo, BootstrapViewType},
     channels::Channels,
     explorer::{ExplorerViewModel, search_ledger},
@@ -21,7 +23,6 @@ use crate::insight::{
     node_runner::NodeRunner,
     rep_names::well_known_rep_names,
 };
-use rsnano_network::ChannelId;
 
 pub(crate) enum InsightCommand {
     AddAccountToBootstrapQueue,
@@ -36,7 +37,8 @@ pub(crate) enum InsightCommand {
 }
 
 pub(crate) struct InsightApp {
-    pub explorer_model: ExplorerViewModel,
+    pub explorer: ExplorerViewModel,
+    pub block_processor: BlockProcessorViewModel,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -54,7 +56,8 @@ pub(crate) struct InsightApp {
     pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
     last_update: Option<Timestamp>,
-    rx: Receiver<InsightCommand>,
+    rx_cmd: Receiver<InsightCommand>,
+    rx_node_ev: Receiver<NodeEvent>,
 }
 
 impl InsightApp {
@@ -65,13 +68,15 @@ impl InsightApp {
         let callback_factory = NodeCallbackFactory::new(msg_recorder.clone(), clock.clone());
         let rep_names = well_known_rep_names();
         let channels = Channels::new(messages.clone(), rep_names.clone());
+        let (tx_node_ev, rx_node_ev) = std::sync::mpsc::channel::<NodeEvent>();
         Self {
-            explorer_model: Default::default(),
-            rx,
+            explorer: Default::default(),
+            block_processor: Default::default(),
+            rx_cmd: rx,
             clock,
             messages,
             msg_recorder,
-            node_runner: NodeRunner::new(callback_factory),
+            node_runner: NodeRunner::new(callback_factory, tx_node_ev),
             channels,
             navigator: Navigator::new(),
             snapshot: InsightSnapshot::default(),
@@ -84,12 +89,17 @@ impl InsightApp {
             representatives: Vec::new(),
             rep_names,
             quorum: QuorumSnapshot::new_test_instance(),
+            rx_node_ev,
         }
     }
 
     pub(crate) fn update(&mut self) -> bool {
-        while let Ok(cmd) = self.rx.try_recv() {
+        while let Ok(cmd) = self.rx_cmd.try_recv() {
             self.process_command(cmd);
+        }
+
+        while let Ok(e) = self.rx_node_ev.try_recv() {
+            self.process_node_event(e);
         }
 
         if !self.should_update() {
@@ -196,16 +206,34 @@ impl InsightApp {
 
     fn search(&mut self, input: &str) {
         if let Some(node) = self.node_runner.node() {
-            search_ledger(&node.ledger, input, &mut self.explorer_model);
+            search_ledger(&node.ledger, input, &mut self.explorer);
             self.navigator.current = NavItem::Explorer;
         }
     }
 
     fn roll_back(&self) {
-        if let Some(hash) = BlockHash::decode_hex(&self.explorer_model.rollback_hash)
+        if let Some(hash) = BlockHash::decode_hex(&self.explorer.rollback_hash)
             && let Some(node) = self.node_runner.node()
         {
             let _ = node.ledger.roll_back(&hash);
+        }
+    }
+
+    fn process_node_event(&mut self, ev: NodeEvent) {
+        match ev {
+            NodeEvent::BlocksProcessed(results) => {
+                for r in results {
+                    if r.status.is_ok() {
+                        self.block_processor
+                            .recently_processed
+                            .push_back(r.block.hash().to_string());
+                        if self.block_processor.recently_processed.len() > 20 {
+                            self.block_processor.recently_processed.pop_front();
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
