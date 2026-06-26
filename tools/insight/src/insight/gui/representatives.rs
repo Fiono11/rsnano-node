@@ -1,9 +1,8 @@
-use crate::insight::{app::RepresentativeViewModel, gui::nano_amount_string};
+use crate::insight::{gui::nano_amount_string, representatives::RepresentativesViewModel};
 use eframe::egui::{Align, CentralPanel, Layout, Ui};
 use egui_extras::{Column, TableBuilder};
-use rsnano_node::representatives::QuorumSnapshot;
 
-pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel) {
+pub(crate) fn view_representatives(ui: &mut Ui, model: &RepresentativesViewModel) {
     CentralPanel::default().show_inside(ui, |ui| {
         ui.heading("Representatives");
         ui.label(format!(
@@ -69,9 +68,4 @@ pub(crate) fn view_representatives(ui: &mut Ui, model: RepresentativesViewModel)
                 })
             });
     });
-}
-
-pub(crate) struct RepresentativesViewModel<'a> {
-    pub quorum: &'a QuorumSnapshot,
-    pub reps: &'a [RepresentativeViewModel],
 }

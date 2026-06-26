@@ -10,8 +10,8 @@ pub use snapshot::{RegisteredRepSnapshot, RepRegistrySnapshot, RepRegistrySnapsh
 
 use std::{
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -23,9 +23,9 @@ use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
-    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
+    EventHandler,
 };
 
 use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
@@ -354,7 +354,7 @@ pub struct PeeredRepInfo {
     pub weight: Amount,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct QuorumSnapshot {
     pub trended_or_min_weight: Amount,
     /// The quorum required for confirmation

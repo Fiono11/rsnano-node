@@ -4,12 +4,11 @@ use std::{
     time::Duration,
 };
 
-use super::snapshot::{InsightSnapshot, take_snapshot};
-use rsnano_network::ChannelId;
-use rsnano_node::{NodeEvent, consensus::election::Election, representatives::QuorumSnapshot};
+use rsnano_node::{NodeEvent, consensus::election::Election};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
+use rsnano_types::{Account, BlockHash, PublicKey, QualifiedRoot};
 
+use super::snapshot::{InsightSnapshot, take_snapshot};
 use crate::insight::{
     block_processor::BlockProcessorViewModel,
     bootstrap::{BootstrapInfo, BootstrapViewType},
@@ -22,6 +21,7 @@ use crate::insight::{
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
     rep_names::well_known_rep_names,
+    representatives::{RepresentativeViewModel, RepresentativesViewModel},
 };
 
 pub(crate) enum InsightCommand {
@@ -39,6 +39,7 @@ pub(crate) enum InsightCommand {
 pub(crate) struct InsightApp {
     pub explorer: ExplorerViewModel,
     pub block_processor: BlockProcessorViewModel,
+    pub representatives: RepresentativesViewModel,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -52,8 +53,6 @@ pub(crate) struct InsightApp {
     selected_election: Option<QualifiedRoot>,
     pub election_details: Option<Election>,
     bootstrap_view_type: BootstrapViewType,
-    pub representatives: Vec<RepresentativeViewModel>,
-    pub quorum: QuorumSnapshot,
     rep_names: HashMap<PublicKey, &'static str>,
     last_update: Option<Timestamp>,
     rx_cmd: Receiver<InsightCommand>,
@@ -86,9 +85,8 @@ impl InsightApp {
             selected_election: None,
             election_details: None,
             bootstrap_view_type: BootstrapViewType::BootstrapQueue,
-            representatives: Vec::new(),
+            representatives: Default::default(),
             rep_names,
-            quorum: QuorumSnapshot::new_test_instance(),
             rx_node_ev,
         }
     }
@@ -123,9 +121,10 @@ impl InsightApp {
                 let node = self.node_runner.node()?;
                 node.aec.election_for_root(root)
             });
-            self.representatives = node.rep_tracker.with_snapshot(|s| {
-                self.quorum = s.quorum().clone();
-                s.iter()
+            node.rep_tracker.with_snapshot(|s| {
+                self.representatives.quorum = s.quorum().clone();
+                self.representatives.reps = s
+                    .iter()
                     .map(|rep| {
                         let name = self.rep_names.get(&rep.public_key).unwrap_or(&"");
                         RepresentativeViewModel {
@@ -138,6 +137,7 @@ impl InsightApp {
                     .collect()
             });
             self.representatives
+                .reps
                 .sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
         }
 
@@ -236,11 +236,4 @@ impl InsightApp {
             _ => {}
         }
     }
-}
-
-pub(crate) struct RepresentativeViewModel {
-    pub account: Account,
-    pub name: &'static str,
-    pub weight: Amount,
-    pub channel: Option<ChannelId>,
 }

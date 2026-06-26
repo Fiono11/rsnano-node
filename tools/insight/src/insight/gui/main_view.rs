@@ -1,3 +1,5 @@
+use std::sync::mpsc::Sender;
+
 use eframe::egui::{
     self, CentralPanel, Panel, Ui, global_theme_preference_switch, warn_if_debug_build,
 };
@@ -23,11 +25,10 @@ use crate::insight::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             RepVoteViewModel, view_election_details, view_elections,
         },
-        representatives::{RepresentativesViewModel, view_representatives},
+        representatives::view_representatives,
     },
     navigator::NavItem,
 };
-use std::sync::mpsc::Sender;
 
 pub(crate) struct MainView {
     model: MainViewModel,
@@ -94,7 +95,7 @@ impl eframe::App for MainView {
             NavItem::Peers => view_peers(ui, self.model.channels()),
             NavItem::Messages => view_message_tab(ui, &mut self.model),
             NavItem::Queues => view_queues(ui, self.model.queue_groups()),
-            NavItem::Representatives => view_representatives(ui, self.model.representatives()),
+            NavItem::Representatives => view_representatives(ui, &self.model.app.representatives),
             NavItem::BlockProcessor => view_block_processor(ui, &self.model.app.block_processor),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
@@ -215,13 +216,6 @@ impl MainViewModel {
         ]
     }
 
-    pub fn representatives(&self) -> RepresentativesViewModel<'_> {
-        RepresentativesViewModel {
-            quorum: &self.app.quorum,
-            reps: &self.app.representatives,
-        }
-    }
-
     pub fn bootstrap(&self) -> BootstrapDetails {
         match self.app.bootstrap_view() {
             BootstrapViewType::BootstrapQueue => {
@@ -317,6 +311,7 @@ impl MainViewModel {
                 non_final_votes: self
                     .app
                     .representatives
+                    .reps
                     .iter()
                     .map(|r| RepVoteViewModel {
                         rep: if r.name.is_empty() {
