@@ -3,7 +3,11 @@ use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
 use rsnano_types::{Amount, QualifiedRoot};
 
-use crate::insight::{app::InsightApp, gui::nano_amount_string};
+use crate::insight::{
+    app::{InsightApp, InsightCommand},
+    gui::nano_amount_string,
+};
+use std::sync::mpsc::Sender;
 
 pub(crate) fn view_elections(ui: &mut Ui, model: ElectionsViewModel, app: &mut InsightApp) {
     CentralPanel::default().show_inside(ui, |ui| {
@@ -42,12 +46,12 @@ fn view_bucket_column(ui: &mut Ui, buckets: Vec<BucketViewModel>, app: &mut Insi
 pub(crate) fn view_election_details(
     ui: &mut Ui,
     model: ElectionDetailsViewModel,
-    app: &mut InsightApp,
+    tx: &Sender<InsightCommand>,
 ) {
     CentralPanel::default().show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             if ui.link("Elections").clicked() {
-                app.close_election();
+                let _ = tx.send(InsightCommand::CloseElection);
             };
             ui.label(" > ");
             ui.label(&model.winner_hash);

@@ -17,27 +17,27 @@ use std::sync::mpsc::Sender;
 
 pub(crate) fn view_bootstrap(
     ui: &mut Ui,
-    view_model: BootstrapViewModel,
+    details: BootstrapDetails,
     app: &mut InsightApp,
     tx: &Sender<InsightCommand>,
 ) {
     Panel::top("bootstr_menu").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             for i in BootstrapViewType::all() {
-                let selected = i == view_model.view_type();
+                let selected = i == details.view_type();
                 if ui.selectable_label(selected, i.as_str()).clicked() {
-                    app.select_bootstrap_view(i);
+                    let _ = tx.send(InsightCommand::NavigateBootstrap(i));
                 };
             }
         });
     });
 
-    CentralPanel::default().show_inside(ui, |ui| match view_model {
-        BootstrapViewModel::BootstrapQueue(view_model) => {
+    CentralPanel::default().show_inside(ui, |ui| match details {
+        BootstrapDetails::BootstrapQueue(view_model) => {
             view_bootstrap_queue(ui, view_model, app, tx);
         }
-        BootstrapViewModel::PeerScores(view_model) => view_peer_scores(ui, view_model),
-        BootstrapViewModel::FrontierScan(view_model) => view_frontier_scan(ui, view_model, app),
+        BootstrapDetails::PeerScores(view_model) => view_peer_scores(ui, view_model),
+        BootstrapDetails::FrontierScan(view_model) => view_frontier_scan(ui, view_model, tx),
     });
 }
 
@@ -228,17 +228,17 @@ pub(crate) fn view_bootstrap_queue(
     });
 }
 
-pub enum BootstrapViewModel {
+pub enum BootstrapDetails {
     BootstrapQueue(BootstrapQueueViewModel),
     PeerScores(PeerScoresViewModel),
     FrontierScan(FrontierScanViewModel),
 }
-impl BootstrapViewModel {
+impl BootstrapDetails {
     fn view_type(&self) -> BootstrapViewType {
         match self {
-            BootstrapViewModel::BootstrapQueue(_) => BootstrapViewType::BootstrapQueue,
-            BootstrapViewModel::PeerScores(_) => BootstrapViewType::PeerScores,
-            BootstrapViewModel::FrontierScan(_) => BootstrapViewType::FrontierScan,
+            BootstrapDetails::BootstrapQueue(_) => BootstrapViewType::BootstrapQueue,
+            BootstrapDetails::PeerScores(_) => BootstrapViewType::PeerScores,
+            BootstrapDetails::FrontierScan(_) => BootstrapViewType::FrontierScan,
         }
     }
 }

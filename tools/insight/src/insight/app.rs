@@ -28,6 +28,10 @@ pub(crate) enum InsightCommand {
     ClearBlockedBootstrapAccounts,
     VerifyBlockedBootstrapAccounts,
     PrintProcessingBootstrapBlocks,
+    Search(String),
+    NavigateBootstrap(BootstrapViewType),
+    CloseElection,
+    RollBack,
 }
 
 pub(crate) struct InsightApp {
@@ -80,15 +84,6 @@ impl InsightApp {
             representatives: Vec::new(),
             rep_names,
             quorum: QuorumSnapshot::new_test_instance(),
-        }
-    }
-
-    pub fn search(&mut self, input: &str) {
-        if let Some(node) = self.node_runner.node() {
-            let has_result = self.explorer.search(&node.ledger, input);
-            if has_result {
-                self.navigator.current = NavItem::Explorer;
-            }
         }
     }
 
@@ -151,25 +146,8 @@ impl InsightApp {
         }
     }
 
-    pub(crate) fn roll_back(&self) {
-        if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
-            && let Some(node) = self.node_runner.node()
-        {
-            let _ = node.ledger.roll_back(&hash);
-        }
-    }
-
     pub fn show_election(&mut self, root: QualifiedRoot) {
         self.selected_election = Some(root);
-    }
-
-    pub fn close_election(&mut self) {
-        self.selected_election = None;
-        self.election_details = None;
-    }
-
-    pub fn select_bootstrap_view(&mut self, view_type: BootstrapViewType) {
-        self.bootstrap_view_type = view_type;
     }
 
     pub fn bootstrap_view(&self) -> BootstrapViewType {
@@ -182,6 +160,13 @@ impl InsightApp {
             InsightCommand::ClearBlockedBootstrapAccounts => self.clear_blocked_accounts(),
             InsightCommand::VerifyBlockedBootstrapAccounts => self.verify_blocked_accounts(),
             InsightCommand::PrintProcessingBootstrapBlocks => self.print_processing(),
+            InsightCommand::Search(s) => self.search(&s),
+            InsightCommand::NavigateBootstrap(view_type) => self.bootstrap_view_type = view_type,
+            InsightCommand::CloseElection => {
+                self.selected_election = None;
+                self.election_details = None;
+            }
+            InsightCommand::RollBack => self.roll_back(),
         }
     }
 
@@ -209,6 +194,23 @@ impl InsightApp {
     fn print_processing(&self) {
         if let Some(node) = self.node_runner.node() {
             node.bootstrapper.print_processing();
+        }
+    }
+
+    fn search(&mut self, input: &str) {
+        if let Some(node) = self.node_runner.node() {
+            let has_result = self.explorer.search(&node.ledger, input);
+            if has_result {
+                self.navigator.current = NavItem::Explorer;
+            }
+        }
+    }
+
+    fn roll_back(&self) {
+        if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
+            && let Some(node) = self.node_runner.node()
+        {
+            let _ = node.ledger.roll_back(&hash);
         }
     }
 }

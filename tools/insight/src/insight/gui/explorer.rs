@@ -1,16 +1,22 @@
 use eframe::egui::{CentralPanel, Grid, TextEdit, Ui};
 use rsnano_types::DetailedBlock;
 
-use crate::insight::app::InsightApp;
+use crate::insight::app::{InsightApp, InsightCommand};
+use std::sync::mpsc::Sender;
 
 pub(crate) struct ExplorerView<'a> {
     model: &'a BlockViewModel,
     app: &'a mut InsightApp,
+    tx: &'a Sender<InsightCommand>,
 }
 
 impl<'a> ExplorerView<'a> {
-    pub(crate) fn new(model: &'a BlockViewModel, app: &'a mut InsightApp) -> Self {
-        Self { model, app }
+    pub(crate) fn new(
+        model: &'a BlockViewModel,
+        app: &'a mut InsightApp,
+        tx: &'a Sender<InsightCommand>,
+    ) -> Self {
+        Self { model, app, tx }
     }
 
     pub fn show(&mut self, ui: &mut Ui) {
@@ -22,7 +28,7 @@ impl<'a> ExplorerView<'a> {
                         .hint_text("hash..."),
                 );
                 if ui.button("roll back block!").clicked() {
-                    self.app.roll_back();
+                    let _ = self.tx.send(InsightCommand::RollBack);
                 }
             });
             ui.heading(format!("Block {}", self.model.hash));
@@ -30,7 +36,9 @@ impl<'a> ExplorerView<'a> {
             Grid::new("block_grid").num_columns(2).show(ui, |ui| {
                 ui.label("Destination: ");
                 if ui.link(&self.model.destination).clicked() {
-                    self.app.search(&self.model.destination);
+                    let _ = self
+                        .tx
+                        .send(InsightCommand::Search(self.model.destination.clone()));
                 }
                 ui.end_row();
 

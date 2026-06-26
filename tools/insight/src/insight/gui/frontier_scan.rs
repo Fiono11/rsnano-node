@@ -3,22 +3,27 @@ use egui_extras::{Size, StripBuilder};
 
 use rsnano_types::Account;
 
-use crate::insight::{app::InsightApp, frontier_scan::FrontierScanInfo};
+use crate::insight::{app::InsightCommand, frontier_scan::FrontierScanInfo};
 
 use super::formatted_number;
+use std::sync::mpsc::Sender;
 
-pub(crate) fn view_frontier_scan(ui: &mut Ui, model: FrontierScanViewModel, app: &mut InsightApp) {
-    FrontierScanView::new(model, app).show(ui)
+pub(crate) fn view_frontier_scan(
+    ui: &mut Ui,
+    model: FrontierScanViewModel,
+    tx: &Sender<InsightCommand>,
+) {
+    FrontierScanView::new(model, tx).show(ui)
 }
 
 struct FrontierScanView<'a> {
     model: FrontierScanViewModel,
-    app: &'a mut InsightApp,
+    tx: &'a Sender<InsightCommand>,
 }
 
 impl<'a> FrontierScanView<'a> {
-    fn new(model: FrontierScanViewModel, app: &'a mut InsightApp) -> Self {
-        Self { model, app }
+    fn new(model: FrontierScanViewModel, tx: &'a Sender<InsightCommand>) -> Self {
+        Self { model, tx }
     }
 
     fn show(self, ui: &mut Ui) {
@@ -63,7 +68,7 @@ impl<'a> FrontierScanView<'a> {
                 ui.heading("Outdated accounts found:");
                 for account in self.model.outdated_accounts {
                     if ui.link(account.clone()).clicked() {
-                        self.app.search(&account);
+                        let _ = self.tx.send(InsightCommand::Search(account));
                     }
                 }
             });

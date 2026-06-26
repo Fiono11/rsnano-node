@@ -19,7 +19,7 @@ use crate::insight::{
     explorer::ExplorerState,
     gui::{
         QueueViewModel,
-        bootstrap::{BootstrapViewModel, PeerScoresViewModel},
+        bootstrap::{BootstrapDetails, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             RepVoteViewModel, view_election_details, view_elections,
@@ -53,7 +53,7 @@ impl MainView {
                 ui.separator();
                 view_message_recorder_controls(ui, &self.model.app.msg_recorder);
                 ui.separator();
-                view_search_bar(ui, &mut self.model.search_input, &mut self.model.app);
+                view_search_bar(ui, &mut self.model.search_input, &self.tx);
             });
             ui.add_space(1.0);
         });
@@ -99,7 +99,7 @@ impl eframe::App for MainView {
             NavItem::BlockProcessor => view_block_processor(ui),
             NavItem::Elections => {
                 if let Some(details) = self.model.election_details() {
-                    view_election_details(ui, details, &mut self.model.app)
+                    view_election_details(ui, details, &self.tx)
                 } else {
                     view_elections(ui, self.model.elections(), &mut self.model.app)
                 }
@@ -108,7 +108,7 @@ impl eframe::App for MainView {
                 view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
             }
             NavItem::Explorer => {
-                ExplorerView::new(&self.model.explorer(), &mut self.model.app).show(ui)
+                ExplorerView::new(&self.model.explorer(), &mut self.model.app, &self.tx).show(ui)
             }
         }
 
@@ -225,7 +225,7 @@ impl MainViewModel {
         }
     }
 
-    pub fn bootstrap(&self) -> BootstrapViewModel {
+    pub fn bootstrap(&self) -> BootstrapDetails {
         match self.app.bootstrap_view() {
             BootstrapViewType::BootstrapQueue => {
                 let download_queue = self
@@ -256,7 +256,7 @@ impl MainViewModel {
                     .collect();
 
                 let info = &self.app.bootstrap.snapshot.info;
-                BootstrapViewModel::BootstrapQueue(BootstrapQueueViewModel {
+                BootstrapDetails::BootstrapQueue(BootstrapQueueViewModel {
                     download_queue_len: formatted_number(info.download_queue),
                     downloading_count: formatted_number(info.downloading),
                     blocked_accounts: formatted_number(info.blocked),
@@ -272,12 +272,10 @@ impl MainViewModel {
                     blocked,
                 })
             }
-            BootstrapViewType::PeerScores => BootstrapViewModel::PeerScores(PeerScoresViewModel {
+            BootstrapViewType::PeerScores => BootstrapDetails::PeerScores(PeerScoresViewModel {
                 peers: self.app.snapshot.peer_scores.clone(),
             }),
-            BootstrapViewType::FrontierScan => {
-                BootstrapViewModel::FrontierScan(self.frontier_scan())
-            }
+            BootstrapViewType::FrontierScan => BootstrapDetails::FrontierScan(self.frontier_scan()),
         }
     }
 
