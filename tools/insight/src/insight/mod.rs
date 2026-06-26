@@ -13,6 +13,7 @@ mod navigator;
 mod node_callbacks;
 mod node_runner;
 mod nullable_runtime;
+mod queues;
 mod rep_names;
 mod representatives;
 mod snapshot;

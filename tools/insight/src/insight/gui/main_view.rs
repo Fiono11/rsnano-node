@@ -9,7 +9,6 @@ use rsnano_types::Amount;
 
 use super::{
     ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageTableViewModel,
-    QueueGroupViewModel,
     block_processor::view_block_processor,
     bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
     formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
@@ -19,7 +18,6 @@ use crate::insight::{
     app::{InsightApp, InsightCommand},
     bootstrap::BootstrapViewType,
     gui::{
-        QueueViewModel,
         bootstrap::{BootstrapDetails, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
@@ -30,6 +28,7 @@ use crate::insight::{
         vote_cache::view_vote_cache,
     },
     navigator::NavItem,
+    queues::QueueGroupViewModel,
 };
 
 pub(crate) struct MainView {
@@ -91,7 +90,7 @@ impl eframe::App for MainView {
         match self.model.app.current_tab {
             NavItem::Peers => view_peers(ui, self.model.channels()),
             NavItem::Messages => view_message_tab(ui, &mut self.model),
-            NavItem::Queues => view_queues(ui, self.model.queue_groups()),
+            NavItem::Queues => view_queues(ui, &self.model.app.queue_groups),
             NavItem::Representatives => view_representatives(ui, &self.model.app.representatives),
             NavItem::BlockProcessor => view_block_processor(ui, &self.model.app.block_processor),
             NavItem::Elections => {
@@ -113,7 +112,7 @@ impl eframe::App for MainView {
     }
 }
 
-fn view_queues(ui: &mut Ui, groups: Vec<QueueGroupViewModel>) {
+fn view_queues(ui: &mut Ui, groups: &[QueueGroupViewModel]) {
     CentralPanel::default().show_inside(ui, |ui| {
         for group in groups {
             view_queue_group(ui, group);
@@ -149,52 +148,6 @@ impl MainViewModel {
 
     pub(crate) fn channels(&mut self) -> ChannelsViewModel<'_> {
         ChannelsViewModel::new(&mut self.app.channels)
-    }
-
-    pub(crate) fn queue_groups(&self) -> Vec<QueueGroupViewModel> {
-        vec![
-            QueueGroupViewModel {
-                heading: "Active Elections".to_string(),
-                queues: vec![
-                    QueueViewModel::new(
-                        "Priority",
-                        self.app.snapshot.aec_info.priority,
-                        self.app.snapshot.aec_info.max_elections,
-                    ),
-                    QueueViewModel::new(
-                        "Hinted",
-                        self.app.snapshot.aec_info.hinted,
-                        self.app.snapshot.max_hinted,
-                    ),
-                    QueueViewModel::new(
-                        "Optimistic",
-                        self.app.snapshot.aec_info.optimistic,
-                        self.app.snapshot.max_optimistic,
-                    ),
-                    QueueViewModel::new(
-                        "Total",
-                        self.app.snapshot.aec_info.total,
-                        self.app.snapshot.aec_info.max_elections,
-                    ),
-                ],
-            },
-            QueueGroupViewModel::for_fair_queue(
-                "Block Processor",
-                &self.app.snapshot.block_processor_info,
-            ),
-            QueueGroupViewModel::for_fair_queue(
-                "Vote Processor",
-                &self.app.snapshot.vote_processor_info,
-            ),
-            QueueGroupViewModel {
-                heading: "Miscellaneous".to_string(),
-                queues: vec![QueueViewModel::new(
-                    "Confirming",
-                    self.app.snapshot.confirming_set.size,
-                    self.app.snapshot.confirming_set.max_size,
-                )],
-            },
-        ]
     }
 
     pub fn bootstrap(&self) -> BootstrapDetails {

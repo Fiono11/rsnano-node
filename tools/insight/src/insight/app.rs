@@ -21,6 +21,7 @@ use crate::insight::{
     navigator::{NAV_ORDER, NavItem, TabViewModel},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
+    queues::{QueueGroupViewModel, QueueViewModel},
     rep_names::well_known_rep_names,
     representatives::{RepresentativeViewModel, RepresentativesViewModel},
     vote_cache::{VoteCacheViewModel, VoteViewModel},
@@ -47,6 +48,7 @@ pub(crate) struct InsightApp {
     pub current_tab: NavItem,
     pub vote_cache: VoteCacheViewModel,
     pub message_stats: MessageStatsViewModel,
+    pub queue_groups: Vec<QueueGroupViewModel>,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -90,6 +92,7 @@ impl InsightApp {
             current_tab: NavItem::Peers,
             vote_cache: Default::default(),
             message_stats: Default::default(),
+            queue_groups: Vec::new(),
             tabs,
             rx_cmd: rx,
             clock,
@@ -131,6 +134,46 @@ impl InsightApp {
                 self.msg_recorder.rates.receive_rate.load(Ordering::Relaxed);
             self.vote_cache.cached_blocks = node.vote_cache.len();
             self.vote_cache.block_votes.clear();
+
+            self.queue_groups.clear();
+            self.queue_groups.push(QueueGroupViewModel {
+                heading: "Active Elections".to_string(),
+                queues: vec![
+                    QueueViewModel::new(
+                        "Priority",
+                        snapshot.aec_info.priority,
+                        snapshot.aec_info.max_elections,
+                    ),
+                    QueueViewModel::new("Hinted", snapshot.aec_info.hinted, snapshot.max_hinted),
+                    QueueViewModel::new(
+                        "Optimistic",
+                        snapshot.aec_info.optimistic,
+                        snapshot.max_optimistic,
+                    ),
+                    QueueViewModel::new(
+                        "Total",
+                        snapshot.aec_info.total,
+                        snapshot.aec_info.max_elections,
+                    ),
+                ],
+            });
+            self.queue_groups.push(QueueGroupViewModel::for_fair_queue(
+                "Block Processor",
+                &snapshot.block_processor_info,
+            ));
+            self.queue_groups.push(QueueGroupViewModel::for_fair_queue(
+                "Vote Processor",
+                &snapshot.vote_processor_info,
+            ));
+            self.queue_groups.push(QueueGroupViewModel {
+                heading: "Miscellaneous".to_string(),
+                queues: vec![QueueViewModel::new(
+                    "Confirming",
+                    snapshot.confirming_set.size,
+                    snapshot.confirming_set.max_size,
+                )],
+            });
+
             if let Some(block_hash) = BlockHash::decode_hex(&self.vote_cache.search) {
                 let votes = node.vote_cache.get(&block_hash);
                 let rep_weights = node.ledger.rep_weights.read();
