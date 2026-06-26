@@ -6,6 +6,41 @@ use strum::IntoEnumIterator;
 use rsnano_utils::fair_queue::{FairQueueInfo, QueueInfo};
 
 use crate::insight::gui::PaletteColor;
+use rsnano_node::Node;
+
+pub(crate) fn create_queue_groups(node: &Node) -> Vec<QueueGroupViewModel> {
+    let aec_info = node.aec.info();
+    let confirming_set = node.confirming_set.info();
+    vec![
+        QueueGroupViewModel {
+            heading: "Active Elections".to_string(),
+            queues: vec![
+                QueueViewModel::new("Priority", aec_info.priority, aec_info.max_elections),
+                QueueViewModel::new(
+                    "Hinted",
+                    aec_info.hinted,
+                    node.election_schedulers.hinted.max_elections,
+                ),
+                QueueViewModel::new(
+                    "Optimistic",
+                    aec_info.optimistic,
+                    node.election_schedulers.optimistic.max_elections(),
+                ),
+                QueueViewModel::new("Total", aec_info.total, aec_info.max_elections),
+            ],
+        },
+        QueueGroupViewModel::for_fair_queue("Block Processor", &node.block_processor_queue.info()),
+        QueueGroupViewModel::for_fair_queue("Vote Processor", &node.vote_processor_queue.info()),
+        QueueGroupViewModel {
+            heading: "Miscellaneous".to_string(),
+            queues: vec![QueueViewModel::new(
+                "Confirming",
+                confirming_set.size,
+                confirming_set.max_size,
+            )],
+        },
+    ]
+}
 
 pub(crate) struct QueueGroupViewModel {
     pub heading: String,

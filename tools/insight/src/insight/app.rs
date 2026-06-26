@@ -21,7 +21,7 @@ use crate::insight::{
     navigator::{NAV_ORDER, NavItem, TabViewModel},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
-    queues::{QueueGroupViewModel, QueueViewModel},
+    queues::{QueueGroupViewModel, create_queue_groups},
     rep_names::well_known_rep_names,
     representatives::{RepresentativeViewModel, RepresentativesViewModel},
     vote_cache::{VoteCacheViewModel, VoteViewModel},
@@ -60,7 +60,7 @@ pub(crate) struct InsightApp {
     pub bootstrap: BootstrapInfo,
     selected_election: Option<QualifiedRoot>,
     pub election_details: Option<Election>,
-    bootstrap_view_type: BootstrapViewType,
+    pub bootstrap_view_type: BootstrapViewType,
     rep_names: HashMap<PublicKey, &'static str>,
     last_update: Option<Timestamp>,
     rx_cmd: Receiver<InsightCommand>,
@@ -134,45 +134,7 @@ impl InsightApp {
                 self.msg_recorder.rates.receive_rate.load(Ordering::Relaxed);
             self.vote_cache.cached_blocks = node.vote_cache.len();
             self.vote_cache.block_votes.clear();
-
-            self.queue_groups.clear();
-            self.queue_groups.push(QueueGroupViewModel {
-                heading: "Active Elections".to_string(),
-                queues: vec![
-                    QueueViewModel::new(
-                        "Priority",
-                        snapshot.aec_info.priority,
-                        snapshot.aec_info.max_elections,
-                    ),
-                    QueueViewModel::new("Hinted", snapshot.aec_info.hinted, snapshot.max_hinted),
-                    QueueViewModel::new(
-                        "Optimistic",
-                        snapshot.aec_info.optimistic,
-                        snapshot.max_optimistic,
-                    ),
-                    QueueViewModel::new(
-                        "Total",
-                        snapshot.aec_info.total,
-                        snapshot.aec_info.max_elections,
-                    ),
-                ],
-            });
-            self.queue_groups.push(QueueGroupViewModel::for_fair_queue(
-                "Block Processor",
-                &snapshot.block_processor_info,
-            ));
-            self.queue_groups.push(QueueGroupViewModel::for_fair_queue(
-                "Vote Processor",
-                &snapshot.vote_processor_info,
-            ));
-            self.queue_groups.push(QueueGroupViewModel {
-                heading: "Miscellaneous".to_string(),
-                queues: vec![QueueViewModel::new(
-                    "Confirming",
-                    snapshot.confirming_set.size,
-                    snapshot.confirming_set.max_size,
-                )],
-            });
+            self.queue_groups = create_queue_groups(&node);
 
             if let Some(block_hash) = BlockHash::decode_hex(&self.vote_cache.search) {
                 let votes = node.vote_cache.get(&block_hash);
@@ -234,10 +196,6 @@ impl InsightApp {
             self.last_update = Some(now);
             true
         }
-    }
-
-    pub fn bootstrap_view(&self) -> BootstrapViewType {
-        self.bootstrap_view_type
     }
 
     fn process_command(&mut self, cmd: InsightCommand) {

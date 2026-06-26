@@ -151,7 +151,7 @@ impl MainViewModel {
     }
 
     pub fn bootstrap(&self) -> BootstrapDetails {
-        match self.app.bootstrap_view() {
+        match self.app.bootstrap_view_type {
             BootstrapViewType::BootstrapQueue => {
                 let download_queue = self
                     .app
