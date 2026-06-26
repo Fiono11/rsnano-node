@@ -4,7 +4,6 @@ mod channels;
 mod explorer;
 mod frontier_scan;
 mod gui;
-mod ledger_stats;
 mod message_collection;
 mod message_rate_calculator;
 mod message_recorder;
@@ -12,8 +11,8 @@ mod navigator;
 mod node_callbacks;
 mod node_runner;
 mod nullable_runtime;
-mod snapshot;
 mod rep_names;
+mod snapshot;
 
 use eframe::egui;
 use gui::MainView;

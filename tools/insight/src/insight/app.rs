@@ -4,11 +4,8 @@ use std::{
     time::Duration,
 };
 
-use rsnano_node::{
-    consensus::election::Election,
-    representatives::QuorumSnapshot,
-};
 use super::snapshot::{InsightSnapshot, take_snapshot};
+use rsnano_node::{consensus::election::Election, representatives::QuorumSnapshot};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 
@@ -17,7 +14,6 @@ use crate::insight::{
     channels::Channels,
     explorer::Explorer,
     frontier_scan::FrontierScanInfo,
-    ledger_stats::LedgerStats,
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
     navigator::{NavItem, Navigator},
@@ -36,7 +32,6 @@ pub(crate) struct InsightApp {
     pub channels: Channels,
     pub explorer: Explorer,
     pub navigator: Navigator,
-    pub ledger_stats: LedgerStats,
     pub snapshot: InsightSnapshot,
     pub frontier_scan: FrontierScanInfo,
     pub bootstrap: BootstrapInfo,
@@ -65,7 +60,6 @@ impl InsightApp {
             channels,
             explorer: Explorer::new(),
             navigator: Navigator::new(),
-            ledger_stats: LedgerStats::new(),
             snapshot: InsightSnapshot::default(),
             frontier_scan: FrontierScanInfo::default(),
             last_update: None,
@@ -99,7 +93,6 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             let snapshot = take_snapshot(&node);
-            self.ledger_stats.update(&node);
             let channels = node.network.read().unwrap().sorted_channels();
             let telemetries = node.telemetry.get_all_telemetries();
             node.rep_tracker.with_snapshot(|s| {

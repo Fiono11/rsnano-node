@@ -2,7 +2,7 @@ use eframe::egui::Ui;
 use egui_extras::{Size, StripBuilder};
 
 use super::formatted_number;
-use crate::insight::ledger_stats::LedgerStats;
+use crate::insight::snapshot::LedgerStats;
 
 pub(crate) fn view_ledger_stats(ui: &mut Ui, stats: &LedgerStats) {
     ui.label("Blocks");
@@ -12,7 +12,7 @@ pub(crate) fn view_ledger_stats(ui: &mut Ui, stats: &LedgerStats) {
         .size(Size::exact(35.0))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
-                ui.label(formatted_number(stats.blocks_per_second()));
+                ui.label(formatted_number(stats.bps));
             })
         });
 
@@ -21,7 +21,7 @@ pub(crate) fn view_ledger_stats(ui: &mut Ui, stats: &LedgerStats) {
         .size(Size::exact(35.0))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
-                ui.label(formatted_number(stats.confirmations_per_second()));
+                ui.label(formatted_number(stats.cps));
             })
         });
 
@@ -32,5 +32,5 @@ pub(crate) fn view_ledger_stats(ui: &mut Ui, stats: &LedgerStats) {
     ui.label(formatted_number(stats.confirmed_blocks));
     ui.add_space(10.0);
     ui.label("accounts:");
-    ui.label(formatted_number(stats.accounts));
+    ui.label(formatted_number(stats.account_count));
 }

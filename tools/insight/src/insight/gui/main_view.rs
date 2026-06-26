@@ -1,30 +1,30 @@
 use eframe::egui::{
-    self, global_theme_preference_switch, warn_if_debug_build, CentralPanel, Panel, Ui,
+    self, CentralPanel, Panel, Ui, global_theme_preference_switch, warn_if_debug_build,
 };
 
 use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    block_processor::view_block_processor,
-    bootstrap::{view_bootstrap, AccountViewModel, BootstrapQueueViewModel},
-    formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
-    view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs, BlockViewModel,
-    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
+    BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
     MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
+    block_processor::view_block_processor,
+    bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
+    formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
+    view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::insight::{
     app::InsightApp,
     bootstrap::BootstrapViewType,
     explorer::ExplorerState,
     gui::{
+        QueueViewModel,
         bootstrap::{BootstrapViewModel, PeerScoresViewModel},
         elections::{
-            view_election_details, view_elections, BucketViewModel, ElectionDetailsViewModel,
-            ElectionViewModel, ElectionsViewModel, RepVoteViewModel,
+            BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
+            RepVoteViewModel, view_election_details, view_elections,
         },
-        representatives::{view_representatives, RepresentativesViewModel},
-        QueueViewModel,
+        representatives::{RepresentativesViewModel, view_representatives},
     },
     navigator::NavItem,
 };
@@ -68,7 +68,7 @@ impl MainView {
                 ui.separator();
                 MessageStatsView::new(self.model.message_stats()).view(ui);
                 ui.separator();
-                view_ledger_stats(ui, &self.model.app.ledger_stats);
+                view_ledger_stats(ui, &self.model.app.snapshot.ledger_stats);
                 warn_if_debug_build(ui);
             });
         });
@@ -176,7 +176,11 @@ impl MainViewModel {
                         self.app.snapshot.aec_info.priority,
                         self.app.snapshot.aec_info.max_elections,
                     ),
-                    QueueViewModel::new("Hinted", self.app.snapshot.aec_info.hinted, self.app.snapshot.max_hinted),
+                    QueueViewModel::new(
+                        "Hinted",
+                        self.app.snapshot.aec_info.hinted,
+                        self.app.snapshot.max_hinted,
+                    ),
                     QueueViewModel::new(
                         "Optimistic",
                         self.app.snapshot.aec_info.optimistic,
@@ -189,8 +193,14 @@ impl MainViewModel {
                     ),
                 ],
             },
-            QueueGroupViewModel::for_fair_queue("Block Processor", &self.app.snapshot.block_processor_info),
-            QueueGroupViewModel::for_fair_queue("Vote Processor", &self.app.snapshot.vote_processor_info),
+            QueueGroupViewModel::for_fair_queue(
+                "Block Processor",
+                &self.app.snapshot.block_processor_info,
+            ),
+            QueueGroupViewModel::for_fair_queue(
+                "Vote Processor",
+                &self.app.snapshot.vote_processor_info,
+            ),
             QueueGroupViewModel {
                 heading: "Miscellaneous".to_string(),
                 queues: vec![QueueViewModel::new(

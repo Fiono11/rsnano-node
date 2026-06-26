@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
+use std::{sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_ledger::{
     BlockError, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet,

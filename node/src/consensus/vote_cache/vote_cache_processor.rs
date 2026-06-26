@@ -8,6 +8,7 @@ use rsnano_utils::thread_factory::{JoinHandle, ThreadFactory};
 
 use super::{stats::VoteCacheStats, voted_block_map::VotedBlockMap};
 use crate::consensus::VoteProcessorQueue;
+#[cfg(test)]
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
 pub(crate) struct VoteCacheProcessor {
@@ -18,6 +19,7 @@ pub(crate) struct VoteCacheProcessor {
     vote_queue: Arc<VoteProcessorQueue>,
     max_triggered: usize,
     thread_factory: ThreadFactory,
+    #[cfg(test)]
     trigger_listener: OutputListenerMt<BlockHash>,
 }
 
@@ -41,6 +43,7 @@ impl VoteCacheProcessor {
             cache,
             max_triggered,
             thread_factory,
+            #[cfg(test)]
             trigger_listener: OutputListenerMt::new(),
         }
     }
@@ -75,12 +78,16 @@ impl VoteCacheProcessor {
         }
     }
 
+    #[cfg(test)]
     pub fn track_trigger(&self) -> Arc<OutputTrackerMt<BlockHash>> {
         self.trigger_listener.track()
     }
 
     pub fn trigger(&self, block_hash: BlockHash) {
-        self.trigger_listener.emit(block_hash);
+        #[cfg(test)]
+        {
+            self.trigger_listener.emit(block_hash);
+        }
         {
             let mut state = self.state.lock().unwrap();
             if state.triggered.len() > self.max_triggered {
