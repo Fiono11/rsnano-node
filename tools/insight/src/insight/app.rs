@@ -43,7 +43,6 @@ pub(crate) struct InsightApp {
     pub ledger_stats: LedgerStats,
     pub snapshot: InsightSnapshot,
     pub max_hinted: usize,
-    pub max_optimistic: usize,
     pub confirming_set: ConfirmingSetInfo,
     pub block_processor_info: FairQueueInfo<BlockSource>,
     pub vote_processor_info: FairQueueInfo<RepTier>,
@@ -79,7 +78,6 @@ impl InsightApp {
             ledger_stats: LedgerStats::new(),
             snapshot: InsightSnapshot::default(),
             max_hinted: 1,
-            max_optimistic: 1,
             confirming_set: Default::default(),
             block_processor_info: Default::default(),
             vote_processor_info: Default::default(),
@@ -126,7 +124,6 @@ impl InsightApp {
                     .update(channels, telemetries, s, min_rep_weight);
             });
             self.snapshot = snapshot;
-            self.max_optimistic = node.election_schedulers.optimistic.max_elections();
             self.max_hinted = node.election_schedulers.hinted.max_elections;
             self.confirming_set = node.confirming_set.info();
             self.block_processor_info = node.block_processor_queue.info();

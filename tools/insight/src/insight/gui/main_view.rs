@@ -180,7 +180,7 @@ impl MainViewModel {
                     QueueViewModel::new(
                         "Optimistic",
                         self.app.snapshot.aec_info.optimistic,
-                        self.app.max_optimistic,
+                        self.app.snapshot.max_optimistic,
                     ),
                     QueueViewModel::new(
                         "Total",
