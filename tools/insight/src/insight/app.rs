@@ -7,7 +7,6 @@ use std::{
 use rsnano_ledger::BlockSource;
 use rsnano_node::{
     bootstrap::bootstrapper::PeerScoreSnapshot,
-    cementation::ConfirmingSetInfo,
     consensus::{AecSnapshot, RepTier, election::Election},
     representatives::QuorumSnapshot,
 };
@@ -42,7 +41,6 @@ pub(crate) struct InsightApp {
     pub navigator: Navigator,
     pub ledger_stats: LedgerStats,
     pub snapshot: InsightSnapshot,
-    pub confirming_set: ConfirmingSetInfo,
     pub block_processor_info: FairQueueInfo<BlockSource>,
     pub vote_processor_info: FairQueueInfo<RepTier>,
     pub frontier_scan: FrontierScanInfo,
@@ -76,7 +74,6 @@ impl InsightApp {
             navigator: Navigator::new(),
             ledger_stats: LedgerStats::new(),
             snapshot: InsightSnapshot::default(),
-            confirming_set: Default::default(),
             block_processor_info: Default::default(),
             vote_processor_info: Default::default(),
             frontier_scan: FrontierScanInfo::default(),
@@ -122,7 +119,6 @@ impl InsightApp {
                     .update(channels, telemetries, s, min_rep_weight);
             });
             self.snapshot = snapshot;
-            self.confirming_set = node.confirming_set.info();
             self.block_processor_info = node.block_processor_queue.info();
             self.vote_processor_info = node.vote_processor_queue.info();
             self.frontier_scan.update(&node.bootstrapper, now);

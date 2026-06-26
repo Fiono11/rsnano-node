@@ -195,8 +195,8 @@ impl MainViewModel {
                 heading: "Miscellaneous".to_string(),
                 queues: vec![QueueViewModel::new(
                     "Confirming",
-                    self.app.confirming_set.size,
-                    self.app.confirming_set.max_size,
+                    self.app.snapshot.confirming_set.size,
+                    self.app.snapshot.confirming_set.max_size,
                 )],
             },
         ]
