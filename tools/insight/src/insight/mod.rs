@@ -12,6 +12,7 @@ mod navigator;
 mod node_callbacks;
 mod node_runner;
 mod nullable_runtime;
+mod snapshot;
 mod rep_names;
 
 use eframe::egui;

@@ -26,12 +26,12 @@ impl NavItem {
     }
 }
 
-static NAV_ORDER: [NavItem; 7] = [
+static NAV_ORDER: [NavItem; 8] = [
     NavItem::Peers,
     NavItem::Messages,
     NavItem::Queues,
     NavItem::Representatives,
-    //NavItem::BlockProcessor,
+    NavItem::BlockProcessor,
     NavItem::Elections,
     NavItem::Bootstrap,
     NavItem::Explorer,

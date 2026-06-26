@@ -11,6 +11,7 @@ use rsnano_node::{
     consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
     representatives::QuorumSnapshot,
 };
+use super::snapshot::take_snapshot;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
@@ -115,6 +116,7 @@ impl InsightApp {
         }
 
         if let Some(node) = self.node_runner.node() {
+            let snapshot = take_snapshot(&node);
             self.ledger_stats.update(&node);
             let channels = node.network.read().unwrap().sorted_channels();
             let telemetries = node.telemetry.get_all_telemetries();
@@ -123,7 +125,7 @@ impl InsightApp {
                 self.channels
                     .update(channels, telemetries, s, min_rep_weight);
             });
-            self.aec_info = node.aec.info();
+            self.aec_info = snapshot.aec_info;
             self.max_optimistic = node.election_schedulers.optimistic.max_elections();
             self.max_hinted = node.election_schedulers.hinted.max_elections;
             self.confirming_set = node.confirming_set.info();

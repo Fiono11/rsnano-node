@@ -1,30 +1,30 @@
 use eframe::egui::{
-    self, CentralPanel, Panel, Ui, global_theme_preference_switch, warn_if_debug_build,
+    self, global_theme_preference_switch, warn_if_debug_build, CentralPanel, Panel, Ui,
 };
 
 use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    BlockViewModel, ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
-    MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
     block_processor::view_block_processor,
-    bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
+    bootstrap::{view_bootstrap, AccountViewModel, BootstrapQueueViewModel},
     formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
-    view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
+    view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs, BlockViewModel,
+    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
+    MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel, TabViewModel,
 };
 use crate::insight::{
     app::InsightApp,
     bootstrap::BootstrapViewType,
     explorer::ExplorerState,
     gui::{
-        QueueViewModel,
         bootstrap::{BootstrapViewModel, PeerScoresViewModel},
         elections::{
-            BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
-            RepVoteViewModel, view_election_details, view_elections,
+            view_election_details, view_elections, BucketViewModel, ElectionDetailsViewModel,
+            ElectionViewModel, ElectionsViewModel, RepVoteViewModel,
         },
-        representatives::{RepresentativesViewModel, view_representatives},
+        representatives::{view_representatives, RepresentativesViewModel},
+        QueueViewModel,
     },
     navigator::NavItem,
 };
