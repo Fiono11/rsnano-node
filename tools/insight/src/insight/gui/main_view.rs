@@ -173,19 +173,19 @@ impl MainViewModel {
                 queues: vec![
                     QueueViewModel::new(
                         "Priority",
-                        self.app.aec_info.priority,
-                        self.app.aec_info.max_elections,
+                        self.app.snapshot.aec_info.priority,
+                        self.app.snapshot.aec_info.max_elections,
                     ),
-                    QueueViewModel::new("Hinted", self.app.aec_info.hinted, self.app.max_hinted),
+                    QueueViewModel::new("Hinted", self.app.snapshot.aec_info.hinted, self.app.max_hinted),
                     QueueViewModel::new(
                         "Optimistic",
-                        self.app.aec_info.optimistic,
+                        self.app.snapshot.aec_info.optimistic,
                         self.app.max_optimistic,
                     ),
                     QueueViewModel::new(
                         "Total",
-                        self.app.aec_info.total,
-                        self.app.aec_info.max_elections,
+                        self.app.snapshot.aec_info.total,
+                        self.app.snapshot.aec_info.max_elections,
                     ),
                 ],
             },

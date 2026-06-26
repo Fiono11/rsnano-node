@@ -8,10 +8,10 @@ use rsnano_ledger::BlockSource;
 use rsnano_node::{
     bootstrap::bootstrapper::PeerScoreSnapshot,
     cementation::ConfirmingSetInfo,
-    consensus::{ActiveElectionsInfo, AecSnapshot, RepTier, election::Election},
+    consensus::{AecSnapshot, RepTier, election::Election},
     representatives::QuorumSnapshot,
 };
-use super::snapshot::take_snapshot;
+use super::snapshot::{InsightSnapshot, take_snapshot};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 use rsnano_utils::fair_queue::FairQueueInfo;
@@ -41,7 +41,7 @@ pub(crate) struct InsightApp {
     pub explorer: Explorer,
     pub navigator: Navigator,
     pub ledger_stats: LedgerStats,
-    pub aec_info: ActiveElectionsInfo,
+    pub snapshot: InsightSnapshot,
     pub max_hinted: usize,
     pub max_optimistic: usize,
     pub confirming_set: ConfirmingSetInfo,
@@ -77,7 +77,7 @@ impl InsightApp {
             explorer: Explorer::new(),
             navigator: Navigator::new(),
             ledger_stats: LedgerStats::new(),
-            aec_info: Default::default(),
+            snapshot: InsightSnapshot::default(),
             max_hinted: 1,
             max_optimistic: 1,
             confirming_set: Default::default(),
@@ -125,7 +125,7 @@ impl InsightApp {
                 self.channels
                     .update(channels, telemetries, s, min_rep_weight);
             });
-            self.aec_info = snapshot.aec_info;
+            self.snapshot = snapshot;
             self.max_optimistic = node.election_schedulers.optimistic.max_elections();
             self.max_hinted = node.election_schedulers.hinted.max_elections;
             self.confirming_set = node.confirming_set.info();
