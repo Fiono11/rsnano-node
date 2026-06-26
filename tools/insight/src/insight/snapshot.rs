@@ -4,11 +4,13 @@ use rsnano_node::{Node, consensus::ActiveElectionsInfo};
 pub(crate) struct InsightSnapshot {
     pub aec_info: ActiveElectionsInfo,
     pub max_optimistic: usize,
+    pub max_hinted: usize,
 }
 
 pub(crate) fn take_snapshot(node: &Node) -> InsightSnapshot {
     InsightSnapshot {
         aec_info: node.aec.info(),
         max_optimistic: node.election_schedulers.optimistic.max_elections(),
+        max_hinted: node.election_schedulers.hinted.max_elections,
     }
 }

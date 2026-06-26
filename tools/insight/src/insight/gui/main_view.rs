@@ -176,7 +176,7 @@ impl MainViewModel {
                         self.app.snapshot.aec_info.priority,
                         self.app.snapshot.aec_info.max_elections,
                     ),
-                    QueueViewModel::new("Hinted", self.app.snapshot.aec_info.hinted, self.app.max_hinted),
+                    QueueViewModel::new("Hinted", self.app.snapshot.aec_info.hinted, self.app.snapshot.max_hinted),
                     QueueViewModel::new(
                         "Optimistic",
                         self.app.snapshot.aec_info.optimistic,
