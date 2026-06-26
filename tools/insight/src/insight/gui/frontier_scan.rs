@@ -1,28 +1,28 @@
+use std::sync::mpsc::Sender;
+
 use eframe::egui::{CentralPanel, ProgressBar, ScrollArea, Ui};
 use egui_extras::{Size, StripBuilder};
 
 use rsnano_types::Account;
 
-use crate::insight::{app::InsightCommand, frontier_scan::FrontierScanInfo};
-
 use super::formatted_number;
-use std::sync::mpsc::Sender;
+use crate::insight::{app::InsightCommand, frontier_scan::FrontierScanInfo};
 
 pub(crate) fn view_frontier_scan(
     ui: &mut Ui,
-    model: FrontierScanViewModel,
+    model: &FrontierScanViewModel,
     tx: &Sender<InsightCommand>,
 ) {
     FrontierScanView::new(model, tx).show(ui)
 }
 
 struct FrontierScanView<'a> {
-    model: FrontierScanViewModel,
+    model: &'a FrontierScanViewModel,
     tx: &'a Sender<InsightCommand>,
 }
 
 impl<'a> FrontierScanView<'a> {
-    fn new(model: FrontierScanViewModel, tx: &'a Sender<InsightCommand>) -> Self {
+    fn new(model: &'a FrontierScanViewModel, tx: &'a Sender<InsightCommand>) -> Self {
         Self { model, tx }
     }
 
@@ -30,13 +30,13 @@ impl<'a> FrontierScanView<'a> {
         CentralPanel::default().show_inside(ui, |ui| {
             ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(self.model.frontiers_rate);
+                    ui.heading(&self.model.frontiers_rate);
                     ui.add_space(100.0);
-                    ui.heading(self.model.outdated_rate);
+                    ui.heading(&self.model.outdated_rate);
                     ui.add_space(50.0);
-                    ui.label(self.model.frontiers_total);
+                    ui.label(&self.model.frontiers_total);
                     ui.add_space(50.0);
-                    ui.label(self.model.outdated_total);
+                    ui.label(&self.model.outdated_total);
                 });
 
                 for heads in self.model.frontier_heads.chunks(4) {
@@ -66,9 +66,9 @@ impl<'a> FrontierScanView<'a> {
                 ui.add_space(20.0);
 
                 ui.heading("Outdated accounts found:");
-                for account in self.model.outdated_accounts {
+                for account in &self.model.outdated_accounts {
                     if ui.link(account.clone()).clicked() {
-                        let _ = self.tx.send(InsightCommand::Search(account));
+                        let _ = self.tx.send(InsightCommand::Search(account.clone()));
                     }
                 }
             });

@@ -2,16 +2,16 @@ mod http_callbacks;
 
 use http_callbacks::HttpCallbacks;
 use rsnano_node::{
-    config::{DaemonConfig, NetworkType, NodeFlags},
     CompositeNodeEventHandler, Node, NodeBuilder, NodeCallbacks, NodeEvent, NodeEventHandler,
+    config::{DaemonConfig, NetworkType, NodeFlags},
 };
-use rsnano_rpc_server::{run_rpc_server, RpcServerConfig};
+use rsnano_rpc_server::{RpcServerConfig, run_rpc_server};
 use rsnano_utils::get_cpu_count;
-use rsnano_websocket_server::{create_websocket_server, WebsocketListenerExt};
+use rsnano_websocket_server::{WebsocketListenerExt, create_websocket_server};
 use std::{
     future::Future,
     path::PathBuf,
-    sync::{mpsc::sync_channel, Arc},
+    sync::{Arc, mpsc::sync_channel},
     thread::available_parallelism,
 };
 use tokio::{net::TcpListener, sync::oneshot};

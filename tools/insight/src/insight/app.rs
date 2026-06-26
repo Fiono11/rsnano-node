@@ -11,10 +11,14 @@ use rsnano_types::{Account, BlockHash, PublicKey, QualifiedRoot};
 use super::snapshot::{InsightSnapshot, take_snapshot};
 use crate::insight::{
     block_processor::BlockProcessorViewModel,
-    bootstrap::{BootstrapInfo, BootstrapViewType},
+    bootstrap::{
+        AccountViewModel, BootstrapDetails, BootstrapInfo, BootstrapQueueViewModel,
+        BootstrapViewType, PeerScoresViewModel,
+    },
     channels::Channels,
     explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
+    gui::{FrontierScanViewModel, formatted_number},
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
     message_stats::MessageStatsViewModel,
@@ -49,6 +53,7 @@ pub(crate) struct InsightApp {
     pub vote_cache: VoteCacheViewModel,
     pub message_stats: MessageStatsViewModel,
     pub queue_groups: Vec<QueueGroupViewModel>,
+    pub bootstrap_details: BootstrapDetails,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -93,6 +98,7 @@ impl InsightApp {
             vote_cache: Default::default(),
             message_stats: Default::default(),
             queue_groups: Vec::new(),
+            bootstrap_details: BootstrapDetails::BootstrapQueue(Default::default()),
             tabs,
             rx_cmd: rx,
             clock,
@@ -135,6 +141,61 @@ impl InsightApp {
             self.vote_cache.cached_blocks = node.vote_cache.len();
             self.vote_cache.block_votes.clear();
             self.queue_groups = create_queue_groups(&node);
+            self.frontier_scan
+                .update(&node.bootstrapper, self.clock.now());
+            self.bootstrap.update(&node.bootstrapper);
+            self.bootstrap_details = match self.bootstrap_view_type {
+                BootstrapViewType::BootstrapQueue => {
+                    let download_queue = self
+                        .bootstrap
+                        .snapshot
+                        .download_queue
+                        .iter()
+                        .map(|e| AccountViewModel::from(e))
+                        .collect();
+
+                    let blocked = self
+                        .bootstrap
+                        .snapshot
+                        .blocked
+                        .iter()
+                        .map(|e| AccountViewModel::from(e))
+                        .collect();
+
+                    let downloading = self
+                        .bootstrap
+                        .snapshot
+                        .downloading
+                        .iter()
+                        .map(|e| AccountViewModel::from(e))
+                        .collect();
+
+                    let info = &self.bootstrap.snapshot.info;
+                    BootstrapDetails::BootstrapQueue(BootstrapQueueViewModel {
+                        download_queue_len: formatted_number(info.download_queue),
+                        downloading_count: formatted_number(info.downloading),
+                        blocked_accounts: formatted_number(info.blocked),
+                        unblocked_accounts: formatted_number(info.unblocked),
+                        process_queue: formatted_number(info.ready_to_process),
+                        processing: formatted_number(info.processing),
+                        unique_blocking_accounts: info.unique_blocking_accounts,
+                        unknown_dependencies: info.unknown_dependencies,
+                        cached_blocks: formatted_number(info.cached_blocks),
+                        discarded_blocks: formatted_number(info.discarded_blocks),
+                        download_queue,
+                        downloading,
+                        blocked,
+                    })
+                }
+                BootstrapViewType::PeerScores => {
+                    BootstrapDetails::PeerScores(PeerScoresViewModel {
+                        peers: snapshot.peer_scores.clone(),
+                    })
+                }
+                BootstrapViewType::FrontierScan => {
+                    BootstrapDetails::FrontierScan(FrontierScanViewModel::new(&self.frontier_scan))
+                }
+            };
 
             if let Some(block_hash) = BlockHash::decode_hex(&self.vote_cache.search) {
                 let votes = node.vote_cache.get(&block_hash);
@@ -156,9 +217,6 @@ impl InsightApp {
                     .update(channels, telemetries, s, min_rep_weight);
             });
             self.snapshot = snapshot;
-            self.frontier_scan
-                .update(&node.bootstrapper, self.clock.now());
-            self.bootstrap.update(&node.bootstrapper);
             self.election_details = self.selected_election.as_ref().and_then(|root| {
                 let node = self.node_runner.node()?;
                 node.aec.election_for_root(root)

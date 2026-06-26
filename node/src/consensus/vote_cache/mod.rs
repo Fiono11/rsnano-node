@@ -9,17 +9,17 @@ pub use voted_block_map::TopEntry;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
     thread_factory::ThreadFactory,
-    EventHandler,
 };
 
 use crate::consensus::{AecFact, VoteProcessorQueue};

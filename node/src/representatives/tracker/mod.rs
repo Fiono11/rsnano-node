@@ -10,8 +10,8 @@ pub use snapshot::{RegisteredRepSnapshot, RepRegistrySnapshot, RepRegistrySnapsh
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -23,9 +23,9 @@ use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
 use rsnano_utils::{
+    EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    EventHandler,
 };
 
 use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};

@@ -8,17 +8,13 @@ use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageTableViewModel,
-    block_processor::view_block_processor,
-    bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
-    formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
+    ChannelsViewModel, ExplorerView, MessageTableViewModel, block_processor::view_block_processor,
+    bootstrap::view_bootstrap, view_ledger_stats, view_message_recorder_controls, view_message_tab,
     view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
 use crate::insight::{
     app::{InsightApp, InsightCommand},
-    bootstrap::BootstrapViewType,
     gui::{
-        bootstrap::{BootstrapDetails, PeerScoresViewModel},
         elections::{
             BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
             RepVoteViewModel, view_election_details, view_elections,
@@ -101,9 +97,12 @@ impl eframe::App for MainView {
                 }
             }
             NavItem::VoteCache => view_vote_cache(ui, &mut self.model.app.vote_cache),
-            NavItem::Bootstrap => {
-                view_bootstrap(ui, self.model.bootstrap(), &mut self.model.app, &self.tx)
-            }
+            NavItem::Bootstrap => view_bootstrap(
+                ui,
+                &self.model.app.bootstrap_details,
+                &mut self.model.app.bootstrap,
+                &self.tx,
+            ),
             NavItem::Explorer => ExplorerView::new(&mut self.model.app.explorer, &self.tx).show(ui),
         }
 
@@ -148,60 +147,6 @@ impl MainViewModel {
 
     pub(crate) fn channels(&mut self) -> ChannelsViewModel<'_> {
         ChannelsViewModel::new(&mut self.app.channels)
-    }
-
-    pub fn bootstrap(&self) -> BootstrapDetails {
-        match self.app.bootstrap_view_type {
-            BootstrapViewType::BootstrapQueue => {
-                let download_queue = self
-                    .app
-                    .bootstrap
-                    .snapshot
-                    .download_queue
-                    .iter()
-                    .map(|e| AccountViewModel::from(e))
-                    .collect();
-
-                let blocked = self
-                    .app
-                    .bootstrap
-                    .snapshot
-                    .blocked
-                    .iter()
-                    .map(|e| AccountViewModel::from(e))
-                    .collect();
-
-                let downloading = self
-                    .app
-                    .bootstrap
-                    .snapshot
-                    .downloading
-                    .iter()
-                    .map(|e| AccountViewModel::from(e))
-                    .collect();
-
-                let info = &self.app.bootstrap.snapshot.info;
-                BootstrapDetails::BootstrapQueue(BootstrapQueueViewModel {
-                    download_queue_len: formatted_number(info.download_queue),
-                    downloading_count: formatted_number(info.downloading),
-                    blocked_accounts: formatted_number(info.blocked),
-                    unblocked_accounts: formatted_number(info.unblocked),
-                    process_queue: formatted_number(info.ready_to_process),
-                    processing: formatted_number(info.processing),
-                    unique_blocking_accounts: info.unique_blocking_accounts,
-                    unknown_dependencies: info.unknown_dependencies,
-                    cached_blocks: formatted_number(info.cached_blocks),
-                    discarded_blocks: formatted_number(info.discarded_blocks),
-                    download_queue,
-                    downloading,
-                    blocked,
-                })
-            }
-            BootstrapViewType::PeerScores => BootstrapDetails::PeerScores(PeerScoresViewModel {
-                peers: self.app.snapshot.peer_scores.clone(),
-            }),
-            BootstrapViewType::FrontierScan => BootstrapDetails::FrontierScan(self.frontier_scan()),
-        }
     }
 
     pub fn elections(&self) -> ElectionsViewModel {
@@ -264,10 +209,6 @@ impl MainViewModel {
                     .collect(),
             })
     }
-
-    pub fn frontier_scan(&self) -> FrontierScanViewModel {
-        FrontierScanViewModel::new(&self.app.frontier_scan)
-    }
 }
 
 fn create_bucket_column(buckets: &[BucketSnapshot]) -> Vec<BucketViewModel> {
@@ -296,12 +237,6 @@ fn create_bucket_column(buckets: &[BucketSnapshot]) -> Vec<BucketViewModel> {
 
 fn to_short_tally(tally: Amount) -> u16 {
     (tally.number() / Amount::nano(1_000_000).number()) as u16
-}
-
-pub(super) fn truncate_text(s: &mut String, len: usize) {
-    if s.len() > len {
-        s.replace_range(len.., "...");
-    }
 }
 
 #[cfg(test)]

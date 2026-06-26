@@ -1,24 +1,23 @@
+use std::sync::mpsc::Sender;
+
 use eframe::egui::{
     Align, CentralPanel, Color32, Label, Layout, Panel, RichText, ScrollArea, TextEdit, Ui,
 };
 use egui_extras::{Column, Size, StripBuilder, TableBuilder};
 
-use rsnano_node::bootstrap::bootstrapper::{BootstrappingAccountInfo, PeerScoreSnapshot};
-use rsnano_types::Account;
-
 use crate::insight::{
-    app::{InsightApp, InsightCommand},
-    bootstrap::BootstrapViewType,
-    gui::{FrontierScanViewModel, view_frontier_scan},
+    app::InsightCommand,
+    bootstrap::{
+        BootstrapDetails, BootstrapInfo, BootstrapQueueViewModel, BootstrapViewType,
+        PeerScoresViewModel,
+    },
+    gui::view_frontier_scan,
 };
-
-use super::main_view::truncate_text;
-use std::sync::mpsc::Sender;
 
 pub(crate) fn view_bootstrap(
     ui: &mut Ui,
-    details: BootstrapDetails,
-    app: &mut InsightApp,
+    details: &BootstrapDetails,
+    info: &mut BootstrapInfo,
     tx: &Sender<InsightCommand>,
 ) {
     Panel::top("bootstr_menu").show_inside(ui, |ui| {
@@ -34,7 +33,7 @@ pub(crate) fn view_bootstrap(
 
     CentralPanel::default().show_inside(ui, |ui| match details {
         BootstrapDetails::BootstrapQueue(view_model) => {
-            view_bootstrap_queue(ui, view_model, app, tx);
+            view_bootstrap_queue(ui, view_model, info, tx);
         }
         BootstrapDetails::PeerScores(view_model) => view_peer_scores(ui, view_model),
         BootstrapDetails::FrontierScan(view_model) => view_frontier_scan(ui, view_model, tx),
@@ -43,8 +42,8 @@ pub(crate) fn view_bootstrap(
 
 pub(crate) fn view_bootstrap_queue(
     ui: &mut Ui,
-    model: BootstrapQueueViewModel,
-    app: &mut InsightApp,
+    model: &BootstrapQueueViewModel,
+    info: &mut BootstrapInfo,
     tx: &Sender<InsightCommand>,
 ) {
     CentralPanel::default().show_inside(ui, |ui| {
@@ -80,13 +79,13 @@ pub(crate) fn view_bootstrap_queue(
 
             ui.horizontal(|ui| {
                 ui.add(
-                    TextEdit::singleline(&mut app.bootstrap.search)
+                    TextEdit::singleline(&mut info.search)
                         .hint_text("filter account...")
                         .desired_width(300.0),
                 );
                 ui.separator();
                 ui.add(
-                    TextEdit::singleline(&mut app.bootstrap.add_account)
+                    TextEdit::singleline(&mut info.add_account)
                         .hint_text("account...")
                         .desired_width(300.0),
                 );
@@ -119,17 +118,17 @@ pub(crate) fn view_bootstrap_queue(
                                 });
                         });
 
-                        for account in model.download_queue {
+                        for account in &model.download_queue {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
                                     .size(Size::exact(40.0))
                                     .size(Size::remainder())
                                     .horizontal(|mut strip| {
                                         strip.cell(|ui| {
-                                            ui.label(account.priority);
+                                            ui.label(&account.priority);
                                         });
                                         strip.cell(|ui| {
-                                            ui.label(account.account);
+                                            ui.label(&account.account);
                                         });
                                     });
                             });
@@ -139,17 +138,17 @@ pub(crate) fn view_bootstrap_queue(
                     strip.cell(|ui| {
                         ui.heading(format!("Downloading: {}", model.downloading_count));
 
-                        for account in model.downloading {
+                        for account in &model.downloading {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
                                     .size(Size::exact(40.0))
                                     .size(Size::remainder())
                                     .horizontal(|mut strip| {
                                         strip.cell(|ui| {
-                                            ui.label(account.priority);
+                                            ui.label(&account.priority);
                                         });
                                         strip.cell(|ui| {
-                                            ui.label(account.account);
+                                            ui.label(&account.account);
                                         });
                                     });
                             });
@@ -197,7 +196,7 @@ pub(crate) fn view_bootstrap_queue(
                                     });
                                 });
                         });
-                        for item in model.blocked {
+                        for item in &model.blocked {
                             ui.horizontal(|ui| {
                                 StripBuilder::new(ui)
                                     .size(Size::exact(170.0))
@@ -205,17 +204,16 @@ pub(crate) fn view_bootstrap_queue(
                                     .size(Size::exact(170.0))
                                     .horizontal(|mut strip| {
                                         strip.cell(|ui| {
-                                            if ui.link(item.account).clicked() {
-                                                app.bootstrap.search =
-                                                    item.account_val.encode_account();
+                                            if ui.link(&item.account).clicked() {
+                                                info.search = item.account_val.encode_account();
                                             }
                                         });
                                         strip.cell(|ui| {
-                                            ui.label(item.dependency);
+                                            ui.label(&item.dependency);
                                         });
                                         strip.cell(|ui| {
-                                            if ui.link(item.dependency_account).clicked() {
-                                                app.bootstrap.search =
+                                            if ui.link(&item.dependency_account).clicked() {
+                                                info.search =
                                                     item.dependency_account_val.encode_account();
                                             }
                                         });
@@ -228,66 +226,7 @@ pub(crate) fn view_bootstrap_queue(
     });
 }
 
-pub enum BootstrapDetails {
-    BootstrapQueue(BootstrapQueueViewModel),
-    PeerScores(PeerScoresViewModel),
-    FrontierScan(FrontierScanViewModel),
-}
-impl BootstrapDetails {
-    fn view_type(&self) -> BootstrapViewType {
-        match self {
-            BootstrapDetails::BootstrapQueue(_) => BootstrapViewType::BootstrapQueue,
-            BootstrapDetails::PeerScores(_) => BootstrapViewType::PeerScores,
-            BootstrapDetails::FrontierScan(_) => BootstrapViewType::FrontierScan,
-        }
-    }
-}
-
-pub(crate) struct BootstrapQueueViewModel {
-    pub download_queue_len: String,
-    pub blocked_accounts: String,
-    pub unblocked_accounts: String,
-    pub process_queue: String,
-    pub processing: String,
-    pub downloading_count: String,
-    pub unique_blocking_accounts: usize,
-    pub unknown_dependencies: usize,
-    pub cached_blocks: String,
-    pub discarded_blocks: String,
-    pub download_queue: Vec<AccountViewModel>,
-    pub downloading: Vec<AccountViewModel>,
-    pub blocked: Vec<AccountViewModel>,
-}
-
-pub(crate) struct AccountViewModel {
-    pub account: String,
-    pub priority: String,
-    pub dependency: String,
-    pub dependency_account: String,
-    pub account_val: Account,
-    pub dependency_account_val: Account,
-}
-
-impl From<&BootstrappingAccountInfo> for AccountViewModel {
-    fn from(e: &BootstrappingAccountInfo) -> Self {
-        let mut account = e.account.encode_account();
-        let mut dependency = e.dependency_block.to_string();
-        let mut dependency_account = e.dependency_account.encode_account();
-        truncate_text(&mut account, 20);
-        truncate_text(&mut dependency, 15);
-        truncate_text(&mut dependency_account, 20);
-        Self {
-            account,
-            priority: format!("{:.2}", e.priority.as_f64()),
-            dependency,
-            dependency_account,
-            account_val: e.account,
-            dependency_account_val: e.dependency_account,
-        }
-    }
-}
-
-pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
+pub(crate) fn view_peer_scores(ui: &mut Ui, model: &PeerScoresViewModel) {
     ui.heading("Peer Scores");
     TableBuilder::new(ui)
         .striped(true)
@@ -373,8 +312,4 @@ pub(crate) fn view_peer_scores(ui: &mut Ui, model: PeerScoresViewModel) {
                 });
             })
         });
-}
-
-pub(crate) struct PeerScoresViewModel {
-    pub peers: Vec<PeerScoreSnapshot>,
 }
