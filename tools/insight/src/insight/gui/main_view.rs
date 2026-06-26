@@ -8,8 +8,8 @@ use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageStatsView,
-    MessageStatsViewModel, MessageTableViewModel, QueueGroupViewModel,
+    ChannelsViewModel, ExplorerView, FrontierScanViewModel, MessageTableViewModel,
+    QueueGroupViewModel,
     block_processor::view_block_processor,
     bootstrap::{AccountViewModel, BootstrapQueueViewModel, view_bootstrap},
     formatted_number, view_ledger_stats, view_message_recorder_controls, view_message_tab,
@@ -26,6 +26,7 @@ use crate::insight::{
             RepVoteViewModel, view_election_details, view_elections,
         },
         representatives::view_representatives,
+        view_message_stats,
         vote_cache::view_vote_cache,
     },
     navigator::NavItem,
@@ -71,7 +72,7 @@ impl MainView {
             ui.horizontal(|ui| {
                 global_theme_preference_switch(ui);
                 ui.separator();
-                MessageStatsView::new(self.model.message_stats()).view(ui);
+                view_message_stats(ui, &self.model.app.message_stats);
                 ui.separator();
                 view_ledger_stats(ui, &self.model.app.snapshot.ledger_stats);
                 warn_if_debug_build(ui);
@@ -144,10 +145,6 @@ impl MainViewModel {
         }
 
         self.message_table.update_message_counts();
-    }
-
-    pub(crate) fn message_stats(&self) -> MessageStatsViewModel<'_> {
-        MessageStatsViewModel::new(&self.app.msg_recorder)
     }
 
     pub(crate) fn channels(&mut self) -> ChannelsViewModel<'_> {

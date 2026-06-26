@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock, mpsc::Receiver},
+    sync::{Arc, RwLock, atomic::Ordering, mpsc::Receiver},
     time::Duration,
 };
 
@@ -17,6 +17,7 @@ use crate::insight::{
     frontier_scan::FrontierScanInfo,
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
+    message_stats::MessageStatsViewModel,
     navigator::{NAV_ORDER, NavItem, TabViewModel},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
@@ -45,6 +46,7 @@ pub(crate) struct InsightApp {
     pub tabs: Vec<TabViewModel>,
     pub current_tab: NavItem,
     pub vote_cache: VoteCacheViewModel,
+    pub message_stats: MessageStatsViewModel,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -87,6 +89,7 @@ impl InsightApp {
             block_processor: Default::default(),
             current_tab: NavItem::Peers,
             vote_cache: Default::default(),
+            message_stats: Default::default(),
             tabs,
             rx_cmd: rx,
             clock,
@@ -122,6 +125,10 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             let snapshot = take_snapshot(&node);
+            self.message_stats.send_rate =
+                self.msg_recorder.rates.send_rate.load(Ordering::Relaxed);
+            self.message_stats.receive_rate =
+                self.msg_recorder.rates.receive_rate.load(Ordering::Relaxed);
             self.vote_cache.cached_blocks = node.vote_cache.len();
             self.vote_cache.block_votes.clear();
             if let Some(block_hash) = BlockHash::decode_hex(&self.vote_cache.search) {

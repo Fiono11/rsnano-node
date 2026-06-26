@@ -8,6 +8,7 @@ mod gui;
 mod message_collection;
 mod message_rate_calculator;
 mod message_recorder;
+mod message_stats;
 mod navigator;
 mod node_callbacks;
 mod node_runner;
