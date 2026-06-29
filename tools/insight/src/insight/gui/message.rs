@@ -1,64 +1,28 @@
 use eframe::egui::{Grid, ScrollArea, Ui};
-use rsnano_network::ChannelDirection;
 
-use crate::insight::message_collection::RecordedMessage;
+use crate::insight::messages::MessageViewModel;
 
-pub(crate) struct MessageView<'a> {
-    model: &'a MessageViewModel,
-}
+pub(crate) fn view_message(ui: &mut Ui, model: &MessageViewModel) {
+    ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        Grid::new("details_grid").num_columns(2).show(ui, |ui| {
+            ui.label("Date:");
+            ui.label(model.date.clone());
+            ui.end_row();
 
-impl<'a> MessageView<'a> {
-    pub(crate) fn new(model: &'a MessageViewModel) -> Self {
-        Self { model }
-    }
+            ui.label("Channel:");
+            ui.label(model.channel_id.clone());
+            ui.end_row();
 
-    pub(crate) fn view(&self, ui: &mut Ui) {
-        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            Grid::new("details_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Date:");
-                ui.label(self.model.date.clone());
-                ui.end_row();
+            ui.label("Direction:");
+            ui.label(model.direction.clone());
+            ui.end_row();
 
-                ui.label("Channel:");
-                ui.label(self.model.channel_id.clone());
-                ui.end_row();
-
-                ui.label("Direction:");
-                ui.label(self.model.direction.clone());
-                ui.end_row();
-
-                ui.label("Type:");
-                ui.label(self.model.message_type.clone());
-                ui.end_row();
-            });
-
-            ui.add_space(20.0);
-            ui.label(&self.model.message);
+            ui.label("Type:");
+            ui.label(model.message_type.clone());
+            ui.end_row();
         });
-    }
-}
 
-#[derive(Clone)]
-pub(crate) struct MessageViewModel {
-    pub channel_id: String,
-    pub direction: String,
-    pub message_type: String,
-    pub date: String,
-    pub message: String,
-}
-
-impl From<RecordedMessage> for MessageViewModel {
-    fn from(value: RecordedMessage) -> Self {
-        Self {
-            channel_id: value.channel_id.to_string(),
-            direction: if value.direction == ChannelDirection::Inbound {
-                "in".into()
-            } else {
-                "out".into()
-            },
-            date: value.date.to_string(),
-            message_type: format!("{:?}", value.message.message_type()),
-            message: format!("{:#?}", value.message),
-        }
-    }
+        ui.add_space(20.0);
+        ui.label(&model.message);
+    });
 }

@@ -25,10 +25,11 @@ use crate::insight::{
     },
     explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
-    gui::{FrontierScanViewModel, MessageTableViewModel, formatted_number},
+    gui::{FrontierScanViewModel, formatted_number},
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
     message_stats::MessageStatsViewModel,
+    messages::MessageTableViewModel,
     navigator::{NAV_ORDER, NavItem, TabViewModel},
     node_callbacks::NodeCallbackFactory,
     node_runner::NodeRunner,
@@ -52,6 +53,8 @@ pub(crate) enum InsightCommand {
 }
 
 pub(crate) struct InsightApp {
+    //--------
+    // TODO Extract MainViewModel that has these fields:
     pub explorer: ExplorerViewModel,
     pub block_processor: BlockProcessorViewModel,
     pub representatives: RepresentativesViewModel,
@@ -63,7 +66,7 @@ pub(crate) struct InsightApp {
     pub bootstrap_details: BootstrapDetails,
     pub search_input: String,
     pub message_table: MessageTableViewModel,
-
+    //--------
     pub clock: Arc<SteadyClock>,
     pub msg_recorder: Arc<MessageRecorder>,
     pub node_runner: NodeRunner,

@@ -10,6 +10,7 @@ mod message_collection;
 mod message_rate_calculator;
 mod message_recorder;
 mod message_stats;
+mod messages;
 mod navigator;
 mod node_callbacks;
 mod node_runner;
