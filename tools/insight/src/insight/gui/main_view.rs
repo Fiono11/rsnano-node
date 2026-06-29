@@ -50,7 +50,7 @@ impl MainView {
                 ui.separator();
                 view_message_recorder_controls(ui, &self.model.app.msg_recorder);
                 ui.separator();
-                view_search_bar(ui, &mut self.model.search_input, &self.tx);
+                view_search_bar(ui, &mut self.model.app.search_input, &self.tx);
             });
             ui.add_space(1.0);
         });
@@ -78,7 +78,7 @@ impl MainView {
 
 impl eframe::App for MainView {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.model.update();
+        self.model.app.update();
         self.view_controls_panel(ui);
         self.view_tabs(ui);
         self.view_stats(ui);
@@ -122,27 +122,11 @@ fn view_queues(ui: &mut Ui, groups: &[QueueGroupViewModel]) {
 
 pub(crate) struct MainViewModel {
     pub app: InsightApp,
-    pub message_table: MessageTableViewModel,
-    pub search_input: String,
 }
 
 impl MainViewModel {
     pub(crate) fn new(app: InsightApp) -> Self {
-        let message_table = MessageTableViewModel::new(app.messages.clone());
-
-        Self {
-            app,
-            message_table,
-            search_input: String::new(),
-        }
-    }
-
-    pub(crate) fn update(&mut self) {
-        if !self.app.update() {
-            return;
-        }
-
-        self.message_table.update_message_counts();
+        Self { app }
     }
 
     pub fn elections(&self) -> ElectionsViewModel {

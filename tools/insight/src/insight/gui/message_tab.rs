@@ -35,14 +35,14 @@ impl<'a> MessageTabView<'a> {
             .min_size(250.0)
             .resizable(true)
             .show_inside(ui, |ui| {
-                MessageTableView::new(&mut self.model.message_table).view(ui);
+                MessageTableView::new(&mut self.model.app.message_table).view(ui);
             });
     }
 
     fn show_message_details(&mut self, ui: &mut Ui) {
         CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Message details");
-            if let Some(details) = self.model.message_table.selected_message() {
+            if let Some(details) = self.model.app.message_table.selected_message() {
                 MessageView::new(&details).view(ui);
             }
         });

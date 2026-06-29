@@ -18,7 +18,7 @@ use crate::insight::{
     channels::{Channels, ChannelsViewModel},
     explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
-    gui::{FrontierScanViewModel, formatted_number},
+    gui::{FrontierScanViewModel, MessageTableViewModel, formatted_number},
     message_collection::MessageCollection,
     message_recorder::MessageRecorder,
     message_stats::MessageStatsViewModel,
@@ -54,6 +54,8 @@ pub(crate) struct InsightApp {
     pub message_stats: MessageStatsViewModel,
     pub queue_groups: Vec<QueueGroupViewModel>,
     pub bootstrap_details: BootstrapDetails,
+    pub search_input: String,
+    pub message_table: MessageTableViewModel,
 
     pub clock: Arc<SteadyClock>,
     pub messages: Arc<RwLock<MessageCollection>>,
@@ -99,6 +101,8 @@ impl InsightApp {
             message_stats: Default::default(),
             queue_groups: Vec::new(),
             bootstrap_details: BootstrapDetails::BootstrapQueue(Default::default()),
+            search_input: String::new(),
+            message_table: MessageTableViewModel::new(messages.clone()),
             tabs,
             rx_cmd: rx,
             clock,
@@ -240,6 +244,8 @@ impl InsightApp {
                 .reps
                 .sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
         }
+
+        self.message_table.update_message_counts();
 
         true
     }
