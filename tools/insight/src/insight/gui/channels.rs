@@ -1,11 +1,8 @@
 use eframe::egui::{Align, Label, Layout, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use rsnano_messages::TelemetryData;
-use rsnano_network::ChannelDirection;
-
-use super::{formatted_number, view_rep_state};
-use crate::insight::channels::{Channels, RepState};
+use super::view_rep_state;
+use crate::insight::channels::ChannelsViewModel;
 
 pub(crate) struct ChannelsView<'a> {
     model: ChannelsViewModel<'a>,
@@ -62,91 +59,4 @@ impl<'a> ChannelsView<'a> {
                 })
             });
     }
-}
-
-pub(crate) struct ChannelsViewModel<'a>(&'a mut Channels);
-
-impl<'a> ChannelsViewModel<'a> {
-    pub(crate) fn new(channels: &'a mut Channels) -> Self {
-        Self(channels)
-    }
-
-    pub(crate) fn get_row(&self, index: usize) -> Option<ChannelViewModel> {
-        let channel = self.0.get(index)?;
-        let mut result = ChannelViewModel {
-            channel_id: channel.channel_id.to_string(),
-            remote_addr: channel.remote_addr.to_string(),
-            name: channel.name,
-            direction: match channel.direction {
-                ChannelDirection::Inbound => "in",
-                ChannelDirection::Outbound => "out",
-            },
-            is_selected: self.0.selected_index() == Some(index),
-            block_count: String::new(),
-            confirmed_count: String::new(),
-            unchecked_count: String::new(),
-            maker: "",
-            version: String::new(),
-            bandwidth_cap: String::new(),
-            rep_weight: channel.rep_weight.format_balance(0),
-            rep_state: channel.rep_state,
-        };
-
-        if let Some(telemetry) = &channel.telemetry {
-            result.block_count = formatted_number(telemetry.block_count);
-            result.confirmed_count = formatted_number(telemetry.cemented_count);
-            result.unchecked_count = formatted_number(telemetry.unchecked_count);
-            result.maker = match telemetry.maker {
-                0 | 1 => "NF",
-                3 => "RsNano",
-                _ => "unknown",
-            };
-            result.version = version_string(telemetry);
-            result.bandwidth_cap = format!("{}mb/s", telemetry.bandwidth_cap / (1024 * 1024))
-        }
-
-        Some(result)
-    }
-
-    pub(crate) fn channel_count(&self) -> usize {
-        self.0.len()
-    }
-
-    pub(crate) fn select(&mut self, index: usize) {
-        self.0.select_index(index);
-    }
-
-    pub(crate) fn heading(&self) -> String {
-        format!("Channels ({})", self.0.len())
-    }
-}
-
-fn version_string(telemetry: &TelemetryData) -> String {
-    if telemetry.patch_version == 0 && telemetry.pre_release_version == 0 {
-        format!("v{}.{}", telemetry.major_version, telemetry.minor_version)
-    } else {
-        format!(
-            "v{}.{}.{}.{}",
-            telemetry.major_version,
-            telemetry.minor_version,
-            telemetry.patch_version,
-            telemetry.pre_release_version
-        )
-    }
-}
-
-pub(crate) struct ChannelViewModel {
-    pub channel_id: String,
-    pub remote_addr: String,
-    pub name: &'static str,
-    pub direction: &'static str,
-    pub is_selected: bool,
-    pub block_count: String,
-    pub confirmed_count: String,
-    pub unchecked_count: String,
-    pub maker: &'static str,
-    pub version: String,
-    pub bandwidth_cap: String,
-    pub rep_weight: String,
-    pub rep_state: RepState,
 }

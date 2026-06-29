@@ -23,7 +23,6 @@ mod search_bar;
 mod tab_bar;
 mod vote_cache;
 
-pub(crate) use channels::*;
 pub(crate) use explorer::*;
 pub(crate) use frontier_scan::*;
 pub(crate) use ledger_stats::*;

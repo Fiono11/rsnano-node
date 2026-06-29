@@ -15,7 +15,7 @@ use crate::insight::{
         AccountViewModel, BootstrapDetails, BootstrapInfo, BootstrapQueueViewModel,
         BootstrapViewType, PeerScoresViewModel,
     },
-    channels::Channels,
+    channels::{Channels, ChannelsViewModel},
     explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
     gui::{FrontierScanViewModel, formatted_number},
@@ -339,5 +339,9 @@ impl InsightApp {
             }
             _ => {}
         }
+    }
+
+    pub fn channels_model(&mut self) -> ChannelsViewModel<'_> {
+        ChannelsViewModel::new(&mut self.channels)
     }
 }

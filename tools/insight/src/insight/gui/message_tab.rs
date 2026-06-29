@@ -26,7 +26,7 @@ impl<'a> MessageTabView<'a> {
             .min_size(350.0)
             .resizable(false)
             .show_inside(ui, |ui| {
-                ChannelsView::new(self.model.channels()).view(ui);
+                ChannelsView::new(self.model.app.channels_model()).view(ui);
             });
     }
 

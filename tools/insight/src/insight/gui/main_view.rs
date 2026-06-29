@@ -8,7 +8,7 @@ use rsnano_node::consensus::BucketSnapshot;
 use rsnano_types::Amount;
 
 use super::{
-    ChannelsViewModel, ExplorerView, MessageTableViewModel, block_processor::view_block_processor,
+    ExplorerView, MessageTableViewModel, block_processor::view_block_processor,
     bootstrap::view_bootstrap, view_ledger_stats, view_message_recorder_controls, view_message_tab,
     view_node_runner, view_peers, view_queue_group, view_search_bar, view_tabs,
 };
@@ -84,7 +84,7 @@ impl eframe::App for MainView {
         self.view_stats(ui);
 
         match self.model.app.current_tab {
-            NavItem::Peers => view_peers(ui, self.model.channels()),
+            NavItem::Peers => view_peers(ui, self.model.app.channels_model()),
             NavItem::Messages => view_message_tab(ui, &mut self.model),
             NavItem::Queues => view_queues(ui, &self.model.app.queue_groups),
             NavItem::Representatives => view_representatives(ui, &self.model.app.representatives),
@@ -143,10 +143,6 @@ impl MainViewModel {
         }
 
         self.message_table.update_message_counts();
-    }
-
-    pub(crate) fn channels(&mut self) -> ChannelsViewModel<'_> {
-        ChannelsViewModel::new(&mut self.app.channels)
     }
 
     pub fn elections(&self) -> ElectionsViewModel {
