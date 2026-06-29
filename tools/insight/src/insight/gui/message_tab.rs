@@ -1,18 +1,19 @@
 use eframe::egui::{CentralPanel, Panel, Ui};
 
-use super::{MainViewModel, MessageTableView, MessageView, channels::ChannelsView};
+use super::{MessageTableView, MessageView, channels::ChannelsView};
+use crate::insight::app::InsightApp;
 
-pub(crate) fn view_message_tab(ui: &mut Ui, model: &mut MainViewModel) {
-    MessageTabView::new(model).show(ui);
+pub(crate) fn view_message_tab(ui: &mut Ui, app: &mut InsightApp) {
+    MessageTabView::new(app).show(ui);
 }
 
 struct MessageTabView<'a> {
-    model: &'a mut MainViewModel,
+    app: &'a mut InsightApp,
 }
 
 impl<'a> MessageTabView<'a> {
-    fn new(model: &'a mut MainViewModel) -> Self {
-        Self { model }
+    fn new(app: &'a mut InsightApp) -> Self {
+        Self { app }
     }
 
     fn show(&mut self, ui: &mut Ui) {
@@ -26,7 +27,7 @@ impl<'a> MessageTabView<'a> {
             .min_size(350.0)
             .resizable(false)
             .show_inside(ui, |ui| {
-                ChannelsView::new(self.model.app.channels_model()).view(ui);
+                ChannelsView::new(self.app.channels_model()).view(ui);
             });
     }
 
@@ -35,14 +36,14 @@ impl<'a> MessageTabView<'a> {
             .min_size(250.0)
             .resizable(true)
             .show_inside(ui, |ui| {
-                MessageTableView::new(&mut self.model.app.message_table).view(ui);
+                MessageTableView::new(&mut self.app.message_table).view(ui);
             });
     }
 
     fn show_message_details(&mut self, ui: &mut Ui) {
         CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Message details");
-            if let Some(details) = self.model.app.message_table.selected_message() {
+            if let Some(details) = self.app.message_table.selected_message() {
                 MessageView::new(&details).view(ui);
             }
         });

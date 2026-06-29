@@ -17,13 +17,6 @@ impl NodeCallbackFactory {
         Self { recorder, clock }
     }
 
-    pub fn new_null() -> Self {
-        Self::new(
-            Arc::new(MessageRecorder::default()),
-            Arc::new(SteadyClock::new_null()),
-        )
-    }
-
     pub fn make_node_callbacks(&self) -> NodeCallbacks {
         let recorder1 = self.recorder.clone();
         let recorder2 = self.recorder.clone();

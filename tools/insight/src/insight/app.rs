@@ -4,9 +4,12 @@ use std::{
     time::Duration,
 };
 
-use rsnano_node::{NodeEvent, consensus::election::Election};
+use rsnano_node::{
+    NodeEvent,
+    consensus::{BucketSnapshot, election::Election},
+};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, PublicKey, QualifiedRoot};
+use rsnano_types::{Account, Amount, BlockHash, PublicKey, QualifiedRoot};
 
 use super::snapshot::{InsightSnapshot, take_snapshot};
 use crate::insight::{
@@ -16,6 +19,10 @@ use crate::insight::{
         BootstrapViewType, PeerScoresViewModel,
     },
     channels::{Channels, ChannelsViewModel},
+    elections::{
+        BucketViewModel, ElectionDetailsViewModel, ElectionViewModel, ElectionsViewModel,
+        RepVoteViewModel,
+    },
     explorer::{ExplorerViewModel, search_ledger},
     frontier_scan::FrontierScanInfo,
     gui::{FrontierScanViewModel, MessageTableViewModel, formatted_number},
@@ -58,7 +65,6 @@ pub(crate) struct InsightApp {
     pub message_table: MessageTableViewModel,
 
     pub clock: Arc<SteadyClock>,
-    pub messages: Arc<RwLock<MessageCollection>>,
     pub msg_recorder: Arc<MessageRecorder>,
     pub node_runner: NodeRunner,
     pub channels: Channels,
@@ -106,7 +112,6 @@ impl InsightApp {
             tabs,
             rx_cmd: rx,
             clock,
-            messages,
             msg_recorder,
             node_runner: NodeRunner::new(callback_factory, tx_node_ev),
             channels,
@@ -349,5 +354,102 @@ impl InsightApp {
 
     pub fn channels_model(&mut self) -> ChannelsViewModel<'_> {
         ChannelsViewModel::new(&mut self.channels)
+    }
+
+    pub fn elections(&self) -> ElectionsViewModel {
+        if self.snapshot.elections.buckets.len() < 33 {
+            return Default::default();
+        }
+        let (col1, col2) = self.snapshot.elections.buckets.split_at(33);
+        ElectionsViewModel {
+            bucket_col1: create_bucket_column(col1),
+            bucket_col2: create_bucket_column(col2),
+        }
+    }
+
+    pub fn election_details(&self) -> Option<ElectionDetailsViewModel> {
+        self.election_details
+            .as_ref()
+            .map(|e| ElectionDetailsViewModel {
+                winner_hash: e.winner().hash().encode_hex(),
+                non_final_tally: e.winner_tally(),
+                final_tally: e.winner_final_tally(),
+                root: e.qualified_root().encode_hex(),
+                behavior: e.behavior().as_str(),
+                account: e.account().encode_account(),
+                state: e.state().as_str(),
+                candidate_blocks: e
+                    .candidate_blocks()
+                    .keys()
+                    .map(|h| h.encode_hex())
+                    .collect(),
+                vote_count: e.vote_count().to_string(),
+                phase: if e.is_final() {
+                    "final voting"
+                } else {
+                    "non-final voting"
+                },
+                elapsed: format!("{} seconds", e.start().elapsed(self.clock.now()).as_secs()),
+                non_final_votes: self
+                    .representatives
+                    .reps
+                    .iter()
+                    .map(|r| RepVoteViewModel {
+                        rep: if r.name.is_empty() {
+                            r.account.encode_account()
+                        } else {
+                            r.name.to_string()
+                        },
+                        weight: r.weight,
+                        voted: e.votes().contains_key(&r.account.as_key()),
+                        is_final: e
+                            .votes()
+                            .get(&r.account.as_key())
+                            .map(|i| i.is_final_vote())
+                            .unwrap_or(false),
+                    })
+                    .collect(),
+            })
+    }
+}
+
+fn create_bucket_column(buckets: &[BucketSnapshot]) -> Vec<BucketViewModel> {
+    buckets
+        .iter()
+        .map(|i| BucketViewModel {
+            name: format!("Bucket {:02}", i.bucket_index),
+            election_count: i.election_count,
+            elections: i
+                .elections
+                .iter()
+                .map(|election| {
+                    let mut hash = election.winner_hash.encode_hex();
+                    hash.truncate(6);
+                    ElectionViewModel {
+                        hash,
+                        non_final_tally: to_short_tally(election.non_final_tally),
+                        final_tally: to_short_tally(election.final_tally),
+                        root: election.root.clone(),
+                    }
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn to_short_tally(tally: Amount) -> u16 {
+    (tally.number() / Amount::nano(1_000_000).number()) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_tally() {
+        assert_eq!(
+            108,
+            to_short_tally(Amount::decode_dec("108902282988839324247169685594164037852").unwrap())
+        );
     }
 }
