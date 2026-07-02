@@ -92,7 +92,6 @@ impl RepresentativeRegistry {
         }
     }
 
-    /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn register(
         &mut self,
         public_key: PublicKey,
