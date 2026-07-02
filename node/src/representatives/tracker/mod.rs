@@ -21,9 +21,9 @@ use tracing::{debug, info, warn};
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
+use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery, VoteError};
 
-use crate::consensus::ReceivedVote;
+use crate::consensus::{AecFact, ReceivedVote, aggregate_vote_results};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -324,6 +324,22 @@ impl EventHandler<ChannelEvent> for RepresentativeTracker {
                     "Evicting representative {} with dead channel",
                     Account::from(rep).encode_account(),
                 );
+            }
+        }
+    }
+}
+
+impl EventHandler<AecFact> for RepresentativeTracker {
+    fn handle(&self, event: &AecFact) {
+        if let AecFact::VoteProcessed(vote, _weight, results) = event {
+            // Representative is defined as online if replying to live votes
+            let result = aggregate_vote_results(results);
+            let should_observe = matches!(
+                result,
+                Ok(()) | Err(VoteError::Replay) | Err(VoteError::Ignored)
+            );
+            if should_observe {
+                self.observe_vote(vote);
             }
         }
     }
