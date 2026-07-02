@@ -70,7 +70,7 @@ impl VoteApplier {
         if has_election {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
             // The rep weights have to be updated before the votes are processed!
-            self.rep_tracker.observe_vote(&vote.vote);
+            self.rep_tracker.vote_observed(vote.voter);
         }
         let quorum_snapshot = self.rep_tracker.quorum_snapshot();
 

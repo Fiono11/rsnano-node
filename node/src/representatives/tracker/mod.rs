@@ -21,14 +21,14 @@ use tracing::{debug, info, warn};
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery, VoteError};
+use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteError};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
-use crate::consensus::{AecFact, ReceivedVote, aggregate_vote_results};
+use crate::consensus::{AecFact, aggregate_vote_results};
 use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
 use registry::RepresentativeRegistry;
 
@@ -194,16 +194,6 @@ impl RepresentativeTracker {
         self.observe(rep, Some(channel_id));
     }
 
-    /// Add voting account rep to the set of online representatives.
-    /// This can happen for directly connected or indirectly connected reps.
-    /// Forwarded or replayed votes never carry channel information.
-    pub fn observe_vote(&self, vote: &ReceivedVote) {
-        match (vote.delivery, vote.channel_id) {
-            (VoteDelivery::Direct, Some(channel_id)) => self.set_channel(vote.voter, channel_id),
-            _ => self.vote_observed(vote.voter),
-        }
-    }
-
     fn observe(&self, rep: PublicKey, channel_id: Option<ChannelId>) {
         let result;
         {
@@ -338,7 +328,7 @@ impl EventHandler<AecFact> for RepresentativeTracker {
                 Ok(()) | Err(VoteError::Replay) | Err(VoteError::Ignored)
             );
             if should_observe {
-                self.observe_vote(vote);
+                self.vote_observed(vote.voter);
             }
         }
     }
