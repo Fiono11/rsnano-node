@@ -755,6 +755,7 @@ impl Node {
             runtime.clone(),
         ));
         aec_event_handlers.add(rep_tracker.clone());
+        aec_event_handlers.add(rep_crawler.clone());
 
         // BEWARE: `bootstrap` takes `network.port` instead of `config.peering_port` because when the user doesn't specify
         //         a peering port and wants the OS to pick one, the picking happens when `network` gets initialized
@@ -1201,9 +1202,7 @@ impl Node {
             vote_processor: vote_processor.clone(),
             block_processor_queue: block_processor_queue.clone(),
             confirming_set: confirming_set.clone(),
-            rep_tracker: rep_tracker.clone(),
             active_elections: active_elections.clone(),
-            rep_crawler: rep_crawler.clone(),
             clock: steady_clock.clone(),
             local_votes_remover,
             aec_fork_inserter,

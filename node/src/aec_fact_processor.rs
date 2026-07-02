@@ -6,7 +6,7 @@ use rsnano_ledger::BlockSource;
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Block, VoteDelivery, VoteError};
+use rsnano_types::Block;
 use rsnano_utils::{
     EventHandlerMut, EventHandlerRegistry,
     stats::{Sample, Stats},
@@ -19,11 +19,10 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
-        LocalVotesRemover, ReceivedVote, VoteProcessor, VoteRebroadcastQueue,
-        WinnerBlockBroadcaster, aggregate_vote_results, election_schedulers::ElectionSchedulers,
+        LocalVotesRemover, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
+        aggregate_vote_results, election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{RepCrawler, RepresentativeTracker},
     utils::BackpressureEventProcessor,
 };
 
@@ -38,9 +37,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) vote_rebroadcast_queue: Arc<VoteRebroadcastQueue>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
-    pub(crate) rep_tracker: Arc<RepresentativeTracker>,
     pub(crate) active_elections: Arc<AecService>,
-    pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
     pub(crate) local_votes_remover: LocalVotesRemover,
     pub(crate) stats: Arc<Stats>,
@@ -131,7 +128,6 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     .try_enqueue(&vote.vote, &results);
 
                 let result = aggregate_vote_results(&results);
-                self.try_update_online_reps(&vote, result);
 
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::VoteProcessed(vote.vote, result))
@@ -157,23 +153,5 @@ impl AecFactProcessor {
             .serialize_without_block_type(&mut buffer)
             .expect("Should serialize block successfully");
         self.network_filter.clear_bytes(&buffer);
-    }
-
-    fn try_update_online_reps(&mut self, vote: &ReceivedVote, result: Result<(), VoteError>) {
-        // Track rep weight voting on live elections
-        let mut should_observe = matches!(
-            result,
-            Ok(()) | Err(VoteError::Replay) | Err(VoteError::Ignored)
-        );
-
-        // Ignore republished votes when rep crawling
-        if vote.delivery == VoteDelivery::Direct {
-            should_observe |= self.rep_crawler.process(vote);
-        }
-
-        if should_observe {
-            // Representative is defined as online if replying to live votes or rep_crawler queries
-            self.rep_tracker.observe_vote(vote);
-        }
     }
 }

@@ -14,7 +14,7 @@ use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, Root, Vote};
+use rsnano_types::{Account, BlockHash, Root, Vote, VoteDelivery};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -24,7 +24,7 @@ use rsnano_utils::{
 use super::RepresentativeTracker;
 use crate::{
     config::{NetworkParams, NodeConfig},
-    consensus::{AecService, ReceivedVote},
+    consensus::{AecFact, AecService, ReceivedVote},
     transport::{
         MessageSender,
         keepalive::{KeepalivePublisher, PreconfiguredPeersKeepalive},
@@ -404,6 +404,18 @@ impl EventHandler<ChannelEvent> for RepCrawler {
                 .unwrap()
                 .last_request_by_channel
                 .remove(id);
+        }
+    }
+}
+
+impl EventHandler<AecFact> for RepCrawler {
+    fn handle(&self, event: &AecFact) {
+        if let AecFact::VoteProcessed(vote, ..) = event
+            && vote.delivery == VoteDelivery::Direct
+            && let Some(channel_id) = vote.channel_id
+            && self.process(vote)
+        {
+            self.rep_tracker.set_channel(vote.voter, channel_id);
         }
     }
 }
