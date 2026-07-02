@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rsnano_ledger::RepWeightCache;
-use rsnano_types::Amount;
+use rsnano_types::{Amount, currency_constants::DEFAULT_ONLINE_WEIGHT_MINIMUM};
 
 use super::RepresentativeTracker;
 
@@ -16,7 +16,7 @@ impl RepresentativeTrackerBuilder {
     pub(super) fn new() -> Self {
         Self {
             rep_weights: None,
-            online_weight_minimum: RepresentativeTracker::DEFAULT_ONLINE_WEIGHT_MINIMUM,
+            online_weight_minimum: DEFAULT_ONLINE_WEIGHT_MINIMUM,
             representative_weight_minimum: Amount::ZERO,
             trended: None,
         }

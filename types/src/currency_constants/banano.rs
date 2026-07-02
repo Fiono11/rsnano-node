@@ -1,5 +1,7 @@
 // This file contains the constants that are specific to Banano.
 
+use crate::Amount;
+
 pub const CURRENCY_NAME: &str = "Banano";
 
 /// Prefix for accounts in encoded form like:
@@ -90,3 +92,5 @@ pub const DEV_GENESIS_JSON: &str = r###"{
 
 pub const LIVE_EPOCH_V2_SIGNER: &str =
     "ban_3qb6o6i1tkzr6jwr5s7eehfxwg9x6eemitdinbpi7u8bjjwsgqfj4wzser3x";
+
+pub const DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(900_000_000);

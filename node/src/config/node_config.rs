@@ -6,7 +6,8 @@ use rsnano_store_lmdb::LmdbConfig;
 use rsnano_types::{
     Amount, Peer, PublicKey,
     currency_constants::{
-        PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE, PRECONFIGURED_PEERS_TEST,
+        DEFAULT_ONLINE_WEIGHT_MINIMUM, PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE,
+        PRECONFIGURED_PEERS_TEST,
     },
     default_preconfigured_representatives,
 };
@@ -193,7 +194,7 @@ impl NodeConfig {
             default_peering_port: network_params.network.default_node_port,
             bootstrap_fraction_numerator: 1,
             receive_minimum: Amount::micronano(1),
-            online_weight_minimum: Amount::nano(60_000_000),
+            online_weight_minimum: DEFAULT_ONLINE_WEIGHT_MINIMUM,
             representative_vote_weight_minimum: Amount::nano(10),
             password_fanout: 1024,
             io_threads: max(parallelism, 4),

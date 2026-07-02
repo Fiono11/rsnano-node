@@ -21,7 +21,10 @@ use tracing::{debug, info, warn};
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteError};
+use rsnano_types::{
+    Account, Amount, NetworkType, PublicKey, VoteError,
+    currency_constants::DEFAULT_ONLINE_WEIGHT_MINIMUM,
+};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -43,8 +46,6 @@ pub struct RepresentativeTracker {
 }
 
 impl RepresentativeTracker {
-    pub const DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
-
     pub const fn default_interval_for(network: NetworkType) -> Duration {
         match network {
             NetworkType::NanoDevNetwork => Duration::from_secs(1),
@@ -87,7 +88,7 @@ impl RepresentativeTracker {
         rep_weights.put(rep, Amount::nano(80_000_000));
 
         let clock = SteadyClock::new_null();
-        let min_online = Amount::nano(60_000_000);
+        let min_online = DEFAULT_ONLINE_WEIGHT_MINIMUM;
         let min_rep_weight = Amount::nano(1000);
         let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
         let channel = ChannelId::from(42);

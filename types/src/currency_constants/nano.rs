@@ -1,6 +1,8 @@
 // This file contains the constants that are specific to Nano.
 // If you would like to create a fork then copy this file:
 
+use crate::Amount;
+
 pub const CURRENCY_NAME: &str = "Nano";
 
 /// Prefix for accounts in encoded form like:
@@ -89,3 +91,5 @@ pub const DEV_GENESIS_JSON: &str = r###"{
 
 pub const LIVE_EPOCH_V2_SIGNER: &str =
     "nano_3qb6o6i1tkzr6jwr5s7eehfxwg9x6eemitdinbpi7u8bjjwsgqfj4wzser3x";
+
+pub const DEFAULT_ONLINE_WEIGHT_MINIMUM: Amount = Amount::nano(60_000_000);
