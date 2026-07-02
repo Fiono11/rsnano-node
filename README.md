@@ -140,18 +140,6 @@ flowchart TD
         websocket_server
         websocket_client
     end
-
-    subgraph nullables
-        fs
-        clock
-        random
-        tcp
-        lmdb
-        http_client
-        console
-        env
-        output_tracker
-    end
 ```
 
 * `main`: The node executable.
