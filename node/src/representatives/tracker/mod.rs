@@ -22,14 +22,13 @@ use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery, VoteError};
-
-use crate::consensus::{AecFact, ReceivedVote, aggregate_vote_results};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
 
+use crate::consensus::{AecFact, ReceivedVote, aggregate_vote_results};
 use crate::representatives::tracker::{quorum::calculate_quorum, registry::RegisterResult};
 use registry::RepresentativeRegistry;
 
