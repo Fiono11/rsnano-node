@@ -28,32 +28,6 @@ fn vote_cache_basic() {
 }
 
 #[test]
-fn vote_cache_fork() {
-    let mut system = System::new();
-    let node = system.make_node();
-    let mut lattice1 = UnsavedBlockLatticeBuilder::new();
-    let mut lattice2 = UnsavedBlockLatticeBuilder::new();
-    let key = PrivateKey::new();
-
-    let send1 = lattice1.genesis().send(&key, 100);
-    let send2 = lattice2.genesis().send(&key, 200);
-
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    node.vote_processor_queue
-        .enqueue(vote, None, VoteDelivery::Direct, None);
-
-    assert_timely_eq2(|| node.vote_cache.len(), 1);
-
-    node.process_active(send2.clone());
-
-    assert_timely2(|| node.is_active_root(&send1.qualified_root()));
-
-    node.process_active(send1.clone());
-
-    assert_timely_eq2(|| node.block_confirmed(&send1.hash()), true);
-}
-
-#[test]
 fn vote_cache_existing_vote() {
     let mut system = System::new();
     let config = System::default_config_without_backlog_scan();

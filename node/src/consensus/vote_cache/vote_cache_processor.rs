@@ -1,15 +1,15 @@
 use std::{
-    collections::{HashSet, VecDeque},
-    sync::{Arc, Condvar, Mutex, MutexGuard, atomic::Ordering},
+    collections::VecDeque,
+    sync::{Arc, Condvar, Mutex, atomic::Ordering},
 };
 
-use rsnano_types::{BlockHash, Vote, VoteDelivery};
-use rsnano_utils::thread_factory::{JoinHandle, ThreadFactory};
-
-use super::{stats::VoteCacheStats, voted_block_map::VotedBlockMap};
-use crate::consensus::VoteProcessorQueue;
 #[cfg(test)]
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_types::BlockHash;
+use rsnano_utils::thread_factory::{JoinHandle, ThreadFactory};
+
+use super::{enqueuer::CachedVotesEnqueuer, stats::VoteCacheStats, voted_block_map::VotedBlockMap};
+use crate::consensus::VoteProcessorQueue;
 
 pub(crate) struct VoteCacheProcessor {
     state: Arc<Mutex<State>>,
@@ -53,9 +53,11 @@ impl VoteCacheProcessor {
         let cache_loop = VoteCacheLoop {
             state: self.state.clone(),
             condition: self.condition.clone(),
-            stats: self.stats.clone(),
-            cache: self.cache.clone(),
-            vote_queue: self.vote_queue.clone(),
+            vote_enqueuer: CachedVotesEnqueuer::new(
+                self.cache.clone(),
+                self.vote_queue.clone(),
+                self.stats.clone(),
+            ),
         };
 
         self.state.lock().unwrap().thread = Some(
@@ -122,46 +124,25 @@ struct State {
 struct VoteCacheLoop {
     state: Arc<Mutex<State>>,
     condition: Arc<Condvar>,
-    stats: Arc<VoteCacheStats>,
-    cache: Arc<Mutex<VotedBlockMap>>,
-    vote_queue: Arc<VoteProcessorQueue>,
+    vote_enqueuer: CachedVotesEnqueuer,
 }
 
 impl VoteCacheLoop {
-    fn run(&self) {
-        let mut vote_buffer: Vec<Arc<Vote>> = Vec::new();
+    fn run(mut self) {
         let mut guard = self.state.lock().unwrap();
         while !guard.stopped {
             if !guard.triggered.is_empty() {
-                self.run_batch(guard, &mut vote_buffer);
+                let mut triggered = VecDeque::new();
+                std::mem::swap(&mut triggered, &mut guard.triggered);
+                drop(guard);
+                self.vote_enqueuer.enqueue(&triggered);
+                triggered.clear();
                 guard = self.state.lock().unwrap();
             } else {
                 guard = self
                     .condition
                     .wait_while(guard, |i| !i.stopped && i.triggered.is_empty())
                     .unwrap();
-            }
-        }
-    }
-
-    fn run_batch(&self, mut state: MutexGuard<'_, State>, vote_buffer: &mut Vec<Arc<Vote>>) {
-        let mut triggered = VecDeque::new();
-        std::mem::swap(&mut triggered, &mut state.triggered);
-        drop(state);
-
-        //deduplicate
-        let hashes: HashSet<BlockHash> = triggered.drain(..).collect();
-
-        self.stats
-            .processed
-            .fetch_add(hashes.len() as u64, Ordering::Relaxed);
-
-        for hash in hashes {
-            self.cache.lock().unwrap().collect_votes(vote_buffer, &hash);
-
-            for vote in vote_buffer.drain(..) {
-                self.vote_queue
-                    .enqueue(vote, None, VoteDelivery::Replayed, Some(hash));
             }
         }
     }

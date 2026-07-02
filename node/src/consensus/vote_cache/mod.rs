@@ -1,3 +1,4 @@
+mod enqueuer;
 mod stats;
 mod tally_index;
 mod vote_cache_processor;
