@@ -221,8 +221,9 @@ impl RepresentativeTracker {
                     rep.as_account().encode_account(),
                 );
             }
-            RegisterResult::ChannelChanged => {
+            RegisterResult::ChannelChanged(channel_id) => {
                 warn!(
+                    %channel_id,
                     "Representative channel changed: {}",
                     rep.as_account().encode_account(),
                 )

@@ -49,6 +49,7 @@ After finishing editing source files:
 
 - Prefer `use` statements at the top of a file over inline fully-qualified paths (e.g. `use std::time::Duration` rather than `std::time::Duration` inline).
 - In unit tests, use deterministic keys (e.g. `PrivateKey::from(1)`, `PrivateKey::from(2)`) instead of randomly generated ones (e.g. `PrivateKey::new()`), so tests are reproducible and failures are easy to debug.
+- Do not duplicate code. When the same logic appears in more than one place, extract it into a shared helper. When you notice duplicated code — whether introduced by an edit or already present — propose a deduplication refactoring before moving on.
 
 ## Architecture
 

@@ -27,7 +27,7 @@ impl RegisteredRep {
 pub(crate) enum RegisterResult {
     Inserted,
     Updated,
-    ChannelChanged,
+    ChannelChanged(ChannelId),
 }
 
 /// Collection of all representatives that are currently online.
@@ -77,6 +77,21 @@ impl RepresentativeRegistry {
         self.by_key.values()
     }
 
+    fn remove_key_from_channel(
+        by_channel: &mut FxHashMap<ChannelId, Vec<PublicKey>>,
+        channel_id: ChannelId,
+        public_key: PublicKey,
+    ) {
+        if let Some(keys) = by_channel.get_mut(&channel_id) {
+            if let Some(i) = keys.iter().position(|k| *k == public_key) {
+                keys.swap_remove(i);
+            }
+            if keys.is_empty() {
+                by_channel.remove(&channel_id);
+            }
+        }
+    }
+
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn register(
         &mut self,
@@ -94,20 +109,14 @@ impl RepresentativeRegistry {
             if let Some(id) = channel_id
                 && entry.channel_id != channel_id
             {
-                if let Some(old_id) = entry.channel_id
-                    && let Some(keys) = by_channel.get_mut(&old_id)
-                    && let Some(i) = keys.iter().position(|k| *k == public_key)
-                {
-                    keys.swap_remove(i);
-                    if keys.is_empty() {
-                        by_channel.remove(&old_id);
-                    }
+                if let Some(old_id) = entry.channel_id {
+                    Self::remove_key_from_channel(by_channel, old_id, public_key);
                 }
 
                 by_channel.entry(id).or_default().push(public_key);
 
                 entry.channel_id = channel_id;
-                RegisterResult::ChannelChanged
+                RegisterResult::ChannelChanged(id)
             } else {
                 RegisterResult::Updated
             }
@@ -156,7 +165,7 @@ impl RepresentativeRegistry {
                 let channel_id = entry.channel_id;
                 self.by_key.remove(&public_key);
                 if let Some(id) = channel_id {
-                    self.by_channel.remove(&id);
+                    Self::remove_key_from_channel(&mut self.by_channel, id, public_key);
                 }
                 trimmed.push((public_key, time));
             }
@@ -283,7 +292,7 @@ mod tests {
         registry.register(key, Some(channel_id), now);
         let result = registry.register(key, Some(new_channel_id), now);
 
-        assert_eq!(result, RegisterResult::ChannelChanged);
+        assert_eq!(result, RegisterResult::ChannelChanged(new_channel_id));
         assert_eq!(registry.get(&key).unwrap().channel_id, Some(new_channel_id),);
         assert!(!registry.contains_channel(channel_id));
         assert!(registry.contains_channel(new_channel_id));
@@ -330,6 +339,27 @@ mod tests {
         registry.register(PublicKey::from(1), None, now);
         assert_eq!(registry.trim(now + Duration::from_millis(1)).len(), 1);
         assert_eq!(registry.len(), 0);
+    }
+
+    #[test]
+    fn trim_removes_only_the_expired_rep_from_channel() {
+        let mut registry = RepresentativeRegistry::new();
+        let now = Timestamp::new_test_instance();
+        let key1 = PublicKey::from(1);
+        let key2 = PublicKey::from(2);
+        let channel_id = ChannelId::from(42);
+
+        registry.register(key1, Some(channel_id), now);
+        registry.register(key2, Some(channel_id), now + Duration::from_secs(10));
+
+        let trimmed = registry.trim(now + Duration::from_millis(1));
+
+        assert_eq!(trimmed.len(), 1);
+        assert_eq!(trimmed[0].0, key1);
+        assert_eq!(registry.len(), 1);
+        // Channel must still exist because key2 is still registered on it
+        assert!(registry.contains_channel(channel_id));
+        assert_eq!(registry.reps_for_channel(channel_id).count(), 1);
     }
 
     #[test]
