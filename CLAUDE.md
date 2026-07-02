@@ -48,6 +48,13 @@ After finishing editing source files:
 ## Code Style
 
 - Prefer `use` statements at the top of a file over inline fully-qualified paths (e.g. `use std::time::Duration` rather than `std::time::Duration` inline).
+- Order `mod`/`use` statements at the top of a file in these groups, in this order, with a blank line between groups:
+  1. `mod` statements
+  2. `pub use` and `pub(crate) use` statements
+  3. `use std::` statements
+  4. Third-party crate uses (e.g. `use tracing::`)
+  5. `rsnano_*` crate uses (e.g. `use rsnano_ledger::`)
+  6. Uses for the current crate (e.g. `use crate::consensus::` or `use super::*`)
 - In unit tests, use deterministic keys (e.g. `PrivateKey::from(1)`, `PrivateKey::from(2)`) instead of randomly generated ones (e.g. `PrivateKey::new()`), so tests are reproducible and failures are easy to debug.
 - Do not duplicate code. When the same logic appears in more than one place, extract it into a shared helper. When you notice duplicated code — whether introduced by an edit or already present — propose a deduplication refactoring before moving on.
 
