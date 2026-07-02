@@ -382,11 +382,9 @@ fn confirm_election_by_request() {
     assert_eq!(peers.is_empty(), false);
 
     // Add representative (node1) to disabled rep crawler of node2
-    node2.rep_tracker.vote_observed(
-        *DEV_GENESIS_PUB_KEY,
-        VoteDelivery::Direct,
-        Some(peers[0].channel_id()),
-    );
+    node2
+        .rep_tracker
+        .set_channel(*DEV_GENESIS_PUB_KEY, peers[0].channel_id());
 
     // Expect a vote to come back
     // There needs to be at least one request to get the election confirmed,
@@ -444,11 +442,9 @@ fn confirm_frontier() {
     // Add representative to disabled rep crawler
     let peers = node2.network.read().unwrap().sorted_channels();
     assert!(!peers.is_empty());
-    node2.rep_tracker.vote_observed(
-        *DEV_GENESIS_PUB_KEY,
-        VoteDelivery::Direct,
-        Some(peers[0].channel_id()),
-    );
+    node2
+        .rep_tracker
+        .set_channel(*DEV_GENESIS_PUB_KEY, peers[0].channel_id());
 
     node2.process(send.clone());
     assert_timely2(|| node2.aec.len() > 0);

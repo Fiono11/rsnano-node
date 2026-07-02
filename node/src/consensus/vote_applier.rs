@@ -70,8 +70,7 @@ impl VoteApplier {
         if has_election {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
             // The rep weights have to be updated before the votes are processed!
-            self.rep_tracker
-                .vote_observed(vote.voter, vote.delivery, vote.channel_id);
+            self.rep_tracker.observe_vote(&vote.vote);
         }
         let quorum_snapshot = self.rep_tracker.quorum_snapshot();
 
@@ -133,7 +132,7 @@ mod tests {
         );
         let clock = Arc::new(SteadyClock::new_null());
 
-        rep_tracker.vote_observed(another_rep.public_key(), VoteDelivery::Direct, None);
+        rep_tracker.vote_observed(another_rep.public_key());
 
         assert_eq!(
             rep_tracker.quorum_snapshot().quorum_delta,

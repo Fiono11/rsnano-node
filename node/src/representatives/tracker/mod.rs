@@ -22,6 +22,8 @@ use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_network::{ChannelEvent, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Amount, NetworkType, PublicKey, VoteDelivery};
+
+use crate::consensus::ReceivedVote;
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -90,7 +92,7 @@ impl RepresentativeTracker {
         let min_rep_weight = Amount::nano(1000);
         let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
         let channel = ChannelId::from(42);
-        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
+        tracker.set_channel(rep, channel);
         tracker
     }
 
@@ -183,15 +185,27 @@ impl RepresentativeTracker {
         result
     }
 
+    /// Mark a representative as online, without associating it with a channel.
+    pub fn vote_observed(&self, rep: PublicKey) {
+        self.observe(rep, None);
+    }
+
+    /// Mark a representative as online and associate it with the channel it was directly observed on.
+    pub fn set_channel(&self, rep: PublicKey, channel_id: ChannelId) {
+        self.observe(rep, Some(channel_id));
+    }
+
     /// Add voting account rep to the set of online representatives.
     /// This can happen for directly connected or indirectly connected reps.
-    /// Returns whether it is a rep which has more than min weight
-    pub fn vote_observed(
-        &self,
-        rep: PublicKey,
-        delivery: VoteDelivery,
-        channel_id: Option<ChannelId>,
-    ) {
+    /// Forwarded or replayed votes never carry channel information.
+    pub fn observe_vote(&self, vote: &ReceivedVote) {
+        match (vote.delivery, vote.channel_id) {
+            (VoteDelivery::Direct, Some(channel_id)) => self.set_channel(vote.voter, channel_id),
+            _ => self.vote_observed(vote.voter),
+        }
+    }
+
+    fn observe(&self, rep: PublicKey, channel_id: Option<ChannelId>) {
         let result;
         {
             let now = self.clock.now();
@@ -201,13 +215,6 @@ impl RepresentativeTracker {
             if weight < self.representative_weight_minimum {
                 return;
             }
-
-            // ignore forwarded or replayed votes
-            let channel_id = if delivery == VoteDelivery::Direct {
-                channel_id
-            } else {
-                None
-            };
 
             result = state.registry.register(rep, channel_id, now);
 
@@ -457,7 +464,7 @@ mod tests {
         let weight = Amount::nano(100_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed(rep, VoteDelivery::Direct, None);
+        tracker.vote_observed(rep);
 
         let specs = tracker.quorum_snapshot();
         assert_eq!(specs.online_weight, weight, "online");
@@ -471,7 +478,7 @@ mod tests {
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
         let channel = ChannelId::from(42);
-        tracker.vote_observed(rep, VoteDelivery::Direct, Some(channel));
+        tracker.set_channel(rep, channel);
         let specs = tracker.quorum_snapshot();
 
         assert_eq!(specs.online_weight, weight, "online");
@@ -512,7 +519,7 @@ mod tests {
         let weight = Amount::nano(100_000_000);
         let tracker = make_tracker_with_weights([(rep, weight)]);
 
-        tracker.vote_observed(rep, VoteDelivery::Direct, None);
+        tracker.vote_observed(rep);
 
         assert_eq!(
             tracker.quorum_snapshot().quorum_delta,
@@ -531,11 +538,11 @@ mod tests {
             (rep_c, Amount::nano(400_000)),
         ]);
 
-        tracker.vote_observed(rep_a, VoteDelivery::Direct, None);
+        tracker.vote_observed(rep_a);
         tracker.clock.advance(Duration::from_secs(10));
-        tracker.vote_observed(rep_b, VoteDelivery::Direct, None);
+        tracker.vote_observed(rep_b);
         tracker.clock.advance(Duration::from_secs(59 * 10 + 1));
-        tracker.vote_observed(rep_c, VoteDelivery::Direct, None);
+        tracker.vote_observed(rep_c);
 
         tracker.trim();
 

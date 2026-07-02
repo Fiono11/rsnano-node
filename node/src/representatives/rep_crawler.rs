@@ -334,8 +334,7 @@ impl RepCrawler {
                 continue;
             }
 
-            self.rep_tracker
-                .vote_observed(vote.voter, vote.delivery, Some(channel));
+            self.rep_tracker.set_channel(vote.voter, channel);
         }
     }
 
