@@ -9,8 +9,8 @@ use rsnano_ledger::{
     AnySet, BlockError, BlockSource, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
     DEV_GENESIS_PUB_KEY, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
 };
-use rsnano_messages::{ConfirmAck, Message, Publish};
-use rsnano_network::{ChannelId, TrafficType};
+use rsnano_messages::{Message, Publish};
+use rsnano_network::ChannelId;
 use rsnano_node::{
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
@@ -1171,140 +1171,59 @@ fn local_block_broadcast() {
     assert_timely2(|| node2.block_exists(&send_hash))
 }
 
+/// Checks that a single vote for a forked block is not enough to make nodes
+/// switch their ledger to that fork.
 #[test]
 fn fork_no_vote_quorum() {
     let mut system = System::new();
-    let node1 = system.make_node();
-    let node2 = system.make_node();
-    let node3 = system.make_node();
-    node1.local_block_broadcaster.stop();
-    node2.local_block_broadcaster.stop();
-    node3.local_block_broadcaster.stop();
-    let wallet_id1 = node1.wallets.wallet_ids()[0];
-    let wallet_id2 = node2.wallets.wallet_ids()[0];
-    let wallet_id3 = node3.wallets.wallet_ids()[0];
+    let node = system.make_node();
 
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    let key1 = PrivateKey::new();
+    let key2 = PrivateKey::new();
+    let key_pr = PrivateKey::new();
 
-    let key4 = node1
-        .wallets
-        .deterministic_insert2(&wallet_id1, true)
-        .unwrap();
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send_pr = lattice.genesis().send(&key_pr, Amount::nano(1_000_000));
+    let open_pr = lattice.account(&key_pr).receive(&send_pr);
 
-    node1
-        .wallets
-        .send(
-            wallet_id1,
-            *DEV_GENESIS_ACCOUNT,
-            key4.into(),
-            Amount::MAX / 4,
-            0.into(),
-            true,
-            None,
-        )
-        .wait()
-        .unwrap();
+    let mut fork_lattice = lattice.clone();
+    let send1 = lattice.genesis().send(&key1, Amount::nano(1));
+    let send2 = fork_lattice.genesis().send(&key2, Amount::nano(1));
 
-    let key1 = node2
-        .wallets
-        .deterministic_insert2(&wallet_id2, true)
-        .unwrap();
+    node.process_and_confirm_multi(&[send_pr, open_pr]);
+    node.process(send1.clone());
 
-    node2
-        .wallets
-        .set_representative(wallet_id2, key1, false)
-        .wait()
-        .unwrap();
+    assert_timely2(|| node.aec.is_active_root(&send1.qualified_root()));
 
-    let block = node1
-        .wallets
-        .send(
-            wallet_id1,
-            *DEV_GENESIS_ACCOUNT,
-            key1.into(),
-            node1.config.receive_minimum,
-            0.into(),
-            true,
-            None,
-        )
-        .wait()
-        .unwrap();
+    let _ = node.try_process(send2.clone());
+    assert_timely2(|| {
+        node.aec
+            .election_for_root(&send1.qualified_root())
+            .unwrap()
+            .contains_block(&send2.hash())
+    });
 
-    assert_timely_msg(
-        Duration::from_secs(30),
-        || {
-            node3.balance(&key1.into()) == node1.config.receive_minimum
-                && node2.balance(&key1.into()) == node1.config.receive_minimum
-                && node1.balance(&key1.into()) == node1.config.receive_minimum
-        },
-        "balances are wrong",
-    );
-    assert_eq!(node1.config.receive_minimum, node1.ledger.weight(&key1));
-    assert_eq!(node1.config.receive_minimum, node2.ledger.weight(&key1));
-    assert_eq!(node1.config.receive_minimum, node3.ledger.weight(&key1));
-
-    let send1: Block = StateBlockArgs {
-        key: &DEV_GENESIS_KEY,
-        previous: block.hash(),
-        representative: *DEV_GENESIS_PUB_KEY,
-        balance: (Amount::MAX / 4) - (node1.config.receive_minimum * 2),
-        link: Account::from(key1).into(),
-        work: node1.work_generate_dev(block.hash()),
-    }
-    .into();
-
-    node1.process(send1.clone());
-    node2.process(send1.clone());
-    node3.process(send1.clone());
-
-    let key2 = node3
-        .wallets
-        .deterministic_insert2(&wallet_id3, true)
-        .unwrap();
-
-    let send2: Block = StateBlockArgs {
-        key: &DEV_GENESIS_KEY,
-        previous: block.hash(),
-        representative: *DEV_GENESIS_PUB_KEY,
-        balance: (Amount::MAX / 4) - (node1.config.receive_minimum * 2),
-        link: Account::from(key2).into(),
-        work: node1.work_generate_dev(block.hash()),
-    }
-    .into();
-
-    let vote = Vote::new(
-        &PrivateKey::new(),
+    let vote = Arc::new(Vote::new(
+        &key_pr,
         UnixMillisTimestamp::ZERO,
         0,
         vec![send2.hash()],
-    );
-    let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
-    let channel = node2
-        .network
-        .read()
-        .unwrap()
-        .find_node_id(&node3.node_id())
-        .unwrap()
-        .clone();
-    node2
-        .message_sender
-        .lock()
-        .unwrap()
-        .try_send(&channel, &confirm, TrafficType::Generic);
+    ));
 
-    assert_timely_msg(
-        Duration::from_secs(10),
+    node.vote_processor_queue
+        .enqueue(vote, None, VoteDelivery::Direct, None);
+
+    assert_timely_eq2(
         || {
-            node3
-                .stats
-                .count(StatType::Message, DetailType::ConfirmAck, Direction::In)
-                >= 3
+            node.aec
+                .election_for_root(&send1.qualified_root())
+                .unwrap()
+                .vote_count()
         },
-        "no confirm ack",
+        1,
     );
-    assert_eq!(node1.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
-    assert_eq!(node2.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
-    assert_eq!(node3.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
+
+    assert_eq!(node.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
 }
 
 #[test]
