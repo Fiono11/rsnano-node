@@ -1,5 +1,6 @@
 mod http_callbacks;
 
+use file_mode::set_umask;
 use http_callbacks::HttpCallbacks;
 use rsnano_node::{
     CompositeNodeEventHandler, Node, NodeBuilder, NodeCallbacks, NodeEvent, NodeEventHandler,
@@ -63,6 +64,7 @@ impl DaemonBuilder {
     where
         F: Future<Output = ()> + Send + 'static,
     {
+        set_umask(0o077);
         let data_path = self.node_builder.get_data_path()?;
         let parallelism = get_cpu_count();
         let daemon_config =
