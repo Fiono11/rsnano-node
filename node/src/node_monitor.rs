@@ -46,45 +46,56 @@ impl NodeMonitor {
     fn log(&self) {
         let blocks_confirmed = self.ledger.confirmed_count();
         let blocks_total = self.ledger.block_count();
-
         let channels = self.network.read().unwrap().channels_info();
-        info!(
-            "Peers: {} (established: {} | inbound: {} | outbound: {})",
-            channels.total, channels.established, channels.inbound, channels.outbound
-        );
-
-        {
-            let specs = self.rep_tracker.quorum_snapshot();
-            info!(
-                "Quorum: {} (stake peered: {} | online stake: {})",
-                specs.quorum_delta.format_balance(0),
-                specs.peered_weight.format_balance(0),
-                specs.online_weight.format_balance(0)
-            );
-        }
-
-        let elections = self.active_elections.info();
-        info!(
-            "Elections active: {} (priority: {} | hinted: {} | optimistic: {})",
-            elections.total, elections.priority, elections.hinted, elections.optimistic
-        );
-
-        // TODO: Maybe emphasize somehow that confirmed doesn't need to be equal to total; backlog is OK
-        info!(
-            "Blocks confirmed: {} | total: {} (backlog: {})",
-            blocks_confirmed.to_formatted_string(&Locale::en),
-            blocks_total.to_formatted_string(&Locale::en),
-            (blocks_total - blocks_confirmed).to_formatted_string(&Locale::en)
-        );
-
-        let blocks_checked_rate = self.block_rates.bps();
-        let blocks_confirmed_rate = self.block_rates.cps();
-
-        info!(
-            "Blocks rate: {} bps | {} cps)",
-            blocks_checked_rate, blocks_confirmed_rate,
-        );
+        log_channels(channels);
+        log_quorum(self.rep_tracker.quorum_snapshot());
+        log_elections(self.active_elections.info());
+        log_blocks(blocks_confirmed, blocks_total);
+        log_block_rate(self.block_rates.bps(), self.block_rates.cps());
     }
+}
+
+fn log_block_rate(blocks_checked_rate: i64, blocks_confirmed_rate: i64) {
+    info!(
+        "Blocks rate: {} bps | {} cps)",
+        blocks_checked_rate, blocks_confirmed_rate,
+    );
+}
+
+fn log_blocks(blocks_confirmed: u64, blocks_total: u64) {
+    info!(
+        "Blocks confirmed: {} | total: {} (backlog: {})",
+        blocks_confirmed.to_formatted_string(&Locale::en),
+        blocks_total.to_formatted_string(&Locale::en),
+        (blocks_total - blocks_confirmed).to_formatted_string(&Locale::en)
+    );
+}
+
+fn log_quorum(quorum: crate::representatives::QuorumSnapshot) {
+    info!(
+        "Quorum: {} (stake peered: {} | online stake: {})",
+        quorum.quorum_delta.format_balance(0),
+        quorum.peered_weight.format_balance(0),
+        quorum.online_weight.format_balance(0)
+    );
+}
+
+fn log_channels(channels: rsnano_network::ChannelsInfo) {
+    info!(
+        "Peers: {} (established: {} | inbound: {} | outbound: {})",
+        channels.total, channels.established, channels.inbound, channels.outbound
+    );
+}
+
+fn log_elections(elections: crate::consensus::ActiveElectionsInfo) {
+    info!(
+        "Elections active: {} (priority: {} | hinted: {} | optimistic: {}) of which stale: {}",
+        elections.total,
+        elections.priority,
+        elections.hinted,
+        elections.optimistic,
+        elections.stale
+    );
 }
 
 impl Tickable for NodeMonitor {
@@ -95,5 +106,30 @@ impl Tickable for NodeMonitor {
             // Wait for node to warm up before logging
         }
         self.last_time = Some(Instant::now());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::ActiveElectionsInfo;
+    use tracing_test::traced_test;
+
+    #[test]
+    #[traced_test]
+    fn test_log_elections() {
+        let info = ActiveElectionsInfo {
+            total: 10,
+            stale: 3,
+            priority: 5,
+            hinted: 4,
+            optimistic: 1,
+            ..Default::default()
+        };
+
+        log_elections(info);
+        assert!(logs_contain(
+            "Elections active: 10 (priority: 5 | hinted: 4 | optimistic: 1) of which stale: 3"
+        ));
     }
 }
