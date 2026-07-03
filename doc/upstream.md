@@ -4,24 +4,11 @@
 
 These are the most recent commits that have been reviewed and merged into RsNano or put into the unmerged table below:
 
-- [x] 96aa784aecc0242157985579a937bc7075fa2b59
-- [x] 28640d1880357009564c53f9da119e7ad797cb8f
-- [x] 607eb5c338186267b92af665bb7909223f6c49a0
-- [x] 2722324dea5c6c454c4181b04058a9f6bba0f059
-- [x] 4a7ce0ab2362428b8ea3ed522cd7e81815f4d1c5
-- [x] 2e3f92f8094e89b02bcfd0d16ad541fada6221f2
-- [x] 0b848dbf2f1523ab369b9dc8cd654ab90f0e494a
-- [ ] 9a392a5b1bbca6423db66a1892c7f493a94c2432
-- [ ] a945ab419dbb7c504b2a69021116290186f7a8b9
-- [ ] 96360d13208a888cf30305d4e3a1385cf4ac3ad5
-- [ ] cf0611e0af4ba4b56707955aa4f6e7fd78aa4042
-- [ ] d91fa07c42e47264f5b0fcc815db837858df0bb5
-- [ ] 6acad638498d3f152ef6164f72bee7182aa32e35
-- [ ] 8f73988fa8d5554bcfa8a91581cb3be04c2091fb
-- [ ] 651f2ea74631f5ca80a326797b4b66f56807740b
-- [ ] 7ba55f4387f3eb483c8a63859bbb613fe2cc112e
-- [ ] dbdbf7ac489ab5b2e4bc5794489545db47a1a47a
-- [ ] 381999f26609e9d34fabe904325f05c3a0d11a2b
+- [x] 8f73988fa8d5554bcfa8a91581cb3be04c2091fb
+- [x] 651f2ea74631f5ca80a326797b4b66f56807740b
+- [x] 7ba55f4387f3eb483c8a63859bbb613fe2cc112e
+- [x] dbdbf7ac489ab5b2e4bc5794489545db47a1a47a
+- [x] 381999f26609e9d34fabe904325f05c3a0d11a2b
 
 ## Unmerged Upstream Changes
 
@@ -56,5 +43,14 @@ These are the most recent commits that have been reviewed and merged into RsNano
 |:zzz:   |Add flag to disable elections                    |2722324dea5c6c454c4181b04058a9f6bba0f059|https://github.com/nanocurrency/nano-node/pull/5081/ ||
 |:zzz:   |Add flag to disable bounded backlog              |2e3f92f8094e89b02bcfd0d16ad541fada6221f2|https://github.com/nanocurrency/nano-node/pull/5084/ ||
 |:zap:   |Scan backlog conf heights in lockstep            |0b848dbf2f1523ab369b9dc8cd654ab90f0e494a|https://github.com/nanocurrency/nano-node/pull/5085/ ||
+|:fire:  |Restore oversized read buffer                    |a945ab419dbb7c504b2a69021116290186f7a8b9|https://github.com/nanocurrency/nano-node/pull/5090/ ||
+|:zap:   |fix-watch-only-representative-abort              |96360d13208a888cf30305d4e3a1385cf4ac3ad5|https://github.com/nanocurrency/nano-node/pull/5098/ ||
+|:zap:   |Stabilise flaky multiple_representatives test    |cf0611e0af4ba4b56707955aa4f6e7fd78aa4042|https://github.com/nanocurrency/nano-node/pull/5097/ ||
+|:zap:   |Fix race condition in confirm_quorum test        |d91fa07c42e47264f5b0fcc815db837858df0bb5|https://github.com/nanocurrency/nano-node/pull/5096/ ||
+|:zap:   |Stabilise flaky fork_replacement_tally           |6acad638498d3f152ef6164f72bee7182aa32e35|https://github.com/nanocurrency/nano-node/pull/5091/ ||
+|:zap:   |Report preconfigured peer connect failures       |8f73988fa8d5554bcfa8a91581cb3be04c2091fb|https://github.com/nanocurrency/nano-node/pull/5092/ ||
+|:zap:   |Extract bootstrap verify policy                  |651f2ea74631f5ca80a326797b4b66f56807740b|https://github.com/nanocurrency/nano-node/pull/5095/ ||
+|:zzz:   |Add loopback-only peer mode                      |7ba55f4387f3eb483c8a63859bbb613fe2cc112e|https://github.com/nanocurrency/nano-node/pull/5093/ ||
+|:zzz:   |Add `--database_info` CLI command                |dbdbf7ac489ab5b2e4bc5794489545db47a1a47a|https://github.com/nanocurrency/nano-node/pull/5076/ ||
 
 Priority: High: :fire:, Medium :zap:, Low :zzz:
