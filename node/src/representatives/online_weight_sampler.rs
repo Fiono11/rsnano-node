@@ -4,7 +4,12 @@ use std::{
 };
 
 use rsnano_ledger::Ledger;
+use rsnano_nullable_clock::SystemTimeFactory;
 use rsnano_nullable_lmdb::WriteTransaction;
+#[cfg(teste)]
+use rsnano_output_tracker::OutputTrackerMt;
+#[cfg(test)]
+use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, NetworkType};
 
 pub struct TrendResult {
@@ -13,17 +18,44 @@ pub struct TrendResult {
 }
 
 pub struct OnlineWeightSampler {
+    system_time_factory: SystemTimeFactory,
     ledger: Arc<Ledger>,
 
     /// The maximum time to keep online weight samples
     cutoff: Duration,
+    #[cfg(test)]
+    sample_listener: OutputListenerMt<Amount>,
 }
 
 impl OnlineWeightSampler {
     pub fn new(ledger: Arc<Ledger>, network: NetworkType) -> Self {
+        Self::new_impl(SystemTimeFactory::default(), ledger, network)
+    }
+
+    pub fn new_null() -> Self {
+        let trended = Amount::nano(90_000_000);
+        Self::new_null_with_trended_weight(trended)
+    }
+
+    pub fn new_null_with_trended_weight(trended: Amount) -> Self {
+        let ledger = Ledger::new_null();
+        let time_factory = SystemTimeFactory::new_null();
+        let sampler = Self::new_impl(time_factory, ledger.into(), NetworkType::NanoLiveNetwork);
+        sampler.add_sample(trended);
+        sampler
+    }
+
+    fn new_impl(
+        system_time_factory: SystemTimeFactory,
+        ledger: Arc<Ledger>,
+        network: NetworkType,
+    ) -> Self {
         Self {
+            system_time_factory,
             ledger,
             cutoff: Self::cutoff_for(network),
+            #[cfg(test)]
+            sample_listener: OutputListenerMt::default(),
         }
     }
 
@@ -38,6 +70,11 @@ impl OnlineWeightSampler {
                 Duration::from_hours(24)
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn track_samples(&self) -> Arc<OutputTrackerMt<Amount>> {
+        self.sample_listener.track()
     }
 
     pub fn calculate_trend(&self) -> TrendResult {
@@ -72,7 +109,11 @@ impl OnlineWeightSampler {
 
     /// Called periodically to sample online weight
     pub fn add_sample(&self, current_online_weight: Amount) {
-        let now = SystemTime::now();
+        #[cfg(test)]
+        {
+            self.sample_listener.emit(current_online_weight);
+        }
+        let now = self.system_time_factory.now();
         let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(&mut txn, now);
         self.insert_new_sample(&mut txn, current_online_weight, now);
@@ -80,7 +121,7 @@ impl OnlineWeightSampler {
     }
 
     pub fn sanitize(&self) {
-        let now = SystemTime::now();
+        let now = self.system_time_factory.now();
         let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(&mut txn, now);
         txn.commit();
@@ -149,4 +190,40 @@ fn system_time_as_seconds(time: SystemTime) -> u64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .expect("Time went backwards")
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_sample_can_be_tracked() {
+        let time_factory = SystemTimeFactory::new_null();
+        let ledger = Arc::new(Ledger::new_null());
+        let sampler =
+            OnlineWeightSampler::new_impl(time_factory, ledger, NetworkType::NanoLiveNetwork);
+        let sample_tracker = sampler.track_samples();
+        let online_weight = Amount::nano(12345);
+
+        sampler.add_sample(online_weight);
+
+        assert_eq!(sample_tracker.output(), vec![online_weight]);
+    }
+
+    /*
+     * Nullability
+     */
+
+    #[test]
+    fn can_be_nulled() {
+        let sampler = OnlineWeightSampler::new_null();
+        assert_eq!(sampler.calculate_trend().trended, Amount::nano(90_000_000));
+    }
+
+    #[test]
+    fn nulled_sampler_can_be_configured() {
+        let trended = Amount::nano(98_700_000);
+        let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended);
+        assert_eq!(sampler.calculate_trend().trended, trended);
+    }
 }

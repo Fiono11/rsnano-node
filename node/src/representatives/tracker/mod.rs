@@ -66,21 +66,6 @@ impl RepresentativeTracker {
         )
     }
 
-    fn new_impl(
-        clock: SteadyClock,
-        rep_weights: Arc<RepWeightCache>,
-        online_weight_minimum: Amount,
-        representative_weight_minimum: Amount,
-    ) -> Self {
-        Self {
-            clock,
-            rep_weights,
-            state: Mutex::new(RepresentativeTrackerState::new(online_weight_minimum)),
-            trim_counter: AtomicU64::new(0),
-            representative_weight_minimum,
-        }
-    }
-
     pub fn new_null() -> Self {
         let rep = PublicKey::from(1);
 
@@ -94,6 +79,36 @@ impl RepresentativeTracker {
         let channel = ChannelId::from(42);
         tracker.set_channel(rep, channel);
         tracker
+    }
+
+    pub fn new_null_with_peered_weight(peered_weight: Amount) -> Self {
+        let rep = PublicKey::from(1);
+
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(rep, peered_weight);
+
+        let clock = SteadyClock::new_null();
+        let min_online = DEFAULT_ONLINE_WEIGHT_MINIMUM;
+        let min_rep_weight = Amount::nano(1000);
+        let tracker = Self::new_impl(clock, rep_weights, min_online, min_rep_weight);
+        let channel = ChannelId::from(42);
+        tracker.set_channel(rep, channel);
+        tracker
+    }
+
+    fn new_impl(
+        clock: SteadyClock,
+        rep_weights: Arc<RepWeightCache>,
+        online_weight_minimum: Amount,
+        representative_weight_minimum: Amount,
+    ) -> Self {
+        Self {
+            clock,
+            rep_weights,
+            state: Mutex::new(RepresentativeTrackerState::new(online_weight_minimum)),
+            trim_counter: AtomicU64::new(0),
+            representative_weight_minimum,
+        }
     }
 
     pub fn builder() -> RepresentativeTrackerBuilder {
@@ -558,27 +573,39 @@ mod tests {
         );
     }
 
-    #[test]
-    fn can_be_nulled() {
-        let tracker = RepresentativeTracker::new_null();
-        let specs = tracker.quorum_snapshot();
-        assert_ne!(specs.quorum_delta, Amount::ZERO, "quorum delta");
-        assert_ne!(specs.quorum_percent, 0, "quorum percent");
-        assert_ne!(specs.online_weight_minimum, Amount::ZERO, "online minimum");
-        assert_ne!(specs.online_weight, Amount::ZERO, "online weight");
-        assert_ne!(
-            specs.trended_or_min_weight,
-            Amount::ZERO,
-            "trended or minimum"
-        );
-        assert_ne!(specs.peered_weight, Amount::ZERO, "peered");
-    }
-
     #[cfg(feature = "ledger_snapshots")]
     #[test]
     fn default_quorum_weight_is_max() {
         let params = ConsensusParams::default();
         assert_eq!(params.quorum_weight, Amount::MAX);
+    }
+
+    /*
+     * Nullability
+     */
+
+    #[test]
+    fn can_be_nulled() {
+        let tracker = RepresentativeTracker::new_null();
+        let snap = tracker.quorum_snapshot();
+        assert_ne!(snap.quorum_delta, Amount::ZERO, "quorum delta");
+        assert_ne!(snap.quorum_percent, 0, "quorum percent");
+        assert_ne!(snap.online_weight_minimum, Amount::ZERO, "online minimum");
+        assert_ne!(snap.online_weight, Amount::ZERO, "online weight");
+        assert_ne!(
+            snap.trended_or_min_weight,
+            Amount::ZERO,
+            "trended or minimum"
+        );
+        assert_eq!(snap.peered_weight, Amount::nano(80_000_000), "peered");
+    }
+
+    #[test]
+    fn can_be_nulled_with_configurable_peered_weight() {
+        let weight = Amount::nano(99_000_000);
+        let tracker = RepresentativeTracker::new_null_with_peered_weight(weight);
+        assert_eq!(tracker.quorum_snapshot().peered_weight, weight);
+        assert_eq!(tracker.quorum_snapshot().online_weight, weight);
     }
 
     /*

@@ -1,28 +1,37 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use tracing::info;
 
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{OnlineWeightSampler, RepresentativeTracker};
 
 pub struct OnlineWeightCalculation {
+    clock: SteadyClock,
     sampler: OnlineWeightSampler,
     rep_tracker: Arc<RepresentativeTracker>,
     first_run: bool,
-    last_sample: Instant,
+    last_sample: Timestamp,
 }
 
 impl OnlineWeightCalculation {
     pub fn new(sampler: OnlineWeightSampler, rep_tracker: Arc<RepresentativeTracker>) -> Self {
+        Self::new_impl(SteadyClock::default(), sampler, rep_tracker)
+    }
+
+    fn new_impl(
+        clock: SteadyClock,
+        sampler: OnlineWeightSampler,
+        rep_tracker: Arc<RepresentativeTracker>,
+    ) -> Self {
+        let now = clock.now();
         Self {
+            clock,
             sampler,
             rep_tracker,
             first_run: true,
-            last_sample: Instant::now(),
+            last_sample: now,
         }
     }
 
@@ -39,21 +48,86 @@ impl OnlineWeightCalculation {
 
 impl Tickable for OnlineWeightCalculation {
     fn tick(&mut self, _: &CancellationToken) {
+        let now = self.clock.now();
         if self.first_run {
             // Don't sample online weight on first run, because it is always 0
             self.sampler.sanitize();
-            self.last_sample = Instant::now();
+            self.last_sample = now;
             self.update_trended_weight();
             self.first_run = false;
         } else {
             self.rep_tracker.trim();
 
-            if self.last_sample.elapsed() > Duration::from_secs(60) {
+            if self.last_sample.elapsed(now) > Duration::from_secs(60) {
                 let online_weight = self.rep_tracker.quorum_snapshot().online_weight;
                 self.sampler.add_sample(online_weight);
                 self.update_trended_weight();
-                self.last_sample = Instant::now();
+                self.last_sample = now;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::Amount;
+    use tracing_test::traced_test;
+
+    #[test]
+    #[traced_test]
+    fn only_updates_trended_weight_on_first_run() {
+        let clock = SteadyClock::new_null();
+        let trended = Amount::nano(90_000_000);
+        let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended);
+        let sample_tracker = sampler.track_samples();
+        let rep_tracker = Arc::new(RepresentativeTracker::new_null());
+        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker.clone());
+
+        let ct = CancellationToken::new_null();
+        calc.tick(&ct);
+
+        assert_eq!(rep_tracker.quorum_snapshot().trended_or_min_weight, trended);
+        assert_eq!(sample_tracker.output(), vec![]);
+        assert!(logs_contain(
+            "Trended weight updated: 90,000,000, samples: 1"
+        ));
+    }
+
+    #[test]
+    fn skips_sample_if_not_enough_time_has_passed() {
+        let clock = SteadyClock::new_null();
+        let trended = Amount::nano(90_000_000);
+        let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended);
+        let sample_tracker = sampler.track_samples();
+        let rep_tracker = Arc::new(RepresentativeTracker::new_null());
+        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker.clone());
+
+        let ct = CancellationToken::new_null();
+        calc.tick(&ct);
+        calc.clock.advance(Duration::from_secs(10));
+        calc.tick(&ct);
+
+        assert_eq!(sample_tracker.output(), vec![]);
+    }
+
+    #[test]
+    fn samples_online_weight_after_60s() {
+        let clock = SteadyClock::new_null();
+        let trended_weight = Amount::nano(90_000_000);
+        let online_weight = Amount::nano(80_000_000);
+        let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended_weight);
+        let sample_tracker = sampler.track_samples();
+        let rep_tracker = Arc::new(RepresentativeTracker::new_null_with_peered_weight(
+            online_weight,
+        ));
+        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker.clone());
+
+        let ct = CancellationToken::new_null();
+        calc.tick(&ct);
+        calc.clock.advance(Duration::from_secs(61));
+        calc.tick(&ct);
+
+        assert_eq!(sample_tracker.output(), vec![online_weight]);
     }
 }
