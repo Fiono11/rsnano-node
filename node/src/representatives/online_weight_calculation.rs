@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use tracing::info;
+use tracing::{info, warn};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
@@ -59,9 +59,19 @@ impl Tickable for OnlineWeightCalculation {
             self.rep_tracker.trim();
 
             if self.last_sample.elapsed(now) > Duration::from_secs(60) {
-                let online_weight = self.rep_tracker.quorum_snapshot().online_weight;
-                self.sampler.add_sample(online_weight);
-                self.update_trended_weight();
+                let quorum_snapshot = self.rep_tracker.quorum_snapshot();
+                if quorum_snapshot.online_weight >= quorum_snapshot.online_weight_minimum {
+                    self.sampler.add_sample(quorum_snapshot.online_weight);
+                    self.update_trended_weight();
+                } else {
+                    warn!(
+                        "Current online weight {} is below minimum threshold {}. \
+                        This often occurs when the node cannot reach enough peers; \
+                        check network connectivity and peer count.",
+                        quorum_snapshot.online_weight.format_balance(0),
+                        quorum_snapshot.online_weight_minimum.format_balance(0)
+                    )
+                }
                 self.last_sample = now;
             }
         }
@@ -95,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_sample_if_not_enough_time_has_passed() {
+    fn skips_sampling_if_not_enough_time_has_passed() {
         let clock = SteadyClock::new_null();
         let trended = Amount::nano(90_000_000);
         let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended);
@@ -121,7 +131,7 @@ mod tests {
         let rep_tracker = Arc::new(RepresentativeTracker::new_null_with_peered_weight(
             online_weight,
         ));
-        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker.clone());
+        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker);
 
         let ct = CancellationToken::new_null();
         calc.tick(&ct);
@@ -129,5 +139,29 @@ mod tests {
         calc.tick(&ct);
 
         assert_eq!(sample_tracker.output(), vec![online_weight]);
+    }
+
+    #[test]
+    #[traced_test]
+    fn skips_sampling_if_online_weight_below_minimum() {
+        let clock = SteadyClock::new_null();
+        let trended_weight = Amount::nano(90_000_000);
+        let online_weight = Amount::nano(1_000);
+        let sampler = OnlineWeightSampler::new_null_with_trended_weight(trended_weight);
+        let sample_tracker = sampler.track_samples();
+        let rep_tracker = Arc::new(RepresentativeTracker::new_null_with_peered_weight(
+            online_weight,
+        ));
+        let mut calc = OnlineWeightCalculation::new_impl(clock, sampler, rep_tracker);
+
+        let ct = CancellationToken::new_null();
+        calc.tick(&ct);
+        calc.clock.advance(Duration::from_secs(61));
+        calc.tick(&ct);
+
+        assert_eq!(sample_tracker.output(), vec![]);
+        assert!(logs_contain(
+            "Current online weight 1,000 is below minimum threshold 60,000,000. This often occurs when the node cannot reach enough peers; check network connectivity and peer count."
+        ));
     }
 }
