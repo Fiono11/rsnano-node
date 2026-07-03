@@ -486,10 +486,15 @@ impl ActiveElectionsContainer {
         self.len() == 0
     }
 
-    pub fn info(&self) -> ActiveElectionsInfo {
+    pub fn info(&self, now: Timestamp) -> ActiveElectionsInfo {
         ActiveElectionsInfo {
             max_elections: self.max_elections,
             total: self.roots.len(),
+            stale: self
+                .roots
+                .iter()
+                .filter(|i| i.election.start().elapsed(now) >= Duration::from_secs(60))
+                .count(),
             priority: self.count_by_behavior(ElectionBehavior::Priority),
             hinted: self.count_by_behavior(ElectionBehavior::Hinted),
             optimistic: self.count_by_behavior(ElectionBehavior::Optimistic),
@@ -650,6 +655,23 @@ mod tests {
             ],
             &[&block_d, &block_c, &block_a, &block_b],
         )
+    }
+
+    #[test]
+    fn reports_stale_election_count() {
+        let mut container = ActiveElectionsContainer::default();
+        let request = AecInsertRequest {
+            block: SavedBlock::new_test_instance(),
+            behavior: ElectionBehavior::Priority,
+            priority: BlockPriority::new_test_instance(),
+        };
+
+        let start = Timestamp::new_test_instance();
+
+        container.insert(request, start).unwrap();
+
+        assert_eq!(container.info(start).stale, 0);
+        assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

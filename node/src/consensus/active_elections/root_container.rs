@@ -233,6 +233,10 @@ impl RootContainer {
         RoundRobinIterator::new(self)
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &Entry> {
+        self.by_root.values()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
         self.by_root.values_mut()
     }

@@ -93,7 +93,8 @@ impl AecService {
     }
 
     pub fn info(&self) -> ActiveElectionsInfo {
-        self.aec.read().unwrap().info()
+        let now = self.clock.now();
+        self.aec.read().unwrap().info(now)
     }
 
     pub fn round_robin<F, T>(&self, f: F) -> T

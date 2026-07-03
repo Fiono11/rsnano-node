@@ -74,6 +74,7 @@ pub enum AecInsertError {
 pub struct ActiveElectionsInfo {
     pub max_elections: usize,
     pub total: usize,
+    pub stale: usize,
     pub priority: usize,
     pub hinted: usize,
     pub optimistic: usize,
