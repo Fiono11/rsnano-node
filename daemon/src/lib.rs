@@ -65,6 +65,8 @@ impl DaemonBuilder {
         F: Future<Output = ()> + Send + 'static,
     {
         set_umask(0o077);
+        set_max_file_descriptor_limit()?;
+
         let data_path = self.node_builder.get_data_path()?;
         let parallelism = get_cpu_count();
         let daemon_config =
@@ -164,6 +166,11 @@ impl DaemonBuilder {
         node.stop();
         Ok(())
     }
+}
+
+fn set_max_file_descriptor_limit() -> std::io::Result<()> {
+    let (_, hard) = rlimit::getrlimit(rlimit::Resource::NOFILE)?;
+    rlimit::setrlimit(rlimit::Resource::NOFILE, hard, hard)
 }
 
 struct ForwardNodeEvent(Box<dyn FnMut(&NodeEvent) + Send>);
