@@ -6,8 +6,6 @@ use std::{
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SystemTimeFactory;
 use rsnano_nullable_lmdb::WriteTransaction;
-#[cfg(teste)]
-use rsnano_output_tracker::OutputTrackerMt;
 #[cfg(test)]
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, NetworkType};

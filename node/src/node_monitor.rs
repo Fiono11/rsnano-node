@@ -1,28 +1,31 @@
 use std::{
     sync::{Arc, RwLock},
-    time::Instant,
+    time::Duration,
 };
 
 use num_format::{Locale, ToFormattedString};
-use tracing::info;
+use tracing::{info, warn};
 
 use rsnano_ledger::Ledger;
 use rsnano_network::Network;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use crate::{
-    block_rate_calculator::CurrentBlockRates, consensus::AecService,
-    representatives::RepresentativeTracker,
+    block_rate_calculator::CurrentBlockRates,
+    consensus::AecService,
+    representatives::{QuorumSnapshot, RepresentativeTracker},
 };
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 
 /// Periodically prints info about BPS, CPS, elections, peers,...
 pub struct NodeMonitor {
+    clock: SteadyClock,
     ledger: Arc<Ledger>,
     network: Arc<RwLock<Network>>,
     rep_tracker: Arc<RepresentativeTracker>,
-    active_elections: Arc<AecService>,
+    aec: Arc<AecService>,
     block_rates: Arc<CurrentBlockRates>,
-    last_time: Option<Instant>,
+    first_log: Option<Timestamp>,
 }
 
 impl NodeMonitor {
@@ -30,36 +33,46 @@ impl NodeMonitor {
         ledger: Arc<Ledger>,
         network: Arc<RwLock<Network>>,
         rep_tracker: Arc<RepresentativeTracker>,
-        active_elections: Arc<AecService>,
+        aec: Arc<AecService>,
         block_rates: Arc<CurrentBlockRates>,
     ) -> Self {
         Self {
+            clock: SteadyClock::default(),
             ledger,
             network,
             rep_tracker,
-            active_elections,
+            aec,
             block_rates,
-            last_time: None,
+            first_log: None,
         }
     }
 
-    fn log(&self) {
+    fn log(&mut self) {
+        if self.first_log.is_none() {
+            self.first_log = Some(self.clock.now());
+        }
         let blocks_confirmed = self.ledger.confirmed_count();
         let blocks_total = self.ledger.block_count();
         let channels = self.network.read().unwrap().channels_info();
+        let quorum = self.rep_tracker.quorum_snapshot();
+
         log_channels(channels);
-        log_quorum(self.rep_tracker.quorum_snapshot());
-        log_elections(self.active_elections.info());
+        log_quorum(quorum, self.warmed_up());
+        log_elections(self.aec.info());
         log_blocks(blocks_confirmed, blocks_total);
         log_block_rate(self.block_rates.bps(), self.block_rates.cps());
     }
+
+    fn warmed_up(&self) -> bool {
+        let Some(start) = self.first_log else {
+            return false;
+        };
+        start.elapsed(self.clock.now()) >= Duration::from_mins(5)
+    }
 }
 
-fn log_block_rate(blocks_checked_rate: i64, blocks_confirmed_rate: i64) {
-    info!(
-        "Blocks rate: {} bps | {} cps)",
-        blocks_checked_rate, blocks_confirmed_rate,
-    );
+fn log_block_rate(bps: i64, cps: i64) {
+    info!("Blocks rate: {} bps | {} cps)", bps, cps);
 }
 
 fn log_blocks(blocks_confirmed: u64, blocks_total: u64) {
@@ -71,13 +84,23 @@ fn log_blocks(blocks_confirmed: u64, blocks_total: u64) {
     );
 }
 
-fn log_quorum(quorum: crate::representatives::QuorumSnapshot) {
+fn log_quorum(quorum: QuorumSnapshot, warmed_up: bool) {
     info!(
         "Quorum: {} (stake peered: {} | online stake: {})",
         quorum.quorum_delta.format_balance(0),
         quorum.peered_weight.format_balance(0),
         quorum.online_weight.format_balance(0)
     );
+
+    if warmed_up && quorum.peered_weight < quorum.quorum_delta {
+        warn!(
+            "Peered stake ({}) is below quorum threshold ({}). \
+            The node may not be able to confirm transactions. \
+            This is usually caused by NAT, firewall rules, or internet connectivity issues.",
+            quorum.peered_weight.format_balance(0),
+            quorum.quorum_delta.format_balance(0)
+        )
+    }
 }
 
 fn log_channels(channels: rsnano_network::ChannelsInfo) {
@@ -100,12 +123,7 @@ fn log_elections(elections: crate::consensus::ActiveElectionsInfo) {
 
 impl Tickable for NodeMonitor {
     fn tick(&mut self, _cancel_token: &CancellationToken) {
-        if self.last_time.is_some() {
-            self.log();
-        } else {
-            // Wait for node to warm up before logging
-        }
-        self.last_time = Some(Instant::now());
+        self.log();
     }
 }
 

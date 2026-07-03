@@ -72,7 +72,6 @@ These are the most recent commits that have been reviewed and merged into RsNano
 |:zap:   |Shared Priority Pool                            |964ed6e759fabfb5edb872aeea7896f06c5e5542|https://github.com/nanocurrency/nano-node/pull/4954/ ||
 |:zzz:   |TXN tracking                                    |34c76330c520035ce296f435d193da2a96713456|https://github.com/nanocurrency/nano-node/pull/4982/ ||
 |:zzz:   |Super Rebroadcaster                             |6d53b5f89f5feec87c111153ee5e86b36d4f9502|https://github.com/nanocurrency/nano-node/pull/4985/ ||
-|:fire:  |Log when peered stake below quorum              |3cfae9c17e318f3eefbc8530a28892d4aaafc77d|https://github.com/nanocurrency/nano-node/pull/4991/ ||
 |:fire:  |Rate-limit low online weight warning            |cc4008185c99fccf59e007c0a79ec799be18751d|https://github.com/nanocurrency/nano-node/pull/4999/ ||
 |:zzz:   |Priority Scheduler Stress Test                  |3681e28a60f0556e6df002ce80cbf54400b1b0b6|https://github.com/nanocurrency/nano-node/pull/5007/ ||
 |:fire:  |Disable RequestAggregator if not voting         |0274cf73f56989c294b2c2fa83a67a000530b508|https://github.com/nanocurrency/nano-node/pull/5022/ ||

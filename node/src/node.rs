@@ -211,6 +211,12 @@ impl Node {
     }
 
     fn new(args: NodeArgs, is_nulled: bool, mut node_id_key_file: NodeIdKeyFile) -> Self {
+        let steady_clock = if is_nulled {
+            Arc::new(SteadyClock::new_null())
+        } else {
+            Arc::new(SteadyClock::default())
+        };
+        let startup_time = steady_clock.now();
         let mut tokio_runner = TokioRunner::new(args.config.io_threads);
         tokio_runner.start();
         let runtime = tokio_runner.handle().clone();
@@ -264,13 +270,6 @@ impl Node {
         info!("Work peers: {}", config.work_peers.len());
 
         let node_observer = args.event_sender;
-        // Time relative to the start of the node. This makes time exlpicit and enables us to
-        // write time relevant unit tests with ease.
-        let steady_clock = if is_nulled {
-            Arc::new(SteadyClock::new_null())
-        } else {
-            Arc::new(SteadyClock::default())
-        };
 
         let global_config = &GlobalConfig {
             node_config: config.clone(),
@@ -461,7 +460,7 @@ impl Node {
             network: network.clone(),
             node_id_key: node_id_key.clone(),
             unchecked: unchecked.clone(),
-            startup_time: steady_clock.now(),
+            startup_time,
             clock: steady_clock.clone(),
         };
         let telemetry = Arc::new(Telemetry::new(
@@ -1075,14 +1074,14 @@ impl Node {
             ticker_pool.insert(peer_cache_connector, config.network.cached_peer_reachout);
         }
 
-        let monitor = NodeMonitor::new(
-            ledger.clone(),
-            network.clone(),
-            rep_tracker.clone(),
-            active_elections.clone(),
-            block_rates.clone(),
-        );
         if config.enable_monitor {
+            let monitor = NodeMonitor::new(
+                ledger.clone(),
+                network.clone(),
+                rep_tracker.clone(),
+                active_elections.clone(),
+                block_rates.clone(),
+            );
             ticker_pool.insert(monitor, config.monitor.interval)
         }
 
