@@ -1557,7 +1557,9 @@ impl Node {
                 .start(self.network_params.network.aec_loop_interval);
         }
         self.vote_generators.start();
-        self.request_aggregator.start();
+        if self.config.enable_voting {
+            self.request_aggregator.start();
+        }
         self.confirming_set.start();
         self.election_schedulers.start();
 

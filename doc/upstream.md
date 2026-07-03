@@ -21,7 +21,6 @@ These are the most recent commits that have been reviewed and merged into RsNano
 |:zzz:   |TXN tracking                                     |34c76330c520035ce296f435d193da2a96713456|https://github.com/nanocurrency/nano-node/pull/4982/ ||
 |:zzz:   |Super Rebroadcaster                              |6d53b5f89f5feec87c111153ee5e86b36d4f9502|https://github.com/nanocurrency/nano-node/pull/4985/ ||
 |:zzz:   |Priority Scheduler Stress Test                   |3681e28a60f0556e6df002ce80cbf54400b1b0b6|https://github.com/nanocurrency/nano-node/pull/5007/ ||
-|:fire:  |Disable RequestAggregator if not voting          |0274cf73f56989c294b2c2fa83a67a000530b508|https://github.com/nanocurrency/nano-node/pull/5022/ ||
 |:fire:  |Bounded DFS                                      |6656b457aee5c2956ecc1fa76462a59023cf2649|https://github.com/nanocurrency/nano-node/pull/5030/ ||
 |:fire:  |Extend Telemetry Data                            |2597405dff33801ca522b244b043a2654eb677eb|https://github.com/nanocurrency/nano-node/pull/5035/ ||
 |:zap:   |Add work_server_use_peers field to config        |fa5fed3bca99934a2de92cf82a3e158d3fb7ea4b|https://github.com/nanocurrency/nano-node/pull/5017/ ||
