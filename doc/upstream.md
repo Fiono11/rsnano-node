@@ -70,7 +70,6 @@ These are the most recent commits that have been reviewed and merged into RsNano
 |:zap:   |AEC Races (needs AEC Rework first!)             |285ae0ef10421383ac69504a61d9e981f4e7d734|https://github.com/nanocurrency/nano-node/pull/4945/ ||
 |:zzz:   |CLI Benchmarks                                  |53a2f4e3485a9f0f26fcebb2fd80a7c3bbfe824d|https://github.com/nanocurrency/nano-node/pull/4953/ ||
 |:zap:   |Shared Priority Pool                            |964ed6e759fabfb5edb872aeea7896f06c5e5542|https://github.com/nanocurrency/nano-node/pull/4954/ ||
-|:fire:  |Use Max Filedescriptor Limit                    |8de5920578fc82129467f21e286dddbcf8a16de3|https://github.com/nanocurrency/nano-node/pull/4968/ ||
 |:fire:  |Don't sample weights if below threshold         |997b26279e4d5e20ef510e3ab507594977ed46a0|https://github.com/nanocurrency/nano-node/pull/4969/ ||
 |:zzz:   |TXN tracking                                    |34c76330c520035ce296f435d193da2a96713456|https://github.com/nanocurrency/nano-node/pull/4982/ ||
 |:zzz:   |Super Rebroadcaster                             |6d53b5f89f5feec87c111153ee5e86b36d4f9502|https://github.com/nanocurrency/nano-node/pull/4985/ ||
