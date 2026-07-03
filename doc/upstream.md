@@ -4,52 +4,13 @@
 
 These are the most recent commits that have been reviewed and merged into RsNano or put into the unmerged table below:
 
-- [x] a04a2496e36d2c90f004ebbdeb39ce7d6b1e4bc9
-- [x] 6f405e005fc79c4d25af031c2b2854e25d95d060
-- [x] f43442ddd361cc4c31288d64d31b4c63b7493769
-- [x] d212a697bb83492a7a10d2c57367e22ee07d87ba
-- [x] 09a22d45b0cc76bfb65e4c7f947c027b74b2c18f
-- [x] 6ef4b550ca24f56083a0e8779ba7021e809347cf
-- [x] cc768f39965084d99e043f9c779a44e0ec440b15
-- [ ] 77e49c5d878f3a2c33f7802bc1d66259027d0999
-- [ ] ff4f744ce6ebe3b3e47a2cee13b272051fb32623
-- [ ] 441fba5c10b456bd14abf88add64446719c214b2
-- [ ] 96c39c649fcc4b6d083ad8e1d578f63690750b86
-- [ ] a09f4f0d1dc9b93e454c7ba8b339cf0aca2bc569
-- [ ] 86c12782f12bfdd77606f6e6711c38804d228530
-- [ ] ccad7d2d72ea30024f1bbc6003fc25ebb53d9263
-- [ ] d77b125e47afde25f688cd764834a365b732e440
-- [ ] 1fd1df44bb7a0fead03914b9d2eb424e2fe838e1
-- [ ] 7bbc460f3609eaca251131c2ec695b0d22d45de2
-- [ ] b4f053162d420a020e6e7470fbd2ff1e9d348d50
-- [ ] 25d256919f78b9b566ec387852ec279d146c7c83
-- [ ] 4646ca9ab60c1fc09f4bd7da22ef3b536662a01f
-- [ ] f511bf94458e7b76164192004fb8b1c48e498c12
-- [ ] 2a011b4859fcee1b46aeb7175915f6b163ed2fff
-- [ ] a419c7bcd62bd97ea49cfa054cc171db7222e832
-- [ ] f6cb9db5951b9e88baf422a4223c9ee2db8a8255
-- [ ] f1381946eaf7494ab305e6f3f069795bbe43d765
-- [ ] d4a9ab91a9dd2ecfb6c52b46ef0cc7d1fdf07a24
-- [ ] 5b6c408c95534636b8841eef597428955739139b
-- [ ] 5400aaee797b872cfb4dc93f6cfe6f033c0f843d
-- [ ] 34919df0499068a320e072c8da211abe0bcf2807
-- [ ] 39fc4db9cc7829b769b0ecb33b20e3ebe3801ee7
-- [ ] d9170bbb85c1b3879f35320fc0ae083fb60dbd47
-- [ ] 09477ac85d0cacd6eac89061468a5c3fc7b601b5
-- [ ] 509d46d4b4422949f37e1145b3e265e364e2a92d
-- [ ] 19198626b8e05e9a7ba1d92bea537385485a60e7
-- [ ] 084bc6735a7af291c38a5d281ffa7359eaca4ec0
-- [ ] 557a08c005c0b84ec7e52af31f871c4eeab9de47
-- [ ] 0d39f177848f3eb441cdb0a01dd9a56aee3402bf
-- [ ] 4e1414db2a7956fdca5ff6ddeba883d77505aeab
-- [ ] 1ae7d9874973ab6e50af67034887f5040e332679
-- [ ] 96aa784aecc0242157985579a937bc7075fa2b59
-- [ ] 28640d1880357009564c53f9da119e7ad797cb8a
-- [ ] 607eb5c338186267b92af665bb7909223f6c49a0
-- [ ] 2722324dea5c6c454c4181b04058a9f6bba0f059
-- [ ] 4a7ce0ab2362428b8ea3ed522cd7e81815f4d1c5
-- [ ] 2e3f92f8094e89b02bcfd0d16ad541fada6221f2
-- [ ] 0b848dbf2f1523ab369b9dc8cd654ab90f0e494a
+- [x] 96aa784aecc0242157985579a937bc7075fa2b59
+- [x] 28640d1880357009564c53f9da119e7ad797cb8f
+- [x] 607eb5c338186267b92af665bb7909223f6c49a0
+- [x] 2722324dea5c6c454c4181b04058a9f6bba0f059
+- [x] 4a7ce0ab2362428b8ea3ed522cd7e81815f4d1c5
+- [x] 2e3f92f8094e89b02bcfd0d16ad541fada6221f2
+- [x] 0b848dbf2f1523ab369b9dc8cd654ab90f0e494a
 - [ ] 9a392a5b1bbca6423db66a1892c7f493a94c2432
 - [ ] a945ab419dbb7c504b2a69021116290186f7a8b9
 - [ ] 96360d13208a888cf30305d4e3a1385cf4ac3ad5
@@ -80,5 +41,20 @@ These are the most recent commits that have been reviewed and merged into RsNano
 |:fire:  |Exchange Node Capabilities                       |6f405e005fc79c4d25af031c2b2854e25d95d060|https://github.com/nanocurrency/nano-node/pull/5043/ ||
 |:zap:   |Extract `ledger::block_find`                     |f43442ddd361cc4c31288d64d31b4c63b7493769|https://github.com/nanocurrency/nano-node/pull/5045/ ||
 |:zap:   |Extract vote eligibility logic into voting_policy|cc768f39965084d99e043f9c779a44e0ec440b15|https://github.com/nanocurrency/nano-node/pull/5044/ ||
+|:zap:   |Replace request aggregator with vote replier     |ff4f744ce6ebe3b3e47a2cee13b272051fb32623|https://github.com/nanocurrency/nano-node/pull/5050/ ||
+|:zap:   |Vote generator rework                            |ccad7d2d72ea30024f1bbc6003fc25ebb53d9263|https://github.com/nanocurrency/nano-node/pull/5054/ ||
+|:zap:   |Add crawler refresh and block_view crawl         |1fd1df44bb7a0fead03914b9d2eb424e2fe838e1|https://github.com/nanocurrency/nano-node/pull/5042/ ||
+|:zap:   |Add topo_height field to block sideband          |25d256919f78b9b566ec387852ec279d146c7c83|https://github.com/nanocurrency/nano-node/pull/5057/ ||
+|:zap:   |Cache rep keys for foreach_representative        |2a011b4859fcee1b46aeb7175915f6b163ed2fff|https://github.com/nanocurrency/nano-node/pull/5060/ ||
+|:zzz:   |Add --enable_rpc startup flag                    |d4a9ab91a9dd2ecfb6c52b46ef0cc7d1fdf07a24|https://github.com/nanocurrency/nano-node/pull/5065/ ||
+|:zap:   |Extract wallet storage backend                   |5b6c408c95534636b8841eef597428955739139b|https://github.com/nanocurrency/nano-node/pull/5064/ ||
+|:zap:   |Encapsulate wallet key usage behind wallet_cipher|34919df0499068a320e072c8da211abe0bcf2807|https://github.com/nanocurrency/nano-node/pull/5067/ ||
+|:zap:   |Add --database_upgrade CLI option                |39fc4db9cc7829b769b0ecb33b20e3ebe3801ee7|https://github.com/nanocurrency/nano-node/pull/5068/ ||
+|:zap:   |Ledger topology index for topological bootstrap  |d9170bbb85c1b3879f35320fc0ae083fb60dbd47|https://github.com/nanocurrency/nano-node/pull/5069/ ||
+|:zap:   |Expose peer capabilities in peers RPC            |1ae7d9874973ab6e50af67034887f5040e332679|https://github.com/nanocurrency/nano-node/pull/5077/ ||
+|:zap:   |Batch bootstrap pull queries                     |28640d1880357009564c53f9da119e7ad797cb8a|https://github.com/nanocurrency/nano-node/pull/5080/ ||
+|:zzz:   |Add flag to disable elections                    |2722324dea5c6c454c4181b04058a9f6bba0f059|https://github.com/nanocurrency/nano-node/pull/5081/ ||
+|:zzz:   |Add flag to disable bounded backlog              |2e3f92f8094e89b02bcfd0d16ad541fada6221f2|https://github.com/nanocurrency/nano-node/pull/5084/ ||
+|:zap:   |Scan backlog conf heights in lockstep            |0b848dbf2f1523ab369b9dc8cd654ab90f0e494a|https://github.com/nanocurrency/nano-node/pull/5085/ ||
 
 Priority: High: :fire:, Medium :zap:, Low :zzz:
