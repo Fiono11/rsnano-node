@@ -142,16 +142,6 @@ impl BootstrapResponder {
             return false;
         }
 
-        // If channel is full our response will be dropped anyway, so filter that early
-        if channel.should_drop(TrafficType::BootstrapServer) {
-            self.stats.inc_dir(
-                StatType::BootstrapServer,
-                DetailType::ChannelFull,
-                Direction::In,
-            );
-            return false;
-        }
-
         let req_type = DetailType::from(&message.req_type);
         let added = {
             let mut guard = self.server_impl.queue.lock().unwrap();

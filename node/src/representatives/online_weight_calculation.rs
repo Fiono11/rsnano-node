@@ -161,7 +161,9 @@ mod tests {
 
         assert_eq!(sample_tracker.output(), vec![]);
         assert!(logs_contain(
-            "Current online weight 1,000 is below minimum threshold 60,000,000. This often occurs when the node cannot reach enough peers; check network connectivity and peer count."
+            "Current online weight 1,000 is below minimum threshold 60,000,000. \
+            This often occurs when the node cannot reach enough peers; \
+            check network connectivity and peer count."
         ));
     }
 }
