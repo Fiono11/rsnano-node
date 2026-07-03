@@ -77,6 +77,9 @@ impl DaemonBuilder {
             parallelism
         );
 
+        let (soft, hard) = rlimit::getrlimit(rlimit::Resource::NOFILE)?;
+        info!(soft, hard, "File descriptor limit");
+
         let websocket_enabled = daemon_config.node.websocket_config.enabled;
         let http_callback_enabled = daemon_config.node.rpc_callback_url().is_some();
         let mut websocket_server = None;
