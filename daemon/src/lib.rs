@@ -16,7 +16,7 @@ use std::{
     thread::available_parallelism,
 };
 use tokio::{net::TcpListener, sync::oneshot};
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct DaemonBuilder {
     network: NetworkType,
@@ -81,8 +81,7 @@ impl DaemonBuilder {
             parallelism
         );
 
-        let (soft, hard) = rlimit::getrlimit(rlimit::Resource::NOFILE)?;
-        info!(soft, hard, "File descriptor limit");
+        log_file_descriptor_limit()?;
 
         let websocket_enabled = daemon_config.node.websocket_config.enabled;
         let http_callback_enabled = daemon_config.node.rpc_callback_url().is_some();
@@ -171,6 +170,18 @@ impl DaemonBuilder {
 fn set_max_file_descriptor_limit() -> std::io::Result<()> {
     let (_, hard) = rlimit::getrlimit(rlimit::Resource::NOFILE)?;
     rlimit::setrlimit(rlimit::Resource::NOFILE, hard, hard)
+}
+
+fn log_file_descriptor_limit() -> Result<(), std::io::Error> {
+    let (soft, hard) = rlimit::getrlimit(rlimit::Resource::NOFILE)?;
+    info!(soft, hard, "File descriptor limit");
+    const RECOMMENDED_FILE_DESC_LIMIT: u64 = 65535;
+    Ok(if soft < RECOMMENDED_FILE_DESC_LIMIT {
+        warn!(
+            "Current file descriptor limit of {} is lower than the {} recommended. Node was unable to change it.",
+            soft, RECOMMENDED_FILE_DESC_LIMIT
+        );
+    })
 }
 
 struct ForwardNodeEvent(Box<dyn FnMut(&NodeEvent) + Send>);
