@@ -31,6 +31,10 @@ pub enum MessageType {
     TelemetryAck = 0x0d,
     AscPullReq = 0x0e,
     AscPullAck = 0x0f,
+    #[cfg(feature = "rai_protocol")]
+    RaiVote = 0x10,
+    #[cfg(feature = "rai_protocol")]
+    RaiPendingReport = 0x11,
 }
 
 impl MessageType {
@@ -51,11 +55,23 @@ impl MessageType {
             MessageType::TelemetryAck => "telemetry_ack",
             MessageType::AscPullReq => "asc_pull_req",
             MessageType::AscPullAck => "asc_pull_ack",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVote => "rai_vote",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiPendingReport => "rai_pending_report",
         }
     }
 
     pub const fn max_id() -> usize {
-        Self::AscPullAck as usize
+        #[cfg(feature = "rai_protocol")]
+        {
+            Self::RaiPendingReport as usize
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            Self::AscPullAck as usize
+        }
     }
 }
 
@@ -172,6 +188,13 @@ impl MessageHeader {
             MessageType::TelemetryAck => TelemetryAck::serialized_size(self.extensions),
             MessageType::AscPullReq => AscPullReq::serialized_size(self.extensions),
             MessageType::AscPullAck => AscPullAck::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVote => rsnano_types::RaiVote::SERIALIZED_SIZE,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiPendingReport => {
+                let count = crate::rai::rai_pending_report_count(self.extensions);
+                rsnano_types::RaiPendingReport::serialized_size(count)
+            }
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -231,6 +254,10 @@ impl From<MessageType> for DetailType {
             MessageType::TelemetryAck => DetailType::TelemetryAck,
             MessageType::AscPullReq => DetailType::AscPullReq,
             MessageType::AscPullAck => DetailType::AscPullAck,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVote => DetailType::RaiVote,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiPendingReport => DetailType::RaiPendingReport,
         }
     }
 }

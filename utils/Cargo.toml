@@ -3,6 +3,9 @@ name = "rsnano_utils"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+rai_protocol = []
+
 [dependencies]
 rsnano_output_tracker = { path = "../nullables/output_tracker" }
 rsnano_nullable_clock = { path = "../nullables/clock" }

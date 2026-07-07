@@ -14,6 +14,10 @@ pub enum Message {
     BulkPush,
     ConfirmAck(ConfirmAck),
     ConfirmReq(ConfirmReq),
+    #[cfg(feature = "rai_protocol")]
+    RaiVote(rsnano_types::RaiVote),
+    #[cfg(feature = "rai_protocol")]
+    RaiPendingReport(rsnano_types::RaiPendingReport),
     FrontierReq(FrontierReq),
     Handshake(Handshake),
     TelemetryAck(TelemetryAck),
@@ -61,6 +65,12 @@ impl From<&ParseMessageError> for DetailType {
             }
             ParseMessageError::InvalidMessage(MessageType::ConfirmAck) => {
                 Self::InvalidConfirmAckMessage
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiVote) => Self::InvalidRaiVoteMessage,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiPendingReport) => {
+                Self::InvalidRaiPendingReportMessage
             }
             ParseMessageError::InvalidMessage(MessageType::Handshake) => {
                 Self::InvalidNodeIdHandshakeMessage
@@ -124,6 +134,10 @@ impl Message {
             Message::BulkPush => MessageType::BulkPush,
             Message::ConfirmAck(_) => MessageType::ConfirmAck,
             Message::ConfirmReq(_) => MessageType::ConfirmReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVote(_) => MessageType::RaiVote,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiPendingReport(_) => MessageType::RaiPendingReport,
             Message::FrontierReq(_) => MessageType::FrontierReq,
             Message::Handshake(_) => MessageType::Handshake,
             Message::TelemetryAck(_) => MessageType::TelemetryAck,
@@ -141,6 +155,10 @@ impl Message {
             Message::BulkPullAccount(x) => Some(x),
             Message::ConfirmAck(x) => Some(x),
             Message::ConfirmReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVote(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiPendingReport(x) => Some(x),
             Message::FrontierReq(x) => Some(x),
             Message::Handshake(x) => Some(x),
             Message::TelemetryAck(x) => Some(x),
@@ -168,6 +186,10 @@ impl Message {
             Message::BulkPullAccount(m) => m.serialize(writer),
             Message::ConfirmAck(m) => m.serialize(writer),
             Message::ConfirmReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVote(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiPendingReport(m) => m.serialize(writer),
             Message::FrontierReq(m) => m.serialize(writer),
             Message::Handshake(m) => m.serialize(writer),
             Message::TelemetryAck(m) => m.serialize(writer),
@@ -199,6 +221,15 @@ impl Message {
             }
             MessageType::ConfirmReq => {
                 Message::ConfirmReq(ConfirmReq::deserialize(payload, header.extensions)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVote => Message::RaiVote(rsnano_types::RaiVote::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiPendingReport => {
+                let count = crate::rai::rai_pending_report_count(header.extensions);
+                Message::RaiPendingReport(rsnano_types::RaiPendingReport::deserialize(
+                    payload, count,
+                )?)
             }
             MessageType::FrontierReq => {
                 Message::FrontierReq(FrontierReq::deserialize(payload, header.extensions)?)

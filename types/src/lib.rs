@@ -27,6 +27,8 @@ mod priority;
 mod private_key;
 mod public_key;
 mod qualified_root;
+#[cfg(feature = "rai_protocol")]
+mod rai;
 mod raw_key;
 mod signature;
 mod timestamp;
@@ -66,6 +68,8 @@ pub use priority::{BlockPriority, TimePriority};
 pub use private_key::{PrivateKey, PrivateKeyFactory};
 pub use public_key::{PublicKey, SignatureError};
 pub use qualified_root::QualifiedRoot;
+#[cfg(feature = "rai_protocol")]
+pub use rai::*;
 pub use raw_key::RawKey;
 use serde::de::{Unexpected, Visitor};
 pub use signature::Signature;

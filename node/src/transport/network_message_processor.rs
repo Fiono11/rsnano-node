@@ -190,6 +190,10 @@ impl NetworkMessageProcessor {
                 self.bootstrap_responder.enqueue(req, channel.clone());
             }
             Message::AscPullAck(ack) => self.bootstrapper.process(ack),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVote(_) | Message::RaiPendingReport(_) => {
+                // RAI consensus processing is wired in a follow-up step.
+            }
             Message::FrontierReq(_)
             | Message::BulkPush
             | Message::BulkPull(_)

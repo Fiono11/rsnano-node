@@ -137,6 +137,10 @@ pub enum DetailType {
     TelemetryAck,
     AscPullReq,
     AscPullAck,
+    #[cfg(feature = "rai_protocol")]
+    RaiVote,
+    #[cfg(feature = "rai_protocol")]
+    RaiPendingReport,
 
     // dropped messages
     ConfirmAckZeroAccount,
@@ -179,6 +183,10 @@ pub enum DetailType {
     InvalidFrontierReqMessage,
     InvalidAscPullReqMessage,
     InvalidAscPullAckMessage,
+    #[cfg(feature = "rai_protocol")]
+    InvalidRaiVoteMessage,
+    #[cfg(feature = "rai_protocol")]
+    InvalidRaiPendingReportMessage,
     MessageSizeTooBig,
     OutdatedVersion,
 
