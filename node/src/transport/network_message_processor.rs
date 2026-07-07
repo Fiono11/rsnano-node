@@ -11,8 +11,6 @@ use rsnano_types::VoteDelivery;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
-#[cfg(feature = "ledger_snapshots")]
-use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::{bootstrapper::Bootstrapper, responder::BootstrapResponder},
@@ -35,8 +33,6 @@ pub struct NetworkMessageProcessor {
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
     work_thresholds: WorkThresholds,
-    #[cfg(feature = "ledger_snapshots")]
-    ledger_snapshots: Arc<LedgerSnapshots>,
 }
 
 impl NetworkMessageProcessor {
@@ -52,7 +48,6 @@ impl NetworkMessageProcessor {
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
-        #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
             stats,
@@ -66,8 +61,6 @@ impl NetworkMessageProcessor {
             bootstrap_responder,
             bootstrapper,
             work_thresholds,
-            #[cfg(feature = "ledger_snapshots")]
-            ledger_snapshots,
         }
     }
 
@@ -203,94 +196,6 @@ impl NetworkMessageProcessor {
             | Message::BulkPullAccount(_) => {
                 // obsolete messages
             }
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotPreproposal(preproposal) => {
-                self.ledger_snapshots.handle_preproposal(preproposal);
-            }
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposal(proposal) => {
-                self.ledger_snapshots.handle_proposal(proposal);
-            }
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposalVote(proposal_vote) => {
-                self.ledger_snapshots.handle_vote(proposal_vote);
-            }
         }
-    }
-}
-
-#[cfg(feature = "ledger_snapshots")]
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn preproposal_is_received() {
-        use rsnano_messages::Preproposal;
-
-        let ledger_snapshots = LedgerSnapshots::new_null();
-        let receive_tracker = ledger_snapshots.track_received_preproposals();
-        let network_message_processor = create_network_message_processor(ledger_snapshots);
-        let preproposal = Preproposal::new_test_instance();
-
-        network_message_processor.process(
-            Message::SnapshotPreproposal(preproposal.clone()),
-            &Channel::new_test_instance().into(),
-        );
-
-        assert_eq!(receive_tracker.output(), vec![preproposal]);
-    }
-
-    #[test]
-    fn proposal_is_received() {
-        use rsnano_messages::Proposal;
-
-        let ledger_snapshots: LedgerSnapshots = LedgerSnapshots::new_null();
-        let receive_tracker = ledger_snapshots.track_received_proposals();
-        let network_message_processor = create_network_message_processor(ledger_snapshots);
-        let proposal = Proposal::new_test_instance();
-
-        network_message_processor.process(
-            Message::SnapshotProposal(proposal.clone()),
-            &Channel::new_test_instance().into(),
-        );
-
-        assert_eq!(receive_tracker.output(), vec![proposal]);
-    }
-
-    #[test]
-    fn proposal_vote_is_received() {
-        use rsnano_messages::ProposalVote;
-
-        let ledger_snapshots: LedgerSnapshots = LedgerSnapshots::new_null();
-        let receive_tracker = ledger_snapshots.track_received_votes();
-        let network_message_processor = create_network_message_processor(ledger_snapshots);
-        let proposal_vote = ProposalVote::new_test_instance();
-
-        network_message_processor.process(
-            Message::SnapshotProposalVote(proposal_vote.clone()),
-            &Channel::new_test_instance().into(),
-        );
-
-        assert_eq!(receive_tracker.output(), vec![proposal_vote]);
-    }
-
-    fn create_network_message_processor(
-        ledger_snapshots: LedgerSnapshots,
-    ) -> NetworkMessageProcessor {
-        NetworkMessageProcessor::new(
-            Stats::default().into(),
-            RwLock::new(Network::new_null()).into(),
-            NetworkFilter::default().into(),
-            BlockProcessorQueue::new_null().into(),
-            Mutex::new(WalletRepresentatives::new_null()).into(),
-            RequestAggregator::new_null().into(),
-            VoteProcessorQueue::new_null().into(),
-            Telemetry::new_null().into(),
-            BootstrapResponder::new_null().into(),
-            Bootstrapper::new_null().into(),
-            WorkThresholds::new_stub(),
-            ledger_snapshots.into(),
-        )
     }
 }

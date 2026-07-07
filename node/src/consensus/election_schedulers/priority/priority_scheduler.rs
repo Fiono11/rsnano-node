@@ -135,13 +135,6 @@ impl PriorityScheduler {
             return;
         }
 
-        #[cfg(feature = "ledger_snapshots")]
-        if any.is_forked(&block.qualified_root()) {
-            self.stats
-                .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);
-            return;
-        }
-
         let priority = any.block_priority(&block);
 
         let insert_result = self.buckets.lock().unwrap().insert(priority, block);

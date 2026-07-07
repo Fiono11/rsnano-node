@@ -1,5 +1,3 @@
-#[cfg(feature = "ledger_snapshots")]
-use crate::forks_store::LmdbForksStore;
 use crate::{
     LmdbAccountStore, LmdbBlockStore, LmdbConfirmationHeightStore, LmdbFinalVoteStore,
     LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbVersionStore,
@@ -45,8 +43,6 @@ pub struct LmdbStore {
     pub online_weight: LmdbOnlineWeightStore,
     pub peer: LmdbPeerStore,
     pub version: LmdbVersionStore,
-    #[cfg(feature = "ledger_snapshots")]
-    pub forks: LmdbForksStore,
 }
 
 impl LmdbStore {
@@ -67,8 +63,6 @@ impl LmdbStore {
             final_vote: LmdbFinalVoteStore::new(&env)?,
             successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
-            #[cfg(feature = "ledger_snapshots")]
-            forks: LmdbForksStore::new(&env)?,
             env,
         })
     }

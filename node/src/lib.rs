@@ -12,8 +12,6 @@ pub mod cementation;
 pub mod config;
 pub mod consensus;
 mod ledger_event_processor;
-#[cfg(feature = "ledger_snapshots")]
-pub mod ledger_snapshots;
 mod node;
 mod node_builder;
 mod node_id_key_file;

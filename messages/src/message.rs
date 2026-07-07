@@ -18,12 +18,6 @@ pub enum Message {
     Handshake(Handshake),
     TelemetryAck(TelemetryAck),
     TelemetryReq,
-    #[cfg(feature = "ledger_snapshots")]
-    SnapshotPreproposal(Preproposal),
-    #[cfg(feature = "ledger_snapshots")]
-    SnapshotProposal(Proposal),
-    #[cfg(feature = "ledger_snapshots")]
-    SnapshotProposalVote(ProposalVote),
 }
 
 pub trait MessageVariant {
@@ -93,14 +87,6 @@ impl From<&ParseMessageError> for DetailType {
                 Self::InvalidAscPullAckMessage
             }
             ParseMessageError::InvalidMessage(MessageType::BulkPush) => Self::InvalidMessageType,
-            #[cfg(feature = "ledger_snapshots")]
-            ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
-            #[cfg(feature = "ledger_snapshots")]
-            ParseMessageError::InvalidMessage(MessageType::Proposal) => Self::InvalidMessageType,
-            #[cfg(feature = "ledger_snapshots")]
-            ParseMessageError::InvalidMessage(MessageType::ProposalVote) => {
-                Self::InvalidMessageType
-            }
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
@@ -142,12 +128,6 @@ impl Message {
             Message::Handshake(_) => MessageType::Handshake,
             Message::TelemetryAck(_) => MessageType::TelemetryAck,
             Message::TelemetryReq => MessageType::TelemetryReq,
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotPreproposal(_) => MessageType::Preproposal,
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposal(_) => MessageType::Proposal,
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposalVote(_) => MessageType::ProposalVote,
         }
     }
 
@@ -164,12 +144,6 @@ impl Message {
             Message::FrontierReq(x) => Some(x),
             Message::Handshake(x) => Some(x),
             Message::TelemetryAck(x) => Some(x),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotPreproposal(x) => Some(x),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposal(x) => Some(x),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposalVote(x) => Some(x),
             _ => None,
         }
     }
@@ -198,12 +172,6 @@ impl Message {
             Message::Handshake(m) => m.serialize(writer),
             Message::TelemetryAck(m) => m.serialize(writer),
             Message::BulkPush | Message::TelemetryReq => Ok(()),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotPreproposal(m) => m.serialize(writer),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposal(m) => m.serialize(writer),
-            #[cfg(feature = "ledger_snapshots")]
-            Message::SnapshotProposalVote(m) => m.serialize(writer),
         }
     }
 
@@ -242,16 +210,6 @@ impl Message {
                 Message::TelemetryAck(TelemetryAck::deserialize(payload, header.extensions)?)
             }
             MessageType::TelemetryReq => Message::TelemetryReq,
-            #[cfg(feature = "ledger_snapshots")]
-            MessageType::Preproposal => {
-                Message::SnapshotPreproposal(Preproposal::deserialize(payload)?)
-            }
-            #[cfg(feature = "ledger_snapshots")]
-            MessageType::Proposal => Message::SnapshotProposal(Proposal::deserialize(payload)?),
-            #[cfg(feature = "ledger_snapshots")]
-            MessageType::ProposalVote => {
-                Message::SnapshotProposalVote(ProposalVote::deserialize(payload)?)
-            }
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);
             }

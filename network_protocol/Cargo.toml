@@ -3,9 +3,6 @@ name = "rsnano_network_protocol"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-ledger_snapshots = ["rsnano_messages/ledger_snapshots"]
-
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_utils = { path = "../utils" }

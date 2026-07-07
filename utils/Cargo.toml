@@ -3,9 +3,6 @@ name = "rsnano_utils"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-ledger_snapshots = []
-
 [dependencies]
 rsnano_output_tracker = { path = "../nullables/output_tracker" }
 rsnano_nullable_clock = { path = "../nullables/clock" }

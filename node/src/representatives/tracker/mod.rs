@@ -276,15 +276,6 @@ impl RepresentativeTracker {
         removed
     }
 
-    #[cfg(feature = "ledger_snapshots")]
-    pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
-        let rep_weights = self.rep_weights.read().clone();
-        let quorum_weight = self.quorum_snapshot().quorum_delta;
-        ConsensusParams {
-            quorum_weight,
-            rep_weights,
-        }
-    }
 }
 
 fn recalculate(weights: &RepWeights, state: &mut RepresentativeTrackerState) {
@@ -423,35 +414,6 @@ impl QuorumSnapshot {
     }
 }
 
-#[cfg(feature = "ledger_snapshots")]
-pub(crate) struct ConsensusParams {
-    pub(crate) rep_weights: rsnano_ledger::RepWeights,
-    pub(crate) quorum_weight: Amount,
-}
-
-#[cfg(feature = "ledger_snapshots")]
-impl Default for ConsensusParams {
-    fn default() -> Self {
-        Self {
-            rep_weights: Default::default(),
-            quorum_weight: Amount::MAX,
-        }
-    }
-}
-
-#[cfg(feature = "ledger_snapshots")]
-impl ConsensusParams {
-    #[cfg(test)]
-    pub(crate) fn set_rep_weights(
-        &mut self,
-        rep_weights: rsnano_ledger::RepWeights,
-        quorum_weight: Amount,
-    ) {
-        self.rep_weights = rep_weights;
-        self.quorum_weight = quorum_weight;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,13 +533,6 @@ mod tests {
             tracker.quorum_snapshot().online_weight,
             Amount::nano(600_000)
         );
-    }
-
-    #[cfg(feature = "ledger_snapshots")]
-    #[test]
-    fn default_quorum_weight_is_max() {
-        let params = ConsensusParams::default();
-        assert_eq!(params.quorum_weight, Amount::MAX);
     }
 
     /*

@@ -5,8 +5,6 @@ mod confirmation_history;
 mod confirmation_info;
 mod confirmation_quorum;
 mod keepalive;
-#[cfg(feature = "ledger_snapshots")]
-mod ledger_snapshots;
 mod node_id;
 mod peers;
 mod populate_backlog;

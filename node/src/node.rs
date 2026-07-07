@@ -46,8 +46,6 @@ use rsnano_utils::{
 };
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
-#[cfg(feature = "ledger_snapshots")]
-use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_fact_processor::AecFactProcessor,
@@ -69,6 +67,7 @@ use crate::{
         AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
         BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        ForkInserterPlugin,
         LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
         VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
         VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
@@ -161,8 +160,6 @@ pub struct Node {
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     ticker_pool: TickerPool,
     channel_event_processor: EventProcessor<ChannelEvent>,
-    #[cfg(feature = "ledger_snapshots")]
-    pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
 
 pub(crate) struct NodeArgs {
@@ -916,24 +913,6 @@ impl Node {
         channel_event_handlers.add(telemetry.clone());
         channel_event_handlers.add(rep_crawler.clone());
 
-        #[cfg(feature = "ledger_snapshots")]
-        let ledger_snapshots = {
-            let wallet_reps2 = wallet_reps.clone();
-            Arc::new(LedgerSnapshots::new(
-                ledger.clone(),
-                move || {
-                    // TODO: make this nice:
-                    let mut keys = Vec::new();
-                    wallet_reps2.lock().unwrap().rep_priv_keys(&mut keys);
-                    // For simplicity only take the first key.
-                    // TODO: allow multiple keys
-                    keys.pop()
-                },
-                message_flooder.clone(),
-                rep_tracker.clone(),
-            ))
-        };
-
         let network_message_processor = Arc::new(NetworkMessageProcessor::new(
             stats.clone(),
             network.clone(),
@@ -946,8 +925,6 @@ impl Node {
             bootstrap_responder.clone(),
             bootstrapper.clone(),
             network_params.work.clone(),
-            #[cfg(feature = "ledger_snapshots")]
-            ledger_snapshots.clone(),
         ));
 
         let network_threads = Arc::new(Mutex::new(NetworkThreads::new(
@@ -1174,22 +1151,7 @@ impl Node {
             cps_limiter,
         )));
 
-        // With ledger_snapshots we never vote for forked blocks!
-        #[cfg(not(feature = "ledger_snapshots"))]
-        {
-            use crate::consensus::ForkInserterPlugin;
-
-            ledger_event_handlers.add_mut(ForkInserterPlugin::new(aec_fork_inserter.clone()));
-        }
-
-        #[cfg(feature = "ledger_snapshots")]
-        {
-            ledger_event_handlers.add_mut(ForkDetector::new(
-                ledger.clone(),
-                ledger_snapshots.clone(),
-                active_elections.clone(),
-            ));
-        }
+        ledger_event_handlers.add_mut(ForkInserterPlugin::new(aec_fork_inserter.clone()));
 
         let aec_fact_processor = AecFactProcessor {
             node_observer: node_observer.clone(),
@@ -1348,8 +1310,6 @@ impl Node {
             wallet_reps,
             ticker_pool,
             channel_event_processor,
-            #[cfg(feature = "ledger_snapshots")]
-            ledger_snapshots,
         }
     }
 

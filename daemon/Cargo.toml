@@ -4,11 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-ledger_snapshots = [
-	"rsnano_utils/ledger_snapshots",
-	"rsnano_ledger/ledger_snapshots",
-	"rsnano_rpc_server/ledger_snapshots",
-]
 banano = [
 	"rsnano_types/banano",
 	"rsnano_ledger/banano",

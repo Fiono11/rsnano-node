@@ -122,8 +122,6 @@ pub enum RpcCommand {
     BlockCreate(BlockCreateArgs),
     WorkPeersClear,
     Version,
-    #[cfg(feature = "ledger_snapshots")]
-    StartLedgerSnapshot,
 }
 
 pub fn check_error(value: &serde_json::Value) -> Result<(), String> {

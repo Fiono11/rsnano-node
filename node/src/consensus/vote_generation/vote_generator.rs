@@ -138,21 +138,7 @@ impl VoteGenerator {
             let any = self.ledger.any();
 
             let can_vote = |block: &SavedBlock| {
-                #[cfg(feature = "ledger_snapshots")]
-                {
-                    // With ledger snapshots enabled, we just stop voting for forks, because
-                    // fork rollback will happen when a new snapshot is created
-                    any.dependencies_confirmed(block)
-                        && (!any.is_forked(&block.qualified_root()) || {
-                            // For now allow final votes, until we include final voted fronties in
-                            // the preproposals!
-                            self.shared_state.is_final
-                        })
-                }
-                #[cfg(not(feature = "ledger_snapshots"))]
-                {
-                    any.dependencies_confirmed(block)
-                }
+                any.dependencies_confirmed(block)
             };
 
             blocks

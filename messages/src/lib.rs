@@ -58,21 +58,6 @@ pub use asc_pull_req::*;
 mod asc_pull_ack;
 pub use asc_pull_ack::*;
 
-#[cfg(feature = "ledger_snapshots")]
-mod preproposal;
-#[cfg(feature = "ledger_snapshots")]
-pub use preproposal::*;
-
-#[cfg(feature = "ledger_snapshots")]
-mod proposal;
-#[cfg(feature = "ledger_snapshots")]
-pub use proposal::*;
-
-#[cfg(feature = "ledger_snapshots")]
-mod proposal_vote;
-#[cfg(feature = "ledger_snapshots")]
-pub use proposal_vote::*;
-
 pub trait MessageVisitor {
     fn received(&mut self, message: &Message);
 }

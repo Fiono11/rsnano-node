@@ -73,8 +73,6 @@ pub trait AnySet: LedgerSet {
     ) -> AnyReceivableIterator<'_>;
 
     fn get_final_vote(&self, root: &QualifiedRoot) -> Option<BlockHash>;
-    #[cfg(feature = "ledger_snapshots")]
-    fn is_forked(&self, root: &QualifiedRoot) -> bool;
 }
 
 /// All blocks - either confirmed or unconfirmed
@@ -328,10 +326,6 @@ impl<'a> AnySet for OwningAnySet<'a> {
         self.borrowing_set().get_final_vote(root)
     }
 
-    #[cfg(feature = "ledger_snapshots")]
-    fn is_forked(&self, root: &QualifiedRoot) -> bool {
-        self.borrowing_set().is_forked(root)
-    }
 }
 
 pub(crate) struct BorrowingAnySet<'a> {
@@ -572,10 +566,6 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
         self.store.final_vote.get(self.tx, root)
     }
 
-    #[cfg(feature = "ledger_snapshots")]
-    fn is_forked(&self, root: &QualifiedRoot) -> bool {
-        self.store.forks.get(self.tx, root).is_some()
-    }
 }
 
 pub struct AnyReceivableIterator<'a> {

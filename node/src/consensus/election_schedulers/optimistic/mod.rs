@@ -131,15 +131,6 @@ impl OptimisticScheduler {
             return;
         };
 
-        #[cfg(feature = "ledger_snapshots")]
-        {
-            if any.is_forked(&block.qualified_root()) {
-                // Needed for new consensus algorithm in ledger snapshot.
-                // We never vote for forked blocks.
-                return;
-            }
-        }
-
         // Ensure block is not already confirmed
         let is_confirmed = self.confirming_set.contains(&block.hash())
             || any.confirmed().block_exists(&block.hash());

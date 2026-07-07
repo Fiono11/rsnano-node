@@ -9,8 +9,6 @@ mod block_store;
 mod confirmation_height_store;
 mod fan;
 mod final_vote_store;
-#[cfg(feature = "ledger_snapshots")]
-pub mod forks_store;
 mod iterator;
 mod lmdb_config;
 mod online_weight_store;
