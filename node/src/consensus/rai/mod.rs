@@ -1,6 +1,7 @@
 mod active_elections;
 mod close_state;
 mod committee;
+mod pending_report_processor;
 mod vote_processor;
 
 pub use active_elections::{
@@ -13,4 +14,5 @@ pub use committee::{
     RAI_PRINCIPAL_WEIGHT_DIVISOR, RaiCommittee, RaiCommitteeDeriver, RaiCommitteeMember,
     RaiCommitteeProvider, RaiCommitteeSet, RaiCommitteeThresholds, RepWeightRaiCommitteeProvider,
 };
+pub use pending_report_processor::{RaiPendingReportProcessError, RaiPendingReportProcessor};
 pub use vote_processor::RaiVoteProcessor;

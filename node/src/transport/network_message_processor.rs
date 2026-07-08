@@ -21,7 +21,7 @@ use crate::{
 use rsnano_ledger::BlockSource;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::RaiVoteProcessor;
+use crate::consensus::{RaiPendingReportProcessor, RaiVoteProcessor};
 
 /// Process messages that were received from other nodes in the network
 pub struct NetworkMessageProcessor {
@@ -34,6 +34,8 @@ pub struct NetworkMessageProcessor {
     vote_processor_queue: Arc<VoteProcessorQueue>,
     #[cfg(feature = "rai_protocol")]
     rai_vote_processor: Arc<RaiVoteProcessor>,
+    #[cfg(feature = "rai_protocol")]
+    rai_pending_report_processor: Arc<RaiPendingReportProcessor>,
     telemetry: Arc<Telemetry>,
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
@@ -50,6 +52,9 @@ impl NetworkMessageProcessor {
         request_aggregator: Arc<RequestAggregator>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         #[cfg(feature = "rai_protocol")] rai_vote_processor: Arc<RaiVoteProcessor>,
+        #[cfg(feature = "rai_protocol")] rai_pending_report_processor: Arc<
+            RaiPendingReportProcessor,
+        >,
         telemetry: Arc<Telemetry>,
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
@@ -65,6 +70,8 @@ impl NetworkMessageProcessor {
             vote_processor_queue,
             #[cfg(feature = "rai_protocol")]
             rai_vote_processor,
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_report_processor,
             telemetry,
             bootstrap_responder,
             bootstrapper,
@@ -203,8 +210,8 @@ impl NetworkMessageProcessor {
                 let _ = self.rai_vote_processor.process(&vote);
             }
             #[cfg(feature = "rai_protocol")]
-            Message::RaiPendingReport(_) => {
-                // RAI pending report processing is wired in a follow-up step.
+            Message::RaiPendingReport(report) => {
+                let _ = self.rai_pending_report_processor.process(&report);
             }
             Message::FrontierReq(_)
             | Message::BulkPush

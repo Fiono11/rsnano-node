@@ -100,7 +100,9 @@ use crate::{
 };
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::{RaiActiveElections, RaiVoteProcessor};
+use crate::consensus::{
+    RaiActiveElections, RaiCloseState, RaiPendingReportProcessor, RaiVoteProcessor,
+};
 
 #[allow(dead_code)]
 pub struct Node {
@@ -136,7 +138,11 @@ pub struct Node {
     #[cfg(feature = "rai_protocol")]
     pub rai_active_elections: Arc<RaiActiveElections>,
     #[cfg(feature = "rai_protocol")]
+    pub rai_close_state: Arc<RwLock<RaiCloseState>>,
+    #[cfg(feature = "rai_protocol")]
     pub rai_vote_processor: Arc<RaiVoteProcessor>,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_pending_report_processor: Arc<RaiPendingReportProcessor>,
     pub rep_crawler: Arc<RepCrawler>,
     pub tcp_listener: Arc<TcpListener>,
     pub election_schedulers: Arc<ElectionSchedulers>,
@@ -663,9 +669,19 @@ impl Node {
         let rai_active_elections = Arc::new(RaiActiveElections::new());
 
         #[cfg(feature = "rai_protocol")]
+        let rai_close_state = Arc::new(RwLock::new(RaiCloseState::new()));
+
+        #[cfg(feature = "rai_protocol")]
         let rai_vote_processor = Arc::new(RaiVoteProcessor::new(
             rai_active_elections.clone(),
             rep_tracker.clone(),
+            rep_weights.clone(),
+            stats.clone(),
+        ));
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_pending_report_processor = Arc::new(RaiPendingReportProcessor::new(
+            rai_close_state.clone(),
             rep_weights.clone(),
             stats.clone(),
         ));
@@ -941,6 +957,8 @@ impl Node {
             vote_processor_queue.clone(),
             #[cfg(feature = "rai_protocol")]
             rai_vote_processor.clone(),
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_report_processor.clone(),
             telemetry.clone(),
             bootstrap_responder.clone(),
             bootstrapper.clone(),
@@ -1306,7 +1324,11 @@ impl Node {
             #[cfg(feature = "rai_protocol")]
             rai_active_elections,
             #[cfg(feature = "rai_protocol")]
+            rai_close_state,
+            #[cfg(feature = "rai_protocol")]
             rai_vote_processor,
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_report_processor,
             rep_crawler,
             tcp_listener,
             election_schedulers,
