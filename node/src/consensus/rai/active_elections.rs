@@ -1,36 +1,69 @@
-use std::{collections::HashMap, mem::size_of, sync::RwLock};
+use std::{
+    collections::HashMap,
+    mem::size_of,
+    sync::{Arc, RwLock},
+};
 
 use rsnano_types::{
     PublicKey, RaiElectionId, RaiElectionValue, RaiSlot, RaiVote, RaiVoteKind, VoteError,
 };
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use super::RaiCommitteeSet;
+use super::{NoopRaiStatePersistence, RaiCommitteeSet, RaiStatePersistence};
 
 pub struct RaiActiveElections {
     data: RwLock<RaiActiveElectionsData>,
+    persistence: Arc<dyn RaiStatePersistence>,
 }
 
 impl RaiActiveElections {
     pub fn new() -> Self {
+        Self::with_persistence(Arc::new(NoopRaiStatePersistence))
+    }
+
+    pub fn with_persistence(persistence: Arc<dyn RaiStatePersistence>) -> Self {
         Self {
             data: RwLock::new(RaiActiveElectionsData::default()),
+            persistence,
         }
     }
 
+    pub fn from_snapshot(snapshot: RaiActiveElectionsSnapshot) -> Self {
+        Self::from_snapshot_with_persistence(snapshot, Arc::new(NoopRaiStatePersistence))
+    }
+
+    pub fn from_snapshot_with_persistence(
+        snapshot: RaiActiveElectionsSnapshot,
+        persistence: Arc<dyn RaiStatePersistence>,
+    ) -> Self {
+        Self {
+            data: RwLock::new(RaiActiveElectionsData::from_snapshot(snapshot)),
+            persistence,
+        }
+    }
+
+    pub fn snapshot(&self) -> RaiActiveElectionsSnapshot {
+        self.data.read().unwrap().snapshot()
+    }
+
     pub fn insert(&self, election_id: RaiElectionId) -> Result<(), RaiElectionInsertError> {
-        let mut guard = self.data.write().unwrap();
-        if guard.stopped {
-            return Err(RaiElectionInsertError::Stopped);
-        }
+        let snapshot = {
+            let mut guard = self.data.write().unwrap();
+            if guard.stopped {
+                return Err(RaiElectionInsertError::Stopped);
+            }
 
-        if guard.elections.contains_key(&election_id) {
-            return Err(RaiElectionInsertError::Duplicate);
-        }
+            if guard.elections.contains_key(&election_id) {
+                return Err(RaiElectionInsertError::Duplicate);
+            }
 
-        guard
-            .elections
-            .insert(election_id.clone(), RaiElection::new(election_id));
+            guard
+                .elections
+                .insert(election_id.clone(), RaiElection::new(election_id));
+            guard.snapshot()
+        };
+
+        self.persistence.save_active_elections(&snapshot);
         Ok(())
     }
 
@@ -91,12 +124,18 @@ impl RaiActiveElections {
         vote: &RaiVote,
         committees: &RaiCommitteeSet,
     ) -> Result<(), VoteError> {
-        let mut guard = self.data.write().unwrap();
-        let Some(election) = guard.elections.get_mut(&vote.election_id) else {
-            return Err(VoteError::Indeterminate);
+        let snapshot = {
+            let mut guard = self.data.write().unwrap();
+            let Some(election) = guard.elections.get_mut(&vote.election_id) else {
+                return Err(VoteError::Indeterminate);
+            };
+
+            election.apply_vote(vote, committees)?;
+            guard.snapshot()
         };
 
-        election.apply_vote(vote, committees)
+        self.persistence.save_active_elections(&snapshot);
+        Ok(())
     }
 
     pub fn stop(&self) {
@@ -125,6 +164,49 @@ impl ContainerInfoProvider for RaiActiveElections {
 struct RaiActiveElectionsData {
     stopped: bool,
     elections: HashMap<RaiElectionId, RaiElection>,
+}
+
+impl RaiActiveElectionsData {
+    fn from_snapshot(snapshot: RaiActiveElectionsSnapshot) -> Self {
+        let mut elections = HashMap::new();
+        for election in snapshot.elections {
+            elections.insert(election.id.clone(), RaiElection::from_snapshot(election));
+        }
+
+        Self {
+            stopped: false,
+            elections,
+        }
+    }
+
+    fn snapshot(&self) -> RaiActiveElectionsSnapshot {
+        let mut elections: Vec<_> = self.elections.values().map(RaiElection::snapshot).collect();
+        elections.sort_by_key(|election| serialized_election_id(&election.id));
+
+        RaiActiveElectionsSnapshot { elections }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RaiActiveElectionsSnapshot {
+    pub elections: Vec<RaiElectionSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiElectionSnapshot {
+    pub id: RaiElectionId,
+    pub status: RaiElectionStatus,
+    pub votes: Vec<RaiVoteSummary>,
+    pub tallies: Vec<RaiTallySnapshot>,
+    pub final_tallies: Vec<RaiTallySnapshot>,
+    pub winner: Option<RaiElectionValue>,
+    pub confirmed_value: Option<RaiElectionValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiTallySnapshot {
+    pub value: RaiElectionValue,
+    pub per_committee: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +242,55 @@ impl RaiElection {
             final_tallies: HashMap::new(),
             winner: None,
             confirmed_value: None,
+        }
+    }
+
+    pub fn from_snapshot(snapshot: RaiElectionSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            status: snapshot.status,
+            votes: snapshot
+                .votes
+                .into_iter()
+                .map(|vote| (vote.voter, vote))
+                .collect(),
+            tallies: snapshot
+                .tallies
+                .into_iter()
+                .map(|tally| {
+                    (
+                        tally.value,
+                        RaiCommitteeVoteCounts::from_snapshot(tally.per_committee),
+                    )
+                })
+                .collect(),
+            final_tallies: snapshot
+                .final_tallies
+                .into_iter()
+                .map(|tally| {
+                    (
+                        tally.value,
+                        RaiCommitteeVoteCounts::from_snapshot(tally.per_committee),
+                    )
+                })
+                .collect(),
+            winner: snapshot.winner,
+            confirmed_value: snapshot.confirmed_value,
+        }
+    }
+
+    pub fn snapshot(&self) -> RaiElectionSnapshot {
+        let mut votes: Vec<_> = self.votes.values().cloned().collect();
+        votes.sort_by_key(|vote| vote.voter);
+
+        RaiElectionSnapshot {
+            id: self.id.clone(),
+            status: self.status,
+            votes,
+            tallies: snapshot_tallies(&self.tallies),
+            final_tallies: snapshot_tallies(&self.final_tallies),
+            winner: self.winner.clone(),
+            confirmed_value: self.confirmed_value.clone(),
         }
     }
 
@@ -328,6 +459,10 @@ impl RaiCommitteeVoteCounts {
         }
     }
 
+    fn from_snapshot(per_committee: Vec<usize>) -> Self {
+        Self { per_committee }
+    }
+
     fn add_votes(&mut self, committee_indexes: &[usize]) {
         for &committee_index in committee_indexes {
             if let Some(count) = self.per_committee.get_mut(committee_index) {
@@ -377,6 +512,35 @@ fn vote_kind_rank(kind: RaiVoteKind) -> u8 {
         RaiVoteKind::Notarization => 1,
         RaiVoteKind::Final => 2,
     }
+}
+
+fn snapshot_tallies(
+    tallies: &HashMap<RaiElectionValue, RaiCommitteeVoteCounts>,
+) -> Vec<RaiTallySnapshot> {
+    let mut snapshots: Vec<_> = tallies
+        .iter()
+        .map(|(value, counts)| RaiTallySnapshot {
+            value: value.clone(),
+            per_committee: counts.per_committee.clone(),
+        })
+        .collect();
+    snapshots.sort_by_key(|tally| serialized_election_value(&tally.value));
+    snapshots
+}
+
+fn serialized_election_id(id: &RaiElectionId) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(RaiElectionId::SERIALIZED_SIZE);
+    id.serialize(&mut bytes)
+        .expect("writing to Vec should succeed");
+    bytes
+}
+
+fn serialized_election_value(value: &RaiElectionValue) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(RaiElectionValue::SERIALIZED_SIZE);
+    value
+        .serialize(&mut bytes)
+        .expect("writing to Vec should succeed");
+    bytes
 }
 
 #[cfg(test)]

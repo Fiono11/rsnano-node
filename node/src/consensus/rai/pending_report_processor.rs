@@ -5,13 +5,14 @@ use rsnano_types::{RaiElectionId, RaiEpoch, RaiPendingReport, RaiSlot};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{
-    RaiCloseState, RaiCommitteeProvider, RaiCommitteeSet, RaiPendingReportInsertError,
-    RepWeightRaiCommitteeProvider,
+    NoopRaiStatePersistence, RaiCloseState, RaiCommitteeProvider, RaiCommitteeSet,
+    RaiPendingReportInsertError, RaiStatePersistence, RepWeightRaiCommitteeProvider,
 };
 
 pub struct RaiPendingReportProcessor {
     close_state: Arc<RwLock<RaiCloseState>>,
     committee_provider: Arc<dyn RaiCommitteeProvider>,
+    persistence: Arc<dyn RaiStatePersistence>,
     stats: Arc<Stats>,
 }
 
@@ -33,9 +34,24 @@ impl RaiPendingReportProcessor {
         committee_provider: Arc<dyn RaiCommitteeProvider>,
         stats: Arc<Stats>,
     ) -> Self {
+        Self::with_committee_provider_and_persistence(
+            close_state,
+            committee_provider,
+            Arc::new(NoopRaiStatePersistence),
+            stats,
+        )
+    }
+
+    pub fn with_committee_provider_and_persistence(
+        close_state: Arc<RwLock<RaiCloseState>>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        persistence: Arc<dyn RaiStatePersistence>,
+        stats: Arc<Stats>,
+    ) -> Self {
         Self {
             close_state,
             committee_provider,
+            persistence,
             stats,
         }
     }
@@ -60,12 +76,12 @@ impl RaiPendingReportProcessor {
             return Err(RaiPendingReportProcessError::InvalidReporter);
         }
 
-        let mut close_state = self.close_state.write().unwrap();
-        let slots = report.slots.clone();
-        let result = close_state.insert_pending_report(report.clone());
+        let (result, snapshot) = {
+            let mut close_state = self.close_state.write().unwrap();
+            let slots = report.slots.clone();
+            let result = close_state.insert_pending_report(report.clone());
 
-        match result {
-            Ok(()) => {
+            let snapshot = if result.is_ok() {
                 let visible_slots = slots
                     .into_iter()
                     .filter(|slot| {
@@ -73,6 +89,19 @@ impl RaiPendingReportProcessor {
                     })
                     .collect::<Vec<_>>();
                 close_state.mark_visible_slots(report.epoch, visible_slots);
+                Some(close_state.snapshot())
+            } else {
+                None
+            };
+
+            (result, snapshot)
+        };
+
+        match result {
+            Ok(()) => {
+                if let Some(snapshot) = snapshot {
+                    self.persistence.save_close_state(&snapshot);
+                }
                 self.stats
                     .inc(StatType::RaiPendingReportProcessor, DetailType::Processed);
                 Ok(())

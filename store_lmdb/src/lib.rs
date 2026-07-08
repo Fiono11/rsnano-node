@@ -14,6 +14,7 @@ mod lmdb_config;
 mod online_weight_store;
 mod peer_store;
 mod pending_store;
+mod rai_store;
 mod rep_weight_store;
 mod store;
 mod successor_store;
@@ -36,6 +37,7 @@ pub use lmdb_config::{LmdbConfig, SyncStrategy, default_ledger_lmdb_options, get
 pub use online_weight_store::LmdbOnlineWeightStore;
 pub use peer_store::*;
 pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read_pending_record};
+pub use rai_store::LmdbRaiStore;
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;

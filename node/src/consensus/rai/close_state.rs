@@ -18,6 +18,35 @@ impl RaiCloseState {
         Default::default()
     }
 
+    pub fn from_snapshot(snapshot: RaiCloseStateSnapshot) -> Self {
+        let mut epochs = HashMap::new();
+        for epoch in snapshot.epochs {
+            epochs.insert(epoch.epoch, RaiCloseEpochState::from_snapshot(epoch));
+        }
+        epochs
+            .entry(snapshot.current_epoch)
+            .or_insert_with(RaiCloseEpochState::open);
+
+        Self {
+            current_epoch: snapshot.current_epoch,
+            epochs,
+        }
+    }
+
+    pub fn snapshot(&self) -> RaiCloseStateSnapshot {
+        let mut epochs: Vec<_> = self
+            .epochs
+            .iter()
+            .map(|(epoch, state)| state.snapshot(*epoch))
+            .collect();
+        epochs.sort_by_key(|epoch| epoch.epoch);
+
+        RaiCloseStateSnapshot {
+            current_epoch: self.current_epoch,
+            epochs,
+        }
+    }
+
     pub fn current_epoch(&self) -> RaiEpoch {
         self.current_epoch
     }
@@ -267,6 +296,37 @@ impl Default for RaiCloseState {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RaiCloseStateSnapshot {
+    pub current_epoch: RaiEpoch,
+    pub epochs: Vec<RaiCloseEpochSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiCloseEpochSnapshot {
+    pub epoch: RaiEpoch,
+    pub phase: RaiEpochPhase,
+    pub pending_reports: Vec<RaiPendingReport>,
+    pub visible_slots: Vec<RaiSlot>,
+    pub close_values: Vec<RaiCloseValueSnapshot>,
+    pub started_close_attempts: Vec<RaiCloseAttempt>,
+    pub processed_close_attempts: Vec<RaiCloseAttempt>,
+    pub cut_set: Option<Vec<RaiSlot>>,
+    pub closed_slots: Vec<RaiClosedSlotSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiCloseValueSnapshot {
+    pub hash: BlockHash,
+    pub slots: Vec<RaiSlot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiClosedSlotSnapshot {
+    pub slot: RaiSlot,
+    pub outcome: RaiElectionValue,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaiEpochPhase {
     Open,
@@ -313,6 +373,59 @@ impl RaiCloseEpochState {
         }
     }
 
+    fn from_snapshot(snapshot: RaiCloseEpochSnapshot) -> Self {
+        Self {
+            phase: snapshot.phase,
+            pending_reports: snapshot
+                .pending_reports
+                .into_iter()
+                .map(|report| (report.reporter, report))
+                .collect(),
+            visibility: RaiVisibilityTracker::from_snapshot(
+                snapshot.visible_slots,
+                snapshot.close_values,
+            ),
+            started_close_attempts: snapshot.started_close_attempts.into_iter().collect(),
+            processed_close_attempts: snapshot.processed_close_attempts.into_iter().collect(),
+            cut_set: snapshot.cut_set.map(|slots| slots.into_iter().collect()),
+            closed_slots: snapshot
+                .closed_slots
+                .into_iter()
+                .map(|closed| (closed.slot, closed.outcome))
+                .collect(),
+        }
+    }
+
+    fn snapshot(&self, epoch: RaiEpoch) -> RaiCloseEpochSnapshot {
+        let mut pending_reports: Vec<_> = self.pending_reports.values().cloned().collect();
+        pending_reports.sort_by_key(|report| report.reporter);
+
+        let mut closed_slots: Vec<_> = self
+            .closed_slots
+            .iter()
+            .map(|(slot, outcome)| RaiClosedSlotSnapshot {
+                slot: *slot,
+                outcome: outcome.clone(),
+            })
+            .collect();
+        closed_slots.sort_by_key(|closed| closed.slot);
+
+        RaiCloseEpochSnapshot {
+            epoch,
+            phase: self.phase,
+            pending_reports,
+            visible_slots: self.visibility.visible_slots.iter().copied().collect(),
+            close_values: self.visibility.close_value_snapshots(),
+            started_close_attempts: self.started_close_attempts.iter().copied().collect(),
+            processed_close_attempts: self.processed_close_attempts.iter().copied().collect(),
+            cut_set: self
+                .cut_set
+                .as_ref()
+                .map(|cut| cut.iter().copied().collect()),
+            closed_slots,
+        }
+    }
+
     fn insert_pending_report(
         &mut self,
         report: RaiPendingReport,
@@ -354,6 +467,19 @@ pub struct RaiVisibilityTracker {
 impl RaiVisibilityTracker {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn from_snapshot(
+        visible_slots: impl IntoIterator<Item = RaiSlot>,
+        close_values: impl IntoIterator<Item = RaiCloseValueSnapshot>,
+    ) -> Self {
+        Self {
+            visible_slots: visible_slots.into_iter().collect(),
+            close_values: close_values
+                .into_iter()
+                .map(|value| (value.hash, value.slots.into_iter().collect()))
+                .collect(),
+        }
     }
 
     pub fn mark_visible(&mut self, slot: RaiSlot) -> bool {
@@ -402,6 +528,19 @@ impl RaiVisibilityTracker {
 
     pub fn close_values(&self) -> &HashMap<BlockHash, VisibleSlots> {
         &self.close_values
+    }
+
+    pub fn close_value_snapshots(&self) -> Vec<RaiCloseValueSnapshot> {
+        let mut snapshots: Vec<_> = self
+            .close_values
+            .iter()
+            .map(|(hash, slots)| RaiCloseValueSnapshot {
+                hash: *hash,
+                slots: slots.iter().copied().collect(),
+            })
+            .collect();
+        snapshots.sort_by_key(|snapshot| snapshot.hash);
+        snapshots
     }
 
     pub fn hash_visible_slots(slots: &VisibleSlots) -> BlockHash {

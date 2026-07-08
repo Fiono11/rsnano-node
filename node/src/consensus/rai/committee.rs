@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, PublicKey, RaiElectionId, RaiEpoch};
@@ -9,6 +12,10 @@ pub const RAI_PRINCIPAL_WEIGHT_DIVISOR: u128 = 1000;
 pub trait RaiCommitteeProvider: Send + Sync {
     fn genesis_committee(&self) -> RaiCommittee;
     fn committee_for_closed_epoch(&self, epoch: RaiEpoch) -> Option<RaiCommittee>;
+
+    fn snapshot_closed_epoch_committee(&self, epoch: RaiEpoch) -> RaiCommittee {
+        self.committee_at(Some(epoch))
+    }
 
     fn committee_at(&self, epoch: Option<RaiEpoch>) -> RaiCommittee {
         epoch
@@ -32,6 +39,23 @@ pub struct RaiCommittee {
 }
 
 impl RaiCommittee {
+    pub fn from_snapshot(snapshot: RaiCommitteeSnapshot) -> Self {
+        let mut members = snapshot.members;
+        members.sort_by_key(|member| member.account);
+
+        Self {
+            members,
+            thresholds: snapshot.thresholds,
+        }
+    }
+
+    pub fn snapshot(&self) -> RaiCommitteeSnapshot {
+        RaiCommitteeSnapshot {
+            members: self.members.clone(),
+            thresholds: self.thresholds,
+        }
+    }
+
     pub fn members(&self) -> &[RaiCommitteeMember] {
         &self.members
     }
@@ -76,6 +100,12 @@ impl RaiCommittee {
             .map(|member| member.account)
             .eq(other.members.iter().map(|member| member.account))
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiCommitteeSnapshot {
+    pub members: Vec<RaiCommitteeMember>,
+    pub thresholds: RaiCommitteeThresholds,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,13 +256,22 @@ impl RaiCommitteeDeriver {
 pub struct RepWeightRaiCommitteeProvider {
     rep_weights: Arc<RepWeightCache>,
     deriver: RaiCommitteeDeriver,
+    closed_committees: RwLock<HashMap<RaiEpoch, RaiCommittee>>,
 }
 
 impl RepWeightRaiCommitteeProvider {
     pub fn new(rep_weights: Arc<RepWeightCache>) -> Self {
+        Self::with_closed_committees(rep_weights, Vec::new())
+    }
+
+    pub fn with_closed_committees(
+        rep_weights: Arc<RepWeightCache>,
+        closed_committees: impl IntoIterator<Item = (RaiEpoch, RaiCommittee)>,
+    ) -> Self {
         Self {
             rep_weights,
             deriver: RaiCommitteeDeriver::new(),
+            closed_committees: RwLock::new(closed_committees.into_iter().collect()),
         }
     }
 
@@ -251,8 +290,16 @@ impl RaiCommitteeProvider for RepWeightRaiCommitteeProvider {
         self.derive_from_current_weights()
     }
 
-    fn committee_for_closed_epoch(&self, _epoch: RaiEpoch) -> Option<RaiCommittee> {
-        Some(self.derive_from_current_weights())
+    fn committee_for_closed_epoch(&self, epoch: RaiEpoch) -> Option<RaiCommittee> {
+        self.closed_committees.read().unwrap().get(&epoch).cloned()
+    }
+
+    fn snapshot_closed_epoch_committee(&self, epoch: RaiEpoch) -> RaiCommittee {
+        let mut closed_committees = self.closed_committees.write().unwrap();
+        closed_committees
+            .entry(epoch)
+            .or_insert_with(|| self.derive_from_current_weights())
+            .clone()
     }
 }
 

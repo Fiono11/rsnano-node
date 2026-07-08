@@ -1,7 +1,7 @@
 use crate::{
     LmdbAccountStore, LmdbBlockStore, LmdbConfirmationHeightStore, LmdbFinalVoteStore,
-    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbVersionStore,
-    successor_store::LmdbSuccessorStore,
+    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRaiStore, LmdbRepWeightStore,
+    LmdbVersionStore, successor_store::LmdbSuccessorStore,
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,7 @@ pub struct LmdbStore {
     pub final_vote: LmdbFinalVoteStore,
     pub online_weight: LmdbOnlineWeightStore,
     pub peer: LmdbPeerStore,
+    pub rai: LmdbRaiStore,
     pub version: LmdbVersionStore,
 }
 
@@ -61,6 +62,7 @@ impl LmdbStore {
             peer: LmdbPeerStore::new(&env)?,
             confirmation_height: LmdbConfirmationHeightStore::new(&env)?,
             final_vote: LmdbFinalVoteStore::new(&env)?,
+            rai: LmdbRaiStore::new(&env)?,
             successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
             env,

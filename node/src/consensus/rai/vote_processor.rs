@@ -4,8 +4,8 @@ use rsnano_types::{RaiElectionId, RaiVote, VoteError};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{
-    RaiActiveElections, RaiCloseState, RaiCommitteeProvider, RaiCommitteeSet,
-    RepWeightRaiCommitteeProvider,
+    NoopRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiCommitteeProvider,
+    RaiCommitteeSet, RaiStatePersistence, RepWeightRaiCommitteeProvider,
 };
 use crate::representatives::RepresentativeTracker;
 use rsnano_ledger::RepWeightCache;
@@ -15,6 +15,7 @@ pub struct RaiVoteProcessor {
     close_state: Arc<RwLock<RaiCloseState>>,
     rep_tracker: Arc<RepresentativeTracker>,
     committee_provider: Arc<dyn RaiCommitteeProvider>,
+    persistence: Arc<dyn RaiStatePersistence>,
     stats: Arc<Stats>,
 }
 
@@ -42,11 +43,30 @@ impl RaiVoteProcessor {
         committee_provider: Arc<dyn RaiCommitteeProvider>,
         stats: Arc<Stats>,
     ) -> Self {
+        Self::with_committee_provider_and_persistence(
+            active_elections,
+            close_state,
+            rep_tracker,
+            committee_provider,
+            Arc::new(NoopRaiStatePersistence),
+            stats,
+        )
+    }
+
+    pub fn with_committee_provider_and_persistence(
+        active_elections: Arc<RaiActiveElections>,
+        close_state: Arc<RwLock<RaiCloseState>>,
+        rep_tracker: Arc<RepresentativeTracker>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        persistence: Arc<dyn RaiStatePersistence>,
+        stats: Arc<Stats>,
+    ) -> Self {
         Self {
             active_elections,
             close_state,
             rep_tracker,
             committee_provider,
+            persistence,
             stats,
         }
     }
@@ -88,6 +108,10 @@ impl RaiVoteProcessor {
         let result = self.active_elections.apply_vote(vote, &committees);
         if result.is_ok() {
             self.update_vote_visibility(vote, &committees);
+            let active_elections = self.active_elections.snapshot();
+            let close_state = self.close_state.read().unwrap().snapshot();
+            self.persistence
+                .save_active_and_close(&active_elections, &close_state);
         }
 
         match result {

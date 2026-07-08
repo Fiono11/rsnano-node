@@ -14,8 +14,9 @@ use rsnano_types::{
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{
-    RaiActiveElections, RaiCloseState, RaiCommitteeProvider, RaiElectionStatus, RaiEpochPhase,
-    RaiPendingReportProcessor, RaiVoteProcessor, RepWeightRaiCommitteeProvider, VisibleSlots,
+    NoopRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiCommitteeProvider,
+    RaiElectionStatus, RaiEpochPhase, RaiPendingReportProcessor, RaiStatePersistence,
+    RaiVoteProcessor, RepWeightRaiCommitteeProvider, VisibleSlots,
 };
 use crate::transport::MessageFlooder;
 
@@ -75,6 +76,7 @@ pub struct RaiEpochLoop {
     vote_processor: Arc<RaiVoteProcessor>,
     pending_report_processor: Arc<RaiPendingReportProcessor>,
     committee_provider: Arc<dyn RaiCommitteeProvider>,
+    persistence: Arc<dyn RaiStatePersistence>,
     local_key: PrivateKey,
     publisher: Arc<dyn RaiEpochPublisher>,
     config: RaiEpochLoopConfig,
@@ -116,12 +118,37 @@ impl RaiEpochLoop {
         publisher: Arc<dyn RaiEpochPublisher>,
         config: RaiEpochLoopConfig,
     ) -> Self {
+        Self::with_committee_provider_and_persistence(
+            active_elections,
+            close_state,
+            vote_processor,
+            pending_report_processor,
+            committee_provider,
+            Arc::new(NoopRaiStatePersistence),
+            local_key,
+            publisher,
+            config,
+        )
+    }
+
+    pub fn with_committee_provider_and_persistence(
+        active_elections: Arc<RaiActiveElections>,
+        close_state: Arc<RwLock<RaiCloseState>>,
+        vote_processor: Arc<RaiVoteProcessor>,
+        pending_report_processor: Arc<RaiPendingReportProcessor>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        persistence: Arc<dyn RaiStatePersistence>,
+        local_key: PrivateKey,
+        publisher: Arc<dyn RaiEpochPublisher>,
+        config: RaiEpochLoopConfig,
+    ) -> Self {
         Self {
             active_elections,
             close_state,
             vote_processor,
             pending_report_processor,
             committee_provider,
+            persistence,
             local_key,
             publisher,
             config,
@@ -163,6 +190,8 @@ impl RaiEpochLoop {
 
         if started {
             self.publish_local_pending_report(epoch);
+            let snapshot = self.close_state.read().unwrap().snapshot();
+            self.persistence.save_close_state(&snapshot);
         }
     }
 
@@ -213,7 +242,7 @@ impl RaiEpochLoop {
     }
 
     fn start_close_attempt(&mut self, epoch: RaiEpoch, attempt: RaiCloseAttempt, now: Instant) {
-        let close_hash = {
+        let (close_hash, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
             if close_state.close_attempt_started(epoch, attempt) {
                 return;
@@ -221,11 +250,14 @@ impl RaiEpochLoop {
 
             let close_hash = close_state.record_current_close_value(epoch);
             close_state.record_close_attempt_started(epoch, attempt);
-            close_hash
+            (close_hash, close_state.snapshot())
         };
 
         let election_id = close_election_id(epoch, attempt);
         let _ = self.active_elections.insert(election_id.clone());
+        let active_elections = self.active_elections.snapshot();
+        self.persistence
+            .save_active_and_close(&active_elections, &snapshot);
         self.close_attempt_started_at.insert((epoch, attempt), now);
         self.timeout_votes_sent.remove(&(epoch, attempt));
         self.publish_local_close_vote(
@@ -266,10 +298,10 @@ impl RaiEpochLoop {
                 continue;
             }
 
-            self.close_state
-                .write()
-                .unwrap()
-                .record_close_attempt_processed(epoch, attempt);
+            {
+                let mut close_state = self.close_state.write().unwrap();
+                close_state.record_close_attempt_processed(epoch, attempt);
+            }
 
             match outcome {
                 RaiElectionValue::Timeout => {
@@ -382,7 +414,17 @@ impl RaiEpochLoop {
             return;
         };
 
-        let _ = self.close_state.write().unwrap().install_cut(epoch, cut);
+        let snapshot = {
+            let mut close_state = self.close_state.write().unwrap();
+            close_state
+                .install_cut(epoch, cut)
+                .ok()
+                .and_then(|installed| installed.then(|| close_state.snapshot()))
+        };
+
+        if let Some(snapshot) = snapshot {
+            self.persistence.save_close_state(&snapshot);
+        }
     }
 
     fn try_drain_cut(&mut self, epoch: RaiEpoch, now: Instant) {
@@ -394,18 +436,25 @@ impl RaiEpochLoop {
             return;
         };
 
-        let advanced = {
+        let (advanced, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
             let _ = close_state.record_cut_drain(epoch, outcomes);
-            close_state.advance_epoch(epoch).is_ok()
+            let advanced = close_state.advance_epoch(epoch).is_ok();
+            (advanced, close_state.snapshot())
         };
-
         if advanced {
+            let committee = self
+                .committee_provider
+                .snapshot_closed_epoch_committee(epoch);
+            self.persistence.save_committee_snapshot(epoch, &committee);
+            self.persistence.save_close_state(&snapshot);
             self.epoch_started_at = now;
             self.close_attempt_started_at
                 .retain(|(attempt_epoch, _), _| *attempt_epoch > epoch);
             self.timeout_votes_sent
                 .retain(|(attempt_epoch, _)| *attempt_epoch > epoch);
+        } else {
+            self.persistence.save_close_state(&snapshot);
         }
     }
 

@@ -101,8 +101,9 @@ use crate::{
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
-    RaiActiveElections, RaiCloseState, RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher,
-    RaiPendingReportProcessor, RaiVoteProcessor,
+    LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiEpochLoop, RaiEpochLoopConfig,
+    RaiNetworkEpochPublisher, RaiPendingReportProcessor, RaiPersistedState, RaiVoteProcessor,
+    RepWeightRaiCommitteeProvider,
 };
 
 #[allow(dead_code)]
@@ -669,26 +670,55 @@ impl Node {
         ));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_active_elections = Arc::new(RaiActiveElections::new());
+        let rai_persistence = Arc::new(LmdbRaiStatePersistence::new(ledger.clone()));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_close_state = Arc::new(RwLock::new(RaiCloseState::new()));
+        let RaiPersistedState {
+            close_state: rai_close_state_snapshot,
+            active_elections: rai_active_elections_snapshot,
+            committees: rai_committee_snapshots,
+        } = rai_persistence
+            .load()
+            .expect("could not load persisted RAI consensus state");
 
         #[cfg(feature = "rai_protocol")]
-        let rai_vote_processor = Arc::new(RaiVoteProcessor::new(
-            rai_active_elections.clone(),
-            rai_close_state.clone(),
-            rep_tracker.clone(),
-            rep_weights.clone(),
-            stats.clone(),
+        let rai_active_elections = Arc::new(
+            rai_active_elections_snapshot
+                .map_or_else(RaiActiveElections::new, RaiActiveElections::from_snapshot),
+        );
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_close_state = Arc::new(RwLock::new(
+            rai_close_state_snapshot.map_or_else(RaiCloseState::new, RaiCloseState::from_snapshot),
         ));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_pending_report_processor = Arc::new(RaiPendingReportProcessor::new(
-            rai_close_state.clone(),
-            rep_weights.clone(),
-            stats.clone(),
-        ));
+        let rai_committee_provider =
+            Arc::new(RepWeightRaiCommitteeProvider::with_closed_committees(
+                rep_weights.clone(),
+                rai_committee_snapshots,
+            ));
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_vote_processor =
+            Arc::new(RaiVoteProcessor::with_committee_provider_and_persistence(
+                rai_active_elections.clone(),
+                rai_close_state.clone(),
+                rep_tracker.clone(),
+                rai_committee_provider.clone(),
+                rai_persistence.clone(),
+                stats.clone(),
+            ));
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_pending_report_processor = Arc::new(
+            RaiPendingReportProcessor::with_committee_provider_and_persistence(
+                rai_close_state.clone(),
+                rai_committee_provider.clone(),
+                rai_persistence.clone(),
+                stats.clone(),
+            ),
+        );
 
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
             config.confirmation_history_size,
@@ -1165,12 +1195,13 @@ impl Node {
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_epoch_loop = RaiEpochLoop::new(
+        let rai_epoch_loop = RaiEpochLoop::with_committee_provider_and_persistence(
             rai_active_elections.clone(),
             rai_close_state.clone(),
             rai_vote_processor.clone(),
             rai_pending_report_processor.clone(),
-            rep_weights.clone(),
+            rai_committee_provider.clone(),
+            rai_persistence.clone(),
             node_id_key.clone(),
             Arc::new(RaiNetworkEpochPublisher::new(message_flooder.clone())),
             RaiEpochLoopConfig::default(),
