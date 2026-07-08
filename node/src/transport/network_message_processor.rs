@@ -20,6 +20,9 @@ use crate::{
 };
 use rsnano_ledger::BlockSource;
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::RaiVoteProcessor;
+
 /// Process messages that were received from other nodes in the network
 pub struct NetworkMessageProcessor {
     stats: Arc<Stats>,
@@ -29,6 +32,8 @@ pub struct NetworkMessageProcessor {
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     request_aggregator: Arc<RequestAggregator>,
     vote_processor_queue: Arc<VoteProcessorQueue>,
+    #[cfg(feature = "rai_protocol")]
+    rai_vote_processor: Arc<RaiVoteProcessor>,
     telemetry: Arc<Telemetry>,
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
@@ -44,6 +49,7 @@ impl NetworkMessageProcessor {
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         request_aggregator: Arc<RequestAggregator>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
+        #[cfg(feature = "rai_protocol")] rai_vote_processor: Arc<RaiVoteProcessor>,
         telemetry: Arc<Telemetry>,
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
@@ -57,6 +63,8 @@ impl NetworkMessageProcessor {
             wallet_reps,
             request_aggregator,
             vote_processor_queue,
+            #[cfg(feature = "rai_protocol")]
+            rai_vote_processor,
             telemetry,
             bootstrap_responder,
             bootstrapper,
@@ -191,8 +199,12 @@ impl NetworkMessageProcessor {
             }
             Message::AscPullAck(ack) => self.bootstrapper.process(ack),
             #[cfg(feature = "rai_protocol")]
-            Message::RaiVote(_) | Message::RaiPendingReport(_) => {
-                // RAI consensus processing is wired in a follow-up step.
+            Message::RaiVote(vote) => {
+                let _ = self.rai_vote_processor.process(&vote);
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiPendingReport(_) => {
+                // RAI pending report processing is wired in a follow-up step.
             }
             Message::FrontierReq(_)
             | Message::BulkPush

@@ -16,6 +16,8 @@ mod filtered_vote;
 mod fork_cache;
 mod fork_cache_updater;
 mod local_votes_remover;
+#[cfg(feature = "rai_protocol")]
+mod rai;
 mod rep_tiers;
 mod vote_applier;
 mod vote_broadcaster;
@@ -41,6 +43,8 @@ pub use filtered_vote::*;
 pub(crate) use fork_cache::*;
 pub(crate) use fork_cache_updater::*;
 pub(crate) use local_votes_remover::LocalVotesRemover;
+#[cfg(feature = "rai_protocol")]
+pub use rai::*;
 pub use rep_tiers::*;
 pub(crate) use vote_applier::*;
 pub use vote_broadcaster::*;

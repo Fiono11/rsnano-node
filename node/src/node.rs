@@ -67,12 +67,12 @@ use crate::{
         AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
         BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        ForkInserterPlugin,
-        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
-        VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
-        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
-        get_bootstrap_weights, log_bootstrap_weights, vote_cache::VoteCache,
+        ForkInserterPlugin, LocalVoteHistory, LocalVotesRemover, RepTiersCalculator,
+        RequestAggregator, VoteApplier, VoteBroadcaster, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster,
+        WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
+        election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
+        vote_cache::VoteCache,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
@@ -98,6 +98,9 @@ use crate::{
     },
     work::WorkFactory,
 };
+
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::{RaiActiveElections, RaiVoteProcessor};
 
 #[allow(dead_code)]
 pub struct Node {
@@ -130,6 +133,10 @@ pub struct Node {
     pub vote_generators: Arc<VoteGenerators>,
     pub aec: Arc<AecService>,
     pub vote_processor: Arc<VoteProcessor>,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_active_elections: Arc<RaiActiveElections>,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_vote_processor: Arc<RaiVoteProcessor>,
     pub rep_crawler: Arc<RepCrawler>,
     pub tcp_listener: Arc<TcpListener>,
     pub election_schedulers: Arc<ElectionSchedulers>,
@@ -652,6 +659,17 @@ impl Node {
             stats.clone(),
         ));
 
+        #[cfg(feature = "rai_protocol")]
+        let rai_active_elections = Arc::new(RaiActiveElections::new());
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_vote_processor = Arc::new(RaiVoteProcessor::new(
+            rai_active_elections.clone(),
+            rep_tracker.clone(),
+            rep_weights.clone(),
+            stats.clone(),
+        ));
+
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
             config.confirmation_history_size,
         )));
@@ -921,6 +939,8 @@ impl Node {
             wallet_reps.clone(),
             request_aggregator.clone(),
             vote_processor_queue.clone(),
+            #[cfg(feature = "rai_protocol")]
+            rai_vote_processor.clone(),
             telemetry.clone(),
             bootstrap_responder.clone(),
             bootstrapper.clone(),
@@ -1225,6 +1245,8 @@ impl Node {
         container_info.add("work", work_factory.clone());
         container_info.add("ledger", ledger.clone());
         container_info.add("active", active_elections.clone());
+        #[cfg(feature = "rai_protocol")]
+        container_info.add("rai_active", rai_active_elections.clone());
         container_info.add("network", network.clone());
         container_info.add("syn_cookies", syn_cookies);
         container_info.add("telemetry", telemetry.clone());
@@ -1281,6 +1303,10 @@ impl Node {
             vote_generators,
             aec: active_elections,
             vote_processor,
+            #[cfg(feature = "rai_protocol")]
+            rai_active_elections,
+            #[cfg(feature = "rai_protocol")]
+            rai_vote_processor,
             rep_crawler,
             tcp_listener,
             election_schedulers,
@@ -1581,6 +1607,8 @@ impl Node {
         self.vote_processor.stop();
         self.election_schedulers.stop();
         self.aec_ticker.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.rai_active_elections.stop();
         self.aec.stop();
         self.vote_generators.stop();
         self.confirming_set.stop();

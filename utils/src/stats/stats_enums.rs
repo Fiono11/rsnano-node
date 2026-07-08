@@ -50,6 +50,8 @@ pub enum StatType {
     ActiveElectionsDropped,
     ActiveElectionsTimeout,
     ActiveElectionsCancelled,
+    #[cfg(feature = "rai_protocol")]
+    RaiVoteProcessor,
     BoundedBacklog,
     ElectionScheduler,
     RepCrawler,
