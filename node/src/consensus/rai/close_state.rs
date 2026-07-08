@@ -36,6 +36,12 @@ impl RaiCloseState {
             .unwrap_or_default()
     }
 
+    pub fn pending_reports(&self, epoch: RaiEpoch) -> Vec<&RaiPendingReport> {
+        self.epoch(epoch)
+            .map(|state| state.pending_reports.values().collect())
+            .unwrap_or_default()
+    }
+
     pub fn mark_visible(&mut self, epoch: RaiEpoch, slot: RaiSlot) -> bool {
         self.epoch_mut(epoch).visibility.mark_visible(slot)
     }
@@ -290,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn refreshing_visible_slots_maintains_close_values_after_first_snapshot() {
+    fn expanding_visible_epoch_records_new_close_hash() {
         let mut state = RaiCloseState::new();
         state.mark_visible(7, slot(1));
         let first_hash = state.record_current_close_value(7);

@@ -66,6 +66,10 @@ impl RaiCommittee {
         !self.is_empty() && votes >= self.thresholds.notarization
     }
 
+    pub fn has_visibility_quorum(&self, votes: usize) -> bool {
+        !self.is_empty() && votes >= self.thresholds.max_faulty + 1
+    }
+
     fn has_same_members_as(&self, other: &Self) -> bool {
         self.members
             .iter()

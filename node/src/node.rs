@@ -674,6 +674,7 @@ impl Node {
         #[cfg(feature = "rai_protocol")]
         let rai_vote_processor = Arc::new(RaiVoteProcessor::new(
             rai_active_elections.clone(),
+            rai_close_state.clone(),
             rep_tracker.clone(),
             rep_weights.clone(),
             stats.clone(),
