@@ -676,6 +676,7 @@ impl Node {
         let RaiPersistedState {
             close_state: rai_close_state_snapshot,
             active_elections: rai_active_elections_snapshot,
+            rep_weight_snapshots: rai_rep_weight_snapshots,
             committees: rai_committee_snapshots,
         } = rai_persistence
             .load()
@@ -694,8 +695,9 @@ impl Node {
 
         #[cfg(feature = "rai_protocol")]
         let rai_committee_provider =
-            Arc::new(RepWeightRaiCommitteeProvider::with_closed_committees(
+            Arc::new(RepWeightRaiCommitteeProvider::with_closed_epoch_snapshots(
                 rep_weights.clone(),
+                rai_rep_weight_snapshots,
                 rai_committee_snapshots,
             ));
 

@@ -18,7 +18,7 @@ pub use close_state::{
 pub use committee::{
     RAI_PRINCIPAL_WEIGHT_DIVISOR, RaiCommittee, RaiCommitteeDeriver, RaiCommitteeMember,
     RaiCommitteeProvider, RaiCommitteeSet, RaiCommitteeSnapshot, RaiCommitteeThresholds,
-    RepWeightRaiCommitteeProvider,
+    RaiRepWeight, RaiRepWeightSnapshot, RepWeightRaiCommitteeProvider,
 };
 pub use epoch_loop::{
     RaiEpochLoop, RaiEpochLoopConfig, RaiEpochPublisher, RaiNetworkEpochPublisher,

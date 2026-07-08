@@ -446,6 +446,13 @@ impl RaiEpochLoop {
             let committee = self
                 .committee_provider
                 .snapshot_closed_epoch_committee(epoch);
+            if let Some(rep_weight_snapshot) = self
+                .committee_provider
+                .closed_epoch_rep_weight_snapshot(epoch)
+            {
+                self.persistence
+                    .save_rep_weight_snapshot(epoch, &rep_weight_snapshot);
+            }
             self.persistence.save_committee_snapshot(epoch, &committee);
             self.persistence.save_close_state(&snapshot);
             self.epoch_started_at = now;

@@ -16,13 +16,14 @@ use super::{
     RaiActiveElectionsSnapshot, RaiCloseEpochSnapshot, RaiCloseStateSnapshot,
     RaiCloseValueSnapshot, RaiClosedSlotSnapshot, RaiCommittee, RaiCommitteeMember,
     RaiCommitteeSnapshot, RaiCommitteeThresholds, RaiElectionSnapshot, RaiElectionStatus,
-    RaiTallySnapshot, RaiVoteSummary,
+    RaiRepWeight, RaiRepWeightSnapshot, RaiTallySnapshot, RaiVoteSummary,
 };
 
 const SNAPSHOT_VERSION: u8 = 1;
 const CLOSE_STATE_KEY: &[u8] = b"close_state";
 const ACTIVE_ELECTIONS_KEY: &[u8] = b"active_elections";
 const COMMITTEES_KEY: &[u8] = b"committees";
+const REP_WEIGHT_SNAPSHOTS_KEY: &[u8] = b"rep_weight_snapshots";
 
 pub trait RaiStatePersistence: Send + Sync {
     fn save_close_state(&self, _snapshot: &RaiCloseStateSnapshot) {}
@@ -35,6 +36,7 @@ pub trait RaiStatePersistence: Send + Sync {
         self.save_active_elections(active_elections);
         self.save_close_state(close_state);
     }
+    fn save_rep_weight_snapshot(&self, _epoch: RaiEpoch, _snapshot: &RaiRepWeightSnapshot) {}
     fn save_committee_snapshot(&self, _epoch: RaiEpoch, _committee: &RaiCommittee) {}
 }
 
@@ -46,6 +48,7 @@ impl RaiStatePersistence for NoopRaiStatePersistence {}
 pub struct RaiPersistedState {
     pub close_state: Option<RaiCloseStateSnapshot>,
     pub active_elections: Option<RaiActiveElectionsSnapshot>,
+    pub rep_weight_snapshots: Vec<(RaiEpoch, RaiRepWeightSnapshot)>,
     pub committees: Vec<(RaiEpoch, RaiCommittee)>,
 }
 
@@ -85,10 +88,20 @@ impl LmdbRaiStatePersistence {
             .transpose()
             .context("could not deserialize RAI committee snapshots")?
             .unwrap_or_default();
+        let rep_weight_snapshots = self
+            .ledger
+            .store
+            .rai
+            .get(&txn, REP_WEIGHT_SNAPSHOTS_KEY)
+            .map(|bytes| deserialize_rep_weight_snapshots(&bytes))
+            .transpose()
+            .context("could not deserialize RAI rep weight snapshots")?
+            .unwrap_or_default();
 
         Ok(RaiPersistedState {
             close_state,
             active_elections,
+            rep_weight_snapshots,
             committees,
         })
     }
@@ -125,6 +138,28 @@ impl RaiStatePersistence for LmdbRaiStatePersistence {
             CLOSE_STATE_KEY,
             &serialize_close_state(close_state),
         );
+        txn.commit();
+    }
+
+    fn save_rep_weight_snapshot(&self, epoch: RaiEpoch, snapshot: &RaiRepWeightSnapshot) {
+        let mut txn = self.ledger.store.begin_write();
+        let mut snapshots: BTreeMap<_, _> = self
+            .ledger
+            .store
+            .rai
+            .get(&txn, REP_WEIGHT_SNAPSHOTS_KEY)
+            .map(|bytes| deserialize_rep_weight_snapshots(&bytes))
+            .transpose()
+            .expect("could not deserialize RAI rep weight snapshots")
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        snapshots.insert(epoch, snapshot.clone());
+        let bytes = serialize_rep_weight_snapshots(snapshots.into_iter());
+        self.ledger
+            .store
+            .rai
+            .put(&mut txn, REP_WEIGHT_SNAPSHOTS_KEY, &bytes);
         txn.commit();
     }
 
@@ -328,6 +363,35 @@ fn deserialize_committees(
     Ok(committees)
 }
 
+fn serialize_rep_weight_snapshots(
+    snapshots: impl IntoIterator<Item = (RaiEpoch, RaiRepWeightSnapshot)>,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let snapshots: Vec<_> = snapshots.into_iter().collect();
+    write_version(&mut bytes);
+    write_len(&mut bytes, snapshots.len());
+    for (epoch, snapshot) in snapshots {
+        write_u64(&mut bytes, epoch);
+        write_rep_weight_snapshot(&mut bytes, &snapshot);
+    }
+    bytes
+}
+
+fn deserialize_rep_weight_snapshots(
+    mut bytes: &[u8],
+) -> Result<Vec<(RaiEpoch, RaiRepWeightSnapshot)>, DeserializationError> {
+    read_version(&mut bytes)?;
+    let snapshot_count = read_len(&mut bytes)?;
+    let mut snapshots = Vec::with_capacity(snapshot_count);
+    for _ in 0..snapshot_count {
+        let epoch = read_u64(&mut bytes)?;
+        let snapshot = read_rep_weight_snapshot(&mut bytes)?;
+        snapshots.push((epoch, snapshot));
+    }
+    expect_finished(bytes)?;
+    Ok(snapshots)
+}
+
 fn write_committee(writer: &mut Vec<u8>, snapshot: &RaiCommitteeSnapshot) {
     write_thresholds(writer, snapshot.thresholds);
     write_len(writer, snapshot.members.len());
@@ -350,6 +414,34 @@ fn read_committee(reader: &mut &[u8]) -> Result<RaiCommitteeSnapshot, Deserializ
         members,
         thresholds,
     })
+}
+
+fn write_rep_weight_snapshot(writer: &mut Vec<u8>, snapshot: &RaiRepWeightSnapshot) {
+    write_len(writer, snapshot.weights().len());
+    for weight in snapshot.weights() {
+        weight.representative.serialize(writer).unwrap();
+        weight.weight.serialize(writer).unwrap();
+    }
+}
+
+fn read_rep_weight_snapshot(
+    reader: &mut &[u8],
+) -> Result<RaiRepWeightSnapshot, DeserializationError> {
+    let weight_count = read_len(reader)?;
+    let mut weights = Vec::with_capacity(weight_count);
+    for _ in 0..weight_count {
+        let representative = PublicKey::deserialize(reader)?;
+        let weight = Amount::deserialize(reader)?;
+        weights.push(RaiRepWeight {
+            representative,
+            weight,
+        });
+    }
+    Ok(RaiRepWeightSnapshot::from_weights(
+        weights
+            .into_iter()
+            .map(|entry| (entry.representative, entry.weight)),
+    ))
 }
 
 fn write_vote_summary(writer: &mut Vec<u8>, vote: &RaiVoteSummary) {
@@ -667,6 +759,20 @@ mod tests {
     }
 
     #[test]
+    fn rep_weight_snapshots_roundtrip() {
+        let key = PrivateKey::from(1);
+        let snapshot = RaiRepWeightSnapshot::from_weights([(key.public_key(), Amount::raw(100))]);
+
+        let decoded = deserialize_rep_weight_snapshots(&serialize_rep_weight_snapshots([(
+            3,
+            snapshot.clone(),
+        )]))
+        .unwrap();
+
+        assert_eq!(decoded, vec![(3, snapshot)]);
+    }
+
+    #[test]
     fn lmdb_persistence_saves_and_loads_snapshots() {
         let key = PrivateKey::from(1);
         let slot = RaiSlot::new(Account::from(2), 3);
@@ -701,15 +807,19 @@ mod tests {
         };
         let committee =
             RaiCommitteeDeriver::new().derive_committee([(key.public_key(), Amount::raw(100))]);
+        let rep_weight_snapshot =
+            RaiRepWeightSnapshot::from_weights([(key.public_key(), Amount::raw(100))]);
         let persistence = LmdbRaiStatePersistence::new(Arc::new(Ledger::new_null()));
 
         persistence.save_close_state(&close_state);
         persistence.save_active_elections(&active_elections);
+        persistence.save_rep_weight_snapshot(0, &rep_weight_snapshot);
         persistence.save_committee_snapshot(0, &committee);
         let loaded = persistence.load().unwrap();
 
         assert_eq!(loaded.close_state, Some(close_state));
         assert_eq!(loaded.active_elections, Some(active_elections));
+        assert_eq!(loaded.rep_weight_snapshots, vec![(0, rep_weight_snapshot)]);
         assert_eq!(loaded.committees, vec![(0, committee)]);
     }
 }

@@ -12,6 +12,9 @@ pub const RAI_PRINCIPAL_WEIGHT_DIVISOR: u128 = 1000;
 pub trait RaiCommitteeProvider: Send + Sync {
     fn genesis_committee(&self) -> RaiCommittee;
     fn committee_for_closed_epoch(&self, epoch: RaiEpoch) -> Option<RaiCommittee>;
+    fn closed_epoch_rep_weight_snapshot(&self, _epoch: RaiEpoch) -> Option<RaiRepWeightSnapshot> {
+        None
+    }
 
     fn snapshot_closed_epoch_committee(&self, epoch: RaiEpoch) -> RaiCommittee {
         self.committee_at(Some(epoch))
@@ -106,6 +109,43 @@ impl RaiCommittee {
 pub struct RaiCommitteeSnapshot {
     pub members: Vec<RaiCommitteeMember>,
     pub thresholds: RaiCommitteeThresholds,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RaiRepWeightSnapshot {
+    weights: Vec<RaiRepWeight>,
+}
+
+impl RaiRepWeightSnapshot {
+    pub fn from_weights(weights: impl IntoIterator<Item = (PublicKey, Amount)>) -> Self {
+        let mut weights: Vec<_> = weights
+            .into_iter()
+            .filter(|(_, weight)| !weight.is_zero())
+            .map(|(representative, weight)| RaiRepWeight {
+                representative,
+                weight,
+            })
+            .collect();
+        weights.sort_by_key(|entry| entry.representative);
+
+        Self { weights }
+    }
+
+    pub fn weights(&self) -> &[RaiRepWeight] {
+        &self.weights
+    }
+
+    fn balances(&self) -> impl Iterator<Item = (PublicKey, Amount)> + '_ {
+        self.weights
+            .iter()
+            .map(|entry| (entry.representative, entry.weight))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RaiRepWeight {
+    pub representative: PublicKey,
+    pub weight: Amount,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,50 +296,117 @@ impl RaiCommitteeDeriver {
 pub struct RepWeightRaiCommitteeProvider {
     rep_weights: Arc<RepWeightCache>,
     deriver: RaiCommitteeDeriver,
+    genesis_snapshot: RaiRepWeightSnapshot,
+    closed_rep_weight_snapshots: RwLock<HashMap<RaiEpoch, RaiRepWeightSnapshot>>,
     closed_committees: RwLock<HashMap<RaiEpoch, RaiCommittee>>,
 }
 
 impl RepWeightRaiCommitteeProvider {
     pub fn new(rep_weights: Arc<RepWeightCache>) -> Self {
-        Self::with_closed_committees(rep_weights, Vec::new())
+        Self::with_closed_epoch_snapshots(rep_weights, Vec::new(), Vec::new())
+    }
+
+    pub fn with_closed_epoch_snapshots(
+        rep_weights: Arc<RepWeightCache>,
+        closed_rep_weight_snapshots: impl IntoIterator<Item = (RaiEpoch, RaiRepWeightSnapshot)>,
+        closed_committees: impl IntoIterator<Item = (RaiEpoch, RaiCommittee)>,
+    ) -> Self {
+        let genesis_snapshot = Self::snapshot_current_weights(&rep_weights);
+
+        Self {
+            rep_weights,
+            deriver: RaiCommitteeDeriver::new(),
+            genesis_snapshot,
+            closed_rep_weight_snapshots: RwLock::new(
+                closed_rep_weight_snapshots.into_iter().collect(),
+            ),
+            closed_committees: RwLock::new(closed_committees.into_iter().collect()),
+        }
     }
 
     pub fn with_closed_committees(
         rep_weights: Arc<RepWeightCache>,
         closed_committees: impl IntoIterator<Item = (RaiEpoch, RaiCommittee)>,
     ) -> Self {
-        Self {
-            rep_weights,
-            deriver: RaiCommitteeDeriver::new(),
-            closed_committees: RwLock::new(closed_committees.into_iter().collect()),
-        }
+        Self::with_closed_epoch_snapshots(rep_weights, Vec::new(), closed_committees)
     }
 
-    fn derive_from_current_weights(&self) -> RaiCommittee {
-        let weights = self.rep_weights.read();
-        self.deriver.derive_committee(
+    fn snapshot_current_weights(rep_weights: &RepWeightCache) -> RaiRepWeightSnapshot {
+        let weights = rep_weights.read();
+        RaiRepWeightSnapshot::from_weights(
             weights
                 .iter()
-                .map(|(account, balance)| (*account, *balance)),
+                .map(|(representative, weight)| (*representative, *weight)),
         )
+    }
+
+    fn derive_genesis_from_snapshot(&self) -> RaiCommittee {
+        self.deriver
+            .derive_genesis_committee(self.genesis_snapshot.balances())
+    }
+
+    fn derive_closed_from_snapshot(
+        &self,
+        epoch: RaiEpoch,
+        snapshot: &RaiRepWeightSnapshot,
+    ) -> RaiCommittee {
+        self.deriver
+            .derive_closed_epoch_committee(epoch, snapshot.balances())
     }
 }
 
 impl RaiCommitteeProvider for RepWeightRaiCommitteeProvider {
     fn genesis_committee(&self) -> RaiCommittee {
-        self.derive_from_current_weights()
+        self.derive_genesis_from_snapshot()
     }
 
     fn committee_for_closed_epoch(&self, epoch: RaiEpoch) -> Option<RaiCommittee> {
-        self.closed_committees.read().unwrap().get(&epoch).cloned()
+        if let Some(snapshot) = self
+            .closed_rep_weight_snapshots
+            .read()
+            .unwrap()
+            .get(&epoch)
+            .cloned()
+        {
+            let committee = self.derive_closed_from_snapshot(epoch, &snapshot);
+            self.closed_committees
+                .write()
+                .unwrap()
+                .entry(epoch)
+                .or_insert_with(|| committee.clone());
+            Some(committee)
+        } else {
+            self.closed_committees.read().unwrap().get(&epoch).cloned()
+        }
+    }
+
+    fn closed_epoch_rep_weight_snapshot(&self, epoch: RaiEpoch) -> Option<RaiRepWeightSnapshot> {
+        self.closed_rep_weight_snapshots
+            .read()
+            .unwrap()
+            .get(&epoch)
+            .cloned()
     }
 
     fn snapshot_closed_epoch_committee(&self, epoch: RaiEpoch) -> RaiCommittee {
-        let mut closed_committees = self.closed_committees.write().unwrap();
-        closed_committees
+        if let Some(committee) = self.committee_for_closed_epoch(epoch) {
+            return committee;
+        }
+
+        let snapshot = {
+            let mut closed_snapshots = self.closed_rep_weight_snapshots.write().unwrap();
+            closed_snapshots
+                .entry(epoch)
+                .or_insert_with(|| Self::snapshot_current_weights(&self.rep_weights))
+                .clone()
+        };
+        let committee = self.derive_closed_from_snapshot(epoch, &snapshot);
+        self.closed_committees
+            .write()
+            .unwrap()
             .entry(epoch)
-            .or_insert_with(|| self.derive_from_current_weights())
-            .clone()
+            .or_insert_with(|| committee.clone());
+        committee
     }
 }
 
@@ -376,5 +483,44 @@ mod tests {
         let committees = RaiCommitteeSet::new([first, second]);
 
         assert_eq!(committees.len(), 1);
+    }
+
+    #[test]
+    fn provider_keeps_closed_epoch_committee_fixed_from_weight_snapshot() {
+        let first = PublicKey::from(1);
+        let second = PublicKey::from(2);
+        let weights = Arc::new(RepWeightCache::default());
+        weights.put(first, Amount::raw(100));
+        let provider = RepWeightRaiCommitteeProvider::new(weights.clone());
+
+        let closed_committee = provider.snapshot_closed_epoch_committee(0);
+        weights.put(first, Amount::ZERO);
+        weights.put(second, Amount::raw(100));
+
+        let loaded_committee = provider.committee_for_closed_epoch(0).unwrap();
+        assert_eq!(loaded_committee, closed_committee);
+        assert!(loaded_committee.contains(&first));
+        assert!(!loaded_committee.contains(&second));
+    }
+
+    #[test]
+    fn provider_derives_closed_epoch_committee_from_loaded_weight_snapshot() {
+        let historical = PublicKey::from(1);
+        let current = PublicKey::from(2);
+        let weights = Arc::new(RepWeightCache::default());
+        weights.put(current, Amount::raw(100));
+        let provider = RepWeightRaiCommitteeProvider::with_closed_epoch_snapshots(
+            weights,
+            [(
+                4,
+                RaiRepWeightSnapshot::from_weights([(historical, Amount::raw(100))]),
+            )],
+            Vec::new(),
+        );
+
+        let committee = provider.committee_for_closed_epoch(4).unwrap();
+
+        assert!(committee.contains(&historical));
+        assert!(!committee.contains(&current));
     }
 }
