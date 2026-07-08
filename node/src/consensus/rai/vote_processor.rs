@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use rsnano_ledger::RepWeightCache;
 use rsnano_types::{RaiVote, VoteError};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::RaiActiveElections;
+use super::{RaiActiveElections, RaiCommitteeProvider, RepWeightRaiCommitteeProvider};
 use crate::representatives::RepresentativeTracker;
+use rsnano_ledger::RepWeightCache;
 
 pub struct RaiVoteProcessor {
     active_elections: Arc<RaiActiveElections>,
     rep_tracker: Arc<RepresentativeTracker>,
-    rep_weights: Arc<RepWeightCache>,
+    committee_provider: Arc<dyn RaiCommitteeProvider>,
     stats: Arc<Stats>,
 }
 
@@ -21,10 +21,24 @@ impl RaiVoteProcessor {
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
     ) -> Self {
+        Self::with_committee_provider(
+            active_elections,
+            rep_tracker,
+            Arc::new(RepWeightRaiCommitteeProvider::new(rep_weights)),
+            stats,
+        )
+    }
+
+    pub fn with_committee_provider(
+        active_elections: Arc<RaiActiveElections>,
+        rep_tracker: Arc<RepresentativeTracker>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        stats: Arc<Stats>,
+    ) -> Self {
         Self {
             active_elections,
             rep_tracker,
-            rep_weights,
+            committee_provider,
             stats,
         }
     }
@@ -39,10 +53,9 @@ impl RaiVoteProcessor {
             return Err(VoteError::Invalid);
         }
 
-        let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
-        let voter_weight = self.rep_weights.weight(&vote.voter);
+        let committees = self.committee_provider.committees_for(&vote.election_id);
 
-        if voter_weight <= minimum_pr_weight {
+        if !committees.contains(&vote.voter) {
             self.stats
                 .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
             return Err(VoteError::Indeterminate);
@@ -52,11 +65,7 @@ impl RaiVoteProcessor {
             self.rep_tracker.vote_observed(vote.voter);
         }
 
-        let quorum_snapshot = self.rep_tracker.quorum_snapshot();
-        let rep_weights = self.rep_weights.read();
-        let result =
-            self.active_elections
-                .apply_vote(vote, &rep_weights, quorum_snapshot.quorum_delta);
+        let result = self.active_elections.apply_vote(vote, &committees);
 
         match result {
             Ok(()) => self
@@ -105,7 +114,7 @@ mod tests {
             .active_elections
             .election(&fixture.election_id)
             .unwrap();
-        assert_eq!(election.tally(&value), Amount::raw(100));
+        assert_eq!(election.tally(&value), 1);
     }
 
     #[test]

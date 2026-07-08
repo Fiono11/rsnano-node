@@ -1,10 +1,9 @@
 use std::{collections::HashMap, mem::size_of, sync::RwLock};
 
-use rsnano_ledger::RepWeights;
-use rsnano_types::{
-    Amount, PublicKey, RaiElectionId, RaiElectionValue, RaiVote, RaiVoteKind, VoteError,
-};
+use rsnano_types::{PublicKey, RaiElectionId, RaiElectionValue, RaiVote, RaiVoteKind, VoteError};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
+
+use super::RaiCommitteeSet;
 
 pub struct RaiActiveElections {
     data: RwLock<RaiActiveElectionsData>,
@@ -70,15 +69,14 @@ impl RaiActiveElections {
     pub fn apply_vote(
         &self,
         vote: &RaiVote,
-        rep_weights: &RepWeights,
-        quorum_delta: Amount,
+        committees: &RaiCommitteeSet,
     ) -> Result<(), VoteError> {
         let mut guard = self.data.write().unwrap();
         let Some(election) = guard.elections.get_mut(&vote.election_id) else {
             return Err(VoteError::Indeterminate);
         };
 
-        election.apply_vote(vote, rep_weights, quorum_delta)
+        election.apply_vote(vote, committees)
     }
 
     pub fn stop(&self) {
@@ -126,8 +124,8 @@ pub struct RaiElection {
     id: RaiElectionId,
     status: RaiElectionStatus,
     votes: HashMap<PublicKey, RaiVoteSummary>,
-    tallies: HashMap<RaiElectionValue, Amount>,
-    final_tallies: HashMap<RaiElectionValue, Amount>,
+    tallies: HashMap<RaiElectionValue, RaiCommitteeVoteCounts>,
+    final_tallies: HashMap<RaiElectionValue, RaiCommitteeVoteCounts>,
     winner: Option<RaiElectionValue>,
     confirmed_value: Option<RaiElectionValue>,
 }
@@ -157,12 +155,18 @@ impl RaiElection {
         &self.votes
     }
 
-    pub fn tally(&self, value: &RaiElectionValue) -> Amount {
-        self.tallies.get(value).cloned().unwrap_or_default()
+    pub fn tally(&self, value: &RaiElectionValue) -> usize {
+        self.tallies
+            .get(value)
+            .map(RaiCommitteeVoteCounts::total)
+            .unwrap_or_default()
     }
 
-    pub fn final_tally(&self, value: &RaiElectionValue) -> Amount {
-        self.final_tallies.get(value).cloned().unwrap_or_default()
+    pub fn final_tally(&self, value: &RaiElectionValue) -> usize {
+        self.final_tallies
+            .get(value)
+            .map(RaiCommitteeVoteCounts::total)
+            .unwrap_or_default()
     }
 
     pub fn winner(&self) -> Option<&RaiElectionValue> {
@@ -176,8 +180,7 @@ impl RaiElection {
     fn apply_vote(
         &mut self,
         vote: &RaiVote,
-        rep_weights: &RepWeights,
-        quorum_delta: Amount,
+        committees: &RaiCommitteeSet,
     ) -> Result<(), VoteError> {
         if self.status == RaiElectionStatus::Confirmed {
             return Err(VoteError::Late);
@@ -185,6 +188,11 @@ impl RaiElection {
 
         if !self.accepts_value(&vote.value) {
             return Err(VoteError::Invalid);
+        }
+
+        let committee_votes = committees.committee_indexes_for(&vote.voter).len();
+        if committee_votes == 0 {
+            return Err(VoteError::Indeterminate);
         }
 
         if let Some(previous) = self.votes.get(&vote.voter) {
@@ -197,11 +205,11 @@ impl RaiElection {
                 voter: vote.voter,
                 kind: vote.kind,
                 value: vote.value.clone(),
-                weight: Amount::ZERO,
+                committee_votes: 0,
             },
         );
 
-        self.update_tallies(rep_weights, quorum_delta);
+        self.update_tallies(committees);
         Ok(())
     }
 
@@ -214,35 +222,50 @@ impl RaiElection {
         )
     }
 
-    fn update_tallies(&mut self, rep_weights: &RepWeights, quorum_delta: Amount) {
-        self.update_vote_weights(rep_weights);
-        self.recalculate_tallies();
+    fn update_tallies(&mut self, committees: &RaiCommitteeSet) {
+        self.update_vote_committee_counts(committees);
+        self.recalculate_tallies(committees);
         self.winner = winner(&self.tallies).map(|(value, _)| value);
 
-        if let Some((value, tally)) = winner(&self.final_tallies)
-            && !tally.is_zero()
-            && tally >= quorum_delta
+        if let Some((value, _)) = winner(&self.final_tallies)
+            && self
+                .final_tallies
+                .get(&value)
+                .is_some_and(|counts| counts.has_final_quorum(committees))
         {
             self.status = RaiElectionStatus::Confirmed;
             self.confirmed_value = Some(value);
         }
     }
 
-    fn update_vote_weights(&mut self, rep_weights: &RepWeights) {
+    fn update_vote_committee_counts(&mut self, committees: &RaiCommitteeSet) {
         for vote in self.votes.values_mut() {
-            vote.weight = rep_weights.weight(&vote.voter);
+            vote.committee_votes = committees.committee_indexes_for(&vote.voter).len();
         }
     }
 
-    fn recalculate_tallies(&mut self) {
+    fn recalculate_tallies(&mut self, committees: &RaiCommitteeSet) {
         self.tallies.clear();
         self.final_tallies.clear();
 
         for vote in self.votes.values() {
-            *self.tallies.entry(vote.value.clone()).or_default() += vote.weight;
+            let committee_indexes = committees.committee_indexes_for(&vote.voter);
+            if committee_indexes.is_empty() {
+                continue;
+            }
+
+            let tallies = self
+                .tallies
+                .entry(vote.value.clone())
+                .or_insert_with(|| RaiCommitteeVoteCounts::new(committees.len()));
+            tallies.add_votes(&committee_indexes);
 
             if vote.kind == RaiVoteKind::Final {
-                *self.final_tallies.entry(vote.value.clone()).or_default() += vote.weight;
+                let final_tallies = self
+                    .final_tallies
+                    .entry(vote.value.clone())
+                    .or_insert_with(|| RaiCommitteeVoteCounts::new(committees.len()));
+                final_tallies.add_votes(&committee_indexes);
             }
         }
     }
@@ -253,7 +276,7 @@ pub struct RaiVoteSummary {
     pub voter: PublicKey,
     pub kind: RaiVoteKind,
     pub value: RaiElectionValue,
-    pub weight: Amount,
+    pub committee_votes: usize,
 }
 
 impl RaiVoteSummary {
@@ -266,11 +289,52 @@ impl RaiVoteSummary {
     }
 }
 
-fn winner(tallies: &HashMap<RaiElectionValue, Amount>) -> Option<(RaiElectionValue, Amount)> {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct RaiCommitteeVoteCounts {
+    per_committee: Vec<usize>,
+}
+
+impl RaiCommitteeVoteCounts {
+    fn new(committee_count: usize) -> Self {
+        Self {
+            per_committee: vec![0; committee_count],
+        }
+    }
+
+    fn add_votes(&mut self, committee_indexes: &[usize]) {
+        for &committee_index in committee_indexes {
+            if let Some(count) = self.per_committee.get_mut(committee_index) {
+                *count += 1;
+            }
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.per_committee.iter().sum()
+    }
+
+    fn has_final_quorum(&self, committees: &RaiCommitteeSet) -> bool {
+        committees
+            .iter()
+            .enumerate()
+            .all(|(index, committee)| committee.has_final_quorum(self.count_for(index)))
+    }
+
+    fn count_for(&self, committee_index: usize) -> usize {
+        self.per_committee
+            .get(committee_index)
+            .copied()
+            .unwrap_or_default()
+    }
+}
+
+fn winner(
+    tallies: &HashMap<RaiElectionValue, RaiCommitteeVoteCounts>,
+) -> Option<(RaiElectionValue, usize)> {
     tallies
         .iter()
-        .max_by_key(|(_, tally)| *tally)
-        .map(|(value, tally)| (value.clone(), *tally))
+        .max_by_key(|(_, tally)| tally.total())
+        .map(|(value, tally)| (value.clone(), tally.total()))
 }
 
 fn vote_kind_rank(kind: RaiVoteKind) -> u8 {
@@ -283,9 +347,9 @@ fn vote_kind_rank(kind: RaiVoteKind) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::RaiCommitteeDeriver;
     use super::*;
-    use rsnano_ledger::RepWeights;
-    use rsnano_types::{Account, BlockHash, PrivateKey, RaiSlot};
+    use rsnano_types::{Account, Amount, BlockHash, PrivateKey, RaiSlot};
 
     #[test]
     fn routes_vote_by_election_id() {
@@ -298,16 +362,13 @@ mod tests {
 
         let key = PrivateKey::from(1);
         let vote = RaiVote::new_first(&key, other_election_id.clone(), value.clone());
-        let rep_weights = rep_weights([(key.public_key(), Amount::raw(100))]);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
 
-        let result = elections.apply_vote(&vote, &rep_weights, Amount::raw(67));
+        let result = elections.apply_vote(&vote, &committees);
 
         assert_eq!(result, Err(VoteError::Indeterminate));
         assert!(elections.election(&other_election_id).is_none());
-        assert_eq!(
-            elections.election(&election_id).unwrap().tally(&value),
-            Amount::ZERO
-        );
+        assert_eq!(elections.election(&election_id).unwrap().tally(&value), 0);
     }
 
     #[test]
@@ -316,18 +377,15 @@ mod tests {
         let election_id = slot_election(1);
         let value = RaiElectionValue::Block(BlockHash::from(3));
         let key = PrivateKey::from(1);
-        let rep_weights = rep_weights([(key.public_key(), Amount::raw(100))]);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
 
         elections.insert(election_id.clone()).unwrap();
         let vote = RaiVote::new_first(&key, election_id.clone(), value.clone());
 
-        assert_eq!(
-            elections.apply_vote(&vote, &rep_weights, Amount::raw(67)),
-            Ok(())
-        );
+        assert_eq!(elections.apply_vote(&vote, &committees), Ok(()));
 
         let election = elections.election(&election_id).unwrap();
-        assert_eq!(election.tally(&value), Amount::raw(100));
+        assert_eq!(election.tally(&value), 1);
         assert_eq!(election.winner(), Some(&value));
     }
 
@@ -337,20 +395,17 @@ mod tests {
         let election_id = slot_election(1);
         let value = RaiElectionValue::Block(BlockHash::from(3));
         let key = PrivateKey::from(1);
-        let rep_weights = rep_weights([(key.public_key(), Amount::raw(100))]);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
 
         elections.insert(election_id.clone()).unwrap();
         let vote = RaiVote::new_final(&key, election_id.clone(), value.clone());
 
-        assert_eq!(
-            elections.apply_vote(&vote, &rep_weights, Amount::raw(67)),
-            Ok(())
-        );
+        assert_eq!(elections.apply_vote(&vote, &committees), Ok(()));
 
         let election = elections.election(&election_id).unwrap();
         assert_eq!(election.status(), RaiElectionStatus::Confirmed);
         assert_eq!(election.confirmed_value(), Some(&value));
-        assert_eq!(election.final_tally(&value), Amount::raw(100));
+        assert_eq!(election.final_tally(&value), 1);
     }
 
     #[test]
@@ -358,13 +413,13 @@ mod tests {
         let elections = RaiActiveElections::new();
         let election_id = slot_election(1);
         let key = PrivateKey::from(1);
-        let rep_weights = rep_weights([(key.public_key(), Amount::raw(100))]);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
 
         elections.insert(election_id.clone()).unwrap();
         let vote = RaiVote::new_first(&key, election_id, RaiElectionValue::Timeout);
 
         assert_eq!(
-            elections.apply_vote(&vote, &rep_weights, Amount::raw(67)),
+            elections.apply_vote(&vote, &committees),
             Err(VoteError::Invalid)
         );
     }
@@ -375,18 +430,15 @@ mod tests {
         let election_id = slot_election(1);
         let value = RaiElectionValue::Block(BlockHash::from(3));
         let key = PrivateKey::from(1);
-        let rep_weights = rep_weights([(key.public_key(), Amount::raw(100))]);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
 
         elections.insert(election_id.clone()).unwrap();
         let first = RaiVote::new_notarization(&key, election_id.clone(), value.clone());
         let second = RaiVote::new_first(&key, election_id, value);
 
+        assert_eq!(elections.apply_vote(&first, &committees), Ok(()));
         assert_eq!(
-            elections.apply_vote(&first, &rep_weights, Amount::raw(67)),
-            Ok(())
-        );
-        assert_eq!(
-            elections.apply_vote(&second, &rep_weights, Amount::raw(67)),
+            elections.apply_vote(&second, &committees),
             Err(VoteError::Replay)
         );
     }
@@ -398,7 +450,7 @@ mod tests {
         }
     }
 
-    fn rep_weights<const N: usize>(values: [(PublicKey, Amount); N]) -> RepWeights {
-        RepWeights::from(values)
+    fn committee<const N: usize>(values: [(PublicKey, Amount); N]) -> RaiCommitteeSet {
+        RaiCommitteeSet::single(RaiCommitteeDeriver::new().derive_committee(values))
     }
 }
