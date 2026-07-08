@@ -68,9 +68,15 @@ impl From<&ParseMessageError> for DetailType {
             }
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::RaiVote) => Self::InvalidRaiVoteMessage,
+            #[cfg(not(feature = "rai_protocol"))]
+            ParseMessageError::InvalidMessage(MessageType::RaiVote) => Self::InvalidMessageType,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::RaiPendingReport) => {
                 Self::InvalidRaiPendingReportMessage
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            ParseMessageError::InvalidMessage(MessageType::RaiPendingReport) => {
+                Self::InvalidMessageType
             }
             ParseMessageError::InvalidMessage(MessageType::Handshake) => {
                 Self::InvalidNodeIdHandshakeMessage
@@ -231,6 +237,10 @@ impl Message {
                     payload, count,
                 )?)
             }
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiVote | MessageType::RaiPendingReport => {
+                return Err(DeserializationError::InvalidData);
+            }
             MessageType::FrontierReq => {
                 Message::FrontierReq(FrontierReq::deserialize(payload, header.extensions)?)
             }
@@ -258,6 +268,11 @@ impl Message {
                 | MessageType::TelemetryReq
         )
     }
+
+    pub fn is_supported_by_protocol(&self, protocol_version: u8) -> bool {
+        self.message_type()
+            .is_supported_by_protocol(protocol_version)
+    }
 }
 
 pub fn validate_header(
@@ -270,6 +285,13 @@ pub fn validate_header(
         Err(ParseMessageError::OutdatedVersion)
     } else if !header.is_valid_message_type() {
         Err(ParseMessageError::InvalidHeader)
+    } else if !header
+        .message_type
+        .is_supported_by_protocol(header.protocol.version_using)
+    {
+        Err(ParseMessageError::OutdatedVersion)
+    } else if !header.message_type.is_supported_by_local_node() {
+        Err(ParseMessageError::InvalidMessageType)
     } else if header.payload_length() > Message::MAX_MESSAGE_SIZE {
         Err(ParseMessageError::MessageSizeTooBig)
     } else {
@@ -281,6 +303,44 @@ pub fn validate_header(
 mod tests {
     use super::*;
     use rsnano_types::{TestBlockBuilder, Vote};
+
+    #[test]
+    fn validate_header_rejects_rai_message_before_rai_protocol_version() {
+        let header = MessageHeader::new(
+            MessageType::RaiVote,
+            protocol_with_version(ProtocolInfo::RAI_PROTOCOL_VERSION - 1),
+        );
+
+        assert_eq!(
+            validate_header(&header, &ProtocolInfo::default()),
+            Err(ParseMessageError::OutdatedVersion)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn validate_header_accepts_rai_message_at_rai_protocol_version() {
+        let header = MessageHeader::new(
+            MessageType::RaiVote,
+            protocol_with_version(ProtocolInfo::RAI_PROTOCOL_VERSION),
+        );
+
+        assert_eq!(validate_header(&header, &ProtocolInfo::default()), Ok(()));
+    }
+
+    #[cfg(not(feature = "rai_protocol"))]
+    #[test]
+    fn validate_header_rejects_rai_message_when_local_node_lacks_rai_protocol() {
+        let header = MessageHeader::new(
+            MessageType::RaiVote,
+            protocol_with_version(ProtocolInfo::RAI_PROTOCOL_VERSION),
+        );
+
+        assert_eq!(
+            validate_header(&header, &ProtocolInfo::default()),
+            Err(ParseMessageError::InvalidMessageType)
+        );
+    }
 
     #[test]
     fn exact_confirm_ack() {
@@ -367,5 +427,13 @@ mod tests {
             pull_type: AscPullAckType::AccountInfo(AccountInfoAckPayload::new_test_instance()),
         });
         assert_deserializable(&message);
+    }
+
+    fn protocol_with_version(version: u8) -> ProtocolInfo {
+        ProtocolInfo {
+            version_using: version,
+            version_max: version,
+            ..ProtocolInfo::default()
+        }
     }
 }

@@ -61,6 +61,18 @@ impl RaiVoteProcessor {
             return Err(VoteError::Invalid);
         }
 
+        if let RaiElectionId::Slot { slot, epoch } = &vote.election_id
+            && !self
+                .close_state
+                .read()
+                .unwrap()
+                .is_slot_vote_enabled(*epoch, slot)
+        {
+            self.stats
+                .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
+            return Err(VoteError::Ignored);
+        }
+
         let committees = self.committee_provider.committees_for(&vote.election_id);
 
         if !committees.contains(&vote.voter) {
@@ -223,6 +235,47 @@ mod tests {
             Ok(())
         );
         assert!(fixture.close_state.read().unwrap().is_visible(1, &slot));
+    }
+
+    #[test]
+    fn slot_vote_is_ignored_while_closing_until_slot_is_in_cut() {
+        let fixture = Fixture::new();
+        let slot = RaiSlot::new(Account::from(1), 1);
+        let election_id = RaiElectionId::Slot { slot, epoch: 0 };
+        fixture
+            .close_state
+            .write()
+            .unwrap()
+            .start_closing(0)
+            .unwrap();
+        fixture
+            .active_elections
+            .insert(election_id.clone())
+            .unwrap();
+        let value = RaiElectionValue::Block(BlockHash::from(3));
+
+        assert_eq!(
+            fixture.processor.process(&RaiVote::new_first(
+                &fixture.rep_key,
+                election_id.clone(),
+                value.clone()
+            )),
+            Err(VoteError::Ignored)
+        );
+
+        fixture
+            .close_state
+            .write()
+            .unwrap()
+            .install_cut(0, [slot].into_iter().collect())
+            .unwrap();
+
+        assert_eq!(
+            fixture
+                .processor
+                .process(&RaiVote::new_first(&fixture.rep_key, election_id, value)),
+            Ok(())
+        );
     }
 
     struct Fixture {

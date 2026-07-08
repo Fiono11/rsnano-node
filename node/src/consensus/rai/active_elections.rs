@@ -1,6 +1,8 @@
 use std::{collections::HashMap, mem::size_of, sync::RwLock};
 
-use rsnano_types::{PublicKey, RaiElectionId, RaiElectionValue, RaiVote, RaiVoteKind, VoteError};
+use rsnano_types::{
+    PublicKey, RaiElectionId, RaiElectionValue, RaiSlot, RaiVote, RaiVoteKind, VoteError,
+};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use super::RaiCommitteeSet;
@@ -64,6 +66,24 @@ impl RaiActiveElections {
             .elections
             .get(election_id)
             .cloned()
+    }
+
+    pub fn unfinished_slots(&self, epoch: u64) -> Vec<RaiSlot> {
+        self.data
+            .read()
+            .unwrap()
+            .elections
+            .values()
+            .filter_map(|election| match election.id() {
+                RaiElectionId::Slot {
+                    slot,
+                    epoch: slot_epoch,
+                } if *slot_epoch == epoch && election.status() == RaiElectionStatus::Active => {
+                    Some(*slot)
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn apply_vote(
@@ -175,6 +195,13 @@ impl RaiElection {
 
     pub fn confirmed_value(&self) -> Option<&RaiElectionValue> {
         self.confirmed_value.as_ref()
+    }
+
+    pub fn fast_value(&self, committees: &RaiCommitteeSet) -> Option<RaiElectionValue> {
+        self.tallies
+            .iter()
+            .find(|(_, counts)| counts.has_fast_quorum(committees))
+            .map(|(value, _)| value.clone())
     }
 
     fn apply_vote(
@@ -320,6 +347,13 @@ impl RaiCommitteeVoteCounts {
             .all(|(index, committee)| committee.has_final_quorum(self.count_for(index)))
     }
 
+    fn has_fast_quorum(&self, committees: &RaiCommitteeSet) -> bool {
+        committees
+            .iter()
+            .enumerate()
+            .all(|(index, committee)| committee.has_fast_quorum(self.count_for(index)))
+    }
+
     fn count_for(&self, committee_index: usize) -> usize {
         self.per_committee
             .get(committee_index)
@@ -441,6 +475,56 @@ mod tests {
             elections.apply_vote(&second, &committees),
             Err(VoteError::Replay)
         );
+    }
+
+    #[test]
+    fn returns_unfinished_slots_for_epoch() {
+        let elections = RaiActiveElections::new();
+        let active = slot_election(1);
+        let confirmed = slot_election(2);
+        let other_epoch = RaiElectionId::Slot {
+            slot: RaiSlot::new(Account::from(1), 3),
+            epoch: 2,
+        };
+        let key = PrivateKey::from(1);
+        let value = RaiElectionValue::Block(BlockHash::from(3));
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
+
+        elections.insert(active.clone()).unwrap();
+        elections.insert(confirmed.clone()).unwrap();
+        elections.insert(other_epoch).unwrap();
+        elections
+            .apply_vote(&RaiVote::new_final(&key, confirmed, value), &committees)
+            .unwrap();
+
+        assert_eq!(
+            elections.unfinished_slots(1),
+            vec![RaiSlot::new(Account::from(1), 1)]
+        );
+    }
+
+    #[test]
+    fn exposes_fast_value_when_each_committee_has_fast_quorum() {
+        let elections = RaiActiveElections::new();
+        let election_id = RaiElectionId::Close {
+            epoch: 1,
+            attempt: 0,
+        };
+        let key = PrivateKey::from(1);
+        let value = RaiElectionValue::CloseHash(BlockHash::from(3));
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
+
+        elections.insert(election_id.clone()).unwrap();
+        elections
+            .apply_vote(
+                &RaiVote::new_first(&key, election_id.clone(), value.clone()),
+                &committees,
+            )
+            .unwrap();
+
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(election.fast_value(&committees), Some(value));
+        assert_eq!(election.confirmed_value(), None);
     }
 
     fn slot_election(account_height: u64) -> RaiElectionId {

@@ -13,6 +13,7 @@ use super::*;
 
 /// Message types are serialized to the network and existing values must thus never change as
 /// types are added, removed and reordered in the enum.
+#[repr(u8)]
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Hash, EnumCount, EnumIter)]
 pub enum MessageType {
     Invalid = 0x0,
@@ -31,13 +32,14 @@ pub enum MessageType {
     TelemetryAck = 0x0d,
     AscPullReq = 0x0e,
     AscPullAck = 0x0f,
-    #[cfg(feature = "rai_protocol")]
     RaiVote = 0x10,
-    #[cfg(feature = "rai_protocol")]
     RaiPendingReport = 0x11,
 }
 
 impl MessageType {
+    pub const RAI_VOTE_ID: u8 = 0x10;
+    pub const RAI_PENDING_REPORT_ID: u8 = 0x11;
+
     pub fn as_str(&self) -> &'static str {
         match self {
             MessageType::Invalid => "invalid",
@@ -55,22 +57,31 @@ impl MessageType {
             MessageType::TelemetryAck => "telemetry_ack",
             MessageType::AscPullReq => "asc_pull_req",
             MessageType::AscPullAck => "asc_pull_ack",
-            #[cfg(feature = "rai_protocol")]
             MessageType::RaiVote => "rai_vote",
-            #[cfg(feature = "rai_protocol")]
             MessageType::RaiPendingReport => "rai_pending_report",
         }
     }
 
     pub const fn max_id() -> usize {
+        Self::RaiPendingReport as usize
+    }
+
+    pub const fn requires_rai_protocol(self) -> bool {
+        matches!(self, Self::RaiVote | Self::RaiPendingReport)
+    }
+
+    pub const fn is_supported_by_protocol(self, protocol_version: u8) -> bool {
+        !self.requires_rai_protocol() || protocol_version >= ProtocolInfo::RAI_PROTOCOL_VERSION
+    }
+
+    pub const fn is_supported_by_local_node(self) -> bool {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::RaiPendingReport as usize
+            true
         }
-
         #[cfg(not(feature = "rai_protocol"))]
         {
-            Self::AscPullAck as usize
+            !self.requires_rai_protocol()
         }
     }
 }
@@ -190,10 +201,20 @@ impl MessageHeader {
             MessageType::AscPullAck => AscPullAck::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiVote => rsnano_types::RaiVote::SERIALIZED_SIZE,
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiVote => {
+                debug_assert!(false);
+                0
+            }
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiPendingReport => {
                 let count = crate::rai::rai_pending_report_count(self.extensions);
                 rsnano_types::RaiPendingReport::serialized_size(count)
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiPendingReport => {
+                debug_assert!(false);
+                0
             }
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
@@ -256,8 +277,12 @@ impl From<MessageType> for DetailType {
             MessageType::AscPullAck => DetailType::AscPullAck,
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiVote => DetailType::RaiVote,
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiVote => DetailType::InvalidMessageType,
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiPendingReport => DetailType::RaiPendingReport,
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiPendingReport => DetailType::InvalidMessageType,
         }
     }
 }
@@ -316,5 +341,30 @@ mod tests {
         assert_eq!(buffer[5], 0x03); // publish
         assert_eq!(buffer[6], 0xCD); // extensions
         assert_eq!(buffer[7], 0xAB); // extensions
+    }
+
+    #[test]
+    fn rai_message_ids_are_stable() {
+        assert_eq!(MessageType::RaiVote as u8, MessageType::RAI_VOTE_ID);
+        assert_eq!(
+            MessageType::RaiPendingReport as u8,
+            MessageType::RAI_PENDING_REPORT_ID
+        );
+    }
+
+    #[test]
+    fn rai_messages_require_rai_protocol_version() {
+        assert!(
+            !MessageType::RaiVote.is_supported_by_protocol(ProtocolInfo::RAI_PROTOCOL_VERSION - 1)
+        );
+        assert!(MessageType::RaiVote.is_supported_by_protocol(ProtocolInfo::RAI_PROTOCOL_VERSION));
+        assert!(
+            !MessageType::RaiPendingReport
+                .is_supported_by_protocol(ProtocolInfo::RAI_PROTOCOL_VERSION - 1)
+        );
+        assert!(
+            MessageType::RaiPendingReport
+                .is_supported_by_protocol(ProtocolInfo::RAI_PROTOCOL_VERSION)
+        );
     }
 }

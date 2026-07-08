@@ -275,7 +275,6 @@ impl RepresentativeTracker {
         recalculate(&weights, &mut state);
         removed
     }
-
 }
 
 fn recalculate(weights: &RepWeights, state: &mut RepresentativeTrackerState) {

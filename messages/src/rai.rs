@@ -17,7 +17,7 @@ pub(crate) fn rai_pending_report_count(extensions: BitArray<u16>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use crate::{assert_deserializable, Message};
+    use crate::{Message, assert_deserializable};
     use rsnano_types::{
         Account, BlockHash, PrivateKey, RaiElectionId, RaiElectionValue, RaiPendingReport, RaiSlot,
         RaiVote,

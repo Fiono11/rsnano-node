@@ -137,9 +137,7 @@ impl VoteGenerator {
         let req_candidates = {
             let any = self.ledger.any();
 
-            let can_vote = |block: &SavedBlock| {
-                any.dependencies_confirmed(block)
-            };
+            let can_vote = |block: &SavedBlock| any.dependencies_confirmed(block);
 
             blocks
                 .iter()

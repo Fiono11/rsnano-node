@@ -101,7 +101,8 @@ use crate::{
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
-    RaiActiveElections, RaiCloseState, RaiPendingReportProcessor, RaiVoteProcessor,
+    RaiActiveElections, RaiCloseState, RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher,
+    RaiPendingReportProcessor, RaiVoteProcessor,
 };
 
 #[allow(dead_code)]
@@ -143,6 +144,8 @@ pub struct Node {
     pub rai_vote_processor: Arc<RaiVoteProcessor>,
     #[cfg(feature = "rai_protocol")]
     pub rai_pending_report_processor: Arc<RaiPendingReportProcessor>,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_epoch_loop: TimerThread<RaiEpochLoop>,
     pub rep_crawler: Arc<RepCrawler>,
     pub tcp_listener: Arc<TcpListener>,
     pub election_schedulers: Arc<ElectionSchedulers>,
@@ -1161,6 +1164,18 @@ impl Node {
         );
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
+        #[cfg(feature = "rai_protocol")]
+        let rai_epoch_loop = RaiEpochLoop::new(
+            rai_active_elections.clone(),
+            rai_close_state.clone(),
+            rai_vote_processor.clone(),
+            rai_pending_report_processor.clone(),
+            rep_weights.clone(),
+            node_id_key.clone(),
+            Arc::new(RaiNetworkEpochPublisher::new(message_flooder.clone())),
+            RaiEpochLoopConfig::default(),
+        );
+
         let recently_cemented_inserter = RecentlyCementedInserter {
             recently_cemented: recently_cemented.clone(),
         };
@@ -1330,6 +1345,8 @@ impl Node {
             rai_vote_processor,
             #[cfg(feature = "rai_protocol")]
             rai_pending_report_processor,
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_loop: TimerThread::new("RAI epoch loop", rai_epoch_loop),
             rep_crawler,
             tcp_listener,
             election_schedulers,
@@ -1544,6 +1561,14 @@ impl Node {
         self.network_threads.lock().unwrap().start();
         self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
+        #[cfg(feature = "rai_protocol")]
+        {
+            let interval = {
+                let task = self.rai_epoch_loop.task();
+                task.as_ref().unwrap().config().tick_interval
+            };
+            self.rai_epoch_loop.start(interval);
+        }
 
         if !self.flags.disable_rep_crawler {
             self.rep_crawler.start();
@@ -1630,6 +1655,8 @@ impl Node {
         self.vote_processor.stop();
         self.election_schedulers.stop();
         self.aec_ticker.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.rai_epoch_loop.stop();
         #[cfg(feature = "rai_protocol")]
         self.rai_active_elections.stop();
         self.aec.stop();

@@ -259,4 +259,27 @@ mod tests {
             }]
         );
     }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn flood_skips_pre_rai_peers() {
+        use rsnano_types::{
+            Account, BlockHash, PrivateKey, RaiElectionId, RaiElectionValue, RaiSlot, RaiVote,
+        };
+
+        let mut flooder = MessageFlooder::new_null();
+        let key = PrivateKey::from(1);
+        let message = Message::RaiVote(RaiVote::new_first(
+            &key,
+            RaiElectionId::Slot {
+                slot: RaiSlot::new(Account::from(2), 3),
+                epoch: 4,
+            },
+            RaiElectionValue::Block(BlockHash::from(5)),
+        ));
+
+        let sent = flooder.flood(&message, TrafficType::Generic, 1.0);
+
+        assert_eq!(sent, 0);
+    }
 }

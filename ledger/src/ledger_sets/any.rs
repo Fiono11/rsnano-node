@@ -325,7 +325,6 @@ impl<'a> AnySet for OwningAnySet<'a> {
     fn get_final_vote(&self, root: &QualifiedRoot) -> Option<BlockHash> {
         self.borrowing_set().get_final_vote(root)
     }
-
 }
 
 pub(crate) struct BorrowingAnySet<'a> {
@@ -565,7 +564,6 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
     fn get_final_vote(&self, root: &QualifiedRoot) -> Option<BlockHash> {
         self.store.final_vote.get(self.tx, root)
     }
-
 }
 
 pub struct AnyReceivableIterator<'a> {

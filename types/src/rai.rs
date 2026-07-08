@@ -3,9 +3,27 @@ use std::io::{Read, Write};
 use num_traits::FromPrimitive;
 
 use crate::{
-    read_u64_be, read_u8, Account, Blake2HashBuilder, BlockHash, DeserializationError, PrivateKey,
-    PublicKey, Signature, SignatureError,
+    Account, Blake2HashBuilder, BlockHash, DeserializationError, PrivateKey, ProtocolInfo,
+    PublicKey, Signature, SignatureError, read_u8, read_u64_be,
 };
+
+pub const RAI_PROTOCOL_VERSION: u8 = ProtocolInfo::RAI_PROTOCOL_VERSION;
+
+pub const RAI_ELECTION_KIND_SLOT: u8 = 0;
+pub const RAI_ELECTION_KIND_CLOSE: u8 = 1;
+
+pub const RAI_VOTE_KIND_FIRST: u8 = 0;
+pub const RAI_VOTE_KIND_NOTARIZATION: u8 = 1;
+pub const RAI_VOTE_KIND_FINAL: u8 = 2;
+
+pub const RAI_ELECTION_VALUE_KIND_BLOCK: u8 = 0;
+pub const RAI_ELECTION_VALUE_KIND_CLOSE_HASH: u8 = 1;
+pub const RAI_ELECTION_VALUE_KIND_TIMEOUT: u8 = 2;
+
+pub const RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE: usize = 65 * 1024;
+
+const RAI_VOTE_HASH_PREFIX: &[u8] = b"rai vote ";
+const RAI_PENDING_REPORT_HASH_PREFIX: &[u8] = b"rai pending report ";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
 pub struct RaiSlot {
@@ -100,16 +118,16 @@ impl RaiElectionId {
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 enum RaiElectionKind {
-    Slot = 0,
-    Close = 1,
+    Slot = RAI_ELECTION_KIND_SLOT,
+    Close = RAI_ELECTION_KIND_CLOSE,
 }
 
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u8)]
 pub enum RaiVoteKind {
-    First = 0,
-    Notarization = 1,
-    Final = 2,
+    First = RAI_VOTE_KIND_FIRST,
+    Notarization = RAI_VOTE_KIND_NOTARIZATION,
+    Final = RAI_VOTE_KIND_FINAL,
 }
 
 impl RaiVoteKind {
@@ -171,9 +189,9 @@ impl RaiElectionValue {
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 enum RaiElectionValueKind {
-    Block = 0,
-    CloseHash = 1,
-    Timeout = 2,
+    Block = RAI_ELECTION_VALUE_KIND_BLOCK,
+    CloseHash = RAI_ELECTION_VALUE_KIND_CLOSE_HASH,
+    Timeout = RAI_ELECTION_VALUE_KIND_TIMEOUT,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -256,7 +274,7 @@ impl RaiVote {
             .expect("writing to Vec should succeed");
 
         Blake2HashBuilder::new()
-            .update("rai vote ")
+            .update(RAI_VOTE_HASH_PREFIX)
             .update(bytes)
             .build()
     }
@@ -308,7 +326,7 @@ pub struct RaiPendingReport {
 impl RaiPendingReport {
     pub const HEADER_SIZE: usize =
         PublicKey::SERIALIZED_SIZE + std::mem::size_of::<u64>() + Signature::SERIALIZED_SIZE;
-    pub const MAX_PAYLOAD_SIZE: usize = 65 * 1024;
+    pub const MAX_PAYLOAD_SIZE: usize = RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE;
     pub const MAX_SLOTS: usize =
         (Self::MAX_PAYLOAD_SIZE - Self::HEADER_SIZE) / RaiSlot::SERIALIZED_SIZE;
 
@@ -342,7 +360,7 @@ impl RaiPendingReport {
         }
 
         Blake2HashBuilder::new()
-            .update("rai pending report ")
+            .update(RAI_PENDING_REPORT_HASH_PREFIX)
             .update(bytes)
             .build()
     }
@@ -426,5 +444,115 @@ mod tests {
         );
 
         report.validate().unwrap();
+    }
+
+    #[test]
+    fn rai_vote_wire_layout_is_stable() {
+        let key = PrivateKey::from(1);
+        let slot = RaiSlot::new(Account::from(2), 3);
+        let value = BlockHash::from(5);
+        let vote = RaiVote::new_first(
+            &key,
+            RaiElectionId::Slot { slot, epoch: 4 },
+            RaiElectionValue::Block(value),
+        );
+
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+
+        assert_eq!(bytes.len(), RaiVote::SERIALIZED_SIZE);
+        let mut offset = 0;
+
+        assert_eq!(
+            &bytes[offset..offset + PublicKey::SERIALIZED_SIZE],
+            key.public_key().as_bytes()
+        );
+        offset += PublicKey::SERIALIZED_SIZE;
+
+        assert_eq!(bytes[offset], RAI_VOTE_KIND_FIRST);
+        offset += 1;
+
+        assert_eq!(bytes[offset], RAI_ELECTION_KIND_SLOT);
+        offset += 1;
+
+        assert_eq!(
+            &bytes[offset..offset + Account::SERIALIZED_SIZE],
+            slot.account.as_bytes()
+        );
+        offset += Account::SERIALIZED_SIZE;
+
+        assert_eq!(
+            &bytes[offset..offset + std::mem::size_of::<u64>()],
+            slot.account_height.to_be_bytes()
+        );
+        offset += std::mem::size_of::<u64>();
+
+        assert_eq!(
+            &bytes[offset..offset + std::mem::size_of::<u64>()],
+            4u64.to_be_bytes()
+        );
+        offset += std::mem::size_of::<u64>();
+
+        assert_eq!(
+            &bytes[offset..offset + std::mem::size_of::<u64>()],
+            0u64.to_be_bytes()
+        );
+        offset += std::mem::size_of::<u64>();
+
+        assert_eq!(bytes[offset], RAI_ELECTION_VALUE_KIND_BLOCK);
+        offset += 1;
+
+        assert_eq!(
+            &bytes[offset..offset + BlockHash::SERIALIZED_SIZE],
+            value.as_bytes()
+        );
+        offset += BlockHash::SERIALIZED_SIZE;
+
+        assert_eq!(&bytes[offset..], vote.signature.as_bytes());
+    }
+
+    #[test]
+    fn rai_pending_report_wire_layout_is_stable() {
+        let key = PrivateKey::from(1);
+        let slots = vec![RaiSlot::new(Account::from(2), 3)];
+        let report = RaiPendingReport::new(&key, 4, slots.clone());
+
+        let mut bytes = Vec::new();
+        report.serialize(&mut bytes).unwrap();
+
+        assert_eq!(bytes.len(), RaiPendingReport::serialized_size(slots.len()));
+        let mut offset = 0;
+
+        assert_eq!(
+            &bytes[offset..offset + PublicKey::SERIALIZED_SIZE],
+            key.public_key().as_bytes()
+        );
+        offset += PublicKey::SERIALIZED_SIZE;
+
+        assert_eq!(
+            &bytes[offset..offset + std::mem::size_of::<u64>()],
+            4u64.to_be_bytes()
+        );
+        offset += std::mem::size_of::<u64>();
+
+        assert_eq!(
+            &bytes[offset..offset + Signature::SERIALIZED_SIZE],
+            report.signature.as_bytes()
+        );
+        offset += Signature::SERIALIZED_SIZE;
+
+        assert_eq!(
+            &bytes[offset..offset + Account::SERIALIZED_SIZE],
+            slots[0].account.as_bytes()
+        );
+        offset += Account::SERIALIZED_SIZE;
+
+        assert_eq!(
+            &bytes[offset..offset + std::mem::size_of::<u64>()],
+            slots[0].account_height.to_be_bytes()
+        );
+        offset += std::mem::size_of::<u64>();
+
+        assert_eq!(offset, bytes.len());
     }
 }

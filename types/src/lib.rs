@@ -294,20 +294,34 @@ pub struct ProtocolInfo {
 impl Default for ProtocolInfo {
     fn default() -> Self {
         Self {
-            version_using: 0x15,
-            version_max: 0x15,
-            version_min: 0x14,
+            version_using: ProtocolInfo::CURRENT_PROTOCOL_VERSION,
+            version_max: ProtocolInfo::CURRENT_PROTOCOL_VERSION,
+            version_min: ProtocolInfo::MIN_PROTOCOL_VERSION,
             network: NetworkType::NanoLiveNetwork,
         }
     }
 }
 
 impl ProtocolInfo {
+    pub const MIN_PROTOCOL_VERSION: u8 = 0x14;
+    pub const PRE_RAI_PROTOCOL_VERSION: u8 = 0x15;
+    pub const RAI_PROTOCOL_VERSION: u8 = 0x16;
+
+    #[cfg(feature = "rai_protocol")]
+    pub const CURRENT_PROTOCOL_VERSION: u8 = Self::RAI_PROTOCOL_VERSION;
+
+    #[cfg(not(feature = "rai_protocol"))]
+    pub const CURRENT_PROTOCOL_VERSION: u8 = Self::PRE_RAI_PROTOCOL_VERSION;
+
     pub fn default_for(network: NetworkType) -> Self {
         Self {
             network,
             ..Default::default()
         }
+    }
+
+    pub fn supports_rai_protocol(&self) -> bool {
+        self.version_using >= Self::RAI_PROTOCOL_VERSION
     }
 }
 

@@ -77,34 +77,30 @@ pub fn genesis_sideband(genesis_account: Account) -> BlockSideband {
 
 impl LedgerConstants {
     pub fn new(work: WorkThresholds, network: NetworkType) -> Self {
-        let dev_genesis_block = parse_block_from_genesis_data(DEV_GENESIS_JSON).unwrap();
-        let beta_genesis_block = parse_block_from_genesis_data(BETA_GENESIS_JSON).unwrap();
-        let live_genesis_block = parse_block_from_genesis_data(LIVE_GENESIS_JSON).unwrap();
-        let test_genesis_block = parse_block_from_genesis_data(TEST_GENESIS_DATA.as_str()).unwrap();
-
-        let genesis_block = match network {
-            NetworkType::NanoDevNetwork => dev_genesis_block,
-            NetworkType::NanoBetaNetwork => beta_genesis_block,
-            NetworkType::NanoTestNetwork => test_genesis_block,
-            NetworkType::NanoLiveNetwork => live_genesis_block,
+        let genesis_data = match network {
+            NetworkType::NanoDevNetwork => DEV_GENESIS_JSON,
+            NetworkType::NanoBetaNetwork => BETA_GENESIS_JSON,
+            NetworkType::NanoTestNetwork => TEST_GENESIS_DATA.as_str(),
+            NetworkType::NanoLiveNetwork => LIVE_GENESIS_JSON,
             NetworkType::Invalid => panic!("invalid network"),
         };
+        let genesis_block = parse_block_from_genesis_data(genesis_data).unwrap();
         let genesis_account = genesis_block.account_field().unwrap();
-
-        let nano_beta_account = Account::decode_hex(BETA_PUBLIC_KEY_HEX).unwrap();
-        let nano_test_account = Account::decode_hex(TEST_PUBLIC_KEY_DATA.as_str()).unwrap();
 
         let mut epochs = Epochs::new();
 
         let epoch_1_signer = PublicKey::from(genesis_account);
         let epoch_link_v1 = epoch_v1_link();
 
-        let nano_live_epoch_v2_signer = Account::parse(LIVE_EPOCH_V2_SIGNER).unwrap();
         let epoch_2_signer = match network {
             NetworkType::NanoDevNetwork => DEV_GENESIS_KEY.public_key(),
-            NetworkType::NanoBetaNetwork => nano_beta_account.into(),
-            NetworkType::NanoLiveNetwork => nano_live_epoch_v2_signer.into(),
-            NetworkType::NanoTestNetwork => nano_test_account.into(),
+            NetworkType::NanoBetaNetwork => {
+                Account::decode_hex(BETA_PUBLIC_KEY_HEX).unwrap().into()
+            }
+            NetworkType::NanoLiveNetwork => Account::parse(LIVE_EPOCH_V2_SIGNER).unwrap().into(),
+            NetworkType::NanoTestNetwork => Account::decode_hex(TEST_PUBLIC_KEY_DATA.as_str())
+                .unwrap()
+                .into(),
             _ => panic!("invalid network"),
         };
         let epoch_link_v2 = epoch_v2_link();

@@ -98,6 +98,18 @@ pub(crate) fn try_send_serialized_message(
     message: &Message,
     traffic_type: TrafficType,
 ) -> bool {
+    if !message.is_supported_by_protocol(channel.protocol_version()) {
+        let detail_type = message.into();
+        stats.inc_dir_aggregate(StatType::Drop, detail_type, Direction::Out);
+        trace!(
+            peer=%channel.peer_addr(),
+            message = ?message,
+            peer_protocol_version = channel.protocol_version(),
+            "Message not supported by peer protocol"
+        );
+        return false;
+    }
+
     let sent = channel.send(buffer, traffic_type);
 
     if sent {
@@ -134,5 +146,33 @@ mod tests {
                 traffic_type
             }]
         )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn does_not_send_rai_message_to_pre_rai_peer() {
+        use rsnano_messages::Message;
+        use rsnano_types::{Account, BlockHash, PrivateKey, RaiElectionId, RaiElectionValue};
+
+        let mut sender = MessageSender::new_null();
+        let channel = Channel::new_test_instance();
+        channel.set_protocol_version(ProtocolInfo::RAI_PROTOCOL_VERSION - 1);
+        let key = PrivateKey::from(1);
+        let message = Message::RaiVote(rsnano_types::RaiVote::new_first(
+            &key,
+            RaiElectionId::Slot {
+                slot: rsnano_types::RaiSlot::new(Account::from(2), 3),
+                epoch: 4,
+            },
+            RaiElectionValue::Block(BlockHash::from(5)),
+        ));
+
+        let sent = sender.try_send(&channel, &message, TrafficType::Generic);
+
+        assert!(!sent);
+        assert_eq!(
+            channel.free_capacity(TrafficType::Generic),
+            Channel::MAX_QUEUE_SIZE
+        );
     }
 }
