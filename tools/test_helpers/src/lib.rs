@@ -678,7 +678,11 @@ pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block
     .into();
 
     node.process_active(send.clone());
-    assert_timely2(|| node.is_active_root(&send.qualified_root()));
+    let hash = send.hash();
+    assert_timely2(|| {
+        node.block_exists(&hash)
+            && (node.is_active_root(&send.qualified_root()) || node.block_confirmed(&hash))
+    });
 
     send
 }

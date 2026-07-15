@@ -1,5 +1,5 @@
 use rsnano_types::{Amount, DEV_GENESIS_KEY, WalletId};
-use test_helpers::{System, send_block, setup_rpc_client_and_server};
+use test_helpers::{System, process_send_block, setup_rpc_client_and_server};
 
 #[test]
 fn wallet_info() {
@@ -16,7 +16,7 @@ fn wallet_info() {
         .unwrap();
     node.wallets.deterministic_insert2(&wallet, false).unwrap();
 
-    send_block(node.clone());
+    process_send_block(node.clone(), DEV_GENESIS_KEY.account(), Amount::raw(1));
 
     let result = node
         .runtime

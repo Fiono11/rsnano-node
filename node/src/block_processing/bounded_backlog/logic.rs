@@ -139,8 +139,7 @@ impl BoundedBacklogLogic {
         // have enough candidates to correct the overage. Using `>` for the
         // tracked side can leave the ledger one block over the limit after a
         // selected target is rejected or disappears before rollback.
-        self.backlog_size() > self.max_backlog()
-            && self.index.len() >= self.max_backlog() as usize
+        self.backlog_size() > self.max_backlog() && self.index.len() >= self.max_backlog() as usize
     }
 
     /// The number of rollbacks required in order to reach the max allowed backlog

@@ -1,15 +1,35 @@
 use std::sync::{Arc, RwLock};
 
-use rsnano_types::{RaiElectionId, RaiVote, VoteError};
+use rsnano_types::{BlockHash, RaiElectionId, RaiElectionValue, RaiVote, VoteError};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{
     NoopRaiStatePersistence, RaiActiveElections, RaiAdmissibility, RaiAdmissibilityValidator,
     RaiCloseState, RaiCommitteeProvider, RaiCommitteeSet, RaiDefaultAdmissibilityValidator,
-    RaiStatePersistence, RaiVoteSafety, RepWeightRaiCommitteeProvider,
+    RaiElectionInsertError, RaiElectionStatus, RaiStatePersistence, RaiVoteSafety,
+    RepWeightRaiCommitteeProvider,
 };
 use crate::representatives::RepresentativeTracker;
 use rsnano_ledger::RepWeightCache;
+
+pub trait RaiSlotConfirmationSink: Send + Sync {
+    fn confirm_slot_block(&self, block: BlockHash);
+}
+
+struct NoopRaiSlotConfirmationSink;
+
+impl RaiSlotConfirmationSink for NoopRaiSlotConfirmationSink {
+    fn confirm_slot_block(&self, _block: BlockHash) {}
+}
+
+impl<F> RaiSlotConfirmationSink for F
+where
+    F: Fn(BlockHash) + Send + Sync,
+{
+    fn confirm_slot_block(&self, block: BlockHash) {
+        self(block);
+    }
+}
 
 pub struct RaiVoteProcessor {
     active_elections: Arc<RaiActiveElections>,
@@ -19,6 +39,7 @@ pub struct RaiVoteProcessor {
     persistence: Arc<dyn RaiStatePersistence>,
     admissibility: Arc<dyn RaiAdmissibilityValidator>,
     vote_safety: Arc<RwLock<RaiVoteSafety>>,
+    slot_confirmation_sink: Arc<dyn RaiSlotConfirmationSink>,
     stats: Arc<Stats>,
 }
 
@@ -127,6 +148,30 @@ impl RaiVoteProcessor {
         vote_safety: Arc<RwLock<RaiVoteSafety>>,
         stats: Arc<Stats>,
     ) -> Self {
+        Self::with_committee_provider_persistence_admissibility_vote_safety_and_slot_confirmation(
+            active_elections,
+            close_state,
+            rep_tracker,
+            committee_provider,
+            persistence,
+            admissibility,
+            vote_safety,
+            Arc::new(NoopRaiSlotConfirmationSink),
+            stats,
+        )
+    }
+
+    pub fn with_committee_provider_persistence_admissibility_vote_safety_and_slot_confirmation(
+        active_elections: Arc<RaiActiveElections>,
+        close_state: Arc<RwLock<RaiCloseState>>,
+        rep_tracker: Arc<RepresentativeTracker>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        persistence: Arc<dyn RaiStatePersistence>,
+        admissibility: Arc<dyn RaiAdmissibilityValidator>,
+        vote_safety: Arc<RwLock<RaiVoteSafety>>,
+        slot_confirmation_sink: Arc<dyn RaiSlotConfirmationSink>,
+        stats: Arc<Stats>,
+    ) -> Self {
         Self {
             active_elections,
             close_state,
@@ -135,6 +180,7 @@ impl RaiVoteProcessor {
             persistence,
             admissibility,
             vote_safety,
+            slot_confirmation_sink,
             stats,
         }
     }
@@ -196,6 +242,17 @@ impl RaiVoteProcessor {
             return Err(VoteError::Indeterminate);
         }
 
+        if self.ensure_slot_election_exists(vote).is_err() {
+            self.stats
+                .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
+            return Err(VoteError::Ignored);
+        }
+
+        let was_confirmed = self
+            .active_elections
+            .election(&vote.election_id)
+            .is_some_and(|election| election.status() == RaiElectionStatus::Confirmed);
+
         if self.active_elections.is_active(&vote.election_id) {
             self.rep_tracker.vote_observed(vote.voter);
         }
@@ -215,6 +272,9 @@ impl RaiVoteProcessor {
                 &close_state,
                 &vote_safety,
             );
+            if !was_confirmed {
+                self.confirm_slot_block_if_confirmed(&vote.election_id);
+            }
         }
 
         match result {
@@ -236,6 +296,36 @@ impl RaiVoteProcessor {
         }
 
         result
+    }
+
+    fn ensure_slot_election_exists(&self, vote: &RaiVote) -> Result<(), RaiElectionInsertError> {
+        if !matches!(
+            (&vote.election_id, &vote.value),
+            (RaiElectionId::Slot { .. }, RaiElectionValue::Block(_))
+        ) || self.active_elections.contains(&vote.election_id)
+        {
+            return Ok(());
+        }
+
+        match self.active_elections.insert(vote.election_id.clone()) {
+            Ok(()) | Err(RaiElectionInsertError::Duplicate) => Ok(()),
+            Err(RaiElectionInsertError::Stopped) => Err(RaiElectionInsertError::Stopped),
+        }
+    }
+
+    fn confirm_slot_block_if_confirmed(&self, election_id: &RaiElectionId) {
+        let Some(election) = self.active_elections.election(election_id) else {
+            return;
+        };
+        if election.status() != RaiElectionStatus::Confirmed {
+            return;
+        }
+
+        let Some(RaiElectionValue::Block(block)) = election.confirmed_value() else {
+            return;
+        };
+
+        self.slot_confirmation_sink.confirm_slot_block(*block);
     }
 
     fn update_vote_visibility(&self, vote: &RaiVote, committees: &RaiCommitteeSet) {
@@ -299,18 +389,36 @@ mod tests {
     }
 
     #[test]
-    fn unknown_election_is_indeterminate() {
+    fn unknown_close_election_is_indeterminate() {
         let fixture = Fixture::new();
         let vote = RaiVote::new_first(
             &fixture.rep_key,
-            fixture.election_id.clone(),
-            RaiElectionValue::Block(BlockHash::from(3)),
+            RaiElectionId::CloseCut {
+                epoch: 0,
+                attempt: 0,
+            },
+            RaiElectionValue::Timeout,
         );
 
         assert_eq!(
             fixture.processor.process(&vote),
             Err(VoteError::Indeterminate)
         );
+    }
+
+    #[test]
+    fn admissible_slot_vote_starts_missing_election() {
+        let fixture = Fixture::new();
+        let value = RaiElectionValue::Block(BlockHash::from(3));
+        let vote = RaiVote::new_first(&fixture.rep_key, fixture.election_id.clone(), value.clone());
+
+        assert_eq!(fixture.processor.process(&vote), Ok(()));
+
+        let election = fixture
+            .active_elections
+            .election(&fixture.election_id)
+            .unwrap();
+        assert_eq!(election.tally(&value), 1);
     }
 
     #[test]

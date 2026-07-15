@@ -101,9 +101,10 @@ use crate::{
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
-    LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiCloseStateRebuilder,
-    RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher, RaiPendingReportProcessor,
-    RaiPersistedState, RaiStatePersistence, RaiVoteProcessor, RaiVoteSafety,
+    LedgerRaiAdmissibilityValidator, LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState,
+    RaiCloseStateRebuilder, RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher,
+    RaiPendingReportProcessor, RaiPersistedState, RaiSlotConfirmationSink,
+    RaiSlotElectionActivator, RaiStatePersistence, RaiVoteProcessor, RaiVoteSafety,
     RepWeightRaiCommitteeProvider,
 };
 
@@ -694,10 +695,13 @@ impl Node {
         let rai_vote_safety_snapshot_for_rebuild = rai_vote_safety_snapshot.clone();
 
         #[cfg(feature = "rai_protocol")]
-        let rai_active_elections = Arc::new(
-            rai_active_elections_snapshot
-                .map_or_else(RaiActiveElections::new, RaiActiveElections::from_snapshot),
-        );
+        let rai_active_elections = Arc::new(match rai_active_elections_snapshot {
+            Some(snapshot) => RaiActiveElections::from_snapshot_with_persistence(
+                snapshot,
+                rai_persistence.clone(),
+            ),
+            None => RaiActiveElections::with_persistence(rai_persistence.clone()),
+        });
 
         #[cfg(feature = "rai_protocol")]
         let rai_committee_provider =
@@ -738,14 +742,25 @@ impl Node {
         };
 
         #[cfg(feature = "rai_protocol")]
+        let rai_admissibility = Arc::new(LedgerRaiAdmissibilityValidator::new(ledger.clone()));
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_slot_confirmation_sink: Arc<dyn RaiSlotConfirmationSink> = {
+            let confirming_set = confirming_set.clone();
+            Arc::new(move |block| confirming_set.add_block(block))
+        };
+
+        #[cfg(feature = "rai_protocol")]
         let rai_vote_processor = Arc::new(
-            RaiVoteProcessor::with_committee_provider_persistence_and_vote_safety(
+            RaiVoteProcessor::with_committee_provider_persistence_admissibility_vote_safety_and_slot_confirmation(
                 rai_active_elections.clone(),
                 rai_close_state.clone(),
                 rep_tracker.clone(),
                 rai_committee_provider.clone(),
                 rai_persistence.clone(),
+                rai_admissibility,
                 rai_vote_safety,
+                rai_slot_confirmation_sink,
                 stats.clone(),
             ),
         );
@@ -1233,6 +1248,15 @@ impl Node {
             },
         );
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
+
+        #[cfg(feature = "rai_protocol")]
+        ledger_event_handlers.add(RaiSlotElectionActivator::new(
+            rai_active_elections.clone(),
+            rai_close_state.clone(),
+            rai_vote_processor.clone(),
+            wallet_reps.clone(),
+            message_flooder.clone(),
+        ));
 
         #[cfg(feature = "rai_protocol")]
         let rai_epoch_loop = RaiEpochLoop::with_committee_provider_and_persistence(

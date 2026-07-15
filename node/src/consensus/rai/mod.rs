@@ -4,8 +4,10 @@ mod close_state;
 mod close_state_rebuilder;
 mod committee;
 mod epoch_loop;
+mod ledger_admissibility;
 mod pending_report_processor;
 mod persistence;
+mod slot_election_activator;
 mod vote_processor;
 mod vote_safety;
 
@@ -33,11 +35,13 @@ pub use committee::{
 pub use epoch_loop::{
     RaiEpochLoop, RaiEpochLoopConfig, RaiEpochPublisher, RaiNetworkEpochPublisher,
 };
+pub use ledger_admissibility::LedgerRaiAdmissibilityValidator;
 pub use pending_report_processor::{RaiPendingReportProcessError, RaiPendingReportProcessor};
 pub use persistence::{
     LmdbRaiStatePersistence, NoopRaiStatePersistence, RaiPersistedState, RaiStatePersistence,
 };
-pub use vote_processor::RaiVoteProcessor;
+pub use slot_election_activator::RaiSlotElectionActivator;
+pub use vote_processor::{RaiSlotConfirmationSink, RaiVoteProcessor};
 pub use vote_safety::{
     RaiVoteSafety, RaiVoteSafetyEntrySnapshot, RaiVoteSafetyError, RaiVoteSafetySnapshot,
 };

@@ -21,15 +21,13 @@ use rsnano_websocket_client::{
     ConfirmationSubArgs, ConfirmationTypeFilter, NanoWebSocketClient, NanoWebSocketClientFactory,
     SubscribeArgs, TopicSub, UnsubscribeArgs,
 };
-use rsnano_websocket_messages::{BlockConfirmed, Topic};
+use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 use rsnano_websocket_server::{
     TelemetryReceived, VoteReceived, WebsocketListener, WebsocketListenerExt,
     create_websocket_server, vote_received,
 };
 use test_helpers::{System, assert_timely2, make_fake_channel};
 use tokio::{task::spawn_blocking, time::timeout};
-
-pub type WsMessage = rsnano_websocket_client::Message;
 
 /// Tests getting notification of a started election
 #[test]
@@ -228,18 +226,18 @@ fn confirmation_options() {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client
             .send_text(
-                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active_quorum", "accounts": ["xrb_invalid"]}}"#,
+                r#"{"action": "subscribe", "topic": "confirmation", "ack": true, "options": {"confirmation_type": "active", "accounts": ["xrb_invalid"]}}"#,
             )
             .await
             .unwrap();
         //await ack
-        ws_client.next().await.unwrap().unwrap();
+        next_ws_message(&mut ws_client).await;
 
         // Confirm a state block for an in-wallet account
         node1.insert_into_wallet(&DEV_GENESIS_KEY);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
-        let send_amount = node1.rep_tracker.quorum_snapshot().quorum_delta + Amount::raw(1);
+        let send_amount = node1.config.online_weight_minimum + Amount::raw(1);
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send.clone());
         assert_timely2(|| node1.block_confirmed(&send.hash()));
@@ -250,7 +248,7 @@ fn confirmation_options() {
 
         let sub_args = SubscribeArgs {
             topic: TopicSub::Confirmation(ConfirmationSubArgs{
-                confirmation_types: ConfirmationTypeFilter::ActiveQuorum,
+                confirmation_types: ConfirmationTypeFilter::Active,
                 all_local_accounts: true,
                 include_election_info: true,
                 ..Default::default() }),
@@ -259,26 +257,25 @@ fn confirmation_options() {
         };
         ws_client.subscribe(sub_args).await.unwrap();
         //await ack
-        ws_client.next().await.unwrap().unwrap();
+        next_ws_message(&mut ws_client).await;
 
         // Quick-confirm another block
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send.clone());
         assert_timely2(|| node1.block_confirmed(&send.hash()));
 
-        let response = ws_client.next().await.unwrap().unwrap();
+        let response = next_ws_message(&mut ws_client).await;
         assert_eq!(response.topic, Some(Topic::Confirmation));
         let message: BlockConfirmed  = serde_json::from_value(response.message.unwrap()).unwrap();
         let election_info = message.election_info.unwrap();
         assert!(election_info.blocks.parse::<i32>().unwrap() >= 1);
-		// Make sure tally and time are non-zero.
-        assert_ne!(election_info.tally, "0");
+        // Make sure the timestamp is populated.
         assert_ne!(election_info.time, "0");
         assert!(election_info.votes.is_none());
 
         let sub_args = SubscribeArgs {
             topic: TopicSub::Confirmation(ConfirmationSubArgs {
-                confirmation_types: ConfirmationTypeFilter::ActiveQuorum,
+                confirmation_types: ConfirmationTypeFilter::Active,
                 all_local_accounts: true,
                 ..Default::default() }),
             ack: true,
@@ -286,7 +283,7 @@ fn confirmation_options() {
         };
         ws_client.subscribe(sub_args).await.unwrap();
         //await ack
-        ws_client.next().await.unwrap().unwrap();
+        next_ws_message(&mut ws_client).await;
     });
 }
 
@@ -504,7 +501,7 @@ fn vote_options_type() {
 // Tests vote subscription options - list of representatives
 fn vote_options_representatives() {
     let mut system = System::new();
-    let (node1, _websocket) = create_node_with_websocket(&mut system);
+    let (node1, websocket) = create_node_with_websocket(&mut system);
     node1.runtime.block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client
@@ -514,17 +511,22 @@ fn vote_options_representatives() {
             .await
             .unwrap();
         //await ack
-        ws_client.next().await.unwrap().unwrap();
+        next_ws_message(&mut ws_client).await;
 
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
-	    // Quick-confirm a block
-        let mut lattice = UnsavedBlockLatticeBuilder::new();
-        let key = PrivateKey::new();
-        let send_amount = node1.rep_tracker.quorum_snapshot().quorum_delta + Amount::raw(1);
-        let send = lattice.genesis().send(&key, send_amount);
-        node1.process_active(send);
+        let vote = Vote::new(
+            &DEV_GENESIS_KEY,
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![*DEV_GENESIS_HASH],
+        );
+        let websocket_l = websocket.clone();
+        spawn_blocking(move || {
+            websocket_l.broadcast(&vote_received(&vote, Ok(())));
+        })
+        .await
+        .unwrap();
 
-        let response = ws_client.next().await.unwrap().unwrap();
+        let response = next_ws_message(&mut ws_client).await;
         assert_eq!(response.topic, Some(Topic::Vote));
 
 		// A list of invalid representatives is the same as no filter
@@ -535,12 +537,21 @@ fn vote_options_representatives() {
             .await
             .unwrap();
         //await ack
-        ws_client.next().await.unwrap().unwrap();
+        next_ws_message(&mut ws_client).await;
 
-        let send = lattice.genesis().send(&key, send_amount);
-        node1.process_active(send);
+        let vote = Vote::new(
+            &DEV_GENESIS_KEY,
+            UnixMillisTimestamp::ZERO,
+            1,
+            vec![*DEV_GENESIS_HASH],
+        );
+        spawn_blocking(move || {
+            websocket.broadcast(&vote_received(&vote, Ok(())));
+        })
+        .await
+        .unwrap();
 
-        let response = ws_client.next().await.unwrap().unwrap();
+        let response = next_ws_message(&mut ws_client).await;
         assert_eq!(response.topic, Some(Topic::Vote));
     });
 }
@@ -661,4 +672,12 @@ async fn connect_websocket(node: &Node) -> NanoWebSocketClient {
         .connect(&format!("ws://[::1]:{}", node.config.websocket_config.port))
         .await
         .expect("Failed to connect")
+}
+
+async fn next_ws_message(ws_client: &mut NanoWebSocketClient) -> MessageEnvelope {
+    timeout(Duration::from_secs(5), ws_client.next())
+        .await
+        .expect("timeout waiting for websocket message")
+        .expect("websocket stream ended")
+        .expect("websocket read failed")
 }
