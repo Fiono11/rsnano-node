@@ -305,7 +305,7 @@ impl Default for ProtocolInfo {
 impl ProtocolInfo {
     pub const MIN_PROTOCOL_VERSION: u8 = 0x14;
     pub const PRE_RAI_PROTOCOL_VERSION: u8 = 0x15;
-    pub const RAI_PROTOCOL_VERSION: u8 = 0x16;
+    pub const RAI_PROTOCOL_VERSION: u8 = 0x18;
 
     #[cfg(feature = "rai_protocol")]
     pub const CURRENT_PROTOCOL_VERSION: u8 = Self::RAI_PROTOCOL_VERSION;

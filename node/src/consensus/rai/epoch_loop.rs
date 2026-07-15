@@ -14,9 +14,10 @@ use rsnano_types::{
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{
-    NoopRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiCommitteeProvider,
-    RaiElectionStatus, RaiEpochPhase, RaiPendingReportProcessor, RaiStatePersistence,
-    RaiVoteProcessor, RepWeightRaiCommitteeProvider, VisibleSlots,
+    NoopRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiClosedSlotState,
+    RaiCommitteeProvider, RaiElectionOutcome, RaiElectionStatus, RaiEpochPhase,
+    RaiPendingReportProcessor, RaiStatePersistence, RaiVoteProcessor,
+    RepWeightRaiCommitteeProvider, VisibleSlots,
 };
 use crate::transport::MessageFlooder;
 
@@ -83,6 +84,8 @@ pub struct RaiEpochLoop {
     epoch_started_at: Instant,
     close_attempt_started_at: HashMap<(RaiEpoch, RaiCloseAttempt), Instant>,
     timeout_votes_sent: HashSet<(RaiEpoch, RaiCloseAttempt)>,
+    close_record_attempt_started_at: HashMap<(RaiEpoch, RaiCloseAttempt), Instant>,
+    close_record_timeout_votes_sent: HashSet<(RaiEpoch, RaiCloseAttempt)>,
 }
 
 impl RaiEpochLoop {
@@ -155,6 +158,8 @@ impl RaiEpochLoop {
             epoch_started_at: Instant::now(),
             close_attempt_started_at: HashMap::new(),
             timeout_votes_sent: HashSet::new(),
+            close_record_attempt_started_at: HashMap::new(),
+            close_record_timeout_votes_sent: HashSet::new(),
         }
     }
 
@@ -206,10 +211,14 @@ impl RaiEpochLoop {
         self.maybe_timeout_close_attempt(epoch, now);
         self.handle_close_attempt_outcomes(epoch, now);
         self.try_drain_cut(epoch, now);
+        self.maybe_start_close_record_attempt(epoch, now);
+        self.handle_close_record_attempt_outcomes(epoch, now);
+        self.maybe_timeout_close_record_attempt(epoch, now);
+        self.handle_close_record_attempt_outcomes(epoch, now);
     }
 
     fn publish_local_pending_report(&self, epoch: RaiEpoch) {
-        if !self.local_can_vote_for_close(epoch, 0) {
+        if !self.local_can_vote_for_close(&close_cut_election_id(epoch, 0)) {
             return;
         }
 
@@ -224,8 +233,10 @@ impl RaiEpochLoop {
     }
 
     fn close_reports_ready(&self, epoch: RaiEpoch) -> bool {
-        let election_id = close_election_id(epoch, 0);
-        let committees = self.committee_provider.committees_for(&election_id);
+        let election_id = close_cut_election_id(epoch, 0);
+        let Some(committees) = self.committee_provider.try_committees_for(&election_id) else {
+            return false;
+        };
         if committees.is_empty() {
             return false;
         }
@@ -253,7 +264,7 @@ impl RaiEpochLoop {
             (close_hash, close_state.snapshot())
         };
 
-        let election_id = close_election_id(epoch, attempt);
+        let election_id = close_cut_election_id(epoch, attempt);
         let _ = self.active_elections.insert(election_id.clone());
         let active_elections = self.active_elections.snapshot();
         self.persistence
@@ -263,7 +274,7 @@ impl RaiEpochLoop {
         self.publish_local_close_vote(
             RaiVoteKind::First,
             election_id,
-            RaiElectionValue::CloseHash(close_hash),
+            RaiElectionValue::CloseCutHash(close_hash),
         );
     }
 
@@ -287,7 +298,7 @@ impl RaiEpochLoop {
                 continue;
             };
 
-            if let RaiElectionValue::CloseHash(hash) = &outcome
+            if let RaiElectionValue::CloseCutHash(hash) = &outcome
                 && self
                     .close_state
                     .read()
@@ -309,8 +320,8 @@ impl RaiEpochLoop {
                         self.start_close_attempt(epoch, next_attempt, now);
                     }
                 }
-                RaiElectionValue::CloseHash(hash) => self.install_cut(epoch, hash),
-                RaiElectionValue::Block(_) => {}
+                RaiElectionValue::CloseCutHash(hash) => self.install_cut(epoch, hash),
+                RaiElectionValue::Block(_) | RaiElectionValue::CloseRecordHash(_) => {}
             }
         }
     }
@@ -321,14 +332,19 @@ impl RaiEpochLoop {
         attempt: RaiCloseAttempt,
     ) -> Option<RaiElectionValue> {
         let election_id = close_election_id(epoch, attempt);
-        let committees = self.committee_provider.committees_for(&election_id);
+        let committees = self.committee_provider.try_committees_for(&election_id)?;
         let election = self.active_elections.election(&election_id)?;
 
-        if let Some(RaiElectionValue::CloseHash(hash)) = election.fast_value(&committees) {
-            return Some(RaiElectionValue::CloseHash(hash));
+        match election.merged_outcome(&committees)? {
+            RaiElectionOutcome::Fast(RaiElectionValue::CloseCutHash(hash)) => {
+                Some(RaiElectionValue::CloseCutHash(hash))
+            }
+            RaiElectionOutcome::Timeout => Some(RaiElectionValue::Timeout),
+            RaiElectionOutcome::Notarized(_)
+            | RaiElectionOutcome::Fast(_)
+            | RaiElectionOutcome::Final(_)
+            | RaiElectionOutcome::SafetyFault => None,
         }
-
-        election.confirmed_value().cloned()
     }
 
     fn maybe_timeout_close_attempt(&mut self, epoch: RaiEpoch, now: Instant) {
@@ -363,8 +379,8 @@ impl RaiEpochLoop {
 
         self.timeout_votes_sent.insert((epoch, attempt));
         self.publish_local_close_vote(
-            RaiVoteKind::Final,
-            close_election_id(epoch, attempt),
+            RaiVoteKind::Notarization,
+            close_cut_election_id(epoch, attempt),
             RaiElectionValue::Timeout,
         );
     }
@@ -375,15 +391,9 @@ impl RaiEpochLoop {
         election_id: RaiElectionId,
         value: RaiElectionValue,
     ) {
-        let RaiElectionId::Close { epoch, attempt } = election_id else {
-            return;
-        };
-
-        if !self.local_can_vote_for_close(epoch, attempt) {
+        if !self.local_can_vote_for_close(&election_id) {
             return;
         }
-
-        let election_id = close_election_id(epoch, attempt);
         let vote = match kind {
             RaiVoteKind::First => RaiVote::new_first(&self.local_key, election_id, value),
             RaiVoteKind::Notarization => {
@@ -397,10 +407,10 @@ impl RaiEpochLoop {
         }
     }
 
-    fn local_can_vote_for_close(&self, epoch: RaiEpoch, attempt: RaiCloseAttempt) -> bool {
+    fn local_can_vote_for_close(&self, election_id: &RaiElectionId) -> bool {
         self.committee_provider
-            .committees_for(&close_election_id(epoch, attempt))
-            .contains(&self.local_key.public_key())
+            .try_committees_for(election_id)
+            .is_some_and(|committees| committees.contains(&self.local_key.public_key()))
     }
 
     fn install_cut(&self, epoch: RaiEpoch, hash: rsnano_types::BlockHash) {
@@ -436,9 +446,197 @@ impl RaiEpochLoop {
             return;
         };
 
-        let (advanced, snapshot) = {
+        let snapshot = {
             let mut close_state = self.close_state.write().unwrap();
             let _ = close_state.record_cut_drain(epoch, outcomes);
+            close_state.snapshot()
+        };
+        self.persistence.save_close_state(&snapshot);
+        self.maybe_start_close_record_attempt(epoch, now);
+    }
+
+    fn maybe_start_close_record_attempt(&mut self, epoch: RaiEpoch, now: Instant) {
+        if !self.close_state.read().unwrap().cut_drained(epoch) {
+            return;
+        }
+
+        if !self
+            .close_state
+            .read()
+            .unwrap()
+            .started_close_record_attempts(epoch)
+            .is_empty()
+        {
+            return;
+        }
+
+        self.start_close_record_attempt(epoch, 0, now);
+    }
+
+    fn start_close_record_attempt(
+        &mut self,
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+        now: Instant,
+    ) {
+        let (record_hash, snapshot) = {
+            let mut close_state = self.close_state.write().unwrap();
+            if close_state.close_record_attempt_started(epoch, attempt) {
+                return;
+            }
+
+            let Ok(record_hash) = close_state.record_current_close_record_value(epoch) else {
+                return;
+            };
+            close_state.record_close_record_attempt_started(epoch, attempt);
+            (record_hash, close_state.snapshot())
+        };
+
+        let election_id = close_record_election_id(epoch, attempt);
+        let _ = self.active_elections.insert(election_id.clone());
+        let active_elections = self.active_elections.snapshot();
+        self.persistence
+            .save_active_and_close(&active_elections, &snapshot);
+        self.close_record_attempt_started_at
+            .insert((epoch, attempt), now);
+        self.close_record_timeout_votes_sent
+            .remove(&(epoch, attempt));
+        self.publish_local_close_vote(
+            RaiVoteKind::First,
+            election_id,
+            RaiElectionValue::CloseRecordHash(record_hash),
+        );
+    }
+
+    fn handle_close_record_attempt_outcomes(&mut self, epoch: RaiEpoch, now: Instant) {
+        let attempts = self
+            .close_state
+            .read()
+            .unwrap()
+            .started_close_record_attempts(epoch);
+        for attempt in attempts {
+            if self
+                .close_state
+                .read()
+                .unwrap()
+                .close_record_attempt_processed(epoch, attempt)
+            {
+                continue;
+            }
+
+            let Some(outcome) = self.close_record_attempt_outcome(epoch, attempt) else {
+                continue;
+            };
+
+            if let RaiElectionValue::CloseRecordHash(hash) = &outcome
+                && !self
+                    .close_state
+                    .read()
+                    .unwrap()
+                    .has_close_record_value(epoch, hash)
+            {
+                continue;
+            }
+
+            {
+                let mut close_state = self.close_state.write().unwrap();
+                close_state.record_close_record_attempt_processed(epoch, attempt);
+            }
+
+            match outcome {
+                RaiElectionValue::Timeout => {
+                    if let Some(next_attempt) = attempt.checked_add(1) {
+                        self.start_close_record_attempt(epoch, next_attempt, now);
+                    }
+                }
+                RaiElectionValue::CloseRecordHash(hash) => {
+                    self.finish_close_record(epoch, hash, now)
+                }
+                RaiElectionValue::Block(_) | RaiElectionValue::CloseCutHash(_) => {}
+            }
+        }
+    }
+
+    fn close_record_attempt_outcome(
+        &self,
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+    ) -> Option<RaiElectionValue> {
+        let election_id = close_record_election_id(epoch, attempt);
+        let committees = self.committee_provider.try_committees_for(&election_id)?;
+        let election = self.active_elections.election(&election_id)?;
+
+        match election.merged_outcome(&committees)? {
+            RaiElectionOutcome::Fast(RaiElectionValue::CloseRecordHash(hash)) => {
+                Some(RaiElectionValue::CloseRecordHash(hash))
+            }
+            RaiElectionOutcome::Timeout => Some(RaiElectionValue::Timeout),
+            RaiElectionOutcome::Notarized(_)
+            | RaiElectionOutcome::Fast(_)
+            | RaiElectionOutcome::Final(_)
+            | RaiElectionOutcome::SafetyFault => None,
+        }
+    }
+
+    fn maybe_timeout_close_record_attempt(&mut self, epoch: RaiEpoch, now: Instant) {
+        let Some(attempt) = self
+            .close_state
+            .read()
+            .unwrap()
+            .started_close_record_attempts(epoch)
+            .into_iter()
+            .max()
+        else {
+            return;
+        };
+
+        if self
+            .close_state
+            .read()
+            .unwrap()
+            .close_record_attempt_processed(epoch, attempt)
+            || self
+                .close_record_timeout_votes_sent
+                .contains(&(epoch, attempt))
+        {
+            return;
+        }
+
+        let attempt_started_at = self
+            .close_record_attempt_started_at
+            .entry((epoch, attempt))
+            .or_insert(now);
+        if now.duration_since(*attempt_started_at) < self.config.close_attempt_duration {
+            return;
+        }
+
+        self.close_record_timeout_votes_sent
+            .insert((epoch, attempt));
+        self.publish_local_close_vote(
+            RaiVoteKind::Notarization,
+            close_record_election_id(epoch, attempt),
+            RaiElectionValue::Timeout,
+        );
+    }
+
+    fn finish_close_record(
+        &mut self,
+        epoch: RaiEpoch,
+        hash: rsnano_types::BlockHash,
+        now: Instant,
+    ) {
+        if !self
+            .close_state
+            .read()
+            .unwrap()
+            .has_close_record_value(epoch, &hash)
+        {
+            return;
+        }
+
+        let (advanced, snapshot) = {
+            let mut close_state = self.close_state.write().unwrap();
+            let _ = close_state.certify_close_record(epoch, &hash);
             let advanced = close_state.advance_epoch(epoch).is_ok();
             (advanced, close_state.snapshot())
         };
@@ -460,6 +658,10 @@ impl RaiEpochLoop {
                 .retain(|(attempt_epoch, _), _| *attempt_epoch > epoch);
             self.timeout_votes_sent
                 .retain(|(attempt_epoch, _)| *attempt_epoch > epoch);
+            self.close_record_attempt_started_at
+                .retain(|(attempt_epoch, _), _| *attempt_epoch > epoch);
+            self.close_record_timeout_votes_sent
+                .retain(|(attempt_epoch, _)| *attempt_epoch > epoch);
         } else {
             self.persistence.save_close_state(&snapshot);
         }
@@ -469,17 +671,32 @@ impl RaiEpochLoop {
         &self,
         epoch: RaiEpoch,
         cut: &VisibleSlots,
-    ) -> Option<Vec<(RaiSlot, RaiElectionValue)>> {
-        let mut outcomes = Vec::with_capacity(cut.len());
+    ) -> Option<Vec<(RaiSlot, RaiClosedSlotState)>> {
+        let mut states = Vec::with_capacity(cut.len());
         for slot in cut {
             let election_id = RaiElectionId::Slot { slot: *slot, epoch };
+            let committees = self.committee_provider.try_committees_for(&election_id)?;
             let election = self.active_elections.election(&election_id)?;
             if election.status() != RaiElectionStatus::Confirmed {
                 return None;
             }
-            outcomes.push((*slot, election.confirmed_value()?.clone()));
+            let state = match election.merged_outcome(&committees)? {
+                RaiElectionOutcome::Fast(RaiElectionValue::Block(block))
+                | RaiElectionOutcome::Final(RaiElectionValue::Block(block)) => {
+                    RaiClosedSlotState::Finalized(block)
+                }
+                RaiElectionOutcome::Notarized(RaiElectionValue::Block(block)) => {
+                    RaiClosedSlotState::Carry(block)
+                }
+                RaiElectionOutcome::Timeout => RaiClosedSlotState::Released,
+                RaiElectionOutcome::Notarized(_)
+                | RaiElectionOutcome::Fast(_)
+                | RaiElectionOutcome::Final(_)
+                | RaiElectionOutcome::SafetyFault => return None,
+            };
+            states.push((*slot, state));
         }
-        Some(outcomes)
+        Some(states)
     }
 }
 
@@ -490,7 +707,15 @@ impl Tickable for RaiEpochLoop {
 }
 
 fn close_election_id(epoch: RaiEpoch, attempt: RaiCloseAttempt) -> RaiElectionId {
-    RaiElectionId::Close { epoch, attempt }
+    close_cut_election_id(epoch, attempt)
+}
+
+fn close_cut_election_id(epoch: RaiEpoch, attempt: RaiCloseAttempt) -> RaiElectionId {
+    RaiElectionId::CloseCut { epoch, attempt }
+}
+
+fn close_record_election_id(epoch: RaiEpoch, attempt: RaiCloseAttempt) -> RaiElectionId {
+    RaiElectionId::CloseRecord { epoch, attempt }
 }
 
 #[cfg(test)]
@@ -553,9 +778,92 @@ mod tests {
             Some(super::super::RaiEpochPhase::Closed)
         );
         assert_eq!(
-            state.closed_slot_outcome(0, &fixture.slot),
-            Some(&block_value)
+            state.closed_slot_state(0, &fixture.slot),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(9)))
         );
+    }
+
+    #[test]
+    fn drained_cut_starts_close_record_and_waits_for_record_certificate() {
+        let mut fixture = Fixture::two_members();
+        let slot_election = fixture.slot_election_id();
+        let block_value = RaiElectionValue::Block(BlockHash::from(9));
+        fixture
+            .active_elections
+            .insert(slot_election.clone())
+            .unwrap();
+        fixture.epoch_loop.tick_at(fixture.expired_epoch_time());
+        fixture
+            .pending_report_processor
+            .process(&RaiPendingReport::new(
+                &fixture.other_key,
+                0,
+                vec![fixture.slot],
+            ))
+            .unwrap();
+        let close_start = fixture.expired_epoch_time() + Duration::from_secs(1);
+        fixture.epoch_loop.tick_at(close_start);
+        let close_hash = fixture.close_state.read().unwrap().current_close_hash(0);
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_first(
+                &fixture.other_key,
+                close_cut_election_id(0, 0),
+                RaiElectionValue::CloseCutHash(close_hash),
+            ))
+            .unwrap();
+        fixture
+            .epoch_loop
+            .tick_at(close_start + Duration::from_secs(1));
+
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_final(
+                &fixture.local_key,
+                slot_election.clone(),
+                block_value.clone(),
+            ))
+            .unwrap();
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_final(
+                &fixture.other_key,
+                slot_election,
+                block_value,
+            ))
+            .unwrap();
+        let record_start = close_start + Duration::from_secs(2);
+        fixture.epoch_loop.tick_at(record_start);
+
+        {
+            let state = fixture.close_state.read().unwrap();
+            assert!(state.close_record_attempt_started(0, 0));
+            assert_eq!(state.current_epoch(), 0);
+            assert_eq!(state.current_epoch_phase(), RaiEpochPhase::Closing);
+        }
+
+        let record_hash = fixture
+            .close_state
+            .read()
+            .unwrap()
+            .current_close_record_hash(0)
+            .unwrap();
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_first(
+                &fixture.other_key,
+                close_record_election_id(0, 0),
+                RaiElectionValue::CloseRecordHash(record_hash),
+            ))
+            .unwrap();
+        fixture
+            .epoch_loop
+            .tick_at(record_start + Duration::from_secs(1));
+
+        let state = fixture.close_state.read().unwrap();
+        assert_eq!(state.current_epoch(), 1);
+        assert_eq!(state.epoch_phase(0), Some(RaiEpochPhase::Closed));
+        assert!(state.close_record_attempt_processed(0, 0));
     }
 
     #[test]
@@ -601,7 +909,7 @@ mod tests {
 
         fixture
             .vote_processor
-            .process(&RaiVote::new_final(
+            .process(&RaiVote::new_notarization(
                 &fixture.other_key,
                 close_election_id(0, 0),
                 RaiElectionValue::Timeout,

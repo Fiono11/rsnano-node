@@ -66,9 +66,14 @@ impl RaiPendingReportProcessor {
             return Err(RaiPendingReportProcessError::Invalid);
         }
 
-        let committees = self
+        let Some(committees) = self
             .committee_provider
-            .committees_for(&pending_report_election_id(report));
+            .try_committees_for(&pending_report_election_id(report))
+        else {
+            self.stats
+                .inc(StatType::RaiPendingReportProcessor, DetailType::Ignored);
+            return Err(RaiPendingReportProcessError::MissingCommitteeHistory);
+        };
 
         if !committees.contains(&report.reporter) {
             self.stats
@@ -139,11 +144,12 @@ fn report_visibility_reached(
 pub enum RaiPendingReportProcessError {
     Invalid,
     InvalidReporter,
+    MissingCommitteeHistory,
     Duplicate,
 }
 
 fn pending_report_election_id(report: &RaiPendingReport) -> RaiElectionId {
-    RaiElectionId::Close {
+    RaiElectionId::CloseCut {
         epoch: report.epoch,
         attempt: 0,
     }

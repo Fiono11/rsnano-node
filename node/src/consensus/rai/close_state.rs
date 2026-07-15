@@ -1,11 +1,19 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rsnano_types::{
-    Blake2HashBuilder, BlockHash, PublicKey, RaiCloseAttempt, RaiElectionValue, RaiEpoch,
+    Blake2HashBuilder, BlockHash, PublicKey, RaiCloseAttempt, RaiCloseRecord, RaiEpoch,
     RaiPendingReport, RaiSlot,
 };
 
 pub type VisibleSlots = BTreeSet<RaiSlot>;
+pub type CloseRecordEntries = BTreeMap<RaiSlot, RaiClosedSlotState>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaiClosedSlotState {
+    Finalized(BlockHash),
+    Carry(BlockHash),
+    Released,
+}
 
 #[derive(Clone, Debug)]
 pub struct RaiCloseState {
@@ -165,6 +173,58 @@ impl RaiCloseState {
             .is_some_and(|values| !values.is_empty())
     }
 
+    pub fn current_close_record_hash(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Result<BlockHash, RaiEpochTransitionError> {
+        Ok(self.current_close_record(epoch)?.hash())
+    }
+
+    pub fn current_close_record(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Result<RaiCloseRecord, RaiEpochTransitionError> {
+        let entries = self
+            .epoch(epoch)
+            .ok_or(RaiEpochTransitionError::CutMissing)?
+            .current_close_record_entries()?;
+        Ok(Self::close_record_from_entries(
+            self.previous_close_hash(epoch)?,
+            &entries,
+        ))
+    }
+
+    pub fn record_current_close_record_value(
+        &mut self,
+        epoch: RaiEpoch,
+    ) -> Result<BlockHash, RaiEpochTransitionError> {
+        let previous_close_hash = self.previous_close_hash(epoch)?;
+        self.epoch_mut(epoch)
+            .record_current_close_record_value(previous_close_hash)
+    }
+
+    pub fn close_record_value(
+        &self,
+        epoch: RaiEpoch,
+        hash: &BlockHash,
+    ) -> Option<&RaiCloseRecordValue> {
+        self.epoch(epoch)
+            .and_then(|state| state.close_record_values.get(hash))
+    }
+
+    pub fn has_close_record_value(&self, epoch: RaiEpoch, hash: &BlockHash) -> bool {
+        self.close_record_value(epoch, hash).is_some()
+    }
+
+    pub fn has_close_record_values(&self, epoch: RaiEpoch) -> bool {
+        self.epoch(epoch)
+            .is_some_and(|state| !state.close_record_values.is_empty())
+    }
+
+    pub fn certified_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
+        self.epoch(epoch).and_then(|state| state.close_hash)
+    }
+
     pub fn record_close_attempt_started(
         &mut self,
         epoch: RaiEpoch,
@@ -199,6 +259,52 @@ impl RaiCloseState {
             .is_some_and(|state| state.processed_close_attempts.contains(&attempt))
     }
 
+    pub fn record_close_record_attempt_started(
+        &mut self,
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+    ) -> bool {
+        self.epoch_mut(epoch)
+            .started_close_record_attempts
+            .insert(attempt)
+    }
+
+    pub fn close_record_attempt_started(&self, epoch: RaiEpoch, attempt: RaiCloseAttempt) -> bool {
+        self.epoch(epoch)
+            .is_some_and(|state| state.started_close_record_attempts.contains(&attempt))
+    }
+
+    pub fn started_close_record_attempts(&self, epoch: RaiEpoch) -> Vec<RaiCloseAttempt> {
+        self.epoch(epoch)
+            .map(|state| {
+                state
+                    .started_close_record_attempts
+                    .iter()
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn record_close_record_attempt_processed(
+        &mut self,
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+    ) -> bool {
+        self.epoch_mut(epoch)
+            .processed_close_record_attempts
+            .insert(attempt)
+    }
+
+    pub fn close_record_attempt_processed(
+        &self,
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+    ) -> bool {
+        self.epoch(epoch)
+            .is_some_and(|state| state.processed_close_record_attempts.contains(&attempt))
+    }
+
     pub fn install_cut(
         &mut self,
         epoch: RaiEpoch,
@@ -224,22 +330,22 @@ impl RaiCloseState {
     pub fn record_cut_drain(
         &mut self,
         epoch: RaiEpoch,
-        outcomes: impl IntoIterator<Item = (RaiSlot, RaiElectionValue)>,
+        states: impl IntoIterator<Item = (RaiSlot, RaiClosedSlotState)>,
     ) -> Result<(), RaiEpochTransitionError> {
         let state = self.epoch_mut(epoch);
         if state.cut_set.is_none() {
             return Err(RaiEpochTransitionError::CutMissing);
         }
 
-        state.closed_slots.extend(outcomes);
+        state.closed_slots.extend(states);
         Ok(())
     }
 
-    pub fn closed_slot_outcome(
+    pub fn closed_slot_state(
         &self,
         epoch: RaiEpoch,
         slot: &RaiSlot,
-    ) -> Option<&RaiElectionValue> {
+    ) -> Option<&RaiClosedSlotState> {
         self.epoch(epoch)
             .and_then(|state| state.closed_slots.get(slot))
     }
@@ -247,6 +353,142 @@ impl RaiCloseState {
     pub fn cut_drained(&self, epoch: RaiEpoch) -> bool {
         self.epoch(epoch)
             .is_some_and(RaiCloseEpochState::cut_drained)
+    }
+
+    pub fn is_slot_vote_released(&self, epoch: RaiEpoch, slot: &RaiSlot) -> bool {
+        let Some(state) = self.epoch(epoch) else {
+            return false;
+        };
+        if state.phase != RaiEpochPhase::Closed {
+            return false;
+        }
+        let Some(cut) = &state.cut_set else {
+            return false;
+        };
+        if !cut.contains(slot) {
+            return true;
+        }
+
+        matches!(
+            state.closed_slots.get(slot),
+            Some(RaiClosedSlotState::Released)
+        )
+    }
+
+    pub fn hash_close_record_entries(entries: &CloseRecordEntries) -> BlockHash {
+        let mut bytes = Vec::with_capacity(
+            std::mem::size_of::<u64>()
+                + entries
+                    .len()
+                    .saturating_mul(RaiSlot::SERIALIZED_SIZE + 1 + BlockHash::SERIALIZED_SIZE),
+        );
+        bytes.extend((entries.len() as u64).to_be_bytes());
+        for (slot, state) in entries {
+            slot.serialize(&mut bytes)
+                .expect("writing to Vec should succeed");
+            Self::write_closed_slot_state_bytes(&mut bytes, state);
+        }
+
+        Blake2HashBuilder::new()
+            .update("rai close record value ")
+            .update(bytes)
+            .build()
+    }
+
+    pub fn hash_close_record_finalized_entries(entries: &CloseRecordEntries) -> BlockHash {
+        let finalized: Vec<_> = entries
+            .iter()
+            .filter_map(|(slot, state)| match state {
+                RaiClosedSlotState::Finalized(block) => Some((*slot, *block)),
+                RaiClosedSlotState::Carry(_) | RaiClosedSlotState::Released => None,
+            })
+            .collect();
+
+        Self::hash_close_record_block_entries(b"rai close record finalized ", &finalized)
+    }
+
+    pub fn hash_close_record_carry_entries(entries: &CloseRecordEntries) -> BlockHash {
+        let carried: Vec<_> = entries
+            .iter()
+            .filter_map(|(slot, state)| match state {
+                RaiClosedSlotState::Carry(block) => Some((*slot, *block)),
+                RaiClosedSlotState::Finalized(_) | RaiClosedSlotState::Released => None,
+            })
+            .collect();
+
+        Self::hash_close_record_block_entries(b"rai close record carry ", &carried)
+    }
+
+    pub fn close_record_from_entries(
+        previous_close_hash: BlockHash,
+        entries: &CloseRecordEntries,
+    ) -> RaiCloseRecord {
+        RaiCloseRecord::new(
+            previous_close_hash,
+            Self::hash_close_record_finalized_entries(entries),
+            Self::hash_close_record_carry_entries(entries),
+        )
+    }
+
+    fn hash_close_record_block_entries(
+        domain: &[u8],
+        entries: &[(RaiSlot, BlockHash)],
+    ) -> BlockHash {
+        let mut bytes = Vec::with_capacity(
+            std::mem::size_of::<u64>()
+                + entries
+                    .len()
+                    .saturating_mul(RaiSlot::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE),
+        );
+        bytes.extend((entries.len() as u64).to_be_bytes());
+        for (slot, block) in entries {
+            slot.serialize(&mut bytes)
+                .expect("writing to Vec should succeed");
+            block
+                .serialize(&mut bytes)
+                .expect("writing to Vec should succeed");
+        }
+
+        Blake2HashBuilder::new()
+            .update(domain)
+            .update(bytes)
+            .build()
+    }
+
+    fn write_closed_slot_state_bytes(bytes: &mut Vec<u8>, state: &RaiClosedSlotState) {
+        match state {
+            RaiClosedSlotState::Finalized(block) => {
+                bytes.push(0);
+                block
+                    .serialize(bytes)
+                    .expect("writing to Vec should succeed");
+            }
+            RaiClosedSlotState::Carry(block) => {
+                bytes.push(1);
+                block
+                    .serialize(bytes)
+                    .expect("writing to Vec should succeed");
+            }
+            RaiClosedSlotState::Released => {
+                bytes.push(2);
+                BlockHash::ZERO
+                    .serialize(bytes)
+                    .expect("writing to Vec should succeed");
+            }
+        }
+    }
+
+    pub fn certify_close_record(
+        &mut self,
+        epoch: RaiEpoch,
+        hash: &BlockHash,
+    ) -> Result<(), RaiEpochTransitionError> {
+        let state = self.epoch_mut(epoch);
+        if !state.close_record_values.contains_key(hash) {
+            return Err(RaiEpochTransitionError::CloseRecordMissing);
+        }
+        state.close_hash = Some(*hash);
+        Ok(())
     }
 
     pub fn advance_epoch(&mut self, epoch: RaiEpoch) -> Result<RaiEpoch, RaiEpochTransitionError> {
@@ -267,6 +509,14 @@ impl RaiCloseState {
             return Err(RaiEpochTransitionError::CutNotDrained);
         }
 
+        if state.close_hash.is_none() {
+            if state.close_record_values.len() == 1 {
+                state.close_hash = state.close_record_values.keys().next().copied();
+            } else {
+                return Err(RaiEpochTransitionError::CloseRecordMissing);
+            }
+        }
+
         state.phase = RaiEpochPhase::Closed;
         self.current_epoch = epoch + 1;
         self.epochs
@@ -281,6 +531,15 @@ impl RaiCloseState {
 
     fn epoch_mut(&mut self, epoch: RaiEpoch) -> &mut RaiCloseEpochState {
         self.epochs.entry(epoch).or_default()
+    }
+
+    fn previous_close_hash(&self, epoch: RaiEpoch) -> Result<BlockHash, RaiEpochTransitionError> {
+        if epoch == 0 {
+            return Ok(BlockHash::ZERO);
+        }
+
+        self.certified_close_hash(epoch - 1)
+            .ok_or(RaiEpochTransitionError::CloseRecordMissing)
     }
 }
 
@@ -306,6 +565,7 @@ pub struct RaiCloseStateSnapshot {
 pub struct RaiCloseEpochSnapshot {
     pub epoch: RaiEpoch,
     pub phase: RaiEpochPhase,
+    pub close_hash: Option<BlockHash>,
     pub pending_reports: Vec<RaiPendingReport>,
     pub visible_slots: Vec<RaiSlot>,
     pub close_values: Vec<RaiCloseValueSnapshot>,
@@ -313,6 +573,9 @@ pub struct RaiCloseEpochSnapshot {
     pub processed_close_attempts: Vec<RaiCloseAttempt>,
     pub cut_set: Option<Vec<RaiSlot>>,
     pub closed_slots: Vec<RaiClosedSlotSnapshot>,
+    pub close_record_values: Vec<RaiCloseRecordValueSnapshot>,
+    pub started_close_record_attempts: Vec<RaiCloseAttempt>,
+    pub processed_close_record_attempts: Vec<RaiCloseAttempt>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -324,7 +587,20 @@ pub struct RaiCloseValueSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaiClosedSlotSnapshot {
     pub slot: RaiSlot,
-    pub outcome: RaiElectionValue,
+    pub state: RaiClosedSlotState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiCloseRecordValueSnapshot {
+    pub hash: BlockHash,
+    pub record: RaiCloseRecord,
+    pub states: Vec<RaiClosedSlotSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiCloseRecordValue {
+    pub record: RaiCloseRecord,
+    pub entries: CloseRecordEntries,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -341,17 +617,22 @@ pub enum RaiEpochTransitionError {
     AlreadyClosed,
     CutMissing,
     CutNotDrained,
+    CloseRecordMissing,
 }
 
 #[derive(Clone, Debug)]
 struct RaiCloseEpochState {
     phase: RaiEpochPhase,
+    close_hash: Option<BlockHash>,
     pending_reports: HashMap<PublicKey, RaiPendingReport>,
     visibility: RaiVisibilityTracker,
     started_close_attempts: BTreeSet<RaiCloseAttempt>,
     processed_close_attempts: BTreeSet<RaiCloseAttempt>,
     cut_set: Option<VisibleSlots>,
-    closed_slots: HashMap<RaiSlot, RaiElectionValue>,
+    closed_slots: HashMap<RaiSlot, RaiClosedSlotState>,
+    close_record_values: HashMap<BlockHash, RaiCloseRecordValue>,
+    started_close_record_attempts: BTreeSet<RaiCloseAttempt>,
+    processed_close_record_attempts: BTreeSet<RaiCloseAttempt>,
 }
 
 impl Default for RaiCloseEpochState {
@@ -364,18 +645,23 @@ impl RaiCloseEpochState {
     fn open() -> Self {
         Self {
             phase: RaiEpochPhase::Open,
+            close_hash: None,
             pending_reports: HashMap::new(),
             visibility: RaiVisibilityTracker::new(),
             started_close_attempts: BTreeSet::new(),
             processed_close_attempts: BTreeSet::new(),
             cut_set: None,
             closed_slots: HashMap::new(),
+            close_record_values: HashMap::new(),
+            started_close_record_attempts: BTreeSet::new(),
+            processed_close_record_attempts: BTreeSet::new(),
         }
     }
 
     fn from_snapshot(snapshot: RaiCloseEpochSnapshot) -> Self {
         Self {
             phase: snapshot.phase,
+            close_hash: snapshot.close_hash,
             pending_reports: snapshot
                 .pending_reports
                 .into_iter()
@@ -391,7 +677,32 @@ impl RaiCloseEpochState {
             closed_slots: snapshot
                 .closed_slots
                 .into_iter()
-                .map(|closed| (closed.slot, closed.outcome))
+                .map(|closed| (closed.slot, closed.state))
+                .collect(),
+            close_record_values: snapshot
+                .close_record_values
+                .into_iter()
+                .map(|value| {
+                    (
+                        value.hash,
+                        RaiCloseRecordValue {
+                            record: value.record,
+                            entries: value
+                                .states
+                                .into_iter()
+                                .map(|closed| (closed.slot, closed.state))
+                                .collect(),
+                        },
+                    )
+                })
+                .collect(),
+            started_close_record_attempts: snapshot
+                .started_close_record_attempts
+                .into_iter()
+                .collect(),
+            processed_close_record_attempts: snapshot
+                .processed_close_record_attempts
+                .into_iter()
                 .collect(),
         }
     }
@@ -403,16 +714,39 @@ impl RaiCloseEpochState {
         let mut closed_slots: Vec<_> = self
             .closed_slots
             .iter()
-            .map(|(slot, outcome)| RaiClosedSlotSnapshot {
+            .map(|(slot, state)| RaiClosedSlotSnapshot {
                 slot: *slot,
-                outcome: outcome.clone(),
+                state: *state,
             })
             .collect();
         closed_slots.sort_by_key(|closed| closed.slot);
 
+        let mut close_record_values: Vec<_> = self
+            .close_record_values
+            .iter()
+            .map(|(hash, value)| {
+                let mut states: Vec<_> = value
+                    .entries
+                    .iter()
+                    .map(|(slot, state)| RaiClosedSlotSnapshot {
+                        slot: *slot,
+                        state: *state,
+                    })
+                    .collect();
+                states.sort_by_key(|closed| closed.slot);
+                RaiCloseRecordValueSnapshot {
+                    hash: *hash,
+                    record: value.record,
+                    states,
+                }
+            })
+            .collect();
+        close_record_values.sort_by_key(|value| value.hash);
+
         RaiCloseEpochSnapshot {
             epoch,
             phase: self.phase,
+            close_hash: self.close_hash,
             pending_reports,
             visible_slots: self.visibility.visible_slots.iter().copied().collect(),
             close_values: self.visibility.close_value_snapshots(),
@@ -423,6 +757,17 @@ impl RaiCloseEpochState {
                 .as_ref()
                 .map(|cut| cut.iter().copied().collect()),
             closed_slots,
+            close_record_values,
+            started_close_record_attempts: self
+                .started_close_record_attempts
+                .iter()
+                .copied()
+                .collect(),
+            processed_close_record_attempts: self
+                .processed_close_record_attempts
+                .iter()
+                .copied()
+                .collect(),
         }
     }
 
@@ -450,6 +795,34 @@ impl RaiCloseEpochState {
         self.cut_set
             .as_ref()
             .is_some_and(|cut| cut.iter().all(|slot| self.closed_slots.contains_key(slot)))
+    }
+
+    fn current_close_record_entries(&self) -> Result<CloseRecordEntries, RaiEpochTransitionError> {
+        let Some(cut) = &self.cut_set else {
+            return Err(RaiEpochTransitionError::CutMissing);
+        };
+
+        let mut entries = CloseRecordEntries::new();
+        for slot in cut {
+            let Some(state) = self.closed_slots.get(slot) else {
+                return Err(RaiEpochTransitionError::CutNotDrained);
+            };
+            entries.insert(*slot, *state);
+        }
+        Ok(entries)
+    }
+
+    fn record_current_close_record_value(
+        &mut self,
+        previous_close_hash: BlockHash,
+    ) -> Result<BlockHash, RaiEpochTransitionError> {
+        let entries = self.current_close_record_entries()?;
+        let record = RaiCloseState::close_record_from_entries(previous_close_hash, &entries);
+        let hash = record.hash();
+        self.close_record_values
+            .entry(hash)
+            .or_insert(RaiCloseRecordValue { record, entries });
+        Ok(hash)
     }
 }
 
@@ -705,21 +1078,120 @@ mod tests {
     fn transitions_open_to_closing_to_closed_and_opens_next_epoch() {
         let mut state = RaiCloseState::new();
         let cut = [slot(1)].into_iter().collect();
-        let outcome = RaiElectionValue::Block(BlockHash::from(7));
+        let closed_state = RaiClosedSlotState::Finalized(BlockHash::from(7));
 
         assert_eq!(state.start_closing(0), Ok(()));
         assert_eq!(state.current_epoch_phase(), RaiEpochPhase::Closing);
         assert_eq!(state.install_cut(0, cut), Ok(true));
+        assert_eq!(state.record_cut_drain(0, [(slot(1), closed_state)]), Ok(()));
         assert_eq!(
-            state.record_cut_drain(0, [(slot(1), outcome.clone())]),
-            Ok(())
+            state.advance_epoch(0),
+            Err(RaiEpochTransitionError::CloseRecordMissing)
         );
+        state.record_current_close_record_value(0).unwrap();
         assert_eq!(state.advance_epoch(0), Ok(1));
 
         assert_eq!(state.current_epoch(), 1);
         assert_eq!(state.epoch_phase(0), Some(RaiEpochPhase::Closed));
         assert_eq!(state.current_epoch_phase(), RaiEpochPhase::Open);
-        assert_eq!(state.closed_slot_outcome(0, &slot(1)), Some(&outcome));
+        assert_eq!(state.closed_slot_state(0, &slot(1)), Some(&closed_state));
+    }
+
+    #[test]
+    fn records_close_record_value_after_cut_drain() {
+        let mut state = RaiCloseState::new();
+        let cut = [slot(1)].into_iter().collect();
+        let closed_state = RaiClosedSlotState::Finalized(BlockHash::from(7));
+        state.start_closing(0).unwrap();
+        state.install_cut(0, cut).unwrap();
+
+        assert_eq!(
+            state.record_current_close_record_value(0),
+            Err(RaiEpochTransitionError::CutNotDrained)
+        );
+
+        state
+            .record_cut_drain(0, [(slot(1), closed_state)])
+            .unwrap();
+        let hash = state.record_current_close_record_value(0).unwrap();
+
+        assert!(state.has_close_record_value(0, &hash));
+        assert_eq!(
+            state
+                .close_record_value(0, &hash)
+                .unwrap()
+                .entries
+                .get(&slot(1)),
+            Some(&closed_state)
+        );
+    }
+
+    #[test]
+    fn close_record_roots_split_finalized_carry_and_released_slots() {
+        let mut entries = CloseRecordEntries::new();
+        entries.insert(slot(1), RaiClosedSlotState::Finalized(BlockHash::from(7)));
+        entries.insert(slot(2), RaiClosedSlotState::Carry(BlockHash::from(8)));
+        entries.insert(slot(3), RaiClosedSlotState::Released);
+
+        let record = RaiCloseState::close_record_from_entries(BlockHash::from(6), &entries);
+
+        assert_eq!(
+            record.finalized_root,
+            RaiCloseState::hash_close_record_finalized_entries(&entries)
+        );
+        assert_eq!(
+            record.carry_root,
+            RaiCloseState::hash_close_record_carry_entries(&entries)
+        );
+
+        let mut no_carry = entries.clone();
+        no_carry.insert(slot(2), RaiClosedSlotState::Released);
+        assert_ne!(
+            record.carry_root,
+            RaiCloseState::close_record_from_entries(BlockHash::from(6), &no_carry).carry_root
+        );
+    }
+
+    #[test]
+    fn release_requires_closed_epoch_with_certified_release_case() {
+        let mut excluded = RaiCloseState::new();
+        excluded.start_closing(0).unwrap();
+        excluded.install_cut(0, VisibleSlots::new()).unwrap();
+        excluded
+            .record_cut_drain(0, std::iter::empty::<(RaiSlot, RaiClosedSlotState)>())
+            .unwrap();
+        excluded.record_current_close_record_value(0).unwrap();
+        excluded.advance_epoch(0).unwrap();
+        assert!(excluded.is_slot_vote_released(0, &slot(1)));
+
+        let mut timed_out = RaiCloseState::new();
+        timed_out.start_closing(0).unwrap();
+        timed_out
+            .install_cut(0, [slot(1)].into_iter().collect())
+            .unwrap();
+        timed_out
+            .record_cut_drain(0, [(slot(1), RaiClosedSlotState::Released)])
+            .unwrap();
+        timed_out.record_current_close_record_value(0).unwrap();
+        timed_out.advance_epoch(0).unwrap();
+        assert!(timed_out.is_slot_vote_released(0, &slot(1)));
+
+        let mut carried_or_finalized = RaiCloseState::new();
+        carried_or_finalized.start_closing(0).unwrap();
+        carried_or_finalized
+            .install_cut(0, [slot(1)].into_iter().collect())
+            .unwrap();
+        carried_or_finalized
+            .record_cut_drain(
+                0,
+                [(slot(1), RaiClosedSlotState::Carry(BlockHash::from(7)))],
+            )
+            .unwrap();
+        carried_or_finalized
+            .record_current_close_record_value(0)
+            .unwrap();
+        carried_or_finalized.advance_epoch(0).unwrap();
+        assert!(!carried_or_finalized.is_slot_vote_released(0, &slot(1)));
     }
 
     #[test]

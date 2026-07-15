@@ -101,8 +101,9 @@ use crate::{
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
-    LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiEpochLoop, RaiEpochLoopConfig,
-    RaiNetworkEpochPublisher, RaiPendingReportProcessor, RaiPersistedState, RaiVoteProcessor,
+    LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState, RaiCloseStateRebuilder,
+    RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher, RaiPendingReportProcessor,
+    RaiPersistedState, RaiStatePersistence, RaiVoteProcessor, RaiVoteSafety,
     RepWeightRaiCommitteeProvider,
 };
 
@@ -676,6 +677,7 @@ impl Node {
         let RaiPersistedState {
             close_state: rai_close_state_snapshot,
             active_elections: rai_active_elections_snapshot,
+            vote_safety: rai_vote_safety_snapshot,
             rep_weight_snapshots: rai_rep_weight_snapshots,
             committees: rai_committee_snapshots,
         } = rai_persistence
@@ -683,15 +685,19 @@ impl Node {
             .expect("could not load persisted RAI consensus state");
 
         #[cfg(feature = "rai_protocol")]
+        let rai_active_elections_snapshot_for_rebuild = rai_active_elections_snapshot.clone();
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_close_state_snapshot_for_rebuild = rai_close_state_snapshot.clone();
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_vote_safety_snapshot_for_rebuild = rai_vote_safety_snapshot.clone();
+
+        #[cfg(feature = "rai_protocol")]
         let rai_active_elections = Arc::new(
             rai_active_elections_snapshot
                 .map_or_else(RaiActiveElections::new, RaiActiveElections::from_snapshot),
         );
-
-        #[cfg(feature = "rai_protocol")]
-        let rai_close_state = Arc::new(RwLock::new(
-            rai_close_state_snapshot.map_or_else(RaiCloseState::new, RaiCloseState::from_snapshot),
-        ));
 
         #[cfg(feature = "rai_protocol")]
         let rai_committee_provider =
@@ -702,15 +708,47 @@ impl Node {
             ));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_vote_processor =
-            Arc::new(RaiVoteProcessor::with_committee_provider_and_persistence(
+        let rai_close_state = {
+            let rebuilt_close_state = RaiCloseStateRebuilder::new(rai_committee_provider.as_ref())
+                .rebuild(
+                    rai_close_state_snapshot,
+                    rai_active_elections_snapshot_for_rebuild.as_ref(),
+                );
+            let rebuilt_snapshot = rebuilt_close_state.snapshot();
+            if rai_close_state_snapshot_for_rebuild.as_ref() != Some(&rebuilt_snapshot) {
+                rai_persistence.save_close_state(&rebuilt_snapshot);
+            }
+            Arc::new(RwLock::new(rebuilt_close_state))
+        };
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_vote_safety = {
+            let mut vote_safety = rai_vote_safety_snapshot
+                .map_or_else(RaiVoteSafety::new, RaiVoteSafety::from_snapshot);
+            if let Some(active_elections_snapshot) =
+                rai_active_elections_snapshot_for_rebuild.as_ref()
+            {
+                vote_safety.merge_active_elections(active_elections_snapshot);
+            }
+            let rebuilt_snapshot = vote_safety.snapshot();
+            if rai_vote_safety_snapshot_for_rebuild.as_ref() != Some(&rebuilt_snapshot) {
+                rai_persistence.save_vote_safety(&rebuilt_snapshot);
+            }
+            Arc::new(RwLock::new(vote_safety))
+        };
+
+        #[cfg(feature = "rai_protocol")]
+        let rai_vote_processor = Arc::new(
+            RaiVoteProcessor::with_committee_provider_persistence_and_vote_safety(
                 rai_active_elections.clone(),
                 rai_close_state.clone(),
                 rep_tracker.clone(),
                 rai_committee_provider.clone(),
                 rai_persistence.clone(),
+                rai_vote_safety,
                 stats.clone(),
-            ));
+            ),
+        );
 
         #[cfg(feature = "rai_protocol")]
         let rai_pending_report_processor = Arc::new(

@@ -10,19 +10,25 @@ use crate::{
 pub const RAI_PROTOCOL_VERSION: u8 = ProtocolInfo::RAI_PROTOCOL_VERSION;
 
 pub const RAI_ELECTION_KIND_SLOT: u8 = 0;
-pub const RAI_ELECTION_KIND_CLOSE: u8 = 1;
+pub const RAI_ELECTION_KIND_CLOSE_CUT: u8 = 1;
+pub const RAI_ELECTION_KIND_CLOSE_RECORD: u8 = 2;
 
 pub const RAI_VOTE_KIND_FIRST: u8 = 0;
 pub const RAI_VOTE_KIND_NOTARIZATION: u8 = 1;
 pub const RAI_VOTE_KIND_FINAL: u8 = 2;
 
+pub const RAI_VOTE_SCOPE_ALL: u8 = 0;
+pub const RAI_VOTE_SCOPE_COMMITTEE: u8 = 1;
+
 pub const RAI_ELECTION_VALUE_KIND_BLOCK: u8 = 0;
-pub const RAI_ELECTION_VALUE_KIND_CLOSE_HASH: u8 = 1;
-pub const RAI_ELECTION_VALUE_KIND_TIMEOUT: u8 = 2;
+pub const RAI_ELECTION_VALUE_KIND_CLOSE_CUT_HASH: u8 = 1;
+pub const RAI_ELECTION_VALUE_KIND_CLOSE_RECORD_HASH: u8 = 2;
+pub const RAI_ELECTION_VALUE_KIND_TIMEOUT: u8 = 3;
 
 pub const RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE: usize = 65 * 1024;
 
 const RAI_VOTE_HASH_PREFIX: &[u8] = b"rai vote ";
+const RAI_CLOSE_RECORD_HASH_PREFIX: &[u8] = b"rai close record ";
 const RAI_PENDING_REPORT_HASH_PREFIX: &[u8] = b"rai pending report ";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
@@ -68,7 +74,11 @@ pub enum RaiElectionId {
         slot: RaiSlot,
         epoch: RaiEpoch,
     },
-    Close {
+    CloseCut {
+        epoch: RaiEpoch,
+        attempt: RaiCloseAttempt,
+    },
+    CloseRecord {
         epoch: RaiEpoch,
         attempt: RaiCloseAttempt,
     },
@@ -89,8 +99,14 @@ impl RaiElectionId {
                 writer.write_all(&epoch.to_be_bytes())?;
                 writer.write_all(&0u64.to_be_bytes())
             }
-            Self::Close { epoch, attempt } => {
-                writer.write_all(&[RaiElectionKind::Close as u8])?;
+            Self::CloseCut { epoch, attempt } => {
+                writer.write_all(&[RaiElectionKind::CloseCut as u8])?;
+                RaiSlot::default().serialize(writer)?;
+                writer.write_all(&epoch.to_be_bytes())?;
+                writer.write_all(&attempt.to_be_bytes())
+            }
+            Self::CloseRecord { epoch, attempt } => {
+                writer.write_all(&[RaiElectionKind::CloseRecord as u8])?;
                 RaiSlot::default().serialize(writer)?;
                 writer.write_all(&epoch.to_be_bytes())?;
                 writer.write_all(&attempt.to_be_bytes())
@@ -110,7 +126,8 @@ impl RaiElectionId {
 
         match kind {
             RaiElectionKind::Slot => Ok(Self::Slot { slot, epoch }),
-            RaiElectionKind::Close => Ok(Self::Close { epoch, attempt }),
+            RaiElectionKind::CloseCut => Ok(Self::CloseCut { epoch, attempt }),
+            RaiElectionKind::CloseRecord => Ok(Self::CloseRecord { epoch, attempt }),
         }
     }
 }
@@ -119,7 +136,8 @@ impl RaiElectionId {
 #[repr(u8)]
 enum RaiElectionKind {
     Slot = RAI_ELECTION_KIND_SLOT,
-    Close = RAI_ELECTION_KIND_CLOSE,
+    CloseCut = RAI_ELECTION_KIND_CLOSE_CUT,
+    CloseRecord = RAI_ELECTION_KIND_CLOSE_RECORD,
 }
 
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -140,10 +158,55 @@ impl RaiVoteKind {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum RaiVoteScope {
+    All,
+    Committee(u8),
+}
+
+impl RaiVoteScope {
+    pub const SERIALIZED_SIZE: usize = std::mem::size_of::<u8>() * 2;
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        match self {
+            Self::All => writer.write_all(&[RaiVoteScopeKind::All as u8, 0]),
+            Self::Committee(index) => {
+                writer.write_all(&[RaiVoteScopeKind::Committee as u8, *index])
+            }
+        }
+    }
+
+    pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let kind =
+            RaiVoteScopeKind::from_u8(read_u8(reader)?).ok_or(DeserializationError::InvalidData)?;
+        let committee_index = read_u8(reader)?;
+
+        match kind {
+            RaiVoteScopeKind::All if committee_index == 0 => Ok(Self::All),
+            RaiVoteScopeKind::All => Err(DeserializationError::InvalidData),
+            RaiVoteScopeKind::Committee => Ok(Self::Committee(committee_index)),
+        }
+    }
+}
+
+#[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+enum RaiVoteScopeKind {
+    All = RAI_VOTE_SCOPE_ALL,
+    Committee = RAI_VOTE_SCOPE_COMMITTEE,
+}
+
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum RaiElectionValue {
     Block(BlockHash),
-    CloseHash(BlockHash),
+    CloseCutHash(BlockHash),
+    CloseRecordHash(BlockHash),
     Timeout,
 }
 
@@ -159,8 +222,12 @@ impl RaiElectionValue {
                 writer.write_all(&[RaiElectionValueKind::Block as u8])?;
                 hash.serialize(writer)
             }
-            Self::CloseHash(hash) => {
-                writer.write_all(&[RaiElectionValueKind::CloseHash as u8])?;
+            Self::CloseCutHash(hash) => {
+                writer.write_all(&[RaiElectionValueKind::CloseCutHash as u8])?;
+                hash.serialize(writer)
+            }
+            Self::CloseRecordHash(hash) => {
+                writer.write_all(&[RaiElectionValueKind::CloseRecordHash as u8])?;
                 hash.serialize(writer)
             }
             Self::Timeout => {
@@ -180,7 +247,8 @@ impl RaiElectionValue {
 
         match kind {
             RaiElectionValueKind::Block => Ok(Self::Block(hash)),
-            RaiElectionValueKind::CloseHash => Ok(Self::CloseHash(hash)),
+            RaiElectionValueKind::CloseCutHash => Ok(Self::CloseCutHash(hash)),
+            RaiElectionValueKind::CloseRecordHash => Ok(Self::CloseRecordHash(hash)),
             RaiElectionValueKind::Timeout => Ok(Self::Timeout),
         }
     }
@@ -190,14 +258,73 @@ impl RaiElectionValue {
 #[repr(u8)]
 enum RaiElectionValueKind {
     Block = RAI_ELECTION_VALUE_KIND_BLOCK,
-    CloseHash = RAI_ELECTION_VALUE_KIND_CLOSE_HASH,
+    CloseCutHash = RAI_ELECTION_VALUE_KIND_CLOSE_CUT_HASH,
+    CloseRecordHash = RAI_ELECTION_VALUE_KIND_CLOSE_RECORD_HASH,
     Timeout = RAI_ELECTION_VALUE_KIND_TIMEOUT,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct RaiCloseRecord {
+    pub previous_close_hash: BlockHash,
+    pub finalized_root: BlockHash,
+    pub carry_root: BlockHash,
+}
+
+impl RaiCloseRecord {
+    pub const SERIALIZED_SIZE: usize = BlockHash::SERIALIZED_SIZE * 3;
+
+    pub fn new(
+        previous_close_hash: BlockHash,
+        finalized_root: BlockHash,
+        carry_root: BlockHash,
+    ) -> Self {
+        Self {
+            previous_close_hash,
+            finalized_root,
+            carry_root,
+        }
+    }
+
+    pub fn hash(&self) -> BlockHash {
+        let mut bytes = Vec::with_capacity(Self::SERIALIZED_SIZE);
+        self.serialize(&mut bytes)
+            .expect("writing to Vec should succeed");
+
+        Blake2HashBuilder::new()
+            .update(RAI_CLOSE_RECORD_HASH_PREFIX)
+            .update(bytes)
+            .build()
+    }
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        self.previous_close_hash.serialize(writer)?;
+        self.finalized_root.serialize(writer)?;
+        self.carry_root.serialize(writer)
+    }
+
+    pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let previous_close_hash = BlockHash::deserialize(reader)?;
+        let finalized_root = BlockHash::deserialize(reader)?;
+        let carry_root = BlockHash::deserialize(reader)?;
+        Ok(Self {
+            previous_close_hash,
+            finalized_root,
+            carry_root,
+        })
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RaiVote {
     pub voter: PublicKey,
     pub kind: RaiVoteKind,
+    pub scope: RaiVoteScope,
     pub election_id: RaiElectionId,
     pub value: RaiElectionValue,
     pub signature: Signature,
@@ -206,6 +333,7 @@ pub struct RaiVote {
 impl RaiVote {
     pub const SERIALIZED_SIZE: usize = PublicKey::SERIALIZED_SIZE
         + std::mem::size_of::<u8>()
+        + RaiVoteScope::SERIALIZED_SIZE
         + RaiElectionId::SERIALIZED_SIZE
         + RaiElectionValue::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE;
@@ -215,7 +343,13 @@ impl RaiVote {
         election_id: RaiElectionId,
         value: RaiElectionValue,
     ) -> Self {
-        Self::new_signed(key, RaiVoteKind::First, election_id, value)
+        Self::new_signed(
+            key,
+            RaiVoteKind::First,
+            RaiVoteScope::All,
+            election_id,
+            value,
+        )
     }
 
     pub fn new_notarization(
@@ -223,7 +357,13 @@ impl RaiVote {
         election_id: RaiElectionId,
         value: RaiElectionValue,
     ) -> Self {
-        Self::new_signed(key, RaiVoteKind::Notarization, election_id, value)
+        Self::new_signed(
+            key,
+            RaiVoteKind::Notarization,
+            RaiVoteScope::All,
+            election_id,
+            value,
+        )
     }
 
     pub fn new_final(
@@ -231,20 +371,73 @@ impl RaiVote {
         election_id: RaiElectionId,
         value: RaiElectionValue,
     ) -> Self {
-        Self::new_signed(key, RaiVoteKind::Final, election_id, value)
+        Self::new_signed(
+            key,
+            RaiVoteKind::Final,
+            RaiVoteScope::All,
+            election_id,
+            value,
+        )
+    }
+
+    pub fn new_first_scoped(
+        key: &PrivateKey,
+        committee_index: u8,
+        election_id: RaiElectionId,
+        value: RaiElectionValue,
+    ) -> Self {
+        Self::new_signed(
+            key,
+            RaiVoteKind::First,
+            RaiVoteScope::Committee(committee_index),
+            election_id,
+            value,
+        )
+    }
+
+    pub fn new_notarization_scoped(
+        key: &PrivateKey,
+        committee_index: u8,
+        election_id: RaiElectionId,
+        value: RaiElectionValue,
+    ) -> Self {
+        Self::new_signed(
+            key,
+            RaiVoteKind::Notarization,
+            RaiVoteScope::Committee(committee_index),
+            election_id,
+            value,
+        )
+    }
+
+    pub fn new_final_scoped(
+        key: &PrivateKey,
+        committee_index: u8,
+        election_id: RaiElectionId,
+        value: RaiElectionValue,
+    ) -> Self {
+        Self::new_signed(
+            key,
+            RaiVoteKind::Final,
+            RaiVoteScope::Committee(committee_index),
+            election_id,
+            value,
+        )
     }
 
     fn new_signed(
         key: &PrivateKey,
         kind: RaiVoteKind,
+        scope: RaiVoteScope,
         election_id: RaiElectionId,
         value: RaiElectionValue,
     ) -> Self {
-        let signature = key.sign(Self::hash_for(kind, &election_id, &value).as_bytes());
+        let signature = key.sign(Self::hash_for(kind, scope, &election_id, &value).as_bytes());
 
         Self {
             voter: key.public_key(),
             kind,
+            scope,
             election_id,
             value,
             signature,
@@ -252,20 +445,25 @@ impl RaiVote {
     }
 
     pub fn hash(&self) -> BlockHash {
-        Self::hash_for(self.kind, &self.election_id, &self.value)
+        Self::hash_for(self.kind, self.scope, &self.election_id, &self.value)
     }
 
     pub fn hash_for(
         kind: RaiVoteKind,
+        scope: RaiVoteScope,
         election_id: &RaiElectionId,
         value: &RaiElectionValue,
     ) -> BlockHash {
         let mut bytes = Vec::with_capacity(
             std::mem::size_of::<u8>()
+                + RaiVoteScope::SERIALIZED_SIZE
                 + RaiElectionId::SERIALIZED_SIZE
                 + RaiElectionValue::SERIALIZED_SIZE,
         );
         bytes.push(kind as u8);
+        scope
+            .serialize(&mut bytes)
+            .expect("writing to Vec should succeed");
         election_id
             .serialize(&mut bytes)
             .expect("writing to Vec should succeed");
@@ -289,6 +487,7 @@ impl RaiVote {
     {
         self.voter.serialize(writer)?;
         writer.write_all(&[self.kind as u8])?;
+        self.scope.serialize(writer)?;
         self.election_id.serialize(writer)?;
         self.value.serialize(writer)?;
         self.signature.serialize(writer)
@@ -298,6 +497,7 @@ impl RaiVote {
         let voter = PublicKey::deserialize(&mut bytes)?;
         let kind =
             RaiVoteKind::from_u8(read_u8(&mut bytes)?).ok_or(DeserializationError::InvalidData)?;
+        let scope = RaiVoteScope::deserialize(&mut bytes)?;
         let election_id = RaiElectionId::deserialize(&mut bytes)?;
         let value = RaiElectionValue::deserialize(&mut bytes)?;
         let signature = Signature::deserialize(&mut bytes)?;
@@ -308,6 +508,7 @@ impl RaiVote {
         Ok(Self {
             voter,
             kind,
+            scope,
             election_id,
             value,
             signature,
@@ -472,6 +673,12 @@ mod tests {
         assert_eq!(bytes[offset], RAI_VOTE_KIND_FIRST);
         offset += 1;
 
+        assert_eq!(bytes[offset], RAI_VOTE_SCOPE_ALL);
+        offset += 1;
+
+        assert_eq!(bytes[offset], 0);
+        offset += 1;
+
         assert_eq!(bytes[offset], RAI_ELECTION_KIND_SLOT);
         offset += 1;
 
@@ -509,6 +716,112 @@ mod tests {
         offset += BlockHash::SERIALIZED_SIZE;
 
         assert_eq!(&bytes[offset..], vote.signature.as_bytes());
+    }
+
+    #[test]
+    fn rai_vote_scope_is_signed() {
+        let key = PrivateKey::from(1);
+        let election_id = RaiElectionId::Slot {
+            slot: RaiSlot::new(Account::from(2), 3),
+            epoch: 4,
+        };
+        let value = RaiElectionValue::Block(BlockHash::from(5));
+        let mut vote = RaiVote::new_first_scoped(&key, 1, election_id, value);
+
+        vote.validate().unwrap();
+        vote.scope = RaiVoteScope::Committee(0);
+
+        assert!(vote.validate().is_err());
+    }
+
+    #[test]
+    fn close_election_wire_layout_distinguishes_cut_and_record() {
+        let close_cut = RaiElectionId::CloseCut {
+            epoch: 7,
+            attempt: 11,
+        };
+        let close_record = RaiElectionId::CloseRecord {
+            epoch: 7,
+            attempt: 11,
+        };
+
+        let mut cut_bytes = Vec::new();
+        let mut record_bytes = Vec::new();
+        close_cut.serialize(&mut cut_bytes).unwrap();
+        close_record.serialize(&mut record_bytes).unwrap();
+
+        assert_eq!(cut_bytes.len(), RaiElectionId::SERIALIZED_SIZE);
+        assert_eq!(record_bytes.len(), RaiElectionId::SERIALIZED_SIZE);
+        assert_eq!(cut_bytes[0], RAI_ELECTION_KIND_CLOSE_CUT);
+        assert_eq!(record_bytes[0], RAI_ELECTION_KIND_CLOSE_RECORD);
+        let mut cut_slice = cut_bytes.as_slice();
+        let mut record_slice = record_bytes.as_slice();
+        assert_eq!(
+            RaiElectionId::deserialize(&mut cut_slice).unwrap(),
+            close_cut
+        );
+        assert_eq!(
+            RaiElectionId::deserialize(&mut record_slice).unwrap(),
+            close_record
+        );
+    }
+
+    #[test]
+    fn close_value_wire_layout_distinguishes_cut_and_record_hashes() {
+        let close_cut = RaiElectionValue::CloseCutHash(BlockHash::from(8));
+        let close_record = RaiElectionValue::CloseRecordHash(BlockHash::from(8));
+
+        let mut cut_bytes = Vec::new();
+        let mut record_bytes = Vec::new();
+        close_cut.serialize(&mut cut_bytes).unwrap();
+        close_record.serialize(&mut record_bytes).unwrap();
+
+        assert_eq!(cut_bytes.len(), RaiElectionValue::SERIALIZED_SIZE);
+        assert_eq!(record_bytes.len(), RaiElectionValue::SERIALIZED_SIZE);
+        assert_eq!(cut_bytes[0], RAI_ELECTION_VALUE_KIND_CLOSE_CUT_HASH);
+        assert_eq!(record_bytes[0], RAI_ELECTION_VALUE_KIND_CLOSE_RECORD_HASH);
+        let mut cut_slice = cut_bytes.as_slice();
+        let mut record_slice = record_bytes.as_slice();
+        assert_eq!(
+            RaiElectionValue::deserialize(&mut cut_slice).unwrap(),
+            close_cut
+        );
+        assert_eq!(
+            RaiElectionValue::deserialize(&mut record_slice).unwrap(),
+            close_record
+        );
+    }
+
+    #[test]
+    fn close_record_hash_commits_to_all_three_roots() {
+        let base = RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(3));
+
+        assert_ne!(
+            base.hash(),
+            RaiCloseRecord::new(BlockHash::from(9), BlockHash::from(2), BlockHash::from(3)).hash()
+        );
+        assert_ne!(
+            base.hash(),
+            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(9), BlockHash::from(3)).hash()
+        );
+        assert_ne!(
+            base.hash(),
+            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(9)).hash()
+        );
+    }
+
+    #[test]
+    fn close_record_wire_layout_is_stable() {
+        let record =
+            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(3));
+        let mut bytes = Vec::new();
+
+        record.serialize(&mut bytes).unwrap();
+
+        assert_eq!(bytes.len(), RaiCloseRecord::SERIALIZED_SIZE);
+        let mut slice = bytes.as_slice();
+        assert_eq!(RaiCloseRecord::deserialize(&mut slice).unwrap(), record);
+        assert!(slice.is_empty());
     }
 
     #[test]

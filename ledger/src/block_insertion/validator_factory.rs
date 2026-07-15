@@ -81,8 +81,10 @@ mod tests {
         let block = TestBlockBuilder::state().build();
         let ledger = Ledger::new_null_builder().finish();
         let any = ledger.any();
+        let before_create = UnixMillisTimestamp::now();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
+        let after_create = UnixMillisTimestamp::now();
 
         assert_eq!(validator.block.hash(), block.hash());
         assert_eq!(validator.epochs, &ledger.constants.epochs);
@@ -93,7 +95,8 @@ mod tests {
         assert_eq!(validator.any_pending_exists, false);
         assert_eq!(validator.source_block_exists, false);
         assert_eq!(validator.previous_block, None);
-        assert!(validator.now >= UnixMillisTimestamp::now());
+        assert!(validator.now >= before_create);
+        assert!(validator.now <= after_create);
     }
 
     #[test]

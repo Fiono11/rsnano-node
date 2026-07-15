@@ -135,8 +135,12 @@ impl BoundedBacklogLogic {
             return false;
         }
 
-        // Both ledger and tracked backlog must be over the threshold
-        self.backlog_size() > self.max_backlog() && self.index.len() > self.max_backlog() as usize
+        // The ledger must be over the limit, and the tracked backlog must still
+        // have enough candidates to correct the overage. Using `>` for the
+        // tracked side can leave the ledger one block over the limit after a
+        // selected target is rejected or disappears before rollback.
+        self.backlog_size() > self.max_backlog()
+            && self.index.len() >= self.max_backlog() as usize
     }
 
     /// The number of rollbacks required in order to reach the max allowed backlog
@@ -369,6 +373,19 @@ mod tests {
     #[test]
     fn rollback_needed_when_both_over_threshold() {
         let mut logic = BoundedBacklogLogic::new(small_config());
+        logic.insert(&make_block(1), BlockPriority::new_test_instance());
+        logic.insert(&make_block(2), BlockPriority::new_test_instance());
+        logic.set_ledger_info(4, 1);
+        assert!(logic.rollback_needed());
+    }
+
+    #[test]
+    fn rollback_needed_when_ledger_is_over_and_index_is_at_threshold() {
+        let config = BoundedBacklogConfig {
+            max_backlog: 2,
+            rollback_batch_size: 10,
+        };
+        let mut logic = BoundedBacklogLogic::new(config);
         logic.insert(&make_block(1), BlockPriority::new_test_instance());
         logic.insert(&make_block(2), BlockPriority::new_test_instance());
         logic.set_ledger_info(4, 1);

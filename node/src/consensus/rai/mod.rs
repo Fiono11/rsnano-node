@@ -1,20 +1,30 @@
 mod active_elections;
+mod admissibility;
 mod close_state;
+mod close_state_rebuilder;
 mod committee;
 mod epoch_loop;
 mod pending_report_processor;
 mod persistence;
 mod vote_processor;
+mod vote_safety;
 
 pub use active_elections::{
     RaiActiveElections, RaiActiveElectionsSnapshot, RaiElection, RaiElectionInsertError,
-    RaiElectionSnapshot, RaiElectionStatus, RaiTallySnapshot, RaiVoteSummary,
+    RaiElectionOutcome, RaiElectionSnapshot, RaiElectionStatus, RaiTallySnapshot,
+    RaiVoteStateSnapshot,
+};
+pub use admissibility::{
+    RaiAdmissibility, RaiAdmissibilityError, RaiAdmissibilityValidator,
+    RaiDefaultAdmissibilityValidator,
 };
 pub use close_state::{
-    RaiCloseEpochSnapshot, RaiCloseState, RaiCloseStateSnapshot, RaiCloseValueSnapshot,
-    RaiClosedSlotSnapshot, RaiEpochPhase, RaiEpochTransitionError, RaiPendingReportInsertError,
+    CloseRecordEntries, RaiCloseEpochSnapshot, RaiCloseRecordValue, RaiCloseRecordValueSnapshot,
+    RaiCloseState, RaiCloseStateSnapshot, RaiCloseValueSnapshot, RaiClosedSlotSnapshot,
+    RaiClosedSlotState, RaiEpochPhase, RaiEpochTransitionError, RaiPendingReportInsertError,
     RaiVisibilityTracker, VisibleSlots,
 };
+pub use close_state_rebuilder::RaiCloseStateRebuilder;
 pub use committee::{
     RAI_PRINCIPAL_WEIGHT_DIVISOR, RaiCommittee, RaiCommitteeDeriver, RaiCommitteeMember,
     RaiCommitteeProvider, RaiCommitteeSet, RaiCommitteeSnapshot, RaiCommitteeThresholds,
@@ -28,3 +38,6 @@ pub use persistence::{
     LmdbRaiStatePersistence, NoopRaiStatePersistence, RaiPersistedState, RaiStatePersistence,
 };
 pub use vote_processor::RaiVoteProcessor;
+pub use vote_safety::{
+    RaiVoteSafety, RaiVoteSafetyEntrySnapshot, RaiVoteSafetyError, RaiVoteSafetySnapshot,
+};

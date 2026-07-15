@@ -5,29 +5,31 @@ use std::{
 };
 
 use anyhow::Context;
-use num_traits::FromPrimitive;
 use rsnano_ledger::Ledger;
 use rsnano_types::{
-    Amount, BlockHash, DeserializationError, PublicKey, RaiElectionId, RaiElectionValue, RaiEpoch,
-    RaiPendingReport, RaiSlot, RaiVoteKind, read_u8, read_u64_be,
+    Amount, BlockHash, DeserializationError, PublicKey, RaiCloseRecord, RaiElectionId,
+    RaiElectionValue, RaiEpoch, RaiPendingReport, RaiSlot, read_u8, read_u64_be,
 };
 
 use super::{
-    RaiActiveElectionsSnapshot, RaiCloseEpochSnapshot, RaiCloseStateSnapshot,
-    RaiCloseValueSnapshot, RaiClosedSlotSnapshot, RaiCommittee, RaiCommitteeMember,
-    RaiCommitteeSnapshot, RaiCommitteeThresholds, RaiElectionSnapshot, RaiElectionStatus,
-    RaiRepWeight, RaiRepWeightSnapshot, RaiTallySnapshot, RaiVoteSummary,
+    RaiActiveElectionsSnapshot, RaiCloseEpochSnapshot, RaiCloseRecordValueSnapshot,
+    RaiCloseStateSnapshot, RaiCloseValueSnapshot, RaiClosedSlotSnapshot, RaiClosedSlotState,
+    RaiCommittee, RaiCommitteeMember, RaiCommitteeSnapshot, RaiCommitteeThresholds,
+    RaiElectionSnapshot, RaiElectionStatus, RaiRepWeight, RaiRepWeightSnapshot, RaiTallySnapshot,
+    RaiVoteSafetyEntrySnapshot, RaiVoteSafetySnapshot, RaiVoteStateSnapshot,
 };
 
-const SNAPSHOT_VERSION: u8 = 1;
+const SNAPSHOT_VERSION: u8 = 7;
 const CLOSE_STATE_KEY: &[u8] = b"close_state";
 const ACTIVE_ELECTIONS_KEY: &[u8] = b"active_elections";
+const VOTE_SAFETY_KEY: &[u8] = b"vote_safety";
 const COMMITTEES_KEY: &[u8] = b"committees";
 const REP_WEIGHT_SNAPSHOTS_KEY: &[u8] = b"rep_weight_snapshots";
 
 pub trait RaiStatePersistence: Send + Sync {
     fn save_close_state(&self, _snapshot: &RaiCloseStateSnapshot) {}
     fn save_active_elections(&self, _snapshot: &RaiActiveElectionsSnapshot) {}
+    fn save_vote_safety(&self, _snapshot: &RaiVoteSafetySnapshot) {}
     fn save_active_and_close(
         &self,
         active_elections: &RaiActiveElectionsSnapshot,
@@ -35,6 +37,15 @@ pub trait RaiStatePersistence: Send + Sync {
     ) {
         self.save_active_elections(active_elections);
         self.save_close_state(close_state);
+    }
+    fn save_active_close_and_vote_safety(
+        &self,
+        active_elections: &RaiActiveElectionsSnapshot,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: &RaiVoteSafetySnapshot,
+    ) {
+        self.save_active_and_close(active_elections, close_state);
+        self.save_vote_safety(vote_safety);
     }
     fn save_rep_weight_snapshot(&self, _epoch: RaiEpoch, _snapshot: &RaiRepWeightSnapshot) {}
     fn save_committee_snapshot(&self, _epoch: RaiEpoch, _committee: &RaiCommittee) {}
@@ -48,6 +59,7 @@ impl RaiStatePersistence for NoopRaiStatePersistence {}
 pub struct RaiPersistedState {
     pub close_state: Option<RaiCloseStateSnapshot>,
     pub active_elections: Option<RaiActiveElectionsSnapshot>,
+    pub vote_safety: Option<RaiVoteSafetySnapshot>,
     pub rep_weight_snapshots: Vec<(RaiEpoch, RaiRepWeightSnapshot)>,
     pub committees: Vec<(RaiEpoch, RaiCommittee)>,
 }
@@ -79,6 +91,14 @@ impl LmdbRaiStatePersistence {
             .map(|bytes| deserialize_active_elections(&bytes))
             .transpose()
             .context("could not deserialize RAI active elections")?;
+        let vote_safety = self
+            .ledger
+            .store
+            .rai
+            .get(&txn, VOTE_SAFETY_KEY)
+            .map(|bytes| deserialize_vote_safety(&bytes))
+            .transpose()
+            .context("could not deserialize RAI vote safety")?;
         let committees = self
             .ledger
             .store
@@ -101,6 +121,7 @@ impl LmdbRaiStatePersistence {
         Ok(RaiPersistedState {
             close_state,
             active_elections,
+            vote_safety,
             rep_weight_snapshots,
             committees,
         })
@@ -122,6 +143,10 @@ impl RaiStatePersistence for LmdbRaiStatePersistence {
         self.put(ACTIVE_ELECTIONS_KEY, &serialize_active_elections(snapshot));
     }
 
+    fn save_vote_safety(&self, snapshot: &RaiVoteSafetySnapshot) {
+        self.put(VOTE_SAFETY_KEY, &serialize_vote_safety(snapshot));
+    }
+
     fn save_active_and_close(
         &self,
         active_elections: &RaiActiveElectionsSnapshot,
@@ -137,6 +162,31 @@ impl RaiStatePersistence for LmdbRaiStatePersistence {
             &mut txn,
             CLOSE_STATE_KEY,
             &serialize_close_state(close_state),
+        );
+        txn.commit();
+    }
+
+    fn save_active_close_and_vote_safety(
+        &self,
+        active_elections: &RaiActiveElectionsSnapshot,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: &RaiVoteSafetySnapshot,
+    ) {
+        let mut txn = self.ledger.store.begin_write();
+        self.ledger.store.rai.put(
+            &mut txn,
+            ACTIVE_ELECTIONS_KEY,
+            &serialize_active_elections(active_elections),
+        );
+        self.ledger.store.rai.put(
+            &mut txn,
+            CLOSE_STATE_KEY,
+            &serialize_close_state(close_state),
+        );
+        self.ledger.store.rai.put(
+            &mut txn,
+            VOTE_SAFETY_KEY,
+            &serialize_vote_safety(vote_safety),
         );
         txn.commit();
     }
@@ -215,6 +265,7 @@ fn deserialize_close_state(
 fn write_close_epoch(writer: &mut Vec<u8>, snapshot: &RaiCloseEpochSnapshot) {
     write_u64(writer, snapshot.epoch);
     write_epoch_phase(writer, snapshot.phase);
+    write_optional_hash(writer, snapshot.close_hash.as_ref());
     write_len(writer, snapshot.pending_reports.len());
     for report in &snapshot.pending_reports {
         write_pending_report(writer, report);
@@ -231,13 +282,22 @@ fn write_close_epoch(writer: &mut Vec<u8>, snapshot: &RaiCloseEpochSnapshot) {
     write_len(writer, snapshot.closed_slots.len());
     for closed in &snapshot.closed_slots {
         closed.slot.serialize(writer).unwrap();
-        closed.outcome.serialize(writer).unwrap();
+        write_closed_slot_state(writer, closed.state);
     }
+    write_len(writer, snapshot.close_record_values.len());
+    for value in &snapshot.close_record_values {
+        value.hash.serialize(writer).unwrap();
+        value.record.serialize(writer).unwrap();
+        write_closed_slots(writer, &value.states);
+    }
+    write_u64s(writer, &snapshot.started_close_record_attempts);
+    write_u64s(writer, &snapshot.processed_close_record_attempts);
 }
 
 fn read_close_epoch(reader: &mut &[u8]) -> Result<RaiCloseEpochSnapshot, DeserializationError> {
     let epoch = read_u64(reader)?;
     let phase = read_epoch_phase(reader)?;
+    let close_hash = read_optional_hash(reader)?;
     let pending_report_count = read_len(reader)?;
     let mut pending_reports = Vec::with_capacity(pending_report_count);
     for _ in 0..pending_report_count {
@@ -258,13 +318,28 @@ fn read_close_epoch(reader: &mut &[u8]) -> Result<RaiCloseEpochSnapshot, Deseria
     let mut closed_slots = Vec::with_capacity(closed_slot_count);
     for _ in 0..closed_slot_count {
         let slot = RaiSlot::deserialize(reader)?;
-        let outcome = RaiElectionValue::deserialize(reader)?;
-        closed_slots.push(RaiClosedSlotSnapshot { slot, outcome });
+        let state = read_closed_slot_state(reader)?;
+        closed_slots.push(RaiClosedSlotSnapshot { slot, state });
     }
+    let close_record_value_count = read_len(reader)?;
+    let mut close_record_values = Vec::with_capacity(close_record_value_count);
+    for _ in 0..close_record_value_count {
+        let hash = BlockHash::deserialize(reader)?;
+        let record = RaiCloseRecord::deserialize(reader)?;
+        let states = read_closed_slots(reader)?;
+        close_record_values.push(RaiCloseRecordValueSnapshot {
+            hash,
+            record,
+            states,
+        });
+    }
+    let started_close_record_attempts = read_u64s(reader)?;
+    let processed_close_record_attempts = read_u64s(reader)?;
 
     Ok(RaiCloseEpochSnapshot {
         epoch,
         phase,
+        close_hash,
         pending_reports,
         visible_slots,
         close_values,
@@ -272,6 +347,9 @@ fn read_close_epoch(reader: &mut &[u8]) -> Result<RaiCloseEpochSnapshot, Deseria
         processed_close_attempts,
         cut_set,
         closed_slots,
+        close_record_values,
+        started_close_record_attempts,
+        processed_close_record_attempts,
     })
 }
 
@@ -299,14 +377,58 @@ fn deserialize_active_elections(
     Ok(RaiActiveElectionsSnapshot { elections })
 }
 
+fn serialize_vote_safety(snapshot: &RaiVoteSafetySnapshot) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    write_version(&mut bytes);
+    write_len(&mut bytes, snapshot.entries.len());
+    for entry in &snapshot.entries {
+        entry.voter.serialize(&mut bytes).unwrap();
+        entry.slot.serialize(&mut bytes).unwrap();
+        write_u64(&mut bytes, entry.epoch);
+        write_len(&mut bytes, entry.blocks.len());
+        for block in &entry.blocks {
+            block.serialize(&mut bytes).unwrap();
+        }
+    }
+    bytes
+}
+
+fn deserialize_vote_safety(
+    mut bytes: &[u8],
+) -> Result<RaiVoteSafetySnapshot, DeserializationError> {
+    read_version(&mut bytes)?;
+    let entry_count = read_len(&mut bytes)?;
+    let mut entries = Vec::with_capacity(entry_count);
+    for _ in 0..entry_count {
+        let voter = PublicKey::deserialize(&mut bytes)?;
+        let slot = RaiSlot::deserialize(&mut bytes)?;
+        let epoch = read_u64(&mut bytes)?;
+        let block_count = read_len(&mut bytes)?;
+        let mut blocks = Vec::with_capacity(block_count);
+        for _ in 0..block_count {
+            blocks.push(BlockHash::deserialize(&mut bytes)?);
+        }
+        entries.push(RaiVoteSafetyEntrySnapshot {
+            voter,
+            slot,
+            epoch,
+            blocks,
+        });
+    }
+    expect_finished(bytes)?;
+
+    Ok(RaiVoteSafetySnapshot { entries })
+}
+
 fn write_election(writer: &mut Vec<u8>, snapshot: &RaiElectionSnapshot) {
     snapshot.id.serialize(writer).unwrap();
     write_election_status(writer, snapshot.status);
-    write_len(writer, snapshot.votes.len());
-    for vote in &snapshot.votes {
-        write_vote_summary(writer, vote);
+    write_len(writer, snapshot.vote_states.len());
+    for vote_state in &snapshot.vote_states {
+        write_vote_state_snapshot(writer, vote_state);
     }
     write_tallies(writer, &snapshot.tallies);
+    write_tallies(writer, &snapshot.notarization_tallies);
     write_tallies(writer, &snapshot.final_tallies);
     write_optional_election_value(writer, snapshot.winner.as_ref());
     write_optional_election_value(writer, snapshot.confirmed_value.as_ref());
@@ -315,12 +437,13 @@ fn write_election(writer: &mut Vec<u8>, snapshot: &RaiElectionSnapshot) {
 fn read_election(reader: &mut &[u8]) -> Result<RaiElectionSnapshot, DeserializationError> {
     let id = RaiElectionId::deserialize(reader)?;
     let status = read_election_status(reader)?;
-    let vote_count = read_len(reader)?;
-    let mut votes = Vec::with_capacity(vote_count);
-    for _ in 0..vote_count {
-        votes.push(read_vote_summary(reader)?);
+    let vote_state_count = read_len(reader)?;
+    let mut vote_states = Vec::with_capacity(vote_state_count);
+    for _ in 0..vote_state_count {
+        vote_states.push(read_vote_state_snapshot(reader)?);
     }
     let tallies = read_tallies(reader)?;
+    let notarization_tallies = read_tallies(reader)?;
     let final_tallies = read_tallies(reader)?;
     let winner = read_optional_election_value(reader)?;
     let confirmed_value = read_optional_election_value(reader)?;
@@ -328,8 +451,9 @@ fn read_election(reader: &mut &[u8]) -> Result<RaiElectionSnapshot, Deserializat
     Ok(RaiElectionSnapshot {
         id,
         status,
-        votes,
+        vote_states,
         tallies,
+        notarization_tallies,
         final_tallies,
         winner,
         confirmed_value,
@@ -444,24 +568,45 @@ fn read_rep_weight_snapshot(
     ))
 }
 
-fn write_vote_summary(writer: &mut Vec<u8>, vote: &RaiVoteSummary) {
-    vote.voter.serialize(writer).unwrap();
-    writer.write_all(&[vote.kind as u8]).unwrap();
-    vote.value.serialize(writer).unwrap();
-    write_usize(writer, vote.committee_votes);
+fn write_vote_state_snapshot(writer: &mut Vec<u8>, vote_state: &RaiVoteStateSnapshot) {
+    vote_state.voter.serialize(writer).unwrap();
+    write_usize(writer, vote_state.committee_index);
+    write_optional_election_value(writer, vote_state.first.as_ref());
+    write_election_values(writer, &vote_state.notarized);
+    write_optional_election_value(writer, vote_state.final_vote.as_ref());
 }
 
-fn read_vote_summary(reader: &mut &[u8]) -> Result<RaiVoteSummary, DeserializationError> {
+fn read_vote_state_snapshot(
+    reader: &mut &[u8],
+) -> Result<RaiVoteStateSnapshot, DeserializationError> {
     let voter = PublicKey::deserialize(reader)?;
-    let kind = RaiVoteKind::from_u8(read_u8(reader)?).ok_or(DeserializationError::InvalidData)?;
-    let value = RaiElectionValue::deserialize(reader)?;
-    let committee_votes = read_usize(reader)?;
-    Ok(RaiVoteSummary {
+    let committee_index = read_usize(reader)?;
+    let first = read_optional_election_value(reader)?;
+    let notarized = read_election_values(reader)?;
+    let final_vote = read_optional_election_value(reader)?;
+    Ok(RaiVoteStateSnapshot {
         voter,
-        kind,
-        value,
-        committee_votes,
+        committee_index,
+        first,
+        notarized,
+        final_vote,
     })
+}
+
+fn write_election_values(writer: &mut Vec<u8>, values: &[RaiElectionValue]) {
+    write_len(writer, values.len());
+    for value in values {
+        value.serialize(writer).unwrap();
+    }
+}
+
+fn read_election_values(reader: &mut &[u8]) -> Result<Vec<RaiElectionValue>, DeserializationError> {
+    let count = read_len(reader)?;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(RaiElectionValue::deserialize(reader)?);
+    }
+    Ok(values)
 }
 
 fn write_tallies(writer: &mut Vec<u8>, tallies: &[RaiTallySnapshot]) {
@@ -521,6 +666,58 @@ fn read_slots(reader: &mut &[u8]) -> Result<Vec<RaiSlot>, DeserializationError> 
     Ok(slots)
 }
 
+fn write_closed_slots(writer: &mut Vec<u8>, closed_slots: &[RaiClosedSlotSnapshot]) {
+    write_len(writer, closed_slots.len());
+    for closed in closed_slots {
+        closed.slot.serialize(writer).unwrap();
+        write_closed_slot_state(writer, closed.state);
+    }
+}
+
+fn read_closed_slots(
+    reader: &mut &[u8],
+) -> Result<Vec<RaiClosedSlotSnapshot>, DeserializationError> {
+    let count = read_len(reader)?;
+    let mut closed_slots = Vec::with_capacity(count);
+    for _ in 0..count {
+        let slot = RaiSlot::deserialize(reader)?;
+        let state = read_closed_slot_state(reader)?;
+        closed_slots.push(RaiClosedSlotSnapshot { slot, state });
+    }
+    Ok(closed_slots)
+}
+
+fn write_closed_slot_state(writer: &mut Vec<u8>, state: RaiClosedSlotState) {
+    match state {
+        RaiClosedSlotState::Finalized(block) => {
+            writer.write_all(&[0]).unwrap();
+            block.serialize(writer).unwrap();
+        }
+        RaiClosedSlotState::Carry(block) => {
+            writer.write_all(&[1]).unwrap();
+            block.serialize(writer).unwrap();
+        }
+        RaiClosedSlotState::Released => {
+            writer.write_all(&[2]).unwrap();
+            BlockHash::ZERO.serialize(writer).unwrap();
+        }
+    }
+}
+
+fn read_closed_slot_state(reader: &mut &[u8]) -> Result<RaiClosedSlotState, DeserializationError> {
+    match read_u8(reader)? {
+        0 => Ok(RaiClosedSlotState::Finalized(BlockHash::deserialize(
+            reader,
+        )?)),
+        1 => Ok(RaiClosedSlotState::Carry(BlockHash::deserialize(reader)?)),
+        2 => {
+            let _unused = BlockHash::deserialize(reader)?;
+            Ok(RaiClosedSlotState::Released)
+        }
+        _ => Err(DeserializationError::InvalidData),
+    }
+}
+
 fn write_optional_slots(writer: &mut Vec<u8>, slots: Option<&[RaiSlot]>) {
     match slots {
         Some(slots) => {
@@ -535,6 +732,24 @@ fn read_optional_slots(reader: &mut &[u8]) -> Result<Option<Vec<RaiSlot>>, Deser
     match read_u8(reader)? {
         0 => Ok(None),
         1 => Ok(Some(read_slots(reader)?)),
+        _ => Err(DeserializationError::InvalidData),
+    }
+}
+
+fn write_optional_hash(writer: &mut Vec<u8>, hash: Option<&BlockHash>) {
+    match hash {
+        Some(hash) => {
+            writer.write_all(&[1]).unwrap();
+            hash.serialize(writer).unwrap();
+        }
+        None => writer.write_all(&[0]).unwrap(),
+    }
+}
+
+fn read_optional_hash(reader: &mut &[u8]) -> Result<Option<BlockHash>, DeserializationError> {
+    match read_u8(reader)? {
+        0 => Ok(None),
+        1 => Ok(Some(BlockHash::deserialize(reader)?)),
         _ => Err(DeserializationError::InvalidData),
     }
 }
@@ -678,7 +893,7 @@ fn expect_finished(bytes: &[u8]) -> Result<(), DeserializationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::RaiCommitteeDeriver;
+    use crate::consensus::{CloseRecordEntries, RaiCloseState, RaiCommitteeDeriver};
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, BlockHash, PrivateKey};
     use std::sync::Arc;
@@ -687,12 +902,25 @@ mod tests {
     fn close_state_roundtrip() {
         let key = PrivateKey::from(1);
         let slot = RaiSlot::new(Account::from(2), 3);
-        let outcome = RaiElectionValue::Block(BlockHash::from(4));
+        let closed_state = RaiClosedSlotState::Finalized(BlockHash::from(4));
+        let close_record_states = vec![RaiClosedSlotSnapshot {
+            slot,
+            state: closed_state,
+        }];
+        let close_record_entries: CloseRecordEntries = close_record_states
+            .iter()
+            .cloned()
+            .map(|closed| (closed.slot, closed.state))
+            .collect();
+        let close_record =
+            RaiCloseState::close_record_from_entries(BlockHash::ZERO, &close_record_entries);
+        let close_record_hash = close_record.hash();
         let snapshot = RaiCloseStateSnapshot {
             current_epoch: 7,
             epochs: vec![RaiCloseEpochSnapshot {
                 epoch: 7,
                 phase: super::super::RaiEpochPhase::Closing,
+                close_hash: Some(close_record_hash),
                 pending_reports: vec![RaiPendingReport::new(&key, 7, vec![slot])],
                 visible_slots: vec![slot],
                 close_values: vec![RaiCloseValueSnapshot {
@@ -702,7 +930,17 @@ mod tests {
                 started_close_attempts: vec![0],
                 processed_close_attempts: vec![1],
                 cut_set: Some(vec![slot]),
-                closed_slots: vec![RaiClosedSlotSnapshot { slot, outcome }],
+                closed_slots: vec![RaiClosedSlotSnapshot {
+                    slot,
+                    state: closed_state,
+                }],
+                close_record_values: vec![RaiCloseRecordValueSnapshot {
+                    hash: close_record_hash,
+                    record: close_record,
+                    states: close_record_states,
+                }],
+                started_close_record_attempts: vec![0],
+                processed_close_record_attempts: vec![1],
             }],
         };
 
@@ -721,13 +959,18 @@ mod tests {
             elections: vec![RaiElectionSnapshot {
                 id: RaiElectionId::Slot { slot, epoch: 7 },
                 status: RaiElectionStatus::Confirmed,
-                votes: vec![RaiVoteSummary {
+                vote_states: vec![RaiVoteStateSnapshot {
                     voter: key.public_key(),
-                    kind: RaiVoteKind::Final,
-                    value: value.clone(),
-                    committee_votes: 1,
+                    committee_index: 0,
+                    first: Some(value.clone()),
+                    notarized: vec![value.clone()],
+                    final_vote: Some(value.clone()),
                 }],
                 tallies: vec![RaiTallySnapshot {
+                    value: value.clone(),
+                    per_committee: vec![1],
+                }],
+                notarization_tallies: vec![RaiTallySnapshot {
                     value: value.clone(),
                     per_committee: vec![1],
                 }],
@@ -742,6 +985,25 @@ mod tests {
 
         assert_eq!(
             deserialize_active_elections(&serialize_active_elections(&snapshot)).unwrap(),
+            snapshot
+        );
+    }
+
+    #[test]
+    fn vote_safety_roundtrip() {
+        let key = PrivateKey::from(1);
+        let slot = RaiSlot::new(Account::from(2), 3);
+        let snapshot = RaiVoteSafetySnapshot {
+            entries: vec![RaiVoteSafetyEntrySnapshot {
+                voter: key.public_key(),
+                slot,
+                epoch: 7,
+                blocks: vec![BlockHash::from(4), BlockHash::from(5)],
+            }],
+        };
+
+        assert_eq!(
+            deserialize_vote_safety(&serialize_vote_safety(&snapshot)).unwrap(),
             snapshot
         );
     }
@@ -777,29 +1039,32 @@ mod tests {
         let key = PrivateKey::from(1);
         let slot = RaiSlot::new(Account::from(2), 3);
         let value = RaiElectionValue::Block(BlockHash::from(4));
+        let state = RaiClosedSlotState::Carry(BlockHash::from(4));
         let close_state = RaiCloseStateSnapshot {
             current_epoch: 1,
             epochs: vec![RaiCloseEpochSnapshot {
                 epoch: 0,
                 phase: super::super::RaiEpochPhase::Closed,
+                close_hash: None,
                 pending_reports: Vec::new(),
                 visible_slots: vec![slot],
                 close_values: Vec::new(),
                 started_close_attempts: vec![0],
                 processed_close_attempts: vec![0],
                 cut_set: Some(vec![slot]),
-                closed_slots: vec![RaiClosedSlotSnapshot {
-                    slot,
-                    outcome: value.clone(),
-                }],
+                closed_slots: vec![RaiClosedSlotSnapshot { slot, state }],
+                close_record_values: Vec::new(),
+                started_close_record_attempts: Vec::new(),
+                processed_close_record_attempts: Vec::new(),
             }],
         };
         let active_elections = RaiActiveElectionsSnapshot {
             elections: vec![RaiElectionSnapshot {
                 id: RaiElectionId::Slot { slot, epoch: 0 },
                 status: RaiElectionStatus::Confirmed,
-                votes: Vec::new(),
+                vote_states: Vec::new(),
                 tallies: Vec::new(),
+                notarization_tallies: Vec::new(),
                 final_tallies: Vec::new(),
                 winner: Some(value.clone()),
                 confirmed_value: Some(value),
@@ -809,16 +1074,28 @@ mod tests {
             RaiCommitteeDeriver::new().derive_committee([(key.public_key(), Amount::raw(100))]);
         let rep_weight_snapshot =
             RaiRepWeightSnapshot::from_weights([(key.public_key(), Amount::raw(100))]);
+        let vote_safety = RaiVoteSafetySnapshot {
+            entries: vec![RaiVoteSafetyEntrySnapshot {
+                voter: key.public_key(),
+                slot,
+                epoch: 0,
+                blocks: vec![BlockHash::from(4)],
+            }],
+        };
         let persistence = LmdbRaiStatePersistence::new(Arc::new(Ledger::new_null()));
 
-        persistence.save_close_state(&close_state);
-        persistence.save_active_elections(&active_elections);
+        persistence.save_active_close_and_vote_safety(
+            &active_elections,
+            &close_state,
+            &vote_safety,
+        );
         persistence.save_rep_weight_snapshot(0, &rep_weight_snapshot);
         persistence.save_committee_snapshot(0, &committee);
         let loaded = persistence.load().unwrap();
 
         assert_eq!(loaded.close_state, Some(close_state));
         assert_eq!(loaded.active_elections, Some(active_elections));
+        assert_eq!(loaded.vote_safety, Some(vote_safety));
         assert_eq!(loaded.rep_weight_snapshots, vec![(0, rep_weight_snapshot)]);
         assert_eq!(loaded.committees, vec![(0, committee)]);
     }

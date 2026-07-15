@@ -4,7 +4,7 @@ use std::{
 };
 
 use rsnano_ledger::RepWeightCache;
-use rsnano_types::{Amount, PublicKey, RaiElectionId, RaiEpoch};
+use rsnano_types::{Amount, PublicKey, RaiElectionId, RaiEpoch, RaiVoteScope};
 
 pub const RAI_PRINCIPAL_WEIGHT_DIVISOR: u128 = 1000;
 
@@ -26,12 +26,27 @@ pub trait RaiCommitteeProvider: Send + Sync {
             .unwrap_or_else(|| self.genesis_committee())
     }
 
+    fn try_committee_at(&self, epoch: Option<RaiEpoch>) -> Option<RaiCommittee> {
+        match epoch {
+            None => Some(self.genesis_committee()),
+            Some(epoch) => self.committee_for_closed_epoch(epoch),
+        }
+    }
+
     fn committees_for(&self, election_id: &RaiElectionId) -> RaiCommitteeSet {
         let epoch = election_epoch(election_id);
         RaiCommitteeSet::new([
             self.committee_at(epoch.checked_sub(3)),
             self.committee_at(epoch.checked_sub(2)),
         ])
+    }
+
+    fn try_committees_for(&self, election_id: &RaiElectionId) -> Option<RaiCommitteeSet> {
+        let epoch = election_epoch(election_id);
+        Some(RaiCommitteeSet::new([
+            self.try_committee_at(epoch.checked_sub(3))?,
+            self.try_committee_at(epoch.checked_sub(2))?,
+        ]))
     }
 }
 
@@ -234,6 +249,24 @@ impl RaiCommitteeSet {
             .filter_map(|(index, committee)| committee.contains(account).then_some(index))
             .collect()
     }
+
+    pub fn scoped_committee_indexes_for(
+        &self,
+        account: &PublicKey,
+        scope: RaiVoteScope,
+    ) -> Vec<usize> {
+        match scope {
+            RaiVoteScope::All => self.committee_indexes_for(account),
+            RaiVoteScope::Committee(index) => {
+                let index = index as usize;
+                self.committees
+                    .get(index)
+                    .filter(|committee| committee.contains(account))
+                    .map(|_| vec![index])
+                    .unwrap_or_default()
+            }
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -412,7 +445,9 @@ impl RaiCommitteeProvider for RepWeightRaiCommitteeProvider {
 
 fn election_epoch(election_id: &RaiElectionId) -> RaiEpoch {
     match election_id {
-        RaiElectionId::Slot { epoch, .. } | RaiElectionId::Close { epoch, .. } => *epoch,
+        RaiElectionId::Slot { epoch, .. }
+        | RaiElectionId::CloseCut { epoch, .. }
+        | RaiElectionId::CloseRecord { epoch, .. } => *epoch,
     }
 }
 
