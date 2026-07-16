@@ -407,6 +407,27 @@ impl RaiElection {
         }
     }
 
+    pub fn timeout_ready_committee_indexes(
+        &self,
+        voter: &PublicKey,
+        committees: &RaiCommitteeSet,
+    ) -> Vec<usize> {
+        committees
+            .iter()
+            .enumerate()
+            .filter_map(|(committee_index, committee)| {
+                if committee.contains(voter)
+                    && self.voter_can_timeout(*voter, committee_index)
+                    && self.timeout_ready(committee_index, committee)
+                {
+                    Some(committee_index)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub fn merged_outcome(&self, committees: &RaiCommitteeSet) -> Option<RaiElectionOutcome> {
         if committees.is_empty() {
             return None;
@@ -641,6 +662,43 @@ impl RaiElection {
             _ => Some(RaiElectionOutcome::Timeout),
         }
     }
+
+    fn voter_can_timeout(&self, voter: PublicKey, committee_index: usize) -> bool {
+        let key = RaiCommitteeVoteKey {
+            voter,
+            committee_index,
+        };
+        self.vote_states
+            .get(&key)
+            .is_some_and(RaiVoteState::can_timeout_vote)
+    }
+
+    fn timeout_ready(&self, committee_index: usize, committee: &RaiCommittee) -> bool {
+        if committee.is_empty() {
+            return false;
+        }
+
+        let mut all_votes = 0usize;
+        let mut first_counts = HashMap::<RaiElectionValue, usize>::new();
+        for (key, state) in &self.vote_states {
+            if key.committee_index != committee_index {
+                continue;
+            }
+
+            let Some(first) = &state.first else {
+                continue;
+            };
+
+            all_votes += 1;
+            if first != &RaiElectionValue::Timeout {
+                *first_counts.entry(first.clone()).or_default() += 1;
+            }
+        }
+
+        let max_votes = first_counts.values().copied().max().unwrap_or_default();
+        let threshold = committee.thresholds().max_faulty + committee.thresholds().max_offline + 1;
+        all_votes.saturating_sub(max_votes) >= threshold
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -741,6 +799,12 @@ impl RaiVoteState {
     fn has_support_conflicting_with(&self, value: &RaiElectionValue) -> bool {
         self.first.as_ref().is_some_and(|first| first != value)
             || self.notarized.iter().any(|notarized| notarized != value)
+    }
+
+    fn can_timeout_vote(&self) -> bool {
+        self.first.is_some()
+            && self.final_vote.is_none()
+            && !self.notarized.contains(&RaiElectionValue::Timeout)
     }
 }
 
@@ -1594,6 +1658,76 @@ mod tests {
         let election = elections.election(&election_id).unwrap();
         assert_eq!(election.fast_value(&committees), Some(value.clone()));
         assert_eq!(election.confirmed_value(), Some(&value));
+    }
+
+    #[test]
+    fn timeout_is_not_ready_after_single_member_fast_vote() {
+        let elections = RaiActiveElections::new();
+        let election_id = RaiElectionId::CloseCut {
+            epoch: 1,
+            attempt: 0,
+        };
+        let key = PrivateKey::from(1);
+        let value = RaiElectionValue::CloseCutHash(BlockHash::from(3));
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
+
+        elections.insert(election_id.clone()).unwrap();
+        elections
+            .apply_vote(
+                &RaiVote::new_first(&key, election_id.clone(), value),
+                &committees,
+            )
+            .unwrap();
+
+        let election = elections.election(&election_id).unwrap();
+        assert!(
+            election
+                .timeout_ready_committee_indexes(&key.public_key(), &committees)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn timeout_is_ready_when_split_first_votes_block_fast_quorum() {
+        let elections = RaiActiveElections::new();
+        let election_id = RaiElectionId::CloseCut {
+            epoch: 1,
+            attempt: 0,
+        };
+        let keys: Vec<_> = (1..=5).map(PrivateKey::from).collect();
+        let first_value = RaiElectionValue::CloseCutHash(BlockHash::from(3));
+        let second_value = RaiElectionValue::CloseCutHash(BlockHash::from(4));
+        let committees = committee([
+            (keys[0].public_key(), Amount::raw(100)),
+            (keys[1].public_key(), Amount::raw(100)),
+            (keys[2].public_key(), Amount::raw(100)),
+            (keys[3].public_key(), Amount::raw(100)),
+            (keys[4].public_key(), Amount::raw(100)),
+        ]);
+
+        elections.insert(election_id.clone()).unwrap();
+        for key in keys.iter().take(3) {
+            elections
+                .apply_vote(
+                    &RaiVote::new_first(key, election_id.clone(), first_value.clone()),
+                    &committees,
+                )
+                .unwrap();
+        }
+        for key in keys.iter().skip(3) {
+            elections
+                .apply_vote(
+                    &RaiVote::new_first(key, election_id.clone(), second_value.clone()),
+                    &committees,
+                )
+                .unwrap();
+        }
+
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(
+            election.timeout_ready_committee_indexes(&keys[0].public_key(), &committees),
+            vec![0]
+        );
     }
 
     fn slot_election(account_height: u64) -> RaiElectionId {
