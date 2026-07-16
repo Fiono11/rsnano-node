@@ -4,6 +4,8 @@ use bitvec::prelude::BitArray;
 use num_traits::FromPrimitive;
 use serde_derive::Serialize;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpochCloseReq;
 use rsnano_types::{Account, BlockHash, DeserializationError, HashOrAccount, read_u8, read_u64_be};
 use rsnano_utils::stats::DetailType;
 
@@ -20,6 +22,8 @@ pub enum AscPullPayloadId {
     Blocks = 0x1,
     AccountInfo = 0x2,
     Frontiers = 0x3,
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose = 0x4,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
@@ -28,6 +32,8 @@ pub enum AscPullReqType {
     Blocks(BlocksReqPayload),
     AccountInfo(AccountInfoReqPayload),
     Frontiers(FrontiersReqPayload),
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose(RaiEpochCloseReq),
 }
 
 impl AscPullReqType {
@@ -47,6 +53,8 @@ impl AscPullReqType {
             AscPullReqType::Blocks(i) => i.serialize(writer),
             AscPullReqType::AccountInfo(i) => i.serialize(writer),
             AscPullReqType::Frontiers(i) => i.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(i) => i.serialize(writer),
         }
     }
 
@@ -55,6 +63,8 @@ impl AscPullReqType {
             AscPullReqType::Blocks(_) => AscPullPayloadId::Blocks,
             AscPullReqType::AccountInfo(_) => AscPullPayloadId::AccountInfo,
             AscPullReqType::Frontiers(_) => AscPullPayloadId::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(_) => AscPullPayloadId::RaiEpochClose,
         }
     }
 }
@@ -213,6 +223,14 @@ impl Display for AscPullReq {
             AscPullReqType::Frontiers(frontiers) => {
                 write!(f, "\nstart:{} count:{}", frontiers.start, frontiers.count)?;
             }
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(request) => {
+                write!(
+                    f,
+                    "\nepoch:{} start_index:{} max entries:{}",
+                    request.epoch, request.start_index, request.max_entries
+                )?;
+            }
         }
         Ok(())
     }
@@ -271,6 +289,11 @@ impl AscPullReq {
                 let payload = FrontiersReqPayload::deserialize(&mut bytes)?;
                 AscPullReqType::Frontiers(payload)
             }
+            #[cfg(feature = "rai_protocol")]
+            AscPullPayloadId::RaiEpochClose => {
+                let payload = RaiEpochCloseReq::deserialize(&mut bytes)?;
+                AscPullReqType::RaiEpochClose(payload)
+            }
         };
         Ok(Self { id, req_type })
     }
@@ -292,6 +315,8 @@ impl From<&AscPullReqType> for DetailType {
             AscPullReqType::Blocks(_) => DetailType::Blocks,
             AscPullReqType::AccountInfo(_) => DetailType::AccountInfo,
             AscPullReqType::Frontiers(_) => DetailType::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(_) => DetailType::RaiEpochClose,
         }
     }
 }
@@ -336,6 +361,16 @@ mod tests {
                 start: Account::from(42),
                 count: 69,
             }),
+        });
+        assert_deserializable(&original);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn serialize_rai_epoch_close() {
+        let original = Message::AscPullReq(AscPullReq {
+            id: 7,
+            req_type: AscPullReqType::RaiEpochClose(RaiEpochCloseReq::new(2, 512)),
         });
         assert_deserializable(&original);
     }

@@ -1,7 +1,9 @@
 # Tool: nanospam
 
 ## Example Usage
-Run a single node spam test, starting at 1 bps and continually increase bps. (rsnano_node has to be in $PATH)
+Run a single node spam test, starting at 1 bps and continually increase bps.
+By default `nanospam` uses a sibling `rsnano` binary next to the `nanospam` executable when one exists,
+and otherwise falls back to `rsnano` from `PATH`.
 ```
 nanospam
 ```
@@ -19,6 +21,31 @@ nanospam --prs 4
 Run a 4 PR network and start with 1000 bps, then increase by 100 bps every 5 seconds:
 ```
 nanospam --prs 4 --rate 1000+100@5s
+```
+
+Run a RAI-enabled 4 PR network with short epochs, so close cut and close record elections happen during the test:
+```
+nanospam --prs 4 --blocks 10000 --rate 200 --rai-epoch-duration-ms 30000 --rai-close-attempt-duration-ms 3000 --rai-tick-interval-ms 250
+```
+
+When nanospam is built with the `rai_protocol` feature, it logs inbound RAI messages at `info`
+with the `nanospam::rai` target. Pending reports show the epoch and slot preview; certificate
+votes show the phase, election, certificate kind, scope, epoch, attempt, slot, value, voter, and
+vote hash.
+```
+cargo run -p nanospam --features rai_protocol -- --prs 4 --blocks 10000 --rate 200 --rai-epoch-duration-ms 30000 --rai-close-attempt-duration-ms 3000 --rai-tick-interval-ms 250
+```
+
+For release runs from this workspace, build the node and harness together so spawned nodes use the
+same patched code:
+```
+cargo build --release -p rsnano_cli -p nanospam --features rai_protocol
+target/release/nanospam --prs 4 --blocks 10000 --rate 200 --rai-epoch-duration-ms 30000 --rai-close-attempt-duration-ms 3000 --rai-tick-interval-ms 250
+```
+
+To force a specific Rust node binary:
+```
+nanospam --rsnano /path/to/rsnano --prs 4
 ```
 
 Publish 1000 blocks to a 4 PR network without ensuring that the previous block got confirmed
@@ -84,6 +111,10 @@ Options:
       --unconfirmed      Don't wait for a block to get confirmed before publishing the next block
       --sync             Query frontiers of the spam accounts before starting spam
       --change           Only publish change blocks. This requires --sync
+      --rsnano <RSNANO>  Path to the rsnano binary to launch
+      --rai-epoch-duration-ms <RAI_EPOCH_DURATION_MS>
+      --rai-close-attempt-duration-ms <RAI_CLOSE_ATTEMPT_DURATION_MS>
+      --rai-tick-interval-ms <RAI_TICK_INTERVAL_MS>
   -h, --help             Print help
 ```
 

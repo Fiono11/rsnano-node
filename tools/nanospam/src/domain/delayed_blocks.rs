@@ -14,6 +14,11 @@ pub(crate) struct DelayedBlocks {
     by_time: BTreeMap<Timestamp, Vec<BlockHash>>,
 }
 
+pub(crate) struct DelayedBlockConfirmation {
+    pub(crate) elapsed: Option<Duration>,
+    pub(crate) counts_toward_total: bool,
+}
+
 impl DelayedBlocks {
     #[allow(dead_code)]
     pub(crate) fn new() -> Self {
@@ -39,8 +44,18 @@ impl DelayedBlocks {
     }
 
     pub fn insert(&mut self, block: Block) {
+        self.insert_impl(block, true);
+    }
+
+    pub fn insert_probe(&mut self, block: Block) {
+        self.insert_impl(block, false);
+    }
+
+    fn insert_impl(&mut self, block: Block, counts_toward_total: bool) {
         let hash = block.hash();
-        if let Some(info) = self.blocks.insert(hash, PublishInfo::new(block))
+        if let Some(info) = self
+            .blocks
+            .insert(hash, PublishInfo::new(block, counts_toward_total))
             && let Some(old_sent) = info.last_publish
         {
             self.remove_from_time_index(&hash, old_sent);
@@ -62,12 +77,19 @@ impl DelayedBlocks {
         }
     }
 
-    pub fn confirmed(&mut self, hash: &BlockHash, timestamp: Timestamp) -> Option<Duration> {
+    pub fn confirmed(
+        &mut self,
+        hash: &BlockHash,
+        timestamp: Timestamp,
+    ) -> Option<DelayedBlockConfirmation> {
         if let Some(info) = self.blocks.remove(hash) {
             if let Some(sent) = info.last_publish {
                 self.remove_from_time_index(hash, sent);
             }
-            info.first_publish.map(|i| i.elapsed(timestamp))
+            Some(DelayedBlockConfirmation {
+                elapsed: info.first_publish.map(|i| i.elapsed(timestamp)),
+                counts_toward_total: info.counts_toward_total,
+            })
         } else {
             None
         }
@@ -91,14 +113,16 @@ struct PublishInfo {
     block: Block,
     first_publish: Option<Timestamp>,
     last_publish: Option<Timestamp>,
+    counts_toward_total: bool,
 }
 
 impl PublishInfo {
-    fn new(block: Block) -> Self {
+    fn new(block: Block, counts_toward_total: bool) -> Self {
         Self {
             block,
             first_publish: None,
             last_publish: None,
+            counts_toward_total,
         }
     }
 }
@@ -156,6 +180,21 @@ mod tests {
         delayed.confirmed(&hash, now);
 
         assert_eq!(delayed.len(), 0);
+    }
+
+    #[test]
+    fn probe_confirmations_are_not_counted_toward_total() {
+        let mut delayed = DelayedBlocks::new();
+        let now = Timestamp::new_test_instance();
+        let block = Block::new_test_instance();
+        let hash = block.hash();
+        delayed.insert_probe(block);
+        delayed.published(&hash, now);
+
+        let confirmation = delayed.confirmed(&hash, now).unwrap();
+
+        assert!(!confirmation.counts_toward_total);
+        assert_eq!(confirmation.elapsed, Some(Duration::ZERO));
     }
 
     #[test]

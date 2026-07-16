@@ -7,6 +7,8 @@ use rsnano_ledger::Ledger;
 use rsnano_network::Network;
 use rsnano_utils::stats::Stats;
 
+#[cfg(feature = "rai_protocol")]
+use crate::bootstrap::bootstrapper::RaiEpochBootstrap;
 use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
@@ -45,6 +47,9 @@ impl RequesterLoop {
         bootstrap_queue: Arc<BootstrapQueue>,
         frontier_scan: Arc<FrontierScan>,
         stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
+        #[cfg(feature = "rai_protocol")] rai_epoch_bootstrap: Arc<
+            std::sync::Mutex<Option<Arc<RaiEpochBootstrap>>>,
+        >,
     ) -> Self {
         let mut query_sender = QuerySender::new(
             message_sender,
@@ -66,6 +71,8 @@ impl RequesterLoop {
                 frontier_scan,
                 query_tracker,
                 peer_scoring,
+                #[cfg(feature = "rai_protocol")]
+                rai_epoch_bootstrap,
             ),
             bootstrap_queue,
             stopped,

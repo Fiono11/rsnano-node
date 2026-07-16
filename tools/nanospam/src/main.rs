@@ -6,6 +6,8 @@ mod frontiers_sync;
 mod handshake;
 mod high_prio_check;
 pub(crate) mod node_lifetime;
+#[cfg(feature = "rai_protocol")]
+mod rai_logging;
 mod setup;
 mod wallets_factory;
 

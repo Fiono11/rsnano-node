@@ -96,6 +96,21 @@ impl RaiCloseState {
         }
     }
 
+    pub fn is_slot_vote_acceptable(&self, epoch: RaiEpoch, slot: &RaiSlot) -> bool {
+        let Some(state) = self.epoch(epoch) else {
+            return true;
+        };
+
+        match state.phase {
+            RaiEpochPhase::Open => true,
+            RaiEpochPhase::Closing => state
+                .cut_set
+                .as_ref()
+                .map_or(true, |cut| cut.contains(slot)),
+            RaiEpochPhase::Closed => false,
+        }
+    }
+
     pub fn insert_pending_report(
         &mut self,
         report: RaiPendingReport,
@@ -201,6 +216,14 @@ impl RaiCloseState {
         let previous_close_hash = self.previous_close_hash(epoch)?;
         self.epoch_mut(epoch)
             .record_current_close_record_value(previous_close_hash)
+    }
+
+    pub fn close_record_hash_from_entries(
+        &self,
+        epoch: RaiEpoch,
+        entries: &CloseRecordEntries,
+    ) -> Result<BlockHash, RaiEpochTransitionError> {
+        Ok(Self::close_record_from_entries(self.previous_close_hash(epoch)?, entries).hash())
     }
 
     pub fn close_record_value(
@@ -1207,6 +1230,21 @@ mod tests {
 
         assert!(state.is_slot_vote_enabled(0, &slot(1)));
         assert!(!state.is_slot_vote_enabled(0, &slot(2)));
+    }
+
+    #[test]
+    fn closing_epoch_accepts_passive_votes_until_cut_is_installed() {
+        let mut state = RaiCloseState::new();
+
+        assert!(state.is_slot_vote_acceptable(0, &slot(1)));
+        state.start_closing(0).unwrap();
+        assert!(state.is_slot_vote_acceptable(0, &slot(1)));
+        state
+            .install_cut(0, [slot(1)].into_iter().collect())
+            .unwrap();
+
+        assert!(state.is_slot_vote_acceptable(0, &slot(1)));
+        assert!(!state.is_slot_vote_acceptable(0, &slot(2)));
     }
 
     #[test]

@@ -22,6 +22,9 @@ pub(crate) async fn create_wallets(
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
+    let spam_representatives: Vec<_> = (0..pr_count).map(|i| pr_key(i).public_key()).collect();
+    account_map.assign_representatives_round_robin(&spam_representatives);
+    let initial_representative = spam_representatives[0];
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
@@ -113,7 +116,7 @@ pub(crate) async fn create_wallets(
     let genesis_receive: Block = StateBlockArgs {
         key: &initial_key,
         previous: BlockHash::ZERO,
-        representative: initial_key.public_key(),
+        representative: initial_representative,
         balance: INITIAL_AMOUNT,
         link: genesis_send.into(),
         work: 0.into(),
@@ -127,10 +130,11 @@ pub(crate) async fn create_wallets(
 
     wait_until_confirmed(genesis_rpc, recv.hash).await;
 
-    account_map.set_account_state(
+    account_map.set_account_state_with_representative(
         initial_key.account(),
         INITIAL_AMOUNT,
         genesis_receive.hash(),
+        initial_representative,
     );
 
     genesis_wallet

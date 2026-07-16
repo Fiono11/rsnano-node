@@ -1,5 +1,6 @@
 use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
+use std::path::PathBuf;
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
@@ -42,6 +43,10 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = false)]
     pub cpp: bool,
 
+    /// Path to the rsnano binary to launch; defaults to a sibling binary next to nanospam, then PATH
+    #[arg(long)]
+    pub rsnano: Option<PathBuf>,
+
     /// Use RocksDB (works only for nano_node)
     #[arg(long, default_value_t = false)]
     pub rocksdb: bool,
@@ -73,6 +78,18 @@ pub(crate) struct CliArgs {
     /// Percentage of blocks that should have forks
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
+
+    /// RAI epoch duration for generated rsnano configs, in milliseconds
+    #[arg(long)]
+    pub rai_epoch_duration_ms: Option<u64>,
+
+    /// RAI close cut / close record attempt duration for generated rsnano configs, in milliseconds
+    #[arg(long)]
+    pub rai_close_attempt_duration_ms: Option<u64>,
+
+    /// RAI epoch loop tick interval for generated rsnano configs, in milliseconds
+    #[arg(long)]
+    pub rai_tick_interval_ms: Option<u64>,
 }
 
 impl CliArgs {

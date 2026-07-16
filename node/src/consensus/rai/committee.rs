@@ -62,8 +62,8 @@ impl RaiCommittee {
         members.sort_by_key(|member| member.account);
 
         Self {
+            thresholds: RaiCommitteeThresholds::for_size(members.len()),
             members,
-            thresholds: snapshot.thresholds,
         }
     }
 
@@ -181,7 +181,9 @@ pub struct RaiCommitteeThresholds {
 
 impl RaiCommitteeThresholds {
     pub fn for_size(size: usize) -> Self {
-        Self::with_faults(size, size.saturating_sub(1) / 3, 0)
+        let max_faulty = size.saturating_sub(1) / 3;
+        let max_offline = size.saturating_sub(3 * max_faulty + 1) / 2;
+        Self::with_faults(size, max_faulty, max_offline)
     }
 
     pub fn with_faults(size: usize, max_faulty: usize, max_offline: usize) -> Self {
@@ -507,6 +509,33 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![PublicKey::from(1), PublicKey::from(2), PublicKey::from(3)]
         );
+    }
+
+    #[test]
+    fn derives_fault_and_offline_thresholds_for_six_member_committee() {
+        let thresholds = RaiCommitteeThresholds::for_size(6);
+
+        assert_eq!(thresholds.max_faulty, 1);
+        assert_eq!(thresholds.max_offline, 1);
+        assert_eq!(thresholds.fast, 5);
+        assert_eq!(thresholds.notarization, 4);
+        assert_eq!(thresholds.finalization, 4);
+    }
+
+    #[test]
+    fn snapshot_load_recomputes_derived_thresholds() {
+        let committee = RaiCommittee::from_snapshot(RaiCommitteeSnapshot {
+            members: (1..=6)
+                .map(|account| RaiCommitteeMember {
+                    account: PublicKey::from(account),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+            thresholds: RaiCommitteeThresholds::with_faults(6, 1, 0),
+        });
+
+        assert_eq!(committee.thresholds().max_offline, 1);
+        assert_eq!(committee.thresholds().fast, 5);
     }
 
     #[test]

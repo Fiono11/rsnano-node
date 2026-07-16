@@ -115,9 +115,12 @@ impl SpamLogic {
         timestamp: Timestamp,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
-            let conf_time = self.delayed.confirmed(block_hash, timestamp);
+            let confirmation = self.delayed.confirmed(block_hash, timestamp);
 
-            if let Some(conf_time) = conf_time {
+            if let Some(confirmation) = confirmation
+                && confirmation.counts_toward_total
+                && let Some(conf_time) = confirmation.elapsed
+            {
                 if self.cps_measure_start.is_none() {
                     self.cps_measure_start = Some(timestamp);
                 }
@@ -168,4 +171,34 @@ pub(crate) struct SpamStats {
     pub(crate) target_bps: usize,
     pub(crate) current_cps: i32,
     pub(crate) average_conf_time: Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::Block;
+
+    #[test]
+    fn probe_confirmations_do_not_increment_workload_counters() {
+        let mut logic = SpamLogic::new(
+            AccountMap::default(),
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 1,
+                rate: RateSpec::new(1),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+        );
+        let now = Timestamp::new_test_instance();
+        let block = Block::new_test_instance();
+        let hash = block.hash();
+        logic.delayed.insert_probe(block);
+        logic.delayed.published(&hash, now);
+
+        logic.confirmed(&hash, now);
+
+        assert_eq!(logic.confirmed_total, 0);
+        assert_eq!(logic.sum_conf_time_total, Duration::ZERO);
+    }
 }

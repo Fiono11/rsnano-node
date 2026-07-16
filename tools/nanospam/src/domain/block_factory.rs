@@ -107,7 +107,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative: state.representative,
             balance: state.balance + amount_sent,
             link: send_hash.into(),
             work: 0.into(),
@@ -145,7 +145,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let send: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative: state.representative,
             balance: new_balance,
             link: destination.into(),
             work: 0.into(),
@@ -188,16 +188,17 @@ fn create_change_block(account_map: &mut AccountMap) -> BlockResult {
     let Some(state) = account_map.random_account_that_can_send() else {
         return BlockResult::Waiting;
     };
+    let representative = PublicKey::from_bytes(rand::rng().random());
     let block: Block = StateBlockArgs {
         key: &state.key,
         previous: state.confirmed_frontier,
-        representative: PublicKey::from_bytes(rand::rng().random()),
+        representative,
         balance: state.balance,
         link: Link::ZERO,
         work: WorkNonce::new(0),
     }
     .into();
-    account_map.process_change(state.key.account(), block.hash());
+    account_map.process_change(state.key.account(), block.hash(), representative);
     BlockResult::Block(Forks::new(block))
 }
 
@@ -239,6 +240,22 @@ mod tests {
         let receive = block_factory.create_next(false).unwrap().unwrap();
         assert_eq!(receive.account_field().unwrap(), account);
         assert_eq!(receive.link_field().unwrap(), send.hash().into());
+    }
+
+    #[test]
+    fn send_receive_blocks_keep_stored_representative() {
+        let representative = PublicKey::from(99);
+        let mut account_map = test_account_map();
+        account_map.set_representative_for_all(representative);
+        let mut block_factory =
+            BlockFactory::new(account_map, MAX_BLOCKS, SpamStrategy::SendReceive);
+
+        let send = block_factory.create_next(false).unwrap().unwrap();
+        assert_eq!(send.representative_field(), Some(representative));
+        block_factory.confirm(&send.hash());
+
+        let receive = block_factory.create_next(false).unwrap().unwrap();
+        assert_eq!(receive.representative_field(), Some(representative));
     }
 
     #[test]

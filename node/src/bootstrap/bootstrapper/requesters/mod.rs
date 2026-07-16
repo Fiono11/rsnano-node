@@ -15,6 +15,8 @@ use rsnano_ledger::Ledger;
 use rsnano_network::Network;
 use rsnano_utils::stats::{Stats, StatsCollection, StatsSource};
 
+#[cfg(feature = "rai_protocol")]
+use crate::bootstrap::bootstrapper::RaiEpochBootstrap;
 use crate::{
     bootstrap::bootstrapper::{
         BootstrapConfig, StoppedFlag,
@@ -42,6 +44,8 @@ pub(crate) struct Requesters {
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
     frontier_scan: Arc<FrontierScan>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_bootstrap: Arc<Mutex<Option<Arc<RaiEpochBootstrap>>>>,
 }
 
 impl Requesters {
@@ -55,6 +59,9 @@ impl Requesters {
         bootstrap_queue: Arc<BootstrapQueue>,
         network: Arc<RwLock<Network>>,
         frontier_scan: Arc<FrontierScan>,
+        #[cfg(feature = "rai_protocol")] rai_epoch_bootstrap: Arc<
+            Mutex<Option<Arc<RaiEpochBootstrap>>>,
+        >,
     ) -> Self {
         Self {
             config,
@@ -69,6 +76,8 @@ impl Requesters {
             stats_sources: Mutex::new(Vec::new()),
             frontier_scan,
             stopped: Arc::new(NullableCondvarMutex::new(StoppedFlag::default())),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap,
         }
     }
 
@@ -91,6 +100,8 @@ impl Requesters {
             self.bootstrap_queue.clone(),
             self.frontier_scan.clone(),
             self.stopped.clone(),
+            #[cfg(feature = "rai_protocol")]
+            self.rai_epoch_bootstrap.clone(),
         );
         let join_handle = std::thread::Builder::new()
             .name("Bootstrap".to_string())

@@ -16,6 +16,8 @@ pub enum QueryType {
     BlocksByAccount,
     AccountInfoByHash,
     Frontiers,
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose,
 }
 
 impl From<QueryType> for DetailType {
@@ -26,6 +28,8 @@ impl From<QueryType> for DetailType {
             QueryType::BlocksByAccount => DetailType::BlocksByAccount,
             QueryType::AccountInfoByHash => DetailType::AccountInfoByHash,
             QueryType::Frontiers => DetailType::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            QueryType::RaiEpochClose => DetailType::RaiEpochClose,
         }
     }
 }
@@ -35,6 +39,8 @@ pub enum QuerySource {
     Priority,
     Dependencies,
     Frontiers,
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose,
 }
 
 /// Information about a running bootstrap query that hasn't been responded yet
@@ -97,6 +103,13 @@ impl RunningQuery {
                 i.target,
                 0,
             ),
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(i) => (
+                QuerySource::RaiEpochClose,
+                QueryType::RaiEpochClose,
+                HashOrAccount::from(BlockHash::ZERO),
+                i.max_entries as usize,
+            ),
         };
 
         Self {
@@ -121,6 +134,8 @@ impl RunningQuery {
             ),
             AscPullAckType::AccountInfo(_) => self.query_type == QueryType::AccountInfoByHash,
             AscPullAckType::Frontiers(_) => self.query_type == QueryType::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(_) => self.query_type == QueryType::RaiEpochClose,
         }
     }
 

@@ -2,7 +2,7 @@ use rand::{
     rng,
     seq::{IndexedRandom, IteratorRandom},
 };
-use rsnano_types::{Account, Amount, BlockHash, PrivateKey};
+use rsnano_types::{Account, Amount, BlockHash, PrivateKey, PublicKey};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Default)]
@@ -31,6 +31,7 @@ struct UnconfirmedEntry {
 
 pub(crate) struct AccountState {
     pub key: PrivateKey,
+    pub representative: PublicKey,
     pub confirmed_frontier: BlockHash,
     pub unconfirmed_frontier: BlockHash,
     pub balance: Amount,
@@ -63,7 +64,19 @@ impl AccountMap {
     }
 
     pub fn set_account_state(&mut self, account: Account, balance: Amount, frontier: BlockHash) {
+        let representative = self.account_states.get(&account).unwrap().representative;
+        self.set_account_state_with_representative(account, balance, frontier, representative);
+    }
+
+    pub fn set_account_state_with_representative(
+        &mut self,
+        account: Account,
+        balance: Amount,
+        frontier: BlockHash,
+        representative: PublicKey,
+    ) {
         let state = self.account_states.get_mut(&account).unwrap();
+        state.representative = representative;
         state.balance = balance;
         state.unconfirmed_frontier = frontier;
         state.confirmed_frontier = frontier;
@@ -92,6 +105,7 @@ impl AccountMap {
         self.account_states.insert(
             account,
             AccountState {
+                representative: key.public_key(),
                 key,
                 confirmed_frontier: BlockHash::ZERO,
                 unconfirmed_frontier: BlockHash::ZERO,
@@ -103,6 +117,21 @@ impl AccountMap {
 
     pub fn state(&self, account: &Account) -> Option<&AccountState> {
         self.account_states.get(account)
+    }
+
+    pub fn set_representative_for_all(&mut self, representative: PublicKey) {
+        for state in self.account_states.values_mut() {
+            state.representative = representative;
+        }
+    }
+
+    pub fn assign_representatives_round_robin(&mut self, representatives: &[PublicKey]) {
+        assert!(!representatives.is_empty());
+
+        for (index, account) in self.all_accounts.clone().into_iter().enumerate() {
+            let state = self.account_states.get_mut(&account).unwrap();
+            state.representative = representatives[index % representatives.len()];
+        }
     }
 
     pub fn random_account(&self) -> Option<Account> {
@@ -179,8 +208,9 @@ impl AccountMap {
         );
     }
 
-    pub fn process_change(&mut self, account: Account, hash: BlockHash) {
+    pub fn process_change(&mut self, account: Account, hash: BlockHash, representative: PublicKey) {
         let state = self.account_states.get_mut(&account).unwrap();
+        state.representative = representative;
         state.unconfirmed_frontier = hash;
         self.confirmed_accounts.remove(&account);
         self.unconfirmed.insert(
@@ -287,6 +317,33 @@ mod tests {
         );
         assert_eq!(map.random_account(), Some(key.account()));
         assert!(map.random_account_that_can_send().is_none());
+    }
+
+    #[test]
+    fn assigns_representatives_round_robin() {
+        let mut map = AccountMap::default();
+        let first = PrivateKey::from(1);
+        let second = PrivateKey::from(2);
+        let third = PrivateKey::from(3);
+        let representatives = [PublicKey::from(100), PublicKey::from(200)];
+        map.add_unopened(first.clone());
+        map.add_unopened(second.clone());
+        map.add_unopened(third.clone());
+
+        map.assign_representatives_round_robin(&representatives);
+
+        assert_eq!(
+            map.state(&first.account()).unwrap().representative,
+            representatives[0]
+        );
+        assert_eq!(
+            map.state(&second.account()).unwrap().representative,
+            representatives[1]
+        );
+        assert_eq!(
+            map.state(&third.account()).unwrap().representative,
+            representatives[0]
+        );
     }
 
     #[test]

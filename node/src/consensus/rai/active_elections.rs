@@ -5,11 +5,13 @@ use std::{
 };
 
 use rsnano_types::{
-    PublicKey, RaiElectionId, RaiElectionValue, RaiSlot, RaiVote, RaiVoteKind, VoteError,
+    PublicKey, RaiElectionId, RaiElectionValue, RaiEpoch, RaiSlot, RaiVote, RaiVoteKind, VoteError,
 };
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
-use super::{NoopRaiStatePersistence, RaiCommittee, RaiCommitteeSet, RaiStatePersistence};
+use super::{
+    NoopRaiStatePersistence, RaiCommittee, RaiCommitteeSet, RaiStatePersistence, VisibleSlots,
+};
 
 pub struct RaiActiveElections {
     data: RwLock<RaiActiveElectionsData>,
@@ -117,6 +119,29 @@ impl RaiActiveElections {
                 _ => None,
             })
             .collect()
+    }
+
+    pub fn discard_slots_outside_cut(&self, epoch: RaiEpoch, cut: &VisibleSlots) -> bool {
+        let snapshot = {
+            let mut guard = self.data.write().unwrap();
+            let before = guard.elections.len();
+            guard.elections.retain(|election_id, _| match election_id {
+                RaiElectionId::Slot {
+                    slot,
+                    epoch: slot_epoch,
+                } if *slot_epoch == epoch => cut.contains(slot),
+                _ => true,
+            });
+
+            if guard.elections.len() == before {
+                return false;
+            }
+
+            guard.snapshot()
+        };
+
+        self.persistence.save_active_elections(&snapshot);
+        true
     }
 
     pub fn apply_vote(
@@ -653,9 +678,18 @@ impl RaiVoteState {
     fn ensure_can_apply(&self, vote: &RaiVote) -> Result<(), VoteError> {
         match vote.kind {
             RaiVoteKind::First => {
-                if self.first.is_some() {
-                    Err(VoteError::Replay)
-                } else if self.final_vote.is_some() {
+                if let Some(first) = &self.first {
+                    if first == &vote.value {
+                        Err(VoteError::Replay)
+                    } else {
+                        Err(VoteError::Invalid)
+                    }
+                } else if self.final_vote.is_some()
+                    || self
+                        .notarized
+                        .iter()
+                        .any(|notarized| notarized != &vote.value)
+                {
                     Err(VoteError::Invalid)
                 } else {
                     Ok(())
@@ -905,6 +939,46 @@ mod tests {
         let election = elections.election(&election_id).unwrap();
         assert_eq!(election.tally(&value), 1);
         assert_eq!(election.winner(), Some(&value));
+    }
+
+    #[test]
+    fn discards_epoch_slots_outside_cut() {
+        let elections = RaiActiveElections::new();
+        let included_slot = RaiSlot::new(Account::from(1), 1);
+        let excluded_slot = RaiSlot::new(Account::from(2), 1);
+        let included = RaiElectionId::Slot {
+            slot: included_slot,
+            epoch: 1,
+        };
+        let excluded = RaiElectionId::Slot {
+            slot: excluded_slot,
+            epoch: 1,
+        };
+        let previous_epoch = RaiElectionId::Slot {
+            slot: excluded_slot,
+            epoch: 0,
+        };
+        let close_cut = RaiElectionId::CloseCut {
+            epoch: 1,
+            attempt: 0,
+        };
+        let cut = [included_slot].into_iter().collect();
+
+        for election_id in [
+            included.clone(),
+            excluded.clone(),
+            previous_epoch.clone(),
+            close_cut.clone(),
+        ] {
+            elections.insert(election_id).unwrap();
+        }
+
+        assert!(elections.discard_slots_outside_cut(1, &cut));
+        assert!(elections.contains(&included));
+        assert!(!elections.contains(&excluded));
+        assert!(elections.contains(&previous_epoch));
+        assert!(elections.contains(&close_cut));
+        assert!(!elections.discard_slots_outside_cut(1, &cut));
     }
 
     #[test]
@@ -1158,6 +1232,75 @@ mod tests {
             elections.apply_vote(&second, &committees),
             Err(VoteError::Replay)
         );
+    }
+
+    #[test]
+    fn conflicting_first_vote_from_same_rep_is_invalid() {
+        let elections = RaiActiveElections::new();
+        let election_id = slot_election(1);
+        let first_value = RaiElectionValue::Block(BlockHash::from(3));
+        let conflicting_value = RaiElectionValue::Block(BlockHash::from(4));
+        let key = PrivateKey::from(1);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
+
+        elections.insert(election_id.clone()).unwrap();
+        assert_eq!(
+            elections.apply_vote(
+                &RaiVote::new_first(&key, election_id.clone(), first_value.clone()),
+                &committees
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            elections.apply_vote(
+                &RaiVote::new_first(&key, election_id.clone(), conflicting_value.clone()),
+                &committees
+            ),
+            Err(VoteError::Invalid)
+        );
+
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(election.tally(&first_value), 1);
+        assert_eq!(election.tally(&conflicting_value), 0);
+        assert_eq!(
+            election.vote_state_snapshots(),
+            vec![RaiVoteStateSnapshot {
+                voter: key.public_key(),
+                committee_index: 0,
+                first: Some(first_value),
+                notarized: Vec::new(),
+                final_vote: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn conflicting_first_vote_after_notarization_is_invalid() {
+        let elections = RaiActiveElections::new();
+        let election_id = slot_election(1);
+        let notarized_value = RaiElectionValue::Block(BlockHash::from(3));
+        let conflicting_value = RaiElectionValue::Block(BlockHash::from(4));
+        let key = PrivateKey::from(1);
+        let committees = committee([(key.public_key(), Amount::raw(100))]);
+
+        elections.insert(election_id.clone()).unwrap();
+        assert_eq!(
+            elections.apply_vote(
+                &RaiVote::new_notarization(&key, election_id.clone(), notarized_value.clone()),
+                &committees
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            elections.apply_vote(
+                &RaiVote::new_first(&key, election_id.clone(), conflicting_value.clone()),
+                &committees
+            ),
+            Err(VoteError::Invalid)
+        );
+
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(election.tally(&conflicting_value), 0);
     }
 
     #[test]

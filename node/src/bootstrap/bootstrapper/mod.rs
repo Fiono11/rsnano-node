@@ -4,6 +4,8 @@ mod bootstrap_queue;
 mod frontier_scan;
 mod ledger_observer;
 mod peer_scoring;
+#[cfg(feature = "rai_protocol")]
+mod rai_epoch_bootstrap;
 mod requesters;
 mod response_processor;
 
@@ -13,6 +15,10 @@ pub use bootstrap_queue::{
     BootstrapQueueConfig, BootstrapQueueInfo, BootstrapQueueSnapshot, BootstrappingAccountInfo,
 };
 pub use peer_scoring::PeerScoreSnapshot;
+#[cfg(feature = "rai_protocol")]
+use rai_epoch_bootstrap::RaiEpochBlockRequester;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use rai_epoch_bootstrap::RaiEpochBootstrap;
 
 use std::{
     sync::{Arc, Mutex, RwLock},
@@ -22,13 +28,15 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{Ledger, LedgerEvent, LedgerSet, ProcessResult};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
 use rsnano_network::{Channel, ChannelEvent, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{RaiSlot, SavedBlock};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -39,6 +47,9 @@ use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
     transport::MessageSender,
 };
+
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::{RaiCloseState, RaiCommitteeProvider, RaiStatePersistence};
 
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
@@ -81,6 +92,8 @@ impl AscPullQuerySpec {
             },
             AscPullReqType::AccountInfo(_) => QueryType::AccountInfoByHash,
             AscPullReqType::Frontiers(_) => QueryType::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(_) => QueryType::RaiEpochClose,
         }
     }
 }
@@ -149,6 +162,8 @@ pub struct Bootstrapper {
     ledger: Arc<Ledger>,
     frontier_scan: Arc<FrontierScan>,
     stopped: Arc<NullableCondvarMutex<StoppedFlag>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_bootstrap: Arc<Mutex<Option<Arc<RaiEpochBootstrap>>>>,
 }
 
 impl Bootstrapper {
@@ -223,6 +238,8 @@ impl Bootstrapper {
     ) -> Self {
         let peer_scoring = Arc::new(PeerScoring::new(config.channel_limit));
         let query_tracker = Arc::new(QueryTracker::new(stats.clone()));
+        #[cfg(feature = "rai_protocol")]
+        let rai_epoch_bootstrap = Arc::new(Mutex::new(None));
 
         let response_handler = ResponseProcessor::new(
             query_tracker.clone(),
@@ -230,6 +247,8 @@ impl Bootstrapper {
             bootstrap_queue.clone(),
             block_processor_queue.clone(),
             frontier_scan.clone(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap.clone(),
         );
 
         let mut ledger_observer = LedgerObserver::new(
@@ -250,6 +269,8 @@ impl Bootstrapper {
             bootstrap_queue.clone(),
             network,
             frontier_scan.clone(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap.clone(),
         );
 
         Self {
@@ -266,7 +287,32 @@ impl Bootstrapper {
             bootstrap_queue,
             frontier_scan,
             stopped: stopped.into(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap,
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn set_rai_epoch_bootstrap(&self, rai_epoch_bootstrap: Arc<RaiEpochBootstrap>) {
+        *self.rai_epoch_bootstrap.lock().unwrap() = Some(rai_epoch_bootstrap);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn install_rai_epoch_bootstrap(
+        bootstrapper: &Arc<Self>,
+        close_state: Arc<RwLock<RaiCloseState>>,
+        committee_provider: Arc<dyn RaiCommitteeProvider>,
+        persistence: Arc<dyn RaiStatePersistence>,
+    ) {
+        let block_requester = Arc::new(BootstrapperRaiEpochBlockRequester {
+            bootstrapper: Arc::downgrade(bootstrapper),
+        });
+        bootstrapper.set_rai_epoch_bootstrap(Arc::new(RaiEpochBootstrap::new(
+            close_state,
+            committee_provider,
+            persistence,
+            block_requester,
+        )));
     }
 
     pub fn stop(&self) {
@@ -379,6 +425,23 @@ impl Bootstrapper {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn inspect_confirmed_blocks(&self, confirmed: &[(SavedBlock, BlockHash)]) {
+        if let Some(rai_epoch_bootstrap) = self.rai_epoch_bootstrap.lock().unwrap().as_ref() {
+            rai_epoch_bootstrap.record_confirmed_blocks(confirmed);
+
+            // TODO don't use this hack to wake up the requester
+            self.stopped.notify_all();
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn try_install_rai_bootstrap_epochs(&self) {
+        if let Some(rai_epoch_bootstrap) = self.rai_epoch_bootstrap.lock().unwrap().as_ref() {
+            rai_epoch_bootstrap.try_install_available_epochs();
+        }
+    }
+
     fn run_timeouts(&self) {
         let mut stopped = self.stopped.lock();
         let mut last_sync = self.clock.now();
@@ -386,6 +449,8 @@ impl Bootstrapper {
             self.response_handler.process_timeouts();
             self.peer_scoring.decay();
             self.bootstrap_queue.decay();
+            #[cfg(feature = "rai_protocol")]
+            self.try_install_rai_bootstrap_epochs();
 
             if last_sync.elapsed(self.clock.now()) >= Duration::from_mins(1) {
                 self.bootstrap_queue.sync_dependencies();
@@ -419,6 +484,56 @@ impl Bootstrapper {
 
     pub fn is_bootstrapping(&self) -> bool {
         self.ledger.rep_weights.use_bootstrap_weights()
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+struct BootstrapperRaiEpochBlockRequester {
+    bootstrapper: std::sync::Weak<Bootstrapper>,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RaiEpochBlockRequester for BootstrapperRaiEpochBlockRequester {
+    fn request_confirmed_slots(&self, slots: &[RaiSlot]) {
+        let Some(bootstrapper) = self.bootstrapper.upgrade() else {
+            return;
+        };
+
+        let accounts = slots
+            .iter()
+            .map(|slot| slot.account)
+            .collect::<std::collections::BTreeSet<_>>();
+        let account_count = accounts.len();
+        if account_count == 0 {
+            return;
+        }
+
+        bootstrapper.enqueue_safe(accounts);
+        tracing::debug!(
+            missing_slots = slots.len(),
+            account_count,
+            "RAI bootstrap enqueued accounts for missing confirmed cut slots"
+        );
+    }
+
+    fn confirmed_block_hash(&self, slot: &RaiSlot) -> Option<BlockHash> {
+        let bootstrapper = self.bootstrapper.upgrade()?;
+        let any = bootstrapper.ledger.any();
+        let conf_info = any.confirmed().get_conf_info(&slot.account)?;
+        if conf_info.height < slot.account_height {
+            return None;
+        }
+
+        let mut current = any.confirmed().get_block(&conf_info.frontier)?;
+        loop {
+            if current.height() == slot.account_height {
+                return Some(current.hash());
+            }
+            if current.height() < slot.account_height || current.previous().is_zero() {
+                return None;
+            }
+            current = any.confirmed().get_block(&current.previous())?;
+        }
     }
 }
 
@@ -488,6 +603,10 @@ impl EventHandler<LedgerPipelineEvent> for Bootstrapper {
             }
             LedgerPipelineEvent::Ledger(LedgerEvent::BlocksRolledBack(rolled_back)) => {
                 self.unblock_batch(rolled_back.affected_accounts());
+            }
+            #[cfg(feature = "rai_protocol")]
+            LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(confirmed)) => {
+                self.inspect_confirmed_blocks(confirmed);
             }
             _ => {}
         }

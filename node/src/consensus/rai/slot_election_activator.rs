@@ -162,8 +162,31 @@ mod tests {
         assert!(!fixture.active_elections.contains(&election_id));
     }
 
+    #[test]
+    fn live_processed_block_does_not_start_slot_election_while_closing_before_cut() {
+        let fixture = Fixture::new();
+        let block = SavedBlock::new_test_instance();
+        fixture
+            .close_state
+            .write()
+            .unwrap()
+            .start_closing(0)
+            .unwrap();
+        let event =
+            LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(vec![processed_block(
+                &block,
+                Ok(()),
+            )]));
+
+        fixture.activator.handle(&event);
+
+        let election_id = slot_election_id(&block);
+        assert!(!fixture.active_elections.contains(&election_id));
+    }
+
     struct Fixture {
         active_elections: Arc<RaiActiveElections>,
+        close_state: Arc<RwLock<RaiCloseState>>,
         activator: RaiSlotElectionActivator,
     }
 
@@ -191,7 +214,7 @@ mod tests {
             let message_flooder = Arc::new(Mutex::new(MessageFlooder::new_null()));
             let activator = RaiSlotElectionActivator::new(
                 active_elections.clone(),
-                close_state,
+                close_state.clone(),
                 vote_processor,
                 wallet_reps,
                 message_flooder,
@@ -199,6 +222,7 @@ mod tests {
 
             Self {
                 active_elections,
+                close_state,
                 activator,
             }
         }

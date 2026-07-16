@@ -127,7 +127,7 @@ impl DeserializedMessage {
 }
 
 impl Message {
-    pub const MAX_MESSAGE_SIZE: usize = 1024 * 65;
+    pub const MAX_MESSAGE_SIZE: usize = 256 * 1024;
 
     pub fn message_type(&self) -> MessageType {
         match &self {

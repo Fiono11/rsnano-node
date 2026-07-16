@@ -65,19 +65,11 @@ impl<'a> RaiAdmissibility<'a> {
             }
             (RaiElectionId::Slot { .. }, RaiElectionValue::Timeout) => Ok(()),
             (RaiElectionId::CloseCut { epoch, .. }, RaiElectionValue::CloseCutHash(hash)) => {
-                let Some(close_value) = self.close_state.close_value(*epoch, hash) else {
+                if self.close_state.close_value(*epoch, hash).is_none() {
                     return Err(RaiAdmissibilityError::UnknownCloseCut);
-                };
-
-                if self
-                    .close_state
-                    .visible_slots(*epoch)
-                    .is_some_and(|visible| visible.iter().all(|slot| close_value.contains(slot)))
-                {
-                    return Ok(());
                 }
 
-                Err(RaiAdmissibilityError::IncompleteCloseCut)
+                Ok(())
             }
             (RaiElectionId::CloseCut { .. }, RaiElectionValue::Timeout) => Ok(()),
             (

@@ -142,11 +142,13 @@ impl<'a> HighPrioCheck<'a> {
 
             {
                 let mut logic = self.logic.lock().unwrap();
-                logic.delayed.insert(block.clone());
+                logic.delayed.insert_probe(block.clone());
                 logic.high_prio_tracker.enqueued(hash);
             }
 
-            tx_forks.send(Forks::new(block)).await.unwrap();
+            if tx_forks.send(Forks::new(block)).await.is_err() {
+                break;
+            }
             let (_, frontier, height) = self.accounts.get_mut(&account).unwrap();
             *frontier = hash;
             *height += 1;

@@ -52,4 +52,15 @@ mod tests {
 
         assert_deserializable(&Message::RaiPendingReport(report));
     }
+
+    #[test]
+    fn serialize_large_rai_pending_report() {
+        let key = PrivateKey::from(1);
+        let slots = (0..2850)
+            .map(|height| RaiSlot::new(Account::from(height + 1), height as u64))
+            .collect();
+        let report = RaiPendingReport::new(&key, 2, slots);
+
+        assert_deserializable(&Message::RaiPendingReport(report));
+    }
 }

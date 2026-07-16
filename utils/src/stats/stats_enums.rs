@@ -276,6 +276,8 @@ pub enum DetailType {
     ChannelFull,
     Frontiers,
     AccountInfo,
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose,
 
     // backlog
     Activated,

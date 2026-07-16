@@ -37,6 +37,8 @@ pub(crate) const NODE_CONFIG: &str = r#"
 [node.bounded_backlog]
     enable = false
 
+RAI_CONFIG
+
 [node.bootstrap_server]
     # default 500
     limiter = 500
@@ -101,7 +103,8 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
-                .replace("CPS_LIMIT", &args.cps_limit.to_string());
+                .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace("RAI_CONFIG", &rai_config(args));
             std::fs::write(node_config_path, node_config).unwrap();
         }
 
@@ -113,6 +116,28 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             std::fs::write(rpc_config_path, rpc_config).unwrap();
         }
     }
+}
+
+fn rai_config(args: &CliArgs) -> String {
+    if args.cpp
+        || (args.rai_epoch_duration_ms.is_none()
+            && args.rai_close_attempt_duration_ms.is_none()
+            && args.rai_tick_interval_ms.is_none())
+    {
+        return String::new();
+    }
+
+    let mut result = String::from("[node.rai]\n");
+    if let Some(duration) = args.rai_epoch_duration_ms {
+        result.push_str(&format!("    epoch_duration = {duration}\n"));
+    }
+    if let Some(duration) = args.rai_close_attempt_duration_ms {
+        result.push_str(&format!("    close_attempt_duration = {duration}\n"));
+    }
+    if let Some(interval) = args.rai_tick_interval_ms {
+        result.push_str(&format!("    tick_interval = {interval}\n"));
+    }
+    result
 }
 
 fn preconfigured_peers(prs: usize, current_pr: usize) -> String {

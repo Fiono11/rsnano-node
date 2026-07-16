@@ -25,7 +25,8 @@ pub const RAI_ELECTION_VALUE_KIND_CLOSE_CUT_HASH: u8 = 1;
 pub const RAI_ELECTION_VALUE_KIND_CLOSE_RECORD_HASH: u8 = 2;
 pub const RAI_ELECTION_VALUE_KIND_TIMEOUT: u8 = 3;
 
-pub const RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE: usize = 65 * 1024;
+pub const RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE: usize = 256 * 1024;
+pub const RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES: u16 = 512;
 
 const RAI_VOTE_HASH_PREFIX: &[u8] = b"rai vote ";
 const RAI_CLOSE_RECORD_HASH_PREFIX: &[u8] = b"rai close record ";
@@ -613,6 +614,263 @@ impl RaiPendingReport {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize)]
+pub struct RaiEpochCloseReq {
+    pub epoch: RaiEpoch,
+    pub start_index: u32,
+    pub max_entries: u16,
+}
+
+impl RaiEpochCloseReq {
+    pub fn new(epoch: RaiEpoch, start_index: u32) -> Self {
+        Self {
+            epoch,
+            start_index,
+            max_entries: RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES,
+        }
+    }
+
+    pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let epoch = read_u64_be(reader)?;
+        let start_index = crate::read_u32_be(reader)?;
+        let max_entries = read_u16_be(reader)?;
+        if max_entries == 0 || max_entries > RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES {
+            return Err(DeserializationError::InvalidData);
+        }
+        Ok(Self {
+            epoch,
+            start_index,
+            max_entries,
+        })
+    }
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        writer.write_all(&self.epoch.to_be_bytes())?;
+        writer.write_all(&self.start_index.to_be_bytes())?;
+        writer.write_all(&self.max_entries.to_be_bytes())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RaiEpochCloseAck {
+    pub page: Option<RaiEpochClosePage>,
+}
+
+impl RaiEpochCloseAck {
+    pub fn unavailable() -> Self {
+        Self { page: None }
+    }
+
+    pub fn new(page: RaiEpochClosePage) -> Self {
+        Self { page: Some(page) }
+    }
+
+    pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+        let available = read_u8(&mut bytes)?;
+        match available {
+            0 => {
+                if !bytes.is_empty() {
+                    return Err(DeserializationError::TooMuchData);
+                }
+                Ok(Self::unavailable())
+            }
+            1 => {
+                let page = RaiEpochClosePage::deserialize(&mut bytes)?;
+                if !bytes.is_empty() {
+                    return Err(DeserializationError::TooMuchData);
+                }
+                Ok(Self::new(page))
+            }
+            _ => Err(DeserializationError::InvalidData),
+        }
+    }
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        match &self.page {
+            Some(page) => {
+                writer.write_all(&[1])?;
+                page.serialize(writer)
+            }
+            None => writer.write_all(&[0]),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RaiEpochClosePage {
+    pub epoch: RaiEpoch,
+    pub total_entries: u32,
+    pub start_index: u32,
+    pub close_hash: BlockHash,
+    pub entries: Vec<RaiEpochCloseEntry>,
+}
+
+impl RaiEpochClosePage {
+    pub fn new(
+        epoch: RaiEpoch,
+        total_entries: u32,
+        start_index: u32,
+        close_hash: BlockHash,
+        entries: Vec<RaiEpochCloseEntry>,
+    ) -> Self {
+        assert!(entries.len() <= RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES as usize);
+        Self {
+            epoch,
+            total_entries,
+            start_index,
+            close_hash,
+            entries,
+        }
+    }
+
+    fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let epoch = read_u64_be(reader)?;
+        let total_entries = crate::read_u32_be(reader)?;
+        let start_index = crate::read_u32_be(reader)?;
+        let close_hash = BlockHash::deserialize(reader)?;
+        let count = read_u16_be(reader)? as usize;
+        if count > RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES as usize {
+            return Err(DeserializationError::TooMuchData);
+        }
+        let end_index = start_index
+            .checked_add(count as u32)
+            .ok_or(DeserializationError::InvalidData)?;
+        if end_index > total_entries {
+            return Err(DeserializationError::InvalidData);
+        }
+
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            entries.push(RaiEpochCloseEntry::deserialize(reader)?);
+        }
+
+        Ok(Self {
+            epoch,
+            total_entries,
+            start_index,
+            close_hash,
+            entries,
+        })
+    }
+
+    fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        debug_assert!(self.entries.len() <= RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES as usize);
+        writer.write_all(&self.epoch.to_be_bytes())?;
+        writer.write_all(&self.total_entries.to_be_bytes())?;
+        writer.write_all(&self.start_index.to_be_bytes())?;
+        self.close_hash.serialize(writer)?;
+        writer.write_all(&(self.entries.len() as u16).to_be_bytes())?;
+        for entry in &self.entries {
+            entry.serialize(writer)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RaiEpochCloseEntry {
+    pub slot: RaiSlot,
+    pub state: RaiEpochCloseEntryState,
+}
+
+impl RaiEpochCloseEntry {
+    pub const SERIALIZED_SIZE: usize =
+        RaiSlot::SERIALIZED_SIZE + std::mem::size_of::<u8>() + BlockHash::SERIALIZED_SIZE;
+
+    fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let slot = RaiSlot::deserialize(reader)?;
+        let state = RaiEpochCloseEntryState::deserialize(reader)?;
+        Ok(Self { slot, state })
+    }
+
+    fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        self.slot.serialize(writer)?;
+        self.state.serialize(writer)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RaiEpochCloseEntryState {
+    Finalized(BlockHash),
+    Carry(BlockHash),
+    Released,
+}
+
+impl RaiEpochCloseEntryState {
+    fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
+    where
+        T: Read,
+    {
+        let kind = RaiEpochCloseEntryStateKind::from_u8(read_u8(reader)?)
+            .ok_or(DeserializationError::InvalidData)?;
+        let hash = BlockHash::deserialize(reader)?;
+        match kind {
+            RaiEpochCloseEntryStateKind::Finalized => Ok(Self::Finalized(hash)),
+            RaiEpochCloseEntryStateKind::Carry => Ok(Self::Carry(hash)),
+            RaiEpochCloseEntryStateKind::Released if hash.is_zero() => Ok(Self::Released),
+            RaiEpochCloseEntryStateKind::Released => Err(DeserializationError::InvalidData),
+        }
+    }
+
+    fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: Write,
+    {
+        match self {
+            Self::Finalized(hash) => {
+                writer.write_all(&[RaiEpochCloseEntryStateKind::Finalized as u8])?;
+                hash.serialize(writer)
+            }
+            Self::Carry(hash) => {
+                writer.write_all(&[RaiEpochCloseEntryStateKind::Carry as u8])?;
+                hash.serialize(writer)
+            }
+            Self::Released => {
+                writer.write_all(&[RaiEpochCloseEntryStateKind::Released as u8])?;
+                BlockHash::ZERO.serialize(writer)
+            }
+        }
+    }
+}
+
+#[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+enum RaiEpochCloseEntryStateKind {
+    Finalized = 0,
+    Carry = 1,
+    Released = 2,
+}
+
+fn read_u16_be<T>(reader: &mut T) -> std::io::Result<u16>
+where
+    T: Read,
+{
+    let mut buffer = [0; 2];
+    reader.read_exact(&mut buffer)?;
+    Ok(u16::from_be_bytes(buffer))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,6 +903,44 @@ mod tests {
         );
 
         report.validate().unwrap();
+    }
+
+    #[test]
+    fn epoch_close_ack_roundtrips_page() {
+        let page = RaiEpochClosePage::new(
+            3,
+            2,
+            0,
+            BlockHash::from(7),
+            vec![
+                RaiEpochCloseEntry {
+                    slot: RaiSlot::new(Account::from(1), 2),
+                    state: RaiEpochCloseEntryState::Finalized(BlockHash::from(3)),
+                },
+                RaiEpochCloseEntry {
+                    slot: RaiSlot::new(Account::from(4), 5),
+                    state: RaiEpochCloseEntryState::Released,
+                },
+            ],
+        );
+        let ack = RaiEpochCloseAck::new(page);
+        let mut bytes = Vec::new();
+        ack.serialize(&mut bytes).unwrap();
+
+        assert_eq!(RaiEpochCloseAck::deserialize(&bytes).unwrap(), ack);
+    }
+
+    #[test]
+    fn epoch_close_request_rejects_oversized_page() {
+        let request = RaiEpochCloseReq {
+            epoch: 1,
+            start_index: 0,
+            max_entries: RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES + 1,
+        };
+        let mut bytes = Vec::new();
+        request.serialize(&mut bytes).unwrap();
+
+        assert!(RaiEpochCloseReq::deserialize(&mut bytes.as_slice()).is_err());
     }
 
     #[test]

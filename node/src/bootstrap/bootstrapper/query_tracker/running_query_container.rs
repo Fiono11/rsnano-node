@@ -287,6 +287,8 @@ mod tests {
             (QueryType::BlocksByAccount, DetailType::BlocksByAccount),
             (QueryType::AccountInfoByHash, DetailType::AccountInfoByHash),
             (QueryType::Frontiers, DetailType::Frontiers),
+            #[cfg(feature = "rai_protocol")]
+            (QueryType::RaiEpochClose, DetailType::RaiEpochClose),
         ];
 
         for (qt, dt) in expectations {

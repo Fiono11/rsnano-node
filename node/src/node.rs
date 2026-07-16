@@ -726,6 +726,9 @@ impl Node {
         };
 
         #[cfg(feature = "rai_protocol")]
+        bootstrap_responder.set_rai_close_state(rai_close_state.clone());
+
+        #[cfg(feature = "rai_protocol")]
         let rai_vote_safety = {
             let mut vote_safety = rai_vote_safety_snapshot
                 .map_or_else(RaiVoteSafety::new, RaiVoteSafety::from_snapshot);
@@ -943,6 +946,13 @@ impl Node {
             message_sender.clone(),
             global_config.node_config.bootstrap.clone(),
         ));
+        #[cfg(feature = "rai_protocol")]
+        Bootstrapper::install_rai_epoch_bootstrap(
+            &bootstrapper,
+            rai_close_state.clone(),
+            rai_committee_provider.clone(),
+            rai_persistence.clone(),
+        );
         ledger_event_handlers.add(bootstrapper.clone());
 
         // Start bootstrap from genesis account
@@ -1048,6 +1058,8 @@ impl Node {
             rai_vote_processor.clone(),
             #[cfg(feature = "rai_protocol")]
             rai_pending_report_processor.clone(),
+            #[cfg(feature = "rai_protocol")]
+            message_flooder.clone(),
             telemetry.clone(),
             bootstrap_responder.clone(),
             bootstrapper.clone(),
@@ -1266,9 +1278,13 @@ impl Node {
             rai_pending_report_processor.clone(),
             rai_committee_provider.clone(),
             rai_persistence.clone(),
-            node_id_key.clone(),
+            wallet_reps.clone(),
             Arc::new(RaiNetworkEpochPublisher::new(message_flooder.clone())),
-            RaiEpochLoopConfig::default(),
+            RaiEpochLoopConfig {
+                epoch_duration: config.rai.epoch_duration,
+                close_attempt_duration: config.rai.close_attempt_duration,
+                tick_interval: config.rai.tick_interval,
+            },
         );
 
         let recently_cemented_inserter = RecentlyCementedInserter {

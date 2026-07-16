@@ -1,6 +1,8 @@
 mod account_ack_processor;
 mod block_ack_processor;
 
+#[cfg(feature = "rai_protocol")]
+use std::sync::Mutex;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering::Relaxed},
@@ -15,6 +17,8 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 use super::query_tracker::QueryTracker;
+#[cfg(feature = "rai_protocol")]
+use crate::bootstrap::bootstrapper::RaiEpochBootstrap;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::{
@@ -39,6 +43,10 @@ pub(crate) struct ResponseProcessor {
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    response_rai_epoch_close: AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_bootstrap: Arc<Mutex<Option<Arc<RaiEpochBootstrap>>>>,
 }
 
 impl ResponseProcessor {
@@ -48,6 +56,9 @@ impl ResponseProcessor {
         bootstrap_queue: Arc<BootstrapQueue>,
         block_queue: Arc<BlockProcessorQueue>,
         frontier_scan: Arc<FrontierScan>,
+        #[cfg(feature = "rai_protocol")] rai_epoch_bootstrap: Arc<
+            Mutex<Option<Arc<RaiEpochBootstrap>>>,
+        >,
     ) -> Self {
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
         let block_ack_processor =
@@ -64,6 +75,10 @@ impl ResponseProcessor {
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
+            #[cfg(feature = "rai_protocol")]
+            response_rai_epoch_close: AtomicU64::new(0),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap,
         }
     }
 
@@ -124,6 +139,8 @@ impl ResponseProcessor {
                 self.bootstrap_queue.remove_dependency_request(&query.hash);
             }
             // Frontier heads recover via their own cooldown
+            #[cfg(feature = "rai_protocol")]
+            QueryType::RaiEpochClose => {}
             QueryType::Frontiers | QueryType::Invalid => {}
         }
     }
@@ -145,6 +162,15 @@ impl ResponseProcessor {
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
                 self.frontier_scan.process(query, frontiers)
+            }
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(ack) => {
+                self.response_rai_epoch_close.fetch_add(1, Relaxed);
+                self.rai_epoch_bootstrap
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|bootstrap| bootstrap.process_epoch_close_ack(ack))
             }
         };
 
@@ -194,6 +220,12 @@ impl StatsSource for ResponseProcessor {
             BOOTSTRAP_PROCESS,
             "frontiers",
             self.response_frontiers.load(Relaxed),
+        );
+        #[cfg(feature = "rai_protocol")]
+        result.insert(
+            BOOTSTRAP_PROCESS,
+            "rai_epoch_close",
+            self.response_rai_epoch_close.load(Relaxed),
         );
         self.account_ack_processor.collect_stats(result);
         self.block_ack_processor.collect_stats(result);
@@ -322,6 +354,8 @@ mod tests {
             queue.clone(),
             Arc::new(BlockProcessorQueue::default()),
             Arc::new(FrontierScan::new_null()),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(Mutex::new(None)),
         );
         Fixture {
             processor,

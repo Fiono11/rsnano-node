@@ -8,6 +8,8 @@ use rsnano_network::{Channel, Network, token_bucket::TokenBucket};
 use rsnano_nullable_random::NullableRngFactory;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
 
+#[cfg(feature = "rai_protocol")]
+use crate::bootstrap::bootstrapper::RaiEpochBootstrap;
 use crate::bootstrap::bootstrapper::{
     AscPullQuerySpec, BootstrapConfig,
     bootstrap_queue::{BootstrapQueue, PullType},
@@ -30,6 +32,8 @@ pub(crate) struct QueryFactory {
     pull_count_decider: PullCountDecider,
     ledger: Arc<Ledger>,
     frontier_scan: Arc<FrontierScan>,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_bootstrap: Arc<std::sync::Mutex<Option<Arc<RaiEpochBootstrap>>>>,
 }
 
 impl QueryFactory {
@@ -42,6 +46,9 @@ impl QueryFactory {
         frontier_scan: Arc<FrontierScan>,
         query_tracker: Arc<QueryTracker>,
         peer_scoring: Arc<PeerScoring>,
+        #[cfg(feature = "rai_protocol")] rai_epoch_bootstrap: Arc<
+            std::sync::Mutex<Option<Arc<RaiEpochBootstrap>>>,
+        >,
     ) -> Self {
         let pull_count_decider = PullCountDecider::new(config.max_pull_count);
         let limiter = TokenBucket::new(config.rate_limit);
@@ -58,6 +65,8 @@ impl QueryFactory {
             pull_count_decider,
             ledger,
             frontier_scan,
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_bootstrap,
         }
     }
 
@@ -72,6 +81,8 @@ impl QueryFactory {
                 self.bootstrap_queue.remove_dependency_request(&spec.hash)
             }
             AscPullReqType::Frontiers(_) => {}
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(_) => {}
         }
     }
 
@@ -84,6 +95,10 @@ impl QueryFactory {
         let mut query = self.try_blocks_query();
         if query.is_none() {
             query = self.try_dependency_query();
+        }
+        #[cfg(feature = "rai_protocol")]
+        if query.is_none() {
+            query = self.try_rai_epoch_close_query();
         }
         if query.is_none() {
             query = self.try_frontier_query();
@@ -181,6 +196,39 @@ impl QueryFactory {
         } else {
             None
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn try_rai_epoch_close_query(&mut self) -> Option<AscPullQuerySpec> {
+        if !self.request_limiter.could_consume(1) {
+            self.stats.rate_limit.fetch_add(1, Relaxed);
+            return None;
+        }
+
+        let channel = self.acquire_channel()?;
+        let request = self
+            .rai_epoch_bootstrap
+            .lock()
+            .unwrap()
+            .as_ref()?
+            .next_close_state_request()?;
+        let query_id = self.rng_factory.rng().next_u64();
+        self.request_limiter.consume(1);
+
+        tracing::trace!(
+            query_id,
+            epoch = request.epoch,
+            start_index = request.start_index,
+            "Created RAI epoch close state query spec"
+        );
+
+        Some(AscPullQuerySpec {
+            query_id,
+            channel,
+            req_type: AscPullReqType::RaiEpochClose(request),
+            account: Account::ZERO,
+            hash: BlockHash::ZERO,
+        })
     }
 
     fn acquire_channel(&mut self) -> Option<Arc<Channel>> {

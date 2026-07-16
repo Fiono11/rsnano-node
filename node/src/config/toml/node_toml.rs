@@ -66,6 +66,7 @@ pub struct NodeToml {
     pub network: Option<NetworkToml>,
     pub fork_cache: Option<ForkCacheToml>,
     pub vote_rebroadcaster: Option<VoteRebroadcasterToml>,
+    pub rai: Option<RaiToml>,
     pub peering_port: Option<u16>,
     pub cps_limit: Option<u32>,
 }
@@ -479,6 +480,10 @@ impl NodeConfig {
             }
         }
 
+        if let Some(toml) = &toml.rai {
+            self.rai.merge_toml(toml);
+        }
+
         if let Some(port) = toml.peering_port {
             self.network.listening_port = port;
         }
@@ -629,6 +634,7 @@ impl From<&NodeConfig> for NodeToml {
             network: Some(config.into()),
             fork_cache: Some(config.into()),
             vote_rebroadcaster: Some(config.into()),
+            rai: Some((&config.rai).into()),
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
         }
@@ -738,6 +744,11 @@ mod tests {
                 bootstrap_stale_threshold: Some(42),
                 ..Default::default()
             }),
+            rai: Some(RaiToml {
+                epoch_duration: Some(43),
+                close_attempt_duration: Some(44),
+                tick_interval: Some(45),
+            }),
             cps_limit: Some(42),
             block_processor: Some(BlockProcessorToml {
                 threads: Some(42),
@@ -756,6 +767,9 @@ mod tests {
         assert_eq!(cfg.fork_cache_max_size, 222);
         assert_eq!(cfg.fork_cache_max_forks_per_root, 22);
         assert_eq!(cfg.bootstrap_stale_threshold, Duration::from_secs(42));
+        assert_eq!(cfg.rai.epoch_duration, Duration::from_millis(43));
+        assert_eq!(cfg.rai.close_attempt_duration, Duration::from_millis(44));
+        assert_eq!(cfg.rai.tick_interval, Duration::from_millis(45));
         assert_eq!(cfg.cps_limit, 42);
         assert_eq!(cfg.block_processor_threads, 42);
         assert_eq!(cfg.block_processor.max_peer_queue, 43);
@@ -770,6 +784,11 @@ mod tests {
         let config = NodeConfig {
             bootstrap_stale_threshold: Duration::from_secs(42),
             cps_limit: 42,
+            rai: crate::config::RaiConfig {
+                epoch_duration: Duration::from_millis(43),
+                close_attempt_duration: Duration::from_millis(44),
+                tick_interval: Duration::from_millis(45),
+            },
             block_processor_threads: 43,
             block_processor: ProcessQueueConfig {
                 max_peer_queue: 44,
@@ -793,6 +812,11 @@ mod tests {
             Some(42)
         );
         assert_eq!(toml.cps_limit, Some(42));
+
+        let rai = toml.rai.unwrap();
+        assert_eq!(rai.epoch_duration, Some(43));
+        assert_eq!(rai.close_attempt_duration, Some(44));
+        assert_eq!(rai.tick_interval, Some(45));
 
         let block_proc = toml.block_processor.unwrap();
         assert_eq!(block_proc.threads, Some(43));

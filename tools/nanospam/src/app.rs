@@ -18,6 +18,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_messages::MessageDeserializer;
 use rsnano_messages::{Message, MessageSerializer, Publish};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
@@ -26,6 +28,8 @@ use rsnano_rpc_client::NanoRpcClient;
 use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
+#[cfg(feature = "rai_protocol")]
+use crate::rai_logging;
 use crate::{
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
@@ -222,7 +226,9 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         match result {
             Some(BlockResult::Block(forks)) => {
-                tx_blocks.blocking_send(forks).unwrap();
+                if tx_blocks.blocking_send(forks).is_err() {
+                    break;
+                }
             }
             Some(BlockResult::Waiting) => {
                 yield_now();
@@ -322,7 +328,9 @@ async fn republish_delayed_blocks(
             }
             l.next_delayed(now)
         } {
-            tx_forks.send(Forks::new(block)).await.unwrap();
+            if tx_forks.send(Forks::new(block)).await.is_err() {
+                return;
+            }
         }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -334,15 +342,49 @@ async fn receive_messages(
     _protocol: ProtocolInfo,
     cancel_token: CancellationToken,
 ) {
+    #[cfg(feature = "rai_protocol")]
+    let protocol = _protocol;
+
     select! {
         _ = cancel_token.cancelled() => {},
         _ = async {
             let mut set = JoinSet::new();
             for mut reader in readers.drain(..).flatten() {
+                #[cfg(feature = "rai_protocol")]
+                let protocol = protocol;
                 set.spawn(async move {
+                    #[cfg(feature = "rai_protocol")]
+                    let mut deserializer = MessageDeserializer::new(protocol);
+
                     let mut recv_buffer = vec![0; 1024 * 4];
-                    loop{
+                    #[cfg(not(feature = "rai_protocol"))]
+                    loop {
                         let _ = reader.read(&mut recv_buffer).await.unwrap();
+                    }
+
+                    #[cfg(feature = "rai_protocol")]
+                    'read_loop: loop {
+                        let size = match reader.read(&mut recv_buffer).await {
+                            Ok(0) => break,
+                            Ok(size) => size,
+                            Err(error) => {
+                                tracing::debug!(?error, "Could not read message from node");
+                                break;
+                            }
+                        };
+
+                        deserializer.push(&recv_buffer[..size]);
+                        while let Some(result) = deserializer.try_deserialize() {
+                            match result {
+                                Ok(deserialized) => {
+                                    rai_logging::log_received_message(&deserialized.message);
+                                }
+                                Err(error) => {
+                                    tracing::debug!(?error, "Could not deserialize message from node");
+                                    break 'read_loop;
+                                }
+                            }
+                        }
                     }
                 });
             }

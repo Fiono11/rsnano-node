@@ -1,4 +1,5 @@
 use std::{
+    path::PathBuf,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -39,7 +40,7 @@ pub(crate) async fn start_nodes(
                 .stderr(Stdio::null());
             cmd
         } else {
-            let mut cmd = Command::new("rsnano");
+            let mut cmd = Command::new(rsnano_binary(args));
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .arg("--network")
@@ -47,8 +48,7 @@ pub(crate) async fn start_nodes(
                 .arg("--data-path")
                 .arg(&node_dir)
                 .arg("node")
-                .arg("run")
-                .stdout(Stdio::null());
+                .arg("run");
             cmd
         };
 
@@ -75,4 +75,18 @@ pub(crate) async fn start_nodes(
         sleep(Duration::from_secs(5)).await;
     }
     children
+}
+
+fn rsnano_binary(args: &CliArgs) -> PathBuf {
+    args.rsnano
+        .clone()
+        .or_else(sibling_rsnano_binary)
+        .unwrap_or_else(|| PathBuf::from("rsnano"))
+}
+
+fn sibling_rsnano_binary() -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let binary_name = format!("rsnano{}", std::env::consts::EXE_SUFFIX);
+    let candidate = current_exe.with_file_name(binary_name);
+    candidate.is_file().then_some(candidate)
 }

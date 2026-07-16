@@ -42,6 +42,9 @@ impl<'a> FrontierWorker<'a> {
         self.stats2.add(&outdated);
 
         for account in &outdated.accounts {
+            #[cfg(feature = "rai_protocol")]
+            self.bootstrap_queue.insert_safe(*account);
+            #[cfg(not(feature = "rai_protocol"))]
             self.bootstrap_queue.insert(*account);
         }
     }

@@ -6,6 +6,8 @@ use std::{
 use tracing::trace;
 
 use rsnano_messages::{Message, NetworkFilter};
+#[cfg(feature = "rai_protocol")]
+use rsnano_network::TrafficType;
 use rsnano_network::{Channel, Network};
 use rsnano_types::VoteDelivery;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
@@ -21,7 +23,10 @@ use crate::{
 use rsnano_ledger::BlockSource;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::{RaiPendingReportProcessor, RaiVoteProcessor};
+use crate::{
+    consensus::{RaiPendingReportProcessor, RaiVoteProcessor},
+    transport::MessageFlooder,
+};
 
 /// Process messages that were received from other nodes in the network
 pub struct NetworkMessageProcessor {
@@ -36,6 +41,8 @@ pub struct NetworkMessageProcessor {
     rai_vote_processor: Arc<RaiVoteProcessor>,
     #[cfg(feature = "rai_protocol")]
     rai_pending_report_processor: Arc<RaiPendingReportProcessor>,
+    #[cfg(feature = "rai_protocol")]
+    rai_message_flooder: Mutex<MessageFlooder>,
     telemetry: Arc<Telemetry>,
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
@@ -55,6 +62,7 @@ impl NetworkMessageProcessor {
         #[cfg(feature = "rai_protocol")] rai_pending_report_processor: Arc<
             RaiPendingReportProcessor,
         >,
+        #[cfg(feature = "rai_protocol")] rai_message_flooder: MessageFlooder,
         telemetry: Arc<Telemetry>,
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
@@ -72,6 +80,8 @@ impl NetworkMessageProcessor {
             rai_vote_processor,
             #[cfg(feature = "rai_protocol")]
             rai_pending_report_processor,
+            #[cfg(feature = "rai_protocol")]
+            rai_message_flooder: Mutex::new(rai_message_flooder),
             telemetry,
             bootstrap_responder,
             bootstrapper,
@@ -207,11 +217,23 @@ impl NetworkMessageProcessor {
             Message::AscPullAck(ack) => self.bootstrapper.process(ack),
             #[cfg(feature = "rai_protocol")]
             Message::RaiVote(vote) => {
-                let _ = self.rai_vote_processor.process(&vote);
+                if self.rai_vote_processor.process(&vote).is_ok() {
+                    self.rai_message_flooder.lock().unwrap().flood(
+                        &Message::RaiVote(vote),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
             }
             #[cfg(feature = "rai_protocol")]
             Message::RaiPendingReport(report) => {
-                let _ = self.rai_pending_report_processor.process(&report);
+                if self.rai_pending_report_processor.process(&report).is_ok() {
+                    self.rai_message_flooder.lock().unwrap().flood(
+                        &Message::RaiPendingReport(report),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
             }
             Message::FrontierReq(_)
             | Message::BulkPush

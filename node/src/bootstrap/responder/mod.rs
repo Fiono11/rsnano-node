@@ -9,6 +9,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::LedgerSet;
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
 use rsnano_messages::{
     AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
@@ -16,12 +18,19 @@ use rsnano_messages::{
 };
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType, token_bucket::TokenBucket};
 use rsnano_types::{Block, BlockHash, Frontier};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{
+    RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES, RaiEpochCloseAck, RaiEpochCloseEntry,
+    RaiEpochCloseEntryState, RaiEpochClosePage, RaiEpochCloseReq,
+};
 use rsnano_utils::{
     EventHandler,
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
 };
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::{RaiCloseState, RaiClosedSlotState};
 use crate::transport::MessageSender;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +85,8 @@ impl BootstrapResponder {
             queue: Mutex::new(FairQueue::new(move |_| max_queue, |_| 1)),
             message_sender: Mutex::new(message_sender),
             limiter: Mutex::new(TokenBucket::with_burst_ratio(config.limiter, 3.0)),
+            #[cfg(feature = "rai_protocol")]
+            rai_close_state: Mutex::new(None),
         });
 
         Self {
@@ -131,6 +142,11 @@ impl BootstrapResponder {
         *self.server_impl.on_response.lock().unwrap() = Some(cb);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn set_rai_close_state(&self, close_state: Arc<std::sync::RwLock<RaiCloseState>>) {
+        *self.server_impl.rai_close_state.lock().unwrap() = Some(close_state);
+    }
+
     pub fn enqueue(&self, message: AscPullReq, channel: Arc<Channel>) -> bool {
         if !self.running.load(Ordering::Relaxed) {
             return false;
@@ -168,6 +184,10 @@ impl BootstrapResponder {
             AscPullReqType::Blocks(i) => i.count > 0 && i.count <= Self::MAX_BLOCKS,
             AscPullReqType::AccountInfo(i) => !i.target.is_zero(),
             AscPullReqType::Frontiers(i) => i.count > 0 && i.count as usize <= Self::MAX_FRONTIERS,
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(i) => {
+                i.max_entries > 0 && i.max_entries <= RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES
+            }
         }
     }
 }
@@ -194,6 +214,8 @@ struct BootstrapResponderImpl {
     batch_size: usize,
     message_sender: Mutex<MessageSender>,
     limiter: Mutex<TokenBucket>,
+    #[cfg(feature = "rai_protocol")]
+    rai_close_state: Mutex<Option<Arc<std::sync::RwLock<RaiCloseState>>>>,
 }
 
 impl BootstrapResponderImpl {
@@ -266,7 +288,59 @@ impl BootstrapResponderImpl {
             AscPullReqType::Frontiers(frontiers) => {
                 self.process_frontiers(any, message.id, frontiers)
             }
+            #[cfg(feature = "rai_protocol")]
+            AscPullReqType::RaiEpochClose(request) => {
+                self.process_rai_epoch_close(message.id, request)
+            }
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn process_rai_epoch_close(&self, id: u64, request: RaiEpochCloseReq) -> AscPullAck {
+        let page = self.rai_epoch_close_page(request);
+        AscPullAck {
+            id,
+            pull_type: AscPullAckType::RaiEpochClose(match page {
+                Some(page) => RaiEpochCloseAck::new(page),
+                None => RaiEpochCloseAck::unavailable(),
+            }),
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_epoch_close_page(&self, request: RaiEpochCloseReq) -> Option<RaiEpochClosePage> {
+        let close_state = self.rai_close_state.lock().unwrap().clone()?;
+        let close_state = close_state.read().unwrap();
+        let close_hash = close_state.certified_close_hash(request.epoch)?;
+        let cut = close_state.cut_set(request.epoch)?;
+        if !close_state.cut_drained(request.epoch) {
+            return None;
+        }
+
+        let mut entries = Vec::with_capacity(cut.len());
+        for slot in cut {
+            let state = close_state.closed_slot_state(request.epoch, slot)?;
+            entries.push(RaiEpochCloseEntry {
+                slot: *slot,
+                state: epoch_close_entry_state_from_closed(*state),
+            });
+        }
+
+        let start = request.start_index as usize;
+        if start > entries.len() {
+            return None;
+        }
+        let max = min(request.max_entries, RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES) as usize;
+        let end = min(entries.len(), start.saturating_add(max));
+        let page_entries = entries[start..end].to_vec();
+
+        Some(RaiEpochClosePage::new(
+            request.epoch,
+            entries.len() as u32,
+            request.start_index,
+            close_hash,
+            page_entries,
+        ))
     }
 
     fn process_blocks(&self, any: &dyn AnySet, id: u64, request: BlocksReqPayload) -> AscPullAck {
@@ -274,14 +348,34 @@ impl BootstrapResponderImpl {
 
         match request.start_type {
             HashType::Account => {
-                if let Some(info) = any.get_account(&request.start.into()) {
+                let account = request.start.into();
+                if let Some(info) = any.get_account(&account) {
                     // Start from open block if pulling by account
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        return self.prepare_confirmed_response(
+                            any,
+                            id,
+                            account,
+                            info.open_block,
+                            count,
+                        );
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
                     return self.prepare_response(any, id, info.open_block, count);
                 }
             }
             HashType::Block => {
-                if any.block_exists(&request.start.into()) {
-                    return self.prepare_response(any, id, request.start.into(), count);
+                let start = request.start.into();
+                if any.block_exists(&start) {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        if let Some(account) = any.block_account(&start) {
+                            return self.prepare_confirmed_response(any, id, account, start, count);
+                        }
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    return self.prepare_response(any, id, start, count);
                 }
             }
         }
@@ -341,6 +435,18 @@ impl BootstrapResponderImpl {
         id: u64,
         request: FrontiersReqPayload,
     ) -> AscPullAck {
+        #[cfg(feature = "rai_protocol")]
+        let frontiers = any
+            .accounts_range(request.start..)
+            .filter_map(|(account, _)| {
+                any.confirmed()
+                    .get_conf_info(&account)
+                    .map(|info| Frontier::new(account, info.frontier))
+            })
+            .take(request.count as usize)
+            .collect();
+
+        #[cfg(not(feature = "rai_protocol"))]
         let frontiers = any
             .accounts_range(request.start..)
             .map(|(account, info)| Frontier::new(account, info.head))
@@ -353,6 +459,27 @@ impl BootstrapResponderImpl {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn prepare_confirmed_response(
+        &self,
+        any: &dyn AnySet,
+        id: u64,
+        account: rsnano_types::Account,
+        start_block: BlockHash,
+        count: u8,
+    ) -> AscPullAck {
+        let Some(conf_info) = any.confirmed().get_conf_info(&account) else {
+            return self.prepare_empty_blocks_response(id);
+        };
+
+        if !any.confirmed().block_exists(&start_block) {
+            return self.prepare_empty_blocks_response(id);
+        }
+
+        self.prepare_response_until(any, id, start_block, count, Some(conf_info.frontier))
+    }
+
+    #[cfg(not(feature = "rai_protocol"))]
     fn prepare_response(
         &self,
         any: &dyn AnySet,
@@ -360,7 +487,18 @@ impl BootstrapResponderImpl {
         start_block: BlockHash,
         count: u8,
     ) -> AscPullAck {
-        let blocks = self.prepare_blocks(any, start_block, count as usize);
+        self.prepare_response_until(any, id, start_block, count, None)
+    }
+
+    fn prepare_response_until(
+        &self,
+        any: &dyn AnySet,
+        id: u64,
+        start_block: BlockHash,
+        count: u8,
+        stop_block: Option<BlockHash>,
+    ) -> AscPullAck {
+        let blocks = self.prepare_blocks(any, start_block, count as usize, stop_block);
         let response_payload = BlocksAckPayload::new(blocks);
 
         AscPullAck {
@@ -381,15 +519,17 @@ impl BootstrapResponderImpl {
         any: &dyn AnySet,
         start_block: BlockHash,
         count: usize,
+        stop_block: Option<BlockHash>,
     ) -> VecDeque<Block> {
         let mut result = VecDeque::new();
         if !start_block.is_zero() {
             let mut current = any.get_block(&start_block);
             while let Some(c) = current.take() {
                 let successor = any.block_successor(&c.hash()).unwrap_or_default();
+                let reached_stop = Some(c.hash()) == stop_block;
                 result.push_back(c.into());
 
-                if result.len() == count {
+                if result.len() == count || reached_stop {
                     break;
                 }
                 current = any.get_block(&successor);
@@ -434,6 +574,18 @@ impl BootstrapResponderImpl {
                     frontiers.len() as u64,
                 );
             }
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(ack) => {
+                self.stats.add_dir(
+                    StatType::BootstrapServer,
+                    DetailType::RaiEpochClose,
+                    Direction::Out,
+                    ack.page
+                        .as_ref()
+                        .map(|page| page.entries.len() as u64)
+                        .unwrap_or_default(),
+                );
+            }
         }
 
         {
@@ -451,10 +603,158 @@ impl BootstrapResponderImpl {
     }
 }
 
+#[cfg(feature = "rai_protocol")]
+fn epoch_close_entry_state_from_closed(state: RaiClosedSlotState) -> RaiEpochCloseEntryState {
+    match state {
+        RaiClosedSlotState::Finalized(block) => RaiEpochCloseEntryState::Finalized(block),
+        RaiClosedSlotState::Carry(block) => RaiEpochCloseEntryState::Carry(block),
+        RaiClosedSlotState::Released => RaiEpochCloseEntryState::Released,
+    }
+}
+
 impl EventHandler<ChannelEvent> for BootstrapResponderImpl {
     fn handle(&self, event: &ChannelEvent) {
         if let ChannelEvent::Removed(id) = event {
             self.queue.lock().unwrap().remove(id);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use rsnano_ledger::{DEV_GENESIS_ACCOUNT, LedgerInserter};
+    use rsnano_types::{Account, Amount, BlockHash, RaiEpochCloseReq, RaiSlot};
+
+    #[test]
+    fn rai_block_response_stops_at_confirmed_frontier() {
+        let fixture = Fixture::new();
+        let response = fixture.process_blocks(BlocksReqPayload {
+            start_type: HashType::Account,
+            start: (*DEV_GENESIS_ACCOUNT).into(),
+            count: 10,
+        });
+
+        let AscPullAckType::Blocks(blocks) = response.pull_type else {
+            panic!("expected blocks response");
+        };
+        let hashes = blocks
+            .blocks()
+            .iter()
+            .map(|block| block.hash())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            hashes,
+            vec![fixture.ledger.genesis().hash(), fixture.confirmed.hash()]
+        );
+    }
+
+    #[test]
+    fn rai_frontier_response_reports_confirmed_frontier() {
+        let fixture = Fixture::new();
+        let any = fixture.ledger.any();
+        let response = fixture.responder.server_impl.process(
+            &any,
+            AscPullReq {
+                id: 7,
+                req_type: AscPullReqType::Frontiers(FrontiersReqPayload {
+                    start: *DEV_GENESIS_ACCOUNT,
+                    count: 10,
+                }),
+            },
+        );
+
+        let AscPullAckType::Frontiers(frontiers) = response.pull_type else {
+            panic!("expected frontiers response");
+        };
+
+        assert_eq!(frontiers[0].account, *DEV_GENESIS_ACCOUNT);
+        assert_eq!(frontiers[0].hash, fixture.confirmed.hash());
+    }
+
+    #[test]
+    fn rai_epoch_close_response_returns_drained_close_state_page() {
+        let fixture = Fixture::new();
+        let slot = RaiSlot::new(Account::from(42), 7);
+        let block = BlockHash::from(9);
+        let close_hash = {
+            let mut close_state = RaiCloseState::new();
+            close_state.start_closing(0).unwrap();
+            close_state
+                .install_cut(0, [slot].into_iter().collect())
+                .unwrap();
+            close_state
+                .record_cut_drain(0, [(slot, RaiClosedSlotState::Finalized(block))])
+                .unwrap();
+            let close_hash = close_state.record_current_close_record_value(0).unwrap();
+            close_state.certify_close_record(0, &close_hash).unwrap();
+            fixture
+                .responder
+                .set_rai_close_state(Arc::new(std::sync::RwLock::new(close_state)));
+            close_hash
+        };
+
+        let any = fixture.ledger.any();
+        let response = fixture.responder.server_impl.process(
+            &any,
+            AscPullReq {
+                id: 7,
+                req_type: AscPullReqType::RaiEpochClose(RaiEpochCloseReq::new(0, 0)),
+            },
+        );
+
+        let AscPullAckType::RaiEpochClose(ack) = response.pull_type else {
+            panic!("expected RAI epoch close response");
+        };
+        let page = ack.page.expect("close state should be available");
+        assert_eq!(page.epoch, 0);
+        assert_eq!(page.total_entries, 1);
+        assert_eq!(page.close_hash, close_hash);
+        assert_eq!(page.entries[0].slot, slot);
+        assert_eq!(
+            page.entries[0].state,
+            RaiEpochCloseEntryState::Finalized(block)
+        );
+    }
+
+    struct Fixture {
+        ledger: Arc<Ledger>,
+        responder: BootstrapResponder,
+        confirmed: rsnano_types::SavedBlock,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let ledger = Arc::new(Ledger::new_null());
+            let inserter = LedgerInserter::new(&ledger);
+            let mut genesis = inserter.genesis();
+            let confirmed = genesis.send(Account::from(1), Amount::raw(1));
+            let _unconfirmed = genesis.send(Account::from(2), Amount::raw(1));
+            ledger.confirm(confirmed.hash());
+            let responder = BootstrapResponder::new(
+                BootstrapResponderConfig::default(),
+                Stats::default().into(),
+                ledger.clone(),
+                MessageSender::new_null(),
+            );
+
+            Self {
+                ledger,
+                responder,
+                confirmed,
+            }
+        }
+
+        fn process_blocks(&self, payload: BlocksReqPayload) -> AscPullAck {
+            let any = self.ledger.any();
+            self.responder.server_impl.process(
+                &any,
+                AscPullReq {
+                    id: 7,
+                    req_type: AscPullReqType::Blocks(payload),
+                },
+            )
         }
     }
 }

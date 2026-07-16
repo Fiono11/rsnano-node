@@ -5,6 +5,8 @@ use num_traits::FromPrimitive;
 use serde::ser::SerializeStruct;
 use serde_derive::Serialize;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpochCloseAck;
 use rsnano_types::{
     Account, Block, BlockHash, BlockType, BlockTypeId, DeserializationError, Frontier, read_u8,
     read_u64_be,
@@ -18,6 +20,8 @@ pub enum AscPullAckType {
     Blocks(BlocksAckPayload),
     AccountInfo(AccountInfoAckPayload),
     Frontiers(Vec<Frontier>),
+    #[cfg(feature = "rai_protocol")]
+    RaiEpochClose(RaiEpochCloseAck),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -50,6 +54,8 @@ impl AscPullAck {
             AscPullAckType::Blocks(_) => AscPullPayloadId::Blocks,
             AscPullAckType::AccountInfo(_) => AscPullPayloadId::AccountInfo,
             AscPullAckType::Frontiers(_) => AscPullPayloadId::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(_) => AscPullPayloadId::RaiEpochClose,
         }
     }
 
@@ -84,6 +90,8 @@ impl AscPullAck {
                 }
                 Frontier::default().serialize(writer)
             }
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(ack) => ack.serialize(writer),
         }
     }
 
@@ -111,6 +119,10 @@ impl AscPullAck {
                 }
 
                 AscPullAckType::Frontiers(frontiers)
+            }
+            #[cfg(feature = "rai_protocol")]
+            AscPullPayloadId::RaiEpochClose => {
+                AscPullAckType::RaiEpochClose(RaiEpochCloseAck::deserialize(bytes)?)
             }
         };
 
@@ -149,6 +161,19 @@ impl Display for AscPullAck {
                 )?;
             }
             AscPullAckType::Frontiers(_) => {}
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(ack) => {
+                if let Some(page) = &ack.page {
+                    write!(
+                        f,
+                        "\nepoch close state page:{} start:{} count:{} total:{}",
+                        page.epoch,
+                        page.start_index,
+                        page.entries.len(),
+                        page.total_entries
+                    )?;
+                }
+            }
         }
         Ok(())
     }
@@ -300,6 +325,8 @@ impl From<&AscPullAckType> for DetailType {
             AscPullAckType::Blocks(_) => DetailType::Blocks,
             AscPullAckType::AccountInfo(_) => DetailType::AccountInfo,
             AscPullAckType::Frontiers(_) => DetailType::Frontiers,
+            #[cfg(feature = "rai_protocol")]
+            AscPullAckType::RaiEpochClose(_) => DetailType::RaiEpochClose,
         }
     }
 }
@@ -348,6 +375,32 @@ mod tests {
                 Account::from(1),
                 BlockHash::from(2),
             )]),
+        });
+
+        assert_deserializable(&original);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn serialize_rai_epoch_close() {
+        use rsnano_types::{
+            RaiEpochCloseEntry, RaiEpochCloseEntryState, RaiEpochClosePage, RaiSlot,
+        };
+
+        let original = Message::AscPullAck(AscPullAck {
+            id: 7,
+            pull_type: AscPullAckType::RaiEpochClose(RaiEpochCloseAck::new(
+                RaiEpochClosePage::new(
+                    2,
+                    1,
+                    0,
+                    BlockHash::from(9),
+                    vec![RaiEpochCloseEntry {
+                        slot: RaiSlot::new(Account::from(1), 2),
+                        state: RaiEpochCloseEntryState::Finalized(BlockHash::from(3)),
+                    }],
+                ),
+            )),
         });
 
         assert_deserializable(&original);
