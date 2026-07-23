@@ -265,6 +265,16 @@ async fn publish_blocks(
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
 
+        // Register the publication before writing to local nodes. A node can
+        // confirm the block and deliver its websocket notification while the
+        // remaining socket writes are still in progress. Registering
+        // afterwards loses that confirmation because it has no publish
+        // timestamp and leaves finite runs permanently one block short.
+        let was_high_prio = {
+            let mut logic = logic.lock().unwrap();
+            logic.published(&hash, clock.now())
+        };
+
         let mut counter = 0;
         tokio_scoped::scope(|s| {
             for stream in &mut tcp_streams {
@@ -290,22 +300,10 @@ async fn publish_blocks(
             }
         });
 
-        let now = clock.now();
-
         writer_index += 1;
         if writer_index >= CONNECTIONS_PER_NODE {
             writer_index = 0;
         }
-
-        let was_high_prio = {
-            let mut l = logic.lock().unwrap();
-            // TODO support delayed forks
-            let prio = l.published(&hash, now);
-            if l.is_finished() {
-                break;
-            }
-            prio
-        };
 
         if was_high_prio {
             tracing::info!("High prio block published: {hash}");

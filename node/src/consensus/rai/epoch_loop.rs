@@ -309,7 +309,11 @@ impl RaiEpochLoop {
     }
 
     fn republish_known_pending_reports(&mut self, epoch: RaiEpoch, now: Instant) {
-        if self.close_state.read().unwrap().has_close_values(epoch) {
+        // Reports are the evidence from which every replica derives the close
+        // cut. Keep disseminating the complete set after an attempt starts so
+        // replicas that initially saw different report quorums can converge on
+        // the same visible set. The decided cut is the terminal condition.
+        if self.close_state.read().unwrap().cut_set(epoch).is_some() {
             return;
         }
 
@@ -586,18 +590,29 @@ impl RaiEpochLoop {
             .unwrap()
             .started_close_attempts(epoch);
         for attempt in attempts {
-            if self
+            // A fast/final certificate in any round decides the logical close
+            // instance. Votes from other rounds can still arrive and be
+            // retained, but they must not start successor rounds.
+            if self.close_state.read().unwrap().cut_set(epoch).is_some() {
+                return;
+            }
+
+            let already_processed = self
                 .close_state
                 .read()
                 .unwrap()
-                .close_attempt_processed(epoch, attempt)
-            {
-                continue;
-            }
+                .close_attempt_processed(epoch, attempt);
 
             let Some(outcome) = self.close_attempt_outcome(epoch, attempt) else {
                 continue;
             };
+
+            // Convergence is round-local progress, not a terminal result.
+            // Continue observing a processed round so later votes can upgrade
+            // it to a fast/final certificate.
+            if already_processed && !matches!(outcome, CloseAttemptOutcome::Certified(_)) {
+                continue;
+            }
 
             if let CloseAttemptOutcome::Certified(hash) | CloseAttemptOutcome::Converged(hash) =
                 outcome
@@ -630,6 +645,7 @@ impl RaiEpochLoop {
                         "RAI close cut election certified: epoch={epoch} attempt={attempt} close_hash={hash}"
                     );
                     self.install_cut(epoch, hash, now);
+                    return;
                 }
                 CloseAttemptOutcome::Converged(hash) => {
                     tracing::info!(
@@ -854,6 +870,10 @@ impl RaiEpochLoop {
     }
 
     fn try_drain_cut(&mut self, epoch: RaiEpoch, now: Instant) {
+        if self.close_state.read().unwrap().cut_drained(epoch) {
+            return;
+        }
+
         let Some(cut) = self.close_state.read().unwrap().cut_set(epoch).cloned() else {
             return;
         };
@@ -1018,18 +1038,26 @@ impl RaiEpochLoop {
             .unwrap()
             .started_close_record_attempts(epoch);
         for attempt in attempts {
-            if self
+            // Once any round installs the close record, the logical close
+            // instance is decided. Do not let a late converged outcome from a
+            // different round manufacture another successor.
+            if self.close_state.read().unwrap().epoch_phase(epoch) == Some(RaiEpochPhase::Closed) {
+                return;
+            }
+
+            let already_processed = self
                 .close_state
                 .read()
                 .unwrap()
-                .close_record_attempt_processed(epoch, attempt)
-            {
-                continue;
-            }
+                .close_record_attempt_processed(epoch, attempt);
 
             let Some(outcome) = self.close_record_attempt_outcome(epoch, attempt) else {
                 continue;
             };
+
+            if already_processed && !matches!(outcome, CloseRecordAttemptOutcome::Certified(_)) {
+                continue;
+            }
 
             if let CloseRecordAttemptOutcome::Certified(hash)
             | CloseRecordAttemptOutcome::Converged(hash) = outcome
@@ -1060,7 +1088,8 @@ impl RaiEpochLoop {
                     tracing::info!(
                         "RAI close record election certified: epoch={epoch} attempt={attempt} record_hash={hash}"
                     );
-                    self.finish_close_record(epoch, hash, now)
+                    self.finish_close_record(epoch, hash, now);
+                    return;
                 }
                 CloseRecordAttemptOutcome::Converged(hash) => {
                     tracing::info!(
@@ -1369,6 +1398,47 @@ mod tests {
         assert_eq!(reports.len(), 2);
         assert_eq!(reports[0].reporter, fixture.local_key.public_key());
         assert_eq!(reports[1].reporter, fixture.local_key.public_key());
+    }
+
+    #[test]
+    fn rebroadcasts_pending_reports_after_close_attempt_starts() {
+        let mut fixture = Fixture::two_members();
+        fixture.mark_slot_visible();
+        let now = fixture.expired_epoch_time();
+
+        fixture.epoch_loop.tick_at(now);
+        fixture
+            .pending_report_processor
+            .process(&RaiPendingReport::new(
+                &fixture.other_key,
+                0,
+                vec![fixture.slot],
+            ))
+            .unwrap();
+        fixture.epoch_loop.tick_at(now + Duration::from_millis(100));
+        {
+            let state = fixture.close_state.read().unwrap();
+            assert!(state.has_close_values(0));
+            assert!(state.cut_set(0).is_none());
+        }
+
+        fixture.epoch_loop.tick_at(now + Duration::from_secs(1));
+
+        let reports = fixture.publisher.reports.lock().unwrap();
+        assert_eq!(
+            reports
+                .iter()
+                .filter(|report| report.reporter == fixture.local_key.public_key())
+                .count(),
+            2
+        );
+        assert_eq!(
+            reports
+                .iter()
+                .filter(|report| report.reporter == fixture.other_key.public_key())
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -2111,6 +2181,76 @@ mod tests {
                 && vote.kind == RaiVoteKind::First
                 && vote.value == RaiElectionValue::CloseCutHash(close_hash)
         }));
+        drop(votes);
+
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_first(
+                &keys[4],
+                close_election_id(0, 0),
+                RaiElectionValue::CloseCutHash(close_hash),
+            ))
+            .unwrap();
+        fixture
+            .epoch_loop
+            .tick_at(attempt_start + Duration::from_secs(2));
+
+        assert!(fixture.close_state.read().unwrap().cut_set(0).is_some());
+    }
+
+    #[test]
+    fn decided_close_cut_ignores_late_convergence_from_another_round() {
+        let keys: Vec<_> = (1..=5).map(PrivateKey::from).collect();
+        let mut fixture = Fixture::with_committee(
+            keys[0].clone(),
+            keys[1].clone(),
+            committee([
+                (keys[0].public_key(), Amount::raw(100)),
+                (keys[1].public_key(), Amount::raw(100)),
+                (keys[2].public_key(), Amount::raw(100)),
+                (keys[3].public_key(), Amount::raw(100)),
+                (keys[4].public_key(), Amount::raw(100)),
+            ]),
+        );
+        fixture.mark_slot_visible();
+        let close_start = fixture.expired_epoch_time();
+
+        fixture.epoch_loop.tick_at(close_start);
+        for key in keys.iter().skip(1).take(3) {
+            fixture
+                .pending_report_processor
+                .process(&RaiPendingReport::new(key, 0, vec![fixture.slot]))
+                .unwrap();
+        }
+        let attempt_start = close_start + Duration::from_secs(1);
+        fixture.epoch_loop.tick_at(attempt_start);
+        let close_hash = fixture.close_state.read().unwrap().current_close_hash(0);
+        for key in keys.iter().skip(1).take(3) {
+            fixture
+                .vote_processor
+                .process(&RaiVote::new_first(
+                    key,
+                    close_election_id(0, 0),
+                    RaiElectionValue::CloseCutHash(close_hash),
+                ))
+                .unwrap();
+        }
+
+        // Model a certificate from another round arriving before this
+        // converged outcome is consumed.
+        fixture
+            .close_state
+            .write()
+            .unwrap()
+            .install_cut(0, [fixture.slot].into_iter().collect())
+            .unwrap();
+        fixture
+            .epoch_loop
+            .tick_at(attempt_start + Duration::from_secs(1));
+
+        let state = fixture.close_state.read().unwrap();
+        assert!(!state.close_attempt_started(0, 1));
+        assert!(state.cut_set(0).is_some());
     }
 
     struct Fixture {

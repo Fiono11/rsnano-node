@@ -11,6 +11,7 @@ use rsnano_types::RawKey;
 use crate::domain::AccountMap;
 
 pub(crate) fn create_account_map(data_dir: &Path, account_count: usize) -> AccountMap {
+    std::fs::create_dir_all(data_dir).unwrap();
     let mut account_map = AccountMap::default();
 
     let mut account_keys_path = data_dir.to_path_buf();

@@ -26,11 +26,12 @@ impl RaiAdmissibilityValidator for LedgerRaiAdmissibilityValidator {
         previous_frontiers: &BTreeMap<Account, BlockHash>,
         entries: &CloseRecordEntries,
     ) -> Result<BTreeMap<Account, BlockHash>, RaiAdmissibilityError> {
-        let mut frontiers = if epoch == 0 {
-            self.ledger.confirmed().frontiers().collect()
-        } else {
-            previous_frontiers.clone()
-        };
+        // The certified RAI ledger is derived only from the preceding certified
+        // frontier version and the outcomes in the decided close cut. Importing
+        // the ordinary node ledger here makes the close hash depend on which
+        // unrelated confirmations happened to reach this replica before its
+        // epoch timer fired.
+        let mut frontiers = previous_frontiers.clone();
         for (slot, state) in entries {
             match state {
                 RaiClosedSlotState::Finalized(hash) | RaiClosedSlotState::Carry(hash) => {
@@ -140,6 +141,17 @@ mod tests {
         let result = validator.validate_slot_block(RaiSlot::default(), 0, &BlockHash::from(1));
 
         assert_eq!(result, Err(RaiAdmissibilityError::InadmissibleSlotBlock));
+    }
+
+    #[test]
+    fn epoch_zero_frontiers_are_derived_only_from_the_close_cut() {
+        let validator = LedgerRaiAdmissibilityValidator::new(Arc::new(Ledger::new_null()));
+
+        let frontiers = validator
+            .derive_close_frontiers(0, &BTreeMap::new(), &CloseRecordEntries::new())
+            .unwrap();
+
+        assert!(frontiers.is_empty());
     }
 
     #[test]

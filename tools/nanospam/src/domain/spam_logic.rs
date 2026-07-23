@@ -60,7 +60,11 @@ impl SpamLogic {
     }
 
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
-        if self.block_factory.max_blocks_reached() {
+        // The factory increments `created` when a block is constructed. If the
+        // rate limiter cannot publish that block immediately, it remains in
+        // `next_block`; do not interpret the creation limit as permission to
+        // discard this final cached block.
+        if self.next_block.is_none() && self.block_factory.max_blocks_reached() {
             return None;
         }
 
