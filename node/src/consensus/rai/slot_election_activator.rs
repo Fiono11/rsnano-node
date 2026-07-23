@@ -52,7 +52,7 @@ impl RaiSlotElectionActivator {
 
     fn activate_block(&self, block: &SavedBlock) {
         let slot = RaiSlot::new(block.account(), block.height());
-        let epoch = self.close_state.read().unwrap().current_epoch();
+        let epoch = self.close_state.read().unwrap().open_epoch();
 
         if !self
             .close_state
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn live_processed_block_does_not_start_slot_election_while_closing_before_cut() {
+    fn live_processed_block_starts_in_successor_epoch_while_current_epoch_closes() {
         let fixture = Fixture::new();
         let block = SavedBlock::new_test_instance();
         fixture
@@ -180,8 +180,11 @@ mod tests {
 
         fixture.activator.handle(&event);
 
-        let election_id = slot_election_id(&block);
-        assert!(!fixture.active_elections.contains(&election_id));
+        let election_id = RaiElectionId::Slot {
+            slot: RaiSlot::new(block.account(), block.height()),
+            epoch: 1,
+        };
+        assert!(fixture.active_elections.contains(&election_id));
     }
 
     struct Fixture {

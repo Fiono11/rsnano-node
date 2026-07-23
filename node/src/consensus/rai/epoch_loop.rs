@@ -554,7 +554,7 @@ impl RaiEpochLoop {
         if self
             .active_elections
             .election(&election_id)
-            .is_some_and(|election| election.status() == RaiElectionStatus::Confirmed)
+            .is_some_and(|election| election.status() == RaiElectionStatus::DrainComplete)
         {
             return;
         }
@@ -656,7 +656,8 @@ impl RaiEpochLoop {
             RaiElectionOutcome::Fast(RaiElectionValue::CloseCutHash(hash)) => {
                 Some(CloseAttemptOutcome::Certified(hash))
             }
-            RaiElectionOutcome::Notarized(RaiElectionValue::CloseCutHash(hash)) => {
+            RaiElectionOutcome::Notarized(RaiElectionValue::CloseCutHash(hash))
+            | RaiElectionOutcome::Final(RaiElectionValue::CloseCutHash(hash)) => {
                 Some(CloseAttemptOutcome::Converged(hash))
             }
             RaiElectionOutcome::Timeout => Some(CloseAttemptOutcome::Timeout),
@@ -832,7 +833,7 @@ impl RaiEpochLoop {
             if self
                 .active_elections
                 .election(&election_id)
-                .is_some_and(|election| election.status() == RaiElectionStatus::Confirmed)
+                .is_some_and(|election| election.status() == RaiElectionStatus::DrainComplete)
             {
                 continue;
             }
@@ -895,13 +896,31 @@ impl RaiEpochLoop {
         attempt: RaiCloseAttempt,
         now: Instant,
     ) {
+        let (entries, previous_frontiers) = {
+            let close_state = self.close_state.read().unwrap();
+            let Ok(entries) = close_state.current_close_record_entries(epoch) else {
+                return;
+            };
+            let Ok(previous_frontiers) = close_state.prior_frontiers(epoch) else {
+                return;
+            };
+            (entries, previous_frontiers.clone())
+        };
+        let Ok(frontiers) =
+            self.vote_processor
+                .derive_close_frontiers(epoch, &previous_frontiers, &entries)
+        else {
+            return;
+        };
         let record_hash = {
             let mut close_state = self.close_state.write().unwrap();
             if close_state.close_record_attempt_started(epoch, attempt) {
                 return;
             }
 
-            let Ok(record_hash) = close_state.record_current_close_record_value(epoch) else {
+            let Ok(record_hash) =
+                close_state.record_current_close_record_value_with_frontiers(epoch, frontiers)
+            else {
                 return;
             };
             record_hash
@@ -1068,7 +1087,8 @@ impl RaiEpochLoop {
             RaiElectionOutcome::Fast(RaiElectionValue::CloseRecordHash(hash)) => {
                 Some(CloseRecordAttemptOutcome::Certified(hash))
             }
-            RaiElectionOutcome::Notarized(RaiElectionValue::CloseRecordHash(hash)) => {
+            RaiElectionOutcome::Notarized(RaiElectionValue::CloseRecordHash(hash))
+            | RaiElectionOutcome::Final(RaiElectionValue::CloseRecordHash(hash)) => {
                 Some(CloseRecordAttemptOutcome::Converged(hash))
             }
             RaiElectionOutcome::Timeout => Some(CloseRecordAttemptOutcome::Timeout),
@@ -1185,7 +1205,7 @@ impl RaiEpochLoop {
             let election_id = RaiElectionId::Slot { slot: *slot, epoch };
             let committees = self.committee_provider.try_committees_for(&election_id)?;
             let election = self.active_elections.election(&election_id)?;
-            if election.status() != RaiElectionStatus::Confirmed {
+            if election.status() != RaiElectionStatus::DrainComplete {
                 return None;
             }
             let state = match election.merged_outcome(&committees)? {

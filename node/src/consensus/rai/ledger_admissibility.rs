@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_types::{BlockHash, RaiCloseAttempt, RaiEpoch, RaiSlot};
+use std::collections::BTreeMap;
 
-use super::{RaiAdmissibilityError, RaiAdmissibilityValidator};
+use rsnano_types::{Account, BlockHash, RaiCloseAttempt, RaiCloseRecord, RaiEpoch, RaiSlot};
+
+use super::{
+    CloseRecordEntries, RaiAdmissibilityError, RaiAdmissibilityValidator, RaiClosedSlotState,
+};
 
 pub struct LedgerRaiAdmissibilityValidator {
     ledger: Arc<Ledger>,
@@ -16,6 +20,29 @@ impl LedgerRaiAdmissibilityValidator {
 }
 
 impl RaiAdmissibilityValidator for LedgerRaiAdmissibilityValidator {
+    fn derive_close_frontiers(
+        &self,
+        epoch: RaiEpoch,
+        previous_frontiers: &BTreeMap<Account, BlockHash>,
+        entries: &CloseRecordEntries,
+    ) -> Result<BTreeMap<Account, BlockHash>, RaiAdmissibilityError> {
+        let mut frontiers = if epoch == 0 {
+            self.ledger.confirmed().frontiers().collect()
+        } else {
+            previous_frontiers.clone()
+        };
+        for (slot, state) in entries {
+            match state {
+                RaiClosedSlotState::Finalized(hash) | RaiClosedSlotState::Carry(hash) => {
+                    self.validate_slot_block(*slot, epoch, hash)?;
+                    frontiers.insert(slot.account, *hash);
+                }
+                RaiClosedSlotState::Released => {}
+            }
+        }
+        Ok(frontiers)
+    }
+
     fn validate_slot_block(
         &self,
         slot: RaiSlot,
@@ -35,10 +62,67 @@ impl RaiAdmissibilityValidator for LedgerRaiAdmissibilityValidator {
 
     fn validate_close_record(
         &self,
-        _epoch: RaiEpoch,
+        record: &RaiCloseRecord,
+        entries: &CloseRecordEntries,
         _attempt: RaiCloseAttempt,
-        _hash: &BlockHash,
+        hash: &BlockHash,
     ) -> Result<(), RaiAdmissibilityError> {
+        if record.hash() != *hash {
+            return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+        }
+
+        let any = self.ledger.any();
+        for (account, frontier) in &record.frontiers {
+            let Some(block) = any.get_block(frontier) else {
+                return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+            };
+            if block.account() != *account {
+                return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+            }
+        }
+
+        for (slot, state) in entries {
+            match state {
+                RaiClosedSlotState::Finalized(hash) | RaiClosedSlotState::Carry(hash) => {
+                    let Some(frontier) = record.frontiers.get(&slot.account) else {
+                        return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                    };
+                    let Some(mut block) = any.get_block(frontier) else {
+                        return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                    };
+                    while block.height() > slot.account_height {
+                        let previous = block.previous();
+                        if previous.is_zero() {
+                            return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                        }
+                        block = any
+                            .get_block(&previous)
+                            .ok_or(RaiAdmissibilityError::MissingCloseRecordPackage)?;
+                    }
+                    if block.height() != slot.account_height || block.hash() != *hash {
+                        return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                    }
+                }
+                RaiClosedSlotState::Released => {
+                    if let Some(frontier) = record.frontiers.get(&slot.account)
+                        && let Some(mut block) = any.get_block(frontier)
+                    {
+                        while block.height() > slot.account_height {
+                            let previous = block.previous();
+                            if previous.is_zero() {
+                                break;
+                            }
+                            block = any
+                                .get_block(&previous)
+                                .ok_or(RaiAdmissibilityError::MissingCloseRecordPackage)?;
+                        }
+                        if block.height() == slot.account_height {
+                            return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -46,6 +130,8 @@ impl RaiAdmissibilityValidator for LedgerRaiAdmissibilityValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_types::{Account, RaiCloseRecord};
+    use std::collections::BTreeMap;
 
     #[test]
     fn rejects_unknown_slot_block() {
@@ -54,5 +140,22 @@ mod tests {
         let result = validator.validate_slot_block(RaiSlot::default(), 0, &BlockHash::from(1));
 
         assert_eq!(result, Err(RaiAdmissibilityError::InadmissibleSlotBlock));
+    }
+
+    #[test]
+    fn rejects_close_record_with_unknown_frontier() {
+        let validator = LedgerRaiAdmissibilityValidator::new(Arc::new(Ledger::new_null()));
+        let record = RaiCloseRecord::new(
+            0,
+            BlockHash::ZERO,
+            [(Account::from(1), BlockHash::from(2))]
+                .into_iter()
+                .collect::<BTreeMap<_, _>>(),
+        );
+
+        assert_eq!(
+            validator.validate_close_record(&record, &CloseRecordEntries::new(), 0, &record.hash()),
+            Err(RaiAdmissibilityError::MissingCloseRecordPackage)
+        );
     }
 }

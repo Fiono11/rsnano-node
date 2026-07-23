@@ -250,7 +250,7 @@ impl RaiEpochBootstrap {
             }
         };
 
-        match self.missing_confirmed_finalized_slots(epoch, &close_entries) {
+        match self.missing_committed_slots(epoch, &close_entries) {
             Ok(missing_slots) if !missing_slots.is_empty() => {
                 self.request_missing_confirmed_slots(epoch, &missing_slots);
                 return false;
@@ -350,7 +350,7 @@ impl RaiEpochBootstrap {
         self.finish_epoch_install(epoch, close_hash, snapshot, advanced)
     }
 
-    fn missing_confirmed_finalized_slots(
+    fn missing_committed_slots(
         &self,
         epoch: RaiEpoch,
         entries: &CloseRecordEntries,
@@ -359,21 +359,28 @@ impl RaiEpochBootstrap {
         let epoch_slots = confirmed_slots.get(&epoch);
         let mut missing = Vec::new();
         for (slot, state) in entries {
-            let RaiClosedSlotState::Finalized(expected) = state else {
-                continue;
-            };
+            match state {
+                RaiClosedSlotState::Finalized(expected) | RaiClosedSlotState::Carry(expected) => {
+                    if let Some(local) = epoch_slots.and_then(|slots| slots.get(slot)) {
+                        if local == expected {
+                            continue;
+                        }
+                        return Err(*slot);
+                    }
 
-            if let Some(local) = epoch_slots.and_then(|slots| slots.get(slot)) {
-                if local == expected {
-                    continue;
+                    match self.block_requester.confirmed_block_hash(slot) {
+                        Some(local) if local == *expected => {}
+                        Some(_) => return Err(*slot),
+                        None => missing.push(*slot),
+                    }
                 }
-                return Err(*slot);
-            }
-
-            match self.block_requester.confirmed_block_hash(slot) {
-                Some(local) if local == *expected => {}
-                Some(_) => return Err(*slot),
-                None => missing.push(*slot),
+                RaiClosedSlotState::Released => {
+                    if epoch_slots.and_then(|slots| slots.get(slot)).is_some()
+                        || self.block_requester.confirmed_block_hash(slot).is_some()
+                    {
+                        return Err(*slot);
+                    }
+                }
             }
         }
         Ok(missing)
@@ -734,8 +741,13 @@ mod tests {
     fn close_ack(epoch: RaiEpoch, entries: Vec<RaiEpochCloseEntry>) -> RaiEpochCloseAck {
         let close_entries =
             close_entries_from_epoch_page_entries(&entries).expect("test entries should be unique");
-        let close_hash =
-            RaiCloseState::close_record_from_entries(BlockHash::ZERO, &close_entries).hash();
+        let close_hash = RaiCloseState::close_record_from_entries(
+            epoch,
+            BlockHash::ZERO,
+            &Default::default(),
+            &close_entries,
+        )
+        .hash();
         RaiEpochCloseAck::new(RaiEpochClosePage::new(
             epoch,
             entries.len() as u32,

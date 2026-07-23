@@ -5,7 +5,8 @@ use std::{
 };
 
 use rsnano_types::{
-    PublicKey, RaiElectionId, RaiElectionValue, RaiEpoch, RaiSlot, RaiVote, RaiVoteKind, VoteError,
+    BlockHash, PublicKey, RaiElectionId, RaiElectionValue, RaiEpoch, RaiSlot, RaiVote, RaiVoteKind,
+    VoteError,
 };
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
@@ -253,7 +254,7 @@ pub enum RaiElectionInsertError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaiElectionStatus {
     Active,
-    Confirmed,
+    DrainComplete,
 }
 
 #[derive(Clone)]
@@ -428,6 +429,14 @@ impl RaiElection {
             .collect()
     }
 
+    pub fn finalized_block(&self, committees: &RaiCommitteeSet) -> Option<BlockHash> {
+        match self.merged_outcome(committees) {
+            Some(RaiElectionOutcome::Fast(RaiElectionValue::Block(block)))
+            | Some(RaiElectionOutcome::Final(RaiElectionValue::Block(block))) => Some(block),
+            _ => None,
+        }
+    }
+
     pub fn merged_outcome(&self, committees: &RaiCommitteeSet) -> Option<RaiElectionOutcome> {
         if committees.is_empty() {
             return None;
@@ -495,13 +504,7 @@ impl RaiElection {
             | (
                 RaiElectionId::CloseRecord { .. },
                 RaiElectionValue::CloseRecordHash(_) | RaiElectionValue::Timeout,
-            ) => !matches!(
-                (&self.id, vote.kind),
-                (
-                    RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. },
-                    RaiVoteKind::Final
-                )
-            ),
+            ) => true,
             _ => false,
         }
     }
@@ -513,7 +516,7 @@ impl RaiElection {
         if let Some(outcome) = &merged_outcome
             && self.is_terminal_outcome(outcome)
         {
-            self.status = RaiElectionStatus::Confirmed;
+            self.status = RaiElectionStatus::DrainComplete;
             if self.confirmed_value.is_none() {
                 self.confirmed_value = self.terminal_confirmed_value(outcome);
             }
@@ -535,12 +538,9 @@ impl RaiElection {
                 RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. },
                 RaiElectionOutcome::Timeout
                 | RaiElectionOutcome::Notarized(_)
-                | RaiElectionOutcome::Fast(_),
+                | RaiElectionOutcome::Fast(_)
+                | RaiElectionOutcome::Final(_),
             ) => true,
-            (
-                RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. },
-                RaiElectionOutcome::Final(_),
-            ) => false,
         }
     }
 
@@ -646,7 +646,7 @@ impl RaiElection {
         }
 
         if fast_values.len() > 1 {
-            return Some(RaiElectionOutcome::Timeout);
+            return Some(RaiElectionOutcome::SafetyFault);
         }
 
         if let Some(fast_value) = fast_values.first() {
@@ -742,11 +742,10 @@ impl RaiVoteState {
                     } else {
                         Err(VoteError::Invalid)
                     }
-                } else if self.final_vote.is_some()
-                    || self
-                        .notarized
-                        .iter()
-                        .any(|notarized| notarized != &vote.value)
+                } else if self
+                    .final_vote
+                    .as_ref()
+                    .is_some_and(|final_vote| final_vote != &vote.value)
                 {
                     Err(VoteError::Invalid)
                 } else {
@@ -756,7 +755,11 @@ impl RaiVoteState {
             RaiVoteKind::Notarization => {
                 if self.notarized.contains(&vote.value) {
                     Err(VoteError::Replay)
-                } else if self.final_vote.is_some() {
+                } else if self
+                    .final_vote
+                    .as_ref()
+                    .is_some_and(|final_vote| final_vote != &vote.value)
+                {
                     Err(VoteError::Invalid)
                 } else {
                     Ok(())
@@ -788,7 +791,6 @@ impl RaiVoteState {
     fn notarization_values(&self) -> Vec<RaiElectionValue> {
         let mut values = self.notarized.clone();
         if let Some(first) = &self.first
-            && *first != RaiElectionValue::Timeout
             && !values.contains(first)
         {
             values.push(first.clone());
@@ -1059,7 +1061,7 @@ mod tests {
         assert_eq!(elections.apply_vote(&vote, &committees), Ok(()));
 
         let election = elections.election(&election_id).unwrap();
-        assert_eq!(election.status(), RaiElectionStatus::Confirmed);
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
         assert_eq!(election.confirmed_value(), Some(&value));
         assert_eq!(election.final_tally(&value), 1);
     }
@@ -1086,7 +1088,7 @@ mod tests {
             election.merged_outcome(&committees),
             Some(RaiElectionOutcome::Notarized(value.clone()))
         );
-        assert_eq!(election.status(), RaiElectionStatus::Confirmed);
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
         assert_eq!(election.confirmed_value(), Some(&value));
     }
 
@@ -1111,7 +1113,7 @@ mod tests {
             election.merged_outcome(&committees),
             Some(RaiElectionOutcome::Timeout)
         );
-        assert_eq!(election.status(), RaiElectionStatus::Confirmed);
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
         assert_eq!(election.confirmed_value(), Some(&RaiElectionValue::Timeout));
     }
 
@@ -1213,7 +1215,7 @@ mod tests {
             election.merged_outcome(&committees),
             Some(RaiElectionOutcome::Notarized(value))
         );
-        assert_eq!(election.status(), RaiElectionStatus::Confirmed);
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
         assert_eq!(election.confirmed_value(), None);
     }
 
@@ -1257,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_final_vote_for_close_election() {
+    fn final_vote_for_close_election_is_carry_evidence() {
         let elections = RaiActiveElections::new();
         let election_id = RaiElectionId::CloseCut {
             epoch: 1,
@@ -1267,16 +1269,16 @@ mod tests {
         let committees = committee([(key.public_key(), Amount::raw(100))]);
 
         elections.insert(election_id.clone()).unwrap();
-        let vote = RaiVote::new_final(
-            &key,
-            election_id,
-            RaiElectionValue::CloseCutHash(BlockHash::from(3)),
-        );
+        let value = RaiElectionValue::CloseCutHash(BlockHash::from(3));
+        let vote = RaiVote::new_final(&key, election_id.clone(), value.clone());
 
+        assert_eq!(elections.apply_vote(&vote, &committees), Ok(()));
+        let election = elections.election(&election_id).unwrap();
         assert_eq!(
-            elections.apply_vote(&vote, &committees),
-            Err(VoteError::Invalid)
+            election.merged_outcome(&committees),
+            Some(RaiElectionOutcome::Final(value))
         );
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
     }
 
     #[test]
@@ -1339,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn conflicting_first_vote_after_notarization_is_invalid() {
+    fn conflicting_first_vote_after_notarization_is_accepted_when_delivered_late() {
         let elections = RaiActiveElections::new();
         let election_id = slot_election(1);
         let notarized_value = RaiElectionValue::Block(BlockHash::from(3));
@@ -1360,11 +1362,12 @@ mod tests {
                 &RaiVote::new_first(&key, election_id.clone(), conflicting_value.clone()),
                 &committees
             ),
-            Err(VoteError::Invalid)
+            Ok(())
         );
 
         let election = elections.election(&election_id).unwrap();
-        assert_eq!(election.tally(&conflicting_value), 0);
+        assert_eq!(election.tally(&conflicting_value), 1);
+        assert_eq!(election.tally(&notarized_value), 0);
     }
 
     #[test]
@@ -1485,7 +1488,7 @@ mod tests {
     }
 
     #[test]
-    fn final_vote_locks_out_later_first_or_notarization_votes() {
+    fn final_vote_allows_same_value_messages_delivered_late() {
         let elections = RaiActiveElections::new();
         let election_id = slot_election(1);
         let value = RaiElectionValue::Block(BlockHash::from(3));
@@ -1505,18 +1508,18 @@ mod tests {
                 &RaiVote::new_first(&key, election_id.clone(), value.clone()),
                 &committees
             ),
-            Err(VoteError::Invalid)
+            Ok(())
         );
         assert_eq!(
             elections.apply_vote(
                 &RaiVote::new_notarization(&key, election_id.clone(), value.clone()),
                 &committees
             ),
-            Err(VoteError::Invalid)
+            Ok(())
         );
 
         let election = elections.election(&election_id).unwrap();
-        assert_eq!(election.tally(&value), 0);
+        assert_eq!(election.tally(&value), 1);
         assert_eq!(election.final_tally(&value), 1);
     }
 

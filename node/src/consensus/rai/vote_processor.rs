@@ -1,7 +1,11 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 
 use rsnano_types::{
-    BlockHash, RaiCloseAttempt, RaiElectionId, RaiElectionValue, RaiEpoch, RaiVote, VoteError,
+    Account, BlockHash, RaiCloseAttempt, RaiElectionId, RaiElectionValue, RaiEpoch, RaiVote,
+    VoteError,
 };
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -47,6 +51,16 @@ pub struct RaiVoteProcessor {
 }
 
 impl RaiVoteProcessor {
+    pub fn derive_close_frontiers(
+        &self,
+        epoch: RaiEpoch,
+        previous_frontiers: &BTreeMap<Account, BlockHash>,
+        entries: &super::CloseRecordEntries,
+    ) -> Result<BTreeMap<Account, BlockHash>, super::RaiAdmissibilityError> {
+        self.admissibility
+            .derive_close_frontiers(epoch, previous_frontiers, entries)
+    }
+
     pub fn new(
         active_elections: Arc<RaiActiveElections>,
         close_state: Arc<RwLock<RaiCloseState>>,
@@ -257,7 +271,7 @@ impl RaiVoteProcessor {
         let was_confirmed = self
             .active_elections
             .election(&vote.election_id)
-            .is_some_and(|election| election.status() == RaiElectionStatus::Confirmed);
+            .is_some_and(|election| election.status() == RaiElectionStatus::DrainComplete);
 
         if self.active_elections.is_active(&vote.election_id) {
             self.rep_tracker.vote_observed(vote.voter);
@@ -679,7 +693,7 @@ impl RaiVoteProcessor {
         let Some(election) = self.active_elections.election(election_id) else {
             return;
         };
-        if election.status() != RaiElectionStatus::Confirmed {
+        if election.status() != RaiElectionStatus::DrainComplete {
             return;
         }
 

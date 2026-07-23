@@ -1,4 +1,7 @@
-use std::io::{Read, Write};
+use std::{
+    collections::BTreeMap,
+    io::{Read, Write},
+};
 
 use num_traits::FromPrimitive;
 
@@ -29,7 +32,7 @@ pub const RAI_PENDING_REPORT_MAX_PAYLOAD_SIZE: usize = 256 * 1024;
 pub const RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES: u16 = 512;
 
 const RAI_VOTE_HASH_PREFIX: &[u8] = b"rai vote ";
-const RAI_CLOSE_RECORD_HASH_PREFIX: &[u8] = b"rai close record ";
+const RAI_CLOSE_RECORD_HASH_PREFIX: &[u8] = b"RAI/CloseRecord";
 const RAI_PENDING_REPORT_HASH_PREFIX: &[u8] = b"rai pending report ";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
@@ -264,30 +267,28 @@ enum RaiElectionValueKind {
     Timeout = RAI_ELECTION_VALUE_KIND_TIMEOUT,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RaiCloseRecord {
+    pub epoch: RaiEpoch,
     pub previous_close_hash: BlockHash,
-    pub finalized_root: BlockHash,
-    pub carry_root: BlockHash,
+    pub frontiers: BTreeMap<Account, BlockHash>,
 }
 
 impl RaiCloseRecord {
-    pub const SERIALIZED_SIZE: usize = BlockHash::SERIALIZED_SIZE * 3;
-
     pub fn new(
+        epoch: RaiEpoch,
         previous_close_hash: BlockHash,
-        finalized_root: BlockHash,
-        carry_root: BlockHash,
+        frontiers: BTreeMap<Account, BlockHash>,
     ) -> Self {
         Self {
+            epoch,
             previous_close_hash,
-            finalized_root,
-            carry_root,
+            frontiers,
         }
     }
 
     pub fn hash(&self) -> BlockHash {
-        let mut bytes = Vec::with_capacity(Self::SERIALIZED_SIZE);
+        let mut bytes = Vec::with_capacity(self.serialized_size());
         self.serialize(&mut bytes)
             .expect("writing to Vec should succeed");
 
@@ -301,23 +302,44 @@ impl RaiCloseRecord {
     where
         T: Write,
     {
+        writer.write_all(&self.epoch.to_be_bytes())?;
         self.previous_close_hash.serialize(writer)?;
-        self.finalized_root.serialize(writer)?;
-        self.carry_root.serialize(writer)
+        writer.write_all(&(self.frontiers.len() as u64).to_be_bytes())?;
+        for (account, frontier) in &self.frontiers {
+            account.serialize(writer)?;
+            frontier.serialize(writer)?;
+        }
+        Ok(())
     }
 
     pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
     where
         T: Read,
     {
+        let epoch = read_u64_be(reader)?;
         let previous_close_hash = BlockHash::deserialize(reader)?;
-        let finalized_root = BlockHash::deserialize(reader)?;
-        let carry_root = BlockHash::deserialize(reader)?;
+        let count = read_u64_be(reader)?;
+        let count = usize::try_from(count).map_err(|_| DeserializationError::InvalidData)?;
+        let mut frontiers = BTreeMap::new();
+        for _ in 0..count {
+            let account = Account::deserialize(reader)?;
+            let frontier = BlockHash::deserialize(reader)?;
+            if frontier.is_zero() || frontiers.insert(account, frontier).is_some() {
+                return Err(DeserializationError::InvalidData);
+            }
+        }
         Ok(Self {
+            epoch,
             previous_close_hash,
-            finalized_root,
-            carry_root,
+            frontiers,
         })
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        std::mem::size_of::<u64>()
+            + BlockHash::SERIALIZED_SIZE
+            + std::mem::size_of::<u64>()
+            + self.frontiers.len() * (Account::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE)
     }
 }
 
@@ -1089,32 +1111,50 @@ mod tests {
     }
 
     #[test]
-    fn close_record_hash_commits_to_all_three_roots() {
-        let base = RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(3));
+    fn close_record_hash_commits_to_epoch_predecessor_and_frontiers() {
+        let frontiers: BTreeMap<_, _> = [(Account::from(2), BlockHash::from(3))]
+            .into_iter()
+            .collect();
+        let base = RaiCloseRecord::new(1, BlockHash::from(1), frontiers.clone());
 
         assert_ne!(
             base.hash(),
-            RaiCloseRecord::new(BlockHash::from(9), BlockHash::from(2), BlockHash::from(3)).hash()
+            RaiCloseRecord::new(9, BlockHash::from(1), frontiers.clone()).hash()
         );
         assert_ne!(
             base.hash(),
-            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(9), BlockHash::from(3)).hash()
+            RaiCloseRecord::new(1, BlockHash::from(9), frontiers.clone()).hash()
         );
         assert_ne!(
             base.hash(),
-            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(9)).hash()
+            RaiCloseRecord::new(
+                1,
+                BlockHash::from(1),
+                [(Account::from(2), BlockHash::from(9))]
+                    .into_iter()
+                    .collect(),
+            )
+            .hash()
         );
     }
 
     #[test]
     fn close_record_wire_layout_is_stable() {
-        let record =
-            RaiCloseRecord::new(BlockHash::from(1), BlockHash::from(2), BlockHash::from(3));
+        let record = RaiCloseRecord::new(
+            7,
+            BlockHash::from(1),
+            [
+                (Account::from(2), BlockHash::from(3)),
+                (Account::from(4), BlockHash::from(5)),
+            ]
+            .into_iter()
+            .collect(),
+        );
         let mut bytes = Vec::new();
 
         record.serialize(&mut bytes).unwrap();
 
-        assert_eq!(bytes.len(), RaiCloseRecord::SERIALIZED_SIZE);
+        assert_eq!(bytes.len(), record.serialized_size());
         let mut slice = bytes.as_slice();
         assert_eq!(RaiCloseRecord::deserialize(&mut slice).unwrap(), record);
         assert!(slice.is_empty());

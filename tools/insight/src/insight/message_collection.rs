@@ -4,6 +4,8 @@ use chrono::{DateTime, TimeZone, Utc};
 
 use rsnano_messages::{AscPullAckType, AscPullReqType, HashType, Message, MessageType};
 use rsnano_network::{ChannelDirection, ChannelId};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpochCloseEntryState;
 use rsnano_types::{Account, BlockHash};
 
 #[derive(Clone)]
@@ -116,6 +118,18 @@ impl MessageFilter {
                         || i.account_conf_frontier == hash
                 }
                 AscPullAckType::Frontiers(i) => i.iter().any(|f| f.hash == hash),
+                #[cfg(feature = "rai_protocol")]
+                AscPullAckType::RaiEpochClose(i) => i.page.as_ref().is_some_and(|page| {
+                    page.close_hash == hash
+                        || page.entries.iter().any(|entry| {
+                            matches!(
+                                entry.state,
+                                RaiEpochCloseEntryState::Finalized(entry_hash)
+                                    | RaiEpochCloseEntryState::Carry(entry_hash)
+                                    if entry_hash == hash
+                            )
+                        })
+                }),
             },
             Message::AscPullReq(req) => match &req.req_type {
                 AscPullReqType::Blocks(i) => {
@@ -125,6 +139,8 @@ impl MessageFilter {
                     i.target_type == HashType::Block && hash == i.target.into()
                 }
                 AscPullReqType::Frontiers(_) => false,
+                #[cfg(feature = "rai_protocol")]
+                AscPullReqType::RaiEpochClose(_) => false,
             },
             Message::ConfirmAck(i) => i.vote().hashes.contains(&hash),
             Message::ConfirmReq(i) => i.roots_hashes().iter().any(|(h, _)| *h == hash),
@@ -146,6 +162,12 @@ impl MessageFilter {
                     .any(|b| b.account_field() == Some(account)),
                 AscPullAckType::AccountInfo(i) => i.account == account,
                 AscPullAckType::Frontiers(i) => i.iter().any(|f| f.account == account),
+                #[cfg(feature = "rai_protocol")]
+                AscPullAckType::RaiEpochClose(i) => i.page.as_ref().is_some_and(|page| {
+                    page.entries
+                        .iter()
+                        .any(|entry| entry.slot.account == account)
+                }),
             },
             Message::AscPullReq(req) => match &req.req_type {
                 AscPullReqType::Blocks(i) => {
@@ -155,6 +177,8 @@ impl MessageFilter {
                     i.target_type == HashType::Account && account == i.target.into()
                 }
                 AscPullReqType::Frontiers(i) => i.start == account,
+                #[cfg(feature = "rai_protocol")]
+                AscPullReqType::RaiEpochClose(_) => false,
             },
             Message::BulkPullAccount(i) => i.account == account,
             Message::ConfirmAck(ack) => ack.vote().voter == account.into(),

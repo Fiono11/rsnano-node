@@ -66,10 +66,14 @@ impl<'a> RaiCloseStateRebuilder<'a> {
         }
 
         let mut previous_close_hash = BlockHash::ZERO;
+        let mut previous_frontiers = BTreeMap::new();
         for state in epochs.values_mut() {
-            state.rebuild_close_record_values(previous_close_hash);
+            state.rebuild_close_record_values(previous_close_hash, &previous_frontiers);
             if let Some(close_hash) = state.close_hash {
                 previous_close_hash = close_hash;
+                if let Some(value) = state.close_record_values.get(&close_hash) {
+                    previous_frontiers = value.record.frontiers.clone();
+                }
             }
         }
 
@@ -206,7 +210,7 @@ impl<'a> RaiCloseStateRebuilder<'a> {
                 RaiElectionId::Slot { slot, epoch } => (*slot, *epoch),
                 _ => continue,
             };
-            if election.status != RaiElectionStatus::Confirmed {
+            if election.status != RaiElectionStatus::DrainComplete {
                 continue;
             }
             let Some(committees) = self.committee_provider.try_committees_for(&election.id) else {
@@ -402,21 +406,44 @@ impl EpochRebuildState {
         }
     }
 
-    fn rebuild_close_record_values(&mut self, previous_close_hash: BlockHash) {
+    fn rebuild_close_record_values(
+        &mut self,
+        previous_close_hash: BlockHash,
+        previous_frontiers: &BTreeMap<rsnano_types::Account, BlockHash>,
+    ) {
         let Some(entries) = self.current_close_record_entries() else {
             self.close_record_values.clear();
             self.close_hash = None;
             return;
         };
 
-        self.close_record_values
-            .retain(|hash, value| *hash == value.record.hash() && value.entries == entries);
+        let record = RaiCloseState::close_record_from_entries(
+            self.epoch,
+            previous_close_hash,
+            previous_frontiers,
+            &entries,
+        );
+        self.close_record_values.retain(|stored_hash, value| {
+            if *stored_hash != value.record.hash()
+                || value.record.epoch != self.epoch
+                || value.record.previous_close_hash != previous_close_hash
+                || value.entries != entries
+            {
+                return false;
+            }
+            if self.epoch > 0 {
+                return value.record == record;
+            }
+            record
+                .frontiers
+                .iter()
+                .all(|(account, frontier)| value.record.frontiers.get(account) == Some(frontier))
+        });
         if !self.started_close_record_attempts.is_empty() || !self.close_record_values.is_empty() {
-            let record = RaiCloseState::close_record_from_entries(previous_close_hash, &entries);
-            let hash = record.hash();
-            self.close_record_values
-                .entry(hash)
-                .or_insert(RaiCloseRecordValue { record, entries });
+            if self.close_record_values.is_empty() {
+                self.close_record_values
+                    .insert(record.hash(), RaiCloseRecordValue { record, entries });
+            }
         }
         if !self
             .close_hash
@@ -690,7 +717,7 @@ mod tests {
             elections: vec![slot_election_snapshot(
                 slot,
                 7,
-                RaiElectionStatus::Confirmed,
+                RaiElectionStatus::DrainComplete,
                 vec![vote_state(&key, 0, outcome.clone())],
                 Some(outcome.clone()),
             )],

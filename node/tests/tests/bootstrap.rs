@@ -116,6 +116,9 @@ fn frontier_scan() {
 
     let node0 = system.build_node().config(config.clone()).finish();
     node0.process_multi(&updates);
+    // RAI bootstrap only advertises confirmed frontiers.
+    #[cfg(feature = "rai_protocol")]
+    node0.confirm_multi(&updates);
 
     // No blocks should be broadcast to the other node
     let mut config2 = config.clone();
@@ -175,6 +178,9 @@ fn frontier_scan_pending() {
 
     let node0 = system.build_node().config(config.clone()).finish();
     node0.process_multi(&opens);
+    // RAI bootstrap only advertises confirmed frontiers.
+    #[cfg(feature = "rai_protocol")]
+    node0.confirm_multi(&opens);
 
     // No blocks should be broadcast to the other node
     let mut config2 = config.clone();

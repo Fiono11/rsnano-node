@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use rsnano_types::{
-    BlockHash, RaiCloseAttempt, RaiElectionId, RaiElectionValue, RaiEpoch, RaiSlot,
+    Account, BlockHash, RaiCloseAttempt, RaiCloseRecord, RaiElectionId, RaiElectionValue, RaiEpoch,
+    RaiSlot,
 };
 
-use super::RaiCloseState;
+use super::{CloseRecordEntries, RaiCloseState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaiAdmissibilityError {
@@ -14,6 +17,25 @@ pub enum RaiAdmissibilityError {
 }
 
 pub trait RaiAdmissibilityValidator: Send + Sync {
+    fn derive_close_frontiers(
+        &self,
+        _epoch: RaiEpoch,
+        previous_frontiers: &BTreeMap<Account, BlockHash>,
+        entries: &CloseRecordEntries,
+    ) -> Result<BTreeMap<Account, BlockHash>, RaiAdmissibilityError> {
+        let mut frontiers = previous_frontiers.clone();
+        for (slot, state) in entries {
+            match state {
+                super::RaiClosedSlotState::Finalized(hash)
+                | super::RaiClosedSlotState::Carry(hash) => {
+                    frontiers.insert(slot.account, *hash);
+                }
+                super::RaiClosedSlotState::Released => {}
+            }
+        }
+        Ok(frontiers)
+    }
+
     fn validate_slot_block(
         &self,
         _slot: RaiSlot,
@@ -25,7 +47,8 @@ pub trait RaiAdmissibilityValidator: Send + Sync {
 
     fn validate_close_record(
         &self,
-        _epoch: RaiEpoch,
+        _record: &RaiCloseRecord,
+        _entries: &CloseRecordEntries,
         _attempt: RaiCloseAttempt,
         _hash: &BlockHash,
     ) -> Result<(), RaiAdmissibilityError> {
@@ -76,11 +99,19 @@ impl<'a> RaiAdmissibility<'a> {
                 RaiElectionId::CloseRecord { epoch, attempt },
                 RaiElectionValue::CloseRecordHash(hash),
             ) => {
-                if !self.close_state.has_close_record_value(*epoch, hash) {
+                let Some(package) = self.close_state.close_record_value(*epoch, hash) else {
+                    return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
+                };
+                if package.record.epoch != *epoch || package.record.hash() != *hash {
                     return Err(RaiAdmissibilityError::MissingCloseRecordPackage);
                 }
 
-                self.validator.validate_close_record(*epoch, *attempt, hash)
+                self.validator.validate_close_record(
+                    &package.record,
+                    &package.entries,
+                    *attempt,
+                    hash,
+                )
             }
             (RaiElectionId::CloseRecord { .. }, RaiElectionValue::Timeout) => Ok(()),
             _ => Err(RaiAdmissibilityError::IncompatibleElectionValue),

@@ -112,11 +112,8 @@ impl RaiCommittee {
         !self.is_empty() && votes >= self.thresholds.max_faulty + 1
     }
 
-    fn has_same_members_as(&self, other: &Self) -> bool {
-        self.members
-            .iter()
-            .map(|member| member.account)
-            .eq(other.members.iter().map(|member| member.account))
+    fn is_same_snapshot_as(&self, other: &Self) -> bool {
+        self.members == other.members
     }
 }
 
@@ -213,7 +210,7 @@ impl RaiCommitteeSet {
         for committee in committees {
             if !result
                 .iter()
-                .any(|existing: &RaiCommittee| existing.has_same_members_as(&committee))
+                .any(|existing: &RaiCommittee| existing.is_same_snapshot_as(&committee))
             {
                 result.push(committee);
             }
@@ -539,14 +536,14 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_committees_with_the_same_members() {
+    fn keeps_distinct_committee_snapshots_when_weights_change() {
         let first =
             RaiCommitteeDeriver::new().derive_committee([(PublicKey::from(1), Amount::raw(1))]);
         let second =
             RaiCommitteeDeriver::new().derive_committee([(PublicKey::from(1), Amount::raw(2))]);
         let committees = RaiCommitteeSet::new([first, second]);
 
-        assert_eq!(committees.len(), 1);
+        assert_eq!(committees.len(), 2);
     }
 
     #[test]

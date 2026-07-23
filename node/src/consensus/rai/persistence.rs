@@ -19,7 +19,7 @@ use super::{
     RaiVoteSafetyEntrySnapshot, RaiVoteSafetySnapshot, RaiVoteStateSnapshot,
 };
 
-const SNAPSHOT_VERSION: u8 = 7;
+const SNAPSHOT_VERSION: u8 = 8;
 const CLOSE_STATE_KEY: &[u8] = b"close_state";
 const ACTIVE_ELECTIONS_KEY: &[u8] = b"active_elections";
 const VOTE_SAFETY_KEY: &[u8] = b"vote_safety";
@@ -817,7 +817,7 @@ fn write_election_status(writer: &mut Vec<u8>, status: RaiElectionStatus) {
     writer
         .write_all(&[match status {
             RaiElectionStatus::Active => 0,
-            RaiElectionStatus::Confirmed => 1,
+            RaiElectionStatus::DrainComplete => 1,
         }])
         .unwrap();
 }
@@ -825,7 +825,7 @@ fn write_election_status(writer: &mut Vec<u8>, status: RaiElectionStatus) {
 fn read_election_status(reader: &mut &[u8]) -> Result<RaiElectionStatus, DeserializationError> {
     match read_u8(reader)? {
         0 => Ok(RaiElectionStatus::Active),
-        1 => Ok(RaiElectionStatus::Confirmed),
+        1 => Ok(RaiElectionStatus::DrainComplete),
         _ => Err(DeserializationError::InvalidData),
     }
 }
@@ -912,8 +912,12 @@ mod tests {
             .cloned()
             .map(|closed| (closed.slot, closed.state))
             .collect();
-        let close_record =
-            RaiCloseState::close_record_from_entries(BlockHash::ZERO, &close_record_entries);
+        let close_record = RaiCloseState::close_record_from_entries(
+            7,
+            BlockHash::ZERO,
+            &Default::default(),
+            &close_record_entries,
+        );
         let close_record_hash = close_record.hash();
         let snapshot = RaiCloseStateSnapshot {
             current_epoch: 7,
@@ -958,7 +962,7 @@ mod tests {
         let snapshot = RaiActiveElectionsSnapshot {
             elections: vec![RaiElectionSnapshot {
                 id: RaiElectionId::Slot { slot, epoch: 7 },
-                status: RaiElectionStatus::Confirmed,
+                status: RaiElectionStatus::DrainComplete,
                 vote_states: vec![RaiVoteStateSnapshot {
                     voter: key.public_key(),
                     committee_index: 0,
@@ -1061,7 +1065,7 @@ mod tests {
         let active_elections = RaiActiveElectionsSnapshot {
             elections: vec![RaiElectionSnapshot {
                 id: RaiElectionId::Slot { slot, epoch: 0 },
-                status: RaiElectionStatus::Confirmed,
+                status: RaiElectionStatus::DrainComplete,
                 vote_states: Vec::new(),
                 tallies: Vec::new(),
                 notarization_tallies: Vec::new(),

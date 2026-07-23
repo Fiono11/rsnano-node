@@ -59,6 +59,17 @@ impl RaiCloseState {
         self.current_epoch
     }
 
+    /// Returns the epoch accepting new slot elections. The close-driver
+    /// cursor remains on the closing epoch until its close record certifies,
+    /// while the successor is open concurrently.
+    pub fn open_epoch(&self) -> RaiEpoch {
+        if self.current_epoch_phase() == RaiEpochPhase::Closing {
+            self.current_epoch.saturating_add(1)
+        } else {
+            self.current_epoch
+        }
+    }
+
     pub fn current_epoch_phase(&self) -> RaiEpochPhase {
         self.epoch_phase(self.current_epoch)
             .unwrap_or(RaiEpochPhase::Open)
@@ -204,7 +215,9 @@ impl RaiCloseState {
             .ok_or(RaiEpochTransitionError::CutMissing)?
             .current_close_record_entries()?;
         Ok(Self::close_record_from_entries(
+            epoch,
             self.previous_close_hash(epoch)?,
+            self.previous_frontiers(epoch)?,
             &entries,
         ))
     }
@@ -213,9 +226,47 @@ impl RaiCloseState {
         &mut self,
         epoch: RaiEpoch,
     ) -> Result<BlockHash, RaiEpochTransitionError> {
+        let entries = self.current_close_record_entries(epoch)?;
+        let frontiers = Self::close_record_from_entries(
+            epoch,
+            self.previous_close_hash(epoch)?,
+            self.previous_frontiers(epoch)?,
+            &entries,
+        )
+        .frontiers;
+        self.record_current_close_record_value_with_frontiers(epoch, frontiers)
+    }
+
+    pub fn record_current_close_record_value_with_frontiers(
+        &mut self,
+        epoch: RaiEpoch,
+        frontiers: BTreeMap<rsnano_types::Account, BlockHash>,
+    ) -> Result<BlockHash, RaiEpochTransitionError> {
         let previous_close_hash = self.previous_close_hash(epoch)?;
+        let entries = self.current_close_record_entries(epoch)?;
+        let record = RaiCloseRecord::new(epoch, previous_close_hash, frontiers);
+        let hash = record.hash();
         self.epoch_mut(epoch)
-            .record_current_close_record_value(previous_close_hash)
+            .close_record_values
+            .entry(hash)
+            .or_insert(RaiCloseRecordValue { record, entries });
+        Ok(hash)
+    }
+
+    pub fn current_close_record_entries(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Result<CloseRecordEntries, RaiEpochTransitionError> {
+        self.epoch(epoch)
+            .ok_or(RaiEpochTransitionError::CutMissing)?
+            .current_close_record_entries()
+    }
+
+    pub fn prior_frontiers(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Result<&BTreeMap<rsnano_types::Account, BlockHash>, RaiEpochTransitionError> {
+        self.previous_frontiers(epoch)
     }
 
     pub fn close_record_hash_from_entries(
@@ -223,7 +274,13 @@ impl RaiCloseState {
         epoch: RaiEpoch,
         entries: &CloseRecordEntries,
     ) -> Result<BlockHash, RaiEpochTransitionError> {
-        Ok(Self::close_record_from_entries(self.previous_close_hash(epoch)?, entries).hash())
+        Ok(Self::close_record_from_entries(
+            epoch,
+            self.previous_close_hash(epoch)?,
+            self.previous_frontiers(epoch)?,
+            entries,
+        )
+        .hash())
     }
 
     pub fn close_record_value(
@@ -418,64 +475,22 @@ impl RaiCloseState {
             .build()
     }
 
-    pub fn hash_close_record_finalized_entries(entries: &CloseRecordEntries) -> BlockHash {
-        let finalized: Vec<_> = entries
-            .iter()
-            .filter_map(|(slot, state)| match state {
-                RaiClosedSlotState::Finalized(block) => Some((*slot, *block)),
-                RaiClosedSlotState::Carry(_) | RaiClosedSlotState::Released => None,
-            })
-            .collect();
-
-        Self::hash_close_record_block_entries(b"rai close record finalized ", &finalized)
-    }
-
-    pub fn hash_close_record_carry_entries(entries: &CloseRecordEntries) -> BlockHash {
-        let carried: Vec<_> = entries
-            .iter()
-            .filter_map(|(slot, state)| match state {
-                RaiClosedSlotState::Carry(block) => Some((*slot, *block)),
-                RaiClosedSlotState::Finalized(_) | RaiClosedSlotState::Released => None,
-            })
-            .collect();
-
-        Self::hash_close_record_block_entries(b"rai close record carry ", &carried)
-    }
-
     pub fn close_record_from_entries(
+        epoch: RaiEpoch,
         previous_close_hash: BlockHash,
+        previous_frontiers: &BTreeMap<rsnano_types::Account, BlockHash>,
         entries: &CloseRecordEntries,
     ) -> RaiCloseRecord {
-        RaiCloseRecord::new(
-            previous_close_hash,
-            Self::hash_close_record_finalized_entries(entries),
-            Self::hash_close_record_carry_entries(entries),
-        )
-    }
-
-    fn hash_close_record_block_entries(
-        domain: &[u8],
-        entries: &[(RaiSlot, BlockHash)],
-    ) -> BlockHash {
-        let mut bytes = Vec::with_capacity(
-            std::mem::size_of::<u64>()
-                + entries
-                    .len()
-                    .saturating_mul(RaiSlot::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE),
-        );
-        bytes.extend((entries.len() as u64).to_be_bytes());
+        let mut frontiers = previous_frontiers.clone();
         for (slot, block) in entries {
-            slot.serialize(&mut bytes)
-                .expect("writing to Vec should succeed");
-            block
-                .serialize(&mut bytes)
-                .expect("writing to Vec should succeed");
+            match block {
+                RaiClosedSlotState::Finalized(hash) | RaiClosedSlotState::Carry(hash) => {
+                    frontiers.insert(slot.account, *hash);
+                }
+                RaiClosedSlotState::Released => {}
+            }
         }
-
-        Blake2HashBuilder::new()
-            .update(domain)
-            .update(bytes)
-            .build()
+        RaiCloseRecord::new(epoch, previous_close_hash, frontiers)
     }
 
     fn write_closed_slot_state_bytes(bytes: &mut Vec<u8>, state: &RaiClosedSlotState) {
@@ -507,8 +522,18 @@ impl RaiCloseState {
         hash: &BlockHash,
     ) -> Result<(), RaiEpochTransitionError> {
         let state = self.epoch_mut(epoch);
-        if !state.close_record_values.contains_key(hash) {
+        let Some(value) = state.close_record_values.get_mut(hash) else {
             return Err(RaiEpochTransitionError::CloseRecordMissing);
+        };
+        for slot_state in state.closed_slots.values_mut() {
+            if let RaiClosedSlotState::Carry(block) = *slot_state {
+                *slot_state = RaiClosedSlotState::Finalized(block);
+            }
+        }
+        for slot_state in value.entries.values_mut() {
+            if let RaiClosedSlotState::Carry(block) = *slot_state {
+                *slot_state = RaiClosedSlotState::Finalized(block);
+            }
         }
         state.close_hash = Some(*hash);
         Ok(())
@@ -563,6 +588,27 @@ impl RaiCloseState {
 
         self.certified_close_hash(epoch - 1)
             .ok_or(RaiEpochTransitionError::CloseRecordMissing)
+    }
+
+    fn previous_frontiers(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Result<&BTreeMap<rsnano_types::Account, BlockHash>, RaiEpochTransitionError> {
+        if epoch == 0 {
+            static EMPTY: std::sync::LazyLock<BTreeMap<rsnano_types::Account, BlockHash>> =
+                std::sync::LazyLock::new(BTreeMap::new);
+            return Ok(&EMPTY);
+        }
+
+        let previous = self
+            .epoch(epoch - 1)
+            .and_then(|state| {
+                state
+                    .close_hash
+                    .and_then(|hash| state.close_record_values.get(&hash))
+            })
+            .ok_or(RaiEpochTransitionError::CloseRecordMissing)?;
+        Ok(&previous.record.frontiers)
     }
 }
 
@@ -759,7 +805,7 @@ impl RaiCloseEpochState {
                 states.sort_by_key(|closed| closed.slot);
                 RaiCloseRecordValueSnapshot {
                     hash: *hash,
-                    record: value.record,
+                    record: value.record.clone(),
                     states,
                 }
             })
@@ -833,19 +879,6 @@ impl RaiCloseEpochState {
             entries.insert(*slot, *state);
         }
         Ok(entries)
-    }
-
-    fn record_current_close_record_value(
-        &mut self,
-        previous_close_hash: BlockHash,
-    ) -> Result<BlockHash, RaiEpochTransitionError> {
-        let entries = self.current_close_record_entries()?;
-        let record = RaiCloseState::close_record_from_entries(previous_close_hash, &entries);
-        let hash = record.hash();
-        self.close_record_values
-            .entry(hash)
-            .or_insert(RaiCloseRecordValue { record, entries });
-        Ok(hash)
     }
 }
 
@@ -1105,6 +1138,7 @@ mod tests {
 
         assert_eq!(state.start_closing(0), Ok(()));
         assert_eq!(state.current_epoch_phase(), RaiEpochPhase::Closing);
+        assert_eq!(state.open_epoch(), 1);
         assert_eq!(state.install_cut(0, cut), Ok(true));
         assert_eq!(state.record_cut_drain(0, [(slot(1), closed_state)]), Ok(()));
         assert_eq!(
@@ -1113,6 +1147,7 @@ mod tests {
         );
         state.record_current_close_record_value(0).unwrap();
         assert_eq!(state.advance_epoch(0), Ok(1));
+        assert_eq!(state.open_epoch(), 1);
 
         assert_eq!(state.current_epoch(), 1);
         assert_eq!(state.epoch_phase(0), Some(RaiEpochPhase::Closed));
@@ -1150,28 +1185,61 @@ mod tests {
     }
 
     #[test]
-    fn close_record_roots_split_finalized_carry_and_released_slots() {
+    fn close_record_commits_to_canonical_frontiers() {
         let mut entries = CloseRecordEntries::new();
         entries.insert(slot(1), RaiClosedSlotState::Finalized(BlockHash::from(7)));
         entries.insert(slot(2), RaiClosedSlotState::Carry(BlockHash::from(8)));
         entries.insert(slot(3), RaiClosedSlotState::Released);
+        let previous = [(slot(3).account, BlockHash::from(6))]
+            .into_iter()
+            .collect();
 
-        let record = RaiCloseState::close_record_from_entries(BlockHash::from(6), &entries);
+        let record =
+            RaiCloseState::close_record_from_entries(4, BlockHash::from(6), &previous, &entries);
 
+        assert_eq!(record.epoch, 4);
+        assert_eq!(record.previous_close_hash, BlockHash::from(6));
         assert_eq!(
-            record.finalized_root,
-            RaiCloseState::hash_close_record_finalized_entries(&entries)
-        );
-        assert_eq!(
-            record.carry_root,
-            RaiCloseState::hash_close_record_carry_entries(&entries)
+            record.frontiers.get(&slot(1).account),
+            Some(&BlockHash::from(8))
         );
 
         let mut no_carry = entries.clone();
         no_carry.insert(slot(2), RaiClosedSlotState::Released);
         assert_ne!(
-            record.carry_root,
-            RaiCloseState::close_record_from_entries(BlockHash::from(6), &no_carry).carry_root
+            record,
+            RaiCloseState::close_record_from_entries(4, BlockHash::from(6), &previous, &no_carry)
+        );
+    }
+
+    #[test]
+    fn certified_frontier_promotes_selected_block_to_durable_finality() {
+        let mut state = RaiCloseState::new();
+        state.start_closing(0).unwrap();
+        state
+            .install_cut(0, [slot(1)].into_iter().collect())
+            .unwrap();
+        state
+            .record_cut_drain(
+                0,
+                [(slot(1), RaiClosedSlotState::Carry(BlockHash::from(7)))],
+            )
+            .unwrap();
+        let hash = state.record_current_close_record_value(0).unwrap();
+
+        state.certify_close_record(0, &hash).unwrap();
+
+        assert_eq!(
+            state.closed_slot_state(0, &slot(1)),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(7)))
+        );
+        assert_eq!(
+            state
+                .close_record_value(0, &hash)
+                .unwrap()
+                .entries
+                .get(&slot(1)),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(7)))
         );
     }
 
