@@ -1,0 +1,2403 @@
+\documentclass[sigplan,twocolumn,review,anonymous]{acmart}
+
+% EuroSys 2026 recommends the official ACM SIGPLAN/acmart proceedings setup.
+% Replace the submission ID and conference metadata with the final values supplied by EuroSys/ACM.
+\acmSubmissionID{PAPER-ID}
+\setcopyright{none}
+\settopmatter{printfolios=true,printacmref=false,printccs=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\acmConference[EuroSys '26]{The European Conference on Computer Systems}{April 27--30, 2026}{Edinburgh, United Kingdom}
+\acmYear{2026}
+\copyrightyear{2026}
+\acmDOI{}
+\acmISBN{}
+
+% acmart already loads compatible math fonts; avoid reloading amssymb under newtxmath.
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{mathtools}
+\usepackage{adjustbox}
+\usepackage{xspace}
+\usepackage{balance}
+
+\allowdisplaybreaks
+\emergencystretch=2em
+\sloppy
+
+\makeatletter
+\newenvironment{breakablealgorithm}
+{%
+  \par\addvspace{\baselineskip}%
+  \begingroup\footnotesize
+  \setlength{\baselineskip}{10pt}%
+  \refstepcounter{algorithm}%
+  \noindent\hrule\kern2pt%
+  \renewcommand{\caption}[1]{%
+    \noindent\textbf{Algorithm~\thealgorithm} ##1\par\kern2pt\hrule\kern2pt%
+  }%
+}
+{%
+  \kern2pt\hrule\par\endgroup\addvspace{\baselineskip}%
+}
+\makeatother
+\algrenewcommand\algorithmicindent{0.7em}
+
+\newcommand{\func}[1]{\operatorname{\mathsf{#1}}}
+\newcommand{\hash}{\func{hash}}
+\newcommand{\Cert}{\func{Cert}}
+\newcommand{\NotarVote}{\func{NotarVote}}
+\newcommand{\FirstVote}{\func{FirstVote}}
+\newcommand{\FinalVote}{\func{FinalVote}}
+\newcommand{\FinalSigners}{\func{FinalSigners}}
+\newcommand{\NotarCert}{\func{NotarCert}}
+\newcommand{\FirstCert}{\func{FirstCert}}
+\newcommand{\FinalCert}{\func{FinalCert}}
+\newcommand{\TimeoutCert}{\func{TimeoutCert}}
+\newcommand{\ConflictProof}{\func{ConflictProof}}
+\newcommand{\manyVotes}{\func{manyVotes}}
+\newcommand{\allVotes}{\func{allVotes}}
+\newcommand{\maxVotes}{\func{maxVotes}}
+\newcommand{\id}{\mathsf{id}}
+\newcommand{\Report}{\func{Report}}
+\newcommand{\Slot}{\func{Slot}}
+\newcommand{\Close}{\func{Close}}
+\newcommand{\CloseCut}{\func{CloseCut}}
+\newcommand{\CloseRecord}{\func{CloseRecord}}
+\newcommand{\FreshCloseHash}{\func{FreshCloseHash}}
+\newcommand{\CloseDead}{\func{CloseDead}}
+\newcommand{\LiveCarry}{\func{LiveCarry}}
+\newcommand{\CloseConflictProof}{\func{CloseConflictProof}}
+\newcommand{\closeDecision}{\mathsf{closeDecision}}
+\newcommand{\closeRound}{\mathsf{closeRound}}
+\newcommand{\closeFinished}{\func{closeFinished}}
+\newcommand{\started}{\func{started}}
+\newcommand{\firstVoted}{\func{firstVoted}}
+\newcommand{\finalVoted}{\func{finalVoted}}
+\newcommand{\finished}{\func{finished}}
+\newcommand{\enabled}{\func{enabled}}
+\newcommand{\admissible}{\func{admissible}}
+\newcommand{\admissibleFresh}{\func{admissibleFresh}}
+\newcommand{\admissibleHistorical}{\func{admissibleHistorical}}
+\newcommand{\dom}{\func{dom}}
+\newcommand{\UpdateVisible}{\func{UpdateVisible}}
+\newcommand{\StartClosing}{\func{StartClosing}}
+\newcommand{\FinishClosing}{\func{FinishClosing}}
+\newcommand{\valueOf}{\func{value}}
+\newcommand{\certOutcome}{\func{certOutcome}}
+\newcommand{\Terminal}{\func{Terminal}}
+\newcommand{\ExtendsTree}{\func{ExtendsTree}}
+\newcommand{\CompleteBlock}{\func{CompleteBlock}}
+\newcommand{\ParentComplete}{\func{ParentComplete}}
+\newcommand{\Complete}{\func{Complete}}
+\newcommand{\timeoutVal}{\mathsf{timeout}}
+\newcommand{\pending}{\mathsf{pending}}
+\newcommand{\timeoutOutcome}{\mathsf{timeout}}
+\newcommand{\notarized}{\func{notarized}}
+\newcommand{\converged}{\func{converged}}
+\newcommand{\fast}{\func{fast}}
+\newcommand{\final}{\func{final}}
+\newcommand{\notarKind}{\mathsf{notar}}
+\newcommand{\fastKind}{\mathsf{fast}}
+\newcommand{\finalKind}{\mathsf{final}}
+\newcommand{\true}{\mathsf{true}}
+\newcommand{\false}{\mathsf{false}}
+\newcommand{\completeTree}{\mathsf{completeTree}}
+\newcommand{\blockMap}{\mathsf{block}}
+\newcommand{\accountOf}{\func{account}}
+\newcommand{\frontier}{\mathsf{frontier}}
+\newcommand{\ledgerRoot}{\mathsf{ledgerRoot}}
+\newcommand{\closeHash}{\mathsf{closeHash}}
+\newcommand{\carry}{\mathsf{carry}}
+\newcommand{\Frontier}{\func{Frontier}}
+\newcommand{\EpochBlocks}{\func{EpochBlocks}}
+\newcommand{\parent}{\func{parent}}
+\newcommand{\PayloadAvailable}{\func{PayloadAvailable}}
+\newcommand{\ValidBlock}{\func{ValidBlock}}
+\newcommand{\slotOf}{\func{slot}}
+\newcommand{\finalizedSlot}{\mathsf{finalizedSlot}}
+\newcommand{\FinalizeChain}{\func{FinalizeChain}}
+\newcommand{\committee}{\mathsf{committee}}
+\newcommand{\committeeAt}{\func{committeeAt}}
+\newcommand{\Committees}{\func{Committees}}
+\newcommand{\deriveCommittee}{\func{DeriveCommittee}}
+\newcommand{\VotesIn}{\func{VotesIn}}
+\newcommand{\NotarVotesIn}{\func{NotarVotesIn}}
+\newcommand{\NotarizedBy}{\func{NotarizedBy}}
+\newcommand{\timeoutReady}{\func{timeoutReady}}
+\newcommand{\timeoutAllowed}{\func{timeoutAllowed}}
+\newcommand{\FastDead}{\func{FastDead}}
+\newcommand{\FinalDead}{\func{FinalDead}}
+\newcommand{\TornFor}{\func{TornFor}}
+\newcommand{\AllValuesDead}{\func{AllValuesDead}}
+\newcommand{\Values}{\mathcal{V}}
+\newcommand{\Reportable}{\func{Reportable}}
+\newcommand{\reportStore}{\mathsf{reportStore}}
+\newcommand{\ReportEquivocated}{\func{ReportEquivocated}}
+\newcommand{\EligibleReport}{\func{EligibleReport}}
+\newcommand{\votedFor}{\func{votedFor}}
+\newcommand{\released}{\func{released}}
+\newcommand{\safeToVote}{\func{safeToVote}}
+\newcommand{\activeVote}{\func{activeVote}}
+\newcommand{\closeCut}{\mathsf{cut}}
+\newcommand{\closeState}{\mathsf{closeState}}
+\newcommand{\governingHash}{\func{governingHash}}
+\newcommand{\requiredFrontier}{\func{requiredFrontier}}
+\newcommand{\DescendsFrom}{\func{DescendsFrom}}
+\newcommand{\safeFromClose}{\func{safeFromClose}}
+\newcommand{\StablePrefix}{\func{StablePrefix}}
+\newcommand{\JointReportProof}{\func{JointReportProof}}
+\newcommand{\ReportVisible}{\func{ReportVisible}}
+\newcommand{\SelectedState}{\func{SelectedState}}
+\newcommand{\FinalizedState}{\func{FinalizedState}}
+\newcommand{\ReleasedState}{\func{ReleasedState}}
+\newcommand{\cutVersion}{\mathsf{cutVersion}}
+\newcommand{\frontierVersion}{\mathsf{frontierVersion}}
+\newcommand{\ReconReq}{\func{ReconReq}}
+\newcommand{\ReconDelta}{\func{ReconDelta}}
+\newcommand{\ReconMiss}{\func{ReconMiss}}
+\newcommand{\ApplyDelta}{\func{ApplyDelta}}
+\newcommand{\seqOf}{\func{sequence}}
+\newcommand{\ownerKey}{\mathsf{ownerKey}}
+\newcommand{\signatureOf}{\func{signature}}
+\newcommand{\sendsOf}{\func{sends}}
+\newcommand{\receivesOf}{\func{receives}}
+\newcommand{\representativeOf}{\func{representative}}
+\newcommand{\bal}{\mathsf{bal}}
+\newcommand{\repOf}{\mathsf{rep}}
+\newcommand{\pendingSend}{\mathsf{pendingSend}}
+\newcommand{\receivedSend}{\mathsf{receivedSend}}
+\newcommand{\stake}{\func{stake}}
+\newcommand{\weight}{\func{weight}}
+\newcommand{\SignerWeight}{\func{SignerWeight}}
+
+\title{RAI Block-Lattice Protocol: Minimal Specification}
+\author{Anonymous Authors}
+\affiliation{%
+  \institution{Paper under review}
+  \city{}
+  \country{}
+}
+\email{}
+
+\begin{abstract}
+RAI applies one election mechanism to account-qualified slot, close-cut, and close-record elections. This specification defines a block-lattice ledger, owner-authorized account blocks, send and receive transitions, representative delegation, stake-weighted committees, epoch closing, safety, and liveness.
+\end{abstract}
+
+\keywords{block lattice, replication, consensus, stake-weighted elections, finality, Byzantine fault tolerance}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+RAI uses three election types.  A slot election \(\Slot(a,s,e)\) selects block evidence for account slot \((a,s)\)
+in epoch \(e\).  A close-cut election \(\CloseCut(e,r)\) certifies a canonical set of visible
+slot elections that epoch \(e\) must drain.  A close-record election \(\CloseRecord(e,r)\)
+certifies the canonical finalized account frontiers through epoch \(e\), chained to the preceding
+close-record hash.
+
+Only three durable authenticated object classes are disseminated: blocks, signed reports, and signed
+votes.  Certificates, report quorums, conflicts, close-round death, close cuts, frontier maps, close
+records, outcomes, decisions, and installed close state are deterministic local facts derived from the
+validated object store.  Correct replicas use duplicate-suppressing reliable gossip so that every valid
+block, report, and vote learned by one correct online replica eventually becomes available to every
+correct online replica.
+
+Close votes carry only a canonical hash.  A replica retains every locally derived close-cut set and
+frontier map for which it votes, indexed by that hash.  If another replica knows only a different
+version, it reconstructs the target by requesting an add/remove delta from a replica that retains both
+preimages, applies the delta, recomputes the target hash, and validates the reconstructed contents from
+its locally available blocks, reports, and votes.  Reconciliation messages are transport metadata, not
+consensus evidence.
+
+A notarization never finalizes a slot by itself.  A slot becomes finalized through an ordinary global
+fast/final certificate or through inclusion on an account chain committed by a decided close-record
+hash.  Timeouts are local to one election and never skip a slot.  A same-account-slot retry is permitted only
+after certified release.  Correct replicas vote for a descendant block only when every strict
+non-genesis ancestor is already finalized, so released or merely complete blocks cannot later be
+resurrected by ancestor finality.  Elections at distance at least two epochs are protected because every
+vote in epoch \(e\) commits to and obeys the certified close state and finalized account frontiers of
+epoch \(e-2\).  Safety further requires election-scoped votes, one first vote per correct replica and
+committee, parent-first completion, a certified-stable ancestor prefix, one finalized block per account slot,
+and certified release before a correct replica votes for a conflicting same-account-slot block.
+
+\section{Objects, State, and Committees}
+
+An account slot is a pair \(\lambda=(a,s)\), where \(a\in\mathsf{Accounts}\) and
+\(s\ge1\) is the account-local sequence number.  An election id is either
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \id=\Slot(a,s,e),\qquad \id=\CloseCut(e,r),\qquad\text{or}\qquad
+    \id=\CloseRecord(e,r).
+\)
+\end{adjustbox}
+\end{center}
+A slot-election non-timeout value is a block id \(b=\hash(B)\), where
+\(\slotOf(B)=(a,s)\).  Every account \(a\) has an owner verification key
+\(\ownerKey[a]\), with corresponding owner signing key \(sk_a\), fixed by genesis or by an
+authenticated account-creation rule.  Only a signature verifiable under \(\ownerKey[a]\) can
+authorize a non-genesis block on account \(a\).
+
+A block has canonical body
+\[
+\operatorname{body}(B)=
+\bigl(\slotOf(B),\parent(B),\sendsOf(B),\receivesOf(B),\representativeOf(B)\bigr).
+\]
+The send list contains entries \((d,x)\), where \(d\) is a destination account and \(x\) is a positive
+integer amount.  A send is uniquely referenced by \(u=(\hash(B_s),i)\), where \(i\) is its canonical
+index in \(\sendsOf(B_s)\).  The receive list contains such references.  The representative field is a
+registered replica id.  The owner signature is
+\[
+\signatureOf(B)=\operatorname{Sign}_{sk_a}
+\bigl(\hash(\mathsf{RAI/AccountBlock/v1}\parallel\operatorname{canon}(\operatorname{body}(B)))\bigr),
+\]
+and \(\hash(B)\) commits to both the canonical body and this signature.
+
+The ledger state derived from a finalized block set is
+\[
+L=(\bal,\repOf,\pendingSend,\receivedSend).
+\]
+Here \(\bal[a]\) is the spendable balance of account \(a\), \(\repOf[a]\) is its latest
+representative, \(\pendingSend[u]=(d,x)\) records an unreceived send, and
+\(\receivedSend[u]\) records a consumed send reference.  This state is derived by replay from genesis;
+it is not an independently trusted object.
+
+For epoch \(e\), a close-cut version is a canonically ordered set
+\[
+C\subseteq\{\Slot(a,s,e):a\in\mathsf{Accounts},\ s\ge1\}.
+\]
+Its close-cut value is
+\[
+h_C=\hash\bigl(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C)\bigr).
+\]
+The voted value is only \(h_C\); the set \(C\) is local derived state retained as
+\(\cutVersion[e,h_C]=C\).
+
+For epoch \(e\), a frontier version is the canonically ordered map
+\[
+\Phi=\operatorname{sort}\{(a,f(a)):a\in\mathsf{Accounts}\},
+\]
+where every \(f(a)\) is a block hash.  The close-record value is
+\[
+h_F=\hash\bigl(
+\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi)
+\bigr).
+\]
+The voted value is only \(h_F\); the map \(\Phi\) is local derived state retained as
+\(\frontierVersion[e,h_F]=\Phi\).  The local ledger-state root is the convenience value
+\[
+R^{\mathsf{ledger}}_e=\hash(\operatorname{canon}(\Phi_e)).
+\]
+Because every non-genesis block contains the hash of its predecessor, each frontier transitively
+commits to every block on its account chain from genesis through that frontier, including blocks
+finalized in previous epochs.  Replay of those chains deterministically commits to balances, pending
+and received sends, and representatives.  The preceding close-record hash makes the decided close
+records a hash chain over the complete ledger history.
+
+\paragraph{Disseminated and derived objects.}
+Blocks, reports, and votes are immutable authenticated protocol objects.  A correct replica advertises
+and transfers each unique valid such object only to peers that do not already possess it.  A certificate
+is not a wire object: it is the local fact that the validated vote store contains a quorum.  Joint report
+proofs, conflicts, close-round death facts, close versions, outcomes, decisions, frontiers, release
+state, and committees are likewise local derivations.  Inventory advertisements, retrieval requests,
+and reconciliation deltas may be exchanged, but they carry no consensus authority.
+
+\paragraph{Validated-close abstraction.}
+A correct replica votes for a close hash only after it has locally constructed or reconstructed the
+corresponding canonical set or frontier map and validated it using the underlying blocks, reports, and
+votes.  Fresh admissibility is evaluated against the replica's current validated evidence before a new
+close vote.  Once a close-cut hash obtains persistent same-hash certificate support in every applicable committee,
+its hash-checked canonical preimage is historically admissible and never loses validity;
+later report equivocation or newly learned evidence affects only fresh construction.  A historical
+close-record version is validated against the immutable close input fixed by the decided cut, so later
+ordinary finalizations outside that input cannot invalidate it.  Authority depends only on locally
+derived vote quorums and the hash-checked canonical preimage, not on certificate or transport-message
+arrival order.
+
+After the close-cut decision, the authoritative cut is the version reconstructed for the decided hash.
+The cut is supporting close-protocol state: it freezes the elections that may participate in draining
+and frontier construction, but it is not the durable ledger-consensus value and is not an additional
+field of the close-record hash.  After the close-record decision, the durable consensus checkpoint is
+\(\closeHash[e]=h_F\), while \(\closeState[e]\) is reconstructed from the decided frontier map, the
+decided cut, and the underlying validated blocks, reports, and votes.  Only this close result, not local
+drain observations, feeds committee derivation and future slot-voting guards.  Each election id has its own timeout value
+\(\timeoutVal_\id\).  In particular, \(\timeoutVal_{\Slot(a,s,e)}\) does not create an empty block,
+finalize, or skip account slot \((a,s)\).  A later retry \(\Slot(a,s,e')\) is permitted only after the certified
+close state releases the earlier election; a block finalized by the close record is not retried.
+
+A replica stores known block data as
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \blockMap[\Slot(a,s,e),b]=B,
+\)
+\end{adjustbox}
+\end{center}
+when it accepts or learns valid data \(B\) for \(b\) in that slot election.
+Uninitialized map entries have the following defaults:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{gathered}
+    epochStart[e]=\bot,
+    \quad T_{\mathrm{election}}[\id]=\bot,
+    \quad outcome[\id]=\pending,\\
+    \closeDecision[I]=\bot,
+    \qquad \closeRound[I]=0,
+    \quad I\in\{\CloseCut(e),\CloseRecord(e)\},\\
+    notarized[P_i,Q,\id]=secondLook[P_i,Q,\id]=\{\},
+    \quad firstVote[P_i,\id,Q]=\bot,
+    \quad finalVoted[P_i,\id,Q]=\false,\\
+    \votedFor[P_i,\id,b]=\false,
+    \quad \blockMap[\cdot,\cdot]=\bot,
+    \quad \committee[\cdot]=\bot,
+    \quad \closeHash[e]=\bot,
+    \quad \ledgerRoot[e]=\bot,
+    \quad \closeState[e]=\bot,
+    \quad \cutVersion[e]=\{\},
+    \quad \frontierVersion[e]=\{\},
+    \quad \carry[\id]=\bot,
+    \quad \closeCut[e]=\bot.
+\end{gathered}
+\)
+\end{adjustbox}
+\end{center}
+Account-slot finality is tracked by
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \finalizedSlot[a,s]\in\{\bot\}\cup
+    \{b:\exists B,\ b=\hash(B),\ \slotOf(B)=(a,s)\},
+\)
+\end{adjustbox}
+\end{center}
+initially \(\finalizedSlot[\cdot,\cdot]=\bot\).  A block is finalized exactly when its account slot
+maps to its hash in \(\finalizedSlot\); no separate block-finality map is maintained.
+
+Derived predicates and outcomes are
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \started[\id]\iff T_{\mathrm{election}}[\id]\neq\bot,
+    \qquad
+    \firstVoted(P_j,\id,Q)\iff firstVote[P_j,\id,Q]\neq\bot,
+    \qquad
+    \finalVoted(P_j,\id,Q)\iff finalVoted[P_j,\id,Q]=\true,
+    \qquad
+    \finished(\id)\iff outcome[\id]\neq\pending,
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    outcome[\id]\in
+    \{\pending,\ \notarized(x),\ \converged(x),\ \timeoutOutcome,\ \fast(x),\ \final(x)\}.
+\)
+\end{adjustbox}
+\end{center}
+For a close instance \(I\), the variable
+\[
+    \closeDecision[I]\in
+    \{\bot\}\cup\{(r,h)\}
+\]
+is instance-wide rather than round-local.  Here \(r\) is the deciding close round and \(h\) is the
+decided hash.  The deciding certificate is derived locally from signed votes, and the canonical
+preimage is retained separately in \(\cutVersion\) or \(\frontierVersion\).
+
+The round-local variable \(outcome[I_r]\) records only local progress in round \(r\).  It is not the
+authoritative close decision and does not prevent a replica from processing a valid fast or final
+certificate learned later as a decision.  Define
+\[
+    \closeFinished(I)\iff\closeDecision[I]\neq\bot.
+\]
+Local completion is represented by membership in \(\completeTree\), not by an election
+outcome.  A complete block is neither finished nor settled by completion alone.  A non-timeout slot
+notarization certificate may finish a slot election as \(\notarized(b)\) for close drain, but
+\(\notarized(b)\) does not finalize the slot.  At close, each replica uses its currently known valid votes and blocks to derive a fresh canonical
+frontier map.  Global fast or final evidence is ordinary finality; locally derived timeout or conflicting
+notarizations propose omission and release; and exactly one currently known non-timeout notarization,
+with no known final or release evidence, may propose \(b\) for inclusion on a candidate account chain
+ending at the proposed frontier.  Candidate inclusion is not finality.  Block \(b\) finalizes
+only when the close-record hash committing to that frontier map is stored in
+\(\closeDecision[\CloseRecord(e)]\) with a valid fast or final certificate.  A different decided frontier
+or a decided omission releases \(b\), and later outside evidence cannot reverse the write-once decision.
+
+A \(\FirstCert(\Slot(a,s,e),b)\), \(\NotarCert(\Slot(a,s,e),b)\), and
+\(\FinalCert(\Slot(a,s,e),b)\) are compatible certificates for the same block \(b\).  A fast or final
+certificate for \(b\) is incompatible with a notarization certificate for any \(b'\neq b\), including
+the timeout value.  Conversely, two conflicting notarization certificates prove that no value can now
+or later obtain an ordinary global fast or final certificate for that election; before close
+certification they support release, while after a selecting close certificate they are losing
+non-final evidence.  If a replica records an election outcome for the first time, its replica-local
+\(outcome[\id]\) changes once from \(\pending\) to a non-pending value.  This variable is not an
+agreed consensus value: correct replicas may temporarily record different terminal observations for
+the same election, and no safety-critical retry or finality decision is derived from it without the
+corresponding verifiable certificates and certified close state.  Later fast or final slot certificates
+can still finalize their block before the close record decides the slot.  For
+\(y\in\{\notarized(x),\fast(x),\final(x)\}\), \(\valueOf(y)=x\).  Election vote state is
+logical committee-local state: \(firstVote[P_i,\id,Q]\), \(finalVoted[P_i,\id,Q]\),
+\(notarized[P_i,Q,\id]\), and \(secondLook[P_i,Q,\id]\) are maintained independently for every
+\(Q\in\Committees(\id)\).  Define the complete signed support of \(P_i\) in that committee instance by
+\[
+\func{Support}(P_i,Q,\id)=
+notarized[P_i,Q,\id]\cup\bigl(\{firstVote[P_i,\id,Q]\}\setminus\{\bot\}\bigr).
+\]
+The first vote, including a timeout first vote, is therefore part of the support checked by every
+final-vote rule.  A correct replica may final-vote \(x\) only when
+\(\func{Support}(P_i,Q,\id)\subseteq\{x\}\).  An unscoped wire vote is only a compression of identical valid scoped
+votes for every applicable committee in which the signer is a member; upon sending or receiving it,
+a replica applies the corresponding state transition separately to each such committee.  Thus no
+vote or lock in one committee implicitly changes vote state in another committee.
+
+Let \(G\) be the genesis epoch state.  Replay of \(G\) supplies genesis balances and
+representatives.  For any certified ledger state through epoch \(k\), define delegated stake
+\[
+\stake_k(P_i)=
+\sum_{\substack{a\in\mathsf{Accounts}\\\repOf_k[a]=P_i}}\bal_k[a].
+\]
+The exact-proportional committee snapshot is the weighted replica map
+\[
+Q_k=\{(P_i,\stake_k(P_i)):\stake_k(P_i)>0\},
+\qquad
+\weight_{Q_k}(P_i)=\stake_k(P_i).
+\]
+Thus every positive-stake representative is a committee member and its consensus weight is exactly the
+total finalized balance delegated to it.  For any signer set \(S\subseteq Q\), write
+\[
+\SignerWeight_Q(S)=\sum_{P_i\in S}\weight_Q(P_i),
+\qquad W_Q=\SignerWeight_Q(Q).
+\]
+Committee membership and weights are frozen for the lifetime of the snapshot.  Let
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \committee_{\mathsf{gen}}:=\deriveCommittee(\mathsf{genesis},G)=Q_{\mathsf{gen}}.
+\)
+\end{adjustbox}
+\end{center}
+Each closed epoch derives
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \committee[e]:=\deriveCommittee(e,\closeHash[e],\closeState[e])=Q_e.
+\)
+\end{adjustbox}
+\end{center}
+The close hash identifies the certified snapshot, while replay of \(\closeState[e]\) supplies the
+balances and representatives from which the weight map is deterministically reconstructed.
+The certified close state that participates in every election of epoch \(e\) is identified by
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\governingHash(e)=
+\begin{cases}
+\hash(G), & e<2,\\
+\closeHash[e-2], & e\ge 2.
+\end{cases}
+\)
+\end{adjustbox}
+\end{center}
+For \(e\ge2\), a replica may validate or emit an epoch-\(e\) vote only after it has obtained and
+validated \(\closeState[e-2]\) and its close certificate.  This governing context is implicit: it is
+not a serialized vote field and is not separately signed.  A verifier derives
+\(\governingHash(e)\) from its certified close history and evaluates the vote, close-version data, and
+committee lookup under that context; if the required certified close state is unavailable or
+inconsistent, the vote is invalid for that verifier.
+Committee lookup is
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\committeeAt(k)=
+\begin{cases}
+\committee_{\mathsf{gen}}, & k<0,\\
+\committee[k], & k\ge 0 \text{ and } \committee[k]\neq\bot,\\
+\bot, & k\ge 0 \text{ and } \committee[k]=\bot.
+\end{cases}
+\)
+\end{adjustbox}
+\end{center}
+Election committees are
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \Committees(\Slot(a,s,e))=\{\committeeAt(e-3),\committeeAt(e-2)\},
+    \qquad
+    \Committees(\CloseCut(e,r))=\{\committeeAt(e-3),\committeeAt(e-2)\},
+    \qquad
+    \Committees(\CloseRecord(e,r))=\{\committeeAt(e-3),\committeeAt(e-2)\},
+\)
+\end{adjustbox}
+\end{center}
+with duplicate committees collapsed.  Each \(Q\in\Committees(\id)\) runs the election core
+independently.  A vote for \(\id\) is valid only from a replica in
+\(\bigcup_{Q\in\Committees(\id)}Q\), and only if every committee lookup used by
+\(\Committees(\id)\) is non-\(\bot\).  An unscoped vote for \(\id\) applies to every committee in
+which the signer is a member; a committee-scoped vote \((\id,Q)\) applies only to \(Q\).  A replica
+uses an unscoped vote exactly when the same action is enabled in all of its election committees, and
+uses a scoped vote only when their enabled actions differ.  An unscoped vote occupies the
+corresponding vote slot, and any post-final lock, in every committee where it applies; scoped and
+unscoped copies from one signer are deduplicated per committee.  Every signed vote commits to
+\(\id\) and either the complete committee set or the explicit committee \(Q\); its governing close
+state is the implicit validation context derived from the vote's epoch.  This lagged committee
+lookup permits epoch \(e+1\) to open as soon as epoch \(e\) enters
+closing: its governing close state is epoch \(e-1\), which is already closed by the precondition of
+\(\StartClosing(e)\), while \(\committee[e]\) is derived only when epoch \(e\) later finishes
+closing.
+
+\section{Voting Guards and Release}
+
+A replica may cast first votes, timeout first votes, extra notarization votes, and timeout
+notarization votes only while the election is enabled:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\enabled(\Slot(a,s,e))\iff{}& \finalizedSlot[a,s]=\bot\\
+&\wedge\bigl(state[e]=\mathsf{open}
+\vee (state[e]=\mathsf{closing}\wedge\closeCut[e]\neq\bot\wedge\Slot(a,s,e)\in\closeCut[e])\bigr),\\
+\enabled(\CloseCut(e,r))\iff{}& state[e]=\mathsf{closing},\\
+\enabled(\CloseRecord(e,r))\iff{}& state[e]=\mathsf{closing}.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Thus a slot election is normally vote-enabled only while its epoch is open, but after a certified
+close cut is installed it remains vote-enabled during close-drain exactly when it is included in that
+cut.
+
+For a correct replica \(P_j\), casting any non-timeout first, notarization, or final vote for block
+\(b\) in \(\Slot(a,s,e)\) records a unreleased vote:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+    \votedFor[P_j,\Slot(a,s,e),b]=\true.
+\)
+\end{adjustbox}
+\end{center}
+An earlier unreleased vote is released only by a certified close decision:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\released_{P_j}(q,b)
+\iff{}& q=\Slot(a,s,e)\wedge state[e]=\mathsf{closed}\wedge\closeCut[e]\neq\bot\\
+&{}\wedge\Bigl(q\notin\closeCut[e]\\
+&\qquad\vee\ \neg\func{LedgerIncludes}_e(q,b)\Bigr).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Define \(\func{LedgerIncludes}_e(q,b)\) to hold when \(q=\Slot(a,s,e)\),
+\(\blockMap[q,b]=B\), and \(B\) occurs at logical account slot \((a,s)\) on the complete account chain from
+genesis through the frontier committed by \(R^{\mathsf{ledger}}_e\).  For an included slot, timeout
+and known-conflict evidence are positive witnesses permitting omission from the candidate ledger.  If
+the certified ledger instead contains \(b'\), every other block \(b\neq b'\) for that slot is
+released even when its notarization certificate is learned later.  If no candidate of \(q\) occurs on
+the certified ledger, the election is released.  Raw timeout or conflict evidence may finish the slot
+election for drain but does not by itself release future conflicting votes while the close record is
+unsettled.  A local belief that an election is stale, idle, or disabled is not release.
+
+The expanded certified close state is derived from the certified cut and ledger.  It maps an election
+\(q\) to \(\FinalizedState(b,\pi_{\mathsf{ledger}})\) when
+\(\func{LedgerIncludes}_e(q,b)\), and otherwise to \(\ReleasedState(\pi)\), with close-exclusion,
+timeout, or conflict evidence derived from the validated report and vote store.  The state is cumulative with
+respect to finality: every previously finalized block must occur on the certified account chains, and no
+later close state may replace it with a conflicting value.  For account \(a\), define the governing
+certified frontier
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\requiredFrontier(a,e)=
+\begin{cases}
+\frontier[e-2,a], & e\ge2\text{ and }\closeState[e-2]\text{ is certified},\\
+\bot, & \text{otherwise.}
+\end{cases}
+\)
+\end{adjustbox}
+\end{center}
+Write \(\DescendsFrom(B,b_c)\) when \(b_c\) occurs on the strict parent chain of \(B\).  Define
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\StablePrefix(B)\iff
+\forall B_a\text{ on the strict non-genesis parent chain of }B:\
+\finalizedSlot[\slotOf(B_a)]=\hash(B_a).
+\)
+\end{adjustbox}
+\end{center}
+Then
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\safeFromClose(\Slot(a,s,e),b)\iff{}& \exists B:\ b=\hash(B)\wedge\blockMap[\Slot(a,s,e),b]=B\\
+&\wedge\StablePrefix(B)\\
+&\wedge\bigl(e<2\ \vee\ (\closeState[e-2]\text{ is certified}
+\wedge\DescendsFrom(B,\requiredFrontier(\accountOf(B),e)))\bigr).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+The \(\StablePrefix\) check is an account-chain vote lock.  It applies in every epoch, including the
+adjacent open epoch while its predecessor is closing: a merely complete or unresolved ancestor cannot
+support a valid descendant vote until it is finalized.  During close drain for epoch \(e\),
+\(\safeFromClose\) is additionally evaluated against \(\mathsf{CloseInput}_e\): every ancestor beyond
+\(\frontier[e-1,a]\) must be the selected block of an election in \(\closeCut[e]\), and cross-account
+receive references must resolve in the corresponding close-local replay state.  Thus an epoch-\(e\)
+drain vote cannot depend on a concurrently finalized epoch-\(e+1\) block.  A released ancestor never
+satisfies this predicate.  A certified close record freezes every old election in its cut: correct
+replicas emit no later vote in that closed election, and future votes for the account may extend only
+the certified finalized frontier.
+
+Earlier safety-relevant vote history for account slot \((a,s)\) is
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\activeVote_{P_j}(a,s,e_0,b)
+\iff{}& \votedFor[P_j,\Slot(a,s,e_0),b]=\true.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+A later non-timeout slot vote is safe exactly when
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\safeToVote_{P_j}(\Slot(a,s,e'),b')
+\iff{}& \finalizedSlot[a,s]\in\{\bot,b'\} \\
+&\wedge\safeFromClose(\Slot(a,s,e'),b')\\
+&\wedge\forall e_0<e',\ \forall b\neq b':
+\activeVote_{P_j}(a,s,e_0,b)\Rightarrow
+\released_{P_j}(\Slot(a,s,e_0),b).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Thus a correct replica may vote again in the same election for the same block as allowed by the
+election core, but may vote in a later same-account-slot election only after every earlier obligation has been
+certifiably released.  A finalized slot is not retried.  For later slots of the same account,
+\(\safeFromClose\) requires every valid candidate to descend from the governing certified finalized
+frontier and to have only finalized strict ancestors.  Timeout and close votes do not create slot
+unreleased votes.
+
+\section{Certificates and Vote Counting}
+
+RAI instantiates, for each fixed election identifier and weighted committee, the vote-counting core of
+Kudzu~\cite{shoup2025kudzu}.  Kudzu supplies the single-committee counting pattern behind its
+fast-path safety lemmas and its two-case termination argument.  RAI replaces voter cardinality with the
+frozen consensus weight of the applicable stake snapshot.  It does not import Kudzu's block proposal,
+reconstruction, or slot-advance semantics.  Election-scoped admissibility, multiple-committee
+composition, close-round carry, close-version reconciliation, and cross-epoch reasoning are RAI-specific
+and are stated and proved below.
+
+\paragraph{Committee-local election kernel.}
+Fix an election identifier \(\id\) and a weighted committee \(Q\in\Committees(\id)\).  Every vote
+signature binds the vote kind, \(\id\), \(Q\), and value.  A correct member sends at most one first
+vote in \((\id,Q)\), and a first vote for \(x\) also counts as a notarization vote for \(x\).  A
+correct member may issue a second-look notarization vote for a non-timeout value \(x\) only after
+observing first-vote signer weight strictly greater than \(F_Q+P_Q\) for \(x\) and validating
+\(\admissible(\id,x)\).  It may issue a timeout notarization vote only when
+\(\timeoutReady(Q,\id)\) holds.  Before final-voting \(x\), its complete committee-local support is a
+subset of \(\{x\}\); after final-voting, it emits no later first, notarization, timeout, or final vote
+in that committee instance.  Valid votes and certificates are persistent.  These rules are the complete
+committee-local assumptions used when adapting Kudzu's Lemmas~5.4--5.7 and Lemma~5.10; no other
+property of Kudzu is assumed.
+
+Each committee \(Q\in\Committees(\id)\) has total weight \(W_Q\), maximum Byzantine weight
+\(F_Q\), and quorum-slack weight \(P_Q\).  Assume
+\[
+P_Q\ge F_Q,
+\qquad
+W_Q>3F_Q+2P_Q.
+\]
+A local non-timeout certificate \(\Cert_Q(k,\id,x)\), where
+\(k\in\{\notarKind,\fastKind,\finalKind\}\) and \(x\neq\timeoutVal_\id\), has threshold
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{array}{c|c|c}
+\text{kind} & \text{signer-weight threshold in }Q & \text{value restriction}\\
+\hline
+\notarKind & \ge W_Q-F_Q-P_Q \text{ notarization weight} & \text{none}\\
+\fastKind & \ge W_Q-P_Q \text{ first-vote weight} & x\neq\timeoutVal_\id\\
+\finalKind & \ge W_Q-F_Q-P_Q \text{ final-vote weight} & x\neq\timeoutVal_\id.
+\end{array}
+\)
+\end{adjustbox}
+\end{center}
+A certificate is the local fact that individually signed votes of sufficient distinct-signer weight are
+present; it is not a separate BLS, threshold-signature, or extra vote-bearing object.  All votes counted
+for a local certificate are valid for the same \((\id,Q,x)\), and each signer contributes its frozen
+committee weight at most once.  A first vote for \((\id,Q,x)\) is also counted as a notarization vote
+for that tuple.  Valid votes and certificates do not expire.
+
+A local timeout certificate \(\TimeoutCert(\id,Q)\) exists when valid timeout notarization votes have
+signer weight at least \(W_Q-F_Q-P_Q\).  The local terminal-result domain is
+\[
+L_Q(\id)\in\{\timeoutOutcome,\notarized(x),\fast(x),\final(x)\}.
+\]
+The RAI election result is the deterministic merge of the local results.  For the same non-timeout
+value \(x\),
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\func{merge}(\notarized(x),\notarized(x))&=\notarized(x),\\
+\func{merge}(\notarized(x),\fast(x))&=\func{merge}(\notarized(x),\final(x))=\notarized(x),\\
+\func{merge}(\fast(x),\fast(x))&=\fast(x),\\
+\func{merge}(\fast(x),\final(x))&=\func{merge}(\final(x),\final(x))=\final(x),\\
+\func{merge}(\timeoutOutcome,y)&=\timeoutOutcome.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+The equations are symmetric.  Two non-timeout local results for different values, including two local
+final results for different values, merge to \(\timeoutOutcome\).  Their certificate-level evidence is a
+conflict proof that the round cannot produce a compatible global fast or final result.  With one
+committee, the merged result is that committee's local result.  The global aliases
+\(\NotarCert(\id,x)\), \(\FirstCert(\id,x)\), and \(\FinalCert(\id,x)\) mean that the merged result
+is respectively \(\notarized(x)\), a joint fast result \(\fast(x)\) from every election committee, or
+\(\final(x)\); \(\NotarCert(\id,\timeoutVal_\id)\) means that the merged result is
+\(\timeoutOutcome\).
+
+A merged result finishes an election round according to the slot/close terminal rules below.
+Fast and final results are valid only for non-timeout values.  A matching non-timeout notarization
+result in every close committee records round-local progress as \(\converged(x)\) and creates a live
+carry unless positive death evidence is known.  A valid fast or final certificate in any close round
+decides the logical close instance through \(\closeDecision\), regardless of the replica's current
+round or the round-local value of \(outcome\).  Correct replicas continue to use the committee-local
+election kernel above in close rounds.
+
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\Terminal(t,\id,x)\iff
+\begin{cases}
+    t\in\{\notarKind,\fastKind,\finalKind\}, & \id=\Slot(a,s,e),\\
+    t=\notarKind\vee(t\in\{\fastKind,\finalKind\}\wedge x\neq\timeoutVal_\id),
+        & \id\in\{\CloseCut(e,r),\CloseRecord(e,r)\},
+\end{cases}
+\)
+\end{adjustbox}
+\end{center}
+where \(t,x\) denote the kind and value represented by the merged result, and
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\certOutcome(t,x)=
+\begin{cases}
+\timeoutOutcome, & t=\notarKind\wedge x=\timeoutVal_\id,\\
+\notarized(x), & t=\notarKind\wedge x\neq\timeoutVal_\id\wedge\id=\Slot(a,s,e),\\
+\converged(x), & t=\notarKind\wedge x\neq\timeoutVal_\id\wedge\id\in\{\CloseCut(e,r),\CloseRecord(e,r)\},\\
+\fast(x), & t=\fastKind,\\
+\final(x), & t=\finalKind.
+\end{cases}
+\)
+\end{adjustbox}
+\end{center}
+
+For \(Q\in\Committees(\id)\), define
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\VotesIn(Q,\id,x)=\{P_i\in Q: firstVote[P_i,\id,Q]=x\},
+\qquad
+\NotarVotesIn(Q,\id,x)=
+\{P_i\in Q: firstVote[P_i,\id,Q]=x\vee\NotarVote(P_i,\id,Q,x)\in\mathsf{pool}\}.
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\allVotes(Q,\id)=
+\SignerWeight_Q(\{P_i\in Q:firstVote[P_i,\id,Q]\neq\bot\}),
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\maxVotes(Q,\id)=\max_{x\neq\timeoutVal_\id}\SignerWeight_Q(\VotesIn(Q,\id,x)),
+\)
+\end{adjustbox}
+\end{center}
+where the maximum is \(0\) if there is no non-timeout value, and
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\manyVotes(Q,\id)=
+\{x\neq\timeoutVal_\id:\ \SignerWeight_Q(\VotesIn(Q,\id,x))>F_Q+P_Q\}.
+\)
+\end{adjustbox}
+\end{center}
+Timeout notarization for committee \(Q\) is enabled by
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\timeoutReady(Q,\id)\iff
+\allVotes(Q,\id)-\maxVotes(Q,\id)>F_Q+P_Q.
+\)
+\end{adjustbox}
+\end{center}
+
+The monotone slack rule above is the signed timeout trigger, following Kudzu's main loop
+\cite{shoup2025kudzu}.  For diagnostics, let \(\Values(\id)\) be the finite election-local set of
+non-timeout values that currently appear in valid close-version data or valid votes for \(\id\), and
+define
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\NotarizedBy(P_i,\id,Q)=
+\{x:firstVote[P_i,\id,Q]=x\vee\NotarVote(P_i,\id,Q,x)\in\mathsf{pool}\}.
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\FastDead(Q,\id,y)\iff{}&
+\SignerWeight_Q(\{P_i\in Q:firstVote[P_i,\id,Q]\notin\{\bot,y\}\})>F_Q+P_Q,\\
+\TornFor(Q,\id,y)={}&
+\{P_i\in Q:\exists x\in\NotarizedBy(P_i,\id,Q),\ x\neq y\}
+\setminus\{P_i\in Q:\FinalVote(P_i,\id,Q,y)\in\mathsf{pool}\},\\
+\FinalDead(Q,\id,y)\iff{}&
+\SignerWeight_Q(\TornFor(Q,\id,y))>2F_Q+P_Q,\\
+\AllValuesDead(Q,\id)\iff{}&
+\forall y\in\Values(\id):\FastDead(Q,\id,y)\wedge\FinalDead(Q,\id,y).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\timeoutAllowed(Q,\id)\iff \timeoutReady(Q,\id).
+\)
+\end{adjustbox}
+\end{center}
+The set \(\Values(\id)\) is learned incrementally, so \(\AllValuesDead(Q,\id)\) is only a local
+diagnostic over currently known values.  It does not authorize a signed timeout vote: an unknown value
+could later acquire first-vote weight, and a timeout vote based on an incomplete candidate set would not
+be covered by the weighted incompatibility argument.  A correct replica may use \(\AllValuesDead\) to
+avoid futile local reconstruction after certificate-level death evidence is already present, but a
+timeout notarization vote is issued only under the monotone \(\timeoutReady\) predicate.  Such a vote is
+an ordinary signed notarization vote for \(\timeoutVal_\id\); receivers validate and count it like any
+other notarization vote.
+
+\paragraph{Lemma (committee-local certificate incompatibility).}
+Fix \((\id,Q)\).  Assume Byzantine signers have total weight at most \(F_Q\) and
+\(W_Q>3F_Q+2P_Q\).  If a valid local fast or final certificate exists for \(x\), then no valid local
+notarization certificate exists for any \(y\neq x\), including \(\timeoutVal_\id\).
+
+For the fast case, a fast certificate for \(x\) contains first-vote signer weight at least
+\(W_Q-P_Q\).  Even allowing all Byzantine weight to equivocate, at most \(F_Q+P_Q\) distinct-signer
+weight can be recorded outside \(x\).  Hence no different value can enter \(\manyVotes(Q,\id)\), whose
+threshold is strictly greater than \(F_Q+P_Q\), and
+\(\allVotes(Q,\id)-\maxVotes(Q,\id)\le F_Q+P_Q\), so \(\timeoutReady(Q,\id)\) is false.  Correct
+members therefore send no second-look or timeout notarization vote for a value different from \(x\).
+The remaining Byzantine weight is less than the notarization threshold \(W_Q-F_Q-P_Q\).
+
+For the final case, a final certificate for \(x\) and a notarization certificate for \(y\neq x\) would
+have signer weights at least \(W_Q-F_Q-P_Q\).  Their intersection has weight at least
+\[
+2(W_Q-F_Q-P_Q)-W_Q=W_Q-2F_Q-2P_Q>F_Q.
+\]
+It therefore contains correct signer weight, contradicting the support condition and post-final lock of
+the committee-local kernel.  This is the stake-weighted RAI instantiation of Kudzu's fast-finalization
+and incompatibility arguments~\cite[Lemmas~5.4--5.7]{shoup2025kudzu}.
+
+Since a global fast or final certificate requires the same value in every election committee, any two
+valid committee-local non-timeout terminal certificates for different values in applicable committees
+form a conflict proof
+\[
+\ConflictProof(\id,x,y),\qquad x\neq y,
+\]
+where a terminal certificate may be notarization, fast, or final evidence.  Such evidence excludes every
+possible present or future compatible global fast or final certificate for \(\id\).  A merged timeout
+result records either an explicit timeout certificate or such incompatible terminal evidence; the
+underlying signed votes remain in the validated object store as the release witness.
+
+\paragraph{Lemma (committee composition).}
+Suppose every \(Q\in\Committees(\id)\) has derived a local terminal result.  Because vote validity and
+locks are interpreted per \((\id,Q)\), overlapping membership and unscoped wire compression do not
+couple the logical committee instances.  The deterministic merge therefore produces a global terminal
+result immediately.  It finalizes a non-timeout value only when every committee supplies a compatible
+fast or final result for that same value.  Timeout in one committee, or different non-timeout values in
+two committees, cannot produce finality.  By the preceding lemma, two different globally finalized
+values are impossible.
+
+\subsection{Close-round carry and death evidence}
+
+Fix a close instance
+\[
+I\in\{\CloseCut(e),\CloseRecord(e)\},
+\]
+and write \(I_r\) for its election identifier in close round \(r\).
+
+A close-round death proof is positive certificate evidence that round \(r\) cannot now or later
+produce a deciding fast or final certificate:
+\[
+\CloseDead_{P_j}(I_r)\iff
+\begin{cases}
+\NotarCert(I_r,\timeoutVal_{I_r})\in\mathsf{pool}_{P_j},\\
+\text{or }P_j\text{ has }\CloseConflictProof(I_r,h,h')\text{ for }h\neq h'.
+\end{cases}
+\]
+
+A conflict proof consists of valid certificate-level committee-local terminal evidence, including
+notarization, fast, or final evidence, whose coexistence is incompatible with every possible deciding
+fast or final certificate for \(I_r\).  The underlying signed votes are retained and disseminated through ordinary vote gossip.  A local clock timeout, changed preference, or newly learned
+uncertified evidence is not a death proof.
+
+For a non-timeout hash \(h\), define
+\[
+\LiveCarry_{P_j}(I_r,h)\iff
+\NotarCert(I_r,h)\in\mathsf{pool}_{P_j}
+\wedge
+\neg\CloseDead_{P_j}(I_r).
+\]
+
+The predicate is local.  Correct replicas may temporarily derive different live carries if a
+the signed votes completing a conflicting quorum have not yet been completely gossiped.  Such disagreement is safe because the
+hidden conflict makes the source round incapable of deciding.
+
+\section{Blocks, Admissibility, and Finality}
+
+The complete block tree \(\completeTree\) contains block data, with one account tree per account.  A
+complete slot block is represented as \(B\), and \(\slotOf(B)=(a,s)\).  Define
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\CompleteBlock(b)\iff
+b\in\{\mathsf{genesis}_a:a\in\mathsf{Accounts}\}\vee\exists B\in\completeTree:b=\hash(B).
+\)
+\end{adjustbox}
+\end{center}
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\ParentComplete(B,a,s)
+\iff{}& (\parent(B)=\mathsf{genesis}_{a}\wedge s=1)\\
+&\vee\exists B_p\in\completeTree:
+\parent(B)=\hash(B_p)\wedge\slotOf(B_p)=(a,s-1).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Here \(\slotOf(\mathsf{genesis}_a)=(a,0)\).  Define
+\[
+\func{AncestorsConsistent}(B)\iff
+\forall B_a\text{ on the parent chain of }B:\
+\finalizedSlot[\slotOf(B_a)]\in\{\bot,\hash(B_a)\}.
+\]
+
+A receive reference \(u=(\hash(B_s),i)\) is available only when \(B_s\) is finalized, index \(i\)
+selects a send \((d,x)\in\sendsOf(B_s)\), and the finalized ledger state contains
+\(\pendingSend[u]=(d,x)\).  Requiring the send block to be finalized prevents cyclic or same-close
+cross-account funding dependencies.  For a candidate block \(B\) of account \(a\), let \(L_B\) be the
+unique finalized ledger state against which its parent and receive references are evaluated.  When
+\(B\) is validated for \(q=\Slot(a,s,e)\) during close drain, \(L_B\) is the close-local state rooted at
+\(\closeState[e-1]\) and restricted by \(\mathsf{CloseInput}_e\); blocks, sends, and receives whose
+elections are outside the decided cut are unavailable to that validation even if they have become
+ordinary-finalized concurrently.  Define
+\[
+\operatorname{credit}(B,L_B)=
+\sum_{u\in\receivesOf(B)}\pendingSend_{L_B}[u].\mathsf{amount},
+\qquad
+\operatorname{debit}(B)=\sum_{(d,x)\in\sendsOf(B)}x.
+\]
+The block-validity predicate is
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\ValidBlock(B)\iff{}& \slotOf(B)=(a,s)\wedge\ParentComplete(B,a,s)\\
+&\wedge\operatorname{Verify}_{\ownerKey[a]}
+ \bigl(\signatureOf(B),
+ \hash(\mathsf{RAI/AccountBlock/v1}\parallel\operatorname{canon}(\operatorname{body}(B)))\bigr)\\
+&\wedge\text{every send amount is a positive representable integer}\\
+&\wedge\text{all receive references in }B\text{ are distinct}\\
+&\wedge\forall u\in\receivesOf(B),\ \exists x>0:
+ u\notin\receivedSend_{L_B}\wedge\pendingSend_{L_B}[u]=(a,x)\\
+&\wedge\bal_{L_B}[a]+\operatorname{credit}(B,L_B)-\operatorname{debit}(B)\ge0\\
+&\wedge\representativeOf(B)\in\mathsf{RegisteredReplicas}.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Only the account owner can therefore produce an authorized block, an account balance can never become
+negative, every send can be consumed at most once, and only its declared destination account can consume
+it.  Applying a valid block produces
+\[
+\begin{aligned}
+\bal'[a]&=\bal[a]+\operatorname{credit}(B,L_B)-\operatorname{debit}(B),\\
+\repOf'[a]&=\representativeOf(B).
+\end{aligned}
+\]
+Every received reference is removed from \(\pendingSend\) and added to \(\receivedSend\); every send
+at index \(i\) creates
+\[
+\pendingSend'[(\hash(B),i)]=(d_i,x_i).
+\]
+With no mint, burn, or fee transition, replay also verifies the supply invariant
+\[
+\sum_a\bal[a]+\sum_{u\in\dom(\pendingSend)}\pendingSend[u].\mathsf{amount}
+=\mathsf{GenesisSupply}.
+\]
+The replay result is independent of traversal order provided account-parent edges and finalized
+send-before-receive edges are respected.
+
+The complete block tree contains at most one entry for each block hash.  A slot value extends the
+complete tree when
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\ExtendsTree(\Slot(a,s,e),b)
+\iff{}& \exists B: b=\hash(B)\wedge\blockMap[\Slot(a,s,e),b]=B\\
+&\wedge\slotOf(B)=(a,s)\wedge\ParentComplete(B,a,s)
+\wedge\func{AncestorsConsistent}(B)\\
+&\wedge\ValidBlock(B)\wedge\finalizedSlot[a,s]\in\{\bot,b\}.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+For a slot election \(q=\Slot(a,s,e)\), define a start witness by
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\func{StartWitness}_e(q)\iff{}&
+\bigl(\exists Q\in\Committees(q):\mathsf{pool}\text{ contains a valid first vote for }q\text{ in }Q\bigr)\\
+&\vee\bigl(\forall Q\in\Committees(q):
+\SignerWeight_Q(\{P_i\in Q:q\in report[P_i,e]\})>F_Q\bigr).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+The witness is a local predicate over already gossiped reports and votes; it is not a separate object.
+
+\paragraph{Stable admissibility and fresh preference.}
+Admissibility is distinct from the value that a correct replica currently prefers to first-vote.  For
+correct replica \(P_j\), let \(E_j\) be its validated blocks, reports, and votes.  Canonical fresh
+construction must satisfy
+\[
+E_i=E_j
+\Longrightarrow
+\FreshCloseHash_{P_i}(I)=\FreshCloseHash_{P_j}(I).
+\]
+Serialization order, witness choice, reconciliation path, and other transport choices do not affect a
+close hash.
+
+Slot admissibility remains
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\admissible(\Slot(a,s,e),b)\iff
+b\neq\timeoutVal_{\Slot(a,s,e)}\wedge\ExtendsTree(\Slot(a,s,e),b)
+\wedge\safeFromClose(\Slot(a,s,e),b).
+\)
+\end{adjustbox}
+\end{center}
+
+A reconstructed close-cut version \(C\) is freshly admissible for \(h_C\) when
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\admissibleFresh(\CloseCut(e),h_C,C)\iff{}&
+ h_C=\hash(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C))\\
+&\wedge\exists\rho:\JointReportProof(e,\rho)\\
+&\wedge\{\Slot(a,s,e):(a,s)\in\ReportVisible(e,\rho)\}\subseteq C\\
+&\wedge\forall q\in C:\func{StartWitness}_e(q).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+Define persistent certificate support for a cut hash by
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\func{CutSupported}(e,h_C)\iff{}&\exists r:\ \forall Q\in\Committees(\CloseCut(e,r)),\\
+&\exists k_Q\in\{\notarKind,\fastKind,\finalKind\}:\
+\Cert_Q(k_Q,\CloseCut(e,r),h_C).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+This predicate is monotone because the underlying committee-local certificates and their signed votes
+do not expire, even if later incompatible evidence changes the currently merged round result.
+Historical cut admissibility and the combined predicate are
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\admissibleHistorical(\CloseCut(e),h_C,C)\iff{}&
+ h_C=\hash(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C))\\
+&\wedge\func{CutSupported}(e,h_C),\\
+\admissible(\CloseCut(e),h_C,C)\iff{}&
+ \admissibleFresh(\CloseCut(e),h_C,C)\\
+&\vee\admissibleHistorical(\CloseCut(e),h_C,C).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+The proof \(\rho\) and each start witness are selected locally from the report and vote store.  They are
+not serialized with \(C\), and close votes continue to sign only the close hash rather than a witness
+bundle reference.  Additional non-conflicting reports may change the replica's current visible set, and
+newly learned report equivocation removes that signer's weight from fresh report calculations.  A
+retained version is freshly revalidated before unsupported voting; once \(\func{CutSupported}(e,h_C)\)
+holds, the historical branch is permanent and later report-store changes cannot invalidate the cut.
+
+For a cut election \(q\), let \(\Sigma_{j,q}\) be all valid votes for \(q\) currently known to
+\(P_j\).  Fresh close-record construction applies the deterministic resolver
+\[
+\operatorname{resolve}(q,\Sigma_{j,q})=
+\begin{cases}
+\FinalizedState(b,\pi),
+  & \Sigma_{j,q}\text{ derives valid global fast or final evidence for }b,\\
+\ReleasedState(\pi_{\mathsf{timeout}}),
+  & \Sigma_{j,q}\text{ derives valid timeout evidence},\\
+\ReleasedState(\pi_{\mathsf{conflict}}),
+  & \Sigma_{j,q}\text{ derives conflicting notarization evidence},\\
+\SelectedState(q,b,\pi_{\mathsf{notar}}),
+  & b\text{ is the unique known non-timeout notarized value}\\
+  & \text{and no final or release evidence is currently known},\\
+\bot, & \text{otherwise.}
+\end{cases}
+\]
+The symbols \(\pi\) denote locally selected signed-vote witnesses, not certificate objects.
+
+Once the decided cut is installed, it fixes the immutable close input
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\mathsf{CloseInput}_e=
+\bigl(\closeHash[e-1],\{\frontier[e-1,a]:a\in\mathsf{Accounts}\},\closeCut[e]\bigr).
+\)
+\end{adjustbox}
+\end{center}
+This is an objective protocol boundary rather than a replica-local wall-clock snapshot.  Starting from
+the preceding decided frontiers, the resolver is applied only to elections in \(\closeCut[e]\), and the
+validated ancestry closure derives one candidate frontier for every account.  A reconstructed frontier
+map \(\Phi\) is admissible for \(h_F\) when
+\[
+\begin{aligned}
+\admissible(\CloseRecord(e),h_F,\Phi)\iff{}&
+ h_F=\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+       \parallel\operatorname{canon}(\Phi))\\
+&\wedge\func{validatedFrontiers}(e,\closeCut[e],\Phi).
+\end{aligned}
+\]
+The predicate \(\func{validatedFrontiers}\) obtains every block on every account chain from genesis
+through the claimed frontiers, validates every block and transition, preserves every block committed by
+the preceding decided frontiers, and permits at most one block per logical account slot.  For every
+\(q\in\closeCut[e]\), a block included on \(\Phi\) must have locally derivable global fast/final evidence
+or a non-timeout notarization certificate for that same block; an omitted election must have locally
+derivable timeout or conflicting terminal-certificate evidence.  Every strict ancestor of a selected
+block must occur on the preceding certified account chain or be selected through an election in the
+same frozen \(\closeCut[e]\).  Only elections in
+the frozen \(\closeCut[e]\) may advance an account beyond \(\frontier[e-1,\cdot]\).  An ordinary-finalized
+block whose election is outside \(\closeCut[e]\), including a block elected in the concurrently open
+epoch \(e+1\), is neither required nor permitted to advance \(\Phi\) and first becomes eligible for a
+later close record.  Additional evidence for elections in the frozen input may change the fresh
+canonical frontier map, but it does not invalidate a historical map whose required positive witnesses
+remain available.  Admissibility permits voting only and does not finalize or release anything before
+the close-record decision.
+
+\paragraph{Hash reconciliation of close versions.}
+For \(T\in\{\mathsf{cut},\mathsf{frontiers}\}\), a replica retains canonical preimages indexed by
+hash.  A requester that possesses base hash \(a\) and needs target hash \(b\) sends
+\[
+\ReconReq(T,e,a,b).
+\]
+A responder may answer only if it possesses both canonical preimages.  For cuts it sends
+\[
+\ReconDelta(\mathsf{cut},e,a,b,\Delta^+,\Delta^-),
+\qquad
+\Delta^+=C_b\setminus C_a,
+\quad
+\Delta^-=C_a\setminus C_b.
+\]
+The requester reconstructs
+\[
+C'=(C_a\setminus\Delta^-)\cup\Delta^+,
+\]
+checks the canonical target hash, validates \(\admissible(\CloseCut(e),b,C')\), and then caches
+\(\cutVersion[e,b]=C'\).  Reconstructing a historical cut does not alter its current report store, vote store, or derived visibility.
+
+For frontier maps the responder sends sparse per-account replacements
+\[
+\ReconDelta(\mathsf{frontiers},e,a,b,
+\{(x,f_a(x),f_b(x)):f_a(x)\neq f_b(x)\}).
+\]
+The requester checks every expected old frontier, replaces only the named account entries, obtains any
+missing blocks through ordinary block gossip, validates the affected chains and slot evidence, recomputes
+\[
+b=\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi_b)),
+\]
+and caches \(\frontierVersion[e,b]=\Phi_b\).  A replacement may move a pre-decision candidate frontier
+forward, backward, or sideways; it never deletes a block from the immutable block store.  A responder
+that lacks the base or target sends \(\ReconMiss(T,e,a,b)\), after which the requester asks another
+replica or obtains a complete canonical version.  Reconciliation messages are unauthoritative transport
+metadata: acceptance always requires recomputing the target hash and applicable admissibility validation.
+
+A correct replica retains every close version for which it votes until the logical close instance
+decides.  Decided cut and frontier versions, or delta paths from retained checkpoints, remain available
+from correct archival replicas so that joining replicas can reconstruct the complete close history.
+
+There is no distinguished validator proposer and no explicit proposal object in the election core.
+For a slot election, the client or account owner creates and authorizes a candidate block \(B\); the
+owner or any relay may gossip it, and a replica computes \(b=\hash(B)\) only after validating that
+authorization and the block.  Validators do not synthesize successor blocks.
+
+A correct replica constructs its fresh close-cut version from its current report-and-vote visibility set after
+locally deriving a valid joint report quorum.  Its fresh close-cut hash is
+\[
+\FreshCloseHash_{P_j}(\CloseCut(e))
+=
+\hash(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C_{e,j})),
+\]
+and it retains the canonical set under that hash.
+
+After the decided cut is drained, a correct replica first derives every global fast or final slot
+certificate available for elections in \(\closeCut[e]\) and runs \(\FinalizeChain\) for each such
+certified block in canonical account-chain order.  It then constructs a fresh close-record version from
+the immutable \(\mathsf{CloseInput}_e\): a close-local replay starts from \(\closeState[e-1]\), applies
+the resolver only to elections in the decided cut, and performs validated ancestry closure without
+reading ordinary finalizations outside the frozen input.  This derives a complete canonical frontier
+map \(\Phi_{e,j}\).  Define
+\[
+\FreshCloseHash_{P_j}(\CloseRecord(e))
+=
+\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi_{e,j})),
+\]
+and retain the canonical frontier map under that hash.
+Fresh construction is used only when the immediately preceding close round is positively proved dead
+or when starting round \(0\).  A live carried hash overrides fresh preference.
+
+For \(r>0\), correct replica \(P_j\) chooses the first-vote value for \(I_r\) as follows:
+\[
+\func{NextCloseHash}_{P_j}(I,r)=
+\begin{cases}
+\FreshCloseHash_{P_j}(I),
+  & \CloseDead_{P_j}(I_{r-1}),\\
+h,
+  & \LiveCarry_{P_j}(I_{r-1},h),\\
+\bot,
+  & \text{otherwise.}
+\end{cases}
+\]
+For round \(0\),
+\[
+\func{NextCloseHash}_{P_j}(I,0)=
+\FreshCloseHash_{P_j}(I).
+\]
+Death evidence takes precedence if the replica knows both a non-timeout notarization certificate and
+a proof that the source round is dead.  If the result is \(\bot\), the replica does not start the
+successor round.
+
+A correct replica never abandons a carried hash merely because:
+\begin{itemize}
+\item its fresh close hash changes;
+\item it learns additional valid close evidence;
+\item another admissible hash becomes freshly preferred;
+\item its local timer expires; or
+\item it has already entered another local protocol state.
+\end{itemize}
+A carry may be abandoned only after a valid death proof for the round that created that carry.  Thus
+\(\text{carry overrides fresh preference}\).
+
+For a fixed account slot \((a,s)\), retries are sequential.  A replica does not start or first-vote in a later
+retry \(\Slot(a,s,e')\) while some earlier election \(\Slot(a,s,e_0)\), \(e_0<e'\), remains pending.
+A later same-account-slot retry may start only after the certified close record has been reconstructed and installed in the
+normative order below, the resulting close state records \(\ReleasedState(\pi)\) for the earlier
+election, and \(\finalizedSlot[a,s]=\bot\).  If the earlier block is finalized either by an ordinary
+certificate or by the close record, no same-account-slot retry is started.  Adjacent same-account-slot retries remain
+constrained by shared-committee vote locks until certified release, and disjoint future elections are
+constrained by the governing certified finalized frontier.
+
+Local completion is
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\Complete(\Slot(a,s,e),b)
+\iff{}& \exists B:b=\hash(B)\wedge\NotarCert(\Slot(a,s,e),b)\in\mathsf{pool}\\
+&\wedge\blockMap[\Slot(a,s,e),b]=B\wedge b\neq\timeoutVal_{\Slot(a,s,e)}\\
+&\wedge\slotOf(B)=(a,s)\wedge\ParentComplete(B,a,s)\wedge\func{AncestorsConsistent}(B)\wedge\PayloadAvailable(B)\\
+&\wedge\ValidBlock(B)\wedge\finalizedSlot[a,s]\in\{\bot,b\}.
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+A non-genesis block enters \(\completeTree\) only by completion, and only if the same block
+hash is not already present:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\frac{\Complete(\Slot(a,s,e),b)\quad\blockMap[\Slot(a,s,e),b]=B\quad b=\hash(B)\quad\neg\CompleteBlock(b)}
+{\completeTree\gets\completeTree\cup\{B\}}.
+\)
+\end{adjustbox}
+\end{center}
+No message is broadcast solely because a block was inserted.
+
+Epoch membership is not stored on every block.  Instead, a fresh close-record version derives one
+frontier for every account and hashes the canonical frontier map together with the preceding decided
+close-record hash:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\Phi_{e,j}
+    &=\operatorname{sort}\{(a,f_{e,j}(a)):a\in\mathsf{Accounts}\},\\
+R^{\mathsf{ledger}}_{e,j}
+    &=\hash(\operatorname{canon}(\Phi_{e,j})),\\
+h_{F,j}
+    &=\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+       \parallel\operatorname{canon}(\Phi_{e,j})).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+The decided close cut is supporting validation context for deriving \(\Phi_{e,j}\), but it is not an
+additional field in the close-record value and is not itself the durable ledger-consensus object.  The
+immutable \(\mathsf{CloseInput}_e\) consists of the preceding certified close, the preceding decided
+frontiers, and that decided cut.  A close-record version is replica-relative before the logical close
+instance decides; once \(\closeDecision[\CloseRecord(e)]\) is set, write the decided frontier map
+without the replica subscript as \(\Phi_e\).  Blocks, reports, and votes are obtained through ordinary
+gossip, while the frontier map itself is reconstructed by hash reconciliation when necessary.
+
+Because every block contains its predecessor hash, each frontier transitively commits to its entire
+account chain.  The validator recomputes every block hash and owner signature, checks account and
+sequence continuity, replays every debit and credit, verifies finalized send-before-receive dependencies,
+checks destination ownership and unique send consumption, applies every representative change, and
+rejects any chain with a missing or invalid predecessor.  The replay begins from the preceding certified
+close state and applies only blocks admitted through the frozen \(\mathsf{CloseInput}_e\); ordinary
+finalizations from elections outside the decided epoch-\(e\) cut do not affect this replay.  Every receive
+must resolve to a still-pending finalized send addressed to the receiving account.  It also requires
+every block on the preceding certified account chains to remain, every balance to remain non-negative,
+and the supply invariant to hold.
+The resulting \(\bal_e\), \(\repOf_e\), \(\pendingSend_e\), and \(\receivedSend_e\) maps are part of
+the reconstructed \(\closeState[e]\).  The canonical hash of the complete frontier map is
+\(R^{\mathsf{ledger}}_e\), while the close-record hash additionally commits to epoch \(e\) and
+\(\closeHash[e-1]\).
+
+Let \(\frontier[e,a]\) be the decided frontier of account \(a\) through epoch \(e\), with
+\(\frontier[e,a]=\frontier[e-1,a]\) for accounts that do not move in epoch \(e\).  The blocks of
+account \(a\) belonging to epoch \(e\) are the ordered account-chain segment after
+\(\frontier[e-1,a]\) and up to \(\frontier[e,a]\):
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\EpochBlocks(e,a)=
+(\frontier[e-1,a],\frontier[e,a]] .
+\)
+\end{adjustbox}
+\end{center}
+Only the frontier block is named in \(\Phi_e\); every intermediate block is committed through the
+predecessor-hash chain and its epoch membership is obtained from account-tree order.
+
+For \(q=\Slot(a,s,e)\), the decided ledger includes candidate \(b\) exactly when
+\(\func{LedgerIncludes}_e(q,b)\).  Every such block and every ancestor on its certified account chain
+is finalized.  Every other candidate of \(q\) is released.  If no candidate of \(q\) occurs on the
+certified ledger, then \(q\) is released.  Every epoch-\(e\) slot election outside the certified cut
+is released by close exclusion.  Before decision, ordinary-finalized and selected are evidence
+classifications only; after certification the durable distinction is whether a block occurs on a chain
+committed by the decided frontier map.
+
+Once the logical close-record instance decides \(h_F\), a replica installs the corresponding
+reconstructed frontier version atomically in the following normative order: (1) locally derive the
+deciding fast or final certificate from signed close-record votes; (2) reconstruct \(\Phi_e\) for \(h_F\) by a
+retained version, reconciliation delta, or complete version transfer; (3) verify
+\[
+h_F=\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi_e));
+\]
+(4) reconstruct and historically validate the decided close-cut version and locally derive every required
+slot certificate, timeout, or conflict from signed votes; (5) obtain and validate every block on every account
+chain from genesis through the claimed frontiers; (6) verify the frontier classifications, ancestry
+closure, ledger transitions, and \(R^{\mathsf{ledger}}_e=\hash(\operatorname{canon}(\Phi_e))\); (7)
+run \(\FinalizeChain\) in account-chain order through every certified frontier; and only then (8)
+derive and install \(\closeState[e]\), \(\frontier[e,\cdot]\),
+\(\ledgerRoot[e]\gets R^{\mathsf{ledger}}_e\), and \(\closeHash[e]\gets h_F\).  No retry or
+future-vote decision may read the new release state before all eight steps complete.
+
+A joining replica may wait for the next live close to learn the latest synchronization target, but that
+observation is not a trust assumption.  It starts from genesis, obtains the durable blocks, reports, and
+votes, and replays these steps for every epoch in order.  It reconstructs each decided cut and frontier
+preimage, validates every block and state transition, locally derives each deciding vote quorum,
+recomputes every close-record hash from \(\closeHash[e-1]\) and \(\Phi_e\), and accepts epoch \(e\)
+only when the recomputed hash is the value decided by the close-record votes.  The latest validated
+close-record hash is the current consensus checkpoint: its predecessor-hash chain and account
+frontiers transitively commit to every block on the certified ledger chains.  Thus the replica derives
+the live committee internally and bootstraps the entire ledger without trusting an archive's derived
+state or an externally supplied committee snapshot.
+
+If \(\FirstCert(\Slot(a,s,e),b)\in\mathsf{pool}\),
+\(\FinalCert(\Slot(a,s,e),b)\in\mathsf{pool}\), or a decided ledger-state root includes \(b\) on a
+certified account chain, with \(b\neq\timeoutVal_{\Slot(a,s,e)}\) and \(\CompleteBlock(b)\), then
+\(\FinalizeChain(b)\) runs.  It first requires
+\(\func{AncestorsConsistent}(B)\wedge\StablePrefix(B)\), then walks the complete parent chain in
+ancestor-to-descendant order, \(b_0=\mathsf{genesis}_{\accountOf(B_k)},b_1,\ldots,b_k=b\).  For each
+\(i>0\), with \(b_i=\hash(B_i)\) and \(\slotOf(B_i)=(a_i,s_i)\), it first asserts
+\(\finalizedSlot[a_i,s_i]\in\{\bot,b_i\}\).  A violation is a safety fault: a finality proof has appeared
+for a chain conflicting with an already finalized account slot.  If \(\finalizedSlot[a_i,s_i]=\bot\),
+it validates \(B_i\) against the current finalized ledger state, applies its balance, send, receive, and
+representative transition, and then sets \(\finalizedSlot[a_i,s_i]\gets b_i\).  If
+\(\finalizedSlot[a_i,s_i]=b_i\), it does nothing.  The derived finalized ledger state is therefore
+updated before a later block is validated.  Timeout and release outcomes never invoke
+\(\FinalizeChain\).
+
+Normative invariants: enabled voting; first-vote uniqueness; certified release for conflicting slot
+vote history; timeout locality; separation of notarization from slot finality; no gaps in
+\(\completeTree\); at most one complete-tree entry per block hash; certified per-account epoch
+frontiers; a canonical frontier map and hash-chained close-record value over every account frontier; complete validation of every
+account chain from genesis through its frontier; valid owner signatures; non-negative balances; finalized
+send-before-receive dependencies; destination-only and at-most-once send consumption; deterministic
+representative updates; supply conservation; monotonic \(\finalizedSlot\); ancestor finality by
+ordinary fast or final certificates or by certified ledger inclusion across a certified-stable ancestor
+prefix; release of every epoch election omitted from the certified ledger; close-cut boundedness after a
+certified close-cut hash; a locally derivable joint report quorum and valid reconstructed cut for every non-timeout close-cut vote;
+mandatory validation under \(\closeState[e-2]\) for every epoch-\(e\) vote; deterministic stake-weighted committee
+derivation from certified balances, representatives, close state, and close-record hash; uniqueness and irrevocability of the certified close
+record; and at most one open epoch and at most one closing epoch, with older epochs closed.
+
+\section{Visibility and Close Cuts}
+
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\Reportable_j(\Slot(a,s,e))\iff{}& \started[\Slot(a,s,e)]\wedge
+\bigl(\neg\finished(\Slot(a,s,e))\vee
+\exists Q\in\Committees(\Slot(a,s,e)),\ \exists b\neq\timeoutVal_{\Slot(a,s,e)}:\\
+&\qquad b\in\func{Support}(P_j,Q,\Slot(a,s,e))\wedge
+\neg\released_{P_j}(\Slot(a,s,e),b)\bigr).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+A correct report therefore retains every unreleased non-timeout slot-vote obligation of its signer,
+even if that signer has already observed a replica-local terminal outcome.
+
+For every signer and epoch, \(\reportStore[P_i,e]\) retains every distinct valid signed report learned
+for that signer.  Report equivocation and eligibility are derived objectively as
+\[
+\begin{aligned}
+\ReportEquivocated(P_i,e)\iff{}&\exists R\neq R':
+\Report(e,R,\sigma),\Report(e,R',\sigma')\in\reportStore[P_i,e],\\
+\EligibleReport(P_i,e,R)\iff{}&\Report(e,R,\sigma)\in\reportStore[P_i,e]
+\wedge\neg\ReportEquivocated(P_i,e).
+\end{aligned}
+\]
+The derived value \(report[P_i,e]\) is the unique body \(R\) satisfying
+\(\EligibleReport(P_i,e,R)\), and is \(\bot\) otherwise.  Thus all signed reports are retained,
+but an equivocating signer contributes no weight to report quorums or report-derived visibility.
+
+A joint report proof \(\rho\) contains, for every close committee, distinct eligible signed reports whose
+combined signer weight crosses the close barrier:
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\JointReportProof(e,\rho)\iff
+\forall Q\in\Committees(\CloseCut(e,0)):\
+\SignerWeight_Q(\{P_i\in Q:\exists R_i,\ \Report(e,R_i,\sigma_i)\in\rho_Q
+\wedge\EligibleReport(P_i,e,R_i)\})\ge W_Q-F_Q.
+\)
+\end{adjustbox}
+\end{center}
+All reports in \(\rho\) must be individually valid and eligible.  In particular, no signer for which
+report equivocation is known contributes weight to the proof.  The account slots forced by such a proof are
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\ReportVisible(e,\rho)=
+\{(a,s):\forall Q\in\Committees(\Slot(a,s,e)),\
+\SignerWeight_Q(\{P_i\in Q:\exists R_i,\ \Report(e,R_i,\sigma_i)\in\rho_Q
+\wedge\EligibleReport(P_i,e,R_i)\wedge\Slot(a,s,e)\in R_i\})>F_Q\}.
+\)
+\end{adjustbox}
+\end{center}
+
+\begin{breakablealgorithm}
+\caption{\(\UpdateVisible(e)\)}
+\begin{algorithmic}[1]
+\State $V_{\mathrm{reports}}\gets\{(a,s):\forall Q\in\Committees(\Slot(a,s,e)),\ \SignerWeight_Q(\{P_i\in Q:\Slot(a,s,e)\in report[P_i,e]\})>F_Q\}$
+\State $V_{\mathrm{votes}}\gets\{(a,s):\exists Q\in\Committees(\Slot(a,s,e)):\mathsf{pool}\text{ contains valid votes of distinct-signer weight }>F_Q\text{ in }Q\text{ for }\Slot(a,s,e)\}$
+\State $V\gets V_{\mathrm{reports}}\cup V_{\mathrm{votes}}$
+\If{$V\neq visible[e]$}
+    \State $visible[e]\gets V$
+    \If{$state[e]=\mathsf{closing}$ and a cached valid joint report proof $\rho$ exists}
+        \State $C\gets\{\Slot(a,s,e):(a,s)\in visible[e]\cup\ReportVisible(e,\rho)\}$
+        \State $h_C\gets\hash(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C))$
+        \State $\cutVersion[e,h_C]\gets C$
+    \EndIf
+\EndIf
+\end{algorithmic}
+\end{breakablealgorithm}
+
+Reports contain pending slot elections and every unreleased non-timeout slot-vote obligation of
+the reporter.  Report and vote visibility are evaluated per weighted committee, using the committees of
+the slot election whose visibility is being tested.  Report-derived visibility is recomputed from the
+currently eligible reports and may shrink when report equivocation is learned; vote-derived visibility
+remains monotone because valid votes are persistent.  A replica's current close cut is
+\(C=\{\Slot(a,s,e):(a,s)\in visible[e]\}\), and its close-cut hash is
+\[
+\hash(\mathsf{RAI/CloseCut}\parallel e\parallel\operatorname{canon}(C)),
+\]
+not a hash of reports and not the durable epoch close-record hash.  A slot election enters current
+visibility either through report signer weight greater than \(F_Q\) in every committee
+\(Q\in\Committees(\Slot(a,s,e))\), or through visible valid-vote signer weight greater than \(F_Q\)
+in some such committee.  Before a non-timeout close-cut vote, the replica locally selects a valid joint
+report proof \(\rho\), requires the canonical cut to contain both its current visible set and every
+account slot in \(\ReportVisible(e,\rho)\), validates a local \(\func{StartWitness}_e(q)\) for every
+\(q\in C\), and stores \(\cutVersion[e,h_C]=C\).  No cut, proof, witness map, or certificate is
+broadcast; only the close vote containing \(h_C\) is disseminated.
+
+If \(\closeDecision[\CloseCut(e)]=(r,h_C)\), the replica reconstructs and historically validates
+\[
+C=\cutVersion[e,h_C]
+\]
+by retained state or hash reconciliation and sets \(\closeCut[e]=C\).  This fixes
+\(\mathsf{CloseInput}_e=(\closeHash[e-1],\frontier[e-1,\cdot],C)\).  Its current visibility may differ
+from \(C\); reconstructing the decided historical version does not remove reports or votes and does not
+overwrite the visibility derived from those stores.  For every \(\Slot(a,s,e)\in C\), each replica
+derives a fresh close-record frontier map by close-local replay from the preceding certified state,
+using the valid slot evidence currently known only for elections in \(C\) and the validated block tree.
+Different correct replicas may initially derive different admissible hashes because their evidence for
+the frozen elections differs.  Newly gossiped atoms may change fresh preference but cannot invalidate a
+previously validated historical version or override a live carry.  Replicas vote on
+\[
+h_F=\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi_e)).
+\]
+Only the value stored in \(\closeDecision[\CloseRecord(e)]\) becomes \(\closeHash[e]\); the close-cut
+hash and local slot-drain outcomes do not.
+
+\section{Main Algorithms}
+
+\begin{breakablealgorithm}
+\caption{RAI initialization for replica $P_j$}
+\begin{algorithmic}[1]
+\State $e_{\mathrm{open}}\gets0$; $state[-1]\gets\mathsf{closed}$; $state[e_{\mathrm{open}}]\gets\mathsf{open}$; let $G$ be the genesis epoch state
+\State $\closeState[-1]\gets G$; $\closeHash[-1]\gets\hash(G)$; $\committee_{\mathsf{gen}}\gets\deriveCommittee(\mathsf{genesis},G)$; $\committee[\cdot]\gets\bot$
+\State $\completeTree\gets\{\mathsf{genesis}_a:a\in\mathsf{Accounts}\}$; $\frontier[-1,a]\gets\mathsf{genesis}_a$ for every account $a$; derive $\bal_{-1}$, $\repOf_{-1}$, $\pendingSend_{-1}$, and $\receivedSend_{-1}$ from $G$
+\State $\ledgerRoot[-1]\gets\hash(\operatorname{sort}\{(a,\frontier[-1,a]):a\in\mathsf{Accounts}\})$
+\State $\finalizedSlot[\cdot,\cdot]\gets\bot$
+\State $epochStart[\cdot]\gets\bot$; $epochStart[e_{\mathrm{open}}]\gets\func{clock}()$; $T_{\mathrm{election}}[\cdot]\gets\bot$
+\State $outcome[\cdot]\gets\pending$; $\closeDecision[\cdot]\gets\bot$; $\closeRound[\cdot]\gets0$; $notarized[\cdot,\cdot,\cdot]\gets\{\}$; $secondLook[\cdot,\cdot,\cdot]\gets\{\}$
+\State $firstVote[\cdot,\cdot,\cdot]\gets\bot$; $finalVoted[\cdot,\cdot,\cdot]\gets\false$; $\votedFor[\cdot,\cdot,\cdot]\gets\false$; $\blockMap[\cdot,\cdot]\gets\bot$
+\State $visible[e_{\mathrm{open}}]\gets\{\}$; $\reportStore[\cdot,e_{\mathrm{open}}]\gets\{\}$; $\closeHash[e_{\mathrm{open}}]\gets\bot$; $\ledgerRoot[e_{\mathrm{open}}]\gets\bot$; $\closeState[e_{\mathrm{open}}]\gets\bot$; $\cutVersion[e_{\mathrm{open}}]\gets\{\}$; $\frontierVersion[e_{\mathrm{open}}]\gets\{\}$; $\closeCut[e_{\mathrm{open}}]\gets\bot$
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{\(\StartClosing(k)\)}
+\begin{algorithmic}[1]
+\State \textbf{require} $state[k]=\mathsf{open}$ and $state[k-1]=\mathsf{closed}$ and $\closeState[k-1]\neq\bot$
+\State $state[k]\gets\mathsf{closing}$
+\Statex \Comment{The epoch-\(k\) frontier input will be fixed objectively by the decided cut and \(\frontier[k-1,\cdot]\), before any epoch-\(k+1\) election may enter epoch \(k\)'s close record.}
+\State $\closeDecision[\CloseCut(k)]\gets\bot$; $\closeRound[\CloseCut(k)]\gets0$; $\closeDecision[\CloseRecord(k)]\gets\bot$; $\closeRound[\CloseRecord(k)]\gets0$
+\State $R_j[k]\gets\{\Slot(a,s',k):a\in\mathsf{Accounts},\ s'\ge1,\ \Reportable_j(\Slot(a,s',k))\}$
+\State $\reportStore[P_j,k]\gets\reportStore[P_j,k]\cup\{\Report(k,R_j[k],\sigma_j)\}$; broadcast $\Report(k,R_j[k],\sigma_j)$
+\State $e_{\mathrm{open}}\gets k+1$; $state[e_{\mathrm{open}}]\gets\mathsf{open}$; $epochStart[e_{\mathrm{open}}]\gets\func{clock}()$
+\State $visible[e_{\mathrm{open}}]\gets\{\}$; $\reportStore[\cdot,e_{\mathrm{open}}]\gets\{\}$; $\closeHash[e_{\mathrm{open}}]\gets\bot$; $\ledgerRoot[e_{\mathrm{open}}]\gets\bot$; $\closeState[e_{\mathrm{open}}]\gets\bot$; $\cutVersion[e_{\mathrm{open}}]\gets\{\}$; $\frontierVersion[e_{\mathrm{open}}]\gets\{\}$; $\closeCut[e_{\mathrm{open}}]\gets\bot$
+\State load the certified finalized frontiers and release evidence from $\closeState[k-1]$ as durable validation state
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{\(\FinishClosing(k)\)}
+\begin{algorithmic}[1]
+\State \textbf{require} $state[k]=\mathsf{closing}$ and $state[k-1]=\mathsf{closed}$
+\State $state[k]\gets\mathsf{closed}$; $\func{clearEpochVars}(k)$
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{\(\func{ObtainCloseVersion}_{P_j}(I,h)\)}
+\begin{algorithmic}[1]
+\If{$I=\CloseCut(e)$ and $\cutVersion[e,h]=C$ and $\admissible(I,h,C)$}
+    \State \Return $C$
+\ElsIf{$I=\CloseRecord(e)$ and $\frontierVersion[e,h]=\Phi$ and $\admissible(I,h,\Phi)$}
+    \State \Return $\Phi$
+\EndIf
+\ForAll{locally known base hashes $a$ for the same close instance}
+    \State send $\ReconReq(T,e,a,h)$, where $T=\mathsf{cut}$ or $\mathsf{frontiers}$
+    \If{a valid $\ReconDelta(T,e,a,h,\delta)$ is received}
+        \State apply $\delta$ to the retained preimage of $a$
+        \State recompute exactly $h$ and run the applicable admissibility checks
+        \If{validation succeeds}
+            \State cache and \Return the reconstructed version
+        \EndIf
+    \EndIf
+\EndFor
+\State retrieve a complete canonical version for $h$
+\State recompute exactly $h$ and run the applicable admissibility checks
+\State cache and \Return the version
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{Start close round \(I_r\) at correct replica \(P_j\)}
+\begin{algorithmic}[1]
+\State \textbf{require} $\closeDecision[I]=\bot$
+\If{$r=0$}
+    \State $x\gets\FreshCloseHash_{P_j}(I)$
+\ElsIf{$\CloseDead_{P_j}(I_{r-1})$}
+    \State $x\gets\FreshCloseHash_{P_j}(I)$
+\ElsIf{$\exists h:\LiveCarry_{P_j}(I_{r-1},h)$}
+    \State let $h$ be the locally live carried hash
+    \State $S\gets\func{ObtainCloseVersion}_{P_j}(I,h)$
+    \State $x\gets h$
+\Else
+    \State \Return without starting round $r$
+\EndIf
+\State initialize the committee-local election-kernel state for $I_r$
+\State $\closeRound[I]\gets\max(\closeRound[I],r)$
+\State first-vote $x$ in every applicable close committee
+\end{algorithmic}
+\end{breakablealgorithm}
+
+When \(x\) is a carried hash, the replica waits to reconstruct and validate its canonical version rather than
+replacing \(x\) with a timeout first vote.  The replica does not issue a timeout first vote in \(I_r\)
+merely because the carried version is still being reconstructed; equivalently,
+\(\text{no timeout first vote while the required carried version is being reconstructed}\).
+
+After the carried first vote has been issued, the committee-local second-look, notarization,
+timeout-notarization, fast, and final rules remain enabled.
+
+Here \(\func{clearEpochVars}(e)\) deletes only volatile caches.  It never deletes durable safety
+evidence, including \(\closeHash[e]\), \(\ledgerRoot[e]\), \(\closeState[e]\), \(\closeCut[e]\),
+\(\committee[e]\), decided \(\cutVersion\) and \(\frontierVersion\) entries, timeout, conflict,
+close-exclusion, or certified-ledger evidence, local unreleased votes, \(\completeTree\),
+\(\frontier[\cdot,\cdot]\), or \(\finalizedSlot\).
+
+\begin{breakablealgorithm}
+\caption{RAI epoch loop for replica $P_j$}
+\begin{algorithmic}[1]
+\State \textbf{while} true \textbf{wait until either}
+\Statex
+\State $state[e_{\mathrm{open}}]=\mathsf{open}$ and $state[e_{\mathrm{open}}-1]=\mathsf{closed}$ and $\func{clock}()>epochStart[e_{\mathrm{open}}]+\Delta_{\mathrm{timeout}}$ $\Rightarrow$
+\State \quad $k\gets e_{\mathrm{open}}$; $\StartClosing(k)$
+\Statex
+\State received valid $\Report(k,R_i[k],\sigma_i)$ from $P_i$ with $\Report(k,R_i[k],\sigma_i)\notin\reportStore[P_i,k]$ $\Rightarrow$
+\State \quad $\reportStore[P_i,k]\gets\reportStore[P_i,k]\cup\{\Report(k,R_i[k],\sigma_i)\}$; recompute the derived $report[P_i,k]$; $\UpdateVisible(k)$
+\Statex
+\State $state[k]=\mathsf{closing}$ and $\forall Q\in\Committees(\CloseCut(k,0)):
+\SignerWeight_Q(\{P_i\in Q:report[P_i,k]\neq\bot\})\ge W_Q-F_Q$ and $\closeDecision[\CloseCut(k)]=\bot$ and $\closeRound[\CloseCut(k)]=0$ $\Rightarrow$
+\State \quad assemble a valid joint report proof $\rho_k$ from the cached reports; $\UpdateVisible(k)$
+\State \quad $C\gets\{\Slot(a,s,k):(a,s)\in visible[k]\cup\ReportVisible(k,\rho_k)\}$
+\State \quad $h_C\gets\hash(\mathsf{RAI/CloseCut}\parallel k\parallel\operatorname{canon}(C))$; $\cutVersion[k,h_C]\gets C$
+\State \quad start close round $\CloseCut(k,0)$ using $\func{NextCloseHash}_{P_j}(\CloseCut(k),0)$
+\Statex
+\State $\closeDecision[\CloseCut(k)]=(r,h_C)$ and $\closeCut[k]=\bot$ $\Rightarrow$
+\State \quad locally derive the deciding $\FirstCert(\CloseCut(k,r),h_C)$ or $\FinalCert(\CloseCut(k,r),h_C)$ from signed votes
+\State \quad $C\gets\func{ObtainCloseVersion}_{P_j}(\CloseCut(k),h_C)$; validate $\admissibleHistorical(\CloseCut(k),h_C,C)$
+\State \quad $\closeCut[k]\gets C$; fix $\mathsf{CloseInput}_k=(\closeHash[k-1],\frontier[k-1,\cdot],C)$
+\State \quad for every $q\in C$: derive its historical start obligation from the certified cut and, if $T_{\mathrm{election}}[q]=\bot$, set $T_{\mathrm{election}}[q]\gets\func{clock}()$
+\State \quad \textbf{wait until} $\forall q=\Slot(a,s,k)\in C:\finished(q)$
+\State \quad derive every currently available global fast or final certificate for slots in $C$ and run $\FinalizeChain$ for each certified block in canonical account-chain order
+\State \quad derive $\Phi_k$ by close-local replay from $\closeState[k-1]$, using current valid evidence only for $q\in C$; ignore ordinary finalizations outside the frozen $\mathsf{CloseInput}_k$
+\State \quad $R^{\mathsf{ledger}}_k\gets\hash(\operatorname{canon}(\Phi_k))$
+\State \quad $h_F\gets\hash(\mathsf{RAI/CloseRecord}\parallel k\parallel\closeHash[k-1]\parallel\operatorname{canon}(\Phi_k))$
+\State \quad $\frontierVersion[k,h_F]\gets\Phi_k$
+\State \quad start close round $\CloseRecord(k,0)$ using $\func{NextCloseHash}_{P_j}(\CloseRecord(k),0)$
+\Statex
+\State $\closeDecision[\CloseRecord(k)]=(r,h_F)$ and $\closeHash[k]=\bot$ $\Rightarrow$
+\State \quad locally derive the deciding $\FirstCert(\CloseRecord(k,r),h_F)$ or $\FinalCert(\CloseRecord(k,r),h_F)$ from signed votes
+\State \quad $\Phi_k\gets\func{ObtainCloseVersion}_{P_j}(\CloseRecord(k),h_F)$; validate $\admissible(\CloseRecord(k),h_F,\Phi_k)$
+\State \quad $R^{\mathsf{ledger}}_k\gets\hash(\operatorname{canon}(\Phi_k))$; require $h_F=\hash(\mathsf{RAI/CloseRecord}\parallel k\parallel\closeHash[k-1]\parallel\operatorname{canon}(\Phi_k))$
+\State \quad obtain and validate every account chain from genesis through the frontiers in $\Phi_k$
+\State \quad replay and verify every owner signature, balance, send, receive, and representative transition; finalize every block on those chains and derive released elections by omission
+\State \quad install $\closeState[k]$ with $\bal_k$, $\repOf_k$, $\pendingSend_k$, and $\receivedSend_k$, plus $\frontier[k,\cdot]$ and $\ledgerRoot[k]\gets R^{\mathsf{ledger}}_k$; $\closeHash[k]\gets h_F$; $\committee[k]\gets\deriveCommittee(k,\closeHash[k],\closeState[k])$
+\State \quad $\FinishClosing(k)$
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{Generic slot-election loop for $\id=\Slot(a,s,e)$ at replica $P_j$}
+\begin{algorithmic}[1]
+\State \textbf{while} $\neg\finished(\Slot(a,s,e))$ and $state[e]\neq\mathsf{closed}$ \textbf{wait until either}
+\Statex
+\State $\id=\Slot(a,s,e)$ and $\exists b,B:b=\hash(B)\wedge\Complete(\Slot(a,s,e),b)\wedge\blockMap[\Slot(a,s,e),b]=B$ $\Rightarrow$
+\If{$\neg\CompleteBlock(b)$}
+    \State $\completeTree\gets\completeTree\cup\{B\}$
+\EndIf
+\State \quad $B_{\mathrm p}[\id]\gets b$
+\State \quad $\mathcal Q_f\gets\{Q\in\Committees(\id):P_j\in Q\wedge\neg\finalVoted(P_j,\id,Q)\wedge \func{Support}(P_j,Q,\id)\subseteq\{b\}\}$
+\If{$\enabled(\id)$ and $\mathcal Q_f=\{Q\in\Committees(\id):P_j\in Q\}$ and $\safeToVote_{P_j}(\Slot(a,s,e),b)$}
+    \State $\votedFor[P_j,\Slot(a,s,e),b]\gets\true$
+    \State for every $Q\in\mathcal Q_f$: $finalVoted[P_j,\id,Q]\gets\true$; logically emit $\FinalVote(\id,Q,b,\sigma_j)$
+    \State broadcast one unscoped final vote when it represents all of those scoped votes, otherwise broadcast the scoped final votes
+\EndIf
+\Statex
+\State the pool contains a certificate for $(t,\id,x)$ with $\Terminal(t,\id,x)$ $\Rightarrow$
+\If{$outcome[\id]=\pending$}
+    \State $outcome[\id]\gets\certOutcome(t,x)$
+\EndIf
+\If{$\id=\Slot(a,s,e)$ and $(\FirstCert(\id,x)\in\mathsf{pool}\vee\FinalCert(\id,x)\in\mathsf{pool})$ and $x\neq\timeoutVal_\id$ and $\CompleteBlock(x)$}
+    \State $\FinalizeChain(x)$
+\EndIf
+\Statex
+\State $\exists Q\in\Committees(\id):P_j\in Q\wedge\neg\firstVoted(P_j,\id,Q)$ and locally derived, reconstructed, or learned the required data for value $x$ for $\id$ $\Rightarrow$
+\State \quad choose such a $Q$; \textbf{require} $\enabled(\id)$ and $\neg\finalVoted(P_j,\id,Q)$
+\If{$\id=\Slot(a,s,e)$ and $x=b=\hash(B)$ for the received block $B$}
+    \State $\blockMap[\Slot(a,s,e),b]\gets B$
+\EndIf
+\State \quad \textbf{require} $\admissible(\id,x)$
+\If{$\id=\Slot(a,s,e)$}
+    \State \quad \textbf{require} $\safeToVote_{P_j}(\Slot(a,s,e),x)$
+\EndIf
+\If{$T_{\mathrm{election}}[\id]=\bot$}
+    \State $T_{\mathrm{election}}[\id]\gets\func{clock}()$
+\EndIf
+\State \quad $firstVote[P_j,\id,Q]\gets x$
+\If{$\id=\Slot(a,s,e)$}
+    \State \quad $\votedFor[P_j,\Slot(a,s,e),x]\gets\true$
+\EndIf
+\State \quad logically emit $\FirstVote(\id,Q,x,\sigma_j)$; an identical vote for every applicable committee may be sent once as an unscoped wire vote
+\Statex
+\State $\exists Q\in\Committees(\id):P_j\in Q\wedge\neg\firstVoted(P_j,\id,Q)$ and $T_{\mathrm{election}}[\id]\neq\bot$ and $\func{clock}()>T_{\mathrm{election}}[\id]+\Delta_{\mathrm{timeout}}$ $\Rightarrow$
+\State \quad choose such a $Q$; \textbf{require} $\enabled(\id)$ and $\neg\finalVoted(P_j,\id,Q)$
+\State \quad $firstVote[P_j,\id,Q]\gets\timeoutVal_\id$
+\State \quad logically emit $\FirstVote(\id,Q,\timeoutVal_\id,\sigma_j)$; identical scoped votes may be compressed into one unscoped wire vote
+\Statex
+\State received a valid scoped $\FirstVote(\id,Q,x,\_)$ from $P_i$ and $firstVote[P_i,\id,Q]=\bot$ $\Rightarrow$
+\If{$T_{\mathrm{election}}[\id]=\bot$}
+    \State $T_{\mathrm{election}}[\id]\gets\func{clock}()$
+\EndIf
+\State \quad $firstVote[P_i,\id,Q]\gets x$; add the scoped vote to $\mathsf{pool}$
+\Statex
+\State received a valid scoped $\NotarVote(\id,Q,x,\_)$ from $P_i$ $\Rightarrow$
+\State \quad add the scoped vote to $\mathsf{pool}$
+\Statex
+\State received a valid scoped $\FinalVote(\id,Q,x,\_)$ from $P_i$ $\Rightarrow$
+\State \quad add the scoped vote to $\mathsf{pool}$
+\Statex
+\State $\exists Q\in\Committees(\id),\ x\in\manyVotes(Q,\id)\setminus secondLook[P_j,Q,\id]$ and $\admissible(\id,x)$ $\Rightarrow$
+\State \quad choose such a $(Q,x)$; \textbf{require} $P_j\in Q$, $\enabled(\id)$, $\firstVoted(P_j,\id,Q)$, and $\neg\finalVoted(P_j,\id,Q)$
+\If{$\id=\Slot(a,s,e)$}
+    \State \quad \textbf{require} $\safeToVote_{P_j}(\Slot(a,s,e),x)$
+\EndIf
+\State \quad $secondLook[P_j,Q,\id]\gets secondLook[P_j,Q,\id]\cup\{x\}$
+\If{$x\notin notarized[P_j,Q,\id]$}
+    \If{$\id=\Slot(a,s,e)$}
+        \State $\votedFor[P_j,\Slot(a,s,e),x]\gets\true$
+    \EndIf
+    \State broadcast $\NotarVote(\id,Q,x,\sigma_j)$; $notarized[P_j,Q,\id]\gets notarized[P_j,Q,\id]\cup\{x\}$
+\EndIf
+\Statex
+\State $\exists Q\in\Committees(\id):P_j\in Q\wedge\firstVoted(P_j,\id,Q)\wedge\timeoutAllowed(Q,\id)\wedge\timeoutVal_\id\notin notarized[P_j,Q,\id]$ $\Rightarrow$
+\State \quad choose such a $Q$; \textbf{require} $\enabled(\id)$ and $\neg\finalVoted(P_j,\id,Q)$
+\State \quad broadcast $\NotarVote(\id,Q,\timeoutVal_\id,\sigma_j)$; $notarized[P_j,Q,\id]\gets notarized[P_j,Q,\id]\cup\{\timeoutVal_\id\}$
+\Statex
+\State $\id=\Slot(a,s,e)$ and $(\FirstCert(\id,b)\in\mathsf{pool}\vee\FinalCert(\id,b)\in\mathsf{pool})$ and $b\neq\timeoutVal_\id$ and $\CompleteBlock(b)$ $\Rightarrow$
+\State \quad $\FinalizeChain(b)$
+\Statex
+\State $\id=\Slot(a,s,e)$ and $\exists Q\in\Committees(\Slot(a,s,e)):$ the pool contains valid votes of distinct-signer weight $>F_Q$ in $Q$ for $\Slot(a,s,e)$ $\Rightarrow$
+\State \quad $\UpdateVisible(e)$
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\begin{breakablealgorithm}
+\caption{Close-round processing for \(I_r\) at correct replica \(P_j\)}
+\begin{algorithmic}[1]
+\State use the committee-local receive, vote-counting, fast, final, and timeout-notarization rules for $I_r$
+\State $\exists x\in\manyVotes(Q,I_r)\setminus secondLook[P_j,Q,I_r]$ $\Rightarrow$
+\State \quad reconstruct and validate the canonical cut or frontier version for $x$
+\State \quad add $x$ to $secondLook[P_j,Q,I_r]$
+\If{$x\notin notarized[P_j,Q,I_r]$}
+    \State broadcast $\NotarVote(I_r,Q,x,\sigma_j)$
+    \State $notarized[P_j,Q,I_r]\gets notarized[P_j,Q,I_r]\cup\{x\}$
+\EndIf
+\Statex
+\State $\exists Q\in\Committees(I_r),\ h\neq\timeoutVal_{I_r}:P_j\in Q\wedge\firstVoted(P_j,I_r,Q)\wedge\neg\finalVoted(P_j,I_r,Q)\wedge\func{Support}(P_j,Q,I_r)\subseteq\{h\}$ and the canonical version for $h$ has been reconstructed and validated $\Rightarrow$
+\State \quad choose such a $(Q,h)$; \textbf{require} $\enabled(I_r)$
+\State \quad $finalVoted[P_j,I_r,Q]\gets\true$; logically emit $\FinalVote(I_r,Q,h,\sigma_j)$
+\State \quad when the same final-vote action is enabled in every applicable committee, broadcast one unscoped final vote; otherwise broadcast the scoped vote
+\Statex
+\State the local vote store derives $\FirstCert(I_r,h)$ for non-timeout $h$ $\Rightarrow$
+\State \quad reconstruct and validate the canonical version for $h$
+\If{$\closeDecision[I]=\bot$}
+    \State $\closeDecision[I]\gets(r,h)$
+\ElsIf{$\closeDecision[I].hash\neq h$}
+    \State signal a safety violation
+\EndIf
+\State stop emitting further votes for close instance $I$
+\Statex
+\State the local vote store derives $\FinalCert(I_r,h)$ for non-timeout $h$ $\Rightarrow$
+\State \quad reconstruct and validate the canonical version for $h$
+\If{$outcome[I_r]=\pending$}
+    \State $outcome[I_r]\gets\final(h)$
+\EndIf
+\If{$\closeDecision[I]=\bot$}
+    \State $\closeDecision[I]\gets(r,h)$
+\ElsIf{$\closeDecision[I].hash\neq h$}
+    \State signal a safety violation
+\EndIf
+\State stop emitting further votes for close instance $I$
+\Statex
+\State the local vote store derives $\NotarCert(I_r,h)$ for non-timeout $h$ $\Rightarrow$
+\If{$outcome[I_r]=\pending$}
+    \State $outcome[I_r]\gets\converged(h)$
+\EndIf
+\If{$\closeDecision[I]=\bot$}
+    \State enable round $r+1$ using $\func{NextCloseHash}_{P_j}(I,r+1)$
+\EndIf
+\Statex
+\State $\CloseDead_{P_j}(I_r)$ $\Rightarrow$
+\If{$outcome[I_r]=\pending$}
+    \State $outcome[I_r]\gets\timeoutOutcome$
+\EndIf
+\If{$\closeDecision[I]=\bot$}
+    \State enable round $r+1$ using $\func{NextCloseHash}_{P_j}(I,r+1)$
+\EndIf
+\end{algorithmic}
+\end{breakablealgorithm}
+
+\paragraph{Reconciliation metadata in close-vote gossip.}
+A correct replica may advertise retained close-version hashes and available delta bases alongside ordinary
+vote gossip.  Such advertisements are unsigned transport metadata unless authenticated by the transport
+layer; they are not votes, certificates, certified values, or decisions.  A receiver accepts a
+reconstructed version only after applying a delta to a retained canonical base, recomputing the exact
+target hash, and running applicable admissibility validation.  Invalid, inapplicable, or unavailable deltas
+are ignored, and the receiver asks another replica or obtains a complete canonical version.
+
+\section{Safety}
+
+Assume every weighted committee \(Q\) has Byzantine signer weight at most \(F_Q\), quorum slack
+\(P_Q\ge F_Q\), and total signer weight \(W_Q>3F_Q+2P_Q\).  Hence any two quorums of signer weight
+at least \(W_Q-F_Q-P_Q\) in the same committee intersect in correct signer weight; fast quorums of
+weight at least \(W_Q-P_Q\) only strengthen this.  Each committee in \(\Committees(\id)\) runs the
+single-committee discipline independently, and the election outcome is the deterministic merge of its
+local terminal results.  Shared votes are only a wire optimization: per committee they have exactly the
+same effect as the corresponding scoped vote.  Before a correct replica final-votes \(x\), its complete
+committee-local support, including its first vote and every timeout or ordinary notarization vote, is a
+subset of \(\{x\}\).  A correct final voter emits no later first, notarization, or timeout vote in that
+same committee instance.
+
+\paragraph{Safety assertions.}
+Let \(\mathsf{Correct}\) be the set of correct replicas,
+\(\mathsf{Finalized}_j(q)\) the set of non-timeout block ids that replica \(P_j\) has finalized for
+slot election \(q\), and \(\closeDecision_j[I].hash=\bot\) when \(P_j\) has not yet decided logical
+close instance \(I\).  The following assertions must hold in every reachable state:
+\[
+\begin{aligned}
+\mathsf{ASSERT}_{\mathsf{slot}}\equiv{}&
+\forall P_i,P_j\in\mathsf{Correct},\ \forall q=\Slot(a,s,e),\
+\forall b\in\mathsf{Finalized}_i(q),\ \forall b'\in\mathsf{Finalized}_j(q):
+b=b',\\
+\mathsf{ASSERT}_{\mathsf{cut}}\equiv{}&
+\forall P_i,P_j\in\mathsf{Correct},\ \forall e,\
+\closeDecision_i[\CloseCut(e)].hash\neq\bot\wedge
+\closeDecision_j[\CloseCut(e)].hash\neq\bot\\
+&\hspace{8em}\Longrightarrow
+\closeDecision_i[\CloseCut(e)].hash=\closeDecision_j[\CloseCut(e)].hash,\\
+\mathsf{ASSERT}_{\mathsf{record}}\equiv{}&
+\forall P_i,P_j\in\mathsf{Correct},\ \forall e,\
+\closeDecision_i[\CloseRecord(e)].hash\neq\bot\wedge
+\closeDecision_j[\CloseRecord(e)].hash\neq\bot\\
+&\hspace{8em}\Longrightarrow
+\closeDecision_i[\CloseRecord(e)].hash=\closeDecision_j[\CloseRecord(e)].hash.
+\end{aligned}
+\]
+The first assertion compares finalization, not merely replica-local terminal observations.  The latter
+two compare the canonical value hashes decided for the logical close elections across all rounds;
+collision resistance then binds equal hashes to equal canonical cuts or frontier maps.
+
+\paragraph{Same election.}
+For a fixed \(\Slot(a,s,e)\), first-vote uniqueness, \(\manyVotes(Q,\id)\),
+\(\timeoutAllowed(Q,\id)\), and the post-final lock satisfy the committee-local kernel defined above.
+By the committee-local certificate-incompatibility lemma, a local fast or final certificate for \(b\)
+excludes every
+local notarization certificate for \(b'\neq b\), including timeout.  A global fast or final certificate
+requires the same value in every election committee, so two conflicting local notarization
+certificates exclude every possible present or delayed ordinary global final certificate.  The merge
+function finalizes a value only when all committee-local results finalize that same value; one timeout
+result dominates any non-final compatible result, and different non-timeout values merge to timeout.
+Therefore a committee-local result alone has no global finality or durable release effect.  One
+matching merged notarization may finish a slot for drain, but remains unresolved until a close-record
+hash is certified.  A correct close voter includes its block on a candidate ledger chain only while its
+current validated evidence contains exactly one unresolved notarization and no final or release
+evidence.  Known conflicting notarizations resolve to release; a hidden conflicting notarization
+remains non-final and is rolled back if another block occupies that logical slot on the certified
+ledger.
+
+\paragraph{Release.}
+If \(\released_{P_j}(\Slot(a,s,e),b)\), then the certified close state has made \(b\) incapable of
+later finalization.  Release follows when the slot is excluded from the certified cut or when the candidate does not occur
+on the complete account chains committed by the certified ledger-state root.  A timeout or a known pair
+of conflicting notarizations supplies a positive witness permitting such omission.  If a hidden
+conflicting notarization is disclosed only after a close record including \(b\) on the certified
+ledger has certified, \(b\) remains finalized and the hidden block is released by certified omission.
+Certificate-level incompatibility proves that no block from
+a timeout- or conflict-released election can later obtain an ordinary global fast or final certificate,
+and uniqueness of the certified close hash prevents a competing close finalization.  The
+\(\StablePrefix\) lock additionally makes every descendant certificate invalid if its parent chain
+contains a released slot, so ancestor finality cannot revive it indirectly.  Bare timeout or conflict
+evidence may finish the slot for drain but is not durable release while the close record remains
+unsettled.
+
+\paragraph{Adjacent elections.}
+\(\Slot(a,s,e)\) and \(\Slot(a,s,e+1)\) share committee \(\committeeAt(e-2)\).  Every global
+non-timeout finishing certificate contains the corresponding local certificate from that shared
+committee.  Two conflicting local quorums in the shared committee intersect in a correct replica.
+That replica retains its slot-vote history across the epoch boundary, and
+\(\safeToVote\) forbids its conflicting later vote unless the earlier obligation has been
+certifiably released.  A finishing certificate that still preserves the earlier obligation therefore
+contradicts the existence of a conflicting adjacent certificate.
+
+\paragraph{Close visibility and cuts.}
+A close-cut value becomes available after a report quorum in every committee of
+\(\Committees(\CloseCut(e,0))\), and a non-timeout close-cut decision requires a compatible fast
+or final result in every close committee.  Every correct close-cut voter verifies a joint report proof and
+requires the cut to contain both its current \(visible[e]\) and \(\ReportVisible(e,\rho)\).  Any
+pre-close slot election that can affect safety is therefore included either by vote visibility or,
+through quorum intersection in each relevant committee, by the signed report proof.  A certified close
+cut therefore either records the relevant slot election and waits for it to reach a terminal election
+outcome before epoch \(e\) is marked closed, or safely excludes it and provides release after the epoch
+closes.  Reaching \(\notarized(b)\) is sufficient for close drain because the close-record phase will
+either include \(b\) on a certified account chain or release the slot by omitting it from the certified
+ledger.
+
+\paragraph{Safety across close rounds.}
+Suppose a valid fast or final certificate for hash \(h\) exists in close round \(I_r\).  Either
+certificate decides the logical close instance.  The committee-local certificate-incompatibility lemma
+implies that \(I_r\) cannot also have valid timeout evidence or certificate-level conflicting
+notarization evidence.  Therefore a correct replica that advances from \(I_r\) without yet learning
+the deciding certificate can advance only by carrying \(h\).
+
+In every successor round reached through this live carry, correct replicas first-vote \(h\), even if
+another hash is freshly preferred.  Byzantine replicas alone cannot place another value in the
+second-look set because their total weight is at most \(F_Q<F_Q+P_Q\), while the second-look threshold
+is strictly greater than \(F_Q+P_Q\).  Moreover, once all correct first-vote weight is for \(h\),
+\[
+\allVotes(Q,I_{r+1})-\maxVotes(Q,I_{r+1})
+\le F_Q
+\le F_Q+P_Q,
+\]
+so the ordinary timeout trigger cannot become true solely from Byzantine votes.
+
+Thus no successor round can produce a notarization certificate, timeout certificate, fast certificate,
+or final certificate for a value different from \(h\).  By induction, every later close-round fast or
+final decision certificate certifies \(h\).
+
+Conversely, if a valid death proof exists for \(I_r\), the committee-local certificate-incompatibility lemma excludes every
+fast certificate, and in fact every final certificate, in that round.  Resetting to a fresh hash after
+such positive evidence is therefore safe.
+
+The argument does not rely on certificate arrival order.  A valid older-round fast or final certificate
+is processed as a decision, even after a replica has entered later rounds.  The instance-wide variable \(\closeDecision[I]\) is
+write-once.
+
+\paragraph{Hash-reconstructed close decision.}
+For a decided close-cut hash, every correct replica reconstructs the canonical slot set, recomputes the
+hash, derives the deciding certificate, and validates the cut through
+\(\admissibleHistorical(\CloseCut(e),h_C,C)\).  The certificate attests, under the committee fault
+bound, that correct weight freshly validated the report quorum and every start obligation before voting;
+those local witness choices need not be serialized or reconstructed after certification.  For a decided
+close-record hash, every correct replica reconstructs the canonical frontier map, recomputes the hash
+using the preceding close-record hash, and validates the historically admissible decided cut, frozen
+close input, slot evidence, complete account chains, ledger transitions, ancestry, and
+duplicate-account-slot constraints.  Evidence learned after a vote may change fresh preference but
+cannot change the canonical preimage of a decided hash.
+
+\paragraph{Soundness of reconciliation.}
+A reconciliation delta has no consensus authority.  It is accepted only relative to a locally retained
+canonical base, and only when applying the delta produces a canonical set or frontier map whose hash is
+exactly the target and whose applicable fresh, historical, or frozen-input admissibility checks succeed.  A malformed delta therefore either
+fails application, produces the wrong hash, or fails semantic validation.  Subject to collision
+resistance of \(\hash\), it cannot make a correct replica accept contents different from the contents
+committed by the target hash.  Applying a delta never deletes underlying blocks, reports, or votes and
+does not alter the replica's current report store, vote store, or derived visibility; it only reconstructs
+an immutable historical version indexed by hash.
+
+\paragraph{Disjoint elections.}
+For \(e'\ge e+2\), elections need not share a committee.  Every valid vote in epoch \(e'\), however,
+is interpreted under the implicit governing context
+\(\governingHash(e')=\closeHash[e'-2]\), and the voter must validate the corresponding cumulative
+\(\closeState[e'-2]\) and its certified account frontiers.  That state contains only finalized or
+released slot outcomes.  If it finalizes block \(b\) as the frontier of account \(a\),
+\(\safeFromClose\) permits only blocks of \(a\) whose strict parent chain includes \(b\) and whose
+every strict ancestor is finalized.  If the state instead contains \(\ReleasedState(\pi)\), the
+certified close decision releases the earlier same-account-slot obligation, while \(\StablePrefix\) forbids a
+released block from appearing on a later certified descendant chain.  Since every unresolved
+notarization is either finalized or released when its close record certifies, no unresolved obligation
+is carried across disjoint committee generations.
+
+A correct replica may vote in epoch \(e'\) only after it has processed the certified close state of
+\(e'-2\), including durable \(\closeHash[e'-2]\), \(\ledgerRoot[e'-2]\), \(\closeCut[\cdot]\),
+\(\frontier[\cdot,\cdot]\), release evidence, and finalized-slot state.  The close state therefore
+participates directly in vote validity rather than only indirectly in committee derivation.
+
+\paragraph{Theorem.}
+\(\mathsf{ASSERT}_{\mathsf{slot}}\), \(\mathsf{ASSERT}_{\mathsf{cut}}\), and
+\(\mathsf{ASSERT}_{\mathsf{record}}\) hold.  In particular, no two correct replicas finalize
+conflicting block ids for the same account slot.  If conflicting slot finality came from the same
+election, same-election safety contradicts it; from adjacent elections, adjacent safety contradicts it;
+and from elections at distance at least two epochs, disjoint-election safety contradicts it.  Close-cut
+and close-record agreement follow from certificate incompatibility, live carry across rounds, and the
+write-once logical close decision.
+
+
+\section{Liveness}
+
+The liveness statement distinguishes a terminal slot-election observation from a durable slot
+decision.  A notarization may finish the slot election for drain, but the slot is settled only when an
+ordinary fast or final certificate finalizes it or when the certified ledger includes its candidate or
+releases the election by omission.  Define
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\begin{aligned}
+\func{settled}(\Slot(a,s,e))\iff{}&
+\finalizedSlot[a,s]\neq\bot\\
+&\vee\bigl(state[e]=\mathsf{closed}\wedge\closeCut[e]\neq\bot\\
+&\qquad\wedge(\Slot(a,s,e)\notin\closeCut[e]\vee
+\closeState[e](\Slot(a,s,e))\in\{\FinalizedState(b,\pi),\ReleasedState(\pi)\})\bigr).
+\end{aligned}
+\)
+\end{adjustbox}
+\end{center}
+
+\paragraph{Liveness assertion.}
+With \(\Diamond\) denoting ``eventually'' over an admissible execution satisfying the liveness
+assumptions below, epoch closure is asserted replica-by-replica:
+\[
+\mathsf{ASSERT}_{\mathsf{epoch\mbox{-}closure}}\equiv
+\forall e\ge0,\ \forall P_j\in\mathsf{Correct}:\quad
+\Diamond\bigl(state_j[e]=\mathsf{closed}\bigr).
+\]
+This is a temporal progress assertion, not a finite-prefix invariant: it is evaluated only for
+executions with the stated eventual-synchrony, responsiveness, gossip, finite-evidence, retention, and
+reconstruction assumptions.
+For a logical close instance \(I\in\{\CloseCut(e),\CloseRecord(e)\}\), settled means
+\(\closeFinished(I)\); a round-local \(\converged(h)\) observation is not settlement.  Thus
+conditional election liveness for RAI is
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+\started[\id]\Rightarrow \Diamond\func{settled}(\id),
+\)
+\end{adjustbox}
+\end{center}
+where slot elections use the definition above and logical close instances use
+\(\func{settled}(I)\iff\closeFinished(I)\).
+
+\paragraph{Close-liveness assumptions.}
+Assume:
+
+\begin{enumerate}
+\item after some time the network is synchronous;
+\item every correct committee member remains responsive long enough to perform every enabled
+      first-vote, second-look, timeout-notarization, and final-vote action;
+\item every valid block, report, and vote learned by one correct online replica is eventually made
+      available to every correct online replica through duplicate-suppressing reliable gossip;
+\item a correct replica that votes for a close hash retains its canonical cut or frontier preimage until
+      the close instance decides;
+\item decided versions, or valid delta paths from retained checkpoints, remain retrievable from correct
+      archival replicas;
+\item reconstruction and validation are objective, so every correct replica can eventually reconstruct
+      and validate a carried hash;
+\item the block, report, and vote universe relevant to elections in the frozen certified cut is finite,
+      or eventually stops changing the canonical fresh close record; and
+\item fresh construction and canonical serialization are deterministic.
+\end{enumerate}
+
+The parameter \(P_Q\) provides quorum-weight slack but does not independently provide crash tolerance for
+this liveness theorem.
+
+\paragraph{Common validation of a carry.}
+A non-timeout notarization certificate is locally derived from enough signed votes that at least one
+correct voter reconstructed and validated the corresponding close version.  Under version
+retention, reconciliation availability, and complete atom gossip, every correct replica eventually
+reconstructs that same canonical version.  For a carried cut hash, the underlying same-hash committee-local certificates make the historical
+admissibility branch permanent; for a carried frontier hash, validation
+uses the immutable close input.  Every correct replica can therefore validate and first-vote the carried
+hash even if its fresh preference differs.
+
+\paragraph{Relative reconstruction of a carry.}
+A correct replica obtains the canonical preimage of a live carried hash by applying an add/remove cut
+delta or sparse frontier replacements to a retained base, or by retrieving a complete version when no
+usable base is available.  It recomputes the target hash and evaluates fresh admissibility when no
+support certificate exists, historical admissibility for a supported cut, or frozen-input admissibility
+for a frontier version.  Failure, delay, or corruption of one reconciliation response cannot prevent
+progress because the replica may ask another correct holder or obtain the complete canonical version.
+
+\paragraph{Eventual fresh-choice convergence.}
+Let \(E_j(t)\) be the relevant valid evidence known to correct replica \(P_j\).  Complete gossip and
+the finite-evidence assumption imply that the correct replicas eventually have the same effective
+evidence for fresh construction.  Canonical construction therefore gives
+\[
+\exists T,h^\ast\quad
+\forall t\ge T,\ \forall P_j\text{ correct}:
+\FreshCloseHash_{P_j}(I)=h^\ast,
+\]
+whenever no live carry constrains the next first vote.
+
+Correct replicas need not have identical complete sets of admissible hashes.  They need only
+eventually validate every live carry and eventually select the same fresh hash in an unlocked round.
+
+For state synchronization and bootstrapping, a joining replica may use the next live close as the latest
+target but obtains the durable blocks, reports, and votes and reconstructs the decided cut and frontier
+versions for every epoch from genesis onward.  For each epoch it validates all blocks and transitions,
+locally derives the deciding close-vote quorums, recomputes the close-cut hash, and recomputes the
+close-record hash from the preceding close-record hash and the canonical frontier map.  The terminal
+validated close commits transitively to the certified block chains and yields the live committee by
+replay.  The archive supplying atoms or reconciliation deltas is not trusted.
+
+A replica starts closing an open epoch only after the previous epoch and its close state are
+certified; when it starts closing that epoch, it immediately opens the successor epoch.  Every
+responsive participant in epoch \(e\) eventually obtains \(\closeState[e-2]\) before voting.  When
+a decided close cut \(C\) is installed, elections in \(C\) are resumed for the drain phase until
+they finish, while elections outside \(C\) are not resumed and are settled by certified exclusion.  The complete-gossip and finite-evidence assumptions above govern fresh close-record construction.
+
+\paragraph{Election-core termination.}
+Fix an enabled committee instance \((\id,Q)\), and write
+\(W=W_Q\), \(F=F_Q\), \(P=P_Q\), \(g=F+P\), and \(q=W-F-P\).
+Assume a sufficiently long synchronous period in which every correct member of \(Q\) remains
+online long enough to send its first vote, receive every correct first vote, and perform every enabled
+second-look or timeout action.  Byzantine members have total weight at most \(F\), and
+\(W>3F+2P\).  Then the committee instance eventually derives one local terminal result
+\[
+L_Q(\id)\in\{\timeoutOutcome,\notarized(x),\fast(x),\final(x)\}.
+\]
+
+Let \(F'\le F\) be the actual Byzantine weight.  After all correct first votes have been delivered,
+exactly one of the following cases holds.
+
+First, suppose some non-timeout value \(x\) has valid first-vote signer weight strictly greater than
+\(g=F+P\).  At most \(F\) of that weight is Byzantine, so the correct first-vote weight supporting
+\(x\) is strictly greater than \(P\).  A correct replica emits a non-timeout first vote only after
+obtaining the block data or reconstructing the close version and validating \(\admissible(\id,x)\).
+Under complete atom gossip, version retention, and reconciliation availability, every correct member of
+\(Q\) eventually obtains the data required to validate \(x\).  For a slot value, \(\ExtendsTree\),
+\(\safeFromClose\), and the enabled retry guards depend only on the validated block and ancestry,
+monotone finalized state, and certified governing close state.  For a close value, admissibility is
+stable by definition.  Hence additional valid evidence cannot make this previously validated value
+inadmissible, and every correct member eventually performs the committee-local second look and issues a
+notarization vote for \(x\).  Correct signer weight is at least \(W-F'\ge W-F\ge W-F-P=q\), so
+\(Q\) derives a local notarization certificate for \(x\).
+
+Second, suppose no non-timeout value has first-vote signer weight strictly greater than \(g\).  Once all
+correct first votes are present,
+\[
+\allVotes(Q,\id)\ge W-F'
+\qquad\text{and}\qquad
+\maxVotes(Q,\id)\le F+P.
+\]
+Therefore
+\[
+\allVotes(Q,\id)-\maxVotes(Q,\id)
+\ge (W-F')-(F+P)
+\ge W-2F-P
+>F+P.
+\]
+Thus \(\timeoutReady(Q,\id)\) becomes true.  Every correct member that has not final-voted in this
+committee instance eventually issues the enabled timeout notarization vote; if a correct member has
+already final-voted, the corresponding local final result is already obtainable.  Hence in either case
+\(Q\) eventually derives a local final result or a local timeout certificate.  This is a
+stake-weighted projection of the two cases in Kudzu's Liveness~II lemma
+\cite[Lemma~5.10]{shoup2025kudzu}; the additional RAI assumptions above supply stable admissibility and
+close-version reconstruction.
+
+Shared first votes count in every applicable committee instance using the signer's frozen weight.
+Second-look, timeout, and final votes are nevertheless interpreted per committee: when enabled actions
+differ, correct overlap replicas emit scoped votes, and a post-final lock in one committee does not
+consume or block the corresponding action in another committee.  Consequently the preceding argument
+applies independently to every \(Q\in\Committees(\id)\), even when different committees reach the
+second-look threshold for different values.
+
+By the committee-composition lemma, after every committee has a local terminal result, the
+deterministic merge immediately finishes the current election round.  For a slot election, notarization
+in every committee yields \(\notarized(x)\).  For a close election, matching notarizations yield
+\(\converged(x)\), which starts a carried-value successor round rather than certifying the close.
+Timeout in one committee and a non-timeout result in another yields timeout; matching final results for
+the same value yield \(\final(x)\).  For a close election, that result is a decision.  Different
+non-timeout values, including conflicting committee-local final values, merge to timeout and their
+signed terminal certificates form conflict death evidence that unlocks a later round.
+
+The committee-local termination argument adapts only Kudzu's two-case vote-counting structure; RAI's
+values are derived implicitly as above, and first votes are the first commitment to the derived value.
+For close elections, a matching non-timeout notarization certificate creates a live carry, a valid fast
+or final certificate decides the logical instance, and timeout or conflict death evidence unlocks a
+later round.
+
+\paragraph{Safe close attempts after joint report quorums.}
+Before a non-timeout close-cut vote, a correct replica locally selects a joint report proof containing
+valid eligible signed reports of combined signer weight at least \(W_Q-F_Q\) in every committee
+\(Q\in\Committees(\CloseCut(e,0))\).  It requires its canonical cut version to include
+\(\ReportVisible(e,\rho)\), in addition to its current local visibility.  The proof is not transmitted
+with the close vote; every receiver derives a suitable proof from its gossiped report store.  A close
+attempt need not contain every slot election that may later become visible by gossip.  It must contain
+every pre-close slot election that is already safety-obligating, meaning an election whose pre-close
+voting evidence could still produce a non-timeout finishing certificate if the epoch were not closed.
+
+Let \(Q\in\Committees(\Slot(a,s,e))\) be any slot committee, and let \(R_Q\subseteq Q\) be the
+eligible report signer set used to form a close-cut value in that committee, with
+\(\SignerWeight_Q(R_Q)\ge W_Q-F_Q\).  Any non-timeout finishing certificate for
+\(\Slot(a,s,e)\) must meet the slot threshold in committee \(Q\).  For the slow threshold, let
+\(S_Q\subseteq Q\) be the corresponding signer set, with
+\(\SignerWeight_Q(S_Q)\ge W_Q-F_Q-P_Q\).  Then
+\[
+\SignerWeight_Q(R_Q\cap S_Q)
+\ge (W_Q-F_Q)+(W_Q-F_Q-P_Q)-W_Q
+=W_Q-2F_Q-P_Q
+>F_Q+P_Q.
+\]
+After removing all Byzantine weight, \(R_Q\cap S_Q\) contains correct signer weight strictly greater
+than \(P_Q\), and therefore strictly greater than \(F_Q\) because \(P_Q\ge F_Q\).  Every such correct
+signer includes \(\Slot(a,s,e)\) in its report because its
+non-timeout vote obligation is unreleased, even if it has already observed a replica-local terminal
+outcome.  A fast slot-finishing quorum only increases \(\SignerWeight_Q(S_Q)\), so the same conclusion
+holds for fast finalization.  Since the argument holds for every
+\(Q\in\Committees(\Slot(a,s,e))\), the joint report proof satisfies
+\((a,s)\in\ReportVisible(e,\rho)\).  Admissibility therefore forces every safety-obligating account
+slot into the concrete cut before any correct close-cut vote is cast.
+
+Consequently, any close-cut hash stored in the instance-wide close decision safely freezes the cut
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+C=\cutVersion[e,h_C].
+\)
+\end{adjustbox}
+\end{center}
+Every safety-obligating pre-close slot election is in \(C\).  A slot election that becomes visible only
+after \(h_C\) is certified, but is not in \(C\), is discarded by the certified exclusion and is no
+longer an obligation of epoch \(e\).
+
+\paragraph{Visibility and fresh preference across close attempts.}
+Vote-derived visibility is monotone, while report-derived visibility is recomputed from the unique
+eligible report of each non-equivocating signer.  Because correct replicas gossip all valid reports and
+votes, evidence seen by one correct online replica eventually becomes available to every other correct
+online replica, and every correct replica eventually excludes the same equivocating report signers.
+In an unlocked round, this may change \(\FreshCloseHash_{P_j}(\CloseCut(e))\) or
+\(\FreshCloseHash_{P_j}(\CloseRecord(e))\).  It does not delete a retained historical candidate.
+Unsupported candidates are freshly revalidated under the current eligible-report state before a new
+vote; a cut with persistent certificate support is instead validated by the historical branch and never
+loses validity.  A live carry overrides fresh preference whenever its carried version remains admissible.  Under the
+finite-evidence and canonical-construction assumptions,
+fresh preferences eventually converge whenever no carry constrains the next first vote.
+
+\paragraph{Close-round termination.}
+Consider a close round \(I_r\).
+
+If a non-timeout hash \(h\) obtains first-vote signer weight strictly greater than \(F_Q+P_Q\) in an
+applicable committee, stable admissibility, atom gossip, and version reconciliation allow every correct
+committee member to perform the second look for \(h\).  Thus the popular-candidate case cannot deadlock
+merely because another hash has become freshly preferred.
+
+If no non-timeout hash obtains first-vote signer weight strictly greater than \(F_Q+P_Q\), then after
+all correct first votes are delivered,
+\[
+\allVotes(Q,I_r)-\maxVotes(Q,I_r)>F_Q+P_Q,
+\]
+so the committee-local \(\timeoutReady\) rule becomes enabled.
+
+Therefore every unlocked round eventually:
+\begin{itemize}
+\item produces a deciding fast or final certificate;
+\item produces a live non-timeout carry; or
+\item produces a death proof.
+\end{itemize}
+
+If it produces a live carry \(h\), every correct replica eventually validates \(h\) and first-votes it
+in the successor round.  Since \(P_Q\ge F_Q\),
+\[
+W_Q-F_Q\ge W_Q-P_Q,
+\]
+so the correct replicas alone reach the fast threshold and decide \(h\).
+
+If it produces a death proof, fresh voting resumes.  Several unlocked rounds may occur before evidence
+convergence, but each terminates.  Eventually an unlocked round begins after all correct replicas
+compute the same fresh hash \(h^\ast\); the correct first-vote weight then reaches the fast threshold
+and decides \(h^\ast\).
+
+\paragraph{Draining the decided cut.}
+Once \(\closeDecision[\CloseCut(e)]=(r,h_C)\), replicas reconstruct and install
+\begin{center}
+\begin{adjustbox}{max width=\columnwidth}
+\(\displaystyle
+C=\cutVersion[e,h_C],\qquad \closeCut[e]=C.
+\)
+\end{adjustbox}
+\end{center}
+For every \(q=\Slot(a,s,e)\in C\), the historically admissible certified cut preserves the slot's start
+obligation, and installation initializes \(T_{\mathrm{election}}[q]\) if necessary.  Thus either the slot election has already finished, or it
+is resumed with a running timeout during the close-drain phase.  By election-core termination, each
+such included slot election eventually
+finishes, possibly with \(\notarized(b)\) or \(\timeoutOutcome\).  For every \(\Slot(a,s,e)\notin C\), the election is not
+resumed after the certified cut and is settled by exclusion once epoch \(e\) closes.
+
+When epoch \(e\) enters closing, \(\StartClosing(e)\) immediately opens epoch \(e+1\), subject to
+the invariant that epoch \(e-1\) is already closed.  The decided cut then fixes
+\(\mathsf{CloseInput}_e=(\closeHash[e-1],\frontier[e-1,\cdot],C)\).  After all elections in \(C\) have
+finished, each replica applies the deterministic resolver only to those elections and performs ancestry
+closure by close-local replay from \(\closeState[e-1]\), deriving a candidate frontier for every
+account.  Ordinary finalizations from elections outside \(C\), including epoch-\(e+1\) elections, do not
+change the epoch-\(e\) candidate frontier.  A global fast or final certificate requires its block
+and every validated ancestor on its parent chain to occur on the candidate ledger only when that chain
+has a certified-stable prefix; locally derived timeout or conflicting-notarization evidence omits the
+slot; and exactly one currently known non-timeout notarization, with no known final or release evidence,
+may place its block on the candidate account chain.  There is no tie-breaking when a conflict is known.
+
+The evidence known to a correct replica grows monotonically.  If no live carry constrains the next
+round, complete atom gossip and finite evidence eventually give all correct online replicas the same
+effective evidence for fresh construction, so they derive the same canonical frontier map \(\Phi_e\)
+and the same close-record hash
+\[
+\hash(\mathsf{RAI/CloseRecord}\parallel e\parallel\closeHash[e-1]
+\parallel\operatorname{canon}(\Phi_e)).
+\]
+If a close-record fast or final decision is derived in any round, the instance-wide decision is authoritative:
+every block on the decided account chains finalizes and omitted epoch-\(e\) elections are released, even
+if conflicting notarization or timeout votes are learned later.  Once
+\(\closeDecision[\CloseRecord(e)]=(r,h_F)\), the epoch loop reconstructs the decided frontier version,
+validates and installs \(\closeState[e]\) and \(\frontier[e,\cdot]\), sets
+\(\ledgerRoot[e]\gets\hash(\operatorname{canon}(\Phi_e))\) and \(\closeHash[e]\gets h_F\), derives
+\(\committee[e]\) from the installed balances and representatives, and calls \(\FinishClosing(e)\).  Thus epoch \(e+1\) opens when epoch \(e\)
+starts closing, and epoch \(e\) eventually becomes closed after its certified cut has reached terminal
+outcomes and its compact close record has been decided.
+
+
+\paragraph{Theorem.}
+Under the assumptions above, every started slot election is eventually settled and every started
+logical close instance eventually decides.  A close round either decides, creates a live carry, or
+produces a death proof.  A live carry is validated and fast-decided in its successor round; a death
+proof unlocks canonical fresh voting, which eventually converges and reaches the fast threshold.
+Valid fast or final certificates are processed as decisions in every round, including after a replica
+has entered a later round.  The decided close cut is
+drained, the hash-reconstructed decided close record installs the certified account frontiers and all
+derived finalized and released states, and the successor epochs continue to open and close during
+periods of synchrony.  Consequently,
+\(\mathsf{ASSERT}_{\mathsf{epoch\mbox{-}closure}}\) holds.
+
+\balance
+\begin{thebibliography}{1}
+
+\bibitem{shoup2025kudzu}
+Victor Shoup, Jakub Sliwinski, and Yann Vonlanthen.
+\newblock 2025.
+\newblock Kudzu: Fast and Simple High-Throughput BFT.
+\newblock \emph{arXiv preprint arXiv:2505.08771v2} (29 September 2025).
+
+\end{thebibliography}
+\end{document}
