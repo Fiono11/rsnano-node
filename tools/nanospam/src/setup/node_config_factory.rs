@@ -5,6 +5,13 @@ use tracing::info;
 use crate::cli_args::CliArgs;
 use rsnano_types::{Block, BlockHash, PrivateKey};
 
+#[cfg(feature = "rai_protocol")]
+const DEFAULT_RAI_EPOCH_DURATION_MS: u64 = 30_000;
+#[cfg(feature = "rai_protocol")]
+const DEFAULT_RAI_CLOSE_ATTEMPT_DURATION_MS: u64 = 3_000;
+#[cfg(feature = "rai_protocol")]
+const DEFAULT_RAI_TICK_INTERVAL_MS: u64 = 250;
+
 pub(crate) const GENESIS_BLOCK: &str = r#"{
     "type": "open",
     "account": "nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne",
@@ -24,7 +31,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     bandwidth_limit = 0
     enable_voting = true
     preconfigured_peers = PRECONF_PEERS
-    preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
+    preconfigured_representatives = PRECONF_REPS
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
 
@@ -102,6 +109,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+                .replace("PRECONF_REPS", &preconfigured_representatives(args.prs))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
                 .replace("RAI_CONFIG", &rai_config(args));
@@ -119,22 +127,44 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
 }
 
 fn rai_config(args: &CliArgs) -> String {
-    if args.cpp
-        || (args.rai_epoch_duration_ms.is_none()
-            && args.rai_close_attempt_duration_ms.is_none()
-            && args.rai_tick_interval_ms.is_none())
-    {
+    if args.cpp {
+        return String::new();
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    let (epoch_duration, close_attempt_duration, tick_interval) = (
+        Some(
+            args.rai_epoch_duration_ms
+                .unwrap_or(DEFAULT_RAI_EPOCH_DURATION_MS),
+        ),
+        Some(
+            args.rai_close_attempt_duration_ms
+                .unwrap_or(DEFAULT_RAI_CLOSE_ATTEMPT_DURATION_MS),
+        ),
+        Some(
+            args.rai_tick_interval_ms
+                .unwrap_or(DEFAULT_RAI_TICK_INTERVAL_MS),
+        ),
+    );
+    #[cfg(not(feature = "rai_protocol"))]
+    let (epoch_duration, close_attempt_duration, tick_interval) = (
+        args.rai_epoch_duration_ms,
+        args.rai_close_attempt_duration_ms,
+        args.rai_tick_interval_ms,
+    );
+
+    if epoch_duration.is_none() && close_attempt_duration.is_none() && tick_interval.is_none() {
         return String::new();
     }
 
     let mut result = String::from("[node.rai]\n");
-    if let Some(duration) = args.rai_epoch_duration_ms {
+    if let Some(duration) = epoch_duration {
         result.push_str(&format!("    epoch_duration = {duration}\n"));
     }
-    if let Some(duration) = args.rai_close_attempt_duration_ms {
+    if let Some(duration) = close_attempt_duration {
         result.push_str(&format!("    close_attempt_duration = {duration}\n"));
     }
-    if let Some(interval) = args.rai_tick_interval_ms {
+    if let Some(interval) = tick_interval {
         result.push_str(&format!("    tick_interval = {interval}\n"));
     }
     result
@@ -152,6 +182,14 @@ fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
     }
     result.push(']');
     result
+}
+
+fn preconfigured_representatives(prs: usize) -> String {
+    let representatives = (0..prs)
+        .map(|i| format!("\"{}\"", pr_key(i).account().encode_account()))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{representatives}]")
 }
 
 pub(crate) fn peering_port(node_id: usize) -> u16 {
@@ -181,4 +219,42 @@ pub(crate) fn genesis_key() -> PrivateKey {
 pub(crate) fn get_genesis_hash() -> BlockHash {
     let genesis_block: Block = serde_json::from_str(GENESIS_BLOCK).unwrap();
     genesis_block.hash()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(feature = "rai_protocol")]
+    use clap::Parser;
+
+    #[test]
+    fn preconfigures_every_generated_representative() {
+        let reps = preconfigured_representatives(4);
+
+        for i in 0..4 {
+            assert!(reps.contains(&pr_key(i).account().encode_account()));
+        }
+        assert_eq!(reps.matches("nano_").count(), 4);
+    }
+
+    #[test]
+    fn custom_genesis_is_the_first_preconfigured_representative() {
+        let reps = preconfigured_representatives(1);
+
+        assert_eq!(
+            reps,
+            format!("[\"{}\"]", genesis_key().account().encode_account())
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_builds_use_short_test_network_timings_by_default() {
+        let args = CliArgs::parse_from(["nanospam"]);
+
+        assert_eq!(
+            rai_config(&args),
+            "[node.rai]\n    epoch_duration = 30000\n    close_attempt_duration = 3000\n    tick_interval = 250\n"
+        );
+    }
 }

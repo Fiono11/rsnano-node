@@ -71,6 +71,8 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap()
                 .block;
+            // The recipient must locally confirm the send before its wallet can
+            // create the receive block.
             wait_until_confirmed(rpc_client, send_hash).await;
 
             info!("Receiving...");
@@ -88,7 +90,11 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap()
                 .frontier;
-            wait_until_confirmed(rpc_client, recv_hash).await;
+            // PR0 is the confirmation source used by the spam run's websocket
+            // tracker. RAI followers can apply a receive block before locally
+            // cementing it, so waiting on the recipient can stall forever even
+            // though PR0 has already finalized the block.
+            wait_until_confirmed(genesis_rpc, recv_hash).await;
             info!("DONE");
             info!(
                 "********************************************************************************"
