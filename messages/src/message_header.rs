@@ -34,6 +34,7 @@ pub enum MessageType {
     AscPullAck = 0x0f,
     RaiVote = 0x10,
     RaiPendingReport = 0x11,
+    RaiReconciliation = 0x12,
 }
 
 impl MessageType {
@@ -59,15 +60,19 @@ impl MessageType {
             MessageType::AscPullAck => "asc_pull_ack",
             MessageType::RaiVote => "rai_vote",
             MessageType::RaiPendingReport => "rai_pending_report",
+            MessageType::RaiReconciliation => "rai_reconciliation",
         }
     }
 
     pub const fn max_id() -> usize {
-        Self::RaiPendingReport as usize
+        Self::RaiReconciliation as usize
     }
 
     pub const fn requires_rai_protocol(self) -> bool {
-        matches!(self, Self::RaiVote | Self::RaiPendingReport)
+        matches!(
+            self,
+            Self::RaiVote | Self::RaiPendingReport | Self::RaiReconciliation
+        )
     }
 
     pub const fn is_supported_by_protocol(self, protocol_version: u8) -> bool {
@@ -211,6 +216,15 @@ impl MessageHeader {
                 let count = crate::rai::rai_pending_report_count(self.extensions);
                 rsnano_types::RaiPendingReport::serialized_size(count)
             }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReconciliation => {
+                crate::RaiReconciliation::serialized_size(self.extensions)
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiReconciliation => {
+                debug_assert!(false);
+                0
+            }
             #[cfg(not(feature = "rai_protocol"))]
             MessageType::RaiPendingReport => {
                 debug_assert!(false);
@@ -281,8 +295,12 @@ impl From<MessageType> for DetailType {
             MessageType::RaiVote => DetailType::InvalidMessageType,
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiPendingReport => DetailType::RaiPendingReport,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReconciliation => DetailType::RaiVote,
             #[cfg(not(feature = "rai_protocol"))]
             MessageType::RaiPendingReport => DetailType::InvalidMessageType,
+            #[cfg(not(feature = "rai_protocol"))]
+            MessageType::RaiReconciliation => DetailType::InvalidMessageType,
         }
     }
 }

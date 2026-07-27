@@ -28,6 +28,11 @@ Run a RAI-enabled 4 PR network with short epochs, so close cut and close record 
 nanospam --prs 4 --blocks 10000 --rate 200 --rai-epoch-duration-ms 30000 --rai-close-attempt-duration-ms 3000 --rai-tick-interval-ms 250
 ```
 
+Print only the final machine-readable completion summary, suppressing progress and spawned-node logs:
+```
+nanospam --summary-only --prs 4 --blocks 10000 --rate 200
+```
+
 When nanospam is built with the `rai_protocol` feature, it logs inbound RAI messages at `info`
 with the `nanospam::rai` target. Pending reports show the epoch and slot preview; certificate
 votes show the phase, election, certificate kind, scope, epoch, attempt, slot, value, voter, and
@@ -103,6 +108,7 @@ Because PoW is disabled, creating blocks is very fast. On my old and slow laptop
 Usage: nanospam [OPTIONS]
 
 Options:
+      --summary-only     Suppress progress and node logs, printing only the final completion summary
       --prs <PRS>        Number of principal representatives [default: 1]
       --setup-only       Only create the node config files and set up the wallets, then exit
       --attach           Attach to an already running node

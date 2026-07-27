@@ -52,6 +52,10 @@ pub(crate) async fn start_nodes(
             cmd
         };
 
+        if args.summary_only {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+
         info!("Starting node: {cmd:?}");
         children.push(cmd.spawn().unwrap());
 

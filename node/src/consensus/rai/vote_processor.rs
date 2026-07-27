@@ -18,6 +18,9 @@ use super::{
 };
 use crate::representatives::RepresentativeTracker;
 use rsnano_ledger::RepWeightCache;
+use rsnano_messages::{
+    RaiCutDeltaItem, RaiFrontierDeltaItem, RaiReconKind, RaiReconRequest, RaiReconciliation,
+};
 
 pub trait RaiSlotConfirmationSink: Send + Sync {
     fn confirm_slot_block(&self, block: BlockHash);
@@ -51,6 +54,199 @@ pub struct RaiVoteProcessor {
 }
 
 impl RaiVoteProcessor {
+    pub fn confirm_close_record_blocks(&self, epoch: RaiEpoch, hash: &BlockHash) {
+        let blocks =
+            self.close_state
+                .read()
+                .unwrap()
+                .close_record_value(epoch, hash)
+                .map(|value| {
+                    value
+                        .entries
+                        .values()
+                        .filter_map(|state| match state {
+                            RaiClosedSlotState::Finalized(block)
+                            | RaiClosedSlotState::Carry(block) => Some(*block),
+                            RaiClosedSlotState::Released => None,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+        for block in blocks {
+            self.slot_confirmation_sink.confirm_slot_block(block);
+        }
+    }
+    pub fn reconciliation_requests_for_vote(&self, vote: &RaiVote) -> Vec<RaiReconciliation> {
+        let (kind, epoch, target_hash) = match (&vote.election_id, &vote.value) {
+            (RaiElectionId::CloseCut { epoch, .. }, RaiElectionValue::CloseCutHash(hash)) => {
+                (RaiReconKind::Cut, *epoch, *hash)
+            }
+            (RaiElectionId::CloseRecord { epoch, .. }, RaiElectionValue::CloseRecordHash(hash)) => {
+                (RaiReconKind::Frontiers, *epoch, *hash)
+            }
+            _ => return Vec::new(),
+        };
+        let mut state = self.close_state.write().unwrap();
+        match kind {
+            RaiReconKind::Cut if !state.has_close_values(epoch) => {
+                state.record_current_close_value(epoch);
+            }
+            RaiReconKind::Frontiers if !state.has_close_record_values(epoch) => {
+                let _ = state.record_current_close_record_value(epoch);
+            }
+            _ => {}
+        }
+        let known = match kind {
+            RaiReconKind::Cut if state.close_value(epoch, &target_hash).is_some() => {
+                return Vec::new();
+            }
+            RaiReconKind::Frontiers if state.close_record_value(epoch, &target_hash).is_some() => {
+                return Vec::new();
+            }
+            RaiReconKind::Cut => state
+                .close_values(epoch)
+                .map(|v| v.keys().copied().collect())
+                .unwrap_or_default(),
+            RaiReconKind::Frontiers => state.close_record_hashes(epoch),
+        };
+        known
+            .into_iter()
+            .map(|base_hash| {
+                RaiReconciliation::Request(RaiReconRequest {
+                    kind,
+                    epoch,
+                    base_hash,
+                    target_hash,
+                })
+            })
+            .collect()
+    }
+
+    pub fn reconciliation_response(&self, request: &RaiReconRequest) -> RaiReconciliation {
+        let internal = super::RaiCloseReconRequest {
+            kind: match request.kind {
+                RaiReconKind::Cut => super::RaiCloseVersionKind::Cut,
+                RaiReconKind::Frontiers => super::RaiCloseVersionKind::Frontiers,
+            },
+            epoch: request.epoch,
+            base_hash: request.base_hash,
+            target_hash: request.target_hash,
+        };
+        let state = self.close_state.read().unwrap();
+        match super::RaiCloseReconciler::make_delta(&state, &internal) {
+            Ok(super::RaiCloseReconDelta::Cut {
+                epoch,
+                base_hash,
+                target_hash,
+                added,
+                removed,
+            }) if added.len() + removed.len() <= 6_300 => RaiReconciliation::CutDelta {
+                epoch,
+                base_hash,
+                target_hash,
+                items: removed
+                    .into_iter()
+                    .map(|slot| RaiCutDeltaItem { added: false, slot })
+                    .chain(
+                        added
+                            .into_iter()
+                            .map(|slot| RaiCutDeltaItem { added: true, slot }),
+                    )
+                    .collect(),
+            },
+            Ok(super::RaiCloseReconDelta::Frontiers {
+                epoch,
+                base_hash,
+                target_hash,
+                replacements,
+            }) if replacements.len() <= 2_600 => RaiReconciliation::FrontierDelta {
+                epoch,
+                base_hash,
+                target_hash,
+                items: replacements
+                    .into_iter()
+                    .map(|r| RaiFrontierDeltaItem {
+                        account: r.account,
+                        old: r.old,
+                        new: r.new,
+                    })
+                    .collect(),
+            },
+            Ok(_) | Err(_) => RaiReconciliation::Miss(request.clone()),
+        }
+    }
+
+    pub fn apply_reconciliation(
+        &self,
+        message: &RaiReconciliation,
+        attempt: RaiCloseAttempt,
+    ) -> bool {
+        let result = match message {
+            RaiReconciliation::CutDelta {
+                epoch,
+                base_hash,
+                target_hash,
+                items,
+            } => {
+                let delta = super::RaiCloseReconDelta::Cut {
+                    epoch: *epoch,
+                    base_hash: *base_hash,
+                    target_hash: *target_hash,
+                    added: items.iter().filter(|i| i.added).map(|i| i.slot).collect(),
+                    removed: items.iter().filter(|i| !i.added).map(|i| i.slot).collect(),
+                };
+                let mut state = self.close_state.write().unwrap();
+                let visible = state.visible_slots(*epoch).cloned().unwrap_or_default();
+                super::RaiCloseReconciler::apply_cut(&mut state, &delta, |cut| {
+                    cut.is_subset(&visible)
+                })
+                .map(|_| ())
+            }
+            RaiReconciliation::FrontierDelta {
+                epoch,
+                base_hash,
+                target_hash,
+                items,
+            } => {
+                let delta = super::RaiCloseReconDelta::Frontiers {
+                    epoch: *epoch,
+                    base_hash: *base_hash,
+                    target_hash: *target_hash,
+                    replacements: items
+                        .iter()
+                        .map(|r| super::RaiFrontierReplacement {
+                            account: r.account,
+                            old: r.old,
+                            new: r.new,
+                        })
+                        .collect(),
+                };
+                let mut state = self.close_state.write().unwrap();
+                let Ok(entries) = state.current_close_record_entries(*epoch) else {
+                    return false;
+                };
+                super::RaiCloseReconciler::apply_frontiers(
+                    &mut state,
+                    &delta,
+                    entries,
+                    |record, entries| {
+                        self.admissibility
+                            .validate_close_record(record, entries, attempt, target_hash)
+                            .is_ok()
+                    },
+                )
+                .map(|_| ())
+            }
+            _ => return false,
+        };
+        if result.is_ok() {
+            self.persistence
+                .save_close_state(&self.close_state.read().unwrap().snapshot());
+            true
+        } else {
+            false
+        }
+    }
     pub fn derive_close_frontiers(
         &self,
         epoch: RaiEpoch,
@@ -572,6 +768,15 @@ impl RaiVoteProcessor {
             return false;
         };
 
+        {
+            let close_state = self.close_state.read().unwrap();
+            if close_state.current_epoch() != epoch
+                || !close_state.has_close_record_value(epoch, &record_hash)
+            {
+                return false;
+            }
+        }
+        self.confirm_close_record_blocks(epoch, &record_hash);
         let (advanced, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
             if close_state.current_epoch() != epoch

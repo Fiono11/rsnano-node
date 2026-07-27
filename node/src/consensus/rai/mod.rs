@@ -7,6 +7,7 @@ mod epoch_loop;
 mod ledger_admissibility;
 mod pending_report_processor;
 mod persistence;
+mod reconciliation;
 mod slot_election_activator;
 mod vote_processor;
 mod vote_safety;
@@ -39,6 +40,10 @@ pub use ledger_admissibility::LedgerRaiAdmissibilityValidator;
 pub use pending_report_processor::{RaiPendingReportProcessError, RaiPendingReportProcessor};
 pub use persistence::{
     LmdbRaiStatePersistence, NoopRaiStatePersistence, RaiPersistedState, RaiStatePersistence,
+};
+pub use reconciliation::{
+    RaiCloseReconDelta, RaiCloseReconError, RaiCloseReconMiss, RaiCloseReconRequest,
+    RaiCloseReconciler, RaiCloseVersionKind, RaiFrontierReplacement,
 };
 pub use slot_election_activator::RaiSlotElectionActivator;
 pub use vote_processor::{RaiSlotConfirmationSink, RaiVoteProcessor};

@@ -7,6 +7,10 @@ const DEFAULT_RATE: &str = "1+50@3s";
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Suppress progress and node logs, printing only the final completion summary
+    #[arg(long, default_value_t = false)]
+    pub summary_only: bool,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,

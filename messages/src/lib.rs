@@ -41,6 +41,10 @@ pub use confirm_ack::*;
 
 #[cfg(feature = "rai_protocol")]
 mod rai;
+#[cfg(feature = "rai_protocol")]
+mod rai_reconciliation;
+#[cfg(feature = "rai_protocol")]
+pub use rai_reconciliation::*;
 
 mod frontier_req;
 pub use frontier_req::*;

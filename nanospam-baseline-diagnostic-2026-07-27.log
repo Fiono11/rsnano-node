@@ -1,0 +1,411 @@
+[2m2026-07-27T08:06:13.506907Z[0m [32m INFO[0m [2mnanospam::setup::account_map_factory[0m[2m:[0m Loading account keys from "/Users/ruimorais/NanoSpam/account_keys.txt"
+[2m2026-07-27T08:06:13.508718Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Deleting data from previous run: "/Users/ruimorais/NanoSpam/pr0"...
+[2m2026-07-27T08:06:13.509881Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Deleting data from previous run: "/Users/ruimorais/NanoSpam/pr1"...
+[2m2026-07-27T08:06:13.510694Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Deleting data from previous run: "/Users/ruimorais/NanoSpam/pr2"...
+[2m2026-07-27T08:06:13.511464Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Deleting data from previous run: "/Users/ruimorais/NanoSpam/pr3"...
+[2m2026-07-27T08:06:13.512613Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:13.512628Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR0...
+[2m2026-07-27T08:06:13.512640Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr0"
+[2m2026-07-27T08:06:13.512779Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr0/config-node.toml"
+[2m2026-07-27T08:06:13.513050Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr0/config-rpc.toml"
+[2m2026-07-27T08:06:13.513180Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:13.513186Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR1...
+[2m2026-07-27T08:06:13.513190Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr1"
+[2m2026-07-27T08:06:13.513248Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr1/config-node.toml"
+[2m2026-07-27T08:06:13.513347Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr1/config-rpc.toml"
+[2m2026-07-27T08:06:13.513435Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:13.513440Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR2...
+[2m2026-07-27T08:06:13.513444Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr2"
+[2m2026-07-27T08:06:13.513505Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr2/config-node.toml"
+[2m2026-07-27T08:06:13.513595Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr2/config-rpc.toml"
+[2m2026-07-27T08:06:13.513661Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:13.513665Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR3...
+[2m2026-07-27T08:06:13.513671Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr3"
+[2m2026-07-27T08:06:13.513731Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr3/config-node.toml"
+[2m2026-07-27T08:06:13.513833Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr3/config-rpc.toml"
+[2m2026-07-27T08:06:13.514053Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "/Users/ruimorais/rsnano-node/target/release/rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr0" "node" "run"
+[2m2026-07-27T08:06:13.514642Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-07-27T08:06:13.747867Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Starting up RsNano node...
+[2m2026-07-27T08:06:13.747939Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Hardware concurrency: 8 (configured: 8)
+[2m2026-07-27T08:06:13.747953Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m File descriptor limit [3msoft[0m[2m=[0m9223372036854775807 [3mhard[0m[2m=[0m9223372036854775807
+[2m2026-07-27T08:06:13.749614Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node started
+[2m2026-07-27T08:06:13.749666Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Currency: Nano
+[2m2026-07-27T08:06:13.749785Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Version: RsNano V4.0-dev
+[2m2026-07-27T08:06:13.749821Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m built with rustc 1.96.0 (ac68faa20 2026-05-25) (release) at 2026-07-27 08:04:07.133796 UTC from 0bf58ddf4a906fe87ff184dea21b7080c293c643 (rai_protocol)
+[2m2026-07-27T08:06:13.749825Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Network: test
+[2m2026-07-27T08:06:13.749829Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Data path: "/Users/ruimorais/NanoSpam/pr0"
+[2m2026-07-27T08:06:13.749832Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis block: 1371C7C5CE4EAD66B8D31AD7765D5C3A84B2F69654BE7494781A4816399D7007
+[2m2026-07-27T08:06:13.749836Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis account: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:13.750053Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work pool threads: 8 (CPU)
+[2m2026-07-27T08:06:13.750058Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work peers: 0
+[2m2026-07-27T08:06:13.750092Z[0m [32m INFO[0m [2mrsnano_node::node_id_key_file[0m[2m:[0m Generating a new node id, saving to: "/Users/ruimorais/NanoSpam/pr0/node_id_private.key"
+[2m2026-07-27T08:06:13.750337Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node ID: node_13jjearfgpiomoa9mg54tptqias73t14koxdb7s4cisxzttti1k1fh4btr4r
+[2m2026-07-27T08:06:13.750386Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m LMDB sync strategy: NosyncUnsafe
+[2m2026-07-27T08:06:13.750391Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Loading ledger, this may take a while...
+[2m2026-07-27T08:06:13.750846Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade in progress...
+[2m2026-07-27T08:06:13.750867Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Setting db version to 10001
+[2m2026-07-27T08:06:13.750889Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade done!
+[2m2026-07-27T08:06:13.751186Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating representative weights cache...
+[2m2026-07-27T08:06:13.751204Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Representative weights cache generated
+[2m2026-07-27T08:06:13.751207Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating block and account count cache...
+[2m2026-07-27T08:06:13.751925Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Block and account count cache generated
+[2m2026-07-27T08:06:13.751930Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating cemented count cache...
+[2m2026-07-27T08:06:13.752592Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Cemented count cache generated
+[2m2026-07-27T08:06:13.752597Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Verifying ledger balance consistency...
+[2m2026-07-27T08:06:13.752602Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Ledger balance consistency verified
+[2m2026-07-27T08:06:13.752606Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Database backend: lmdb-rkv 0.14.0
+[2m2026-07-27T08:06:13.752610Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Block count:     1
+[2m2026-07-27T08:06:13.752613Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Confirmed count: 1
+[2m2026-07-27T08:06:13.752615Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Account count:   1
+[2m2026-07-27T08:06:13.752617Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Representative count: 1
+[2m2026-07-27T08:06:13.757096Z[0m [32m INFO[0m [2mrsnano_node::representatives::online_weight_calculation[0m[2m:[0m Trended weight updated: 0, samples: 0
+[2m2026-07-27T08:06:13.757802Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found 0 wallet(s)
+[2m2026-07-27T08:06:13.757884Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Unlimited confirmations per second (CPS)!
+[2m2026-07-27T08:06:13.757951Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Bounded backlog is disabled!
+[2m2026-07-27T08:06:13.758063Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Outbound bandwidth limit: 0 bytes/s, burst ratio: 3
+[2m2026-07-27T08:06:13.758268Z[0m [32m INFO[0m [2mrsnano_websocket_server::listener[0m[2m:[0m Websocket listener started on [::]:17078
+[2m2026-07-27T08:06:13.759377Z[0m [32m INFO[0m [2mrsnano_node::transport::peer_cache_connector[0m[2m:[0m Adding cached initial peers: 0
+[2m2026-07-27T08:06:13.759383Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 0 (established: 0 | inbound: 0 | outbound: 0)
+[2m2026-07-27T08:06:13.759432Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:13.759440Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 0 (priority: 0 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:13.759444Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 1 (backlog: 0)
+[2m2026-07-27T08:06:13.759446Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:13.759489Z[0m [32m INFO[0m [2mrsnano_rpc_server::server[0m[2m:[0m RPC listening address: [::]:17076
+[2m2026-07-27T08:06:13.823247Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "/Users/ruimorais/rsnano-node/target/release/rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr1" "node" "run"
+[2m2026-07-27T08:06:13.823675Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-07-27T08:06:13.829734Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Starting up RsNano node...
+[2m2026-07-27T08:06:13.829779Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Hardware concurrency: 8 (configured: 8)
+[2m2026-07-27T08:06:13.829785Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m File descriptor limit [3msoft[0m[2m=[0m9223372036854775807 [3mhard[0m[2m=[0m9223372036854775807
+[2m2026-07-27T08:06:13.831021Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node started
+[2m2026-07-27T08:06:13.831033Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Currency: Nano
+[2m2026-07-27T08:06:13.831069Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Version: RsNano V4.0-dev
+[2m2026-07-27T08:06:13.831081Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m built with rustc 1.96.0 (ac68faa20 2026-05-25) (release) at 2026-07-27 08:04:07.133796 UTC from 0bf58ddf4a906fe87ff184dea21b7080c293c643 (rai_protocol)
+[2m2026-07-27T08:06:13.831086Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Network: test
+[2m2026-07-27T08:06:13.831116Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Data path: "/Users/ruimorais/NanoSpam/pr1"
+[2m2026-07-27T08:06:13.831144Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis block: 1371C7C5CE4EAD66B8D31AD7765D5C3A84B2F69654BE7494781A4816399D7007
+[2m2026-07-27T08:06:13.831197Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis account: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:13.831323Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work pool threads: 8 (CPU)
+[2m2026-07-27T08:06:13.831332Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work peers: 0
+[2m2026-07-27T08:06:13.831358Z[0m [32m INFO[0m [2mrsnano_node::node_id_key_file[0m[2m:[0m Generating a new node id, saving to: "/Users/ruimorais/NanoSpam/pr1/node_id_private.key"
+[2m2026-07-27T08:06:13.831549Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node ID: node_144x79g5ogrdfaub9857m8iipwmy6kpki8ambfibjspuqrccgng8oqepaqsr
+[2m2026-07-27T08:06:13.831561Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m LMDB sync strategy: NosyncUnsafe
+[2m2026-07-27T08:06:13.831565Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Loading ledger, this may take a while...
+[2m2026-07-27T08:06:13.832016Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade in progress...
+[2m2026-07-27T08:06:13.832041Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Setting db version to 10001
+[2m2026-07-27T08:06:13.832061Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade done!
+[2m2026-07-27T08:06:13.832813Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating representative weights cache...
+[2m2026-07-27T08:06:13.832825Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Representative weights cache generated
+[2m2026-07-27T08:06:13.832829Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating block and account count cache...
+[2m2026-07-27T08:06:13.833808Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Block and account count cache generated
+[2m2026-07-27T08:06:13.833825Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating cemented count cache...
+[2m2026-07-27T08:06:13.834303Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Cemented count cache generated
+[2m2026-07-27T08:06:13.834310Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Verifying ledger balance consistency...
+[2m2026-07-27T08:06:13.834314Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Ledger balance consistency verified
+[2m2026-07-27T08:06:13.834319Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Database backend: lmdb-rkv 0.14.0
+[2m2026-07-27T08:06:13.834323Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Block count:     1
+[2m2026-07-27T08:06:13.834326Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Confirmed count: 1
+[2m2026-07-27T08:06:13.834329Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Account count:   1
+[2m2026-07-27T08:06:13.834331Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Representative count: 1
+[2m2026-07-27T08:06:13.838833Z[0m [32m INFO[0m [2mrsnano_node::representatives::online_weight_calculation[0m[2m:[0m Trended weight updated: 0, samples: 0
+[2m2026-07-27T08:06:13.839747Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found 0 wallet(s)
+[2m2026-07-27T08:06:13.839856Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Unlimited confirmations per second (CPS)!
+[2m2026-07-27T08:06:13.839945Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Bounded backlog is disabled!
+[2m2026-07-27T08:06:13.840008Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Outbound bandwidth limit: 0 bytes/s, burst ratio: 3
+[2m2026-07-27T08:06:13.840176Z[0m [32m INFO[0m [2mrsnano_websocket_server::listener[0m[2m:[0m Websocket listener started on [::]:17088
+[2m2026-07-27T08:06:13.840901Z[0m [32m INFO[0m [2mrsnano_rpc_server::server[0m[2m:[0m RPC listening address: [::]:17086
+[2m2026-07-27T08:06:13.841032Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 1 (established: 0 | inbound: 0 | outbound: 1)
+[2m2026-07-27T08:06:13.841040Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:13.841043Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 0 (priority: 0 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:13.841047Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 1 (backlog: 0)
+[2m2026-07-27T08:06:13.841051Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:13.841062Z[0m [32m INFO[0m [2mrsnano_node::transport::peer_cache_connector[0m[2m:[0m Adding cached initial peers: 0
+[2m2026-07-27T08:06:13.926754Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "/Users/ruimorais/rsnano-node/target/release/rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr2" "node" "run"
+[2m2026-07-27T08:06:13.927015Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-07-27T08:06:13.929796Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Starting up RsNano node...
+[2m2026-07-27T08:06:13.929818Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Hardware concurrency: 8 (configured: 8)
+[2m2026-07-27T08:06:13.929823Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m File descriptor limit [3msoft[0m[2m=[0m9223372036854775807 [3mhard[0m[2m=[0m9223372036854775807
+[2m2026-07-27T08:06:13.931070Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node started
+[2m2026-07-27T08:06:13.931080Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Currency: Nano
+[2m2026-07-27T08:06:13.931113Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Version: RsNano V4.0-dev
+[2m2026-07-27T08:06:13.931122Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m built with rustc 1.96.0 (ac68faa20 2026-05-25) (release) at 2026-07-27 08:04:07.133796 UTC from 0bf58ddf4a906fe87ff184dea21b7080c293c643 (rai_protocol)
+[2m2026-07-27T08:06:13.931125Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Network: test
+[2m2026-07-27T08:06:13.931127Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Data path: "/Users/ruimorais/NanoSpam/pr2"
+[2m2026-07-27T08:06:13.931131Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis block: 1371C7C5CE4EAD66B8D31AD7765D5C3A84B2F69654BE7494781A4816399D7007
+[2m2026-07-27T08:06:13.931149Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis account: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:13.931236Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work pool threads: 8 (CPU)
+[2m2026-07-27T08:06:13.931240Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work peers: 0
+[2m2026-07-27T08:06:13.931250Z[0m [32m INFO[0m [2mrsnano_node::node_id_key_file[0m[2m:[0m Generating a new node id, saving to: "/Users/ruimorais/NanoSpam/pr2/node_id_private.key"
+[2m2026-07-27T08:06:13.931466Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node ID: node_3beehez7d9ic3sdunhjs3di7ketsyku9eoe6ik685ynjduqdoocdz84b7hun
+[2m2026-07-27T08:06:13.931478Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m LMDB sync strategy: NosyncUnsafe
+[2m2026-07-27T08:06:13.931481Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Loading ledger, this may take a while...
+[2m2026-07-27T08:06:13.932158Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade in progress...
+[2m2026-07-27T08:06:13.932184Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Setting db version to 10001
+[2m2026-07-27T08:06:13.932263Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade done!
+[2m2026-07-27T08:06:13.932817Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating representative weights cache...
+[2m2026-07-27T08:06:13.932826Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Representative weights cache generated
+[2m2026-07-27T08:06:13.932829Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating block and account count cache...
+[2m2026-07-27T08:06:13.933654Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Block and account count cache generated
+[2m2026-07-27T08:06:13.933661Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating cemented count cache...
+[2m2026-07-27T08:06:13.934426Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Cemented count cache generated
+[2m2026-07-27T08:06:13.934432Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Verifying ledger balance consistency...
+[2m2026-07-27T08:06:13.934437Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Ledger balance consistency verified
+[2m2026-07-27T08:06:13.934442Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Database backend: lmdb-rkv 0.14.0
+[2m2026-07-27T08:06:13.934446Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Block count:     1
+[2m2026-07-27T08:06:13.934448Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Confirmed count: 1
+[2m2026-07-27T08:06:13.934451Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Account count:   1
+[2m2026-07-27T08:06:13.934454Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Representative count: 1
+[2m2026-07-27T08:06:13.944754Z[0m [32m INFO[0m [2mrsnano_node::representatives::online_weight_calculation[0m[2m:[0m Trended weight updated: 0, samples: 0
+[2m2026-07-27T08:06:13.947313Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found 0 wallet(s)
+[2m2026-07-27T08:06:13.947395Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Unlimited confirmations per second (CPS)!
+[2m2026-07-27T08:06:13.947504Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Bounded backlog is disabled!
+[2m2026-07-27T08:06:13.947563Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Outbound bandwidth limit: 0 bytes/s, burst ratio: 3
+[2m2026-07-27T08:06:13.947693Z[0m [32m INFO[0m [2mrsnano_websocket_server::listener[0m[2m:[0m Websocket listener started on [::]:17098
+[2m2026-07-27T08:06:13.948508Z[0m [32m INFO[0m [2mrsnano_rpc_server::server[0m[2m:[0m RPC listening address: [::]:17096
+[2m2026-07-27T08:06:13.948549Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 2 (established: 0 | inbound: 0 | outbound: 2)
+[2m2026-07-27T08:06:13.948559Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:13.948571Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 0 (priority: 0 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:13.948575Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 1 (backlog: 0)
+[2m2026-07-27T08:06:13.948578Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:13.948549Z[0m [32m INFO[0m [2mrsnano_node::transport::peer_cache_connector[0m[2m:[0m Adding cached initial peers: 0
+[2m2026-07-27T08:06:14.029970Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "/Users/ruimorais/rsnano-node/target/release/rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr3" "node" "run"
+[2m2026-07-27T08:06:14.030339Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-07-27T08:06:14.036987Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Starting up RsNano node...
+[2m2026-07-27T08:06:14.037049Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m Hardware concurrency: 8 (configured: 8)
+[2m2026-07-27T08:06:14.037090Z[0m [32m INFO[0m [2mrsnano_daemon[0m[2m:[0m File descriptor limit [3msoft[0m[2m=[0m9223372036854775807 [3mhard[0m[2m=[0m9223372036854775807
+[2m2026-07-27T08:06:14.038943Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node started
+[2m2026-07-27T08:06:14.038967Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Currency: Nano
+[2m2026-07-27T08:06:14.039007Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Version: RsNano V4.0-dev
+[2m2026-07-27T08:06:14.039022Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m built with rustc 1.96.0 (ac68faa20 2026-05-25) (release) at 2026-07-27 08:04:07.133796 UTC from 0bf58ddf4a906fe87ff184dea21b7080c293c643 (rai_protocol)
+[2m2026-07-27T08:06:14.039029Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Network: test
+[2m2026-07-27T08:06:14.039034Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Data path: "/Users/ruimorais/NanoSpam/pr3"
+[2m2026-07-27T08:06:14.039039Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis block: 1371C7C5CE4EAD66B8D31AD7765D5C3A84B2F69654BE7494781A4816399D7007
+[2m2026-07-27T08:06:14.039046Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Genesis account: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:14.039148Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work pool threads: 8 (CPU)
+[2m2026-07-27T08:06:14.039154Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Work peers: 0
+[2m2026-07-27T08:06:14.039167Z[0m [32m INFO[0m [2mrsnano_node::node_id_key_file[0m[2m:[0m Generating a new node id, saving to: "/Users/ruimorais/NanoSpam/pr3/node_id_private.key"
+[2m2026-07-27T08:06:14.039420Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Node ID: node_3j17njed1h38qhb9t8ewjzf8nysmmrgdcxgahh5hsf14u94e44jozmfihipd
+[2m2026-07-27T08:06:14.039435Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m LMDB sync strategy: NosyncUnsafe
+[2m2026-07-27T08:06:14.039440Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Loading ledger, this may take a while...
+[2m2026-07-27T08:06:14.040008Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade in progress...
+[2m2026-07-27T08:06:14.040051Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Setting db version to 10001
+[2m2026-07-27T08:06:14.040108Z[0m [32m INFO[0m [2mrsnano_store_lmdb::upgrades[0m[2m:[0m Upgrade done!
+[2m2026-07-27T08:06:14.040640Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating representative weights cache...
+[2m2026-07-27T08:06:14.040655Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Representative weights cache generated
+[2m2026-07-27T08:06:14.040660Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating block and account count cache...
+[2m2026-07-27T08:06:14.041686Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Block and account count cache generated
+[2m2026-07-27T08:06:14.041695Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Generating cemented count cache...
+[2m2026-07-27T08:06:14.042255Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Cemented count cache generated
+[2m2026-07-27T08:06:14.042268Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Verifying ledger balance consistency...
+[2m2026-07-27T08:06:14.042276Z[0m [32m INFO[0m [2mrsnano_ledger::ledger[0m[2m:[0m Ledger balance consistency verified
+[2m2026-07-27T08:06:14.042284Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Database backend: lmdb-rkv 0.14.0
+[2m2026-07-27T08:06:14.042290Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Block count:     1
+[2m2026-07-27T08:06:14.042294Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Confirmed count: 1
+[2m2026-07-27T08:06:14.042298Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Account count:   1
+[2m2026-07-27T08:06:14.042302Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Representative count: 1
+[2m2026-07-27T08:06:14.051623Z[0m [32m INFO[0m [2mrsnano_node::representatives::online_weight_calculation[0m[2m:[0m Trended weight updated: 0, samples: 0
+[2m2026-07-27T08:06:14.052526Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found 0 wallet(s)
+[2m2026-07-27T08:06:14.052574Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Unlimited confirmations per second (CPS)!
+[2m2026-07-27T08:06:14.052659Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Bounded backlog is disabled!
+[2m2026-07-27T08:06:14.052729Z[0m [32m INFO[0m [2mrsnano_node::node[0m[2m:[0m Outbound bandwidth limit: 0 bytes/s, burst ratio: 3
+[2m2026-07-27T08:06:14.052882Z[0m [32m INFO[0m [2mrsnano_websocket_server::listener[0m[2m:[0m Websocket listener started on [::]:17108
+[2m2026-07-27T08:06:14.053701Z[0m [32m INFO[0m [2mrsnano_rpc_server::server[0m[2m:[0m RPC listening address: [::]:17106
+[2m2026-07-27T08:06:14.053849Z[0m [32m INFO[0m [2mrsnano_node::transport::peer_cache_connector[0m[2m:[0m Adding cached initial peers: 0
+[2m2026-07-27T08:06:14.053826Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 0 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:06:14.053894Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:14.053899Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 0 (priority: 0 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:14.053903Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 1 (backlog: 0)
+[2m2026-07-27T08:06:14.053906Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:14.133326Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-07-27T08:06:14.194328Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-07-27T08:06:14.194688Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-07-27T08:06:14.248694Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-07-27T08:06:14.248927Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ60,070,591 to PR1 wallet nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 ...
+[2m2026-07-27T08:06:14.249428Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for DB8B079BEA26F56FDADE157DDE7D349D8B5B4EC5F39B723078AE30B02CF3CCFD
+[2m2026-07-27T08:06:18.913738Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found a receivable block DB8B079BEA26F56FDADE157DDE7D349D8B5B4EC5F39B723078AE30B02CF3CCFD for account nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:23.777924Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 3 | outbound: 0)
+[2m2026-07-27T08:06:23.778025Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:23.778048Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:23.778067Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 2 (backlog: 1)
+[2m2026-07-27T08:06:23.778085Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:23.847536Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 2 | outbound: 1)
+[2m2026-07-27T08:06:23.847632Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:23.847654Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:23.847674Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 2 (backlog: 1)
+[2m2026-07-27T08:06:23.847691Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:23.952454Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found a receivable block DB8B079BEA26F56FDADE157DDE7D349D8B5B4EC5F39B723078AE30B02CF3CCFD for account nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:23.953676Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 1 | outbound: 2)
+[2m2026-07-27T08:06:23.953737Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:23.953767Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:23.953793Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 2 (backlog: 1)
+[2m2026-07-27T08:06:23.953817Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:24.153491Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:06:24.153641Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 40,200,000 (stake peered: 0 | online stake: 0)
+[2m2026-07-27T08:06:24.153669Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:24.153686Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 1 | total: 2 (backlog: 1)
+[2m2026-07-27T08:06:24.153702Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:26.113324Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:26.113429Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:26.113489Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:26.113497Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:29.008840Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Found a receivable block DB8B079BEA26F56FDADE157DDE7D349D8B5B4EC5F39B723078AE30B02CF3CCFD for account nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne
+[2m2026-07-27T08:06:29.522132Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-07-27T08:06:29.522675Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Receiving block DB8B079BEA26F56FDADE157DDE7D349D8B5B4EC5F39B723078AE30B02CF3CCFD from account nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1, amount 60070591730234615865843651857942052863
+[2m2026-07-27T08:06:29.524376Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 76A9C2A58F464700F57D0FF1E36DC8A7B685472D09586D6AE9CC027077F30DBA
+[2m2026-07-27T08:06:29.730195Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-07-27T08:06:29.730316Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:29.730334Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-07-27T08:06:29.829901Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-07-27T08:06:29.830180Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ60,070,591 to PR2 wallet nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 ...
+[2m2026-07-27T08:06:29.830669Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 22904A6D404D7E7766EC391F74163CA6BA0A6D03F541257A158BCE72EA5AEF64
+[2m2026-07-27T08:06:30.138676Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-07-27T08:06:30.138948Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Receiving block 22904A6D404D7E7766EC391F74163CA6BA0A6D03F541257A158BCE72EA5AEF64 from account nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3, amount 60070591730234615865843651857942052863
+[2m2026-07-27T08:06:30.139712Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for F3525C2D8CFD8AAD32F993FA145F1675CC8E039ABD0E32C052BC45489D125EB8
+[2m2026-07-27T08:06:30.344354Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-07-27T08:06:30.344389Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:30.344394Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-07-27T08:06:30.424676Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-07-27T08:06:30.424882Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ60,070,591 to PR3 wallet nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m ...
+[2m2026-07-27T08:06:30.425257Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for D6A3CD3DF7BB89D5C37E433181AE1F336B6A8F6C85D50BB3C23FB1CE6C34AE8A
+[2m2026-07-27T08:06:33.502183Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-07-27T08:06:33.502525Z[0m [32m INFO[0m [2mrsnano_wallet::wallets[0m[2m:[0m Receiving block D6A3CD3DF7BB89D5C37E433181AE1F336B6A8F6C85D50BB3C23FB1CE6C34AE8A from account nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m, amount 60070591730234615865843651857942052863
+[2m2026-07-27T08:06:33.503677Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for AAF7D64B070E93FDB92A7314EA0CE98E1777754E2966C6B74E1D162B24F0F2D4
+[2m2026-07-27T08:06:33.606819Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-07-27T08:06:33.606935Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-07-27T08:06:33.606954Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending initial spam amount...
+[2m2026-07-27T08:06:33.608135Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 1C083BCC23046B944C55FCCE6A79C30ACD7CF3BD18C6B242CDDAA7D18BCEA777
+[2m2026-07-27T08:06:33.711621Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving initial spam amount...
+[2m2026-07-27T08:06:33.712756Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 1C643851D47D209A7AD29DFD996A600A5AF23D110C48716B8C5547EDC4C1B401
+[2m2026-07-27T08:06:33.816906Z[0m [32m INFO[0m [2mnanospam::high_prio_check[0m[2m:[0m Creating high priority accounts...
+[2m2026-07-27T08:06:33.828341Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 3 | outbound: 0)
+[2m2026-07-27T08:06:33.828431Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 107,247,296 (stake peered: 160,070,591 | online stake: 160,070,591)
+[2m2026-07-27T08:06:33.828464Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:33.828475Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 9 | total: 24 (backlog: 15)
+[2m2026-07-27T08:06:33.828483Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:33.841901Z[0m [32m INFO[0m [2mnanospam::high_prio_check[0m[2m:[0m Waiting for confirmations...
+[2m2026-07-27T08:06:33.857306Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 2 | outbound: 1)
+[2m2026-07-27T08:06:33.857351Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 107,247,296 (stake peered: 160,070,591 | online stake: 160,070,591)
+[2m2026-07-27T08:06:33.857360Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 0 (priority: 0 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:33.857367Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 9 | total: 9 (backlog: 0)
+[2m2026-07-27T08:06:33.857374Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:33.958100Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 1 | outbound: 2)
+[2m2026-07-27T08:06:33.958187Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 107,247,295 (stake peered: 160,070,590 | online stake: 160,070,590)
+[2m2026-07-27T08:06:33.958199Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:33.958209Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 10 | total: 11 (backlog: 1)
+[2m2026-07-27T08:06:33.958217Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 0 bps | 0 cps)
+[2m2026-07-27T08:06:33.962665Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1
+[2m2026-07-27T08:06:33.962901Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1
+[2m2026-07-27T08:06:33.962936Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1
+[2m2026-07-27T08:06:33.962907Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1
+[2m2026-07-27T08:06:33.970716Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3
+[2m2026-07-27T08:06:33.970914Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3
+[2m2026-07-27T08:06:33.970964Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3
+[2m2026-07-27T08:06:33.970988Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3
+[2m2026-07-27T08:06:34.169736Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:06:34.169793Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 187,741,869 (stake peered: 160,070,561 | online stake: 280,211,745)
+[2m2026-07-27T08:06:34.169809Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 2 (priority: 2 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:34.169822Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 14 | total: 49 (backlog: 35)
+[2m2026-07-27T08:06:34.169834Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 2 bps | 0 cps)
+[2m2026-07-27T08:06:34.178213Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m
+[2m2026-07-27T08:06:34.178731Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m
+[2m2026-07-27T08:06:34.178799Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m
+[2m2026-07-27T08:06:34.178826Z[0m [32m INFO[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Found representative: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m
+[2m2026-07-27T08:06:40.128596Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m [3mchannel_id[0m[2m=[0m0
+[2m2026-07-27T08:06:40.165959Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 [3mchannel_id[0m[2m=[0m0
+[2m2026-07-27T08:06:40.207114Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 [3mchannel_id[0m[2m=[0m0
+[2m2026-07-27T08:06:43.158302Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 [3mchannel_id[0m[2m=[0m2
+[2m2026-07-27T08:06:43.196774Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 [3mchannel_id[0m[2m=[0m3
+[2m2026-07-27T08:06:43.196824Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 [3mchannel_id[0m[2m=[0m1
+[2m2026-07-27T08:06:43.234832Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m [3mchannel_id[0m[2m=[0m4
+[2m2026-07-27T08:06:43.234911Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m [3mchannel_id[0m[2m=[0m5
+[2m2026-07-27T08:06:43.235024Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m [3mchannel_id[0m[2m=[0m6
+[2m2026-07-27T08:06:43.263354Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 [3mchannel_id[0m[2m=[0m3
+[2m2026-07-27T08:06:43.263402Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 [3mchannel_id[0m[2m=[0m4
+[2m2026-07-27T08:06:43.302362Z[0m [33m WARN[0m [2mrsnano_node::representatives::tracker[0m[2m:[0m Representative channel changed: nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 [3mchannel_id[0m[2m=[0m1
+[2m2026-07-27T08:06:43.856856Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 3 | outbound: 0)
+[2m2026-07-27T08:06:43.856886Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:43.856893Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 8 (priority: 7 | hinted: 0 | optimistic: 1) of which stale: 0
+[2m2026-07-27T08:06:43.856898Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 41 | total: 49 (backlog: 8)
+[2m2026-07-27T08:06:43.856902Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:43.882909Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 2 | outbound: 1)
+[2m2026-07-27T08:06:43.882943Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:43.882949Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 8 (priority: 7 | hinted: 0 | optimistic: 1) of which stale: 0
+[2m2026-07-27T08:06:43.882953Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 41 | total: 49 (backlog: 8)
+[2m2026-07-27T08:06:43.882957Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:43.986060Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 1 | outbound: 2)
+[2m2026-07-27T08:06:43.986109Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:43.986120Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 8 (priority: 7 | hinted: 0 | optimistic: 1) of which stale: 0
+[2m2026-07-27T08:06:43.986130Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 41 | total: 49 (backlog: 8)
+[2m2026-07-27T08:06:43.986136Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:44.267038Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:06:44.267130Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:44.267159Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 8 (priority: 7 | hinted: 0 | optimistic: 1) of which stale: 0
+[2m2026-07-27T08:06:44.267242Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 41 | total: 49 (backlog: 8)
+[2m2026-07-27T08:06:44.267261Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:53.897197Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 2 | outbound: 1)
+[2m2026-07-27T08:06:53.897262Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:53.897273Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:53.897282Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:06:53.897290Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:53.954137Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 3 | outbound: 0)
+[2m2026-07-27T08:06:53.954211Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:53.954229Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:53.954242Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:06:53.954255Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:54.002490Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 1 | outbound: 2)
+[2m2026-07-27T08:06:54.002596Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:54.002611Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:54.002621Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:06:54.002630Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:06:54.302230Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:06:54.302274Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:06:54.302281Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:06:54.302286Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:06:54.302291Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:07:03.935480Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 2 | outbound: 1)
+[2m2026-07-27T08:07:03.935767Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:07:03.935784Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:07:03.935792Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:07:03.935798Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:07:03.988354Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 3 | outbound: 0)
+[2m2026-07-27T08:07:03.988432Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:07:03.988440Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:07:03.988445Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:07:03.988450Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:07:04.044255Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 1 | outbound: 2)
+[2m2026-07-27T08:07:04.044303Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:07:04.044311Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:07:04.044318Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:07:04.044324Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:07:04.319159Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Peers: 3 (established: 3 | inbound: 0 | outbound: 3)
+[2m2026-07-27T08:07:04.319288Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Quorum: 227,989,165 (stake peered: 340,282,336 | online stake: 340,282,336)
+[2m2026-07-27T08:07:04.319310Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Elections active: 1 (priority: 1 | hinted: 0 | optimistic: 0) of which stale: 0
+[2m2026-07-27T08:07:04.319323Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks confirmed: 48 | total: 49 (backlog: 1)
+[2m2026-07-27T08:07:04.319335Z[0m [32m INFO[0m [2mrsnano_node::node_monitor[0m[2m:[0m Blocks rate: 1 bps | 1 cps)
+[2m2026-07-27T08:07:06.000658Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR0... [3mpeer_addr[0m[2m=[0m[::1]:17075
+[2m2026-07-27T08:07:06.001080Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.002147Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.013325Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.025695Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.037462Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR1... [3mpeer_addr[0m[2m=[0m[::1]:17085
+[2m2026-07-27T08:07:06.037881Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.038694Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.049743Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.061509Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.073377Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR2... [3mpeer_addr[0m[2m=[0m[::1]:17095
+[2m2026-07-27T08:07:06.073659Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.074184Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.085030Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.097249Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.108125Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR3... [3mpeer_addr[0m[2m=[0m[::1]:17105
+[2m2026-07-27T08:07:06.108426Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.108985Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.120103Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.131298Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-07-27T08:07:06.141837Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to websocket...
+[2m2026-07-27T08:07:06.142784Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Starting with 25 BPS
+[2m2026-07-27T08:07:07.144123Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 31 blocks | 25 bps | 36 cps | avg conf time: 168 ms
+[2m2026-07-27T08:07:08.144962Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 62 blocks | 25 bps | 30 cps | avg conf time: 157 ms
+[2m2026-07-27T08:07:09.146792Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 87 blocks | 25 bps | 24 cps | avg conf time: 169 ms
+[2m2026-07-27T08:07:09.696760Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirming 100 blocks took 3.55s
+[2m2026-07-27T08:07:09.696925Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmation rate: 28 cps
+[2m2026-07-27T08:07:09.696961Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Average conf time: 165 ms

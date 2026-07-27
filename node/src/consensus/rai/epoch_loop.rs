@@ -258,7 +258,6 @@ impl RaiEpochLoop {
         }
 
         self.publish_missing_close_cut_first_votes(epoch, now);
-        self.start_updated_close_cut_attempt(epoch, now);
         self.handle_close_attempt_outcomes(epoch, now);
         self.maybe_timeout_close_attempt(epoch, now);
         self.handle_close_attempt_outcomes(epoch, now);
@@ -526,61 +525,6 @@ impl RaiEpochLoop {
                     .insert((epoch, attempt), close_hash);
             }
         }
-    }
-
-    fn start_updated_close_cut_attempt(&mut self, epoch: RaiEpoch, now: Instant) {
-        let Some((latest_attempt, voted_hash)) = ({
-            let close_state = self.close_state.read().unwrap();
-            if close_state.cut_set(epoch).is_some() {
-                return;
-            }
-
-            let latest_attempt = match close_state.started_close_attempts(epoch).into_iter().max() {
-                Some(attempt) => attempt,
-                None => return,
-            };
-
-            if close_state.close_attempt_processed(epoch, latest_attempt)
-                || self.timeout_votes_sent.contains(&(epoch, latest_attempt))
-            {
-                return;
-            }
-
-            self.close_attempt_voted_hash
-                .get(&(epoch, latest_attempt))
-                .copied()
-                .map(|hash| (latest_attempt, hash))
-        }) else {
-            return;
-        };
-
-        let election_id = close_cut_election_id(epoch, latest_attempt);
-        if self
-            .active_elections
-            .election(&election_id)
-            .is_some_and(|election| election.status() == RaiElectionStatus::DrainComplete)
-        {
-            return;
-        }
-
-        let close_hash = {
-            let mut close_state = self.close_state.write().unwrap();
-            if close_state.cut_set(epoch).is_some() {
-                return;
-            }
-            close_state.record_current_close_value(epoch)
-        };
-        if close_hash == voted_hash {
-            return;
-        }
-
-        let Some(next_attempt) = latest_attempt.checked_add(1) else {
-            return;
-        };
-        tracing::info!(
-            "RAI close cut visible set changed; starting next election: epoch={epoch} attempt={next_attempt} close_hash={close_hash}"
-        );
-        self.start_close_attempt(epoch, next_attempt, now);
     }
 
     fn handle_close_attempt_outcomes(&mut self, epoch: RaiEpoch, now: Instant) {
@@ -1188,6 +1132,9 @@ impl RaiEpochLoop {
             return;
         }
 
+        self.vote_processor
+            .confirm_close_record_blocks(epoch, &hash);
+
         let (advanced_to, advance_error, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
             let _ = close_state.certify_close_record(epoch, &hash);
@@ -1526,7 +1473,7 @@ mod tests {
     }
 
     #[test]
-    fn close_cut_update_uses_next_attempt_when_visible_set_expands() {
+    fn close_cut_update_does_not_start_next_attempt_without_death_or_carry() {
         let mut fixture = Fixture::two_members();
         fixture.mark_slot_visible();
         let close_start = fixture.expired_epoch_time();
@@ -1572,24 +1519,22 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(first_attempt_votes.len(), 1);
-        assert_eq!(second_attempt_votes.len(), 1);
+        assert!(second_attempt_votes.is_empty());
         assert_eq!(
             first_attempt_votes[0].value,
             RaiElectionValue::CloseCutHash(first_hash)
-        );
-        assert_eq!(
-            second_attempt_votes[0].value,
-            RaiElectionValue::CloseCutHash(updated_hash)
         );
 
         let first_attempt = fixture
             .active_elections
             .election(&close_cut_election_id(0, 0))
             .unwrap();
-        let second_attempt = fixture
-            .active_elections
-            .election(&close_cut_election_id(0, 1))
-            .unwrap();
+        assert!(
+            fixture
+                .active_elections
+                .election(&close_cut_election_id(0, 1))
+                .is_none()
+        );
         assert_eq!(
             first_attempt.tally(&RaiElectionValue::CloseCutHash(first_hash)),
             1
@@ -1597,10 +1542,6 @@ mod tests {
         assert_eq!(
             first_attempt.tally(&RaiElectionValue::CloseCutHash(updated_hash)),
             0
-        );
-        assert_eq!(
-            second_attempt.tally(&RaiElectionValue::CloseCutHash(updated_hash)),
-            1
         );
     }
 

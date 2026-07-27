@@ -69,7 +69,9 @@ impl NanoSpamApp {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        self.tracing_init.init();
+        if !self.args.summary_only {
+            self.tracing_init.init();
+        }
 
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
@@ -201,17 +203,68 @@ impl NanoSpamApp {
                 }
             });
         });
-        let duration_secs = started.elapsed().as_secs_f64();
+        let elapsed = started.elapsed();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
-        let cps = (created_blocks as f64 / duration_secs) as i32;
-        info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
-        info!("Confirmation rate: {cps} cps");
-        let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
-        info!("Average conf time: {conf_time} ms");
+        println!(
+            "{}",
+            completion_summary(
+                created_blocks,
+                logic.confirmed_total,
+                logic.current_bps,
+                logic.sum_conf_time_total,
+                elapsed,
+            )
+        );
 
         Ok(())
     }
+}
+
+fn completion_summary(
+    created_blocks: usize,
+    confirmed_blocks: usize,
+    target_blocks_per_second: usize,
+    total_confirmation_time: Duration,
+    elapsed: Duration,
+) -> String {
+    let status = if created_blocks == confirmed_blocks {
+        "PASS"
+    } else {
+        "FAIL"
+    };
+    let offered_rate = rate_per_second_milli(created_blocks, elapsed);
+    let throughput = rate_per_second_milli(confirmed_blocks, elapsed);
+    let average_confirmation_time_ms = if confirmed_blocks == 0 {
+        0
+    } else {
+        total_confirmation_time.as_millis() / confirmed_blocks as u128
+    };
+
+    format!(
+        "event=NANOSPAM_COMPLETE status={status} finalized_requests={confirmed_blocks}/{created_blocks} target_blocks_per_second={target_blocks_per_second} end_to_end_offered_blocks_per_second={} throughput_blocks_per_second={} throughput_slots_per_second={} avg_slot_finalization_latency_ms={average_confirmation_time_ms} elapsed_ms={}",
+        fixed_milli(offered_rate),
+        fixed_milli(throughput),
+        fixed_milli(throughput),
+        elapsed.as_millis(),
+    )
+}
+
+fn rate_per_second_milli(count: usize, elapsed: Duration) -> u64 {
+    let elapsed_nanos = elapsed.as_nanos();
+    if elapsed_nanos == 0 {
+        return 0;
+    }
+
+    let rate = (count as u128)
+        .saturating_mul(1_000_000_000_000)
+        .checked_div(elapsed_nanos)
+        .unwrap_or(0);
+    rate.min(u64::MAX as u128) as u64
+}
+
+fn fixed_milli(value: u64) -> String {
+    format!("{}.{:03}", value / 1_000, value % 1_000)
 }
 
 fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
@@ -437,5 +490,35 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_summary_reports_simulation_style_metrics() {
+        let summary = completion_summary(
+            1_000,
+            900,
+            250,
+            Duration::from_secs(9),
+            Duration::from_secs(5),
+        );
+
+        assert_eq!(
+            summary,
+            "event=NANOSPAM_COMPLETE status=FAIL finalized_requests=900/1000 target_blocks_per_second=250 end_to_end_offered_blocks_per_second=200.000 throughput_blocks_per_second=180.000 throughput_slots_per_second=180.000 avg_slot_finalization_latency_ms=10 elapsed_ms=5000"
+        );
+    }
+
+    #[test]
+    fn completion_summary_handles_an_empty_instant_run() {
+        let summary = completion_summary(0, 0, 1, Duration::ZERO, Duration::ZERO);
+
+        assert!(summary.contains("status=PASS"));
+        assert!(summary.contains("throughput_blocks_per_second=0.000"));
+        assert!(summary.contains("avg_slot_finalization_latency_ms=0"));
     }
 }

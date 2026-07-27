@@ -189,6 +189,26 @@ impl RaiCloseState {
             .and_then(|state| state.visibility.close_value(hash))
     }
 
+    pub fn hash_close_cut(slots: &VisibleSlots) -> BlockHash {
+        RaiVisibilityTracker::hash_visible_slots(slots)
+    }
+
+    pub fn cache_close_value(
+        &mut self,
+        epoch: RaiEpoch,
+        hash: BlockHash,
+        slots: VisibleSlots,
+    ) -> bool {
+        if Self::hash_close_cut(&slots) != hash {
+            return false;
+        }
+        self.epoch_mut(epoch)
+            .visibility
+            .close_values
+            .insert(hash, slots)
+            .is_none()
+    }
+
     pub fn close_values(&self, epoch: RaiEpoch) -> Option<&HashMap<BlockHash, VisibleSlots>> {
         self.epoch(epoch)
             .map(|state| state.visibility.close_values())
@@ -292,6 +312,22 @@ impl RaiCloseState {
             .and_then(|state| state.close_record_values.get(hash))
     }
 
+    pub fn cache_close_record_value(
+        &mut self,
+        epoch: RaiEpoch,
+        hash: BlockHash,
+        record: RaiCloseRecord,
+        entries: CloseRecordEntries,
+    ) -> bool {
+        if record.epoch != epoch || record.hash() != hash {
+            return false;
+        }
+        self.epoch_mut(epoch)
+            .close_record_values
+            .insert(hash, RaiCloseRecordValue { record, entries })
+            .is_none()
+    }
+
     pub fn has_close_record_value(&self, epoch: RaiEpoch, hash: &BlockHash) -> bool {
         self.close_record_value(epoch, hash).is_some()
     }
@@ -299,6 +335,12 @@ impl RaiCloseState {
     pub fn has_close_record_values(&self, epoch: RaiEpoch) -> bool {
         self.epoch(epoch)
             .is_some_and(|state| !state.close_record_values.is_empty())
+    }
+
+    pub fn close_record_hashes(&self, epoch: RaiEpoch) -> Vec<BlockHash> {
+        self.epoch(epoch)
+            .map(|state| state.close_record_values.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     pub fn certified_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {

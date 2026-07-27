@@ -18,6 +18,8 @@ pub enum Message {
     RaiVote(rsnano_types::RaiVote),
     #[cfg(feature = "rai_protocol")]
     RaiPendingReport(rsnano_types::RaiPendingReport),
+    #[cfg(feature = "rai_protocol")]
+    RaiReconciliation(crate::RaiReconciliation),
     FrontierReq(FrontierReq),
     Handshake(Handshake),
     TelemetryAck(TelemetryAck),
@@ -74,8 +76,16 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::RaiPendingReport) => {
                 Self::InvalidRaiPendingReportMessage
             }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiReconciliation) => {
+                Self::InvalidRaiVoteMessage
+            }
             #[cfg(not(feature = "rai_protocol"))]
             ParseMessageError::InvalidMessage(MessageType::RaiPendingReport) => {
+                Self::InvalidMessageType
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            ParseMessageError::InvalidMessage(MessageType::RaiReconciliation) => {
                 Self::InvalidMessageType
             }
             ParseMessageError::InvalidMessage(MessageType::Handshake) => {
@@ -144,6 +154,8 @@ impl Message {
             Message::RaiVote(_) => MessageType::RaiVote,
             #[cfg(feature = "rai_protocol")]
             Message::RaiPendingReport(_) => MessageType::RaiPendingReport,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReconciliation(_) => MessageType::RaiReconciliation,
             Message::FrontierReq(_) => MessageType::FrontierReq,
             Message::Handshake(_) => MessageType::Handshake,
             Message::TelemetryAck(_) => MessageType::TelemetryAck,
@@ -165,6 +177,8 @@ impl Message {
             Message::RaiVote(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::RaiPendingReport(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReconciliation(x) => Some(x),
             Message::FrontierReq(x) => Some(x),
             Message::Handshake(x) => Some(x),
             Message::TelemetryAck(x) => Some(x),
@@ -196,6 +210,8 @@ impl Message {
             Message::RaiVote(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::RaiPendingReport(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReconciliation(m) => m.serialize(writer),
             Message::FrontierReq(m) => m.serialize(writer),
             Message::Handshake(m) => m.serialize(writer),
             Message::TelemetryAck(m) => m.serialize(writer),
@@ -237,8 +253,14 @@ impl Message {
                     payload, count,
                 )?)
             }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReconciliation => Message::RaiReconciliation(
+                crate::RaiReconciliation::deserialize(payload, header.extensions)?,
+            ),
             #[cfg(not(feature = "rai_protocol"))]
-            MessageType::RaiVote | MessageType::RaiPendingReport => {
+            MessageType::RaiVote
+            | MessageType::RaiPendingReport
+            | MessageType::RaiReconciliation => {
                 return Err(DeserializationError::InvalidData);
             }
             MessageType::FrontierReq => {

@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashMap;
 use std::{
     net::SocketAddrV6,
     sync::{Arc, Mutex, RwLock},
@@ -10,6 +12,8 @@ use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::TrafficType;
 use rsnano_network::{Channel, Network};
 use rsnano_types::VoteDelivery;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{BlockHash, RaiElectionId, RaiVote};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
@@ -43,6 +47,8 @@ pub struct NetworkMessageProcessor {
     rai_pending_report_processor: Arc<RaiPendingReportProcessor>,
     #[cfg(feature = "rai_protocol")]
     rai_message_flooder: Mutex<MessageFlooder>,
+    #[cfg(feature = "rai_protocol")]
+    pending_close_votes: Mutex<HashMap<BlockHash, Vec<RaiVote>>>,
     telemetry: Arc<Telemetry>,
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
@@ -82,6 +88,8 @@ impl NetworkMessageProcessor {
             rai_pending_report_processor,
             #[cfg(feature = "rai_protocol")]
             rai_message_flooder: Mutex::new(rai_message_flooder),
+            #[cfg(feature = "rai_protocol")]
+            pending_close_votes: Mutex::new(HashMap::new()),
             telemetry,
             bootstrap_responder,
             bootstrapper,
@@ -217,6 +225,26 @@ impl NetworkMessageProcessor {
             Message::AscPullAck(ack) => self.bootstrapper.process(ack),
             #[cfg(feature = "rai_protocol")]
             Message::RaiVote(vote) => {
+                let requests = self
+                    .rai_vote_processor
+                    .reconciliation_requests_for_vote(&vote);
+                if !requests.is_empty() {
+                    if let Some(target) = close_vote_hash(&vote) {
+                        let mut pending = self.pending_close_votes.lock().unwrap();
+                        let votes = pending.entry(target).or_default();
+                        if !votes.contains(&vote) {
+                            votes.push(vote.clone());
+                        }
+                    }
+                    let mut sender = self.rai_message_flooder.lock().unwrap();
+                    for request in requests {
+                        sender.try_send_channel_id(
+                            channel.channel_id(),
+                            &Message::RaiReconciliation(request),
+                            TrafficType::Generic,
+                        );
+                    }
+                }
                 if self.rai_vote_processor.process(&vote).is_ok() {
                     self.rai_message_flooder.lock().unwrap().flood(
                         &Message::RaiVote(vote),
@@ -235,6 +263,52 @@ impl NetworkMessageProcessor {
                     );
                 }
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReconciliation(message) => match &message {
+                rsnano_messages::RaiReconciliation::Request(request) => {
+                    let response = self.rai_vote_processor.reconciliation_response(request);
+                    self.rai_message_flooder
+                        .lock()
+                        .unwrap()
+                        .try_send_channel_id(
+                            channel.channel_id(),
+                            &Message::RaiReconciliation(response),
+                            TrafficType::Generic,
+                        );
+                }
+                rsnano_messages::RaiReconciliation::CutDelta { target_hash, .. }
+                | rsnano_messages::RaiReconciliation::FrontierDelta { target_hash, .. } => {
+                    let attempt = self
+                        .pending_close_votes
+                        .lock()
+                        .unwrap()
+                        .get(target_hash)
+                        .and_then(|votes| votes.first())
+                        .and_then(close_vote_attempt)
+                        .unwrap_or(0);
+                    if self
+                        .rai_vote_processor
+                        .apply_reconciliation(&message, attempt)
+                    {
+                        let votes = self
+                            .pending_close_votes
+                            .lock()
+                            .unwrap()
+                            .remove(target_hash)
+                            .unwrap_or_default();
+                        for vote in votes {
+                            if self.rai_vote_processor.process(&vote).is_ok() {
+                                self.rai_message_flooder.lock().unwrap().flood(
+                                    &Message::RaiVote(vote),
+                                    TrafficType::Generic,
+                                    1.0,
+                                );
+                            }
+                        }
+                    }
+                }
+                rsnano_messages::RaiReconciliation::Miss(_) => {}
+            },
             Message::FrontierReq(_)
             | Message::BulkPush
             | Message::BulkPull(_)
@@ -242,5 +316,24 @@ impl NetworkMessageProcessor {
                 // obsolete messages
             }
         }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn close_vote_hash(vote: &RaiVote) -> Option<BlockHash> {
+    match vote.value {
+        rsnano_types::RaiElectionValue::CloseCutHash(hash)
+        | rsnano_types::RaiElectionValue::CloseRecordHash(hash) => Some(hash),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn close_vote_attempt(vote: &RaiVote) -> Option<u64> {
+    match vote.election_id {
+        RaiElectionId::CloseCut { attempt, .. } | RaiElectionId::CloseRecord { attempt, .. } => {
+            Some(attempt)
+        }
+        _ => None,
     }
 }
