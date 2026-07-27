@@ -1263,12 +1263,13 @@ impl Node {
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
         #[cfg(feature = "rai_protocol")]
-        let rai_slot_activator = Arc::new(RaiSlotElectionActivator::new(
+        let rai_slot_activator = Arc::new(RaiSlotElectionActivator::new_async(
             rai_active_elections.clone(),
             rai_close_state.clone(),
             rai_vote_processor.clone(),
             wallet_reps.clone(),
             message_flooder.clone(),
+            workers.clone(),
         ));
         #[cfg(feature = "rai_protocol")]
         election_schedulers

@@ -12,13 +12,16 @@ use crate::{
     block_processing::LedgerPipelineEvent, transport::MessageFlooder,
     wallets::WalletRepresentatives,
 };
+use rsnano_utils::thread_pool::ThreadPool;
 
+#[derive(Clone)]
 pub struct RaiSlotElectionActivator {
     active_elections: Arc<RaiActiveElections>,
     close_state: Arc<RwLock<RaiCloseState>>,
     vote_processor: Arc<RaiVoteProcessor>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     message_flooder: Arc<Mutex<MessageFlooder>>,
+    executor: Option<Arc<ThreadPool>>,
 }
 
 impl RaiSlotElectionActivator {
@@ -35,13 +38,34 @@ impl RaiSlotElectionActivator {
             vote_processor,
             wallet_reps,
             message_flooder,
+            executor: None,
+        }
+    }
+
+    pub fn new_async(
+        active_elections: Arc<RaiActiveElections>,
+        close_state: Arc<RwLock<RaiCloseState>>,
+        vote_processor: Arc<RaiVoteProcessor>,
+        wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+        message_flooder: Arc<Mutex<MessageFlooder>>,
+        executor: Arc<ThreadPool>,
+    ) -> Self {
+        Self {
+            active_elections,
+            close_state,
+            vote_processor,
+            wallet_reps,
+            message_flooder,
+            executor: Some(executor),
         }
     }
 
     fn activate_processed(&self, results: &[ProcessResult]) {
         for result in results {
-            if result.source == BlockSource::Local
-                && result.status.is_ok()
+            if matches!(
+                result.source,
+                BlockSource::Local | BlockSource::Live | BlockSource::LiveOriginator
+            ) && result.status.is_ok()
                 && let Some(block) = result.saved_block.as_ref()
             {
                 self.activate_block(block);
@@ -64,9 +88,11 @@ impl RaiSlotElectionActivator {
 
         let election_id = RaiElectionId::Slot { slot, epoch };
         match self.active_elections.insert(election_id.clone()) {
-            Ok(()) | Err(RaiElectionInsertError::Duplicate) => {
-                self.publish_local_first_votes(election_id, block.hash())
-            }
+            Ok(()) => self.publish_local_first_votes(election_id, block.hash()),
+            // Another activation path already owns this election.  Treat the
+            // scheduler candidate as consumed; republishing our first vote here
+            // would only be a replay and cause the scheduler to requeue forever.
+            Err(RaiElectionInsertError::Duplicate) => true,
             Err(RaiElectionInsertError::Stopped) => false,
         }
     }
@@ -83,23 +109,18 @@ impl RaiSlotElectionActivator {
         let mut published = false;
         for key in rep_keys {
             let value = RaiElectionValue::Block(block_hash);
-            let votes = [
-                RaiVote::new_first(&key, election_id.clone(), value.clone()),
-                RaiVote::new_notarization(&key, election_id.clone(), value.clone()),
-                RaiVote::new_final(&key, election_id.clone(), value.clone()),
-            ];
-            for vote in votes {
-                if self.vote_processor.process(&vote).is_ok() {
-                    self.message_flooder.lock().unwrap().flood(
-                        &Message::RaiVote(vote),
-                        TrafficType::Generic,
-                        1.0,
-                    );
-                    published = true;
-                }
-                if !self.active_elections.contains(&election_id) {
-                    break;
-                }
+            // A first vote already contributes notarization weight.  A separate
+            // notarization (second-look) vote and a final vote are state-machine
+            // transitions and must only be generated after their predicates have
+            // become enabled by observed votes.
+            let vote = RaiVote::new_first(&key, election_id.clone(), value);
+            if self.vote_processor.process(&vote).is_ok() {
+                self.message_flooder.lock().unwrap().flood(
+                    &Message::RaiVote(vote),
+                    TrafficType::Generic,
+                    1.0,
+                );
+                published = true;
             }
         }
         published
@@ -119,7 +140,13 @@ impl PriorityElectionActivator for RaiSlotElectionActivator {
 impl EventHandler<LedgerPipelineEvent> for RaiSlotElectionActivator {
     fn handle(&self, event: &LedgerPipelineEvent) {
         if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
-            self.activate_processed(results);
+            if let Some(executor) = &self.executor {
+                let this = self.clone();
+                let results = results.clone();
+                executor.execute(move || this.activate_processed(&results));
+            } else {
+                self.activate_processed(results);
+            }
         }
     }
 }
@@ -166,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn live_processed_block_is_left_for_scheduler() {
+    fn live_processed_block_starts_slot_election() {
         let fixture = Fixture::new();
         let block = SavedBlock::new_test_instance();
         let event =
@@ -179,7 +206,7 @@ mod tests {
         fixture.activator.handle(&event);
 
         let election_id = slot_election_id(&block);
-        assert!(!fixture.active_elections.contains(&election_id));
+        assert!(fixture.active_elections.contains(&election_id));
     }
 
     #[test]
