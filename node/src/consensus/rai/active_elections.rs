@@ -443,6 +443,49 @@ impl RaiElection {
             .collect()
     }
 
+    /// Returns the committee-local second-look notarization actions enabled
+    /// for `voter`. A non-timeout value becomes eligible once its first-vote
+    /// support is strictly greater than F + P.
+    pub fn second_look_ready_committee_values(
+        &self,
+        voter: &PublicKey,
+        committees: &RaiCommitteeSet,
+    ) -> Vec<(usize, RaiElectionValue)> {
+        if self.status == RaiElectionStatus::DrainComplete {
+            return Vec::new();
+        }
+
+        let mut actions = Vec::new();
+        for (committee_index, committee) in committees.iter().enumerate() {
+            if !committee.contains(voter) {
+                continue;
+            }
+
+            let key = RaiCommitteeVoteKey {
+                voter: *voter,
+                committee_index,
+            };
+            let Some(state) = self.vote_states.get(&key) else {
+                continue;
+            };
+            if state.first.is_none() || state.final_vote.is_some() {
+                continue;
+            }
+
+            let threshold =
+                committee.thresholds().max_faulty + committee.thresholds().max_offline + 1;
+            for (value, counts) in &self.tallies {
+                if value != &RaiElectionValue::Timeout
+                    && !state.notarized.contains(value)
+                    && counts.count_for(committee_index) >= threshold
+                {
+                    actions.push((committee_index, value.clone()));
+                }
+            }
+        }
+        actions
+    }
+
     pub fn finalized_block(&self, committees: &RaiCommitteeSet) -> Option<BlockHash> {
         match self.merged_outcome(committees) {
             Some(RaiElectionOutcome::Fast(RaiElectionValue::Block(block)))
@@ -1019,6 +1062,62 @@ mod tests {
         let election = elections.election(&election_id).unwrap();
         assert_eq!(election.tally(&value), 1);
         assert_eq!(election.winner(), Some(&value));
+    }
+
+    #[test]
+    fn enables_second_look_after_three_of_six_matching_first_votes() {
+        let elections = RaiActiveElections::new();
+        let election_id = RaiElectionId::CloseCut {
+            epoch: 1,
+            attempt: 0,
+        };
+        let value = RaiElectionValue::CloseCutHash(BlockHash::from(7));
+        let keys: Vec<_> = (1..=6).map(PrivateKey::from).collect();
+        let committees = committee([
+            (keys[0].public_key(), Amount::raw(100)),
+            (keys[1].public_key(), Amount::raw(100)),
+            (keys[2].public_key(), Amount::raw(100)),
+            (keys[3].public_key(), Amount::raw(100)),
+            (keys[4].public_key(), Amount::raw(100)),
+            (keys[5].public_key(), Amount::raw(100)),
+        ]);
+        elections.insert(election_id.clone()).unwrap();
+
+        for key in keys.iter().take(3) {
+            elections
+                .apply_vote(
+                    &RaiVote::new_first(key, election_id.clone(), value.clone()),
+                    &committees,
+                )
+                .unwrap();
+        }
+
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(
+            election.second_look_ready_committee_values(&keys[0].public_key(), &committees),
+            vec![(0, value.clone())]
+        );
+        assert!(
+            election
+                .second_look_ready_committee_values(&keys[3].public_key(), &committees)
+                .is_empty()
+        );
+
+        for key in keys.iter().skip(3).take(2) {
+            elections
+                .apply_vote(
+                    &RaiVote::new_first(key, election_id.clone(), value.clone()),
+                    &committees,
+                )
+                .unwrap();
+        }
+        let election = elections.election(&election_id).unwrap();
+        assert_eq!(election.status(), RaiElectionStatus::DrainComplete);
+        assert!(
+            election
+                .second_look_ready_committee_values(&keys[0].public_key(), &committees)
+                .is_empty()
+        );
     }
 
     #[test]

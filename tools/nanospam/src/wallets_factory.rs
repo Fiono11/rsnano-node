@@ -4,7 +4,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_rpc_messages::{ReceiveArgs, SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
+use rsnano_rpc_messages::{SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
 use rsnano_types::{Amount, Block, BlockHash, JsonBlock, StateBlockArgs, WalletId, WorkNonce};
 
 use crate::{
@@ -71,29 +71,27 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap()
                 .block;
-            // The recipient must locally confirm the send before its wallet can
-            // create the receive block.
-            wait_until_confirmed(rpc_client, send_hash).await;
+            wait_until_confirmed(genesis_rpc, send_hash).await;
 
             info!("Receiving...");
-            // trigger wallet receive to speed things up
-            let _ = rpc_client
-                .receive(ReceiveArgs {
-                    wallet: resp.wallet,
-                    account: pr_key.account(),
-                    block: send_hash,
-                    work: Some(WorkNonce::new(0)),
-                })
-                .await;
-            let recv_hash = rpc_client
-                .account_info(pr_key.account())
+            // Construct and submit the open block through PR0. RAI followers
+            // can apply finalized blocks without locally cementing them, so
+            // making setup depend on the recipient's confirmation height can
+            // otherwise stall forever.
+            let receive: Block = StateBlockArgs {
+                key: &pr_key,
+                previous: BlockHash::ZERO,
+                representative: pr_key.public_key(),
+                balance: pr_balance,
+                link: send_hash.into(),
+                work: WorkNonce::new(0),
+            }
+            .into();
+            let recv_hash = genesis_rpc
+                .process(JsonBlock::from(receive))
                 .await
                 .unwrap()
-                .frontier;
-            // PR0 is the confirmation source used by the spam run's websocket
-            // tracker. RAI followers can apply a receive block before locally
-            // cementing it, so waiting on the recipient can stall forever even
-            // though PR0 has already finalized the block.
+                .hash;
             wait_until_confirmed(genesis_rpc, recv_hash).await;
             info!("DONE");
             info!(

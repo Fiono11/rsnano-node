@@ -15,15 +15,35 @@ pub(crate) fn log_received_message(message: &Message) {
 
 pub(crate) fn closed_epoch(message: &Message) -> Option<u64> {
     #[cfg(feature = "rai_protocol")]
-    if let Message::RaiVote(vote) = message
-        && vote.kind == RaiVoteKind::Final
-        && let RaiElectionId::CloseRecord { epoch, .. } = vote.election_id
     {
-        return Some(epoch);
+        if let Message::RaiVote(vote) = message
+            && vote.kind == RaiVoteKind::Final
+            && let RaiElectionId::CloseRecord { epoch, .. } = vote.election_id
+        {
+            return Some(epoch);
+        }
+
+        // A close normally takes the fast path, whose certificate consists of
+        // first votes and therefore has no standalone "close completed"
+        // message. Observing any message in epoch e proves that e - 1 was
+        // installed and closed locally.
+        let observed_epoch = match message {
+            Message::RaiVote(vote) => match &vote.election_id {
+                RaiElectionId::Slot { epoch, .. }
+                | RaiElectionId::CloseCut { epoch, .. }
+                | RaiElectionId::CloseRecord { epoch, .. } => Some(*epoch),
+            },
+            Message::RaiPendingReport(report) => Some(report.epoch),
+            _ => None,
+        };
+        observed_epoch.and_then(|epoch| epoch.checked_sub(1))
     }
 
-    let _ = message;
-    None
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        let _ = message;
+        None
+    }
 }
 
 #[cfg(feature = "rai_protocol")]

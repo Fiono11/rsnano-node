@@ -258,6 +258,7 @@ impl RaiEpochLoop {
         }
 
         self.publish_missing_close_cut_first_votes(epoch, now);
+        self.publish_close_second_look_votes(epoch, false);
         self.handle_close_attempt_outcomes(epoch, now);
         self.maybe_timeout_close_attempt(epoch, now);
         self.handle_close_attempt_outcomes(epoch, now);
@@ -265,6 +266,7 @@ impl RaiEpochLoop {
         self.try_drain_cut(epoch, now);
         self.maybe_start_close_record_attempt(epoch, now);
         self.publish_missing_close_record_first_votes(epoch, now);
+        self.publish_close_second_look_votes(epoch, true);
         self.handle_close_record_attempt_outcomes(epoch, now);
         self.maybe_timeout_close_record_attempt(epoch, now);
         self.handle_close_record_attempt_outcomes(epoch, now);
@@ -725,6 +727,53 @@ impl RaiEpochLoop {
         }
 
         published
+    }
+
+    fn publish_close_second_look_votes(&self, epoch: RaiEpoch, close_record: bool) {
+        let attempts = if close_record {
+            self.close_state
+                .read()
+                .unwrap()
+                .started_close_record_attempts(epoch)
+        } else {
+            self.close_state
+                .read()
+                .unwrap()
+                .started_close_attempts(epoch)
+        };
+
+        for attempt in attempts {
+            let election_id = if close_record {
+                close_record_election_id(epoch, attempt)
+            } else {
+                close_cut_election_id(epoch, attempt)
+            };
+            let Some(committees) = self.committee_provider.try_committees_for(&election_id) else {
+                continue;
+            };
+            let Some(election) = self.active_elections.election(&election_id) else {
+                continue;
+            };
+
+            for key in self.local_rep_keys_for_election(&election_id) {
+                for (committee_index, value) in
+                    election.second_look_ready_committee_values(&key.public_key(), &committees)
+                {
+                    let Ok(committee_index) = u8::try_from(committee_index) else {
+                        continue;
+                    };
+                    let vote = RaiVote::new_notarization_scoped(
+                        &key,
+                        committee_index,
+                        election_id.clone(),
+                        value,
+                    );
+                    if self.vote_processor.process(&vote).is_ok() {
+                        self.publisher.publish_vote(vote);
+                    }
+                }
+            }
+        }
     }
 
     fn local_rep_keys_for_election(&self, election_id: &RaiElectionId) -> Vec<PrivateKey> {
@@ -1290,7 +1339,21 @@ mod tests {
             fixture.publisher.reports.lock().unwrap()[0].slots,
             vec![fixture.slot]
         );
-        assert_eq!(fixture.publisher.votes.lock().unwrap().len(), 1);
+        let votes = fixture.publisher.votes.lock().unwrap();
+        assert_eq!(
+            votes
+                .iter()
+                .filter(|vote| vote.kind == RaiVoteKind::First)
+                .count(),
+            1
+        );
+        assert_eq!(
+            votes
+                .iter()
+                .filter(|vote| vote.kind == RaiVoteKind::Notarization)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1430,7 +1493,9 @@ mod tests {
         let votes = fixture.publisher.votes.lock().unwrap();
         let close_cut_votes = votes
             .iter()
-            .filter(|vote| vote.election_id == close_cut_election_id(0, 0))
+            .filter(|vote| {
+                vote.election_id == close_cut_election_id(0, 0) && vote.kind == RaiVoteKind::First
+            })
             .collect::<Vec<_>>();
         assert_eq!(close_cut_votes.len(), 1);
         assert_eq!(close_cut_votes[0].voter, fixture.local_key.public_key());
@@ -1598,7 +1663,10 @@ mod tests {
         let votes = fixture.publisher.votes.lock().unwrap();
         let close_record_votes = votes
             .iter()
-            .filter(|vote| vote.election_id == close_record_election_id(0, 0))
+            .filter(|vote| {
+                vote.election_id == close_record_election_id(0, 0)
+                    && vote.kind == RaiVoteKind::First
+            })
             .collect::<Vec<_>>();
         assert_eq!(close_record_votes.len(), 1);
         assert_eq!(close_record_votes[0].voter, fixture.local_key.public_key());
