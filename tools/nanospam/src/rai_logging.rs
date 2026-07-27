@@ -13,6 +13,19 @@ pub(crate) fn log_received_message(message: &Message) {
     let _ = message;
 }
 
+pub(crate) fn closed_epoch(message: &Message) -> Option<u64> {
+    #[cfg(feature = "rai_protocol")]
+    if let Message::RaiVote(vote) = message
+        && vote.kind == RaiVoteKind::Final
+        && let RaiElectionId::CloseRecord { epoch, .. } = vote.election_id
+    {
+        return Some(epoch);
+    }
+
+    let _ = message;
+    None
+}
+
 #[cfg(feature = "rai_protocol")]
 fn log_rai_message(message: &Message) {
     match message {

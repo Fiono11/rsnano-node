@@ -22,14 +22,47 @@ use super::{
 const SNAPSHOT_VERSION: u8 = 8;
 const CLOSE_STATE_KEY: &[u8] = b"close_state";
 const ACTIVE_ELECTIONS_KEY: &[u8] = b"active_elections";
+const ACTIVE_ELECTION_PREFIX: &[u8] = b"active_election/";
 const VOTE_SAFETY_KEY: &[u8] = b"vote_safety";
+const VOTE_SAFETY_PREFIX: &[u8] = b"vote_safety/";
+const EPOCH_SLOT_PREFIX: &[u8] = b"epoch_slot/";
 const COMMITTEES_KEY: &[u8] = b"committees";
 const REP_WEIGHT_SNAPSHOTS_KEY: &[u8] = b"rep_weight_snapshots";
 
 pub trait RaiStatePersistence: Send + Sync {
     fn save_close_state(&self, _snapshot: &RaiCloseStateSnapshot) {}
     fn save_active_elections(&self, _snapshot: &RaiActiveElectionsSnapshot) {}
+    fn save_active_election(&self, _snapshot: &RaiElectionSnapshot) {}
+    fn delete_active_election(&self, _id: &RaiElectionId) {}
     fn save_vote_safety(&self, _snapshot: &RaiVoteSafetySnapshot) {}
+    fn save_vote_safety_entry(&self, _entry: &RaiVoteSafetyEntrySnapshot) {}
+    fn save_epoch_slot(
+        &self,
+        _epoch: RaiEpoch,
+        _slot: RaiSlot,
+        _visible: bool,
+        _outcome: Option<RaiClosedSlotState>,
+        _vote_safety: Option<&RaiVoteSafetyEntrySnapshot>,
+    ) {
+    }
+    fn save_close_and_vote_safety(
+        &self,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: &RaiVoteSafetySnapshot,
+    ) {
+        self.save_close_state(close_state);
+        self.save_vote_safety(vote_safety);
+    }
+    fn save_close_and_vote_safety_entry(
+        &self,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: Option<&RaiVoteSafetyEntrySnapshot>,
+    ) {
+        self.save_close_state(close_state);
+        if let Some(entry) = vote_safety {
+            self.save_vote_safety_entry(entry);
+        }
+    }
     fn save_active_and_close(
         &self,
         active_elections: &RaiActiveElectionsSnapshot,
@@ -75,7 +108,7 @@ impl LmdbRaiStatePersistence {
 
     pub fn load(&self) -> anyhow::Result<RaiPersistedState> {
         let txn = self.ledger.store.begin_read();
-        let close_state = self
+        let mut close_state = self
             .ledger
             .store
             .rai
@@ -83,7 +116,31 @@ impl LmdbRaiStatePersistence {
             .map(|bytes| deserialize_close_state(&bytes))
             .transpose()
             .context("could not deserialize RAI close state")?;
-        let active_elections = self
+        let epoch_slots = self
+            .ledger
+            .store
+            .rai
+            .iter(&txn)
+            .filter(|(key, _)| key.starts_with(EPOCH_SLOT_PREFIX))
+            .map(|(_, bytes)| deserialize_epoch_slot(&bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .context("could not deserialize RAI epoch slots")?;
+        if !epoch_slots.is_empty() {
+            let mut state = close_state
+                .take()
+                .map(super::RaiCloseState::from_snapshot)
+                .unwrap_or_default();
+            for (epoch, slot, visible, outcome) in epoch_slots {
+                if visible {
+                    state.mark_visible(epoch, slot);
+                }
+                if let Some(outcome) = outcome {
+                    state.record_terminal_slot(epoch, slot, outcome);
+                }
+            }
+            close_state = Some(state.snapshot());
+        }
+        let legacy_active_elections = self
             .ledger
             .store
             .rai
@@ -91,7 +148,16 @@ impl LmdbRaiStatePersistence {
             .map(|bytes| deserialize_active_elections(&bytes))
             .transpose()
             .context("could not deserialize RAI active elections")?;
-        let vote_safety = self
+        let keyed_elections = self
+            .ledger
+            .store
+            .rai
+            .iter(&txn)
+            .filter(|(key, _)| key.starts_with(ACTIVE_ELECTION_PREFIX))
+            .map(|(_, bytes)| deserialize_election(&bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .context("could not deserialize keyed RAI active elections")?;
+        let legacy_vote_safety = self
             .ledger
             .store
             .rai
@@ -99,6 +165,15 @@ impl LmdbRaiStatePersistence {
             .map(|bytes| deserialize_vote_safety(&bytes))
             .transpose()
             .context("could not deserialize RAI vote safety")?;
+        let keyed_vote_safety = self
+            .ledger
+            .store
+            .rai
+            .iter(&txn)
+            .filter(|(key, _)| key.starts_with(VOTE_SAFETY_PREFIX))
+            .map(|(_, bytes)| deserialize_vote_safety_entry(&bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .context("could not deserialize keyed RAI vote safety")?;
         let committees = self
             .ledger
             .store
@@ -118,6 +193,33 @@ impl LmdbRaiStatePersistence {
             .context("could not deserialize RAI rep weight snapshots")?
             .unwrap_or_default();
 
+        let active_elections = if keyed_elections.is_empty() {
+            legacy_active_elections
+        } else {
+            Some(RaiActiveElectionsSnapshot {
+                elections: keyed_elections,
+            })
+        };
+        let vote_safety = if keyed_vote_safety.is_empty() {
+            legacy_vote_safety
+        } else {
+            Some(RaiVoteSafetySnapshot {
+                entries: keyed_vote_safety,
+            })
+        };
+
+        drop(txn);
+        if let Some(snapshot) = active_elections.as_ref()
+            && self.has_legacy_active_elections()
+        {
+            self.migrate_legacy_active_elections(snapshot);
+        }
+        if let Some(snapshot) = vote_safety.as_ref()
+            && self.has_legacy_vote_safety()
+        {
+            self.migrate_legacy_vote_safety(snapshot);
+        }
+
         Ok(RaiPersistedState {
             close_state,
             active_elections,
@@ -125,6 +227,56 @@ impl LmdbRaiStatePersistence {
             rep_weight_snapshots,
             committees,
         })
+    }
+
+    fn has_legacy_active_elections(&self) -> bool {
+        let txn = self.ledger.store.begin_read();
+        self.ledger
+            .store
+            .rai
+            .get(&txn, ACTIVE_ELECTIONS_KEY)
+            .is_some()
+    }
+
+    fn migrate_legacy_active_elections(&self, snapshot: &RaiActiveElectionsSnapshot) {
+        let mut txn = self.ledger.store.begin_write();
+        for election in &snapshot.elections {
+            self.ledger.store.rai.put(
+                &mut txn,
+                &active_election_key(&election.id),
+                &serialize_election(election),
+            );
+        }
+        if self
+            .ledger
+            .store
+            .rai
+            .get(&txn, ACTIVE_ELECTIONS_KEY)
+            .is_some()
+        {
+            self.ledger.store.rai.del(&mut txn, ACTIVE_ELECTIONS_KEY);
+        }
+        txn.commit();
+    }
+
+    fn has_legacy_vote_safety(&self) -> bool {
+        let txn = self.ledger.store.begin_read();
+        self.ledger.store.rai.get(&txn, VOTE_SAFETY_KEY).is_some()
+    }
+
+    fn migrate_legacy_vote_safety(&self, snapshot: &RaiVoteSafetySnapshot) {
+        let mut txn = self.ledger.store.begin_write();
+        for entry in &snapshot.entries {
+            self.ledger.store.rai.put(
+                &mut txn,
+                &vote_safety_entry_key(entry),
+                &serialize_vote_safety_entry(entry),
+            );
+        }
+        if self.ledger.store.rai.get(&txn, VOTE_SAFETY_KEY).is_some() {
+            self.ledger.store.rai.del(&mut txn, VOTE_SAFETY_KEY);
+        }
+        txn.commit();
     }
 
     fn put(&self, key: &[u8], value: &[u8]) {
@@ -143,8 +295,95 @@ impl RaiStatePersistence for LmdbRaiStatePersistence {
         self.put(ACTIVE_ELECTIONS_KEY, &serialize_active_elections(snapshot));
     }
 
+    fn save_active_election(&self, snapshot: &RaiElectionSnapshot) {
+        self.put(
+            &active_election_key(&snapshot.id),
+            &serialize_election(snapshot),
+        );
+    }
+
+    fn delete_active_election(&self, id: &RaiElectionId) {
+        let mut txn = self.ledger.store.begin_write();
+        let key = active_election_key(id);
+        if self.ledger.store.rai.get(&txn, &key).is_some() {
+            self.ledger.store.rai.del(&mut txn, &key);
+        }
+        txn.commit();
+    }
+
     fn save_vote_safety(&self, snapshot: &RaiVoteSafetySnapshot) {
         self.put(VOTE_SAFETY_KEY, &serialize_vote_safety(snapshot));
+    }
+
+    fn save_vote_safety_entry(&self, entry: &RaiVoteSafetyEntrySnapshot) {
+        self.put(
+            &vote_safety_entry_key(entry),
+            &serialize_vote_safety_entry(entry),
+        );
+    }
+
+    fn save_epoch_slot(
+        &self,
+        epoch: RaiEpoch,
+        slot: RaiSlot,
+        visible: bool,
+        outcome: Option<RaiClosedSlotState>,
+        vote_safety: Option<&RaiVoteSafetyEntrySnapshot>,
+    ) {
+        let mut txn = self.ledger.store.begin_write();
+        self.ledger.store.rai.put(
+            &mut txn,
+            &epoch_slot_key(epoch, slot),
+            &serialize_epoch_slot(epoch, slot, visible, outcome),
+        );
+        if let Some(entry) = vote_safety {
+            self.ledger.store.rai.put(
+                &mut txn,
+                &vote_safety_entry_key(entry),
+                &serialize_vote_safety_entry(entry),
+            );
+        }
+        txn.commit();
+    }
+
+    fn save_close_and_vote_safety(
+        &self,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: &RaiVoteSafetySnapshot,
+    ) {
+        let mut txn = self.ledger.store.begin_write();
+        self.ledger.store.rai.put(
+            &mut txn,
+            CLOSE_STATE_KEY,
+            &serialize_close_state(close_state),
+        );
+        self.ledger.store.rai.put(
+            &mut txn,
+            VOTE_SAFETY_KEY,
+            &serialize_vote_safety(vote_safety),
+        );
+        txn.commit();
+    }
+
+    fn save_close_and_vote_safety_entry(
+        &self,
+        close_state: &RaiCloseStateSnapshot,
+        vote_safety: Option<&RaiVoteSafetyEntrySnapshot>,
+    ) {
+        let mut txn = self.ledger.store.begin_write();
+        self.ledger.store.rai.put(
+            &mut txn,
+            CLOSE_STATE_KEY,
+            &serialize_close_state(close_state),
+        );
+        if let Some(entry) = vote_safety {
+            self.ledger.store.rai.put(
+                &mut txn,
+                &vote_safety_entry_key(entry),
+                &serialize_vote_safety_entry(entry),
+            );
+        }
+        txn.commit();
     }
 
     fn save_active_and_close(
@@ -242,6 +481,61 @@ fn serialize_close_state(snapshot: &RaiCloseStateSnapshot) -> Vec<u8> {
         write_close_epoch(&mut bytes, epoch);
     }
     bytes
+}
+
+fn epoch_slot_key(epoch: RaiEpoch, slot: RaiSlot) -> Vec<u8> {
+    let mut key = EPOCH_SLOT_PREFIX.to_vec();
+    write_u64(&mut key, epoch);
+    slot.serialize(&mut key).unwrap();
+    key
+}
+
+fn serialize_epoch_slot(
+    epoch: RaiEpoch,
+    slot: RaiSlot,
+    visible: bool,
+    outcome: Option<RaiClosedSlotState>,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    write_version(&mut bytes);
+    write_u64(&mut bytes, epoch);
+    slot.serialize(&mut bytes).unwrap();
+    bytes.push(u8::from(visible));
+    match outcome {
+        None => bytes.push(0),
+        Some(RaiClosedSlotState::Finalized(hash)) => {
+            bytes.push(1);
+            hash.serialize(&mut bytes).unwrap();
+        }
+        Some(RaiClosedSlotState::Carry(hash)) => {
+            bytes.push(2);
+            hash.serialize(&mut bytes).unwrap();
+        }
+        Some(RaiClosedSlotState::Released) => bytes.push(3),
+    }
+    bytes
+}
+
+fn deserialize_epoch_slot(
+    mut bytes: &[u8],
+) -> Result<(RaiEpoch, RaiSlot, bool, Option<RaiClosedSlotState>), DeserializationError> {
+    read_version(&mut bytes)?;
+    let epoch = read_u64(&mut bytes)?;
+    let slot = RaiSlot::deserialize(&mut bytes)?;
+    let visible = read_u8(&mut bytes)? != 0;
+    let outcome = match read_u8(&mut bytes)? {
+        0 => None,
+        1 => Some(RaiClosedSlotState::Finalized(BlockHash::deserialize(
+            &mut bytes,
+        )?)),
+        2 => Some(RaiClosedSlotState::Carry(BlockHash::deserialize(
+            &mut bytes,
+        )?)),
+        3 => Some(RaiClosedSlotState::Released),
+        _ => return Err(DeserializationError::InvalidData),
+    };
+    expect_finished(bytes)?;
+    Ok((epoch, slot, visible, outcome))
 }
 
 fn deserialize_close_state(
@@ -363,6 +657,26 @@ fn serialize_active_elections(snapshot: &RaiActiveElectionsSnapshot) -> Vec<u8> 
     bytes
 }
 
+fn active_election_key(id: &RaiElectionId) -> Vec<u8> {
+    let mut key = ACTIVE_ELECTION_PREFIX.to_vec();
+    id.serialize(&mut key).unwrap();
+    key
+}
+
+fn serialize_election(snapshot: &RaiElectionSnapshot) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    write_version(&mut bytes);
+    write_election(&mut bytes, snapshot);
+    bytes
+}
+
+fn deserialize_election(mut bytes: &[u8]) -> Result<RaiElectionSnapshot, DeserializationError> {
+    read_version(&mut bytes)?;
+    let election = read_election(&mut bytes)?;
+    expect_finished(bytes)?;
+    Ok(election)
+}
+
 fn deserialize_active_elections(
     mut bytes: &[u8],
 ) -> Result<RaiActiveElectionsSnapshot, DeserializationError> {
@@ -391,6 +705,48 @@ fn serialize_vote_safety(snapshot: &RaiVoteSafetySnapshot) -> Vec<u8> {
         }
     }
     bytes
+}
+
+fn vote_safety_entry_key(entry: &RaiVoteSafetyEntrySnapshot) -> Vec<u8> {
+    let mut key = VOTE_SAFETY_PREFIX.to_vec();
+    entry.voter.serialize(&mut key).unwrap();
+    entry.slot.serialize(&mut key).unwrap();
+    write_u64(&mut key, entry.epoch);
+    key
+}
+
+fn serialize_vote_safety_entry(entry: &RaiVoteSafetyEntrySnapshot) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    write_version(&mut bytes);
+    entry.voter.serialize(&mut bytes).unwrap();
+    entry.slot.serialize(&mut bytes).unwrap();
+    write_u64(&mut bytes, entry.epoch);
+    write_len(&mut bytes, entry.blocks.len());
+    for block in &entry.blocks {
+        block.serialize(&mut bytes).unwrap();
+    }
+    bytes
+}
+
+fn deserialize_vote_safety_entry(
+    mut bytes: &[u8],
+) -> Result<RaiVoteSafetyEntrySnapshot, DeserializationError> {
+    read_version(&mut bytes)?;
+    let voter = PublicKey::deserialize(&mut bytes)?;
+    let slot = RaiSlot::deserialize(&mut bytes)?;
+    let epoch = read_u64(&mut bytes)?;
+    let block_count = read_len(&mut bytes)?;
+    let mut blocks = Vec::with_capacity(block_count);
+    for _ in 0..block_count {
+        blocks.push(BlockHash::deserialize(&mut bytes)?);
+    }
+    expect_finished(bytes)?;
+    Ok(RaiVoteSafetyEntrySnapshot {
+        voter,
+        slot,
+        epoch,
+        blocks,
+    })
 }
 
 fn deserialize_vote_safety(

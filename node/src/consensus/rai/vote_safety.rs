@@ -92,6 +92,22 @@ impl RaiVoteSafety {
         self.record_block(vote.voter, slot, epoch, block);
     }
 
+    pub fn snapshot_entry_for_vote(&self, vote: &RaiVote) -> Option<RaiVoteSafetyEntrySnapshot> {
+        let (slot, epoch, _) = slot_block_vote(vote)?;
+        let key = RaiVoteSafetyKey {
+            voter: vote.voter,
+            slot,
+            epoch,
+        };
+        let blocks = self.votes.get(&key)?;
+        Some(RaiVoteSafetyEntrySnapshot {
+            voter: key.voter,
+            slot: key.slot,
+            epoch: key.epoch,
+            blocks: blocks.iter().copied().collect(),
+        })
+    }
+
     pub fn validate(
         &self,
         close_state: &RaiCloseState,

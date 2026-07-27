@@ -91,6 +91,16 @@ impl WalletRepresentatives {
         }
     }
 
+    /// Returns wallet keys before the periodic representative cache has caught
+    /// up. Consensus processors still perform committee membership checks.
+    pub fn voting_priv_keys_unfiltered(&self) -> Vec<PrivateKey> {
+        if self.voting_enabled {
+            self.wallets.get_all_private_keys()
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn rep_accounts(&self) -> impl Iterator<Item = Account> + use<'_> {
         self.rep_keys.iter().map(|k| k.as_account())
     }

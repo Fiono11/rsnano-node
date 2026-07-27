@@ -16,7 +16,7 @@ use super::{PriorityBucketConfig, prio_bucket_count};
 use crate::{
     block_processing::backlog_scan::UnconfirmedInfo,
     consensus::{
-        AecService,
+        AecService, ElectionCandidateSource,
         election_schedulers::priority::{
             BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
         },
@@ -33,6 +33,12 @@ pub struct PriorityScheduler {
     aec: Arc<AecService>,
     ledger: Arc<Ledger>,
     activate_listener: OutputListenerMt<Account>,
+    alternate_activator: Mutex<Option<Arc<dyn PriorityElectionActivator>>>,
+}
+
+pub trait PriorityElectionActivator: Send + Sync {
+    fn vacancy(&self) -> usize;
+    fn activate(&self, block: rsnano_types::SavedBlock) -> bool;
 }
 
 impl PriorityScheduler {
@@ -55,7 +61,13 @@ impl PriorityScheduler {
             clock,
             aec: active_elections,
             activate_listener: Default::default(),
+            alternate_activator: Default::default(),
         }
+    }
+
+    pub fn set_alternate_activator(&self, activator: Arc<dyn PriorityElectionActivator>) {
+        *self.alternate_activator.lock().unwrap() = Some(activator);
+        self.condition.notify_all();
     }
 
     pub fn track_activate(&self) -> Arc<OutputTrackerMt<Account>> {
@@ -188,6 +200,9 @@ impl PriorityScheduler {
 
     fn predicate(&self) -> bool {
         let buckets = self.buckets.lock().unwrap();
+        if let Some(activator) = self.alternate_activator.lock().unwrap().as_ref() {
+            return activator.vacancy() > 0 && buckets.iter().any(|bucket| !bucket.is_empty());
+        }
         self.aec.check_vacancy(&*buckets)
     }
 
@@ -197,6 +212,22 @@ impl PriorityScheduler {
 
         let now = self.clock.now();
         let mut buckets = self.buckets.lock().unwrap();
+        if let Some(activator) = self.alternate_activator.lock().unwrap().as_ref() {
+            let vacancy = activator.vacancy() as isize;
+            for bucket_id in (0..buckets.len()).rev() {
+                if let Some(candidate) =
+                    buckets.next_candidate(bucket_id, vacancy, rsnano_types::TimePriority::MIN)
+                {
+                    if !activator.activate(candidate.block.clone()) {
+                        let _ = buckets.insert(candidate.priority, candidate.block);
+                        drop(buckets);
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    break;
+                }
+            }
+            return;
+        }
         self.aec.refill(&mut *buckets, now);
     }
 

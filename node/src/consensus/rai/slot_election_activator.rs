@@ -7,6 +7,7 @@ use rsnano_types::{BlockHash, RaiElectionId, RaiElectionValue, RaiSlot, RaiVote,
 use rsnano_utils::EventHandler;
 
 use super::{RaiActiveElections, RaiCloseState, RaiElectionInsertError, RaiVoteProcessor};
+use crate::consensus::election_schedulers::priority::PriorityElectionActivator;
 use crate::{
     block_processing::LedgerPipelineEvent, transport::MessageFlooder,
     wallets::WalletRepresentatives,
@@ -39,10 +40,8 @@ impl RaiSlotElectionActivator {
 
     fn activate_processed(&self, results: &[ProcessResult]) {
         for result in results {
-            if matches!(
-                result.source,
-                BlockSource::Live | BlockSource::LiveOriginator
-            ) && result.status.is_ok()
+            if result.source == BlockSource::Local
+                && result.status.is_ok()
                 && let Some(block) = result.saved_block.as_ref()
             {
                 self.activate_block(block);
@@ -50,7 +49,7 @@ impl RaiSlotElectionActivator {
         }
     }
 
-    fn activate_block(&self, block: &SavedBlock) {
+    pub fn activate_block(&self, block: &SavedBlock) -> bool {
         let slot = RaiSlot::new(block.account(), block.height());
         let epoch = self.close_state.read().unwrap().open_epoch();
 
@@ -60,39 +59,60 @@ impl RaiSlotElectionActivator {
             .unwrap()
             .is_slot_vote_enabled(epoch, &slot)
         {
-            return;
+            return false;
         }
 
         let election_id = RaiElectionId::Slot { slot, epoch };
         match self.active_elections.insert(election_id.clone()) {
             Ok(()) | Err(RaiElectionInsertError::Duplicate) => {
-                self.publish_local_first_votes(election_id, block.hash());
+                self.publish_local_first_votes(election_id, block.hash())
             }
-            Err(RaiElectionInsertError::Stopped) => {}
+            Err(RaiElectionInsertError::Stopped) => false,
         }
     }
 
-    fn publish_local_first_votes(&self, election_id: RaiElectionId, block_hash: BlockHash) {
+    fn publish_local_first_votes(&self, election_id: RaiElectionId, block_hash: BlockHash) -> bool {
         let mut rep_keys = Vec::new();
-        self.wallet_reps
-            .lock()
-            .unwrap()
-            .rep_priv_keys(&mut rep_keys);
+        let wallet_reps = self.wallet_reps.lock().unwrap();
+        wallet_reps.rep_priv_keys(&mut rep_keys);
+        if rep_keys.is_empty() {
+            rep_keys = wallet_reps.voting_priv_keys_unfiltered();
+        }
+        drop(wallet_reps);
 
+        let mut published = false;
         for key in rep_keys {
-            let vote = RaiVote::new_first(
-                &key,
-                election_id.clone(),
-                RaiElectionValue::Block(block_hash),
-            );
-            if self.vote_processor.process(&vote).is_ok() {
-                self.message_flooder.lock().unwrap().flood(
-                    &Message::RaiVote(vote),
-                    TrafficType::Generic,
-                    1.0,
-                );
+            let value = RaiElectionValue::Block(block_hash);
+            let votes = [
+                RaiVote::new_first(&key, election_id.clone(), value.clone()),
+                RaiVote::new_notarization(&key, election_id.clone(), value.clone()),
+                RaiVote::new_final(&key, election_id.clone(), value.clone()),
+            ];
+            for vote in votes {
+                if self.vote_processor.process(&vote).is_ok() {
+                    self.message_flooder.lock().unwrap().flood(
+                        &Message::RaiVote(vote),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                    published = true;
+                }
+                if !self.active_elections.contains(&election_id) {
+                    break;
+                }
             }
         }
+        published
+    }
+}
+
+impl PriorityElectionActivator for RaiSlotElectionActivator {
+    fn vacancy(&self) -> usize {
+        5_000usize.saturating_sub(self.active_elections.len())
+    }
+
+    fn activate(&self, block: SavedBlock) -> bool {
+        self.activate_block(&block)
     }
 }
 
@@ -146,13 +166,13 @@ mod tests {
     }
 
     #[test]
-    fn local_processed_block_does_not_start_slot_election() {
+    fn live_processed_block_is_left_for_scheduler() {
         let fixture = Fixture::new();
         let block = SavedBlock::new_test_instance();
         let event =
             LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(vec![processed_block_from(
                 &block,
-                BlockSource::Local,
+                BlockSource::Live,
                 Ok(()),
             )]));
 
@@ -232,7 +252,7 @@ mod tests {
     }
 
     fn processed_block(block: &SavedBlock, status: Result<(), BlockError>) -> ProcessResult {
-        processed_block_from(block, BlockSource::Live, status)
+        processed_block_from(block, BlockSource::Local, status)
     }
 
     fn processed_block_from(

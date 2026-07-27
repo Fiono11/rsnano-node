@@ -1,15 +1,19 @@
 use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
-use std::path::PathBuf;
+use std::{num::NonZeroU64, path::PathBuf};
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
-    /// Suppress progress and node logs, printing only the final completion summary
+    /// Suppress node logs and verbose progress; print finalized counts and the final summary
     #[arg(long, default_value_t = false)]
     pub summary_only: bool,
+
+    /// Interval for printing the number of finalized blocks, in milliseconds
+    #[arg(long, default_value = "1000")]
+    pub finalized_blocks_print_interval_ms: NonZeroU64,
 
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]

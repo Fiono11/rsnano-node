@@ -144,10 +144,13 @@ impl ElectionSchedulers {
     }
 
     pub fn start(&self) {
+        #[cfg(not(feature = "rai_protocol"))]
         if self.config.enable_hinted_scheduler {
             self.hinted.start();
         }
+        #[cfg(not(feature = "rai_protocol"))]
         self.manual.start();
+        #[cfg(not(feature = "rai_protocol"))]
         if self.config.enable_optimistic_scheduler {
             let optimistic = self.optimistic.clone();
             let handle = std::thread::Builder::new()

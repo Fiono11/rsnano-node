@@ -1178,6 +1178,16 @@ impl RaiEpochLoop {
     ) -> Option<Vec<(RaiSlot, RaiClosedSlotState)>> {
         let mut states = Vec::with_capacity(cut.len());
         for slot in cut {
+            if let Some(state) = self
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(epoch, slot)
+                .copied()
+            {
+                states.push((*slot, state));
+                continue;
+            }
             let election_id = RaiElectionId::Slot { slot: *slot, epoch };
             let committees = self.committee_provider.try_committees_for(&election_id)?;
             let election = self.active_elections.election(&election_id)?;

@@ -50,23 +50,25 @@ impl RaiActiveElections {
     }
 
     pub fn insert(&self, election_id: RaiElectionId) -> Result<(), RaiElectionInsertError> {
-        let snapshot = {
-            let mut guard = self.data.write().unwrap();
-            if guard.stopped {
-                return Err(RaiElectionInsertError::Stopped);
-            }
+        let mut guard = self.data.write().unwrap();
+        if guard.stopped {
+            return Err(RaiElectionInsertError::Stopped);
+        }
 
-            if guard.elections.contains_key(&election_id) {
-                return Err(RaiElectionInsertError::Duplicate);
-            }
+        if guard.elections.contains_key(&election_id) {
+            return Err(RaiElectionInsertError::Duplicate);
+        }
 
-            guard
-                .elections
-                .insert(election_id.clone(), RaiElection::new(election_id));
-            guard.snapshot()
-        };
-
-        self.persistence.save_active_elections(&snapshot);
+        guard
+            .elections
+            .insert(election_id.clone(), RaiElection::new(election_id.clone()));
+        let snapshot = guard
+            .elections
+            .get(&election_id)
+            .expect("inserted election must exist")
+            .snapshot();
+        drop(guard);
+        self.persistence.save_active_election(&snapshot);
         Ok(())
     }
 
@@ -76,6 +78,20 @@ impl RaiActiveElections {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn remove(&self, election_id: &RaiElectionId) -> bool {
+        let removed = self
+            .data
+            .write()
+            .unwrap()
+            .elections
+            .remove(election_id)
+            .is_some();
+        if removed {
+            self.persistence.delete_active_election(election_id);
+        }
+        removed
     }
 
     pub fn contains(&self, election_id: &RaiElectionId) -> bool {
@@ -150,17 +166,15 @@ impl RaiActiveElections {
         vote: &RaiVote,
         committees: &RaiCommitteeSet,
     ) -> Result<(), VoteError> {
-        let snapshot = {
-            let mut guard = self.data.write().unwrap();
-            let Some(election) = guard.elections.get_mut(&vote.election_id) else {
-                return Err(VoteError::Indeterminate);
-            };
-
-            election.apply_vote(vote, committees)?;
-            guard.snapshot()
+        let mut guard = self.data.write().unwrap();
+        let Some(election) = guard.elections.get_mut(&vote.election_id) else {
+            return Err(VoteError::Indeterminate);
         };
 
-        self.persistence.save_active_elections(&snapshot);
+        election.apply_vote(vote, committees)?;
+        let snapshot = election.snapshot();
+        drop(guard);
+        self.persistence.save_active_election(&snapshot);
         Ok(())
     }
 

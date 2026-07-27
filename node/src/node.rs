@@ -69,8 +69,8 @@ use crate::{
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         ForkInserterPlugin, LocalVoteHistory, LocalVotesRemover, RepTiersCalculator,
         RequestAggregator, VoteApplier, VoteBroadcaster, VoteGenerators, VoteProcessor,
-        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster,
-        WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
+        VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
+        WinnerBlockBroadcaster, election::ConfirmedElection,
         election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
         vote_cache::VoteCache,
     },
@@ -98,6 +98,9 @@ use crate::{
     },
     work::WorkFactory,
 };
+
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::VoteProcessorExt;
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
@@ -802,8 +805,6 @@ impl Node {
             rep_tracker.clone(),
             steady_clock.clone(),
         ));
-        ledger_event_handlers.add(election_schedulers.clone());
-
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
             network_params.network.protocol_info(),
@@ -1262,13 +1263,20 @@ impl Node {
         let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
         #[cfg(feature = "rai_protocol")]
-        ledger_event_handlers.add(RaiSlotElectionActivator::new(
+        let rai_slot_activator = Arc::new(RaiSlotElectionActivator::new(
             rai_active_elections.clone(),
             rai_close_state.clone(),
             rai_vote_processor.clone(),
             wallet_reps.clone(),
             message_flooder.clone(),
         ));
+        #[cfg(feature = "rai_protocol")]
+        election_schedulers
+            .priority
+            .set_alternate_activator(rai_slot_activator.clone());
+        #[cfg(feature = "rai_protocol")]
+        ledger_event_handlers.add(rai_slot_activator);
+        ledger_event_handlers.add(election_schedulers.clone());
 
         #[cfg(feature = "rai_protocol")]
         let rai_epoch_loop = RaiEpochLoop::with_committee_provider_and_persistence(
@@ -1671,6 +1679,7 @@ impl Node {
 
         self.network_threads.lock().unwrap().start();
         self.message_processor.lock().unwrap().start();
+        #[cfg(not(feature = "rai_protocol"))]
         self.aec_voter.start(Duration::from_millis(20));
         #[cfg(feature = "rai_protocol")]
         {
@@ -1691,17 +1700,22 @@ impl Node {
             warn!("Peering is disabled");
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         if self.config.enable_vote_processor {
             self.vote_processor.start();
         }
+        #[cfg(not(feature = "rai_protocol"))]
         self.vote_cache.start();
         self.block_processor
             .start(self.config.block_processor_threads);
+        #[cfg(not(feature = "rai_protocol"))]
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
         }
+        #[cfg(not(feature = "rai_protocol"))]
         self.vote_generators.start();
+        #[cfg(not(feature = "rai_protocol"))]
         if self.config.enable_voting {
             self.request_aggregator.start();
         }

@@ -463,6 +463,17 @@ impl RaiCloseState {
         Ok(())
     }
 
+    /// Retains the terminal result after the detailed slot election is removed.
+    /// Epoch closing needs the result, not the complete vote history.
+    pub fn record_terminal_slot(
+        &mut self,
+        epoch: RaiEpoch,
+        slot: RaiSlot,
+        state: RaiClosedSlotState,
+    ) -> bool {
+        self.epoch_mut(epoch).closed_slots.insert(slot, state) != Some(state)
+    }
+
     pub fn closed_slot_state(
         &self,
         epoch: RaiEpoch,

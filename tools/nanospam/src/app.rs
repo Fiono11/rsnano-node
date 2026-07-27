@@ -1,6 +1,7 @@
 use std::{
+    collections::HashSet,
     net::{Ipv6Addr, SocketAddrV6},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     thread::yield_now,
     time::{Duration, Instant},
 };
@@ -154,6 +155,7 @@ impl NanoSpamApp {
         let cancel_block_creation = CancellationToken::new();
         let cancel_block_creation2 = cancel_block_creation.clone();
         let cancel_nanospam = CancellationToken::new();
+        let closed_epochs = Arc::new(Mutex::new(HashSet::new()));
 
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
@@ -172,7 +174,13 @@ impl NanoSpamApp {
             s.spawn(|| track_confirmations(rx_ws_msg, &logic));
 
             tokio_scoped::scope(|scope| {
-                scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+                scope.spawn(log_status(
+                    &logic,
+                    &self.clock,
+                    cancel_nanospam.clone(),
+                    Duration::from_millis(self.args.finalized_blocks_print_interval_ms.get()),
+                    self.args.summary_only,
+                ));
 
                 if self.args.high_prio_check() {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
@@ -183,6 +191,7 @@ impl NanoSpamApp {
                     tcp_readers,
                     protocol,
                     cancel_nanospam.clone(),
+                    closed_epochs.clone(),
                 ));
                 scope.spawn(publish_blocks(
                     rx_blocks,
@@ -214,6 +223,7 @@ impl NanoSpamApp {
                 logic.current_bps,
                 logic.sum_conf_time_total,
                 elapsed,
+                closed_epochs.lock().unwrap().len(),
             )
         );
 
@@ -227,13 +237,13 @@ fn completion_summary(
     target_blocks_per_second: usize,
     total_confirmation_time: Duration,
     elapsed: Duration,
+    closed_epochs: usize,
 ) -> String {
     let status = if created_blocks == confirmed_blocks {
         "PASS"
     } else {
         "FAIL"
     };
-    let offered_rate = rate_per_second_milli(created_blocks, elapsed);
     let throughput = rate_per_second_milli(confirmed_blocks, elapsed);
     let average_confirmation_time_ms = if confirmed_blocks == 0 {
         0
@@ -242,9 +252,7 @@ fn completion_summary(
     };
 
     format!(
-        "event=NANOSPAM_COMPLETE status={status} finalized_requests={confirmed_blocks}/{created_blocks} target_blocks_per_second={target_blocks_per_second} end_to_end_offered_blocks_per_second={} throughput_blocks_per_second={} throughput_slots_per_second={} avg_slot_finalization_latency_ms={average_confirmation_time_ms} elapsed_ms={}",
-        fixed_milli(offered_rate),
-        fixed_milli(throughput),
+        "event=NANOSPAM_COMPLETE\nstatus={status}\nfinalized_requests={confirmed_blocks}/{created_blocks}\ntarget_blocks_per_second={target_blocks_per_second}\nthroughput_blocks_per_second={}\navg_slot_finalization_latency_ms={average_confirmation_time_ms}\nclosed_epochs={closed_epochs}\nelapsed_ms={}",
         fixed_milli(throughput),
         elapsed.as_millis(),
     )
@@ -392,9 +400,12 @@ async fn receive_messages(
     mut readers: Vec<Vec<ReadHalf<TcpStream>>>,
     _protocol: ProtocolInfo,
     cancel_token: CancellationToken,
+    closed_epochs: Arc<Mutex<HashSet<u64>>>,
 ) {
     #[cfg(feature = "rai_protocol")]
     let protocol = _protocol;
+    #[cfg(not(feature = "rai_protocol"))]
+    let _ = &closed_epochs;
 
     select! {
         _ = cancel_token.cancelled() => {},
@@ -403,6 +414,8 @@ async fn receive_messages(
             for mut reader in readers.drain(..).flatten() {
                 #[cfg(feature = "rai_protocol")]
                 let protocol = protocol;
+                #[cfg(feature = "rai_protocol")]
+                let closed_epochs = closed_epochs.clone();
                 set.spawn(async move {
                     #[cfg(feature = "rai_protocol")]
                     let mut deserializer = MessageDeserializer::new(protocol);
@@ -428,6 +441,11 @@ async fn receive_messages(
                         while let Some(result) = deserializer.try_deserialize() {
                             match result {
                                 Ok(deserialized) => {
+                                    if let Some(epoch) =
+                                        rai_logging::closed_epoch(&deserialized.message)
+                                    {
+                                        closed_epochs.lock().unwrap().insert(epoch);
+                                    }
                                     rai_logging::log_received_message(&deserialized.message);
                                 }
                                 Err(error) => {
@@ -469,11 +487,10 @@ async fn log_status(
     logic: &Mutex<SpamLogic>,
     clock: &SteadyClock,
     cancel_token: CancellationToken,
+    interval: Duration,
+    summary_only: bool,
 ) {
-    while timeout(Duration::from_secs(1), cancel_token.cancelled())
-        .await
-        .is_err()
-    {
+    while timeout(interval, cancel_token.cancelled()).await.is_err() {
         let now = clock.now();
 
         let stats = {
@@ -483,14 +500,22 @@ async fn log_status(
             stats
         };
 
-        info!(
-            "Confirmed {} blocks | {} bps | {} cps | avg conf time: {} ms",
-            stats.total_confirmed.to_formatted_string(&Locale::en),
-            stats.target_bps.to_formatted_string(&Locale::en),
-            stats.current_cps.to_formatted_string(&Locale::en),
-            stats.average_conf_time.as_millis()
-        );
+        if summary_only {
+            println!("{}", finalized_blocks_progress(stats.total_confirmed));
+        } else {
+            info!(
+                "Confirmed {} blocks | {} bps | {} cps | avg conf time: {} ms",
+                stats.total_confirmed.to_formatted_string(&Locale::en),
+                stats.target_bps.to_formatted_string(&Locale::en),
+                stats.current_cps.to_formatted_string(&Locale::en),
+                stats.average_conf_time.as_millis()
+            );
+        }
     }
+}
+
+fn finalized_blocks_progress(total_confirmed: usize) -> String {
+    format!("finalized_blocks={total_confirmed}")
 }
 
 #[cfg(test)]
@@ -505,20 +530,27 @@ mod tests {
             250,
             Duration::from_secs(9),
             Duration::from_secs(5),
+            3,
         );
 
         assert_eq!(
             summary,
-            "event=NANOSPAM_COMPLETE status=FAIL finalized_requests=900/1000 target_blocks_per_second=250 end_to_end_offered_blocks_per_second=200.000 throughput_blocks_per_second=180.000 throughput_slots_per_second=180.000 avg_slot_finalization_latency_ms=10 elapsed_ms=5000"
+            "event=NANOSPAM_COMPLETE\nstatus=FAIL\nfinalized_requests=900/1000\ntarget_blocks_per_second=250\nthroughput_blocks_per_second=180.000\navg_slot_finalization_latency_ms=10\nclosed_epochs=3\nelapsed_ms=5000"
         );
     }
 
     #[test]
     fn completion_summary_handles_an_empty_instant_run() {
-        let summary = completion_summary(0, 0, 1, Duration::ZERO, Duration::ZERO);
+        let summary = completion_summary(0, 0, 1, Duration::ZERO, Duration::ZERO, 0);
 
         assert!(summary.contains("status=PASS"));
         assert!(summary.contains("throughput_blocks_per_second=0.000"));
         assert!(summary.contains("avg_slot_finalization_latency_ms=0"));
+        assert!(summary.contains("closed_epochs=0"));
+    }
+
+    #[test]
+    fn finalized_blocks_progress_is_machine_readable() {
+        assert_eq!(finalized_blocks_progress(1_234), "finalized_blocks=1234");
     }
 }

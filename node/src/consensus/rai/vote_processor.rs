@@ -477,20 +477,41 @@ impl RaiVoteProcessor {
         if result.is_ok() {
             self.update_vote_visibility(vote, &committees);
             self.try_install_available_epochs_from_votes();
-            let active_elections = self.active_elections.snapshot();
-            let close_state = self.close_state.read().unwrap().snapshot();
-            let vote_safety = {
+            let terminal_slot = self.terminal_slot_outcome(vote, &committees);
+            if let Some((epoch, slot, outcome)) = terminal_slot {
+                self.close_state
+                    .write()
+                    .unwrap()
+                    .record_terminal_slot(epoch, slot, outcome);
+            }
+            let vote_safety_entry = {
                 let mut vote_safety = self.vote_safety.write().unwrap();
                 vote_safety.record_vote(vote);
-                vote_safety.snapshot()
+                vote_safety.snapshot_entry_for_vote(vote)
             };
-            self.persistence.save_active_close_and_vote_safety(
-                &active_elections,
-                &close_state,
-                &vote_safety,
-            );
             if !was_confirmed {
-                self.confirm_slot_block_if_confirmed(&vote.election_id);
+                if let Some((_, _, RaiClosedSlotState::Finalized(block))) = terminal_slot {
+                    self.slot_confirmation_sink.confirm_slot_block(block);
+                } else {
+                    self.confirm_slot_block_if_confirmed(&vote.election_id);
+                }
+            }
+            if terminal_slot.is_some() {
+                self.active_elections.remove(&vote.election_id);
+            }
+            if let RaiElectionId::Slot { epoch, slot } = &vote.election_id {
+                let close_state = self.close_state.read().unwrap();
+                self.persistence.save_epoch_slot(
+                    *epoch,
+                    *slot,
+                    close_state.is_visible(*epoch, slot),
+                    close_state.closed_slot_state(*epoch, slot).copied(),
+                    vote_safety_entry.as_ref(),
+                );
+            } else {
+                let close_state = self.close_state.read().unwrap().snapshot();
+                self.persistence
+                    .save_close_and_vote_safety_entry(&close_state, vote_safety_entry.as_ref());
             }
         }
 
@@ -513,6 +534,22 @@ impl RaiVoteProcessor {
         }
 
         result
+    }
+
+    fn terminal_slot_outcome(
+        &self,
+        vote: &RaiVote,
+        committees: &RaiCommitteeSet,
+    ) -> Option<(RaiEpoch, rsnano_types::RaiSlot, RaiClosedSlotState)> {
+        let RaiElectionId::Slot { slot, epoch } = &vote.election_id else {
+            return None;
+        };
+        let election = self.active_elections.election(&vote.election_id)?;
+        if election.status() != RaiElectionStatus::DrainComplete {
+            return None;
+        }
+        let outcome = closed_slot_state_from_outcome(election.merged_outcome(committees)?)?;
+        Some((*epoch, *slot, outcome))
     }
 
     fn prepare_close_cut_vote_context(&self, vote: &RaiVote) {
@@ -979,11 +1016,15 @@ mod tests {
 
         assert_eq!(fixture.processor.process(&vote), Ok(()));
 
-        let election = fixture
-            .active_elections
-            .election(&fixture.election_id)
-            .unwrap();
-        assert_eq!(election.tally(&value), 1);
+        assert!(!fixture.active_elections.contains(&fixture.election_id));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(1, &RaiSlot::new(Account::from(1), 1)),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(3)))
+        );
     }
 
     #[test]
@@ -1128,11 +1169,15 @@ mod tests {
 
         assert_eq!(fixture.processor.process(&vote), Ok(()));
 
-        let election = fixture
-            .active_elections
-            .election(&fixture.election_id)
-            .unwrap();
-        assert_eq!(election.tally(&value), 1);
+        assert!(!fixture.active_elections.contains(&fixture.election_id));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(1, &RaiSlot::new(Account::from(1), 1)),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(3)))
+        );
     }
 
     #[test]
@@ -1290,9 +1335,15 @@ mod tests {
             )),
             Ok(())
         );
-        assert!(fixture.active_elections.contains(&election_id));
-        let election = fixture.active_elections.election(&election_id).unwrap();
-        assert_eq!(election.tally(&value), 1);
+        assert!(!fixture.active_elections.contains(&election_id));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(0, &slot),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(3)))
+        );
     }
 
     #[test]
@@ -1497,8 +1548,15 @@ mod tests {
             Ok(())
         );
 
-        let retry = fixture.active_elections.election(&retry_election).unwrap();
-        assert_eq!(retry.tally(&value), 1);
+        assert!(!fixture.active_elections.contains(&retry_election));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(1, &slot),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(3)))
+        );
     }
 
     #[test]
@@ -1546,8 +1604,15 @@ mod tests {
             Ok(())
         );
 
-        let retry = fixture.active_elections.election(&retry_election).unwrap();
-        assert_eq!(retry.tally(&retry_value), 1);
+        assert!(!fixture.active_elections.contains(&retry_election));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(1, &slot),
+            Some(&RaiClosedSlotState::Finalized(BlockHash::from(4)))
+        );
     }
 
     #[test]

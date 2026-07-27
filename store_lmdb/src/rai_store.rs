@@ -1,3 +1,4 @@
+use crate::iterator::LmdbIterator;
 use rsnano_nullable_lmdb::{
     DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
@@ -29,6 +30,16 @@ impl LmdbRaiStore {
             Err(Error::NotFound) => None,
             Err(e) => panic!("Could not load RAI state {:?}", e),
         }
+    }
+
+    pub fn iter<'a>(
+        &self,
+        txn: &'a dyn Transaction,
+    ) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + 'a + use<'a> {
+        let cursor = txn
+            .open_ro_cursor(self.database)
+            .expect("Could not read RAI store database");
+        LmdbIterator::new(cursor, |key, value| (key.to_vec(), value.to_vec()))
     }
 
     pub fn del(&self, txn: &mut WriteTransaction, key: &[u8]) {
