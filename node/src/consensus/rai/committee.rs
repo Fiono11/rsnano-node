@@ -343,7 +343,29 @@ impl RepWeightRaiCommitteeProvider {
         closed_rep_weight_snapshots: impl IntoIterator<Item = (RaiEpoch, RaiRepWeightSnapshot)>,
         closed_committees: impl IntoIterator<Item = (RaiEpoch, RaiCommittee)>,
     ) -> Self {
+        Self::with_genesis_committee_and_closed_epoch_snapshots(
+            rep_weights,
+            None,
+            closed_rep_weight_snapshots,
+            closed_committees,
+        )
+    }
+
+    pub fn with_genesis_committee_and_closed_epoch_snapshots(
+        rep_weights: Arc<RepWeightCache>,
+        genesis_committee: Option<RaiCommittee>,
+        closed_rep_weight_snapshots: impl IntoIterator<Item = (RaiEpoch, RaiRepWeightSnapshot)>,
+        closed_committees: impl IntoIterator<Item = (RaiEpoch, RaiCommittee)>,
+    ) -> Self {
         let genesis_snapshot = Self::snapshot_current_weights(&rep_weights);
+        let genesis_snapshot = genesis_committee.map_or(genesis_snapshot, |committee| {
+            RaiRepWeightSnapshot::from_weights(
+                committee
+                    .members()
+                    .iter()
+                    .map(|member| (member.account, member.balance)),
+            )
+        });
 
         Self {
             rep_weights,

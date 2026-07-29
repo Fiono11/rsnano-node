@@ -55,19 +55,20 @@ impl RaiNetworkEpochPublisher {
 
 impl RaiEpochPublisher for RaiNetworkEpochPublisher {
     fn publish_pending_report(&self, report: RaiPendingReport) {
-        self.message_flooder.lock().unwrap().flood(
-            &Message::RaiPendingReport(report),
-            TrafficType::Generic,
-            1.0,
-        );
+        self.message_flooder
+            .lock()
+            .unwrap()
+            .flood_all(&Message::RaiPendingReport(report), TrafficType::Generic);
     }
 
     fn publish_vote(&self, vote: RaiVote) {
-        self.message_flooder.lock().unwrap().flood(
-            &Message::RaiVote(vote),
-            TrafficType::Generic,
-            1.0,
-        );
+        // Close votes are durable certificate evidence.  Every online replica
+        // must receive them even when another replica cannot yet reconstruct
+        // the voted close value and therefore cannot relay the vote.
+        self.message_flooder
+            .lock()
+            .unwrap()
+            .flood_all(&Message::RaiVote(vote), TrafficType::Generic);
     }
 }
 
@@ -183,6 +184,8 @@ impl RaiEpochLoop {
     pub fn tick_at(&mut self, now: Instant) {
         let epoch = self.close_state.read().unwrap().current_epoch();
         self.sync_epoch_timer(epoch, now);
+        self.republish_known_pending_reports(now);
+        self.vote_processor.retry_deferred_close_votes();
         if self.should_start_closing(now) {
             self.start_closing_epoch(epoch, now);
         }
@@ -247,7 +250,6 @@ impl RaiEpochLoop {
 
     fn drive_closing_epoch(&mut self, epoch: RaiEpoch, now: Instant) {
         self.publish_local_pending_report(epoch, now);
-        self.republish_known_pending_reports(epoch, now);
 
         if !self.close_state.read().unwrap().has_close_values(epoch) {
             if self.close_reports_ready(epoch) {
@@ -273,7 +275,11 @@ impl RaiEpochLoop {
     }
 
     fn publish_local_pending_report(&mut self, epoch: RaiEpoch, now: Instant) {
-        for key in self.local_rep_keys_for_election(&close_cut_election_id(epoch, 0)) {
+        // Produce and retain reports independently of the transient local
+        // committee view. Eligibility is applied when a report quorum is
+        // derived; gating report creation here can permanently suppress a
+        // correct signer's evidence while committee history is catching up.
+        for key in self.local_rep_keys() {
             if self
                 .close_state
                 .read()
@@ -309,38 +315,38 @@ impl RaiEpochLoop {
         }
     }
 
-    fn republish_known_pending_reports(&mut self, epoch: RaiEpoch, now: Instant) {
-        // Reports are the evidence from which every replica derives the close
-        // cut. Keep disseminating the complete set after an attempt starts so
-        // replicas that initially saw different report quorums can converge on
-        // the same visible set. The decided cut is the terminal condition.
-        if self.close_state.read().unwrap().cut_set(epoch).is_some() {
-            return;
-        }
-
-        if self
-            .pending_reports_republished_at
-            .get(&epoch)
-            .is_some_and(|last| now.duration_since(*last) < Duration::from_secs(1))
-        {
-            return;
-        }
-
-        let reports = self
+    fn republish_known_pending_reports(&mut self, now: Instant) {
+        // Reports are durable evidence from which every replica derives a
+        // close cut. Continue advertising retained reports after installing a
+        // cut and after advancing the local epoch: a lagging peer may still
+        // need an older report to reconstruct its report quorum and catch up.
+        let epochs = self
             .close_state
             .read()
             .unwrap()
-            .pending_reports(epoch)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        if reports.is_empty() {
-            return;
-        }
+            .epochs_with_pending_reports();
 
-        self.pending_reports_republished_at.insert(epoch, now);
-        for report in reports {
-            self.publisher.publish_pending_report(report);
+        for epoch in epochs {
+            if self
+                .pending_reports_republished_at
+                .get(&epoch)
+                .is_some_and(|last| now.duration_since(*last) < Duration::from_secs(1))
+            {
+                continue;
+            }
+
+            let reports = self
+                .close_state
+                .read()
+                .unwrap()
+                .pending_reports(epoch)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            self.pending_reports_republished_at.insert(epoch, now);
+            for report in reports {
+                self.publisher.publish_pending_report(report);
+            }
         }
     }
 
@@ -432,6 +438,11 @@ impl RaiEpochLoop {
     }
 
     fn start_close_attempt(&mut self, epoch: RaiEpoch, attempt: RaiCloseAttempt, now: Instant) {
+        let election_id = close_cut_election_id(epoch, attempt);
+        if self.local_rep_keys_for_election(&election_id).is_empty() {
+            return;
+        }
+
         let close_hash = {
             let mut close_state = self.close_state.write().unwrap();
             if close_state.close_attempt_started(epoch, attempt) {
@@ -490,7 +501,6 @@ impl RaiEpochLoop {
             close_state
                 .started_close_attempts(epoch)
                 .into_iter()
-                .filter(|attempt| !close_state.close_attempt_processed(epoch, *attempt))
                 .filter(|attempt| {
                     !self
                         .close_attempt_started_at
@@ -777,11 +787,7 @@ impl RaiEpochLoop {
     }
 
     fn local_rep_keys_for_election(&self, election_id: &RaiElectionId) -> Vec<PrivateKey> {
-        let mut rep_keys = Vec::new();
-        self.wallet_reps
-            .lock()
-            .unwrap()
-            .rep_priv_keys(&mut rep_keys);
+        let rep_keys = self.local_rep_keys();
 
         let Some(committees) = self.committee_provider.try_committees_for(election_id) else {
             return Vec::new();
@@ -791,6 +797,13 @@ impl RaiEpochLoop {
             .into_iter()
             .filter(|key| committees.contains(&key.public_key()))
             .collect::<Vec<_>>()
+    }
+
+    fn local_rep_keys(&self) -> Vec<PrivateKey> {
+        self.wallet_reps
+            .lock()
+            .unwrap()
+            .voting_priv_keys_unfiltered()
     }
 
     fn install_cut(&mut self, epoch: RaiEpoch, hash: rsnano_types::BlockHash, now: Instant) {
@@ -909,6 +922,11 @@ impl RaiEpochLoop {
         attempt: RaiCloseAttempt,
         now: Instant,
     ) {
+        let election_id = close_record_election_id(epoch, attempt);
+        if self.local_rep_keys_for_election(&election_id).is_empty() {
+            return;
+        }
+
         let (entries, previous_frontiers) = {
             let close_state = self.close_state.read().unwrap();
             let Ok(entries) = close_state.current_close_record_entries(epoch) else {
@@ -931,13 +949,24 @@ impl RaiEpochLoop {
                 return;
             }
 
-            let Ok(record_hash) =
-                close_state.record_current_close_record_value_with_frontiers(epoch, frontiers)
+            let Ok(record_hash) = close_state
+                .record_current_close_record_value_with_frontiers(epoch, frontiers.clone())
             else {
                 return;
             };
             record_hash
         };
+
+        let pr = std::env::var("NANOSPAM_PR_INDEX").unwrap_or_else(|_| "-".to_owned());
+        tracing::info!(
+            pr,
+            epoch,
+            attempt,
+            %record_hash,
+            slot_results = ?entries,
+            derived_frontiers = ?frontiers,
+            "RAI close record preimage"
+        );
 
         self.start_close_record_attempt_with_hash(epoch, attempt, record_hash, now);
     }
@@ -986,7 +1015,6 @@ impl RaiEpochLoop {
             close_state
                 .started_close_record_attempts(epoch)
                 .into_iter()
-                .filter(|attempt| !close_state.close_record_attempt_processed(epoch, *attempt))
                 .filter(|attempt| {
                     !self
                         .close_record_attempt_started_at
@@ -1401,6 +1429,44 @@ mod tests {
     }
 
     #[test]
+    fn creates_local_report_while_committee_history_does_not_include_local_rep() {
+        let local_key = PrivateKey::from(1);
+        let other_key = PrivateKey::from(2);
+        let mut fixture = Fixture::with_committee(
+            local_key.clone(),
+            other_key.clone(),
+            committee([(other_key.public_key(), Amount::raw(100))]),
+        );
+
+        fixture.epoch_loop.tick_at(fixture.expired_epoch_time());
+
+        let reports = fixture.publisher.reports.lock().unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].reporter, local_key.public_key());
+        assert!(fixture.publisher.votes.lock().unwrap().is_empty());
+        assert!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .started_close_attempts(0)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn creates_local_report_before_wallet_representative_cache_catches_up() {
+        let mut fixture = Fixture::single_member();
+        fixture.epoch_loop.wallet_reps.lock().unwrap().clear();
+
+        fixture.epoch_loop.tick_at(fixture.expired_epoch_time());
+
+        let reports = fixture.publisher.reports.lock().unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].reporter, fixture.local_key.public_key());
+    }
+
+    #[test]
     fn rebroadcasts_known_pending_reports_while_waiting_for_close_quorum() {
         let mut fixture = Fixture::two_members();
         fixture.mark_slot_visible();
@@ -1678,6 +1744,51 @@ mod tests {
     }
 
     #[test]
+    fn converged_close_record_attempt_still_publishes_missing_local_first_vote() {
+        let mut fixture = Fixture::two_members();
+        let record_start = fixture.expired_epoch_time();
+
+        {
+            let mut state = fixture.close_state.write().unwrap();
+            state.start_closing(0).unwrap();
+            state.install_cut(0, VisibleSlots::new()).unwrap();
+            state
+                .record_cut_drain(0, std::iter::empty::<(RaiSlot, RaiClosedSlotState)>())
+                .unwrap();
+        }
+
+        let record_hash = fixture
+            .close_state
+            .read()
+            .unwrap()
+            .current_close_record_hash(0)
+            .unwrap();
+        fixture
+            .vote_processor
+            .process(&RaiVote::new_first(
+                &fixture.other_key,
+                close_record_election_id(0, 0),
+                RaiElectionValue::CloseRecordHash(record_hash),
+            ))
+            .unwrap();
+        fixture
+            .close_state
+            .write()
+            .unwrap()
+            .record_close_record_attempt_processed(0, 0);
+
+        fixture.epoch_loop.tick_at(record_start);
+
+        let votes = fixture.publisher.votes.lock().unwrap();
+        assert!(votes.iter().any(|vote| {
+            vote.election_id == close_record_election_id(0, 0)
+                && vote.kind == RaiVoteKind::First
+                && vote.voter == fixture.local_key.public_key()
+                && vote.value == RaiElectionValue::CloseRecordHash(record_hash)
+        }));
+    }
+
+    #[test]
     fn passively_started_close_record_timeout_waits_until_timeout_is_ready() {
         let mut fixture = Fixture::two_members();
         let record_start = fixture.expired_epoch_time();
@@ -1916,6 +2027,36 @@ mod tests {
             ) && vote.kind == RaiVoteKind::Notarization
                 && vote.value == RaiElectionValue::Timeout
         }));
+    }
+
+    #[test]
+    fn rebroadcasts_pending_reports_after_advancing_past_their_epoch() {
+        let mut fixture = Fixture::single_member();
+        fixture
+            .active_elections
+            .insert(fixture.slot_election_id())
+            .unwrap();
+        fixture.mark_slot_visible();
+        let close_start = fixture.expired_epoch_time();
+
+        fixture.epoch_loop.tick_at(close_start);
+        fixture
+            .epoch_loop
+            .tick_at(close_start + fixture.config.close_attempt_duration);
+        assert_eq!(fixture.close_state.read().unwrap().current_epoch(), 1);
+
+        let reports_before = fixture.publisher.reports.lock().unwrap().len();
+        fixture
+            .epoch_loop
+            .tick_at(close_start + fixture.config.close_attempt_duration + Duration::from_secs(1));
+
+        let reports = fixture.publisher.reports.lock().unwrap();
+        assert!(reports.len() > reports_before);
+        assert_eq!(reports.last().unwrap().epoch, 0);
+        assert_eq!(
+            reports.last().unwrap().reporter,
+            fixture.local_key.public_key()
+        );
     }
 
     #[test]

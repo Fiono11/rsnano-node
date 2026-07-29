@@ -14,21 +14,33 @@ use rsnano_types::{
 
 use crate::domain::{Forks, spam_logic::SpamLogic};
 
+#[cfg(not(feature = "rai_protocol"))]
 const PRIO_ACCOUNTS: usize = 20;
+// RAI advances an account frontier at epoch close. A large chain of setup
+// sends from the genesis account serializes bootstrap across many epochs and
+// measures setup rather than the requested workload.
+#[cfg(feature = "rai_protocol")]
+const PRIO_ACCOUNTS: usize = 1;
 const INITIAL_ACCOUNT_BALANCE: Amount = Amount::millinano(1500); // bucket 16
 
 /// Periodically publishes a high priority block and tracks confirmation time
 pub(crate) struct HighPrioCheck<'a> {
     rpc_client: &'a NanoRpcClient,
+    rpc_clients: &'a [NanoRpcClient],
     logic: &'a Mutex<SpamLogic>,
     /// prio account => key + frontier hash + height
     accounts: HashMap<Account, (PrivateKey, BlockHash, u64)>,
 }
 
 impl<'a> HighPrioCheck<'a> {
-    pub(crate) fn new(rpc_client: &'a NanoRpcClient, logic: &'a Mutex<SpamLogic>) -> Self {
+    pub(crate) fn new(
+        rpc_client: &'a NanoRpcClient,
+        rpc_clients: &'a [NanoRpcClient],
+        logic: &'a Mutex<SpamLogic>,
+    ) -> Self {
         Self {
             rpc_client,
+            rpc_clients,
             logic,
             accounts: prio_account_keys()
                 .map(|k| (k.account(), (k, BlockHash::ZERO, 0)))
@@ -53,6 +65,7 @@ impl<'a> HighPrioCheck<'a> {
             .map(|(key, _, _)| key.clone())
             .collect();
 
+        let mut receive_hashes = Vec::with_capacity(keys.len());
         for key in keys {
             let send_block = self
                 .rpc_client
@@ -65,6 +78,28 @@ impl<'a> HighPrioCheck<'a> {
                     id: None,
                 })
                 .await?;
+            let send_json = self.rpc_client.block_info(send_block.block).await?.contents;
+            for (index, rpc_client) in self.rpc_clients.iter().enumerate().skip(1) {
+                match rpc_client.process(send_json.clone()).await {
+                    Ok(response) => info!(
+                        pr = index,
+                        requested_hash = %send_block.block,
+                        accepted_hash = %response.hash,
+                        "Follower accepted priority send"
+                    ),
+                    Err(error) if error.to_string().contains("Old block") => info!(
+                        pr = index,
+                        requested_hash = %send_block.block,
+                        "Follower already had priority send"
+                    ),
+                    Err(error) => {
+                        return Err(anyhow!(
+                            "PR{index} rejected priority send {}: {error:?}",
+                            send_block.block
+                        ));
+                    }
+                }
+            }
 
             let receive_block: Block = StateBlockArgs {
                 key: &key,
@@ -77,15 +112,51 @@ impl<'a> HighPrioCheck<'a> {
             .into();
 
             let receive_hash = receive_block.hash();
-            self.rpc_client
-                .process(JsonBlock::from(receive_block))
-                .await?;
+            receive_hashes.push(receive_hash);
+            let receive_json = JsonBlock::from(receive_block);
+            self.rpc_client.process(receive_json.clone()).await?;
+            for (index, rpc_client) in self.rpc_clients.iter().enumerate().skip(1) {
+                match rpc_client.process(receive_json.clone()).await {
+                    Ok(response) => info!(
+                        pr = index,
+                        requested_hash = %receive_hash,
+                        accepted_hash = %response.hash,
+                        "Follower accepted priority receive"
+                    ),
+                    Err(error) if error.to_string().contains("Old block") => info!(
+                        pr = index,
+                        requested_hash = %receive_hash,
+                        "Follower already had priority receive"
+                    ),
+                    Err(error) => {
+                        return Err(anyhow!(
+                            "PR{index} rejected priority receive {receive_hash}: {error:?}"
+                        ));
+                    }
+                }
+            }
 
             self.accounts
                 .insert(key.account(), (key.clone(), receive_hash, 1));
         }
 
         info!("Waiting for confirmations...");
+        #[cfg(feature = "rai_protocol")]
+        for hash in receive_hashes {
+            loop {
+                if self
+                    .rpc_client
+                    .block_info(hash)
+                    .await
+                    .is_ok_and(|info| info.confirmed.inner())
+                {
+                    break;
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
         loop {
             let count = self.rpc_client.block_count().await?;
             if count.count.inner() == count.cemented.inner() {

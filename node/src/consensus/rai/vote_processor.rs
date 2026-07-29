@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use rsnano_types::{
@@ -10,10 +10,10 @@ use rsnano_types::{
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{
-    NoopRaiStatePersistence, RaiActiveElections, RaiAdmissibility, RaiAdmissibilityValidator,
-    RaiCloseState, RaiClosedSlotState, RaiCommitteeProvider, RaiCommitteeSet,
-    RaiDefaultAdmissibilityValidator, RaiElection, RaiElectionInsertError, RaiElectionOutcome,
-    RaiElectionStatus, RaiEpochPhase, RaiStatePersistence, RaiVoteSafety,
+    NoopRaiStatePersistence, RaiActiveElections, RaiAdmissibility, RaiAdmissibilityError,
+    RaiAdmissibilityValidator, RaiCloseState, RaiClosedSlotState, RaiCommitteeProvider,
+    RaiCommitteeSet, RaiDefaultAdmissibilityValidator, RaiElection, RaiElectionInsertError,
+    RaiElectionOutcome, RaiElectionStatus, RaiEpochPhase, RaiStatePersistence, RaiVoteSafety,
     RepWeightRaiCommitteeProvider,
 };
 use crate::representatives::RepresentativeTracker;
@@ -50,6 +50,7 @@ pub struct RaiVoteProcessor {
     admissibility: Arc<dyn RaiAdmissibilityValidator>,
     vote_safety: Arc<RwLock<RaiVoteSafety>>,
     slot_confirmation_sink: Arc<dyn RaiSlotConfirmationSink>,
+    deferred_close_votes: Mutex<Vec<RaiVote>>,
     stats: Arc<Stats>,
 }
 
@@ -88,8 +89,18 @@ impl RaiVoteProcessor {
         };
         let mut state = self.close_state.write().unwrap();
         match kind {
-            RaiReconKind::Cut if !state.has_close_values(epoch) => {
-                state.record_current_close_value(epoch);
+            RaiReconKind::Cut => {
+                // Keep a universally reconstructible base so a responder can
+                // always send the complete certified cut as a delta.  Using
+                // only replica-relative visible-set hashes can produce a Miss
+                // when the responder never retained that exact intermediate
+                // view.
+                let empty = Default::default();
+                let empty_hash = RaiCloseState::hash_close_cut(&empty);
+                state.cache_close_value(epoch, empty_hash, empty);
+                if !state.has_close_values(epoch) {
+                    state.record_current_close_value(epoch);
+                }
             }
             RaiReconKind::Frontiers if !state.has_close_record_values(epoch) => {
                 let _ = state.record_current_close_record_value(epoch);
@@ -123,6 +134,14 @@ impl RaiVoteProcessor {
     }
 
     pub fn reconciliation_response(&self, request: &RaiReconRequest) -> RaiReconciliation {
+        if request.kind == RaiReconKind::Cut {
+            let empty = Default::default();
+            let empty_hash = RaiCloseState::hash_close_cut(&empty);
+            self.close_state
+                .write()
+                .unwrap()
+                .cache_close_value(request.epoch, empty_hash, empty);
+        }
         let internal = super::RaiCloseReconRequest {
             kind: match request.kind {
                 RaiReconKind::Cut => super::RaiCloseVersionKind::Cut,
@@ -196,11 +215,14 @@ impl RaiVoteProcessor {
                     removed: items.iter().filter(|i| !i.added).map(|i| i.slot).collect(),
                 };
                 let mut state = self.close_state.write().unwrap();
-                let visible = state.visible_slots(*epoch).cloned().unwrap_or_default();
-                super::RaiCloseReconciler::apply_cut(&mut state, &delta, |cut| {
-                    cut.is_subset(&visible)
-                })
-                .map(|_| ())
+                // Reconciliation only obtains the preimage named by a signed
+                // vote.  The reconciler verifies that the reconstructed value
+                // hashes to target_hash; caching it does not accept the cut.
+                // Consensus acceptance still happens when the deferred vote is
+                // replayed.  Comparing with mutable local visibility here can
+                // permanently reject an earlier committee cut when this node
+                // observed additional slots before receiving the vote.
+                super::RaiCloseReconciler::apply_cut(&mut state, &delta, |_| true).map(|_| ())
             }
             RaiReconciliation::FrontierDelta {
                 epoch,
@@ -394,7 +416,28 @@ impl RaiVoteProcessor {
             admissibility,
             vote_safety,
             slot_confirmation_sink,
+            deferred_close_votes: Mutex::new(Vec::new()),
             stats,
+        }
+    }
+
+    pub fn retry_deferred_close_votes(&self) {
+        let votes = std::mem::take(&mut *self.deferred_close_votes.lock().unwrap());
+        for vote in votes {
+            let _ = self.process(&vote);
+        }
+    }
+
+    fn defer_close_vote(&self, vote: &RaiVote) {
+        if !matches!(
+            vote.election_id,
+            RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. }
+        ) {
+            return;
+        }
+        let mut deferred = self.deferred_close_votes.lock().unwrap();
+        if !deferred.contains(vote) {
+            deferred.push(vote.clone());
         }
     }
 
@@ -421,10 +464,23 @@ impl RaiVoteProcessor {
                 return Err(VoteError::Ignored);
             }
 
-            if RaiAdmissibility::new(&close_state, self.admissibility.as_ref())
+            if let Err(error) = RaiAdmissibility::new(&close_state, self.admissibility.as_ref())
                 .validate(&vote.election_id, &vote.value)
-                .is_err()
             {
+                if matches!(
+                    error,
+                    RaiAdmissibilityError::UnknownCloseCut
+                        | RaiAdmissibilityError::MissingCloseRecordPackage
+                ) {
+                    // The spec's ObtainCloseVersion transition waits for the
+                    // canonical preimage and then retries the signed vote.
+                    // Absence of that preimage is not evidence of an invalid
+                    // vote.
+                    self.defer_close_vote(vote);
+                    self.stats
+                        .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
+                    return Err(VoteError::Indeterminate);
+                }
                 self.stats
                     .inc(StatType::RaiVoteProcessor, DetailType::Invalid);
                 return Err(VoteError::Invalid);
@@ -447,12 +503,14 @@ impl RaiVoteProcessor {
             .committee_provider
             .try_committees_for(&vote.election_id)
         else {
+            self.defer_close_vote(vote);
             self.stats
                 .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
             return Err(VoteError::Indeterminate);
         };
 
         if !committees.contains(&vote.voter) {
+            self.defer_close_vote(vote);
             self.stats
                 .inc(StatType::RaiVoteProcessor, DetailType::Ignored);
             return Err(VoteError::Indeterminate);
@@ -640,13 +698,11 @@ impl RaiVoteProcessor {
             return;
         }
 
-        if matches!(
-            close_state.current_close_record_hash(*epoch),
-            Ok(current_hash) if current_hash == *record_hash
-        ) {
-            let _ = close_state.record_current_close_record_value(*epoch);
-            close_state.record_close_record_attempt_started(*epoch, *attempt);
-        }
+        // Unknown close-record hashes are reconstructed through frontier
+        // reconciliation. Do not synthesize a candidate here with
+        // `RaiCloseState::close_record_from_entries`: the normative candidate
+        // must be derived by close-local replay through the admissibility
+        // validator, exactly like the active epoch-loop path.
     }
 
     fn ensure_election_exists(&self, vote: &RaiVote) -> Result<(), RaiElectionInsertError> {
@@ -754,6 +810,16 @@ impl RaiVoteProcessor {
 
         let mut states = Vec::with_capacity(cut.len());
         for slot in &cut {
+            if let Some(state) = self
+                .close_state
+                .read()
+                .unwrap()
+                .closed_slot_state(epoch, slot)
+                .copied()
+            {
+                states.push((*slot, state));
+                continue;
+            }
             let Some(outcome) = self.slot_outcome(epoch, slot) else {
                 return false;
             };
@@ -777,8 +843,8 @@ impl RaiVoteProcessor {
     }
 
     fn try_record_current_close_record_value(&self, epoch: RaiEpoch) -> bool {
-        let snapshot = {
-            let mut close_state = self.close_state.write().unwrap();
+        let (entries, previous_frontiers) = {
+            let close_state = self.close_state.read().unwrap();
             if close_state.current_epoch() != epoch
                 || close_state.epoch_phase(epoch) != Some(RaiEpochPhase::Closing)
                 || !close_state.cut_drained(epoch)
@@ -787,9 +853,31 @@ impl RaiVoteProcessor {
                 return false;
             }
 
-            if close_state
-                .record_current_close_record_value(epoch)
-                .is_err()
+            let Ok(entries) = close_state.current_close_record_entries(epoch) else {
+                return false;
+            };
+            let Ok(previous_frontiers) = close_state.prior_frontiers(epoch) else {
+                return false;
+            };
+            (entries, previous_frontiers.clone())
+        };
+
+        let Ok(frontiers) =
+            self.admissibility
+                .derive_close_frontiers(epoch, &previous_frontiers, &entries)
+        else {
+            return false;
+        };
+
+        let snapshot = {
+            let mut close_state = self.close_state.write().unwrap();
+            if close_state.current_epoch() != epoch
+                || close_state.epoch_phase(epoch) != Some(RaiEpochPhase::Closing)
+                || !close_state.cut_drained(epoch)
+                || close_state.has_close_record_values(epoch)
+                || close_state
+                    .record_current_close_record_value_with_frontiers(epoch, frontiers)
+                    .is_err()
             {
                 return false;
             }
@@ -993,7 +1081,7 @@ fn closed_slot_state_from_outcome(outcome: RaiElectionOutcome) -> Option<RaiClos
 #[cfg(test)]
 mod tests {
     use super::super::{
-        RaiAdmissibilityError, RaiClosedSlotState, RaiCommittee, RaiCommitteeDeriver,
+        CloseRecordEntries, RaiAdmissibilityError, RaiClosedSlotState, RaiCommittee, RaiCommitteeDeriver,
         RaiVoteSafetyEntrySnapshot, RaiVoteSafetySnapshot, VisibleSlots,
     };
     use super::*;
@@ -1616,7 +1704,44 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_close_cut_hash() {
+    fn reconciliation_caches_winning_cut_that_omits_a_locally_visible_slot() {
+        let fixture = Fixture::new();
+        let included = RaiSlot::new(Account::from(1), 1);
+        let local_only = RaiSlot::new(Account::from(2), 1);
+        let empty = Default::default();
+        let base_hash = RaiCloseState::hash_close_cut(&empty);
+        let target = [included].into_iter().collect();
+        let target_hash = RaiCloseState::hash_close_cut(&target);
+        {
+            let mut state = fixture.close_state.write().unwrap();
+            state.mark_visible(0, included);
+            state.mark_visible(0, local_only);
+            assert!(state.cache_close_value(0, base_hash, empty));
+        }
+
+        let delta = RaiReconciliation::CutDelta {
+            epoch: 0,
+            base_hash,
+            target_hash,
+            items: vec![RaiCutDeltaItem {
+                added: true,
+                slot: included,
+            }],
+        };
+
+        assert!(fixture.processor.apply_reconciliation(&delta, 0));
+        assert_eq!(
+            fixture
+                .close_state
+                .read()
+                .unwrap()
+                .close_value(0, &target_hash),
+            Some(&target)
+        );
+    }
+
+    #[test]
+    fn defers_close_cut_vote_until_version_is_available() {
         let fixture = Fixture::new();
         let election_id = RaiElectionId::CloseCut {
             epoch: 0,
@@ -1629,7 +1754,10 @@ mod tests {
         let value = RaiElectionValue::CloseCutHash(BlockHash::from(42));
         let vote = RaiVote::new_first(&fixture.rep_key, election_id.clone(), value.clone());
 
-        assert_eq!(fixture.processor.process(&vote), Err(VoteError::Invalid));
+        assert_eq!(
+            fixture.processor.process(&vote),
+            Err(VoteError::Indeterminate)
+        );
 
         let election = fixture.active_elections.election(&election_id).unwrap();
         assert_eq!(election.tally(&value), 0);
@@ -1718,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_close_record_hash_without_validated_package() {
+    fn defers_close_record_vote_until_validated_package_is_available() {
         let fixture = Fixture::new();
         let election_id = RaiElectionId::CloseRecord {
             epoch: 0,
@@ -1731,7 +1859,10 @@ mod tests {
         let value = RaiElectionValue::CloseRecordHash(BlockHash::from(42));
         let vote = RaiVote::new_first(&fixture.rep_key, election_id.clone(), value.clone());
 
-        assert_eq!(fixture.processor.process(&vote), Err(VoteError::Invalid));
+        assert_eq!(
+            fixture.processor.process(&vote),
+            Err(VoteError::Indeterminate)
+        );
 
         let election = fixture.active_elections.election(&election_id).unwrap();
         assert_eq!(election.tally(&value), 0);
@@ -1865,6 +1996,33 @@ mod tests {
         assert_eq!(close_state.epoch_phase(0), Some(RaiEpochPhase::Closed));
     }
 
+    #[test]
+    fn passive_close_record_uses_admissibility_frontier_derivation() {
+        let account = Account::from(77);
+        let frontier = BlockHash::from(88);
+        let fixture = Fixture::with_admissibility(Arc::new(FixedFrontierDeriver {
+            account,
+            frontier,
+        }));
+        {
+            let mut state = fixture.close_state.write().unwrap();
+            state.start_closing(0).unwrap();
+            state.install_cut(0, VisibleSlots::new()).unwrap();
+            state
+                .record_cut_drain(0, std::iter::empty::<(RaiSlot, RaiClosedSlotState)>())
+                .unwrap();
+        }
+
+        assert!(fixture.processor.try_record_current_close_record_value(0));
+
+        let state = fixture.close_state.read().unwrap();
+        let hash = state.close_record_hashes(0)[0];
+        assert_eq!(
+            state.close_record_value(0, &hash).unwrap().record.frontiers,
+            [(account, frontier)].into_iter().collect()
+        );
+    }
+
     struct Fixture {
         active_elections: Arc<RaiActiveElections>,
         close_state: Arc<RwLock<RaiCloseState>>,
@@ -1951,6 +2109,22 @@ mod tests {
             _block_hash: &BlockHash,
         ) -> Result<(), RaiAdmissibilityError> {
             Err(RaiAdmissibilityError::InadmissibleSlotBlock)
+        }
+    }
+
+    struct FixedFrontierDeriver {
+        account: Account,
+        frontier: BlockHash,
+    }
+
+    impl RaiAdmissibilityValidator for FixedFrontierDeriver {
+        fn derive_close_frontiers(
+            &self,
+            _epoch: RaiEpoch,
+            _previous_frontiers: &BTreeMap<Account, BlockHash>,
+            _entries: &CloseRecordEntries,
+        ) -> Result<BTreeMap<Account, BlockHash>, RaiAdmissibilityError> {
+            Ok([(self.account, self.frontier)].into_iter().collect())
         }
     }
 

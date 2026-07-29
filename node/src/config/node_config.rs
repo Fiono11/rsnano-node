@@ -303,6 +303,9 @@ pub struct RaiConfig {
     pub epoch_duration: Duration,
     pub close_attempt_duration: Duration,
     pub tick_interval: Duration,
+    /// Optional fixed committee for the genesis epochs. When empty, it is
+    /// derived from the representative weights present when the node starts.
+    pub genesis_committee: Vec<PublicKey>,
 }
 
 impl Default for RaiConfig {
@@ -311,6 +314,7 @@ impl Default for RaiConfig {
             epoch_duration: Duration::from_secs(5 * 60),
             close_attempt_duration: Duration::from_secs(10),
             tick_interval: Duration::from_secs(1),
+            genesis_committee: Vec::new(),
         }
     }
 }

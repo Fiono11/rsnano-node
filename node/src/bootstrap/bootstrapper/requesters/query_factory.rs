@@ -127,7 +127,18 @@ impl QueryFactory {
             count: self.pull_count_decider.pull_count(target.priority),
         });
 
-        let channel = self.acquire_channel()?;
+        // The peer which supplied the certified close page is the best first
+        // source for the referenced blocks, but it must remain only a hint.
+        // A disconnected or saturated source must not pin epoch recovery.
+        let channel = target
+            .preferred_channel
+            .and_then(|channel_id| self.network.read().unwrap().get(channel_id).cloned())
+            .or_else(|| self.acquire_channel());
+        let Some(channel) = channel else {
+            self.bootstrap_queue.requeue_download(&target.account);
+            self.stats.no_channel.fetch_add(1, Relaxed);
+            return None;
+        };
         let query_id = self.rng_factory.rng().next_u64();
         let query = AscPullQuerySpec {
             query_id,

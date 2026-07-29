@@ -69,6 +69,14 @@ impl BootstrapQueue {
         self.insert_pull_type(account, PullType::Safe)
     }
 
+    pub fn insert_safe_on_channel(&self, account: Account, channel_id: ChannelId) -> bool {
+        let inserted = self.insert_pull_type(account, PullType::Safe);
+        let mut logic = self.logic.lock().unwrap();
+        logic.set_preferred_channel(account, channel_id);
+        logic.promote_recovery(&account);
+        inserted
+    }
+
     fn insert_pull_type(&self, account: Account, pull_type: PullType) -> bool {
         let inserted;
         let mut trim_count = TrimCount::default();

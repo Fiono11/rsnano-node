@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rsnano_network::ChannelId;
 use rsnano_types::{
     BlockHash, RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES, RaiEpoch, RaiEpochCloseAck, RaiEpochCloseEntry,
     RaiEpochCloseEntryState, RaiEpochClosePage, RaiEpochCloseReq, RaiSlot, SavedBlock,
@@ -14,8 +15,13 @@ use crate::consensus::{
     RaiStatePersistence, VisibleSlots,
 };
 
+/// Separate attempt namespace used when the terminal historical committee
+/// reissues votes for a joining replica.
+pub(crate) const RAI_CLOSE_RECORD_RECOVERY_ATTEMPT: u64 = u64::MAX;
+
+/// Supplies the ordinary ledger blocks referenced by a historical close package.
 pub(crate) trait RaiEpochBlockRequester: Send + Sync {
-    fn request_confirmed_slots(&self, slots: &[RaiSlot]);
+    fn request_confirmed_slots(&self, slots: &[RaiSlot], source: Option<ChannelId>);
 
     fn confirmed_block_hash(&self, _slot: &RaiSlot) -> Option<BlockHash> {
         None
@@ -36,6 +42,8 @@ pub(crate) struct RaiEpochBootstrap {
     confirmed_slots: Mutex<BTreeMap<RaiEpoch, BTreeMap<RaiSlot, BlockHash>>>,
     close_state_pages: Mutex<BTreeMap<RaiEpoch, RaiEpochClosePageAccumulator>>,
     close_state_requests: Mutex<BTreeMap<RaiEpoch, Instant>>,
+    close_state_sources: Mutex<BTreeMap<RaiEpoch, ChannelId>>,
+    target_epoch: Mutex<Option<RaiEpoch>>,
 }
 
 impl RaiEpochBootstrap {
@@ -55,6 +63,8 @@ impl RaiEpochBootstrap {
             confirmed_slots: Mutex::new(BTreeMap::new()),
             close_state_pages: Mutex::new(BTreeMap::new()),
             close_state_requests: Mutex::new(BTreeMap::new()),
+            close_state_sources: Mutex::new(BTreeMap::new()),
+            target_epoch: Mutex::new(None),
         }
     }
 
@@ -81,7 +91,13 @@ impl RaiEpochBootstrap {
     }
 
     pub(crate) fn try_install_available_epochs(&self) {
-        while self.try_install_collected_current_epoch() || self.try_install_current_epoch() {}
+        // A passively observed cut does not contain the finalized/released
+        // outcome of each slot. Only reconstruct from the certified close
+        // package supplied by the historical committee; otherwise replicas
+        // can manufacture different record hashes from their transient local
+        // block views and accidentally start a recovery record election for
+        // the wrong value.
+        while self.try_install_collected_current_epoch() {}
     }
 
     pub(crate) fn next_close_state_request(&self) -> Option<RaiEpochCloseReq> {
@@ -97,7 +113,10 @@ impl RaiEpochBootstrap {
         let start_index = {
             let pages = self.close_state_pages.lock().unwrap();
             match pages.get(&epoch) {
-                Some(accumulator) if accumulator.is_complete() => return None,
+                // Keep polling page zero after reconstruction. Besides serving
+                // data, the request asks historical members to re-vote; the
+                // requester may have missed an earlier broadcast.
+                Some(accumulator) if accumulator.is_complete() => 0,
                 Some(accumulator) => accumulator.next_missing_start_index(),
                 None => 0,
             }
@@ -121,78 +140,31 @@ impl RaiEpochBootstrap {
         })
     }
 
-    pub(crate) fn process_epoch_close_ack(&self, ack: RaiEpochCloseAck) -> bool {
+    pub(crate) fn process_epoch_close_ack(
+        &self,
+        ack: RaiEpochCloseAck,
+        channel_id: ChannelId,
+    ) -> bool {
         let Some(page) = ack.page else {
             return true;
         };
 
+        let epoch = page.epoch;
+        let advertised_target = page.server_epoch.saturating_sub(2);
+        {
+            let mut target = self.target_epoch.lock().unwrap();
+            *target = Some(target.unwrap_or_default().max(advertised_target));
+        }
         if !self.accept_epoch_close_page(page) {
             return false;
         }
+        self.close_state_sources
+            .lock()
+            .unwrap()
+            .insert(epoch, channel_id);
 
         self.try_install_available_epochs();
         true
-    }
-
-    fn try_install_current_epoch(&self) -> bool {
-        let (epoch, cut) = {
-            let close_state = self.close_state.read().unwrap();
-            let epoch = close_state.current_epoch();
-            if close_state.epoch_phase(epoch) != Some(RaiEpochPhase::Closing) {
-                return false;
-            }
-
-            let Some(cut) = close_state.cut_set(epoch).cloned() else {
-                return false;
-            };
-
-            (epoch, cut)
-        };
-
-        let slot_states = {
-            let confirmed_slots = self.confirmed_slots.lock().unwrap();
-            let epoch_slots = confirmed_slots.get(&epoch);
-            let mut states = Vec::with_capacity(cut.len());
-            let mut missing_slots = Vec::new();
-            for slot in &cut {
-                if let Some(block) = epoch_slots.and_then(|slots| slots.get(slot)) {
-                    states.push((*slot, RaiClosedSlotState::Finalized(*block)));
-                } else {
-                    missing_slots.push(*slot);
-                }
-            }
-
-            if !missing_slots.is_empty() {
-                drop(confirmed_slots);
-                self.request_missing_confirmed_slots(epoch, &missing_slots);
-                return false;
-            }
-            states
-        };
-
-        let (advanced, close_hash, snapshot) = {
-            let mut close_state = self.close_state.write().unwrap();
-            if close_state.current_epoch() != epoch
-                || close_state.epoch_phase(epoch) != Some(RaiEpochPhase::Closing)
-            {
-                return false;
-            }
-
-            if !close_state.cut_drained(epoch) {
-                if close_state.record_cut_drain(epoch, slot_states).is_err() {
-                    return false;
-                }
-            }
-
-            let Ok(close_hash) = close_state.record_current_close_record_value(epoch) else {
-                return false;
-            };
-            let _ = close_state.certify_close_record(epoch, &close_hash);
-            let advanced = close_state.advance_epoch(epoch).is_ok();
-            (advanced, close_hash, close_state.snapshot())
-        };
-
-        self.finish_epoch_install(epoch, close_hash, snapshot, advanced)
     }
 
     fn accept_epoch_close_page(&self, page: RaiEpochClosePage) -> bool {
@@ -221,7 +193,7 @@ impl RaiEpochBootstrap {
     }
 
     fn try_install_collected_current_epoch(&self) -> bool {
-        let (epoch, close_hash, entries) = {
+        let (epoch, close_hash, entries, server_epoch) = {
             let close_state = self.close_state.read().unwrap();
             let epoch = close_state.current_epoch();
             if close_state.epoch_phase(epoch) != Some(RaiEpochPhase::Closing) {
@@ -232,11 +204,16 @@ impl RaiEpochBootstrap {
             let Some(accumulator) = pages.get(&epoch) else {
                 return false;
             };
-            let Some((close_hash, entries)) = accumulator.complete_entries() else {
+            let Some((close_hash, entries, server_epoch)) = accumulator.complete_entries() else {
                 return false;
             };
-            (epoch, close_hash, entries)
+            (epoch, close_hash, entries, server_epoch)
         };
+
+        let target_epoch = server_epoch.saturating_sub(2);
+        if epoch > target_epoch {
+            return false;
+        }
 
         let close_entries = match close_entries_from_epoch_page_entries(&entries) {
             Ok(entries) => entries,
@@ -268,6 +245,7 @@ impl RaiEpochBootstrap {
             Ok(_) => {}
         }
 
+        let terminal = epoch == target_epoch;
         let (advanced, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
             if close_state.current_epoch() != epoch
@@ -342,12 +320,39 @@ impl RaiEpochBootstrap {
             if recorded_close_hash != close_hash {
                 return false;
             }
-            let _ = close_state.certify_close_record(epoch, &close_hash);
-            let advanced = close_state.advance_epoch(epoch).is_ok();
+            let advanced = if terminal {
+                close_state
+                    .record_close_record_attempt_started(epoch, RAI_CLOSE_RECORD_RECOVERY_ATTEMPT);
+                false
+            } else {
+                let _ = close_state.certify_close_record(epoch, &close_hash);
+                let advanced = close_state.advance_epoch(epoch).is_ok();
+                if advanced {
+                    let _ = close_state.start_closing(epoch + 1);
+                }
+                advanced
+            };
             (advanced, close_state.snapshot())
         };
 
-        self.finish_epoch_install(epoch, close_hash, snapshot, advanced)
+        self.persistence.save_close_state(&snapshot);
+        if advanced {
+            let committee = self
+                .committee_provider
+                .snapshot_closed_epoch_committee(epoch);
+            self.persistence.save_committee_snapshot(epoch, &committee);
+            if let Some(weights) = self
+                .committee_provider
+                .closed_epoch_rep_weight_snapshot(epoch)
+            {
+                self.persistence.save_rep_weight_snapshot(epoch, &weights);
+            }
+            self.confirmed_slots.lock().unwrap().remove(&epoch);
+            self.close_state_pages.lock().unwrap().remove(&epoch);
+            self.close_state_requests.lock().unwrap().remove(&epoch);
+            tracing::info!(epoch, %close_hash, terminal, "RAI bootstrap installed hash-chained epoch");
+        }
+        advanced
     }
 
     fn missing_committed_slots(
@@ -386,43 +391,14 @@ impl RaiEpochBootstrap {
         Ok(missing)
     }
 
-    fn finish_epoch_install(
-        &self,
-        epoch: RaiEpoch,
-        close_hash: BlockHash,
-        snapshot: crate::consensus::RaiCloseStateSnapshot,
-        advanced: bool,
-    ) -> bool {
-        if !advanced {
-            self.persistence.save_close_state(&snapshot);
-            return false;
-        }
-
-        let committee = self
-            .committee_provider
-            .snapshot_closed_epoch_committee(epoch);
-        if let Some(rep_weight_snapshot) = self
-            .committee_provider
-            .closed_epoch_rep_weight_snapshot(epoch)
-        {
-            self.persistence
-                .save_rep_weight_snapshot(epoch, &rep_weight_snapshot);
-        }
-        self.persistence.save_committee_snapshot(epoch, &committee);
-        self.persistence.save_close_state(&snapshot);
-        self.confirmed_slots.lock().unwrap().remove(&epoch);
-        self.close_state_pages.lock().unwrap().remove(&epoch);
-        self.close_state_requests.lock().unwrap().remove(&epoch);
-
-        tracing::info!(
-            "RAI bootstrap installed previous epoch: epoch={epoch} close_hash={close_hash}"
-        );
-
-        true
-    }
-
     fn request_missing_confirmed_slots(&self, epoch: RaiEpoch, slots: &[RaiSlot]) {
-        self.block_requester.request_confirmed_slots(slots);
+        let source = self
+            .close_state_sources
+            .lock()
+            .unwrap()
+            .get(&epoch)
+            .copied();
+        self.block_requester.request_confirmed_slots(slots, source);
         tracing::debug!(
             epoch,
             missing_slots = slots.len(),
@@ -436,6 +412,7 @@ struct RaiEpochClosePageAccumulator {
     total_entries: Option<u32>,
     close_hash: Option<BlockHash>,
     entries: BTreeMap<u32, RaiEpochCloseEntry>,
+    server_epoch: Option<RaiEpoch>,
 }
 
 impl RaiEpochClosePageAccumulator {
@@ -478,6 +455,7 @@ impl RaiEpochClosePageAccumulator {
 
         self.total_entries = Some(page.total_entries);
         self.close_hash = Some(page.close_hash);
+        self.server_epoch = Some(self.server_epoch.unwrap_or_default().max(page.server_epoch));
 
         for (offset, entry) in page.entries.into_iter().enumerate() {
             let index = page.start_index + offset as u32;
@@ -505,7 +483,7 @@ impl RaiEpochClosePageAccumulator {
             .is_some_and(|total| self.entries.len() == total as usize)
     }
 
-    fn complete_entries(&self) -> Option<(BlockHash, Vec<RaiEpochCloseEntry>)> {
+    fn complete_entries(&self) -> Option<(BlockHash, Vec<RaiEpochCloseEntry>, RaiEpoch)> {
         if !self.is_complete() {
             return None;
         }
@@ -513,6 +491,7 @@ impl RaiEpochClosePageAccumulator {
         Some((
             self.close_hash?,
             self.entries.values().copied().collect::<Vec<_>>(),
+            self.server_epoch?,
         ))
     }
 }
@@ -551,7 +530,7 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
-    fn installs_closing_epoch_when_cut_slots_are_confirmed() {
+    fn does_not_reconstruct_close_record_from_local_blocks() {
         let block = SavedBlock::new_test_instance();
         let slot = RaiSlot::new(block.account(), block.height());
         let close_state = Arc::new(RwLock::new(RaiCloseState::new()));
@@ -573,13 +552,10 @@ mod tests {
         installer.record_confirmed_blocks(&[(block.clone(), block.hash())]);
 
         let close_state = close_state.read().unwrap();
-        assert_eq!(close_state.current_epoch(), 1);
-        assert_eq!(close_state.epoch_phase(0), Some(RaiEpochPhase::Closed));
-        assert_eq!(
-            close_state.closed_slot_state(0, &slot),
-            Some(&RaiClosedSlotState::Finalized(block.hash()))
-        );
-        assert!(persistence.close_states.lock().unwrap().last().is_some());
+        assert_eq!(close_state.current_epoch(), 0);
+        assert_eq!(close_state.epoch_phase(0), Some(RaiEpochPhase::Closing));
+        assert_eq!(close_state.closed_slot_state(0, &slot), None);
+        assert!(persistence.close_states.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -609,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn requests_missing_cut_slots_before_installing_epoch() {
+    fn does_not_request_blocks_from_an_uncertified_cut() {
         let first = SavedBlock::new_test_instance_with_key(1);
         let second = SavedBlock::new_test_instance_with_key(2);
         let first_slot = RaiSlot::new(first.account(), first.height());
@@ -632,11 +608,11 @@ mod tests {
 
         installer.record_confirmed_blocks(&[(first.clone(), first.hash())]);
 
-        assert_eq!(requester.requested_slots(), vec![second_slot]);
+        assert!(requester.requested_slots().is_empty());
     }
 
     #[test]
-    fn installs_after_cut_arrives_for_already_confirmed_slot() {
+    fn does_not_reconstruct_when_uncertified_cut_arrives() {
         let block = SavedBlock::new_test_instance();
         let slot = RaiSlot::new(block.account(), block.height());
         let close_state = Arc::new(RwLock::new(RaiCloseState::new()));
@@ -659,11 +635,12 @@ mod tests {
         }
         installer.try_install_available_epochs();
 
-        assert_eq!(close_state.read().unwrap().current_epoch(), 1);
+        let close_state = close_state.read().unwrap();
+        assert_eq!(close_state.current_epoch(), 0);
     }
 
     #[test]
-    fn installs_epoch_from_bootstrapped_close_state_page() {
+    fn reconstructs_epoch_from_bootstrapped_close_state_page() {
         let block = SavedBlock::new_test_instance();
         let slot = RaiSlot::new(block.account(), block.height());
         let close_state = Arc::new(RwLock::new(RaiCloseState::new()));
@@ -679,13 +656,16 @@ mod tests {
             requester,
         );
 
-        assert!(installer.process_epoch_close_ack(close_ack(
-            0,
-            vec![RaiEpochCloseEntry {
-                slot,
-                state: RaiEpochCloseEntryState::Finalized(block.hash()),
-            }],
-        )));
+        assert!(installer.process_epoch_close_ack(
+            close_ack(
+                0,
+                vec![RaiEpochCloseEntry {
+                    slot,
+                    state: RaiEpochCloseEntryState::Finalized(block.hash()),
+                }],
+            ),
+            ChannelId::from(77),
+        ));
 
         let close_state = close_state.read().unwrap();
         assert_eq!(close_state.current_epoch(), 1);
@@ -709,16 +689,21 @@ mod tests {
             requester.clone(),
         );
 
-        assert!(installer.process_epoch_close_ack(close_ack(
-            0,
-            vec![RaiEpochCloseEntry {
-                slot,
-                state: RaiEpochCloseEntryState::Finalized(block.hash()),
-            }],
-        )));
+        let source = ChannelId::from(77);
+        assert!(installer.process_epoch_close_ack(
+            close_ack(
+                0,
+                vec![RaiEpochCloseEntry {
+                    slot,
+                    state: RaiEpochCloseEntryState::Finalized(block.hash()),
+                }],
+            ),
+            source,
+        ));
 
         assert_eq!(close_state.read().unwrap().current_epoch(), 0);
         assert_eq!(requester.requested_slots(), vec![slot]);
+        assert_eq!(requester.requested_sources(), vec![Some(source)]);
     }
 
     #[test]
@@ -738,6 +723,43 @@ mod tests {
         assert_eq!(request.start_index, 0);
     }
 
+    #[test]
+    fn terminal_epoch_waits_for_reissued_close_record_votes() {
+        let block = SavedBlock::new_test_instance();
+        let slot = RaiSlot::new(block.account(), block.height());
+        let entry = RaiEpochCloseEntry {
+            slot,
+            state: RaiEpochCloseEntryState::Finalized(block.hash()),
+        };
+        let close_entries = close_entries_from_epoch_page_entries(&[entry]).unwrap();
+        let close_hash = RaiCloseState::close_record_from_entries(
+            0,
+            BlockHash::ZERO,
+            &Default::default(),
+            &close_entries,
+        )
+        .hash();
+        let close_state = Arc::new(RwLock::new(RaiCloseState::new()));
+        close_state.write().unwrap().start_closing(0).unwrap();
+        let installer = RaiEpochBootstrap::new(
+            close_state.clone(),
+            Arc::new(EmptyCommitteeProvider),
+            Arc::new(RecordingPersistence::default()),
+            Arc::new(RecordingBlockRequester::with_confirmed([(
+                slot,
+                block.hash(),
+            )])),
+        );
+        let page = RaiEpochClosePage::new(0, 1, 0, close_hash, vec![entry]).with_server_epoch(2);
+
+        assert!(installer.process_epoch_close_ack(RaiEpochCloseAck::new(page), ChannelId::from(1)));
+
+        let state = close_state.read().unwrap();
+        assert_eq!(state.current_epoch(), 0);
+        assert!(state.has_close_record_value(0, &close_hash));
+        assert!(state.close_record_attempt_started(0, RAI_CLOSE_RECORD_RECOVERY_ATTEMPT));
+    }
+
     fn close_ack(epoch: RaiEpoch, entries: Vec<RaiEpochCloseEntry>) -> RaiEpochCloseAck {
         let close_entries =
             close_entries_from_epoch_page_entries(&entries).expect("test entries should be unique");
@@ -748,13 +770,10 @@ mod tests {
             &close_entries,
         )
         .hash();
-        RaiEpochCloseAck::new(RaiEpochClosePage::new(
-            epoch,
-            entries.len() as u32,
-            0,
-            close_hash,
-            entries,
-        ))
+        RaiEpochCloseAck::new(
+            RaiEpochClosePage::new(epoch, entries.len() as u32, 0, close_hash, entries)
+                .with_server_epoch(3),
+        )
     }
 
     #[derive(Default)]
@@ -771,6 +790,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingBlockRequester {
         requested: Mutex<Vec<RaiSlot>>,
+        sources: Mutex<Vec<Option<ChannelId>>>,
         confirmed: Mutex<BTreeMap<RaiSlot, BlockHash>>,
     }
 
@@ -778,6 +798,7 @@ mod tests {
         fn with_confirmed(confirmed: impl IntoIterator<Item = (RaiSlot, BlockHash)>) -> Self {
             Self {
                 requested: Mutex::new(Vec::new()),
+                sources: Mutex::new(Vec::new()),
                 confirmed: Mutex::new(confirmed.into_iter().collect()),
             }
         }
@@ -785,11 +806,16 @@ mod tests {
         fn requested_slots(&self) -> Vec<RaiSlot> {
             self.requested.lock().unwrap().clone()
         }
+
+        fn requested_sources(&self) -> Vec<Option<ChannelId>> {
+            self.sources.lock().unwrap().clone()
+        }
     }
 
     impl RaiEpochBlockRequester for RecordingBlockRequester {
-        fn request_confirmed_slots(&self, slots: &[RaiSlot]) {
+        fn request_confirmed_slots(&self, slots: &[RaiSlot], source: Option<ChannelId>) {
             self.requested.lock().unwrap().extend_from_slice(slots);
+            self.sources.lock().unwrap().push(source);
         }
 
         fn confirmed_block_hash(&self, slot: &RaiSlot) -> Option<BlockHash> {

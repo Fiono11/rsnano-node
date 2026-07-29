@@ -35,6 +35,8 @@ use rsnano_types::{
     Account, Amount, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{RaiElectionId, RaiElectionValue};
 use rsnano_utils::{
     BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry, EventProcessor,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
@@ -105,10 +107,10 @@ use crate::consensus::VoteProcessorExt;
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::{
     LedgerRaiAdmissibilityValidator, LmdbRaiStatePersistence, RaiActiveElections, RaiCloseState,
-    RaiCloseStateRebuilder, RaiEpochLoop, RaiEpochLoopConfig, RaiNetworkEpochPublisher,
-    RaiPendingReportProcessor, RaiPersistedState, RaiSlotConfirmationSink,
-    RaiSlotElectionActivator, RaiStatePersistence, RaiVoteProcessor, RaiVoteSafety,
-    RepWeightRaiCommitteeProvider,
+    RaiCloseStateRebuilder, RaiCommitteeProvider, RaiEpochLoop, RaiEpochLoopConfig,
+    RaiNetworkEpochPublisher, RaiPendingReportProcessor, RaiPersistedState,
+    RaiSlotConfirmationSink, RaiSlotElectionActivator, RaiStatePersistence, RaiVoteProcessor,
+    RaiVoteSafety, RepWeightRaiCommitteeProvider,
 };
 
 #[allow(dead_code)]
@@ -707,12 +709,23 @@ impl Node {
         });
 
         #[cfg(feature = "rai_protocol")]
-        let rai_committee_provider =
-            Arc::new(RepWeightRaiCommitteeProvider::with_closed_epoch_snapshots(
+        let rai_committee_provider = Arc::new(
+            RepWeightRaiCommitteeProvider::with_genesis_committee_and_closed_epoch_snapshots(
                 rep_weights.clone(),
+                (!config.rai.genesis_committee.is_empty()).then(|| {
+                    crate::consensus::RaiCommitteeDeriver::new().derive_genesis_committee(
+                        config
+                            .rai
+                            .genesis_committee
+                            .iter()
+                            .copied()
+                            .map(|key| (key, Amount::raw(1))),
+                    )
+                }),
                 rai_rep_weight_snapshots,
                 rai_committee_snapshots,
-            ));
+            ),
+        );
 
         #[cfg(feature = "rai_protocol")]
         let rai_close_state = {
@@ -770,6 +783,41 @@ impl Node {
                 stats.clone(),
             ),
         );
+
+        #[cfg(feature = "rai_protocol")]
+        {
+            use crate::bootstrap::bootstrapper::RAI_CLOSE_RECORD_RECOVERY_ATTEMPT;
+
+            let close_state = rai_close_state.clone();
+            let committee_provider = rai_committee_provider.clone();
+            let wallet_reps = wallet_reps.clone();
+            let flooder = Arc::new(Mutex::new(message_flooder.clone()));
+            bootstrap_responder.set_rai_close_recovery_callback(Arc::new(move |epoch| {
+                let Some(close_hash) = close_state.read().unwrap().certified_close_hash(epoch)
+                else {
+                    return;
+                };
+                let election_id = RaiElectionId::CloseRecord {
+                    epoch,
+                    attempt: RAI_CLOSE_RECORD_RECOVERY_ATTEMPT,
+                };
+                let Some(committees) = committee_provider.try_committees_for(&election_id) else {
+                    return;
+                };
+                let value = RaiElectionValue::CloseRecordHash(close_hash);
+                for key in wallet_reps.lock().unwrap().voting_priv_keys_unfiltered() {
+                    if !committees.contains(&key.public_key()) {
+                        continue;
+                    }
+                    let vote =
+                        rsnano_types::RaiVote::new_first(&key, election_id.clone(), value.clone());
+                    flooder.lock().unwrap().flood_all(
+                        &rsnano_messages::Message::RaiVote(vote),
+                        rsnano_network::TrafficType::Generic,
+                    );
+                }
+            }));
+        }
 
         #[cfg(feature = "rai_protocol")]
         let rai_pending_report_processor = Arc::new(

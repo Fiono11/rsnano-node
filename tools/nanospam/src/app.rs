@@ -40,10 +40,14 @@ use crate::{
     high_prio_check::HighPrioCheck,
     node_lifetime::NodeLifetime,
     setup::{
-        configure_nodes, create_account_map, get_genesis_hash, peering_port, rpc_port, start_nodes,
+        create_account_map, get_genesis_hash, peering_port, rpc_port, start_nodes,
     },
     wallets_factory::create_wallets,
 };
+#[cfg(not(feature = "rai_protocol"))]
+use crate::setup::configure_nodes;
+#[cfg(feature = "rai_protocol")]
+use crate::setup::{configure_nodes_for_setup, configure_nodes_for_workload};
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
@@ -83,6 +87,9 @@ impl NanoSpamApp {
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
         if self.args.set_up_new_nodes() {
+            #[cfg(feature = "rai_protocol")]
+            configure_nodes_for_setup(&self.args, &data_dir);
+            #[cfg(not(feature = "rai_protocol"))]
             configure_nodes(&self.args, &data_dir);
         }
 
@@ -95,8 +102,8 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
-            if self.args.kill_nodes() {
+            let node_handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
+            if self.args.kill_nodes() || cfg!(feature = "rai_protocol") {
                 self.node_lifetime = NodeLifetime::new(node_handles);
             }
         }
@@ -114,12 +121,34 @@ impl NanoSpamApp {
         let logic = Mutex::new(SpamLogic::new(account_map, self.args.spam_spec()?));
 
         let (tx_blocks, rx_blocks) = mpsc::channel::<Forks>(MAX_BUFFERED_BLOCKS);
-        let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &logic);
+        let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &self.rpc_clients, &logic);
 
         if self.args.set_up_new_nodes() {
             high_prio_check
                 .create_prio_accounts(genesis_wallet_id)
                 .await?;
+
+            // Wallet funding and priority-account creation submit setup blocks.
+            // Do not connect the spam clients until every initial PR has the
+            // same fully finalized ledger, otherwise a slower PR is
+            // accidentally forced into historical epoch recovery.
+            crate::setup::wait_for_pr_ledgers(&self.rpc_clients).await;
+
+            // Setup traffic is not part of the measured RAI workload.  Short
+            // requested epochs can otherwise close while wallets are still
+            // being funded, leaving some replicas without the blocks needed
+            // to validate the close-record package. Restart from the common
+            // setup ledger with the requested epoch duration.
+            #[cfg(feature = "rai_protocol")]
+            if !self.args.cpp && !self.args.attach {
+                self.node_lifetime.stop();
+                configure_nodes_for_workload(&self.args, &data_dir);
+                let handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
+                if self.args.kill_nodes() {
+                    self.node_lifetime = NodeLifetime::new(handles);
+                }
+            }
+
         }
 
         if self.args.setup_only {

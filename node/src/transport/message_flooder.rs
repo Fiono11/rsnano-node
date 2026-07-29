@@ -150,6 +150,30 @@ impl MessageFlooder {
         sent
     }
 
+    /// Sends a durable protocol object to every currently established peer.
+    /// This is intended for infrequent evidence whose eventual availability
+    /// cannot depend on probabilistic fanout.
+    pub fn flood_all(&mut self, message: &Message, traffic_type: TrafficType) -> usize {
+        if self.flood_listener.is_tracked() {
+            self.flood_listener.emit(FloodEvent {
+                message: message.clone(),
+                traffic_type,
+                scale: 1.0,
+                all_prs: false,
+            });
+        }
+
+        let buffer = self.message_serializer.serialize(message);
+        let channels = self.network.read().unwrap().shuffled_channels(traffic_type);
+        let mut sent = 0;
+        for channel in channels {
+            if try_send_serialized_message(&channel, &self.stats, buffer, message, traffic_type) {
+                sent += 1;
+            }
+        }
+        sent
+    }
+
     pub fn track_floods(&self) -> Arc<OutputTrackerMt<FloodEvent>> {
         self.flood_listener.track()
     }

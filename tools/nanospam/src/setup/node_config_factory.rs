@@ -11,6 +11,8 @@ const DEFAULT_RAI_EPOCH_DURATION_MS: u64 = 30_000;
 const DEFAULT_RAI_CLOSE_ATTEMPT_DURATION_MS: u64 = 3_000;
 #[cfg(feature = "rai_protocol")]
 const DEFAULT_RAI_TICK_INTERVAL_MS: u64 = 250;
+#[cfg(feature = "rai_protocol")]
+const RAI_SETUP_EPOCH_DURATION_MS: u64 = 30 * 1000;
 
 pub(crate) const GENESIS_BLOCK: &str = r#"{
     "type": "open",
@@ -75,7 +77,21 @@ enable_control = true
 port = RPC_PORT
 "#;
 
+#[cfg(not(feature = "rai_protocol"))]
 pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
+    configure_nodes_with_epoch_duration(args, data_dir, None);
+}
+
+#[cfg(feature = "rai_protocol")]
+pub(crate) fn configure_nodes_for_setup(args: &CliArgs, data_dir: &Path) {
+    configure_nodes_with_epoch_duration(args, data_dir, Some(RAI_SETUP_EPOCH_DURATION_MS));
+}
+
+fn configure_nodes_with_epoch_duration(
+    args: &CliArgs,
+    data_dir: &Path,
+    epoch_duration_override: Option<u64>,
+) {
     for i in 0..100 {
         let mut pr_dir = data_dir.to_path_buf();
         pr_dir.push(format!("pr{i}"));
@@ -112,7 +128,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PRECONF_REPS", &preconfigured_representatives(args.prs))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
-                .replace("RAI_CONFIG", &rai_config(args));
+                .replace("RAI_CONFIG", &rai_config(args, epoch_duration_override));
             std::fs::write(node_config_path, node_config).unwrap();
         }
 
@@ -126,7 +142,30 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
     }
 }
 
-fn rai_config(args: &CliArgs) -> String {
+#[cfg(feature = "rai_protocol")]
+pub(crate) fn configure_nodes_for_workload(args: &CliArgs, data_dir: &Path) {
+    for i in 0..args.prs {
+        let path = data_dir.join(format!("pr{i}/config-node.toml"));
+        let config = std::fs::read_to_string(&path).unwrap();
+        let duration = args
+            .rai_epoch_duration_ms
+            .unwrap_or(DEFAULT_RAI_EPOCH_DURATION_MS);
+        let updated = config
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("epoch_duration =") {
+                    format!("    epoch_duration = {duration}")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(path, updated).unwrap();
+    }
+}
+
+fn rai_config(args: &CliArgs, epoch_duration_override: Option<u64>) -> String {
     if args.cpp {
         return String::new();
     }
@@ -134,7 +173,7 @@ fn rai_config(args: &CliArgs) -> String {
     #[cfg(feature = "rai_protocol")]
     let (epoch_duration, close_attempt_duration, tick_interval) = (
         Some(
-            args.rai_epoch_duration_ms
+            epoch_duration_override.or(args.rai_epoch_duration_ms)
                 .unwrap_or(DEFAULT_RAI_EPOCH_DURATION_MS),
         ),
         Some(
@@ -158,6 +197,10 @@ fn rai_config(args: &CliArgs) -> String {
     }
 
     let mut result = String::from("[node.rai]\n");
+    result.push_str(&format!(
+        "    genesis_committee = {}\n",
+        preconfigured_representatives(args.prs)
+    ));
     if let Some(duration) = epoch_duration {
         result.push_str(&format!("    epoch_duration = {duration}\n"));
     }
@@ -253,8 +296,12 @@ mod tests {
         let args = CliArgs::parse_from(["nanospam"]);
 
         assert_eq!(
-            rai_config(&args),
-            "[node.rai]\n    epoch_duration = 30000\n    close_attempt_duration = 3000\n    tick_interval = 250\n"
+            rai_config(&args, None),
+            format!(
+                "[node.rai]\n    genesis_committee = {}\n    epoch_duration = 30000\n    close_attempt_duration = 3000\n    tick_interval = 250\n",
+                preconfigured_representatives(1)
+            )
         );
     }
+
 }

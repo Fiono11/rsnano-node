@@ -115,11 +115,10 @@ impl RaiSlotElectionActivator {
             // become enabled by observed votes.
             let vote = RaiVote::new_first(&key, election_id.clone(), value);
             if self.vote_processor.process(&vote).is_ok() {
-                self.message_flooder.lock().unwrap().flood(
-                    &Message::RaiVote(vote),
-                    TrafficType::Generic,
-                    1.0,
-                );
+                self.message_flooder
+                    .lock()
+                    .unwrap()
+                    .flood_all(&Message::RaiVote(vote), TrafficType::Generic);
                 published = true;
             }
         }

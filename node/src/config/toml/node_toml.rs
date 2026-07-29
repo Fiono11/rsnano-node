@@ -748,6 +748,10 @@ mod tests {
                 epoch_duration: Some(43),
                 close_attempt_duration: Some(44),
                 tick_interval: Some(45),
+                genesis_committee: Some(vec![
+                    Account::from(1).encode_account(),
+                    Account::from(2).encode_account(),
+                ]),
             }),
             cps_limit: Some(42),
             block_processor: Some(BlockProcessorToml {
@@ -770,6 +774,10 @@ mod tests {
         assert_eq!(cfg.rai.epoch_duration, Duration::from_millis(43));
         assert_eq!(cfg.rai.close_attempt_duration, Duration::from_millis(44));
         assert_eq!(cfg.rai.tick_interval, Duration::from_millis(45));
+        assert_eq!(
+            cfg.rai.genesis_committee,
+            vec![Account::from(1).into(), Account::from(2).into()]
+        );
         assert_eq!(cfg.cps_limit, 42);
         assert_eq!(cfg.block_processor_threads, 42);
         assert_eq!(cfg.block_processor.max_peer_queue, 43);
@@ -788,6 +796,7 @@ mod tests {
                 epoch_duration: Duration::from_millis(43),
                 close_attempt_duration: Duration::from_millis(44),
                 tick_interval: Duration::from_millis(45),
+                genesis_committee: vec![Account::from(1).into(), Account::from(2).into()],
             },
             block_processor_threads: 43,
             block_processor: ProcessQueueConfig {
@@ -817,6 +826,13 @@ mod tests {
         assert_eq!(rai.epoch_duration, Some(43));
         assert_eq!(rai.close_attempt_duration, Some(44));
         assert_eq!(rai.tick_interval, Some(45));
+        assert_eq!(
+            rai.genesis_committee,
+            Some(vec![
+                Account::from(1).encode_account(),
+                Account::from(2).encode_account()
+            ])
+        );
 
         let block_proc = toml.block_processor.unwrap();
         assert_eq!(block_proc.threads, Some(43));

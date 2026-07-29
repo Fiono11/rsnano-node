@@ -6,6 +6,8 @@ mod ledger_observer;
 mod peer_scoring;
 #[cfg(feature = "rai_protocol")]
 mod rai_epoch_bootstrap;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use rai_epoch_bootstrap::RAI_CLOSE_RECORD_RECOVERY_ATTEMPT;
 mod requesters;
 mod response_processor;
 
@@ -28,10 +30,10 @@ use std::{
 
 use tracing::{trace, warn};
 
-use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerEvent, LedgerSet, ProcessResult};
+use rsnano_ledger::{AnySet, Ledger, LedgerEvent, LedgerSet, ProcessResult};
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_messages::{AscPullReqType, FrontiersReqPayload, HashType};
-use rsnano_network::{Channel, ChannelEvent, Network};
+use rsnano_network::{Channel, ChannelEvent, ChannelId, Network};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_condvar::NullableCondvarMutex;
 use rsnano_types::{Account, BlockHash};
@@ -345,6 +347,19 @@ impl Bootstrapper {
         self.stopped.notify_all();
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn enqueue_rai_recovery(
+        &self,
+        accounts: impl IntoIterator<Item = Account>,
+        channel_id: ChannelId,
+    ) {
+        for account in accounts {
+            self.bootstrap_queue
+                .insert_safe_on_channel(account, channel_id);
+        }
+        self.stopped.notify_all();
+    }
+
     pub fn clear_blocked_accounts(&self) {
         self.bootstrap_queue.clear_blocked_accounts();
     }
@@ -494,7 +509,7 @@ struct BootstrapperRaiEpochBlockRequester {
 
 #[cfg(feature = "rai_protocol")]
 impl RaiEpochBlockRequester for BootstrapperRaiEpochBlockRequester {
-    fn request_confirmed_slots(&self, slots: &[RaiSlot]) {
+    fn request_confirmed_slots(&self, slots: &[RaiSlot], source: Option<ChannelId>) {
         let Some(bootstrapper) = self.bootstrapper.upgrade() else {
             return;
         };
@@ -508,7 +523,11 @@ impl RaiEpochBlockRequester for BootstrapperRaiEpochBlockRequester {
             return;
         }
 
-        bootstrapper.enqueue_safe(accounts);
+        if let Some(channel_id) = source {
+            bootstrapper.enqueue_rai_recovery(accounts, channel_id);
+        } else {
+            bootstrapper.enqueue_safe(accounts);
+        }
         tracing::debug!(
             missing_slots = slots.len(),
             account_count,
@@ -519,12 +538,17 @@ impl RaiEpochBlockRequester for BootstrapperRaiEpochBlockRequester {
     fn confirmed_block_hash(&self, slot: &RaiSlot) -> Option<BlockHash> {
         let bootstrapper = self.bootstrapper.upgrade()?;
         let any = bootstrapper.ledger.any();
-        let conf_info = any.confirmed().get_conf_info(&slot.account)?;
-        if conf_info.height < slot.account_height {
+        // RAI finality is supplied by the close record election. Requiring the
+        // legacy cementation frontier here creates a circular wait: the node
+        // cannot validate the RAI state until bootstrap blocks are cemented,
+        // while their confirmation is itself driven by that RAI state. Blocks
+        // in `any` have already passed ordinary block/signature validation.
+        let account_info = any.get_account(&slot.account)?;
+        if account_info.block_count < slot.account_height {
             return None;
         }
 
-        let mut current = any.confirmed().get_block(&conf_info.frontier)?;
+        let mut current = any.get_block(&account_info.head)?;
         loop {
             if current.height() == slot.account_height {
                 return Some(current.hash());
@@ -532,7 +556,7 @@ impl RaiEpochBlockRequester for BootstrapperRaiEpochBlockRequester {
             if current.height() < slot.account_height || current.previous().is_zero() {
                 return None;
             }
-            current = any.confirmed().get_block(&current.previous())?;
+            current = any.get_block(&current.previous())?;
         }
     }
 }

@@ -25,6 +25,10 @@ pub(crate) async fn create_wallets(
     let spam_representatives: Vec<_> = (0..pr_count).map(|i| pr_key(i).public_key()).collect();
     account_map.assign_representatives_round_robin(&spam_representatives);
     let initial_representative = spam_representatives[0];
+    // Install every committee key before submitting setup blocks. With short
+    // RAI epochs, funding the PRs sequentially can otherwise start epoch close
+    // before the later PR wallets exist, making the setup wait on a quorum
+    // whose signers have not been provisioned yet.
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
@@ -50,54 +54,55 @@ pub(crate) async fn create_wallets(
             })
             .await
             .unwrap();
+    }
 
+    for i in 1..rpc_clients.len() {
+        let pr_key = pr_key(i);
         // the first rpc client is the genesis client
-        if i > 0 {
-            let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
-            info!(
-                "Sending Ӿ{} to PR{i} wallet {} ...",
-                pr_balance.format_balance(0),
-                pr_key.account().encode_account()
-            );
-            let send_hash = genesis_rpc
-                .send(SendArgs {
-                    wallet: genesis_wallet,
-                    source: genesis_key.account(),
-                    destination: pr_key.account(),
-                    amount: pr_balance,
-                    work: Some(WorkNonce::new(0)),
-                    id: None,
-                })
-                .await
-                .unwrap()
-                .block;
-            wait_until_confirmed(genesis_rpc, send_hash).await;
+        let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
+        info!(
+            "Sending Ӿ{} to PR{i} wallet {} ...",
+            pr_balance.format_balance(0),
+            pr_key.account().encode_account()
+        );
+        let send_hash = genesis_rpc
+            .send(SendArgs {
+                wallet: genesis_wallet,
+                source: genesis_key.account(),
+                destination: pr_key.account(),
+                amount: pr_balance,
+                work: Some(WorkNonce::new(0)),
+                id: None,
+            })
+            .await
+            .unwrap()
+            .block;
+        publish_to_followers(rpc_clients, genesis_rpc, send_hash).await;
+        wait_until_confirmed(genesis_rpc, send_hash).await;
 
-            info!("Receiving...");
-            // Construct and submit the open block through PR0. RAI followers
-            // can apply finalized blocks without locally cementing them, so
-            // making setup depend on the recipient's confirmation height can
-            // otherwise stall forever.
-            let receive: Block = StateBlockArgs {
-                key: &pr_key,
-                previous: BlockHash::ZERO,
-                representative: pr_key.public_key(),
-                balance: pr_balance,
-                link: send_hash.into(),
-                work: WorkNonce::new(0),
-            }
-            .into();
-            let recv_hash = genesis_rpc
-                .process(JsonBlock::from(receive))
-                .await
-                .unwrap()
-                .hash;
-            wait_until_confirmed(genesis_rpc, recv_hash).await;
-            info!("DONE");
-            info!(
-                "********************************************************************************"
-            );
+        info!("Receiving...");
+        // Construct and submit the open block through PR0. RAI followers
+        // can apply finalized blocks without locally cementing them, so
+        // making setup depend on the recipient's confirmation height can
+        // otherwise stall forever.
+        let receive: Block = StateBlockArgs {
+            key: &pr_key,
+            previous: BlockHash::ZERO,
+            representative: pr_key.public_key(),
+            balance: pr_balance,
+            link: send_hash.into(),
+            work: WorkNonce::new(0),
         }
+        .into();
+        let recv_hash = genesis_rpc
+            .process(JsonBlock::from(receive))
+            .await
+            .unwrap()
+            .hash;
+        publish_to_followers(rpc_clients, genesis_rpc, recv_hash).await;
+        wait_until_confirmed(genesis_rpc, recv_hash).await;
+        info!("DONE");
+        info!("********************************************************************************");
     }
 
     info!("Sending initial spam amount...");
@@ -115,6 +120,7 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap()
         .block;
+    publish_to_followers(rpc_clients, genesis_rpc, genesis_send).await;
     wait_until_confirmed(genesis_rpc, genesis_send).await;
     info!("Receiving initial spam amount...");
     let genesis_receive: Block = StateBlockArgs {
@@ -131,6 +137,7 @@ pub(crate) async fn create_wallets(
         .process(JsonBlock::from(genesis_receive.clone()))
         .await
         .unwrap();
+    publish_to_followers(rpc_clients, genesis_rpc, recv.hash).await;
 
     wait_until_confirmed(genesis_rpc, recv.hash).await;
 
@@ -142,6 +149,30 @@ pub(crate) async fn create_wallets(
     );
 
     genesis_wallet
+}
+
+async fn publish_to_followers(
+    rpc_clients: &[NanoRpcClient],
+    source: &NanoRpcClient,
+    hash: BlockHash,
+) {
+    let block = source.block_info(hash).await.unwrap().contents;
+    for (index, rpc_client) in rpc_clients.iter().enumerate().skip(1) {
+        match rpc_client.process(block.clone()).await {
+            Ok(response) => info!(
+                pr = index,
+                requested_hash = %hash,
+                accepted_hash = %response.hash,
+                "Follower accepted setup block"
+            ),
+            Err(error) if error.to_string().contains("Old block") => info!(
+                pr = index,
+                requested_hash = %hash,
+                "Follower already had setup block"
+            ),
+            Err(error) => panic!("PR{index} rejected setup block {hash}: {error:?}"),
+        }
+    }
 }
 
 async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {

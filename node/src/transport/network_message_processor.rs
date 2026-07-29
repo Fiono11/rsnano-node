@@ -238,29 +238,29 @@ impl NetworkMessageProcessor {
                     }
                     let mut sender = self.rai_message_flooder.lock().unwrap();
                     for request in requests {
-                        sender.try_send_channel_id(
-                            channel.channel_id(),
-                            &Message::RaiReconciliation(request),
-                            TrafficType::Generic,
-                        );
+                        // The channel that relayed a vote is not guaranteed to
+                        // retain the referenced close-version preimage.  Ask
+                        // every connected RAI peer so any replica that knows
+                        // the target can supply it; a one-shot request to the
+                        // relay can otherwise end in an ignored Miss forever.
+                        sender
+                            .flood_all(&Message::RaiReconciliation(request), TrafficType::Generic);
                     }
                 }
                 if self.rai_vote_processor.process(&vote).is_ok() {
-                    self.rai_message_flooder.lock().unwrap().flood(
-                        &Message::RaiVote(vote),
-                        TrafficType::Generic,
-                        1.0,
-                    );
+                    self.rai_message_flooder
+                        .lock()
+                        .unwrap()
+                        .flood_all(&Message::RaiVote(vote), TrafficType::Generic);
                 }
             }
             #[cfg(feature = "rai_protocol")]
             Message::RaiPendingReport(report) => {
                 if self.rai_pending_report_processor.process(&report).is_ok() {
-                    self.rai_message_flooder.lock().unwrap().flood(
-                        &Message::RaiPendingReport(report),
-                        TrafficType::Generic,
-                        1.0,
-                    );
+                    self.rai_message_flooder
+                        .lock()
+                        .unwrap()
+                        .flood_all(&Message::RaiPendingReport(report), TrafficType::Generic);
                 }
             }
             #[cfg(feature = "rai_protocol")]
@@ -298,11 +298,10 @@ impl NetworkMessageProcessor {
                             .unwrap_or_default();
                         for vote in votes {
                             if self.rai_vote_processor.process(&vote).is_ok() {
-                                self.rai_message_flooder.lock().unwrap().flood(
-                                    &Message::RaiVote(vote),
-                                    TrafficType::Generic,
-                                    1.0,
-                                );
+                                self.rai_message_flooder
+                                    .lock()
+                                    .unwrap()
+                                    .flood_all(&Message::RaiVote(vote), TrafficType::Generic);
                             }
                         }
                     }

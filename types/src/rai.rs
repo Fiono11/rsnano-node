@@ -730,6 +730,9 @@ impl RaiEpochCloseAck {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RaiEpochClosePage {
     pub epoch: RaiEpoch,
+    /// The serving replica's current epoch. A joining replica reconstructs
+    /// history only through `server_epoch - 2`.
+    pub server_epoch: RaiEpoch,
     pub total_entries: u32,
     pub start_index: u32,
     pub close_hash: BlockHash,
@@ -747,6 +750,7 @@ impl RaiEpochClosePage {
         assert!(entries.len() <= RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES as usize);
         Self {
             epoch,
+            server_epoch: epoch,
             total_entries,
             start_index,
             close_hash,
@@ -754,11 +758,17 @@ impl RaiEpochClosePage {
         }
     }
 
+    pub fn with_server_epoch(mut self, server_epoch: RaiEpoch) -> Self {
+        self.server_epoch = server_epoch;
+        self
+    }
+
     fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
     where
         T: Read,
     {
         let epoch = read_u64_be(reader)?;
+        let server_epoch = read_u64_be(reader)?;
         let total_entries = crate::read_u32_be(reader)?;
         let start_index = crate::read_u32_be(reader)?;
         let close_hash = BlockHash::deserialize(reader)?;
@@ -780,6 +790,7 @@ impl RaiEpochClosePage {
 
         Ok(Self {
             epoch,
+            server_epoch,
             total_entries,
             start_index,
             close_hash,
@@ -793,6 +804,7 @@ impl RaiEpochClosePage {
     {
         debug_assert!(self.entries.len() <= RAI_EPOCH_CLOSE_PAGE_MAX_ENTRIES as usize);
         writer.write_all(&self.epoch.to_be_bytes())?;
+        writer.write_all(&self.server_epoch.to_be_bytes())?;
         writer.write_all(&self.total_entries.to_be_bytes())?;
         writer.write_all(&self.start_index.to_be_bytes())?;
         self.close_hash.serialize(writer)?;

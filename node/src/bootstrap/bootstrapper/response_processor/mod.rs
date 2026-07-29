@@ -170,7 +170,9 @@ impl ResponseProcessor {
                     .lock()
                     .unwrap()
                     .as_ref()
-                    .is_some_and(|bootstrap| bootstrap.process_epoch_close_ack(ack))
+                    .is_some_and(|bootstrap| {
+                        bootstrap.process_epoch_close_ack(ack, query.channel_id)
+                    })
             }
         };
 

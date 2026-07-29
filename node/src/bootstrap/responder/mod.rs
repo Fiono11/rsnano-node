@@ -87,6 +87,8 @@ impl BootstrapResponder {
             limiter: Mutex::new(TokenBucket::with_burst_ratio(config.limiter, 3.0)),
             #[cfg(feature = "rai_protocol")]
             rai_close_state: Mutex::new(None),
+            #[cfg(feature = "rai_protocol")]
+            rai_close_recovery: Mutex::new(None),
         });
 
         Self {
@@ -145,6 +147,14 @@ impl BootstrapResponder {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn set_rai_close_state(&self, close_state: Arc<std::sync::RwLock<RaiCloseState>>) {
         *self.server_impl.rai_close_state.lock().unwrap() = Some(close_state);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn set_rai_close_recovery_callback(
+        &self,
+        callback: Arc<dyn Fn(rsnano_types::RaiEpoch) + Send + Sync>,
+    ) {
+        *self.server_impl.rai_close_recovery.lock().unwrap() = Some(callback);
     }
 
     pub fn enqueue(&self, message: AscPullReq, channel: Arc<Channel>) -> bool {
@@ -216,6 +226,8 @@ struct BootstrapResponderImpl {
     limiter: Mutex<TokenBucket>,
     #[cfg(feature = "rai_protocol")]
     rai_close_state: Mutex<Option<Arc<std::sync::RwLock<RaiCloseState>>>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_close_recovery: Mutex<Option<Arc<dyn Fn(rsnano_types::RaiEpoch) + Send + Sync>>>,
 }
 
 impl BootstrapResponderImpl {
@@ -311,6 +323,7 @@ impl BootstrapResponderImpl {
     fn rai_epoch_close_page(&self, request: RaiEpochCloseReq) -> Option<RaiEpochClosePage> {
         let close_state = self.rai_close_state.lock().unwrap().clone()?;
         let close_state = close_state.read().unwrap();
+        let server_epoch = close_state.current_epoch();
         let close_hash = close_state.certified_close_hash(request.epoch)?;
         let cut = close_state.cut_set(request.epoch)?;
         if !close_state.cut_drained(request.epoch) {
@@ -334,13 +347,22 @@ impl BootstrapResponderImpl {
         let end = min(entries.len(), start.saturating_add(max));
         let page_entries = entries[start..end].to_vec();
 
-        Some(RaiEpochClosePage::new(
-            request.epoch,
-            entries.len() as u32,
-            request.start_index,
-            close_hash,
-            page_entries,
-        ))
+        if request.epoch == server_epoch.saturating_sub(2)
+            && let Some(callback) = self.rai_close_recovery.lock().unwrap().clone()
+        {
+            callback(request.epoch);
+        }
+
+        Some(
+            RaiEpochClosePage::new(
+                request.epoch,
+                entries.len() as u32,
+                request.start_index,
+                close_hash,
+                page_entries,
+            )
+            .with_server_epoch(server_epoch),
+        )
     }
 
     fn process_blocks(&self, any: &dyn AnySet, id: u64, request: BlocksReqPayload) -> AscPullAck {
@@ -413,6 +435,23 @@ impl BootstrapResponderImpl {
             response_payload.account_head = account_info.head;
             response_payload.account_block_count = account_info.block_count;
 
+            #[cfg(feature = "rai_protocol")]
+            if let Some(frontier) = self.rai_certified_frontier(&target) {
+                // Dependency bootstrap uses account-info to decide whether a
+                // source block is safe to request. A block finalized by a RAI
+                // close record may legitimately be ahead of the legacy
+                // cemented frontier, so expose the same certified frontier
+                // used by block and frontier responses.
+                if let Some(block) = any.get_block(&frontier) {
+                    response_payload.account_conf_frontier = frontier;
+                    response_payload.account_conf_height = block.height();
+                }
+            } else if let Some(conf_info) = any.confirmed().get_conf_info(&target) {
+                response_payload.account_conf_frontier = conf_info.frontier;
+                response_payload.account_conf_height = conf_info.height;
+            }
+
+            #[cfg(not(feature = "rai_protocol"))]
             if let Some(conf_info) = any.confirmed().get_conf_info(&target) {
                 response_payload.account_conf_frontier = conf_info.frontier;
                 response_payload.account_conf_height = conf_info.height;
@@ -439,9 +478,13 @@ impl BootstrapResponderImpl {
         let frontiers = any
             .accounts_range(request.start..)
             .filter_map(|(account, _)| {
-                any.confirmed()
-                    .get_conf_info(&account)
-                    .map(|info| Frontier::new(account, info.frontier))
+                self.rai_certified_frontier(&account)
+                    .or_else(|| {
+                        any.confirmed()
+                            .get_conf_info(&account)
+                            .map(|info| info.frontier)
+                    })
+                    .map(|frontier| Frontier::new(account, frontier))
             })
             .take(request.count as usize)
             .collect();
@@ -468,6 +511,13 @@ impl BootstrapResponderImpl {
         start_block: BlockHash,
         count: u8,
     ) -> AscPullAck {
+        if let Some(frontier) = self.rai_certified_frontier(&account) {
+            if !any.block_exists(&start_block) {
+                return self.prepare_empty_blocks_response(id);
+            }
+            return self.prepare_response_until(any, id, start_block, count, Some(frontier));
+        }
+
         let Some(conf_info) = any.confirmed().get_conf_info(&account) else {
             return self.prepare_empty_blocks_response(id);
         };
@@ -477,6 +527,23 @@ impl BootstrapResponderImpl {
         }
 
         self.prepare_response_until(any, id, start_block, count, Some(conf_info.frontier))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_certified_frontier(&self, account: &rsnano_types::Account) -> Option<BlockHash> {
+        let close_state = self.rai_close_state.lock().unwrap().clone()?;
+        let close_state = close_state.read().unwrap();
+        let current_epoch = close_state.current_epoch();
+
+        (0..=current_epoch).rev().find_map(|epoch| {
+            let close_hash = close_state.certified_close_hash(epoch)?;
+            close_state
+                .close_record_value(epoch, &close_hash)?
+                .record
+                .frontiers
+                .get(account)
+                .copied()
+        })
     }
 
     #[cfg(not(feature = "rai_protocol"))]
@@ -651,6 +718,53 @@ mod tests {
     }
 
     #[test]
+    fn rai_block_response_serves_through_certified_epoch_frontier() {
+        let fixture = Fixture::new();
+        let slot = RaiSlot::new(*DEV_GENESIS_ACCOUNT, 1);
+        let mut close_state = RaiCloseState::new();
+        close_state.start_closing(0).unwrap();
+        close_state
+            .install_cut(0, [slot].into_iter().collect())
+            .unwrap();
+        close_state
+            .record_cut_drain(
+                0,
+                [(
+                    slot,
+                    RaiClosedSlotState::Finalized(fixture.unconfirmed.hash()),
+                )],
+            )
+            .unwrap();
+        let close_hash = close_state.record_current_close_record_value(0).unwrap();
+        close_state.certify_close_record(0, &close_hash).unwrap();
+        fixture
+            .responder
+            .set_rai_close_state(Arc::new(std::sync::RwLock::new(close_state)));
+
+        let response = fixture.process_blocks(BlocksReqPayload {
+            start_type: HashType::Account,
+            start: (*DEV_GENESIS_ACCOUNT).into(),
+            count: 10,
+        });
+
+        let AscPullAckType::Blocks(blocks) = response.pull_type else {
+            panic!("expected blocks response");
+        };
+        assert_eq!(
+            blocks
+                .blocks()
+                .iter()
+                .map(|block| block.hash())
+                .collect::<Vec<_>>(),
+            vec![
+                fixture.ledger.genesis().hash(),
+                fixture.confirmed.hash(),
+                fixture.unconfirmed.hash(),
+            ]
+        );
+    }
+
+    #[test]
     fn rai_frontier_response_reports_confirmed_frontier() {
         let fixture = Fixture::new();
         let any = fixture.ledger.any();
@@ -671,6 +785,52 @@ mod tests {
 
         assert_eq!(frontiers[0].account, *DEV_GENESIS_ACCOUNT);
         assert_eq!(frontiers[0].hash, fixture.confirmed.hash());
+    }
+
+    #[test]
+    fn rai_frontier_response_reports_certified_epoch_frontier() {
+        let fixture = Fixture::new();
+        fixture.install_certified_unconfirmed_frontier();
+        let any = fixture.ledger.any();
+        let response = fixture.responder.server_impl.process(
+            &any,
+            AscPullReq {
+                id: 7,
+                req_type: AscPullReqType::Frontiers(FrontiersReqPayload {
+                    start: *DEV_GENESIS_ACCOUNT,
+                    count: 10,
+                }),
+            },
+        );
+
+        let AscPullAckType::Frontiers(frontiers) = response.pull_type else {
+            panic!("expected frontiers response");
+        };
+        assert_eq!(frontiers[0].account, *DEV_GENESIS_ACCOUNT);
+        assert_eq!(frontiers[0].hash, fixture.unconfirmed.hash());
+    }
+
+    #[test]
+    fn rai_account_info_reports_certified_epoch_frontier() {
+        let fixture = Fixture::new();
+        fixture.install_certified_unconfirmed_frontier();
+        let any = fixture.ledger.any();
+        let response = fixture.responder.server_impl.process(
+            &any,
+            AscPullReq {
+                id: 7,
+                req_type: AscPullReqType::AccountInfo(AccountInfoReqPayload {
+                    target: (*DEV_GENESIS_ACCOUNT).into(),
+                    target_type: HashType::Account,
+                }),
+            },
+        );
+
+        let AscPullAckType::AccountInfo(info) = response.pull_type else {
+            panic!("expected account-info response");
+        };
+        assert_eq!(info.account_conf_frontier, fixture.unconfirmed.hash());
+        assert_eq!(info.account_conf_height, fixture.unconfirmed.height());
     }
 
     #[test]
@@ -722,6 +882,7 @@ mod tests {
         ledger: Arc<Ledger>,
         responder: BootstrapResponder,
         confirmed: rsnano_types::SavedBlock,
+        unconfirmed: rsnano_types::SavedBlock,
     }
 
     impl Fixture {
@@ -730,7 +891,7 @@ mod tests {
             let inserter = LedgerInserter::new(&ledger);
             let mut genesis = inserter.genesis();
             let confirmed = genesis.send(Account::from(1), Amount::raw(1));
-            let _unconfirmed = genesis.send(Account::from(2), Amount::raw(1));
+            let unconfirmed = genesis.send(Account::from(2), Amount::raw(1));
             ledger.confirm(confirmed.hash());
             let responder = BootstrapResponder::new(
                 BootstrapResponderConfig::default(),
@@ -743,6 +904,7 @@ mod tests {
                 ledger,
                 responder,
                 confirmed,
+                unconfirmed,
             }
         }
 
@@ -755,6 +917,25 @@ mod tests {
                     req_type: AscPullReqType::Blocks(payload),
                 },
             )
+        }
+
+        fn install_certified_unconfirmed_frontier(&self) {
+            let slot = RaiSlot::new(*DEV_GENESIS_ACCOUNT, 1);
+            let mut close_state = RaiCloseState::new();
+            close_state.start_closing(0).unwrap();
+            close_state
+                .install_cut(0, [slot].into_iter().collect())
+                .unwrap();
+            close_state
+                .record_cut_drain(
+                    0,
+                    [(slot, RaiClosedSlotState::Finalized(self.unconfirmed.hash()))],
+                )
+                .unwrap();
+            let close_hash = close_state.record_current_close_record_value(0).unwrap();
+            close_state.certify_close_record(0, &close_hash).unwrap();
+            self.responder
+                .set_rai_close_state(Arc::new(std::sync::RwLock::new(close_state)));
         }
     }
 }

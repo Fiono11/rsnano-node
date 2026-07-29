@@ -49,6 +49,7 @@ pub struct DownloadTarget {
     pub account: Account,
     pub priority: Priority,
     pub pull_type: PullType,
+    pub preferred_channel: Option<ChannelId>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -101,6 +102,7 @@ pub(crate) struct BootstrapQueueLogic {
     block_processing: BlockHandoffQueue,
     blocked: BlockedAccounts,
     safe_accounts: FxHashSet<Account>,
+    preferred_channels: FxHashMap<Account, ChannelId>,
     revision: u64,
     discarded_blocks: usize,
 }
@@ -118,6 +120,7 @@ impl BootstrapQueueLogic {
             downloading: Default::default(),
             block_processing: Default::default(),
             safe_accounts: Default::default(),
+            preferred_channels: Default::default(),
             revision: 0,
             discarded_blocks: 0,
         }
@@ -143,6 +146,20 @@ impl BootstrapQueueLogic {
             self.safe_accounts.insert(account);
         }
         inserted
+    }
+
+    pub fn set_preferred_channel(&mut self, account: Account, channel_id: ChannelId) {
+        if self.priorities.contains(&account) {
+            self.preferred_channels.insert(account, channel_id);
+        }
+    }
+
+    pub fn promote_recovery(&mut self, account: &Account) {
+        while let PriorityUpResult::Upgraded(_, new_priority) = self.priority_up(account) {
+            if new_priority == Priority::MAX {
+                break;
+            }
+        }
     }
 
     pub fn pull_type(&self, account: &Account) -> PullType {
@@ -188,6 +205,7 @@ impl BootstrapQueueLogic {
             self.download_queue.remove(&account);
             self.downloading.remove(&account);
             self.safe_accounts.remove(&account);
+            self.preferred_channels.remove(&account);
             to_remove.extend(self.blocked.remove_account_and_dependents(&account));
             let discarded = self.block_processing.remove(&account);
             self.discarded_blocks += discarded;
@@ -317,6 +335,7 @@ impl BootstrapQueueLogic {
                 account: *account,
                 priority,
                 pull_type: self.pull_type(account),
+                preferred_channel: self.preferred_channels.get(account).copied(),
             })
     }
 
@@ -361,6 +380,13 @@ impl BootstrapQueueLogic {
         }
 
         let was_safe = self.safe_accounts.remove(account);
+
+        // A short or empty response means this source could not satisfy the
+        // requested recovery range. Let the next pull use normal peer scoring
+        // instead of retrying the same preferred source forever.
+        if should_cool_down {
+            self.preferred_channels.remove(account);
+        }
 
         let fails = if should_cool_down {
             let fails = self.fails.entry(*account).or_insert_with(|| FailEntry {
@@ -876,6 +902,35 @@ mod tests {
     }
 
     #[test]
+    fn download_target_retains_preferred_channel() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        let channel = ChannelId::from(77);
+        queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+        queue.set_preferred_channel(account, channel);
+
+        let target = queue.next_download_target().unwrap();
+
+        assert_eq!(target.account, account);
+        assert_eq!(target.preferred_channel, Some(channel));
+    }
+
+    #[test]
+    fn recovery_account_preempts_normal_bootstrap_work() {
+        let mut queue = BootstrapQueueLogic::default();
+        let normal = Account::from(1);
+        let recovery = Account::from(2);
+        queue.insert(normal, Priority::INITIAL);
+        queue.insert_pull_type(recovery, Priority::INITIAL, PullType::Safe);
+
+        queue.promote_recovery(&recovery);
+
+        let target = queue.next_download_target().unwrap();
+        assert_eq!(target.account, recovery);
+        assert_eq!(target.priority, Priority::MAX);
+    }
+
+    #[test]
     fn download_finished_resets_pull_type_to_optimistic() {
         let mut queue = BootstrapQueueLogic::default();
         let account = Account::from(1);
@@ -885,6 +940,23 @@ mod tests {
         queue.download_finished(&account, VecDeque::new(), false, ChannelId::from(1));
 
         assert_eq!(queue.pull_type(&account), PullType::Optimistic);
+    }
+
+    #[test]
+    fn incomplete_download_clears_preferred_channel() {
+        let mut queue = BootstrapQueueLogic::default();
+        let account = Account::from(1);
+        let preferred = ChannelId::from(77);
+        queue.insert_pull_type(account, Priority::INITIAL, PullType::Safe);
+        queue.set_preferred_channel(account, preferred);
+        queue.download_started(&account);
+
+        queue.download_finished(&account, VecDeque::new(), true, preferred);
+
+        assert_eq!(
+            queue.next_download_target().unwrap().preferred_channel,
+            None
+        );
     }
 
     #[test]

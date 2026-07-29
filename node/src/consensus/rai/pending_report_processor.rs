@@ -66,20 +66,9 @@ impl RaiPendingReportProcessor {
             return Err(RaiPendingReportProcessError::Invalid);
         }
 
-        let Some(committees) = self
+        let committees = self
             .committee_provider
-            .try_committees_for(&pending_report_election_id(report))
-        else {
-            self.stats
-                .inc(StatType::RaiPendingReportProcessor, DetailType::Ignored);
-            return Err(RaiPendingReportProcessError::MissingCommitteeHistory);
-        };
-
-        if !committees.contains(&report.reporter) {
-            self.stats
-                .inc(StatType::RaiPendingReportProcessor, DetailType::Ignored);
-            return Err(RaiPendingReportProcessError::InvalidReporter);
-        }
+            .try_committees_for(&pending_report_election_id(report));
 
         let (result, snapshot) = {
             let mut close_state = self.close_state.write().unwrap();
@@ -90,7 +79,9 @@ impl RaiPendingReportProcessor {
                 let visible_slots = slots
                     .into_iter()
                     .filter(|slot| {
-                        report_visibility_reached(&close_state, report.epoch, slot, &committees)
+                        committees.as_ref().is_some_and(|committees| {
+                            report_visibility_reached(&close_state, report.epoch, slot, committees)
+                        })
                     })
                     .collect::<Vec<_>>();
                 close_state.mark_visible_slots(report.epoch, visible_slots);
@@ -143,8 +134,6 @@ fn report_visibility_reached(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaiPendingReportProcessError {
     Invalid,
-    InvalidReporter,
-    MissingCommitteeHistory,
     Duplicate,
 }
 
@@ -206,18 +195,15 @@ mod tests {
     }
 
     #[test]
-    fn invalid_reporter_is_rejected_before_state_update() {
+    fn non_committee_reporter_is_retained_but_does_not_affect_visibility() {
         let fixture = Fixture::new();
         let outsider = PrivateKey::from(2);
         let report = RaiPendingReport::new(&outsider, 7, vec![slot(1)]);
 
-        assert_eq!(
-            fixture.processor.process(&report),
-            Err(RaiPendingReportProcessError::InvalidReporter)
-        );
+        assert_eq!(fixture.processor.process(&report), Ok(()));
 
         let state = fixture.close_state.read().unwrap();
-        assert_eq!(state.pending_report_count(7), 0);
+        assert_eq!(state.pending_report_count(7), 1);
         assert!(!state.is_visible(7, &slot(1)));
     }
 

@@ -150,6 +150,16 @@ impl RaiCloseState {
             .unwrap_or_default()
     }
 
+    pub fn epochs_with_pending_reports(&self) -> Vec<RaiEpoch> {
+        let mut epochs = self
+            .epochs
+            .iter()
+            .filter_map(|(epoch, state)| (!state.pending_reports.is_empty()).then_some(*epoch))
+            .collect::<Vec<_>>();
+        epochs.sort_unstable();
+        epochs
+    }
+
     pub fn mark_visible(&mut self, epoch: RaiEpoch, slot: RaiSlot) -> bool {
         self.epoch_mut(epoch).visibility.mark_visible(slot)
     }
