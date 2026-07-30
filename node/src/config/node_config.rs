@@ -115,6 +115,7 @@ pub struct NodeConfig {
     pub vote_rebroadcaster_max_queue: usize,
     pub rebroadcast_history: RebroadcastHistoryConfig,
     pub cps_limit: u32,
+    pub rai: RaiConfig,
 }
 
 impl NodeConfig {
@@ -279,6 +280,7 @@ impl NodeConfig {
             vote_rebroadcaster_max_queue: VoteRebroadcastQueue::DEFAULT_MAX_QUEUE,
             rebroadcast_history: Default::default(),
             cps_limit: 0,
+            rai: Default::default(),
         }
     }
 
@@ -293,6 +295,19 @@ impl NodeConfig {
         )
         .parse()
         .ok()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RaiConfig {
+    pub epoch_duration: Duration,
+}
+
+impl Default for RaiConfig {
+    fn default() -> Self {
+        Self {
+            epoch_duration: Duration::from_secs(30),
+        }
     }
 }
 

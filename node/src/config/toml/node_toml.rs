@@ -68,6 +68,12 @@ pub struct NodeToml {
     pub vote_rebroadcaster: Option<VoteRebroadcasterToml>,
     pub peering_port: Option<u16>,
     pub cps_limit: Option<u32>,
+    pub rai: Option<RaiToml>,
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct RaiToml {
+    pub epoch_duration: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -486,6 +492,11 @@ impl NodeConfig {
         if let Some(limit) = toml.cps_limit {
             self.cps_limit = limit;
         }
+        if let Some(rai) = &toml.rai
+            && let Some(duration) = rai.epoch_duration
+        {
+            self.rai.epoch_duration = Duration::from_millis(duration);
+        }
     }
 }
 
@@ -631,6 +642,9 @@ impl From<&NodeConfig> for NodeToml {
             vote_rebroadcaster: Some(config.into()),
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
+            rai: Some(RaiToml {
+                epoch_duration: Some(config.rai.epoch_duration.as_millis() as u64),
+            }),
         }
     }
 }

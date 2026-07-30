@@ -73,6 +73,10 @@ pub(crate) struct CliArgs {
     /// Percentage of blocks that should have forks
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
+
+    /// RAI epoch duration for generated rsnano configs, in milliseconds
+    #[arg(long)]
+    pub rai_epoch_duration_ms: Option<u64>,
 }
 
 impl CliArgs {

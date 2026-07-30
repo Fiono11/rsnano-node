@@ -51,6 +51,8 @@ pub(crate) const NODE_CONFIG: &str = r#"
 [node.monitor]
     interval = 10
 
+RAI_CONFIG
+
 [node.websocket]
     enable = true
     address = "::"
@@ -101,7 +103,8 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
-                .replace("CPS_LIMIT", &args.cps_limit.to_string());
+                .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace("RAI_CONFIG", &rai_config(args));
             std::fs::write(node_config_path, node_config).unwrap();
         }
 
@@ -113,6 +116,12 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             std::fs::write(rpc_config_path, rpc_config).unwrap();
         }
     }
+}
+
+fn rai_config(args: &CliArgs) -> String {
+    args.rai_epoch_duration_ms
+        .map(|duration| format!("[node.rai]\n    epoch_duration = {duration}"))
+        .unwrap_or_default()
 }
 
 fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
@@ -156,4 +165,17 @@ pub(crate) fn genesis_key() -> PrivateKey {
 pub(crate) fn get_genesis_hash() -> BlockHash {
     let genesis_block: Block = serde_json::from_str(GENESIS_BLOCK).unwrap();
     genesis_block.hash()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn writes_requested_rai_epoch_duration() {
+        let args = CliArgs::parse_from(["nanospam", "--rai-epoch-duration-ms", "5000"]);
+
+        assert_eq!(rai_config(&args), "[node.rai]\n    epoch_duration = 5000");
+    }
 }

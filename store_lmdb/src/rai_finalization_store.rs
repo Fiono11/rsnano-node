@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use rsnano_nullable_lmdb::{
     DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
@@ -81,6 +83,21 @@ impl LmdbRaiFinalizationStore {
             Err(e) => panic!("could not load RAI epoch frontier delta: {e:?}"),
         }
     }
+
+    pub fn counts_by_epoch(&self, txn: &dyn Transaction) -> BTreeMap<RaiEpoch, u64> {
+        let mut result = BTreeMap::new();
+        let mut cursor = txn
+            .open_ro_cursor(self.blocks)
+            .expect("could not open RAI finalization cursor");
+        for row in cursor.iter_start() {
+            let (_, bytes) = row.expect("could not read RAI finalization epoch");
+            let epoch = RaiEpoch::new(u64::from_be_bytes(
+                bytes.try_into().expect("invalid RAI finalization epoch"),
+            ));
+            *result.entry(epoch).or_default() += 1;
+        }
+        result
+    }
 }
 
 #[cfg(test)]
@@ -105,5 +122,9 @@ mod tests {
             Some(info)
         );
         assert_eq!(store.frontier_delta(&txn, RaiEpoch::new(8), &account), None);
+        assert_eq!(
+            store.counts_by_epoch(&txn),
+            BTreeMap::from([(RaiEpoch::new(7), 1)])
+        );
     }
 }

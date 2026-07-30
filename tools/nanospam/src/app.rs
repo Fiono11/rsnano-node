@@ -89,7 +89,7 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
+            let node_handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
             if self.args.kill_nodes() {
                 self.node_lifetime = NodeLifetime::new(node_handles);
             }
@@ -219,8 +219,33 @@ impl NanoSpamApp {
         let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
         info!("Average conf time: {conf_time} ms");
 
+        #[cfg(feature = "rai_protocol")]
+        print_finalized_blocks_by_epoch(&data_dir, self.args.prs)?;
+
         Ok(())
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn print_finalized_blocks_by_epoch(data_dir: &std::path::Path, prs: usize) -> anyhow::Result<()> {
+    use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
+    use rsnano_store_lmdb::{LmdbRaiFinalizationStore, default_ledger_lmdb_options};
+
+    println!("Finalized blocks by RAI epoch:");
+    for pr in 0..prs {
+        let path = data_dir.join(format!("pr{pr}")).join("data.ldb");
+        let env = LmdbEnvironmentFactory::default().create(default_ledger_lmdb_options(path))?;
+        let store = LmdbRaiFinalizationStore::new(&env)?;
+        let txn = env.begin_read();
+        let counts = store.counts_by_epoch(&txn);
+        let formatted = counts
+            .iter()
+            .map(|(epoch, count)| format!("epoch {}: {count}", epoch.number()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("  PR{pr}: {formatted}");
+    }
+    Ok(())
 }
 
 fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
