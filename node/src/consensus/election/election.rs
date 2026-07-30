@@ -664,6 +664,12 @@ impl Election {
         let votes = self.votes().clone();
 
         ConfirmedElection {
+            #[cfg(feature = "rai_protocol")]
+            rai_finalization_epoch: matches!(
+                self.rai_votes.outcome,
+                RaiOutcome::Confirmed(hash) if hash == self.winner.hash()
+            )
+            .then_some(self.rai_epoch),
             winner: self.winner().clone(),
             tally: self.winner_tally(),
             final_tally: self.winner_final_tally(),

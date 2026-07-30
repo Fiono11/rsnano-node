@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashMap;
 use std::{
     collections::{HashSet, VecDeque},
     sync::{
@@ -9,6 +11,8 @@ use std::{
 };
 
 use rsnano_ledger::{CementingObserver, Ledger, ProcessResult};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpoch;
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -27,6 +31,8 @@ use crate::{
 pub struct CementingEntry {
     pub confirmation_root: BlockHash,
     pub timestamp: Instant,
+    #[cfg(feature = "rai_protocol")]
+    pub finalization_epoch: Option<RaiEpoch>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -230,6 +236,8 @@ impl ConfirmingSetThread {
     }
 
     fn add(&self, hash: BlockHash, election: Option<ConfirmedElection>) {
+        #[cfg(feature = "rai_protocol")]
+        let finalization_epoch = election.as_ref().and_then(|e| e.rai_finalization_epoch);
         let added;
         let mut near_full_warning = false;
         {
@@ -240,6 +248,8 @@ impl ConfirmingSetThread {
             added = guard.set.push_back(CementingEntry {
                 confirmation_root: hash,
                 timestamp: Instant::now(),
+                #[cfg(feature = "rai_protocol")]
+                finalization_epoch,
             });
 
             if !guard.near_full && guard.set.len() + guard.current.len() >= guard.near_full_limit {
@@ -324,9 +334,19 @@ impl ConfirmingSetThread {
     }
 
     fn run_batch(&self, batch: VecDeque<CementingEntry>) {
-        let mut notifier = CementedNotifier::new(self);
+        let mut notifier = CementedNotifier::new(self, &batch);
+        #[cfg(not(feature = "rai_protocol"))]
         self.ledger.confirm_batch(
             batch.iter().map(|i| &i.confirmation_root),
+            &self.stopped,
+            self.config.max_blocks,
+            &mut notifier,
+        );
+        #[cfg(feature = "rai_protocol")]
+        self.ledger.confirm_batch_rai(
+            batch
+                .iter()
+                .map(|i| (&i.confirmation_root, i.finalization_epoch)),
             &self.stopped,
             self.config.max_blocks,
             &mut notifier,
@@ -408,13 +428,22 @@ pub struct ConfirmationContext {
 struct CementedNotifier<'a> {
     confirming_set: &'a ConfirmingSetThread,
     already_confirmed: VecDeque<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    finalization_epochs: HashMap<BlockHash, Option<RaiEpoch>>,
 }
 
 impl<'a> CementedNotifier<'a> {
-    fn new(confirming_set: &'a ConfirmingSetThread) -> Self {
+    fn new(confirming_set: &'a ConfirmingSetThread, batch: &VecDeque<CementingEntry>) -> Self {
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = batch;
         Self {
             confirming_set,
             already_confirmed: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            finalization_epochs: batch
+                .iter()
+                .map(|entry| (entry.confirmation_root, entry.finalization_epoch))
+                .collect(),
         }
     }
 }
@@ -433,6 +462,8 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
             .push_back(CementingEntry {
                 confirmation_root: *hash,
                 timestamp: Instant::now(),
+                #[cfg(feature = "rai_protocol")]
+                finalization_epoch: self.finalization_epochs.get(hash).copied().flatten(),
             });
     }
 }

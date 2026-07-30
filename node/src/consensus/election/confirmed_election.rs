@@ -3,6 +3,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpoch;
 use rsnano_types::{Amount, MaybeSavedBlock, PublicKey, SavedBlock};
 use rsnano_utils::stats::DetailType;
 
@@ -45,6 +47,8 @@ impl From<ConfirmationType> for DetailType {
 /// Information about confirmed election
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfirmedElection {
+    #[cfg(feature = "rai_protocol")]
+    pub rai_finalization_epoch: Option<RaiEpoch>,
     pub winner: MaybeSavedBlock,
     pub tally: Amount,
     pub final_tally: Amount,
@@ -59,6 +63,8 @@ pub struct ConfirmedElection {
 impl ConfirmedElection {
     pub fn new(block: SavedBlock, confirmation_type: ConfirmationType) -> Self {
         Self {
+            #[cfg(feature = "rai_protocol")]
+            rai_finalization_epoch: None,
             winner: MaybeSavedBlock::Saved(block),
             election_end: SystemTime::now(),
             block_count: 1,

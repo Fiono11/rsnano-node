@@ -45,6 +45,11 @@ use crate::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
+#[cfg(feature = "rai_protocol")]
+type RaiFinalizationEpoch = rsnano_types::RaiEpoch;
+#[cfg(not(feature = "rai_protocol"))]
+type RaiFinalizationEpoch = ();
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BlockError {
     /// Signature was bad, forged or transmission error
@@ -811,7 +816,13 @@ impl Ledger {
 
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
         let txn = self.store.begin_write();
-        let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128);
+        let (txn, blocks) = self.confirm_max(
+            txn,
+            hash,
+            1024 * 128,
+            #[cfg(feature = "rai_protocol")]
+            None,
+        );
         txn.commit();
         blocks
     }
@@ -823,12 +834,33 @@ impl Ledger {
         txn: WriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
+        #[cfg(feature = "rai_protocol")] finalization_epoch: Option<rsnano_types::RaiEpoch>,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         BlockCementer::new(&self.store, &self.constants, &self.stats).confirm(
             txn,
             target_hash,
             max_blocks,
+            #[cfg(feature = "rai_protocol")]
+            finalization_epoch,
         )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_finalization_epoch(&self, hash: &BlockHash) -> Option<rsnano_types::RaiEpoch> {
+        let txn = self.store.begin_read();
+        self.store.rai_finalization.epoch(&txn, hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_frontier_delta(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        account: &Account,
+    ) -> Option<ConfirmationHeightInfo> {
+        let txn = self.store.begin_read();
+        self.store
+            .rai_finalization
+            .frontier_delta(&txn, epoch, account)
     }
 
     pub fn confirm_batch<'a, O>(
@@ -840,12 +872,44 @@ impl Ledger {
     ) where
         O: CementingObserver,
     {
+        self.confirm_batch_impl(
+            batch.into_iter().map(|hash| (hash, None)),
+            stopped,
+            max_blocks,
+            cementing_observer,
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn confirm_batch_rai<'a, O>(
+        &self,
+        batch: impl IntoIterator<Item = (&'a BlockHash, Option<rsnano_types::RaiEpoch>)>,
+        stopped: &AtomicBool,
+        max_blocks: usize,
+        cementing_observer: &mut O,
+    ) where
+        O: CementingObserver,
+    {
+        self.confirm_batch_impl(batch, stopped, max_blocks, cementing_observer);
+    }
+
+    fn confirm_batch_impl<'a, O>(
+        &self,
+        batch: impl IntoIterator<Item = (&'a BlockHash, Option<RaiFinalizationEpoch>)>,
+        stopped: &AtomicBool,
+        max_blocks: usize,
+        cementing_observer: &mut O,
+    ) where
+        O: CementingObserver,
+    {
         let mut confirmed = Vec::new();
         let mut blocks_confirmed = 0;
         {
             let mut txn = self.store.begin_write();
 
-            for confirmation_root in batch.into_iter() {
+            for (confirmation_root, finalization_epoch) in batch.into_iter() {
+                #[cfg(not(feature = "rai_protocol"))]
+                let _ = finalization_epoch;
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
@@ -879,7 +943,13 @@ impl Ledger {
                         break;
                     }
 
-                    let (t, added) = self.confirm_max(txn, *confirmation_root, max_blocks);
+                    let (t, added) = self.confirm_max(
+                        txn,
+                        *confirmation_root,
+                        max_blocks,
+                        #[cfg(feature = "rai_protocol")]
+                        finalization_epoch,
+                    );
                     txn = t;
 
                     if !added.is_empty() {
@@ -1165,5 +1235,47 @@ mod tests {
             .finish();
 
         assert_eq!(ledger.bootstrap_weights_max_blocks(), 123);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_cementation_persists_finalization_epoch_and_frontier_delta() {
+        use crate::LedgerInserter;
+        use rsnano_types::RaiEpoch;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(Account::from(99), 1);
+        assert_eq!(ledger.rai_finalization_epoch(&send.hash()), None);
+
+        ledger.confirm_batch_rai(
+            [(&send.hash(), Some(RaiEpoch::new(7)))],
+            &AtomicBool::new(false),
+            1024,
+            &mut Observer,
+        );
+
+        assert_eq!(
+            ledger.rai_finalization_epoch(&send.hash()),
+            Some(RaiEpoch::new(7))
+        );
+        assert_eq!(
+            ledger.rai_frontier_delta(RaiEpoch::new(7), &send.account()),
+            Some(ConfirmationHeightInfo::new(send.height(), send.hash()))
+        );
+        assert_eq!(
+            ledger.roll_back(&send.hash()),
+            Err(RollbackError::BlockConfirmed)
+        );
     }
 }

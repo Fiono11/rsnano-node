@@ -16,6 +16,8 @@ mod lmdb_config;
 mod online_weight_store;
 mod peer_store;
 mod pending_store;
+#[cfg(feature = "rai_protocol")]
+mod rai_finalization_store;
 mod rep_weight_store;
 mod store;
 mod successor_store;
@@ -38,6 +40,8 @@ pub use lmdb_config::{LmdbConfig, SyncStrategy, default_ledger_lmdb_options, get
 pub use online_weight_store::LmdbOnlineWeightStore;
 pub use peer_store::*;
 pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read_pending_record};
+#[cfg(feature = "rai_protocol")]
+pub use rai_finalization_store::LmdbRaiFinalizationStore;
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;

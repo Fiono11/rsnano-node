@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use crate::LmdbRaiFinalizationStore;
 #[cfg(feature = "ledger_snapshots")]
 use crate::forks_store::LmdbForksStore;
 use crate::{
@@ -45,6 +47,8 @@ pub struct LmdbStore {
     pub online_weight: LmdbOnlineWeightStore,
     pub peer: LmdbPeerStore,
     pub version: LmdbVersionStore,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_finalization: LmdbRaiFinalizationStore,
     #[cfg(feature = "ledger_snapshots")]
     pub forks: LmdbForksStore,
 }
@@ -67,6 +71,8 @@ impl LmdbStore {
             final_vote: LmdbFinalVoteStore::new(&env)?,
             successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
+            #[cfg(feature = "rai_protocol")]
+            rai_finalization: LmdbRaiFinalizationStore::new(&env)?,
             #[cfg(feature = "ledger_snapshots")]
             forks: LmdbForksStore::new(&env)?,
             env,

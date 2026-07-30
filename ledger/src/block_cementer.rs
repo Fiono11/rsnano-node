@@ -2,6 +2,8 @@ use std::{collections::VecDeque, sync::atomic::Ordering};
 
 use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
 use rsnano_store_lmdb::LmdbStore;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiEpoch;
 use rsnano_types::{BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
@@ -32,6 +34,7 @@ impl<'a> BlockCementer<'a> {
         mut txn: WriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
+        #[cfg(feature = "rai_protocol")] finalization_epoch: Option<RaiEpoch>,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
 
@@ -70,6 +73,19 @@ impl<'a> BlockCementer<'a> {
                     self.store
                         .confirmation_height
                         .put(&mut txn, &block.account(), &conf_height);
+                    #[cfg(feature = "rai_protocol")]
+                    if let Some(epoch) = finalization_epoch {
+                        assert!(
+                            self.store.rai_finalization.put(
+                                &mut txn,
+                                &block.hash(),
+                                epoch,
+                                &block.account(),
+                                &conf_height,
+                            ),
+                            "a finalized block cannot move to a different RAI epoch"
+                        );
+                    }
                     self.store
                         .cache
                         .confirmed_count

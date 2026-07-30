@@ -614,6 +614,9 @@ mod rai_tests {
         .unwrap();
 
         assert!(election.is_confirmed());
-        assert!(matches!(rx.recv().unwrap(), AecFact::ElectionConfirmed(_)));
+        let AecFact::ElectionConfirmed(confirmed) = rx.recv().unwrap() else {
+            panic!("expected confirmation")
+        };
+        assert_eq!(confirmed.rai_finalization_epoch, Some(election.rai_epoch()));
     }
 }
