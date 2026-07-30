@@ -3,3 +3,6 @@
 //! RAI deliberately extends the existing election and vote pipeline. It does
 //! not introduce a parallel consensus subsystem; later feature-gated code is
 //! rooted in this module.
+mod epoch;
+
+pub use epoch::{RaiEpoch, RaiEpochManager, RaiEpochPhase};
