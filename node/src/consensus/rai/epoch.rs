@@ -1,7 +1,12 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
-use rsnano_types::{BlockHash, RaiEpoch};
+use rsnano_types::{BlockHash, QualifiedRoot, RaiEpoch};
+
+use super::{CloseCutDecisionError, RaiCloseCut, RaiCloseCutStore, RaiReportStore};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RaiEpochPhase {
@@ -24,6 +29,10 @@ pub struct RaiEpochManager {
     genesis_committee: Arc<RepWeights>,
     committees: BTreeMap<RaiEpoch, Arc<RepWeights>>,
     close_hashes: BTreeMap<RaiEpoch, BlockHash>,
+    reports: RaiReportStore,
+    close_cuts: RaiCloseCutStore,
+    visible_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
+    frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
 }
 
 impl RaiEpochManager {
@@ -34,6 +43,10 @@ impl RaiEpochManager {
             genesis_committee,
             committees: BTreeMap::new(),
             close_hashes: BTreeMap::new(),
+            reports: RaiReportStore::default(),
+            close_cuts: RaiCloseCutStore::default(),
+            visible_obligations: BTreeMap::new(),
+            frozen_obligations: BTreeMap::new(),
         }
     }
 
@@ -63,7 +76,13 @@ impl RaiEpochManager {
         epoch: RaiEpoch,
         close_hash: BlockHash,
     ) -> Option<BlockHash> {
-        self.close_hashes.insert(epoch, close_hash)
+        match self.close_hashes.entry(epoch) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(close_hash);
+                None
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => Some(*entry.get()),
+        }
     }
 
     pub fn current_epoch(&self) -> RaiEpoch {
@@ -81,6 +100,84 @@ impl RaiEpochManager {
     pub fn open_epoch(&mut self, epoch: RaiEpoch) {
         self.current_epoch = epoch;
         self.phase = RaiEpochPhase::Open;
+    }
+
+    pub fn reports(&self) -> &RaiReportStore {
+        &self.reports
+    }
+    pub fn reports_mut(&mut self) -> &mut RaiReportStore {
+        &mut self.reports
+    }
+    pub fn close_cuts(&self) -> &RaiCloseCutStore {
+        &self.close_cuts
+    }
+
+    /// Freezes visibility and creates the canonical round-zero candidate.
+    pub fn begin_close_cut(
+        &mut self,
+        vote_visible: impl IntoIterator<Item = QualifiedRoot>,
+    ) -> Option<(QualifiedRoot, BlockHash)> {
+        if self.phase != RaiEpochPhase::Open {
+            return None;
+        }
+        let committee = self.close_committee(self.current_epoch)?;
+        let mut visible = self
+            .reports
+            .visible_from_reports(self.current_epoch, &committee);
+        visible.extend(vote_visible);
+        let cut = RaiCloseCut::new(self.current_epoch, visible.clone());
+        let hash = self.close_cuts.insert(cut);
+        self.visible_obligations.insert(self.current_epoch, visible);
+        self.phase = RaiEpochPhase::ClosingCut;
+        Some((super::rai_close_cut_root(self.current_epoch, 0), hash))
+    }
+
+    pub fn decide_close_cut(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        hash: BlockHash,
+    ) -> Result<&BTreeSet<QualifiedRoot>, CloseCutDecisionError> {
+        // TODO(RAI): add retry scheduling once close rounds beyond zero are specified.
+        if round != 0 {
+            return Err(CloseCutDecisionError::UnsupportedRound);
+        }
+        if let Some(existing) = self.close_hashes.get(&epoch) {
+            return if *existing == hash {
+                self.frozen_obligations
+                    .get(&epoch)
+                    .ok_or(CloseCutDecisionError::MissingPreimage)
+            } else {
+                Err(CloseCutDecisionError::ImmutableDecision)
+            };
+        }
+        if epoch != self.current_epoch || self.phase != RaiEpochPhase::ClosingCut {
+            return Err(CloseCutDecisionError::WrongPhase);
+        }
+        let cut = self
+            .close_cuts
+            .get(&hash)
+            .cloned()
+            .ok_or(CloseCutDecisionError::MissingPreimage)?;
+        let expected = self
+            .visible_obligations
+            .get(&epoch)
+            .ok_or(CloseCutDecisionError::InvalidCut)?;
+        if cut.epoch != epoch || &cut.obligations != expected || cut.hash() != hash {
+            return Err(CloseCutDecisionError::InvalidCut);
+        }
+        self.close_hashes.insert(epoch, hash);
+        self.frozen_obligations.insert(epoch, cut.obligations);
+        self.phase = RaiEpochPhase::Draining;
+        Ok(self.frozen_obligations.get(&epoch).expect("just inserted"))
+    }
+
+    pub fn decided_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
+        self.close_hashes.get(&epoch).copied()
+    }
+
+    pub fn obligations_to_drain(&self, epoch: RaiEpoch) -> Option<&BTreeSet<QualifiedRoot>> {
+        self.frozen_obligations.get(&epoch)
     }
 
     /// Returns genesis for a negative epoch and requires recorded state for a
@@ -207,5 +304,29 @@ mod tests {
         assert_eq!(manager.governing_hash(3.into()), Some(close));
         assert_eq!(manager.governing_hash(2.into()), None);
         assert_eq!(manager.governing_hash(0.into()), None);
+    }
+
+    #[test]
+    fn round_zero_cut_decision_freezes_obligations_and_is_immutable() {
+        let mut manager = RaiEpochManager::new(weights(1, 100));
+        let obligation = QualifiedRoot::new(11.into(), 12.into());
+        let (root, hash) = manager.begin_close_cut([obligation.clone()]).unwrap();
+        assert_eq!(root, crate::consensus::rai::rai_close_cut_root(0.into(), 0));
+        assert_eq!(manager.phase(), RaiEpochPhase::ClosingCut);
+
+        assert_eq!(
+            manager.decide_close_cut(0.into(), 1, hash),
+            Err(CloseCutDecisionError::UnsupportedRound)
+        );
+        assert_eq!(
+            manager.decide_close_cut(0.into(), 0, hash).unwrap(),
+            &BTreeSet::from([obligation])
+        );
+        assert_eq!(manager.phase(), RaiEpochPhase::Draining);
+        assert_eq!(manager.decided_close_hash(0.into()), Some(hash));
+        assert_eq!(
+            manager.decide_close_cut(0.into(), 0, BlockHash::from(999)),
+            Err(CloseCutDecisionError::ImmutableDecision)
+        );
     }
 }

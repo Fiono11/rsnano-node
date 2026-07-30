@@ -4,6 +4,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashSet;
+
 use strum_macros::{EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
@@ -46,6 +49,8 @@ pub struct Election {
     state: ElectionState,
     // TODO: there can't be more than 10 blocks, so an array might be a lot faster
     candidate_blocks: HashMap<BlockHash, MaybeSavedBlock>,
+    #[cfg(feature = "rai_protocol")]
+    rai_hash_candidates: HashSet<BlockHash>,
     votes: HashMap<PublicKey, VoteSummary>,
     winner_tally: Amount,
     winner_final_tally: Amount,
@@ -124,6 +129,7 @@ impl Election {
                 block.hash(),
                 MaybeSavedBlock::Saved(block.clone()),
             )]),
+            rai_hash_candidates: HashSet::new(),
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -224,6 +230,24 @@ impl Election {
         &self.candidate_blocks
     }
 
+    /// Candidate membership shared by slot and synthetic RAI elections.
+    #[cfg(feature = "rai_protocol")]
+    pub fn contains_candidate(&self, hash: &BlockHash) -> bool {
+        self.candidate_blocks.contains_key(hash) || self.rai_hash_candidates.contains(hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn candidate_hashes(&self) -> impl Iterator<Item = &BlockHash> {
+        self.candidate_blocks
+            .keys()
+            .chain(self.rai_hash_candidates.iter())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_rai_hash_candidate(&mut self, hash: BlockHash) -> bool {
+        self.rai_hash_candidates.insert(hash)
+    }
+
     pub fn contains_block(&self, hash: &BlockHash) -> bool {
         self.candidate_blocks.contains_key(hash)
     }
@@ -275,7 +299,10 @@ impl Election {
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) {
+        #[cfg(not(feature = "rai_protocol"))]
         debug_assert!(self.candidate_blocks.contains_key(&hash));
+        #[cfg(feature = "rai_protocol")]
+        debug_assert!(self.contains_candidate(&hash));
         self.votes.insert(
             voter,
             VoteSummary::new(voter, hash, vote_created, vote_received),

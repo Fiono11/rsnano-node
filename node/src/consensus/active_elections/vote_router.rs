@@ -22,6 +22,11 @@ impl VoteRouter {
 
     /// Remove all routes to this election
     pub fn disconnect_election(&mut self, election: &Election) {
+        #[cfg(feature = "rai_protocol")]
+        for hash in election.candidate_hashes() {
+            self.elections.remove(hash);
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         for hash in election.candidate_blocks().keys() {
             self.elections.remove(hash);
         }
