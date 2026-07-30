@@ -17,7 +17,11 @@ use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::B
 use rustc_hash::FxHashMap;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::rai::RaiEpoch;
+use crate::consensus::rai::{RaiElectionVoteState, RaiEpoch};
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::RepWeights;
+#[cfg(feature = "rai_protocol")]
+use std::sync::Arc;
 
 #[cfg(feature = "rai_protocol")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +66,8 @@ pub struct Election {
     rai_epoch: RaiEpoch,
     #[cfg(feature = "rai_protocol")]
     rai_round: u32,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_votes: RaiElectionVoteState,
 }
 
 impl Election {
@@ -128,6 +134,7 @@ impl Election {
             rai_kind: RaiElectionKind::Slot,
             rai_epoch: epoch,
             rai_round: 0,
+            rai_votes: RaiElectionVoteState::default(),
         }
     }
 
@@ -157,6 +164,12 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub fn rai_round(&self) -> u32 {
         self.rai_round
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn with_rai_committees(mut self, committees: Vec<Arc<RepWeights>>) -> Self {
+        self.rai_votes = RaiElectionVoteState::new(committees);
+        self
     }
 
     pub fn behavior(&self) -> ElectionBehavior {

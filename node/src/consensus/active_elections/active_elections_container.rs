@@ -175,6 +175,11 @@ impl ActiveElectionsContainer {
             self.base_latency,
             now,
             self.rai_epoch_manager.current_epoch(),
+        )
+        .with_rai_committees(
+            self.rai_epoch_manager
+                .slot_committees(self.rai_epoch_manager.current_epoch())
+                .unwrap_or_default(),
         );
 
         self.roots.insert(Entry {
