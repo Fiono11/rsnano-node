@@ -6,7 +6,10 @@ use std::{
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_types::{BlockHash, QualifiedRoot, RaiEpoch};
 
-use super::{CloseCutDecisionError, RaiCloseCut, RaiCloseCutStore, RaiReportStore};
+use super::{
+    CloseCutDecisionError, RaiCloseCut, RaiCloseCutStore, RaiCloseRecord, RaiCloseRecordStore,
+    RaiFrontierMap, RaiReportStore,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RaiEpochPhase {
@@ -18,6 +21,29 @@ pub enum RaiEpochPhase {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseRecordDecisionError {
+    WrongPhase,
+    UnsupportedRound,
+    MissingPreimage,
+    InvalidRecord,
+    ImmutableDecision,
+}
+
+impl std::fmt::Display for CloseRecordDecisionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::WrongPhase => "epoch is not closing its record",
+            Self::UnsupportedRound => "only close-record round zero is supported",
+            Self::MissingPreimage => "canonical close-record preimage is unavailable",
+            Self::InvalidRecord => "close record does not match confirmation heights",
+            Self::ImmutableDecision => "the epoch already has a different close record",
+        })
+    }
+}
+
+impl std::error::Error for CloseRecordDecisionError {}
+
 /// Owns the immutable representative-weight views used by RAI elections.
 ///
 /// The live representative cache is deliberately not retained. A caller must
@@ -28,11 +54,27 @@ pub struct RaiEpochManager {
     phase: RaiEpochPhase,
     genesis_committee: Arc<RepWeights>,
     committees: BTreeMap<RaiEpoch, Arc<RepWeights>>,
+    cut_hashes: BTreeMap<RaiEpoch, BlockHash>,
     close_hashes: BTreeMap<RaiEpoch, BlockHash>,
     reports: RaiReportStore,
     close_cuts: RaiCloseCutStore,
+    close_records: RaiCloseRecordStore,
     visible_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
     frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
+}
+
+/// Minimum state which must be written atomically with close installation.
+/// The frontier map is retained because reconstructing an old confirmation-
+/// height view from the mutable ledger is not possible after it advances.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiDurableCloseState {
+    pub epoch: RaiEpoch,
+    pub close_hash: BlockHash,
+    pub previous_close_hash: BlockHash,
+    pub frontiers: RaiFrontierMap,
+    pub committee: RepWeights,
+    pub decided_cut_hash: BlockHash,
+    pub frozen_obligations: BTreeSet<QualifiedRoot>,
 }
 
 impl RaiEpochManager {
@@ -42,9 +84,11 @@ impl RaiEpochManager {
             phase: RaiEpochPhase::Open,
             genesis_committee,
             committees: BTreeMap::new(),
+            cut_hashes: BTreeMap::new(),
             close_hashes: BTreeMap::new(),
             reports: RaiReportStore::default(),
             close_cuts: RaiCloseCutStore::default(),
+            close_records: RaiCloseRecordStore::default(),
             visible_obligations: BTreeMap::new(),
             frozen_obligations: BTreeMap::new(),
         }
@@ -142,7 +186,7 @@ impl RaiEpochManager {
         if round != 0 {
             return Err(CloseCutDecisionError::UnsupportedRound);
         }
-        if let Some(existing) = self.close_hashes.get(&epoch) {
+        if let Some(existing) = self.cut_hashes.get(&epoch) {
             return if *existing == hash {
                 self.frozen_obligations
                     .get(&epoch)
@@ -166,14 +210,144 @@ impl RaiEpochManager {
         if cut.epoch != epoch || &cut.obligations != expected || cut.hash() != hash {
             return Err(CloseCutDecisionError::InvalidCut);
         }
-        self.close_hashes.insert(epoch, hash);
+        self.cut_hashes.insert(epoch, hash);
         self.frozen_obligations.insert(epoch, cut.obligations);
         self.phase = RaiEpochPhase::Draining;
         Ok(self.frozen_obligations.get(&epoch).expect("just inserted"))
     }
 
     pub fn decided_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
+        self.cut_hashes.get(&epoch).copied()
+    }
+
+    /// Derives the sole round-zero close candidate after every cut obligation
+    /// has reached the existing confirmation-height state.
+    pub fn begin_close_record(
+        &mut self,
+        obligations_settled: bool,
+        confirmation_heights: impl IntoIterator<
+            Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
+        >,
+    ) -> Option<(QualifiedRoot, BlockHash)> {
+        if self.phase != RaiEpochPhase::Draining || !obligations_settled {
+            return None;
+        }
+        let previous = self
+            .current_epoch
+            .number()
+            .checked_sub(1)
+            .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
+            .unwrap_or(BlockHash::ZERO);
+        let record = RaiCloseRecord::new(self.current_epoch, previous, confirmation_heights);
+        let hash = self.close_records.insert(record);
+        self.phase = RaiEpochPhase::ClosingRecord;
+        Some((super::rai_close_record_root(self.current_epoch, 0), hash))
+    }
+
+    pub fn install_close_record(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        hash: BlockHash,
+        confirmation_heights: impl IntoIterator<
+            Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
+        >,
+    ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
+        if round != 0 {
+            return Err(CloseRecordDecisionError::UnsupportedRound);
+        }
+        if let Some(existing) = self.close_hashes.get(&epoch) {
+            return if *existing == hash {
+                Ok(&self
+                    .close_records
+                    .get(&hash)
+                    .ok_or(CloseRecordDecisionError::MissingPreimage)?
+                    .frontiers)
+            } else {
+                Err(CloseRecordDecisionError::ImmutableDecision)
+            };
+        }
+        if epoch != self.current_epoch || self.phase != RaiEpochPhase::ClosingRecord {
+            return Err(CloseRecordDecisionError::WrongPhase);
+        }
+        let record = self
+            .close_records
+            .get(&hash)
+            .ok_or(CloseRecordDecisionError::MissingPreimage)?;
+        let actual: RaiFrontierMap = confirmation_heights.into_iter().collect();
+        let previous = epoch
+            .number()
+            .checked_sub(1)
+            .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
+            .unwrap_or(BlockHash::ZERO);
+        if record.epoch != epoch
+            || record.previous != previous
+            || record.frontiers != actual
+            || record.hash() != hash
+        {
+            return Err(CloseRecordDecisionError::InvalidRecord);
+        }
+        self.close_hashes.insert(epoch, hash);
+        self.phase = RaiEpochPhase::Closed;
+        Ok(&self
+            .close_records
+            .get(&hash)
+            .expect("validated above")
+            .frontiers)
+    }
+
+    pub fn installed_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
         self.close_hashes.get(&epoch).copied()
+    }
+
+    pub fn durable_close_state(&self, epoch: RaiEpoch) -> Option<RaiDurableCloseState> {
+        let close_hash = *self.close_hashes.get(&epoch)?;
+        let record = self.close_records.get(&close_hash)?;
+        Some(RaiDurableCloseState {
+            epoch,
+            close_hash,
+            previous_close_hash: record.previous,
+            frontiers: record.frontiers.clone(),
+            committee: self.close_committee(epoch)?.as_ref().clone(),
+            decided_cut_hash: *self.cut_hashes.get(&epoch)?,
+            frozen_obligations: self.frozen_obligations.get(&epoch)?.clone(),
+        })
+    }
+
+    /// Restores the safety locks before the node accepts votes after restart.
+    pub fn restore_close_state(
+        &mut self,
+        state: RaiDurableCloseState,
+    ) -> Result<(), CloseRecordDecisionError> {
+        let record = RaiCloseRecord::new(
+            state.epoch,
+            state.previous_close_hash,
+            state.frontiers.clone(),
+        );
+        if record.hash() != state.close_hash {
+            return Err(CloseRecordDecisionError::InvalidRecord);
+        }
+        if let Some(existing) = self.close_hashes.get(&state.epoch)
+            && *existing != state.close_hash
+        {
+            return Err(CloseRecordDecisionError::ImmutableDecision);
+        }
+        self.close_records.insert(record);
+        self.close_hashes.insert(state.epoch, state.close_hash);
+        self.cut_hashes.insert(state.epoch, state.decided_cut_hash);
+        self.frozen_obligations
+            .insert(state.epoch, state.frozen_obligations);
+        if let Some(committee_epoch) = state.epoch.number().checked_sub(2) {
+            self.committees
+                .insert(RaiEpoch::new(committee_epoch), Arc::new(state.committee));
+        } else if Arc::new(state.committee.clone()).as_ref() != self.genesis_committee.as_ref() {
+            return Err(CloseRecordDecisionError::InvalidRecord);
+        }
+        if state.epoch >= self.current_epoch {
+            self.current_epoch = state.epoch;
+            self.phase = RaiEpochPhase::Closed;
+        }
+        Ok(())
     }
 
     pub fn obligations_to_drain(&self, epoch: RaiEpoch) -> Option<&BTreeSet<QualifiedRoot>> {
@@ -220,7 +394,7 @@ impl RaiEpochManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{Amount, PublicKey};
+    use rsnano_types::{Account, Amount, ConfirmationHeightInfo, PublicKey};
 
     fn weights(rep: u64, amount: u128) -> Arc<RepWeights> {
         Arc::new(RepWeights::from([(
@@ -328,5 +502,56 @@ mod tests {
             manager.decide_close_cut(0.into(), 0, BlockHash::from(999)),
             Err(CloseCutDecisionError::ImmutableDecision)
         );
+    }
+
+    #[test]
+    fn close_record_waits_for_drain_validates_and_is_immutable() {
+        let mut manager = RaiEpochManager::new(weights(1, 100));
+        let (_, cut) = manager.begin_close_cut([]).unwrap();
+        manager.decide_close_cut(0.into(), 0, cut).unwrap();
+        let frontiers = [(
+            Account::from(1),
+            ConfirmationHeightInfo::new(4, BlockHash::from(40)),
+        )];
+
+        assert!(
+            manager
+                .begin_close_record(false, frontiers.clone())
+                .is_none()
+        );
+        let (root, close) = manager.begin_close_record(true, frontiers.clone()).unwrap();
+        assert_eq!(
+            root,
+            crate::consensus::rai::rai_close_record_root(0.into(), 0)
+        );
+
+        let tampered = [(
+            Account::from(1),
+            ConfirmationHeightInfo::new(4, BlockHash::from(41)),
+        )];
+        assert_eq!(
+            manager.install_close_record(0.into(), 0, close, tampered),
+            Err(CloseRecordDecisionError::InvalidRecord)
+        );
+        let expected: RaiFrontierMap = frontiers.clone().into_iter().collect();
+        assert_eq!(
+            manager
+                .install_close_record(0.into(), 0, close, frontiers.clone())
+                .unwrap(),
+            &expected
+        );
+        assert_eq!(manager.phase(), RaiEpochPhase::Closed);
+        assert_eq!(manager.installed_close_hash(0.into()), Some(close));
+        assert_eq!(
+            manager.install_close_record(0.into(), 0, BlockHash::from(99), frontiers),
+            Err(CloseRecordDecisionError::ImmutableDecision)
+        );
+
+        let durable = manager.durable_close_state(0.into()).unwrap();
+        let mut restarted = RaiEpochManager::new(weights(1, 100));
+        restarted.restore_close_state(durable).unwrap();
+        assert_eq!(restarted.phase(), RaiEpochPhase::Closed);
+        assert_eq!(restarted.installed_close_hash(0.into()), Some(close));
+        assert_eq!(restarted.governing_hash(1.into()), Some(close));
     }
 }

@@ -259,6 +259,16 @@ impl NullLedgerBuilder {
 }
 
 impl Ledger {
+    /// Canonical account frontier view used by RAI close records. This is a
+    /// snapshot of the existing confirmation-height table, not separate
+    /// ledger finality state.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_confirmation_frontiers(
+        &self,
+    ) -> std::collections::BTreeMap<Account, ConfirmationHeightInfo> {
+        let txn = self.store.begin_read();
+        self.store.confirmation_height.iter(&txn).collect()
+    }
     pub fn new_null() -> Self {
         Self::new(
             LmdbEnvironment::new_null(),
