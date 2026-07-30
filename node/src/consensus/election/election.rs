@@ -16,6 +16,17 @@ use rsnano_utils::stats::DetailType;
 use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::BlockTallies};
 use rustc_hash::FxHashMap;
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::rai::RaiEpoch;
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaiElectionKind {
+    Slot,
+    CloseCut,
+    CloseRecord,
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum VoteType {
     NonFinal,
@@ -44,6 +55,13 @@ pub struct Election {
     /// Minimum time between broadcasts of the current winner of an election, as a backup to requesting confirmations
     base_latency: Duration,
     account: Account,
+
+    #[cfg(feature = "rai_protocol")]
+    rai_kind: RaiElectionKind,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch: RaiEpoch,
+    #[cfg(feature = "rai_protocol")]
+    rai_round: u32,
 }
 
 impl Election {
@@ -56,6 +74,10 @@ impl Election {
         base_latency: Duration,
         now: Timestamp,
     ) -> Self {
+        #[cfg(feature = "rai_protocol")]
+        return Self::new_slot(block, behavior, base_latency, now, RaiEpoch::ZERO);
+
+        #[cfg(not(feature = "rai_protocol"))]
         Self {
             qualified_root: block.qualified_root(),
             votes: HashMap::new(),
@@ -77,6 +99,38 @@ impl Election {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn new_slot(
+        block: SavedBlock,
+        behavior: ElectionBehavior,
+        base_latency: Duration,
+        now: Timestamp,
+        epoch: RaiEpoch,
+    ) -> Self {
+        Self {
+            qualified_root: block.qualified_root(),
+            votes: HashMap::new(),
+            candidate_blocks: HashMap::from([(
+                block.hash(),
+                MaybeSavedBlock::Saved(block.clone()),
+            )]),
+            state: ElectionState::Passive,
+            tallies: BlockTallies::new(),
+            final_tallies: BlockTallies::new(),
+            winner_tally: Amount::ZERO,
+            winner_final_tally: Amount::ZERO,
+            behavior,
+            has_quorum: false,
+            start: now,
+            base_latency,
+            account: block.account(),
+            winner: MaybeSavedBlock::Saved(block),
+            rai_kind: RaiElectionKind::Slot,
+            rai_epoch: epoch,
+            rai_round: 0,
+        }
+    }
+
     pub fn new_test_instance_with(block: SavedBlock) -> Self {
         Self::new(
             block,
@@ -88,6 +142,21 @@ impl Election {
 
     pub fn qualified_root(&self) -> &QualifiedRoot {
         &self.qualified_root
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_kind(&self) -> RaiElectionKind {
+        self.rai_kind
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_epoch(&self) -> RaiEpoch {
+        self.rai_epoch
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_round(&self) -> u32 {
+        self.rai_round
     }
 
     pub fn behavior(&self) -> ElectionBehavior {

@@ -45,6 +45,8 @@ pub(crate) struct ActiveElectionsContainer {
     max_elections: usize,
     max_elections_per_bucket: usize,
     stats: AecStats,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_manager: crate::consensus::rai::RaiEpochManager,
 }
 
 impl ActiveElectionsContainer {
@@ -60,6 +62,10 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_manager: crate::consensus::rai::RaiEpochManager::new(std::sync::Arc::new(
+                RepWeights::default(),
+            )),
         }
     }
 
@@ -160,7 +166,16 @@ impl ActiveElectionsContainer {
     fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
+        #[cfg(not(feature = "rai_protocol"))]
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
+        #[cfg(feature = "rai_protocol")]
+        let election = Election::new_slot(
+            request.block,
+            request.behavior,
+            self.base_latency,
+            now,
+            self.rai_epoch_manager.current_epoch(),
+        );
 
         self.roots.insert(Entry {
             root: root.clone(),
@@ -594,6 +609,35 @@ mod tests {
             .unwrap();
 
         assert_eq!(container.len(), 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn inserted_block_election_is_a_slot_with_epoch_fixed_at_creation() {
+        use crate::consensus::{election::RaiElectionKind, rai::RaiEpoch};
+
+        let mut container = ActiveElectionsContainer::default();
+        container.rai_epoch_manager.open_epoch(RaiEpoch::new(7));
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+
+        container
+            .insert(
+                AecInsertRequest {
+                    block,
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                },
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        container.rai_epoch_manager.open_epoch(RaiEpoch::new(8));
+        let election = container.election_for_root(&root).unwrap();
+        assert_eq!(election.qualified_root(), &root);
+        assert_eq!(election.rai_kind(), RaiElectionKind::Slot);
+        assert_eq!(election.rai_epoch(), RaiEpoch::new(7));
+        assert_eq!(election.rai_round(), 0);
     }
 
     #[test]
