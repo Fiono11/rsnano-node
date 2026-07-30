@@ -5,6 +5,157 @@ use rsnano_types::{Amount, PrivateKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{System, assert_always_eq, assert_timely_eq2, assert_timely2, start_election};
 
+#[cfg(feature = "rai_protocol")]
+use {
+    rsnano_ledger::{ConfirmedSet, DEV_GENESIS_ACCOUNT},
+    rsnano_node::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote},
+    rsnano_types::{
+        Block, DEV_GENESIS_KEY, RaiVoteMetadata, UnixMillisTimestamp, Vote, VoteDelivery,
+    },
+    std::sync::Arc,
+};
+
+#[cfg(feature = "rai_protocol")]
+fn certify_rai_tip(node: &rsnano_node::Node, tip: &Block) {
+    start_election(node, &tip.hash());
+    assert_timely2(|| node.is_active_hash(&tip.hash()));
+    let vote: FilteredVote = ReceivedVote::new(
+        Arc::new(Vote::new_rai(
+            &DEV_GENESIS_KEY,
+            UnixMillisTimestamp::new(1),
+            0,
+            vec![tip.hash()],
+            RaiVoteMetadata::default(),
+        )),
+        VoteDelivery::Direct,
+        None,
+    )
+    .into();
+
+    let rep_weights = node.ledger.rep_weights.read();
+    let result = node.aec.apply_vote(ApplyVoteArgs {
+        vote: &vote,
+        rep_weights: &rep_weights,
+        quorum_snapshot: &node.rep_tracker.quorum_snapshot(),
+        now: node.steady_clock.now(),
+    });
+    assert_eq!(result.get(&tip.hash()), Some(&Ok(())));
+}
+
+/// RAI only replaces the election certificate. Its certified tip is deliberately
+/// handed to the legacy confirming set, whose dependency walk and atomic ledger
+/// transaction differ from the specification's strictly account-local segment rule.
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn rai_certified_tip_uses_legacy_cementation() {
+    let mut system = System::new();
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_voting = false;
+    let node = system.build_node().config(config).finish();
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let destination = PrivateKey::new();
+    let b1 = lattice.genesis().send(&destination, Amount::raw(1));
+    let b2 = lattice.genesis().send(&destination, Amount::raw(1));
+    let b3 = lattice.genesis().send(&destination, Amount::raw(1));
+    node.process_multi(&[b1.clone(), b2.clone(), b3.clone()]);
+
+    node.confirming_set.set_cooldown(true);
+    certify_rai_tip(&node, &b3);
+    assert_timely2(|| node.confirming_set.contains(&b3.hash()));
+
+    // Certification itself performs no partial ledger writes.
+    assert_eq!(
+        node.ledger
+            .confirmed()
+            .get_conf_info(&DEV_GENESIS_ACCOUNT)
+            .unwrap()
+            .height,
+        1
+    );
+    assert!(!node.block_confirmed(&b1.hash()));
+    assert!(!node.block_confirmed(&b2.hash()));
+    assert!(!node.block_confirmed(&b3.hash()));
+
+    node.confirming_set.set_cooldown(false);
+    assert_timely2(|| !node.confirming_set.contains(&b3.hash()));
+    assert!(node.blocks_confirmed(&[b1.clone(), b2.clone(), b3.clone()]));
+
+    let confirmation_height = node
+        .ledger
+        .confirmed()
+        .get_conf_info(&DEV_GENESIS_ACCOUNT)
+        .unwrap();
+    assert_eq!(confirmation_height.height, 4);
+    assert_eq!(confirmation_height.frontier, b3.hash());
+    assert_timely_eq2(
+        || {
+            node.stats.count(
+                StatType::ConfirmationHeight,
+                DetailType::BlocksConfirmed,
+                Direction::In,
+            )
+        },
+        3,
+    );
+    assert_timely_eq2(|| node.recently_cemented.lock().unwrap().len(), 3);
+    assert_timely_eq2(
+        || node.stats().get("confirmation_observer", "active_quorum"),
+        1,
+    );
+}
+
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn rai_certified_receive_uses_legacy_dependency_closure() {
+    let mut system = System::new();
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_voting = false;
+    let node = system.build_node().config(config).finish();
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let account_b = PrivateKey::new();
+    let account_a = PrivateKey::new();
+    let fund_b = lattice.genesis().send(&account_b, Amount::raw(10));
+    let open_b = lattice.account(&account_b).receive(&fund_b);
+    node.process_and_confirm_multi(&[fund_b, open_b]);
+
+    let send = lattice.account(&account_b).send(&account_a, Amount::raw(5));
+    let receive = lattice.account(&account_a).receive(&send);
+    node.process_multi(&[send.clone(), receive.clone()]);
+
+    node.confirming_set.set_cooldown(true);
+    certify_rai_tip(&node, &receive);
+    assert_timely2(|| node.confirming_set.contains(&receive.hash()));
+    assert!(!node.block_confirmed(&send.hash()));
+    assert!(!node.block_confirmed(&receive.hash()));
+
+    node.confirming_set.set_cooldown(false);
+    assert_timely2(|| !node.confirming_set.contains(&receive.hash()));
+    assert!(node.blocks_confirmed(&[send.clone(), receive.clone()]));
+
+    let confirmed = node.ledger.confirmed();
+    let source_height = confirmed.get_conf_info(&account_b.account()).unwrap();
+    assert_eq!(source_height.height, 2);
+    assert_eq!(source_height.frontier, send.hash());
+    let receive_height = confirmed.get_conf_info(&account_a.account()).unwrap();
+    assert_eq!(receive_height.height, 1);
+    assert_eq!(receive_height.frontier, receive.hash());
+    assert_timely_eq2(
+        || node.stats().get("confirmation_observer", "active_quorum"),
+        1,
+    );
+    assert_timely_eq2(
+        || {
+            node.stats.count(
+                StatType::ConfirmationHeight,
+                DetailType::BlocksConfirmed,
+                Direction::In,
+            )
+        },
+        4,
+    );
+    assert_timely_eq2(|| node.recently_cemented.lock().unwrap().len(), 2);
+}
+
 // The callback and confirmation history should only be updated after confirmation height is set (and not just after voting)
 #[test]
 fn confirmed_history() {

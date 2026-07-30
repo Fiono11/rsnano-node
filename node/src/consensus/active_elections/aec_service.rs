@@ -32,6 +32,22 @@ impl AecService {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_with_rai_committee(
+        config: ActiveElectionsConfig,
+        base_latency: Duration,
+        genesis_committee: std::sync::Arc<rsnano_ledger::RepWeights>,
+    ) -> Self {
+        Self {
+            aec: RwLock::new(ActiveElectionsContainer::new_with_rai_committee(
+                config,
+                base_latency,
+                genesis_committee,
+            )),
+            clock: SteadyClock::default(),
+        }
+    }
+
     pub fn new_null() -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),

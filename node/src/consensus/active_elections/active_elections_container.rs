@@ -69,6 +69,17 @@ impl ActiveElectionsContainer {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_with_rai_committee(
+        config: ActiveElectionsConfig,
+        base_latency: Duration,
+        genesis_committee: std::sync::Arc<RepWeights>,
+    ) -> Self {
+        let mut result = Self::new(config, base_latency);
+        result.rai_epoch_manager = crate::consensus::rai::RaiEpochManager::new(genesis_committee);
+        result
+    }
+
     pub fn set_observer(&mut self, observer: Sender<AecFact>) {
         self.observer = Some(observer);
     }

@@ -622,9 +622,16 @@ impl Node {
         let aec_rx2 = aec_tx.clone();
         event_queues_info.add_leaf("aec", move || aec_rx2.len());
 
+        #[cfg(not(feature = "rai_protocol"))]
         let active_elections = Arc::new(AecService::new(
             config.active_elections.clone(),
             base_latency,
+        ));
+        #[cfg(feature = "rai_protocol")]
+        let active_elections = Arc::new(AecService::new_with_rai_committee(
+            config.active_elections.clone(),
+            base_latency,
+            Arc::new(rep_weights.read().clone()),
         ));
         active_elections.set_observer(aec_tx.clone());
 
