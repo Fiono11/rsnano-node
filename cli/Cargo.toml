@@ -15,6 +15,14 @@ required-features = ["banano"]
 
 [features]
 ledger_snapshots = ["rsnano_node/ledger_snapshots", "rsnano_rpc_server/ledger_snapshots"]
+rai_protocol = [
+	"rsnano_types/rai_protocol",
+	"rsnano_messages/rai_protocol",
+	"rsnano_store_lmdb/rai_protocol",
+	"rsnano_ledger/rai_protocol",
+	"rsnano_node/rai_protocol",
+	"rsnano_daemon/rai_protocol",
+]
 banano = [
 	"rsnano_types/banano",
 	"rsnano_store_lmdb/banano",

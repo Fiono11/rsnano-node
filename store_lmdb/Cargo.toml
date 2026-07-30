@@ -8,6 +8,7 @@ edition = "2024"
 [features]
 output_tracking = []
 ledger_snapshots = []
+rai_protocol = ["rsnano_types/rai_protocol"]
 banano = [
 	"rsnano_types/banano", 
 ]
