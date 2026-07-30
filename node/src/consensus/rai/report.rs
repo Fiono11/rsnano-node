@@ -167,7 +167,7 @@ impl RaiCloseCut {
 }
 
 /// Hash-to-preimage cache. A hash can only name its canonical, validated cut.
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RaiCloseCutStore {
     cuts: BTreeMap<BlockHash, RaiCloseCut>,
 }
@@ -175,7 +175,6 @@ pub struct RaiCloseCutStore {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CloseCutDecisionError {
     WrongPhase,
-    UnsupportedRound,
     MissingPreimage,
     InvalidCut,
     ImmutableDecision,
@@ -185,7 +184,6 @@ impl std::fmt::Display for CloseCutDecisionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::WrongPhase => "epoch is not closing its cut",
-            Self::UnsupportedRound => "only close-cut round zero is supported",
             Self::MissingPreimage => "canonical cut preimage is unavailable",
             Self::InvalidCut => "cut does not match currently visible obligations",
             Self::ImmutableDecision => "the epoch already has a different decided cut",

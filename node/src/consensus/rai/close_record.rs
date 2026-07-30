@@ -58,7 +58,7 @@ impl RaiCloseRecord {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RaiCloseRecordStore(BTreeMap<BlockHash, RaiCloseRecord>);
 
 impl RaiCloseRecordStore {

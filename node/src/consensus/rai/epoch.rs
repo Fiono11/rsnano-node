@@ -24,7 +24,6 @@ pub enum RaiEpochPhase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseRecordDecisionError {
     WrongPhase,
-    UnsupportedRound,
     MissingPreimage,
     InvalidRecord,
     ImmutableDecision,
@@ -34,7 +33,6 @@ impl std::fmt::Display for CloseRecordDecisionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::WrongPhase => "epoch is not closing its record",
-            Self::UnsupportedRound => "only close-record round zero is supported",
             Self::MissingPreimage => "canonical close-record preimage is unavailable",
             Self::InvalidRecord => "close record does not match confirmation heights",
             Self::ImmutableDecision => "the epoch already has a different close record",
@@ -61,6 +59,8 @@ pub struct RaiEpochManager {
     close_records: RaiCloseRecordStore,
     visible_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
     frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
+    cut_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
+    record_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
 }
 
 /// Minimum state which must be written atomically with close installation.
@@ -79,6 +79,19 @@ pub struct RaiDurableCloseState {
     pub frozen_obligations: BTreeSet<QualifiedRoot>,
 }
 
+/// Restart image for an in-progress close. Evidence is retained, while
+/// death/carry is deliberately recomputed after restore.
+#[derive(Clone, Debug)]
+pub struct RaiDurableCloseRoundState {
+    pub epoch: RaiEpoch,
+    pub phase: RaiEpochPhase,
+    pub cut_rounds: Option<super::RaiCloseRoundTracker>,
+    pub record_rounds: Option<super::RaiCloseRoundTracker>,
+    pub close_cuts: RaiCloseCutStore,
+    pub close_records: RaiCloseRecordStore,
+    pub visible_obligations: Option<BTreeSet<QualifiedRoot>>,
+}
+
 impl RaiEpochManager {
     pub fn new(genesis_committee: Arc<RepWeights>) -> Self {
         Self {
@@ -93,6 +106,8 @@ impl RaiEpochManager {
             close_records: RaiCloseRecordStore::default(),
             visible_obligations: BTreeMap::new(),
             frozen_obligations: BTreeMap::new(),
+            cut_rounds: BTreeMap::new(),
+            record_rounds: BTreeMap::new(),
         }
     }
 
@@ -175,6 +190,12 @@ impl RaiEpochManager {
         let hash = self.close_cuts.insert(cut);
         self.visible_obligations.insert(self.current_epoch, visible);
         self.phase = RaiEpochPhase::ClosingCut;
+        self.cut_rounds
+            .entry(self.current_epoch)
+            .or_insert_with(|| {
+                super::RaiCloseRoundTracker::new(super::RaiCloseKind::Cut, self.current_epoch)
+            })
+            .start_round_zero(hash);
         Some((super::rai_close_cut_root(self.current_epoch, 0), hash))
     }
 
@@ -184,10 +205,6 @@ impl RaiEpochManager {
         round: u32,
         hash: BlockHash,
     ) -> Result<&BTreeSet<QualifiedRoot>, CloseCutDecisionError> {
-        // TODO(RAI): add retry scheduling once close rounds beyond zero are specified.
-        if round != 0 {
-            return Err(CloseCutDecisionError::UnsupportedRound);
-        }
         if let Some(existing) = self.cut_hashes.get(&epoch) {
             return if *existing == hash {
                 self.frozen_obligations
@@ -212,6 +229,13 @@ impl RaiEpochManager {
         if cut.epoch != epoch || &cut.obligations != expected || cut.hash() != hash {
             return Err(CloseCutDecisionError::InvalidCut);
         }
+        let tracker = self
+            .cut_rounds
+            .get_mut(&epoch)
+            .ok_or(CloseCutDecisionError::WrongPhase)?;
+        if !tracker.decide(round, hash) {
+            return Err(CloseCutDecisionError::MissingPreimage);
+        }
         self.cut_hashes.insert(epoch, hash);
         self.frozen_obligations.insert(epoch, cut.obligations);
         self.phase = RaiEpochPhase::Draining;
@@ -220,6 +244,47 @@ impl RaiEpochManager {
 
     pub fn decided_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
         self.cut_hashes.get(&epoch).copied()
+    }
+
+    pub fn close_cut_round(&self, epoch: RaiEpoch) -> Option<u32> {
+        self.cut_rounds
+            .get(&epoch)
+            .map(|rounds| rounds.current_round())
+    }
+
+    pub fn store_close_cut_evidence(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        evidence: super::RaiElectionVoteState,
+    ) -> bool {
+        self.cut_rounds
+            .get_mut(&epoch)
+            .is_some_and(|rounds| rounds.store_evidence(round, evidence))
+    }
+
+    /// Called by the existing election scheduler after new vote evidence is
+    /// stored. `None` means the source round is still live/unknown and must not
+    /// be advanced merely because its local timer expired.
+    pub fn advance_close_cut_round(&mut self) -> Option<(QualifiedRoot, BlockHash)> {
+        let epoch = self.current_epoch;
+        if self.phase != RaiEpochPhase::ClosingCut || self.cut_hashes.contains_key(&epoch) {
+            return None;
+        }
+        let fresh = self.visible_obligations.get(&epoch).map(|obligations| {
+            self.close_cuts
+                .insert(RaiCloseCut::new(epoch, obligations.clone()))
+        })?;
+        let action = self.cut_rounds.get_mut(&epoch)?.next(fresh);
+        let (round, hash) = match action {
+            super::RaiCloseRoundAction::StartFresh { round, hash }
+            | super::RaiCloseRoundAction::StartCarry { round, hash } => (round, hash),
+            _ => return None,
+        };
+        self.cut_rounds
+            .get_mut(&epoch)?
+            .add_validated_preimage(round, hash);
+        Some((super::rai_close_cut_root(epoch, round), hash))
     }
 
     /// Derives the sole round-zero close candidate after every cut obligation
@@ -243,6 +308,12 @@ impl RaiEpochManager {
         let record = RaiCloseRecord::new(self.current_epoch, previous, confirmation_heights);
         let hash = self.close_records.insert(record);
         self.phase = RaiEpochPhase::ClosingRecord;
+        self.record_rounds
+            .entry(self.current_epoch)
+            .or_insert_with(|| {
+                super::RaiCloseRoundTracker::new(super::RaiCloseKind::Record, self.current_epoch)
+            })
+            .start_round_zero(hash);
         Some((super::rai_close_record_root(self.current_epoch, 0), hash))
     }
 
@@ -256,9 +327,6 @@ impl RaiEpochManager {
         >,
         certified_weights: RepWeights,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
-        if round != 0 {
-            return Err(CloseRecordDecisionError::UnsupportedRound);
-        }
         if let Some(existing) = self.close_hashes.get(&epoch) {
             return if *existing == hash {
                 Ok(&self
@@ -290,6 +358,13 @@ impl RaiEpochManager {
         {
             return Err(CloseRecordDecisionError::InvalidRecord);
         }
+        let tracker = self
+            .record_rounds
+            .get_mut(&epoch)
+            .ok_or(CloseRecordDecisionError::WrongPhase)?;
+        if !tracker.decide(round, hash) {
+            return Err(CloseRecordDecisionError::MissingPreimage);
+        }
         self.close_hashes.insert(epoch, hash);
         self.committees
             .entry(epoch)
@@ -311,6 +386,55 @@ impl RaiEpochManager {
 
     pub fn installed_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
         self.close_hashes.get(&epoch).copied()
+    }
+
+    pub fn close_record_round(&self, epoch: RaiEpoch) -> Option<u32> {
+        self.record_rounds
+            .get(&epoch)
+            .map(|rounds| rounds.current_round())
+    }
+
+    pub fn store_close_record_evidence(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        evidence: super::RaiElectionVoteState,
+    ) -> bool {
+        self.record_rounds
+            .get_mut(&epoch)
+            .is_some_and(|rounds| rounds.store_evidence(round, evidence))
+    }
+
+    pub fn advance_close_record_round(
+        &mut self,
+        confirmation_heights: impl IntoIterator<
+            Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
+        >,
+    ) -> Option<(QualifiedRoot, BlockHash)> {
+        let epoch = self.current_epoch;
+        if self.phase != RaiEpochPhase::ClosingRecord || self.close_hashes.contains_key(&epoch) {
+            return None;
+        }
+        let previous = epoch
+            .number()
+            .checked_sub(1)
+            .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
+            .unwrap_or(BlockHash::ZERO);
+        let fresh =
+            self.close_records
+                .insert(RaiCloseRecord::new(epoch, previous, confirmation_heights));
+        let action = self.record_rounds.get_mut(&epoch)?.next(fresh);
+        let (round, hash) = match action {
+            super::RaiCloseRoundAction::StartFresh { round, hash }
+            | super::RaiCloseRoundAction::StartCarry { round, hash } => (round, hash),
+            _ => return None,
+        };
+        // Carries can only be returned when their opening was already stored;
+        // fresh values are inserted immediately above.
+        self.record_rounds
+            .get_mut(&epoch)?
+            .add_validated_preimage(round, hash);
+        Some((super::rai_close_record_root(epoch, round), hash))
     }
 
     pub fn durable_close_state(&self, epoch: RaiEpoch) -> Option<RaiDurableCloseState> {
@@ -378,6 +502,65 @@ impl RaiEpochManager {
 
     pub fn obligations_to_drain(&self, epoch: RaiEpoch) -> Option<&BTreeSet<QualifiedRoot>> {
         self.frozen_obligations.get(&epoch)
+    }
+
+    pub fn durable_close_round_state(&self) -> Option<RaiDurableCloseRoundState> {
+        matches!(
+            self.phase,
+            RaiEpochPhase::ClosingCut | RaiEpochPhase::ClosingRecord
+        )
+        .then(|| RaiDurableCloseRoundState {
+            epoch: self.current_epoch,
+            phase: self.phase,
+            cut_rounds: self
+                .cut_rounds
+                .get(&self.current_epoch)
+                .map(|r| r.snapshot()),
+            record_rounds: self
+                .record_rounds
+                .get(&self.current_epoch)
+                .map(|r| r.snapshot()),
+            close_cuts: self.close_cuts.clone(),
+            close_records: self.close_records.clone(),
+            visible_obligations: self.visible_obligations.get(&self.current_epoch).cloned(),
+        })
+    }
+
+    pub fn restore_close_round_state(
+        &mut self,
+        state: RaiDurableCloseRoundState,
+    ) -> Result<(), CloseRecordDecisionError> {
+        if !matches!(
+            state.phase,
+            RaiEpochPhase::ClosingCut | RaiEpochPhase::ClosingRecord
+        ) {
+            return Err(CloseRecordDecisionError::WrongPhase);
+        }
+        let cut = state
+            .cut_rounds
+            .and_then(super::RaiCloseRoundTracker::from_snapshot);
+        let record = state
+            .record_rounds
+            .and_then(super::RaiCloseRoundTracker::from_snapshot);
+        if state.phase == RaiEpochPhase::ClosingCut && cut.is_none()
+            || state.phase == RaiEpochPhase::ClosingRecord && record.is_none()
+        {
+            return Err(CloseRecordDecisionError::MissingPreimage);
+        }
+        self.current_epoch = state.epoch;
+        self.phase = state.phase;
+        self.close_cuts = state.close_cuts;
+        self.close_records = state.close_records;
+        if let Some(rounds) = cut {
+            self.cut_rounds.insert(state.epoch, rounds);
+        }
+        if let Some(rounds) = record {
+            self.record_rounds.insert(state.epoch, rounds);
+        }
+        if let Some(visible) = state.visible_obligations {
+            self.visible_obligations.insert(state.epoch, visible);
+        }
+        Ok(())
     }
 
     /// Returns genesis for a negative epoch and requires recorded state for a
@@ -516,7 +699,7 @@ mod tests {
 
         assert_eq!(
             manager.decide_close_cut(0.into(), 1, hash),
-            Err(CloseCutDecisionError::UnsupportedRound)
+            Err(CloseCutDecisionError::MissingPreimage)
         );
         assert_eq!(
             manager.decide_close_cut(0.into(), 0, hash).unwrap(),
