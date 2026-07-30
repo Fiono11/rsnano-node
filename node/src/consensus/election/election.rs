@@ -17,7 +17,9 @@ use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::B
 use rustc_hash::FxHashMap;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::rai::{RaiElectionVoteState, RaiEpoch};
+use crate::consensus::rai::{
+    BlockHashOrTimeout, RaiElectionVoteState, RaiEpoch, RaiLocalResult, RaiOutcome,
+};
 #[cfg(feature = "rai_protocol")]
 use rsnano_ledger::RepWeights;
 #[cfg(feature = "rai_protocol")]
@@ -66,6 +68,8 @@ pub struct Election {
     rai_epoch: RaiEpoch,
     #[cfg(feature = "rai_protocol")]
     rai_round: u32,
+    #[cfg(feature = "rai_protocol")]
+    rai_governing_hash: Option<BlockHash>,
     #[cfg(feature = "rai_protocol")]
     pub rai_votes: RaiElectionVoteState,
 }
@@ -134,6 +138,7 @@ impl Election {
             rai_kind: RaiElectionKind::Slot,
             rai_epoch: epoch,
             rai_round: 0,
+            rai_governing_hash: (epoch == RaiEpoch::ZERO).then_some(BlockHash::ZERO),
             rai_votes: RaiElectionVoteState::default(),
         }
     }
@@ -170,6 +175,37 @@ impl Election {
     pub(crate) fn with_rai_committees(mut self, committees: Vec<Arc<RepWeights>>) -> Self {
         self.rai_votes = RaiElectionVoteState::new(committees);
         self
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn with_rai_governing_hash(mut self, hash: Option<BlockHash>) -> Self {
+        self.rai_governing_hash = hash;
+        self
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_rai_vote(
+        &mut self,
+        voter: PublicKey,
+        hash: BlockHash,
+        metadata: rsnano_types::RaiVoteMetadata,
+        vote_created: UnixMillisTimestamp,
+        vote_received: Timestamp,
+    ) -> Result<(), crate::consensus::rai::RaiVoteStateError> {
+        if metadata.epoch != self.rai_epoch
+            || self.rai_governing_hash != Some(metadata.governing_hash)
+        {
+            return Err(crate::consensus::rai::RaiVoteStateError::WrongElectionContext);
+        }
+        self.rai_votes.record_vote(
+            voter,
+            BlockHashOrTimeout::Block(hash),
+            metadata.phase,
+            metadata.scope,
+        )?;
+        // Compatibility/RPC projection only; certificate decisions never read this map.
+        self.add_vote(voter, hash, vote_created, vote_received);
+        Ok(())
     }
 
     pub fn behavior(&self) -> ElectionBehavior {
@@ -407,31 +443,129 @@ impl Election {
             return;
         }
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            let _ = (rep_weights, quorum_delta);
+            self.update_rai_tallies();
+            return;
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
         self.update_vote_weights(rep_weights);
+        #[cfg(not(feature = "rai_protocol"))]
         self.recalculate_tallies();
 
+        #[cfg(not(feature = "rai_protocol"))]
         if let Some(new_winner) = self.check_new_winner(quorum_delta) {
             tracing::warn!("Winner changed to {:?}!", new_winner);
             self.change_winner_to(&new_winner);
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         self.update_winner_tally();
+        #[cfg(not(feature = "rai_protocol"))]
         self.try_set_quorum(quorum_delta);
+        #[cfg(not(feature = "rai_protocol"))]
         self.try_confirm(quorum_delta);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn update_rai_tallies(&mut self) {
+        let projected = self
+            .candidate_blocks
+            .keys()
+            .map(|hash| {
+                let support = self
+                    .rai_votes
+                    .committees
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        self.rai_votes
+                            .notarization_tally(index, BlockHashOrTimeout::Block(*hash))
+                    })
+                    .min()
+                    .unwrap_or_default();
+                (*hash, support)
+            })
+            .max_by_key(|(hash, support)| (*support, *hash));
+        if let Some((hash, support)) = projected {
+            if !support.is_zero() && self.winner.hash() != hash {
+                tracing::warn!("Winner changed to {:?}!", hash);
+                self.change_winner_to(&hash);
+            }
+            let winner = self.winner.hash();
+            self.winner_tally = self
+                .rai_votes
+                .committees
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    self.rai_votes
+                        .notarization_tally(index, BlockHashOrTimeout::Block(winner))
+                })
+                .min()
+                .unwrap_or_default();
+            self.winner_final_tally = self
+                .rai_votes
+                .committees
+                .iter()
+                .enumerate()
+                .map(|(index, _)| self.rai_votes.final_tally(index, winner))
+                .min()
+                .unwrap_or_default();
+        }
+
+        let results: Vec<_> = (0..self.rai_votes.committees.len())
+            .map(|index| self.rai_votes.local_result(index))
+            .collect();
+        if results.is_empty() || results.iter().any(Option::is_none) {
+            return;
+        }
+        let results: Vec<_> = results.into_iter().flatten().collect();
+        let first_hash = match results[0] {
+            RaiLocalResult::Notarized(hash)
+            | RaiLocalResult::Fast(hash)
+            | RaiLocalResult::Final(hash) => hash,
+            RaiLocalResult::Timeout => {
+                self.rai_votes.outcome = RaiOutcome::TimedOut;
+                return;
+            }
+        };
+        if results.iter().any(|result| {
+            matches!(result, RaiLocalResult::Timeout)
+                || matches!(result, RaiLocalResult::Notarized(hash) | RaiLocalResult::Fast(hash) | RaiLocalResult::Final(hash) if *hash != first_hash)
+        }) {
+            self.rai_votes.outcome = RaiOutcome::TimedOut;
+            return;
+        }
+
+        if self.candidate_blocks.contains_key(&first_hash) && self.winner.hash() != first_hash {
+            tracing::warn!("Winner changed to {:?}!", first_hash);
+            self.change_winner_to(&first_hash);
+        }
+        self.has_quorum = true;
+        if results.iter().all(|result| matches!(result, RaiLocalResult::Fast(hash) | RaiLocalResult::Final(hash) if *hash == first_hash)) {
+            self.rai_votes.outcome = RaiOutcome::Confirmed(first_hash);
+            self.state = ElectionState::Confirmed;
+        }
+    }
+
+    #[cfg(not(feature = "rai_protocol"))]
     fn update_vote_weights(&mut self, rep_weights: &FxHashMap<PublicKey, Amount>) {
         for vote in self.votes.values_mut() {
             vote.weight = rep_weights.get(&vote.voter).cloned().unwrap_or_default();
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn recalculate_tallies(&mut self) {
         self.tallies.calculate(self.votes.values());
         self.final_tallies
             .calculate(self.votes.values().filter(|v| v.is_final_vote()));
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn check_new_winner(&self, quorum_delta: Amount) -> Option<BlockHash> {
         if self.tallies.sum() < quorum_delta {
             // The winner can only be changed after a super majority of votes has been observed!
@@ -451,18 +585,21 @@ impl Election {
         self.winner = self.candidate_blocks().get(new_winner).unwrap().clone();
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn update_winner_tally(&mut self) {
         let winner_hash = self.winner.hash();
         self.winner_tally = self.tallies.get(&winner_hash);
         self.winner_final_tally = self.final_tallies.get(&winner_hash);
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn try_set_quorum(&mut self, quorum_delta: Amount) {
         if self.tallies.check_quorum(quorum_delta) {
             self.has_quorum = true;
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn try_confirm(&mut self, quorum_delta: Amount) {
         if self.winner_final_tally >= quorum_delta {
             self.state = ElectionState::Confirmed;

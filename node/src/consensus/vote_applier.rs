@@ -52,9 +52,11 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
+        #[cfg(not(feature = "rai_protocol"))]
+        let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
+        #[cfg(not(feature = "rai_protocol"))]
         if voter_weight <= minimum_pr_weight {
             // Ignore votes from reps below min PR weight!
             return vote
@@ -105,7 +107,7 @@ impl VoteApplier {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "rai_protocol")))]
 mod tests {
     use super::*;
     use crate::consensus::{AecInsertRequest, AecService};

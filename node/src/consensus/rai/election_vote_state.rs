@@ -20,6 +20,71 @@ pub enum RaiOutcome {
     TimedOut,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RaiThresholds {
+    pub faulty: Amount,
+    pub slack: Amount,
+    pub progression: Amount,
+    pub notarization: Amount,
+    pub fast: Amount,
+    pub finalization: Amount,
+}
+
+pub const fn rai_fault_allowance(total: u128) -> u128 {
+    total.saturating_sub(1) / 5
+}
+
+pub const fn rai_progression_threshold(faulty: u128, slack: u128) -> u128 {
+    faulty.saturating_add(slack).saturating_add(1)
+}
+
+pub const fn rai_notarization_threshold(total: u128, faulty: u128, slack: u128) -> u128 {
+    total.saturating_sub(faulty.saturating_add(slack))
+}
+
+pub const fn rai_fast_threshold(total: u128, slack: u128) -> u128 {
+    total.saturating_sub(slack)
+}
+
+pub const fn rai_final_threshold(total: u128, faulty: u128, slack: u128) -> u128 {
+    rai_notarization_threshold(total, faulty, slack)
+}
+
+pub const fn rai_timeout_ready(
+    all_first: u128,
+    max_first: u128,
+    faulty: u128,
+    slack: u128,
+) -> bool {
+    all_first.saturating_sub(max_first) > faulty.saturating_add(slack)
+}
+
+impl RaiThresholds {
+    pub fn for_weights(weights: &RepWeights) -> Self {
+        let total = weights.iter().fold(0u128, |sum, (_, weight)| {
+            sum.saturating_add(u128::from_be_bytes(weight.to_be_bytes()))
+        });
+        let faulty = rai_fault_allowance(total);
+        let slack = faulty;
+        Self {
+            faulty: Amount::raw(faulty),
+            slack: Amount::raw(slack),
+            progression: Amount::raw(rai_progression_threshold(faulty, slack)),
+            notarization: Amount::raw(rai_notarization_threshold(total, faulty, slack)),
+            fast: Amount::raw(rai_fast_threshold(total, slack)),
+            finalization: Amount::raw(rai_final_threshold(total, faulty, slack)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaiLocalResult {
+    Notarized(BlockHash),
+    Fast(BlockHash),
+    Final(BlockHash),
+    Timeout,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RaiCommitteeVoteState {
     pub first: HashMap<PublicKey, BlockHashOrTimeout>,
@@ -31,6 +96,7 @@ pub struct RaiCommitteeVoteState {
 #[derive(Clone, Debug)]
 pub struct RaiCommitteeInstance {
     pub weights: Arc<RepWeights>,
+    pub thresholds: RaiThresholds,
     pub votes: RaiCommitteeVoteState,
 }
 
@@ -48,6 +114,9 @@ pub enum RaiVoteStateError {
     FinalLocked,
     IncompatibleFinalSupport,
     TimeoutFinalVote,
+    InsufficientFirstSupport,
+    TimeoutNotReady,
+    WrongElectionContext,
 }
 
 impl RaiElectionVoteState {
@@ -60,6 +129,7 @@ impl RaiElectionVoteState {
                 continue;
             }
             unique.push(RaiCommitteeInstance {
+                thresholds: RaiThresholds::for_weights(&weights),
                 weights,
                 votes: RaiCommitteeVoteState::default(),
             });
@@ -196,12 +266,160 @@ impl RaiElectionVoteState {
         })
     }
 
+    pub fn record_vote(
+        &mut self,
+        signer: PublicKey,
+        value: BlockHashOrTimeout,
+        phase: rsnano_types::RaiVotePhase,
+        scope: RaiCommitteeScope,
+    ) -> Result<(), RaiVoteStateError> {
+        if phase == rsnano_types::RaiVotePhase::Notar {
+            let targets = self.checked_targets(signer, scope)?;
+            match value {
+                BlockHashOrTimeout::Block(_) => {
+                    if targets.iter().any(|&index| {
+                        self.first_tally(index, value)
+                            < self.committees[index].thresholds.progression
+                    }) {
+                        return Err(RaiVoteStateError::InsufficientFirstSupport);
+                    }
+                }
+                BlockHashOrTimeout::Timeout => {
+                    if targets.iter().any(|&index| !self.timeout_ready(index)) {
+                        return Err(RaiVoteStateError::TimeoutNotReady);
+                    }
+                }
+            }
+        }
+        match (phase, value) {
+            (rsnano_types::RaiVotePhase::First, value) => {
+                self.record_first_vote(signer, value, scope)
+            }
+            (rsnano_types::RaiVotePhase::Notar, value) => {
+                self.record_notarization_vote(signer, value, scope)
+            }
+            (rsnano_types::RaiVotePhase::Final, BlockHashOrTimeout::Block(hash)) => {
+                self.record_final_vote(signer, hash, scope)
+            }
+            (rsnano_types::RaiVotePhase::Final, BlockHashOrTimeout::Timeout) => {
+                Err(RaiVoteStateError::TimeoutFinalVote)
+            }
+        }
+    }
+
+    pub fn local_result(&self, committee: usize) -> Option<RaiLocalResult> {
+        let instance = self.committees.get(committee)?;
+        let mut values = HashSet::new();
+        values.extend(instance.votes.first.values().copied());
+        for notarized in instance.votes.notar.values() {
+            values.extend(notarized.iter().copied());
+        }
+        values.extend(
+            instance
+                .votes
+                .final_votes
+                .values()
+                .copied()
+                .map(BlockHashOrTimeout::Block),
+        );
+
+        let mut notarized = Vec::new();
+        let mut fast = Vec::new();
+        let mut final_values = Vec::new();
+        for value in values {
+            if self.notarization_tally(committee, value) >= instance.thresholds.notarization {
+                notarized.push(value);
+            }
+            if let BlockHashOrTimeout::Block(hash) = value {
+                if self.first_tally(committee, value) >= instance.thresholds.fast {
+                    fast.push(hash);
+                }
+                if self.final_tally(committee, hash) >= instance.thresholds.finalization {
+                    final_values.push(hash);
+                }
+            }
+        }
+        final_values.sort();
+        final_values.dedup();
+        fast.sort();
+        fast.dedup();
+        notarized.sort_by_key(|value| match value {
+            BlockHashOrTimeout::Block(hash) => (0, *hash),
+            BlockHashOrTimeout::Timeout => (1, BlockHash::ZERO),
+        });
+        if final_values.len() > 1
+            || fast.len() > 1
+            || final_values.first().is_some_and(|final_hash| {
+                fast.first()
+                    .is_some_and(|fast_hash| fast_hash != final_hash)
+            })
+        {
+            return Some(RaiLocalResult::Timeout);
+        }
+        let strong = final_values.first().or_else(|| fast.first());
+        if strong.is_some_and(|hash| {
+            notarized
+                .iter()
+                .any(|value| *value != BlockHashOrTimeout::Block(*hash))
+        }) {
+            return Some(RaiLocalResult::Timeout);
+        }
+        if let Some(hash) = final_values.first() {
+            return Some(RaiLocalResult::Final(*hash));
+        }
+        if let Some(hash) = fast.first() {
+            return Some(RaiLocalResult::Fast(*hash));
+        }
+        if notarized.contains(&BlockHashOrTimeout::Timeout) {
+            return Some(RaiLocalResult::Timeout);
+        }
+        match notarized.as_slice() {
+            [BlockHashOrTimeout::Block(hash)] => Some(RaiLocalResult::Notarized(*hash)),
+            [_, _, ..] => Some(RaiLocalResult::Timeout),
+            _ => None,
+        }
+    }
+
+    pub fn timeout_ready(&self, committee: usize) -> bool {
+        let Some(instance) = self.committees.get(committee) else {
+            return false;
+        };
+        let all_first =
+            self.weight_for(committee, |votes, signer| votes.first.contains_key(signer));
+        let max_first = instance
+            .votes
+            .first
+            .values()
+            .filter_map(|value| match value {
+                BlockHashOrTimeout::Block(_) => Some(*value),
+                BlockHashOrTimeout::Timeout => None,
+            })
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .map(|value| self.first_tally(committee, value))
+            .max()
+            .unwrap_or_default();
+        rai_timeout_ready(
+            u128::from_be_bytes(all_first.to_be_bytes()),
+            u128::from_be_bytes(max_first.to_be_bytes()),
+            u128::from_be_bytes(instance.thresholds.faulty.to_be_bytes()),
+            u128::from_be_bytes(instance.thresholds.slack.to_be_bytes()),
+        )
+    }
+
     fn checked_targets(
         &self,
         signer: PublicKey,
         scope: RaiCommitteeScope,
     ) -> Result<Vec<usize>, RaiVoteStateError> {
-        let targets = self.targets(scope);
+        let targets = match scope {
+            RaiCommitteeScope::All => self
+                .targets(scope)
+                .into_iter()
+                .filter(|&index| !self.committees[index].weights.weight(&signer).is_zero())
+                .collect(),
+            _ => self.targets(scope),
+        };
         if targets.is_empty() {
             return Err(RaiVoteStateError::EmptyScope);
         }
@@ -247,6 +465,102 @@ impl RaiElectionVoteState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_weighted_threshold_boundaries() {
+        let thresholds =
+            RaiThresholds::for_weights(&weights(&[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)]));
+        assert_eq!(thresholds.faulty, Amount::raw(1));
+        assert_eq!(thresholds.slack, Amount::raw(1));
+        assert_eq!(thresholds.progression, Amount::raw(3)); // strictly > F + P
+        assert_eq!(thresholds.notarization, Amount::raw(4));
+        assert_eq!(thresholds.fast, Amount::raw(5));
+        assert_eq!(thresholds.finalization, Amount::raw(4));
+        assert!(!rai_timeout_ready(4, 2, 1, 1));
+        assert!(rai_timeout_ready(5, 2, 1, 1));
+    }
+
+    #[test]
+    fn first_notar_and_final_certificates_use_exact_boundaries() {
+        let members = &[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)];
+        let mut vote_state = state(members, &[]);
+        for signer in 1..=4 {
+            vote_state
+                .record_first_vote(rep(signer), block(1), RaiCommitteeScope::All)
+                .unwrap();
+        }
+        assert_eq!(
+            vote_state.local_result(0),
+            Some(RaiLocalResult::Notarized(hash(1)))
+        );
+        vote_state
+            .record_first_vote(rep(5), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(
+            vote_state.local_result(0),
+            Some(RaiLocalResult::Fast(hash(1)))
+        );
+
+        let mut final_state = state(members, &[]);
+        for signer in 1..=3 {
+            final_state
+                .record_final_vote(rep(signer), hash(1), RaiCommitteeScope::All)
+                .unwrap();
+        }
+        assert_eq!(final_state.local_result(0), None);
+        final_state
+            .record_final_vote(rep(4), hash(1), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(
+            final_state.local_result(0),
+            Some(RaiLocalResult::Final(hash(1)))
+        );
+    }
+
+    #[test]
+    fn committees_count_the_same_signer_with_local_frozen_weight() {
+        let mut state = state(&[(1, 5)], &[(1, 9)]);
+        state
+            .record_first_vote(rep(1), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(state.first_tally(0, block(1)), Amount::raw(5));
+        assert_eq!(state.first_tally(1, block(1)), Amount::raw(9));
+        assert_eq!(state.local_result(0), Some(RaiLocalResult::Fast(hash(1))));
+        assert_eq!(state.local_result(1), Some(RaiLocalResult::Fast(hash(1))));
+    }
+
+    #[test]
+    fn notarization_requires_strict_first_support_in_every_effective_committee() {
+        let mut state = state(
+            &[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)],
+            &[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)],
+        );
+        for signer in 1..=2 {
+            state
+                .record_first_vote(rep(signer), block(1), RaiCommitteeScope::All)
+                .unwrap();
+        }
+        assert_eq!(
+            state.record_vote(
+                rep(3),
+                block(1),
+                rsnano_types::RaiVotePhase::Notar,
+                RaiCommitteeScope::All,
+            ),
+            Err(RaiVoteStateError::InsufficientFirstSupport)
+        );
+        state
+            .record_first_vote(rep(3), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_vote(
+                rep(4),
+                block(1),
+                rsnano_types::RaiVotePhase::Notar,
+                RaiCommitteeScope::All,
+            )
+            .unwrap();
+    }
 
     #[test]
     fn one_signers_first_vote() {
@@ -367,19 +681,14 @@ mod tests {
     }
 
     #[test]
-    fn signer_must_belong_to_every_targeted_committee() {
+    fn all_scope_resolves_to_committees_containing_the_signer() {
         let mut state = state(&[(1, 10)], &[(2, 20)]);
 
-        assert_eq!(
-            state.record_first_vote(rep(1), block(1), RaiCommitteeScope::All),
-            Err(RaiVoteStateError::SignerNotInCommittee)
-        );
-        assert!(
-            state
-                .committees
-                .iter()
-                .all(|committee| committee.votes.first.is_empty())
-        );
+        state
+            .record_first_vote(rep(1), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(state.first_tally(0, block(1)), Amount::raw(10));
+        assert_eq!(state.first_tally(1, block(1)), Amount::ZERO);
     }
 
     #[test]
@@ -428,6 +737,43 @@ mod tests {
             Err(RaiVoteStateError::TimeoutFinalVote)
         );
         assert!(first.committees[0].votes.final_votes.is_empty());
+    }
+
+    #[test]
+    fn timeout_vote_requires_the_strict_slack_boundary() {
+        let mut state = state(&[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)], &[]);
+        state
+            .record_first_vote(rep(1), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_first_vote(rep(2), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_first_vote(rep(3), block(2), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_first_vote(rep(4), block(2), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(
+            state.record_vote(
+                rep(5),
+                BlockHashOrTimeout::Timeout,
+                rsnano_types::RaiVotePhase::Notar,
+                RaiCommitteeScope::All,
+            ),
+            Err(RaiVoteStateError::TimeoutNotReady)
+        );
+        state
+            .record_first_vote(rep(5), block(3), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_vote(
+                rep(6),
+                BlockHashOrTimeout::Timeout,
+                rsnano_types::RaiVotePhase::Notar,
+                RaiCommitteeScope::All,
+            )
+            .unwrap();
     }
 
     /* Test helpers */

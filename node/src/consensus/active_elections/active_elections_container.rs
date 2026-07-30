@@ -180,6 +180,15 @@ impl ActiveElectionsContainer {
             self.rai_epoch_manager
                 .slot_committees(self.rai_epoch_manager.current_epoch())
                 .unwrap_or_default(),
+        )
+        .with_rai_governing_hash(
+            self.rai_epoch_manager
+                .governing_hash(self.rai_epoch_manager.current_epoch())
+                .or_else(|| {
+                    (self.rai_epoch_manager.current_epoch()
+                        == crate::consensus::rai::RaiEpoch::ZERO)
+                        .then_some(BlockHash::ZERO)
+                }),
         );
 
         self.roots.insert(Entry {
@@ -645,6 +654,7 @@ mod tests {
         assert_eq!(election.rai_round(), 0);
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn confirm_election() {
         let mut container = ActiveElectionsContainer::default();
@@ -723,6 +733,7 @@ mod tests {
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
         let vote = Arc::new(Vote::new_final(rep_key, vec![block_hash]));
         ReceivedVote::new(vote, VoteDelivery::Direct, None)

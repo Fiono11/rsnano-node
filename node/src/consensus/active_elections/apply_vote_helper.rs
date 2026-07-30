@@ -1,6 +1,8 @@
 use std::{collections::HashMap, ops::Deref};
 
-use rsnano_types::{Amount, BlockHash, VoteDelivery, VoteError};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::{Amount, VoteDelivery};
+use rsnano_types::{BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
@@ -9,7 +11,9 @@ use super::{
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
 };
-use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::election::VoteSummary;
+use crate::consensus::election::{ConfirmationType, Election};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
@@ -82,20 +86,40 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             return Err(VoteError::Late);
         }
 
-        let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
-
-        if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
-            last_vote.ensure_no_replay(self.args.vote, self.block_hash)?;
-
-            if self.should_cool_down(last_vote, rep_weight) {
-                return Err(VoteError::Ignored);
-            }
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.election
+                .add_rai_vote(
+                    self.args.vote.voter,
+                    *self.block_hash,
+                    self.args.vote.metadata,
+                    self.args.vote.timestamp(),
+                    self.args.now,
+                )
+                .map_err(|_| VoteError::Invalid)?;
+            self.vote_counter.count(self.args.vote.delivery);
+            self.confirm_if_quorum();
+            return Ok(());
         }
 
-        self.add_vote();
-        Ok(())
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
+
+            if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
+                last_vote.ensure_no_replay(self.args.vote, self.block_hash)?;
+
+                if self.should_cool_down(last_vote, rep_weight) {
+                    return Err(VoteError::Ignored);
+                }
+            }
+
+            self.add_vote();
+            Ok(())
+        }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
         if self.args.vote.delivery == VoteDelivery::Replayed {
             // Only cooldown live votes
@@ -110,6 +134,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn add_vote(&mut self) {
         self.election.add_vote(
             self.args.vote.voter,
@@ -170,7 +195,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "rai_protocol")))]
 mod tests {
     use super::*;
     use crate::{
@@ -523,5 +548,72 @@ mod tests {
             let block = SavedBlock::new_test_instance();
             Self::with_block(block)
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use crate::{
+        consensus::{FilteredVote, ReceivedVote, election::ElectionBehavior},
+        representatives::QuorumSnapshot,
+    };
+    use rsnano_ledger::RepWeights;
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{
+        Amount, PrivateKey, RaiVoteMetadata, SavedBlock, UnixMillisTimestamp, Vote, VoteDelivery,
+    };
+    use rsnano_utils::sync::backpressure_channel::channel;
+    use std::{sync::Arc, time::Duration};
+
+    #[test]
+    fn confirmed_rai_election_emits_existing_confirmation_event() {
+        let block = SavedBlock::new_test_instance();
+        let key = PrivateKey::from(1);
+        let committee = Arc::new(RepWeights::from([(key.public_key(), Amount::raw(1))]));
+        let mut election = Election::new(
+            block.clone(),
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            Timestamp::new_test_instance(),
+        )
+        .with_rai_committees(vec![committee]);
+        let vote: FilteredVote = ReceivedVote::new(
+            Vote::new_rai(
+                &key,
+                UnixMillisTimestamp::new(1),
+                0,
+                vec![block.hash()],
+                RaiVoteMetadata::default(),
+            )
+            .into(),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        let rep_weights = RepWeights::default();
+        let quorum_snapshot = QuorumSnapshot::new_test_instance();
+        let mut recently_confirmed = RecentlyConfirmedCache::default();
+        let mut vote_counter = VoteCounter::default();
+        let (tx, rx) = channel(8);
+
+        ApplyVoteToElectionHelper {
+            args: &ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum_snapshot,
+                now: Timestamp::new_test_instance(),
+            },
+            recently_confirmed: &mut recently_confirmed,
+            vote_counter: &mut vote_counter,
+            observer: &Some(tx),
+            election: &mut election,
+            block_hash: &block.hash(),
+        }
+        .apply_vote()
+        .unwrap();
+
+        assert!(election.is_confirmed());
+        assert!(matches!(rx.recv().unwrap(), AecFact::ElectionConfirmed(_)));
     }
 }
