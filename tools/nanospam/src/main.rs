@@ -1,6 +1,7 @@
 mod app;
 pub(crate) mod cli_args;
 mod confirmation_receiver;
+mod confirmation_tracker;
 mod domain;
 mod frontiers_sync;
 mod handshake;

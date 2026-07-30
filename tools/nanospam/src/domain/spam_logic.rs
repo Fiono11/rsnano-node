@@ -60,15 +60,14 @@ impl SpamLogic {
     }
 
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
-        if self.block_factory.max_blocks_reached() {
-            return None;
-        }
-
         if self.bps_start.is_none() {
             self.bps_start = Some(now);
         }
 
         if self.next_block.is_none() {
+            if self.block_factory.max_blocks_reached() {
+                return None;
+            }
             match self.block_factory.create_next(is_fork) {
                 Some(BlockResult::Block(b)) => {
                     self.next_block = Some(b);
@@ -132,6 +131,13 @@ impl SpamLogic {
         self.high_prio_tracker.confirmed(block_hash, timestamp)
     }
 
+    pub(crate) fn mark_workload_cemented(&mut self, timestamp: Timestamp) {
+        for hash in self.delayed.hashes() {
+            self.confirmed(&hash, timestamp);
+        }
+        self.confirmed_total = self.spec.max_blocks;
+    }
+
     pub(crate) fn reset_cps_counter(&mut self, now: Timestamp) {
         self.confirmed_recent = 0;
         self.sum_conf_time_recent = Duration::ZERO;
@@ -168,4 +174,69 @@ pub(crate) struct SpamStats {
     pub(crate) target_bps: usize,
     pub(crate) current_cps: i32,
     pub(crate) average_conf_time: Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::Amount;
+
+    #[test]
+    fn durable_workload_completion_releases_runner() {
+        let mut logic = SpamLogic::new(
+            AccountMap::default(),
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 1_000,
+                rate: RateSpec::new(10),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+        );
+
+        logic.mark_workload_cemented(Timestamp::new_test_instance());
+
+        assert!(logic.is_finished());
+        assert_eq!(logic.confirmed_total, 1_000);
+    }
+
+    #[test]
+    fn rate_limited_final_block_is_emitted_after_factory_reaches_max() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(2);
+        let initial = account_map.initial_key().account();
+        account_map.set_account_state(initial, Amount::nano(1), BlockHash::from(1));
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(1),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+        );
+        let now = Timestamp::new_test_instance();
+        let BlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
+            panic!("first block should be emitted")
+        };
+        logic.published(&first.block.hash(), now);
+        logic.confirmed(&first.block.hash(), now);
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Waiting)
+        ));
+        assert_eq!(logic.block_factory.created(), 2);
+
+        assert!(matches!(
+            logic.next_block(false, now + Duration::from_secs(1)),
+            Some(BlockResult::Block(_))
+        ));
+        assert!(
+            logic
+                .next_block(false, now + Duration::from_secs(1))
+                .is_none()
+        );
+    }
 }

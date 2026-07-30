@@ -29,6 +29,7 @@ use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 use crate::{
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
+    confirmation_tracker::reconcile_confirmations,
     domain::{BlockResult, Forks, spam_logic::SpamLogic},
     frontiers_sync::sync_frontiers,
     handshake::perform_handshake,
@@ -153,6 +154,11 @@ impl NanoSpamApp {
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
+        let initial_cemented = genesis_rpc.block_count().await?.cemented.inner();
+        let expected_cemented = self
+            .args
+            .blocks
+            .map(|blocks| initial_cemented + blocks as u64);
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -173,6 +179,13 @@ impl NanoSpamApp {
                 }
 
                 scope.spawn(conf_receiver.run(cancel_nanospam.clone(), tx_ws_msg, &self.clock));
+                scope.spawn(reconcile_confirmations(
+                    genesis_rpc,
+                    &logic,
+                    &self.clock,
+                    cancel_nanospam.clone(),
+                    expected_cemented,
+                ));
                 scope.spawn(receive_messages(
                     tcp_readers,
                     protocol,

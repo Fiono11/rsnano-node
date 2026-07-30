@@ -78,6 +78,10 @@ impl DelayedBlocks {
         self.blocks.len()
     }
 
+    pub fn hashes(&self) -> Vec<BlockHash> {
+        self.blocks.keys().copied().collect()
+    }
+
     fn remove_from_time_index(&mut self, hash: &BlockHash, sent: Timestamp) {
         let mut hashes = self.by_time.remove(&sent).unwrap();
         hashes.retain(|h| h != hash);
@@ -156,6 +160,21 @@ mod tests {
         delayed.confirmed(&hash, now);
 
         assert_eq!(delayed.len(), 0);
+    }
+
+    #[test]
+    fn returns_outstanding_hashes() {
+        let mut delayed = DelayedBlocks::new();
+        let block_a = Block::new_test_instance_with_key(1);
+        let block_b = Block::new_test_instance_with_key(2);
+        delayed.insert(block_a.clone());
+        delayed.insert(block_b.clone());
+
+        let hashes = delayed.hashes();
+
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains(&block_a.hash()));
+        assert!(hashes.contains(&block_b.hash()));
     }
 
     #[test]

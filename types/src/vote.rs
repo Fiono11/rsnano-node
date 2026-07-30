@@ -136,12 +136,21 @@ impl Vote {
     ) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
         #[cfg(feature = "rai_protocol")]
+        let phase = if timestamp == Self::TIMESTAMP_MAX {
+            RaiVotePhase::Final
+        } else {
+            RaiVotePhase::First
+        };
+        #[cfg(feature = "rai_protocol")]
         return Self::new_rai(
             priv_key,
             timestamp,
             duration,
             hashes,
-            RaiVoteMetadata::default(),
+            RaiVoteMetadata {
+                phase,
+                ..Default::default()
+            },
         );
 
         #[cfg(not(feature = "rai_protocol"))]
@@ -433,6 +442,22 @@ mod tests {
         let round_trip = Vote::deserialize(&bytes).unwrap();
         assert_eq!(round_trip, vote);
         assert!(round_trip.validate().is_ok());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn generated_vote_phase_matches_legacy_final_timestamp() {
+        let key = PrivateKey::from(42);
+        let hash = BlockHash::from(11);
+
+        let first = Vote::new(&key, UnixMillisTimestamp::new(16), 0, vec![hash]);
+        let final_vote = Vote::new_final(&key, vec![hash]);
+
+        assert_eq!(first.metadata.phase, RaiVotePhase::First);
+        assert_eq!(final_vote.metadata.phase, RaiVotePhase::Final);
+        assert_eq!(final_vote.metadata.epoch, RaiEpoch::ZERO);
+        assert_eq!(final_vote.metadata.governing_hash, BlockHash::ZERO);
+        assert_eq!(final_vote.metadata.scope, RaiCommitteeScope::All);
     }
 
     #[cfg(feature = "rai_protocol")]
