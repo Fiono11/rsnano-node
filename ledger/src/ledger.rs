@@ -32,6 +32,9 @@ use rsnano_utils::{
 };
 use rsnano_work::WorkThresholds;
 
+#[cfg(feature = "rai_protocol")]
+use crate::{RepWeights, RepresentativeBlockFinder};
+
 use crate::{
     BlockRollbackPerformer, BlockSource, BootstrapWeights, BorrowingAnySet, BorrowingConfirmedSet,
     LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
@@ -268,6 +271,31 @@ impl Ledger {
     ) -> std::collections::BTreeMap<Account, ConfirmationHeightInfo> {
         let txn = self.store.begin_read();
         self.store.confirmation_height.iter(&txn).collect()
+    }
+
+    /// Representative weights at the cemented frontiers. Unconfirmed balance
+    /// and delegation changes are deliberately excluded.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_confirmed_rep_weights(&self) -> RepWeights {
+        let txn = self.store.begin_read();
+        let mut weights = RepWeights::default();
+        for (_, info) in self.store.confirmation_height.iter(&txn) {
+            let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
+                continue;
+            };
+            let rep_hash =
+                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
+            let Some(rep) = self
+                .store
+                .block
+                .get(&txn, &rep_hash)
+                .and_then(|block| block.representative_field())
+            else {
+                continue;
+            };
+            weights.put(rep, weights.weight(&rep).wrapping_add(frontier.balance()));
+        }
+        weights
     }
     pub fn new_null() -> Self {
         Self::new(

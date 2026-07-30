@@ -73,6 +73,8 @@ pub struct RaiDurableCloseState {
     pub previous_close_hash: BlockHash,
     pub frontiers: RaiFrontierMap,
     pub committee: RepWeights,
+    pub current_epoch: RaiEpoch,
+    pub committees: BTreeMap<RaiEpoch, RepWeights>,
     pub decided_cut_hash: BlockHash,
     pub frozen_obligations: BTreeSet<QualifiedRoot>,
 }
@@ -252,6 +254,7 @@ impl RaiEpochManager {
         confirmation_heights: impl IntoIterator<
             Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
         >,
+        certified_weights: RepWeights,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
         if round != 0 {
             return Err(CloseRecordDecisionError::UnsupportedRound);
@@ -288,7 +291,17 @@ impl RaiEpochManager {
             return Err(CloseRecordDecisionError::InvalidRecord);
         }
         self.close_hashes.insert(epoch, hash);
+        self.committees
+            .entry(epoch)
+            .or_insert_with(|| Arc::new(certified_weights));
         self.phase = RaiEpochPhase::Closed;
+        self.current_epoch = RaiEpoch::new(
+            epoch
+                .number()
+                .checked_add(1)
+                .ok_or(CloseRecordDecisionError::InvalidRecord)?,
+        );
+        self.phase = RaiEpochPhase::Open;
         Ok(&self
             .close_records
             .get(&hash)
@@ -309,6 +322,12 @@ impl RaiEpochManager {
             previous_close_hash: record.previous,
             frontiers: record.frontiers.clone(),
             committee: self.close_committee(epoch)?.as_ref().clone(),
+            current_epoch: self.current_epoch,
+            committees: self
+                .committees
+                .iter()
+                .map(|(epoch, committee)| (*epoch, committee.as_ref().clone()))
+                .collect(),
             decided_cut_hash: *self.cut_hashes.get(&epoch)?,
             frozen_obligations: self.frozen_obligations.get(&epoch)?.clone(),
         })
@@ -337,15 +356,22 @@ impl RaiEpochManager {
         self.cut_hashes.insert(state.epoch, state.decided_cut_hash);
         self.frozen_obligations
             .insert(state.epoch, state.frozen_obligations);
-        if let Some(committee_epoch) = state.epoch.number().checked_sub(2) {
-            self.committees
-                .insert(RaiEpoch::new(committee_epoch), Arc::new(state.committee));
-        } else if Arc::new(state.committee.clone()).as_ref() != self.genesis_committee.as_ref() {
-            return Err(CloseRecordDecisionError::InvalidRecord);
+        for (epoch, committee) in state.committees {
+            match self.committees.entry(epoch) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(committee));
+                }
+                std::collections::btree_map::Entry::Occupied(entry)
+                    if entry.get().as_ref() != &committee =>
+                {
+                    return Err(CloseRecordDecisionError::ImmutableDecision);
+                }
+                _ => {}
+            }
         }
-        if state.epoch >= self.current_epoch {
-            self.current_epoch = state.epoch;
-            self.phase = RaiEpochPhase::Closed;
+        if state.current_epoch >= self.current_epoch {
+            self.current_epoch = state.current_epoch;
+            self.phase = RaiEpochPhase::Open;
         }
         Ok(())
     }
@@ -530,27 +556,66 @@ mod tests {
             ConfirmationHeightInfo::new(4, BlockHash::from(41)),
         )];
         assert_eq!(
-            manager.install_close_record(0.into(), 0, close, tampered),
+            manager.install_close_record(
+                0.into(),
+                0,
+                close,
+                tampered,
+                weights(2, 200).as_ref().clone(),
+            ),
             Err(CloseRecordDecisionError::InvalidRecord)
         );
         let expected: RaiFrontierMap = frontiers.clone().into_iter().collect();
         assert_eq!(
             manager
-                .install_close_record(0.into(), 0, close, frontiers.clone())
+                .install_close_record(
+                    0.into(),
+                    0,
+                    close,
+                    frontiers.clone(),
+                    weights(2, 200).as_ref().clone(),
+                )
                 .unwrap(),
             &expected
         );
-        assert_eq!(manager.phase(), RaiEpochPhase::Closed);
+        assert_eq!(manager.phase(), RaiEpochPhase::Open);
+        assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
+        assert_eq!(
+            manager.committee_at(0).unwrap().weight(&PublicKey::from(2)),
+            Amount::raw(200)
+        );
         assert_eq!(manager.installed_close_hash(0.into()), Some(close));
         assert_eq!(
-            manager.install_close_record(0.into(), 0, BlockHash::from(99), frontiers),
+            manager.install_close_record(
+                0.into(),
+                0,
+                BlockHash::from(99),
+                frontiers.clone(),
+                weights(3, 300).as_ref().clone(),
+            ),
             Err(CloseRecordDecisionError::ImmutableDecision)
+        );
+        manager
+            .install_close_record(
+                0.into(),
+                0,
+                close,
+                frontiers,
+                weights(3, 300).as_ref().clone(),
+            )
+            .unwrap();
+        assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
+        assert_eq!(
+            manager.committee_at(0).unwrap().weight(&PublicKey::from(3)),
+            Amount::ZERO
         );
 
         let durable = manager.durable_close_state(0.into()).unwrap();
         let mut restarted = RaiEpochManager::new(weights(1, 100));
         restarted.restore_close_state(durable).unwrap();
-        assert_eq!(restarted.phase(), RaiEpochPhase::Closed);
+        assert_eq!(restarted.phase(), RaiEpochPhase::Open);
+        assert_eq!(restarted.current_epoch(), RaiEpoch::new(1));
+        assert_eq!(restarted.committee_at(0), manager.committee_at(0));
         assert_eq!(restarted.installed_close_hash(0.into()), Some(close));
         assert_eq!(restarted.governing_hash(1.into()), Some(close));
     }
