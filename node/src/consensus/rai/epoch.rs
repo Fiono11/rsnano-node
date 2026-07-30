@@ -1,35 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
-use rsnano_types::BlockHash;
-
-/// Monotonically increasing RAI epoch number.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RaiEpoch(u64);
-
-impl RaiEpoch {
-    pub const ZERO: Self = Self(0);
-
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    pub const fn number(self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for RaiEpoch {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl From<RaiEpoch> for u64 {
-    fn from(value: RaiEpoch) -> Self {
-        value.0
-    }
-}
+use rsnano_types::{BlockHash, RaiEpoch};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RaiEpochPhase {
@@ -117,14 +89,14 @@ impl RaiEpochManager {
         if epoch < 0 {
             Some(self.genesis_committee.clone())
         } else {
-            self.committees.get(&RaiEpoch(epoch as u64)).cloned()
+            self.committees.get(&RaiEpoch::new(epoch as u64)).cloned()
         }
     }
 
     /// Committees eligible to vote on slots in `epoch` (`e-3` and `e-2`).
     /// Equal snapshots are returned once.
     pub fn slot_committees(&self, epoch: RaiEpoch) -> Option<Vec<Arc<RepWeights>>> {
-        let epoch = i64::try_from(epoch.0).ok()?;
+        let epoch = i64::try_from(epoch.number()).ok()?;
         let first = self.committee_at(epoch.checked_sub(3)?)?;
         let second = self.committee_at(epoch.checked_sub(2)?)?;
 
@@ -137,14 +109,14 @@ impl RaiEpochManager {
 
     /// Committee eligible to vote on reports and the close for `epoch`.
     pub fn close_committee(&self, epoch: RaiEpoch) -> Option<Arc<RepWeights>> {
-        let epoch = i64::try_from(epoch.0).ok()?;
+        let epoch = i64::try_from(epoch.number()).ok()?;
         self.committee_at(epoch.checked_sub(2)?)
     }
 
     /// The certified close which governs `epoch`.
     pub fn governing_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
-        let previous = epoch.0.checked_sub(1)?;
-        self.close_hashes.get(&RaiEpoch(previous)).copied()
+        let previous = epoch.number().checked_sub(1)?;
+        self.close_hashes.get(&RaiEpoch::new(previous)).copied()
     }
 }
 

@@ -279,6 +279,8 @@ pub fn validate_header(
         Err(ParseMessageError::InvalidNetwork)
     } else if header.protocol.version_using < expected_protocol.version_min {
         Err(ParseMessageError::OutdatedVersion)
+    } else if header.protocol.version_using > expected_protocol.version_max {
+        Err(ParseMessageError::InvalidHeader)
     } else if !header.is_valid_message_type() {
         Err(ParseMessageError::InvalidHeader)
     } else if header.payload_length() > Message::MAX_MESSAGE_SIZE {
@@ -292,6 +294,28 @@ pub fn validate_header(
 mod tests {
     use super::*;
     use rsnano_types::{TestBlockBuilder, Vote};
+
+    #[test]
+    fn rejects_protocol_above_local_maximum() {
+        let expected = ProtocolInfo::default();
+        let mut remote = expected;
+        remote.version_using = expected.version_max.saturating_add(1);
+        let header = MessageHeader::new(MessageType::Keepalive, remote);
+
+        assert_eq!(
+            validate_header(&header, &expected),
+            Err(ParseMessageError::InvalidHeader)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_protocol_has_an_incompatible_version_range() {
+        let protocol = ProtocolInfo::default();
+        assert_eq!(protocol.version_using, 0x16);
+        assert_eq!(protocol.version_min, 0x16);
+        assert_eq!(protocol.version_max, 0x16);
+    }
 
     #[test]
     fn exact_confirm_ack() {

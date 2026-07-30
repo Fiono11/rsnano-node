@@ -27,6 +27,8 @@ mod priority;
 mod private_key;
 mod public_key;
 mod qualified_root;
+#[cfg(feature = "rai_protocol")]
+mod rai;
 mod raw_key;
 mod signature;
 mod timestamp;
@@ -66,11 +68,15 @@ pub use priority::{BlockPriority, TimePriority};
 pub use private_key::{PrivateKey, PrivateKeyFactory};
 pub use public_key::{PublicKey, SignatureError};
 pub use qualified_root::QualifiedRoot;
+#[cfg(feature = "rai_protocol")]
+pub use rai::RaiEpoch;
 pub use raw_key::RawKey;
 use serde::de::{Unexpected, Visitor};
 pub use signature::Signature;
 use thiserror::Error;
 pub use timestamp::{UnixMillisTimestamp, UnixTimestamp, milliseconds_since_epoch};
+#[cfg(feature = "rai_protocol")]
+pub use vote::{RaiCommitteeScope, RaiVoteMetadata, RaiVotePhase};
 pub use vote::{TestVoteBuilder, Vote, VoteDelivery, VoteError};
 pub use vote_timestamp::VoteTimestamp;
 
@@ -289,10 +295,18 @@ pub struct ProtocolInfo {
 
 impl Default for ProtocolInfo {
     fn default() -> Self {
+        #[cfg(feature = "rai_protocol")]
+        const VERSION_USING: u8 = 0x16;
+        #[cfg(not(feature = "rai_protocol"))]
+        const VERSION_USING: u8 = 0x15;
+        #[cfg(feature = "rai_protocol")]
+        const VERSION_MIN: u8 = 0x16;
+        #[cfg(not(feature = "rai_protocol"))]
+        const VERSION_MIN: u8 = 0x14;
         Self {
-            version_using: 0x15,
-            version_max: 0x15,
-            version_min: 0x14,
+            version_using: VERSION_USING,
+            version_max: VERSION_USING,
+            version_min: VERSION_MIN,
             network: NetworkType::NanoLiveNetwork,
         }
     }
