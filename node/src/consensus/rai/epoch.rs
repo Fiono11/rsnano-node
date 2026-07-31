@@ -173,6 +173,10 @@ impl RaiEpochManager {
         &self.state
     }
 
+    pub fn set_open_started_at(&mut self, started_at: Timestamp) {
+        self.state.open_started_at = started_at;
+    }
+
     pub fn closing_epoch(&self) -> Option<RaiClosingEpoch> {
         self.state.closing
     }

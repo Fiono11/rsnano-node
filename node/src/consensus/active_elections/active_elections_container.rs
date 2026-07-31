@@ -186,7 +186,9 @@ impl ActiveElectionsContainer {
         #[cfg(not(feature = "rai_protocol"))]
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
         #[cfg(feature = "rai_protocol")]
-        let epoch = self.rai_epoch_manager.current_epoch();
+        let epoch_state = self.rai_epoch_manager.state();
+        #[cfg(feature = "rai_protocol")]
+        let epoch = epoch_state.open_epoch;
         #[cfg(feature = "rai_protocol")]
         let governing_hash = self
             .rai_epoch_manager

@@ -8,6 +8,7 @@ mod close_round;
 mod election_id;
 mod election_vote_state;
 mod epoch;
+mod epoch_loop;
 mod report;
 
 pub use close_record::*;
@@ -18,5 +19,6 @@ pub use epoch::{
     CloseRecordDecisionError, RaiClosingEpoch, RaiClosingPhase, RaiDurableCloseRoundState,
     RaiDurableCloseState, RaiEpochManager, RaiEpochState,
 };
+pub use epoch_loop::*;
 pub use report::*;
 pub use rsnano_types::RaiEpoch;
