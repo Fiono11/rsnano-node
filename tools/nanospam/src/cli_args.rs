@@ -1,5 +1,6 @@
 use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
+use std::path::PathBuf;
 
 const DEFAULT_RATE: &str = "1+50@3s";
 const DEFAULT_RAI_EPOCH_DURATION_MS: u64 = 30_000;
@@ -8,6 +9,10 @@ const DEFAULT_RAI_TICK_INTERVAL_MS: u64 = 100;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Directory in which nanospam creates its PR node directories
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,

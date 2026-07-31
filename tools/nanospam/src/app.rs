@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv6Addr, SocketAddrV6},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     thread::yield_now,
     time::{Duration, Instant},
 };
@@ -43,6 +43,7 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
+const GLOBAL_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub(crate) struct NanoSpamApp {
     tracing_init: TracingInitializer,
@@ -51,6 +52,7 @@ pub(crate) struct NanoSpamApp {
     rpc_clients: Vec<NanoRpcClient>,
     node_lifetime: NodeLifetime,
     args: CliArgs,
+    last_rai_phase: Arc<Mutex<String>>,
 }
 
 impl NanoSpamApp {
@@ -62,21 +64,45 @@ impl NanoSpamApp {
             rpc_clients: Default::default(),
             node_lifetime: Default::default(),
             args,
+            last_rai_phase: Arc::new(Mutex::new("starting".to_string())),
         }
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(self) -> anyhow::Result<()> {
+        let last_phase = self.last_rai_phase.clone();
+        match timeout(GLOBAL_TIMEOUT, self.run_inner()).await {
+            Ok(result) => result.map_err(|error| {
+                anyhow!(
+                    "{error:#}; last known RAI phase: {}",
+                    last_phase.lock().unwrap(),
+                )
+            }),
+            Err(_) => Err(anyhow!(
+                "nanospam exceeded the {GLOBAL_TIMEOUT:?} global timeout; last known RAI phase: {}",
+                last_phase.lock().unwrap()
+            )),
+        }
+    }
+
+    async fn run_inner(mut self) -> anyhow::Result<()> {
         self.tracing_init.init();
 
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
-        let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
-        data_dir.push("NanoSpam");
+        let data_dir = if let Some(path) = self.args.data_dir.clone() {
+            path
+        } else {
+            let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
+            path.push("NanoSpam");
+            path
+        };
+        std::fs::create_dir_all(&data_dir)?;
 
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
         if self.args.set_up_new_nodes() {
+            *self.last_rai_phase.lock().unwrap() = "configuring PR nodes".to_string();
             configure_nodes(&self.args, &data_dir);
         }
 
@@ -89,6 +115,8 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
+            *self.last_rai_phase.lock().unwrap() =
+                "starting PR nodes and waiting for RPC".to_string();
             let node_handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
             if self.args.kill_nodes() {
                 self.node_lifetime = NodeLifetime::new(node_handles);
@@ -96,6 +124,7 @@ impl NanoSpamApp {
         }
 
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
+            *self.last_rai_phase.lock().unwrap() = "creating test wallets".to_string();
             create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
         } else {
             WalletId::ZERO
@@ -152,6 +181,9 @@ impl NanoSpamApp {
 
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
+        #[cfg(feature = "rai_protocol")]
+        let transition = Mutex::new(RaiTransitionObservation::default());
+
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
         let initial_cemented = genesis_rpc.block_count().await?.cemented.inner();
@@ -160,7 +192,16 @@ impl NanoSpamApp {
             .blocks
             .map(|blocks| initial_cemented + blocks as u64);
 
+        #[cfg(feature = "rai_protocol")]
+        let initial_rai_statuses = if self.args.rai_epoch_duration_ms.is_some() {
+            fetch_rai_statuses(&self.rpc_clients).await?
+        } else {
+            Vec::new()
+        };
+
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
+        *self.last_rai_phase.lock().unwrap() =
+            "running workload; waiting for epoch 0 to begin closing".to_string();
 
         let started = Instant::now();
         std::thread::scope(|s| {
@@ -173,6 +214,16 @@ impl NanoSpamApp {
 
             tokio_scoped::scope(|scope| {
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+
+                #[cfg(feature = "rai_protocol")]
+                if self.args.rai_epoch_duration_ms.is_some() {
+                    scope.spawn(observe_rai_transition(
+                        &self.rpc_clients,
+                        &transition,
+                        self.last_rai_phase.clone(),
+                        cancel_nanospam.clone(),
+                    ));
+                }
 
                 if self.args.high_prio_check() {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
@@ -221,14 +272,146 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         {
+            if self.args.rai_epoch_duration_ms.is_some() {
+                wait_for_rai_close(
+                    &self.rpc_clients,
+                    &transition,
+                    &self.last_rai_phase,
+                    Duration::from_secs(30),
+                )
+                .await?;
+            }
             let statuses = fetch_rai_statuses(&self.rpc_clients).await?;
             print_finalized_blocks_by_epoch(&statuses);
             if self.args.rai_epoch_duration_ms.is_some() {
-                validate_epoch_transition(&statuses, self.args.blocks.unwrap_or(0))?;
+                record_rai_statuses(&statuses, &transition, &self.last_rai_phase);
+                validate_epoch_transition(
+                    &statuses,
+                    &initial_rai_statuses,
+                    self.args.blocks.unwrap_or(0),
+                    &transition.into_inner().unwrap(),
+                )?;
             }
         }
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+struct RaiTransitionObservation {
+    saw_epoch_zero_closing: bool,
+    saw_open_epoch_one_overlap: bool,
+    saw_matching_cut: bool,
+    saw_obligations_finalized: bool,
+    validation_error: Option<String>,
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn observe_rai_transition(
+    clients: &[NanoRpcClient],
+    observation: &Mutex<RaiTransitionObservation>,
+    last_phase: Arc<Mutex<String>>,
+    cancel: CancellationToken,
+) {
+    loop {
+        select! {
+            _ = cancel.cancelled() => break,
+            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+
+        let Ok(statuses) = fetch_rai_statuses(clients).await else {
+            continue;
+        };
+        record_rai_statuses(&statuses, observation, &last_phase);
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn record_rai_statuses(
+    statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    observation: &Mutex<RaiTransitionObservation>,
+    last_phase: &Arc<Mutex<String>>,
+) {
+    let phase = statuses
+        .iter()
+        .enumerate()
+        .map(|(pr, status)| {
+            format!(
+                "PR{pr}=open {}, closing {} ({})",
+                status.open_epoch.inner(),
+                status
+                    .closing_epoch
+                    .as_ref()
+                    .map(|epoch| epoch.inner().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                status.closing_phase.as_deref().unwrap_or("closed"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    *last_phase.lock().unwrap() = phase;
+
+    let mut observed = observation.lock().unwrap();
+    observed.saw_epoch_zero_closing |= statuses
+        .iter()
+        .any(|status| status.closing_epoch.as_ref().map(|epoch| epoch.inner()) == Some(0));
+    observed.saw_open_epoch_one_overlap |= statuses.iter().any(|status| {
+        status.open_epoch.inner() == 1
+            && status.closing_epoch.as_ref().map(|epoch| epoch.inner()) == Some(0)
+    });
+
+    let cuts = statuses
+        .iter()
+        .filter_map(|status| status.cut_hashes.get("0"))
+        .collect::<Vec<_>>();
+    if cuts.len() == statuses.len() {
+        if cuts.windows(2).all(|pair| pair[0] == pair[1]) {
+            observed.saw_matching_cut = true;
+        } else {
+            observed.validation_error =
+                Some("the PRs decided different epoch-0 close cuts".to_string());
+        }
+    }
+
+    observed.saw_obligations_finalized |= statuses.iter().all(|status| {
+        let obligations = status
+            .drain_obligations
+            .get("0")
+            .map(|count| count.inner())
+            .unwrap_or(0);
+        let finalized = status
+            .drain_finalized
+            .get("0")
+            .map(|count| count.inner())
+            .unwrap_or(0);
+        finalized == obligations
+    });
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn wait_for_rai_close(
+    clients: &[NanoRpcClient],
+    observation: &Mutex<RaiTransitionObservation>,
+    last_phase: &Arc<Mutex<String>>,
+    timeout_after: Duration,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout_after;
+    loop {
+        let statuses = fetch_rai_statuses(clients).await?;
+        record_rai_statuses(&statuses, observation, last_phase);
+        if statuses.iter().all(|status| {
+            status.closed_through.as_ref().map(|epoch| epoch.inner()) == Some(0)
+                && status.open_epoch.inner() == 1
+                && status.closing_epoch.is_none()
+        }) {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!("RAI epoch 0 did not finish closing within {timeout_after:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -265,30 +448,44 @@ async fn fetch_rai_statuses(
 #[cfg(feature = "rai_protocol")]
 fn validate_epoch_transition(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     requested_workload: usize,
+    observed: &RaiTransitionObservation,
 ) -> anyhow::Result<()> {
+    if let Some(error) = &observed.validation_error {
+        anyhow::bail!("RAI validation error: {error}");
+    }
+    if !observed.saw_matching_cut {
+        anyhow::bail!("did not observe all PRs decide the same epoch-0 close cut");
+    }
+    if !observed.saw_obligations_finalized {
+        anyhow::bail!("did not observe every epoch-0 cut obligation finalize normally");
+    }
+
     let first = statuses
         .first()
         .ok_or_else(|| anyhow!("no PRs reported RAI status"))?;
+    let initial_first = initial_statuses
+        .first()
+        .ok_or_else(|| anyhow!("no initial RAI status was recorded"))?;
+    if initial_statuses.len() != statuses.len() {
+        anyhow::bail!("initial and final RAI status counts differ");
+    }
     for (pr, status) in statuses.iter().enumerate().skip(1) {
-        if status.finalized_by_epoch != first.finalized_by_epoch {
-            anyhow::bail!("PR{pr} reported different per-epoch finalized counts");
-        }
         if status.close_hashes.get("0") != first.close_hashes.get("0") {
             anyhow::bail!("PR{pr} installed a different epoch-0 close hash");
         }
     }
 
-    let epoch_0 = first
-        .finalized_by_epoch
-        .get("0")
-        .map(|value| value.inner())
-        .unwrap_or(0);
-    let epoch_1 = first
-        .finalized_by_epoch
-        .get("1")
-        .map(|value| value.inner())
-        .unwrap_or(0);
+    let expected_counts = workload_counts(first, initial_first)?;
+    for (pr, (status, initial)) in statuses.iter().zip(initial_statuses).enumerate().skip(1) {
+        if workload_counts(status, initial)? != expected_counts {
+            anyhow::bail!("PR{pr} reported different per-epoch workload counts");
+        }
+    }
+
+    let epoch_0 = expected_counts.get("0").copied().unwrap_or(0);
+    let epoch_1 = expected_counts.get("1").copied().unwrap_or(0);
     if epoch_0 == 0 {
         anyhow::bail!("epoch 0 has no finalized workload blocks");
     }
@@ -308,17 +505,38 @@ fn validate_epoch_transition(
         }
     }
 
-    let finalized: u64 = first
-        .finalized_by_epoch
-        .values()
-        .map(|value| value.inner())
-        .sum();
+    let finalized: u64 = expected_counts.values().sum();
     if finalized != requested_workload as u64 {
         anyhow::bail!(
             "finalized workload is {finalized}, requested workload is {requested_workload}"
         );
     }
     Ok(())
+}
+
+#[cfg(feature = "rai_protocol")]
+fn workload_counts(
+    status: &rsnano_rpc_messages::RaiStatusResponse,
+    initial: &rsnano_rpc_messages::RaiStatusResponse,
+) -> anyhow::Result<std::collections::BTreeMap<String, u64>> {
+    let mut counts = std::collections::BTreeMap::new();
+    for (epoch, final_count) in &status.finalized_by_epoch {
+        let initial_count = initial
+            .finalized_by_epoch
+            .get(epoch)
+            .map(|count| count.inner())
+            .unwrap_or(0);
+        let count = final_count
+            .inner()
+            .checked_sub(initial_count)
+            .ok_or_else(|| {
+                anyhow!("finalized count for epoch {epoch} decreased during the workload")
+            })?;
+        if count > 0 {
+            counts.insert(epoch.clone(), count);
+        }
+    }
+    Ok(counts)
 }
 
 fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
@@ -521,8 +739,12 @@ mod tests {
         RaiStatusResponse {
             open_epoch: 1.into(),
             closing_epoch: None,
+            closing_phase: None,
             closed_through: Some(0.into()),
+            cut_hashes: BTreeMap::from([("0".into(), "cut".into())]),
             close_hashes: BTreeMap::from([("0".into(), close_hash.into())]),
+            drain_obligations: BTreeMap::from([("0".into(), 1.into())]),
+            drain_finalized: BTreeMap::from([("0".into(), 1.into())]),
             finalized_by_epoch: BTreeMap::from([
                 ("0".into(), epoch_0.into()),
                 ("1".into(), epoch_1.into()),
@@ -532,21 +754,71 @@ mod tests {
 
     #[test]
     fn epoch_zero_only_fails() {
-        assert!(validate_epoch_transition(&[status(10, 0, "A")], 10).is_err());
+        assert!(
+            validate_epoch_transition(
+                &[status(10, 0, "A")],
+                &[status(0, 0, "A")],
+                10,
+                &observed(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn different_pr_counts_fail() {
-        assert!(validate_epoch_transition(&[status(4, 6, "A"), status(5, 5, "A")], 10).is_err());
+        assert!(
+            validate_epoch_transition(
+                &[status(4, 6, "A"), status(5, 5, "A")],
+                &[status(0, 0, "A"), status(0, 0, "A")],
+                10,
+                &observed(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn different_close_hashes_fail() {
-        assert!(validate_epoch_transition(&[status(4, 6, "A"), status(4, 6, "B")], 10).is_err());
+        assert!(
+            validate_epoch_transition(
+                &[status(4, 6, "A"), status(4, 6, "B")],
+                &[status(0, 0, "A"), status(0, 0, "A")],
+                10,
+                &observed(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn matching_epoch_transition_passes() {
-        validate_epoch_transition(&[status(4, 6, "A"), status(4, 6, "A")], 10).unwrap();
+        validate_epoch_transition(
+            &[
+                status(4, 6, "A"),
+                status(4, 6, "A"),
+                status(4, 6, "A"),
+                status(4, 6, "A"),
+            ],
+            &[
+                status(0, 0, "A"),
+                status(0, 0, "A"),
+                status(0, 0, "A"),
+                status(0, 0, "A"),
+            ],
+            10,
+            &observed(),
+        )
+        .unwrap();
+    }
+
+    fn observed() -> RaiTransitionObservation {
+        RaiTransitionObservation {
+            saw_epoch_zero_closing: true,
+            saw_open_epoch_one_overlap: true,
+            saw_matching_cut: true,
+            saw_obligations_finalized: true,
+            validation_error: None,
+        }
     }
 }
