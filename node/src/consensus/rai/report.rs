@@ -7,6 +7,8 @@ use blake2::{
 use rsnano_ledger::RepWeights;
 use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, QualifiedRoot, RaiEpoch, Signature};
 
+use super::rai_fault_allowance;
+
 const REPORT_DOMAIN: &[u8] = b"RAI/Report/v1";
 const CLOSE_CUT_DOMAIN: &[u8] = b"RAI/CloseCut/v1";
 
@@ -18,6 +20,12 @@ pub struct RaiReport {
     pub epoch: RaiEpoch,
     pub visible_obligations: BTreeSet<QualifiedRoot>,
     pub signature: Signature,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiReportProof {
+    pub epoch: RaiEpoch,
+    pub reports: Vec<RaiReport>,
 }
 
 impl RaiReport {
@@ -118,19 +126,73 @@ impl RaiReportStore {
         }
     }
 
-    /// An obligation is report-visible when at least one non-equivocating
-    /// member of the close committee reports it.
+    /// Returns a canonical proof containing only non-equivocating committee
+    /// members. Reports have already passed signature validation on insertion.
+    pub fn proof(&self, epoch: RaiEpoch, committee: &RepWeights) -> RaiReportProof {
+        RaiReportProof {
+            epoch,
+            reports: self
+                .reports
+                .iter()
+                .filter(|((e, reporter), _)| {
+                    *e == epoch
+                        && !self.is_equivocator(epoch, reporter)
+                        && !committee.weight(reporter).is_zero()
+                })
+                .map(|(_, report)| report.clone())
+                .collect(),
+        }
+    }
+
+    pub fn has_quorum(&self, epoch: RaiEpoch, committee: &RepWeights) -> bool {
+        let total = total_weight(committee);
+        if total == 0 {
+            return false;
+        }
+        let faulty = rai_fault_allowance(total);
+        self.proof(epoch, committee)
+            .reports
+            .iter()
+            .fold(0u128, |sum, report| {
+                sum.saturating_add(raw(committee.weight(&report.reporter)))
+            })
+            >= total.saturating_sub(faulty)
+    }
+
+    /// An obligation is report-visible when its support from valid,
+    /// non-equivocating close-committee reports is strictly greater than F.
     pub fn visible_from_reports(
         &self,
         epoch: RaiEpoch,
         committee: &RepWeights,
     ) -> BTreeSet<QualifiedRoot> {
-        self.reports
-            .iter()
-            .filter(|((e, reporter), _)| *e == epoch && !committee.weight(reporter).is_zero())
-            .flat_map(|(_, report)| report.visible_obligations.iter().cloned())
+        let faulty = rai_fault_allowance(total_weight(committee));
+        let mut support = BTreeMap::<QualifiedRoot, u128>::new();
+        for report in self.proof(epoch, committee).reports {
+            let weight = raw(committee.weight(&report.reporter));
+            for obligation in report.visible_obligations {
+                support
+                    .entry(obligation)
+                    .and_modify(|total| *total = total.saturating_add(weight))
+                    .or_insert(weight);
+            }
+        }
+        support
+            .into_iter()
+            .filter(|(_, weight)| *weight > faulty)
+            .map(|(obligation, _)| obligation)
             .collect()
     }
+}
+
+fn total_weight(committee: &RepWeights) -> u128 {
+    committee
+        .iter()
+        .fold(0u128, |sum, (_, weight)| sum.saturating_add(raw(*weight)))
+}
+
+fn raw(amount: Amount) -> u128 {
+    u128::from_be_bytes(amount.to_be_bytes())
 }
 
 /// Returns obligations supported by a voter in any applicable slot committee.
@@ -300,6 +362,103 @@ mod tests {
             visible_from_slot_votes(votes, &[committee]),
             BTreeSet::from([root(4)])
         );
+    }
+
+    #[test]
+    fn report_quorum_requires_at_least_w_minus_f() {
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+        ];
+        let committee = weights(&[
+            (keys[0].public_key(), 8),
+            (keys[1].public_key(), 9),
+            (keys[2].public_key(), 3),
+        ]);
+        let mut reports = RaiReportStore::default();
+        reports
+            .insert(RaiReport::new(&keys[0], 3.into(), []))
+            .unwrap();
+        assert!(!reports.has_quorum(3.into(), &committee));
+
+        reports
+            .insert(RaiReport::new(&keys[1], 3.into(), []))
+            .unwrap();
+        assert!(reports.has_quorum(3.into(), &committee));
+    }
+
+    #[test]
+    fn report_visibility_is_strictly_greater_than_f() {
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+        ];
+        let committee = weights(&[
+            (keys[0].public_key(), 3),
+            (keys[1].public_key(), 4),
+            (keys[2].public_key(), 6),
+            (keys[3].public_key(), 7),
+        ]);
+        let exactly_f = root(1);
+        let above_f = root(2);
+        let mut reports = RaiReportStore::default();
+        for (key, obligations) in [
+            (&keys[0], vec![exactly_f, above_f.clone()]),
+            (&keys[1], vec![above_f.clone()]),
+            (&keys[2], Vec::new()),
+            (&keys[3], Vec::new()),
+        ] {
+            reports
+                .insert(RaiReport::new(key, 3.into(), obligations))
+                .unwrap();
+        }
+
+        assert_eq!(
+            reports.visible_from_reports(3.into(), &committee),
+            BTreeSet::from([above_f])
+        );
+    }
+
+    #[test]
+    fn four_honest_reports_derive_same_cut_in_any_arrival_order() {
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+        ];
+        let committee = weights(
+            &keys
+                .iter()
+                .map(|key| (key.public_key(), 5))
+                .collect::<Vec<_>>(),
+        );
+        let reports = [
+            RaiReport::new(&keys[0], 3.into(), [root(1)]),
+            RaiReport::new(&keys[1], 3.into(), [root(2)]),
+            RaiReport::new(&keys[2], 3.into(), [root(1), root(2)]),
+            RaiReport::new(&keys[3], 3.into(), []),
+        ];
+        let mut forward = RaiReportStore::default();
+        let mut reverse = RaiReportStore::default();
+        for report in reports.iter().cloned() {
+            forward.insert(report).unwrap();
+        }
+        for report in reports.iter().rev().cloned() {
+            reverse.insert(report).unwrap();
+        }
+
+        assert!(forward.has_quorum(3.into(), &committee));
+        assert!(reverse.has_quorum(3.into(), &committee));
+        let forward_cut =
+            RaiCloseCut::new(3.into(), forward.visible_from_reports(3.into(), &committee));
+        let reverse_cut =
+            RaiCloseCut::new(3.into(), reverse.visible_from_reports(3.into(), &committee));
+        assert_eq!(forward_cut, reverse_cut);
+        assert_eq!(forward_cut.hash(), reverse_cut.hash());
     }
 
     #[test]

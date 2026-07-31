@@ -124,10 +124,6 @@ pub trait RaiEpochLoopDriver {
         BTreeSet::new()
     }
 
-    fn reports_ready(&self, _manager: &RaiEpochManager, _epoch: RaiEpoch) -> bool {
-        true
-    }
-
     fn vote_visible_obligations(&self, _epoch: RaiEpoch) -> BTreeSet<QualifiedRoot> {
         BTreeSet::new()
     }
@@ -260,13 +256,14 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
             // path before publishing it. Repeated ticks are consequently inert.
             let _ = self.epoch_manager.reports_mut().insert(report.clone());
             self.driver.broadcast_report(report);
+            self.maybe_start_cut(closing);
         }
     }
 
     fn maybe_start_cut(&mut self, epoch: RaiEpoch) {
         if self.epoch_manager.closing_epoch().is_none_or(|closing| {
             closing.epoch != epoch || closing.phase != RaiClosingPhase::CollectingReports
-        }) || !self.driver.reports_ready(&self.epoch_manager, epoch)
+        }) || !self.epoch_manager.report_quorum_available(epoch)
         {
             return;
         }

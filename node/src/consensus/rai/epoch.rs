@@ -217,6 +217,11 @@ impl RaiEpochManager {
         &self.close_cuts
     }
 
+    pub fn report_quorum_available(&self, epoch: RaiEpoch) -> bool {
+        self.close_committee(epoch)
+            .is_some_and(|committee| self.reports.has_quorum(epoch, &committee))
+    }
+
     /// Freezes visibility and creates the canonical round-zero candidate.
     pub fn begin_cut_election(
         &mut self,
@@ -228,6 +233,9 @@ impl RaiEpochManager {
         }
         let epoch = closing.epoch;
         let committee = self.close_committee(epoch)?;
+        if !self.reports.has_quorum(epoch, &committee) {
+            return None;
+        }
         let mut visible = self.reports.visible_from_reports(epoch, &committee);
         visible.extend(vote_visible);
         let cut = RaiCloseCut::new(epoch, visible.clone());
@@ -669,13 +677,18 @@ impl RaiEpochManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{Account, Amount, ConfirmationHeightInfo, PublicKey};
+    use crate::consensus::rai::RaiReport;
+    use rsnano_types::{Account, Amount, ConfirmationHeightInfo, PrivateKey, PublicKey};
 
     fn weights(rep: u64, amount: u128) -> Arc<RepWeights> {
         Arc::new(RepWeights::from([(
             PublicKey::from(rep),
             Amount::raw(amount),
         )]))
+    }
+
+    fn private_weights(key: &PrivateKey, amount: u128) -> Arc<RepWeights> {
+        Arc::new(RepWeights::from([(key.public_key(), Amount::raw(amount))]))
     }
 
     #[test]
@@ -768,9 +781,14 @@ mod tests {
 
     #[test]
     fn round_zero_cut_decision_freezes_obligations_and_is_immutable() {
-        let mut manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
         let obligation = QualifiedRoot::new(11.into(), 12.into());
         manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, 0.into(), []))
+            .unwrap();
         let (root, hash) = manager.begin_cut_election([obligation.clone()]).unwrap();
         assert_eq!(root, crate::consensus::rai::rai_close_cut_root(0.into(), 0));
         assert_eq!(
@@ -798,9 +816,48 @@ mod tests {
     }
 
     #[test]
-    fn close_record_waits_for_drain_validates_and_is_immutable() {
-        let mut manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
+    fn cut_starts_at_w_minus_f_report_weight() {
+        let first = PrivateKey::from(1);
+        let second = PrivateKey::from(2);
+        let third = PrivateKey::from(3);
+        let committee = Arc::new(RepWeights::from([
+            (first.public_key(), Amount::raw(8)),
+            (second.public_key(), Amount::raw(9)),
+            (third.public_key(), Amount::raw(3)),
+        ]));
+        let mut manager = RaiEpochManager::new(committee, BlockHash::from(7));
         manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&first, 0.into(), []))
+            .unwrap();
+
+        assert!(manager.begin_cut_election([]).is_none());
+        assert_eq!(
+            manager.closing_epoch().unwrap().phase,
+            RaiClosingPhase::CollectingReports
+        );
+
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&second, 0.into(), []))
+            .unwrap();
+        assert!(manager.begin_cut_election([]).is_some());
+        assert_eq!(
+            manager.closing_epoch().unwrap().phase,
+            RaiClosingPhase::ElectingCut
+        );
+    }
+
+    #[test]
+    fn close_record_waits_for_drain_validates_and_is_immutable() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, 0.into(), []))
+            .unwrap();
         let (_, cut) = manager.begin_cut_election([]).unwrap();
         manager.install_cut(0.into(), 0, cut).unwrap();
         let frontiers = [(
@@ -912,8 +969,13 @@ mod tests {
 
     #[test]
     fn close_transitions_are_idempotent() {
-        let mut manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
         manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, 0.into(), []))
+            .unwrap();
         let (_, cut) = manager.begin_cut_election([]).unwrap();
         assert!(manager.begin_cut_election([]).is_none());
         manager.install_cut(0.into(), 0, cut).unwrap();
