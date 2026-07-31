@@ -14,6 +14,11 @@ mod message;
 mod message_deserializer;
 mod network_filter;
 
+#[cfg(feature = "rai_protocol")]
+mod rai_report;
+#[cfg(feature = "rai_protocol")]
+pub use rai_report::*;
+
 pub use message::*;
 pub use message_deserializer::*;
 pub use network_filter::*;

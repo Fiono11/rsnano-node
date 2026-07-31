@@ -37,6 +37,8 @@ pub enum MessageType {
     Proposal = 0x11,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote = 0x12,
+    #[cfg(feature = "rai_protocol")]
+    RaiReport = 0x13,
 }
 
 impl MessageType {
@@ -63,15 +65,21 @@ impl MessageType {
             MessageType::Proposal => "proposal",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => "proposal_vote",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReport => "rai_report",
         }
     }
 
     pub const fn max_id() -> usize {
-        #[cfg(feature = "ledger_snapshots")]
+        #[cfg(feature = "rai_protocol")]
+        {
+            return Self::RaiReport as usize;
+        }
+        #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
             Self::ProposalVote as usize
         }
-        #[cfg(not(feature = "ledger_snapshots"))]
+        #[cfg(all(not(feature = "rai_protocol"), not(feature = "ledger_snapshots")))]
         {
             Self::AscPullAck as usize
         }
@@ -197,6 +205,8 @@ impl MessageHeader {
             MessageType::Proposal => Proposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReport => RaiReportMessage::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -256,6 +266,8 @@ impl From<MessageType> for DetailType {
             MessageType::TelemetryAck => DetailType::TelemetryAck,
             MessageType::AscPullReq => DetailType::AscPullReq,
             MessageType::AscPullAck => DetailType::AscPullAck,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReport => DetailType::Generic,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
