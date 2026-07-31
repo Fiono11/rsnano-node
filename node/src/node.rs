@@ -632,6 +632,7 @@ impl Node {
             config.active_elections.clone(),
             base_latency,
             Arc::new(rep_weights.read().clone()),
+            network_params.ledger.genesis_block.hash(),
         ));
         active_elections.set_observer(aec_tx.clone());
 

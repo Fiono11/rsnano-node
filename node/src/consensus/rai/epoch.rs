@@ -50,6 +50,7 @@ impl std::error::Error for CloseRecordDecisionError {}
 pub struct RaiEpochManager {
     current_epoch: RaiEpoch,
     phase: RaiEpochPhase,
+    genesis_governing_hash: BlockHash,
     genesis_committee: Arc<RepWeights>,
     committees: BTreeMap<RaiEpoch, Arc<RepWeights>>,
     cut_hashes: BTreeMap<RaiEpoch, BlockHash>,
@@ -93,10 +94,11 @@ pub struct RaiDurableCloseRoundState {
 }
 
 impl RaiEpochManager {
-    pub fn new(genesis_committee: Arc<RepWeights>) -> Self {
+    pub fn new(genesis_committee: Arc<RepWeights>, genesis_governing_hash: BlockHash) -> Self {
         Self {
             current_epoch: RaiEpoch::ZERO,
             phase: RaiEpochPhase::Open,
+            genesis_governing_hash,
             genesis_committee,
             committees: BTreeMap::new(),
             cut_hashes: BTreeMap::new(),
@@ -595,8 +597,12 @@ impl RaiEpochManager {
 
     /// The certified close which governs `epoch`.
     pub fn governing_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
-        let previous = epoch.number().checked_sub(1)?;
-        self.close_hashes.get(&RaiEpoch::new(previous)).copied()
+        let Some(governing_epoch) = epoch.number().checked_sub(2) else {
+            return Some(self.genesis_governing_hash);
+        };
+        self.close_hashes
+            .get(&RaiEpoch::new(governing_epoch))
+            .copied()
     }
 }
 
@@ -615,7 +621,7 @@ mod tests {
     #[test]
     fn negative_epochs_use_genesis() {
         let genesis = weights(1, 100);
-        let manager = RaiEpochManager::new(genesis.clone());
+        let manager = RaiEpochManager::new(genesis.clone(), BlockHash::from(7));
 
         assert!(Arc::ptr_eq(&manager.committee_at(-1).unwrap(), &genesis));
         assert!(Arc::ptr_eq(&manager.committee_at(-100).unwrap(), &genesis));
@@ -623,7 +629,7 @@ mod tests {
 
     #[test]
     fn early_epochs_collapse_duplicate_genesis_committees() {
-        let manager = RaiEpochManager::new(weights(1, 100));
+        let manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
 
         assert_eq!(manager.slot_committees(0.into()).unwrap().len(), 1);
         assert_eq!(manager.slot_committees(1.into()).unwrap().len(), 1);
@@ -633,7 +639,7 @@ mod tests {
     fn later_slots_select_both_historical_snapshots() {
         let first = weights(1, 100);
         let second = weights(2, 200);
-        let mut manager = RaiEpochManager::new(weights(9, 900));
+        let mut manager = RaiEpochManager::new(weights(9, 900), BlockHash::from(7));
         manager.insert_committee(1.into(), first.clone());
         manager.insert_committee(2.into(), second.clone());
 
@@ -644,7 +650,7 @@ mod tests {
     #[test]
     fn close_selects_epoch_minus_two() {
         let expected = weights(1, 100);
-        let mut manager = RaiEpochManager::new(weights(9, 900));
+        let mut manager = RaiEpochManager::new(weights(9, 900), BlockHash::from(7));
         manager.insert_committee(2.into(), expected.clone());
 
         assert!(Arc::ptr_eq(
@@ -659,7 +665,7 @@ mod tests {
         let first = PublicKey::from(1);
         let second = PublicKey::from(2);
         live.put(first, Amount::raw(100));
-        let mut manager = RaiEpochManager::new(weights(9, 900));
+        let mut manager = RaiEpochManager::new(weights(9, 900), BlockHash::from(7));
 
         let frozen = manager.snapshot_committee(0.into(), &live);
         live.put(first, Amount::ZERO);
@@ -672,26 +678,37 @@ mod tests {
 
     #[test]
     fn missing_history_prevents_committee_selection_for_vote_validation() {
-        let manager = RaiEpochManager::new(weights(1, 100));
+        let manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
 
         assert!(manager.slot_committees(3.into()).is_none());
         assert!(manager.close_committee(2.into()).is_none());
     }
 
     #[test]
-    fn governing_hash_is_the_previous_epoch_close() {
-        let mut manager = RaiEpochManager::new(weights(1, 100));
-        let close = BlockHash::from(42);
-        manager.record_close_hash(2.into(), close);
+    fn governing_hash_is_genesis_then_epoch_minus_two_close() {
+        let genesis = BlockHash::from(7);
+        let mut manager = RaiEpochManager::new(weights(1, 100), genesis);
+        let close_0 = BlockHash::from(40);
+        let close_1 = BlockHash::from(41);
+        manager.record_close_hash(0.into(), close_0);
+        manager.record_close_hash(1.into(), close_1);
 
-        assert_eq!(manager.governing_hash(3.into()), Some(close));
+        assert_eq!(manager.governing_hash(0.into()), Some(genesis));
+        assert_eq!(manager.governing_hash(1.into()), Some(genesis));
+        assert_eq!(manager.governing_hash(2.into()), Some(close_0));
+        assert_eq!(manager.governing_hash(3.into()), Some(close_1));
+    }
+
+    #[test]
+    fn missing_epoch_minus_two_close_has_no_governing_context() {
+        let manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
+
         assert_eq!(manager.governing_hash(2.into()), None);
-        assert_eq!(manager.governing_hash(0.into()), None);
     }
 
     #[test]
     fn round_zero_cut_decision_freezes_obligations_and_is_immutable() {
-        let mut manager = RaiEpochManager::new(weights(1, 100));
+        let mut manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
         let obligation = QualifiedRoot::new(11.into(), 12.into());
         let (root, hash) = manager.begin_close_cut([obligation.clone()]).unwrap();
         assert_eq!(root, crate::consensus::rai::rai_close_cut_root(0.into(), 0));
@@ -715,7 +732,7 @@ mod tests {
 
     #[test]
     fn close_record_waits_for_drain_validates_and_is_immutable() {
-        let mut manager = RaiEpochManager::new(weights(1, 100));
+        let mut manager = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
         let (_, cut) = manager.begin_close_cut([]).unwrap();
         manager.decide_close_cut(0.into(), 0, cut).unwrap();
         let frontiers = [(
@@ -794,12 +811,12 @@ mod tests {
         );
 
         let durable = manager.durable_close_state(0.into()).unwrap();
-        let mut restarted = RaiEpochManager::new(weights(1, 100));
+        let mut restarted = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
         restarted.restore_close_state(durable).unwrap();
         assert_eq!(restarted.phase(), RaiEpochPhase::Open);
         assert_eq!(restarted.current_epoch(), RaiEpoch::new(1));
         assert_eq!(restarted.committee_at(0), manager.committee_at(0));
         assert_eq!(restarted.installed_close_hash(0.into()), Some(close));
-        assert_eq!(restarted.governing_hash(1.into()), Some(close));
+        assert_eq!(restarted.governing_hash(1.into()), Some(BlockHash::from(7)));
     }
 }

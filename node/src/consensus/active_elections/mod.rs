@@ -65,6 +65,7 @@ pub enum AecFact {
 pub enum AecInsertError {
     Stopped,
     Duplicate,
+    MissingRaiGoverningClose,
 
     /// This block or a fork got recently confirmed, so there is no need for a new election.
     RecentlyConfirmed,

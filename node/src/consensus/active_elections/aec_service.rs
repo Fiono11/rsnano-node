@@ -37,12 +37,14 @@ impl AecService {
         config: ActiveElectionsConfig,
         base_latency: Duration,
         genesis_committee: std::sync::Arc<rsnano_ledger::RepWeights>,
+        genesis_governing_hash: BlockHash,
     ) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new_with_rai_committee(
                 config,
                 base_latency,
                 genesis_committee,
+                genesis_governing_hash,
             )),
             clock: SteadyClock::default(),
         }

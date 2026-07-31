@@ -63,9 +63,10 @@ impl ActiveElectionsContainer {
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
             #[cfg(feature = "rai_protocol")]
-            rai_epoch_manager: crate::consensus::rai::RaiEpochManager::new(std::sync::Arc::new(
-                RepWeights::default(),
-            )),
+            rai_epoch_manager: crate::consensus::rai::RaiEpochManager::new(
+                std::sync::Arc::new(RepWeights::default()),
+                BlockHash::ZERO,
+            ),
         }
     }
 
@@ -74,9 +75,11 @@ impl ActiveElectionsContainer {
         config: ActiveElectionsConfig,
         base_latency: Duration,
         genesis_committee: std::sync::Arc<RepWeights>,
+        genesis_governing_hash: BlockHash,
     ) -> Self {
         let mut result = Self::new(config, base_latency);
-        result.rai_epoch_manager = crate::consensus::rai::RaiEpochManager::new(genesis_committee);
+        result.rai_epoch_manager =
+            crate::consensus::rai::RaiEpochManager::new(genesis_committee, genesis_governing_hash);
         result
     }
 
@@ -133,8 +136,7 @@ impl ActiveElectionsContainer {
             return Ok(());
         }
 
-        self.insert_new_election(request, now);
-        Ok(())
+        self.insert_new_election(request, now)
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -174,33 +176,37 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
+    fn insert_new_election(
+        &mut self,
+        request: AecInsertRequest,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         #[cfg(not(feature = "rai_protocol"))]
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
+        #[cfg(feature = "rai_protocol")]
+        let epoch = self.rai_epoch_manager.current_epoch();
+        #[cfg(feature = "rai_protocol")]
+        let governing_hash = self
+            .rai_epoch_manager
+            .governing_hash(epoch)
+            .ok_or(AecInsertError::MissingRaiGoverningClose)?;
+        #[cfg(feature = "rai_protocol")]
+        let committees = self
+            .rai_epoch_manager
+            .slot_committees(epoch)
+            .ok_or(AecInsertError::MissingRaiGoverningClose)?;
         #[cfg(feature = "rai_protocol")]
         let election = Election::new_slot(
             request.block,
             request.behavior,
             self.base_latency,
             now,
-            self.rai_epoch_manager.current_epoch(),
+            epoch,
         )
-        .with_rai_committees(
-            self.rai_epoch_manager
-                .slot_committees(self.rai_epoch_manager.current_epoch())
-                .unwrap_or_default(),
-        )
-        .with_rai_governing_hash(
-            self.rai_epoch_manager
-                .governing_hash(self.rai_epoch_manager.current_epoch())
-                .or_else(|| {
-                    (self.rai_epoch_manager.current_epoch()
-                        == crate::consensus::rai::RaiEpoch::ZERO)
-                        .then_some(BlockHash::ZERO)
-                }),
-        );
+        .with_rai_committees(committees)
+        .with_rai_governing_hash(Some(governing_hash));
 
         self.roots.insert(Entry {
             root: root.clone(),
@@ -211,6 +217,7 @@ impl ActiveElectionsContainer {
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
         self.notify(AecFact::ElectionStarted(hash, root));
+        Ok(())
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
@@ -365,6 +372,7 @@ impl ActiveElectionsContainer {
                     Err(AecInsertError::Duplicate) => {
                         self.stats.activate_failed_duplicate += 1;
                     }
+                    Err(AecInsertError::MissingRaiGoverningClose) => {}
                     Err(AecInsertError::Stopped) => {}
                 }
             }
@@ -608,8 +616,12 @@ pub struct ApplyVoteArgs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "rai_protocol"))]
     use crate::consensus::ReceivedVote;
-    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteDelivery};
+    use rsnano_types::{BlockPriority, TimePriority};
+    #[cfg(not(feature = "rai_protocol"))]
+    use rsnano_types::{PrivateKey, Vote, VoteDelivery};
+    #[cfg(not(feature = "rai_protocol"))]
     use std::sync::Arc;
 
     #[test]
@@ -642,7 +654,7 @@ mod tests {
         use crate::consensus::{election::RaiElectionKind, rai::RaiEpoch};
 
         let mut container = ActiveElectionsContainer::default();
-        container.rai_epoch_manager.open_epoch(RaiEpoch::new(7));
+        container.rai_epoch_manager.open_epoch(RaiEpoch::new(1));
         let block = SavedBlock::new_test_instance();
         let root = block.qualified_root();
 
@@ -657,12 +669,33 @@ mod tests {
             )
             .unwrap();
 
-        container.rai_epoch_manager.open_epoch(RaiEpoch::new(8));
+        container.rai_epoch_manager.open_epoch(RaiEpoch::new(2));
         let election = container.election_for_root(&root).unwrap();
         assert_eq!(election.qualified_root(), &root);
         assert_eq!(election.rai_kind(), RaiElectionKind::Slot);
-        assert_eq!(election.rai_epoch(), RaiEpoch::new(7));
+        assert_eq!(election.rai_epoch(), RaiEpoch::new(1));
         assert_eq!(election.rai_round(), 0);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn epoch_two_election_requires_close_zero() {
+        use crate::consensus::rai::RaiEpoch;
+
+        let mut container = ActiveElectionsContainer::default();
+        container.rai_epoch_manager.open_epoch(RaiEpoch::new(2));
+
+        let result = container.insert(
+            AecInsertRequest {
+                block: SavedBlock::new_test_instance(),
+                behavior: ElectionBehavior::Priority,
+                priority: BlockPriority::new_test_instance(),
+            },
+            Timestamp::new_test_instance(),
+        );
+
+        assert_eq!(result, Err(AecInsertError::MissingRaiGoverningClose));
+        assert_eq!(container.len(), 0);
     }
 
     #[cfg(not(feature = "rai_protocol"))]
