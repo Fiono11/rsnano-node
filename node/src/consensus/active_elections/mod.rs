@@ -63,6 +63,8 @@ pub enum AecFact {
         HashMap<BlockHash, Result<(), VoteError>>,
     ),
     Recovered,
+    #[cfg(feature = "rai_protocol")]
+    RaiCloseInstalled(crate::consensus::rai::RaiFrontierMap),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

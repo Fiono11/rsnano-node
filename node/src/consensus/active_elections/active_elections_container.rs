@@ -611,9 +611,17 @@ impl ActiveElectionsContainer {
                                 let _ = self.rai_epoch_manager.decide_close_cut(epoch, round, hash);
                             }
                             crate::consensus::election::RaiElectionKind::CloseRecord => {
-                                let _ = self
-                                    .rai_epoch_manager
-                                    .install_close_record(epoch, round, hash);
+                                if let Ok(frontiers) =
+                                    self.rai_epoch_manager.install_certified_close_record(
+                                        epoch,
+                                        round,
+                                        hash,
+                                        args.rep_weights.clone(),
+                                    )
+                                {
+                                    let frontiers = frontiers.clone();
+                                    self.notify(AecFact::RaiCloseInstalled(frontiers));
+                                }
                             }
                             crate::consensus::election::RaiElectionKind::Slot => {}
                         }
@@ -1050,6 +1058,15 @@ mod tests {
             container.rai_epoch_manager.state().closed_through,
             Some(crate::consensus::rai::RaiEpoch::ZERO)
         );
+        assert_eq!(
+            container.rai_epoch_manager.state().open_epoch,
+            crate::consensus::rai::RaiEpoch::new(1)
+        );
+        assert_eq!(
+            container.rai_epoch_manager.committee_at(0).unwrap(),
+            std::sync::Arc::new(RepWeights::default())
+        );
+        assert!(container.election_for_root(&root).is_none());
     }
 
     #[cfg(feature = "rai_protocol")]

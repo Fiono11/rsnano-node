@@ -1256,10 +1256,27 @@ mod tests {
         let send = LedgerInserter::new(&ledger)
             .genesis()
             .send(Account::from(99), 1);
+        let epoch_one = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(Account::from(100), 1);
         assert_eq!(ledger.rai_finalization_epoch(&send.hash()), None);
 
         ledger.confirm_batch_rai(
-            [(&send.hash(), Some(RaiEpoch::new(7)))],
+            [(&send.hash(), Some(RaiEpoch::ZERO))],
+            &AtomicBool::new(false),
+            1024,
+            &mut Observer,
+        );
+        ledger.confirm_batch_rai(
+            [(&epoch_one.hash(), Some(RaiEpoch::new(1)))],
+            &AtomicBool::new(false),
+            1024,
+            &mut Observer,
+        );
+        // Installing the same close frontier again is inert, and must not
+        // overwrite ordinary successor-epoch finalization metadata.
+        ledger.confirm_batch_rai(
+            [(&send.hash(), Some(RaiEpoch::ZERO))],
             &AtomicBool::new(false),
             1024,
             &mut Observer,
@@ -1267,10 +1284,14 @@ mod tests {
 
         assert_eq!(
             ledger.rai_finalization_epoch(&send.hash()),
-            Some(RaiEpoch::new(7))
+            Some(RaiEpoch::ZERO)
         );
         assert_eq!(
-            ledger.rai_frontier_delta(RaiEpoch::new(7), &send.account()),
+            ledger.rai_finalization_epoch(&epoch_one.hash()),
+            Some(RaiEpoch::new(1))
+        );
+        assert_eq!(
+            ledger.rai_frontier_delta(RaiEpoch::ZERO, &send.account()),
             Some(ConfirmationHeightInfo::new(send.height(), send.hash()))
         );
         assert_eq!(

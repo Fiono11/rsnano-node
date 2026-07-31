@@ -458,6 +458,21 @@ impl RaiEpochManager {
         round: u32,
         hash: BlockHash,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
+        let certified_weights = self
+            .close_committee(epoch)
+            .ok_or(CloseRecordDecisionError::MissingPreimage)?
+            .as_ref()
+            .clone();
+        self.install_certified_close_record(epoch, round, hash, certified_weights)
+    }
+
+    pub fn install_certified_close_record(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        hash: BlockHash,
+        certified_weights: RepWeights,
+    ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
         if let Some(existing) = self.close_hashes.get(&epoch) {
             return if *existing == hash {
                 Ok(&self
@@ -505,6 +520,9 @@ impl RaiEpochManager {
             return Err(CloseRecordDecisionError::MissingPreimage);
         }
         self.close_hashes.insert(epoch, hash);
+        self.committees
+            .entry(epoch)
+            .or_insert_with(|| Arc::new(certified_weights));
         self.state.closed_through = Some(epoch);
         self.state.closing = None;
         Ok(&self
@@ -1117,22 +1135,35 @@ mod tests {
 
         let expected: RaiFrontierMap = frontiers.clone().into_iter().collect();
         assert_eq!(
-            manager.install_close_record(0.into(), 0, close).unwrap(),
+            manager
+                .install_certified_close_record(
+                    0.into(),
+                    0,
+                    close,
+                    weights(2, 200).as_ref().clone(),
+                )
+                .unwrap(),
             &expected
         );
         assert!(manager.closing_epoch().is_none());
         assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
         assert_eq!(
-            manager.committee_at(-1).unwrap().weight(&key.public_key()),
-            Amount::raw(100)
+            manager.committee_at(0).unwrap().weight(&PublicKey::from(2)),
+            Amount::raw(200)
         );
         assert_eq!(manager.installed_close_hash(0.into()), Some(close));
         assert_eq!(
             manager.install_close_record(0.into(), 0, BlockHash::from(99)),
             Err(CloseRecordDecisionError::ImmutableDecision)
         );
-        manager.install_close_record(0.into(), 0, close).unwrap();
+        manager
+            .install_certified_close_record(0.into(), 0, close, weights(3, 300).as_ref().clone())
+            .unwrap();
         assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
+        assert_eq!(
+            manager.committee_at(0).unwrap().weight(&PublicKey::from(3)),
+            Amount::ZERO
+        );
 
         let durable = manager.durable_close_state(0.into()).unwrap();
         let mut restarted = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));

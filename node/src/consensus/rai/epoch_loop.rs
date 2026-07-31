@@ -349,7 +349,12 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                 }
             }
             RaiCloseKind::Record => {
-                let _ = self.epoch_manager.install_close_record(epoch, round, hash);
+                let Some(weights) = self.driver.certified_weights(epoch) else {
+                    return;
+                };
+                let _ = self
+                    .epoch_manager
+                    .install_certified_close_record(epoch, round, hash, weights);
             }
         }
     }

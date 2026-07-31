@@ -112,6 +112,12 @@ impl ConfirmingSet {
         self.thread.add(hash, None);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_rai_close_block(&self, hash: BlockHash) {
+        self.thread
+            .add_with_finalization_epoch(hash, RaiEpoch::ZERO);
+    }
+
     /// Adds a block + its election to the set of blocks to be confirmed
     pub fn add(&self, election: ConfirmedElection) {
         self.thread.add(election.winner.hash(), Some(election));
@@ -226,6 +232,34 @@ struct ConfirmingSetThread {
 }
 
 impl ConfirmingSetThread {
+    #[cfg(feature = "rai_protocol")]
+    fn add_with_finalization_epoch(&self, hash: BlockHash, epoch: RaiEpoch) {
+        let added;
+        let mut near_full_warning = false;
+        {
+            let mut guard = self.mutex.lock().unwrap();
+            added = guard.set.push_back(CementingEntry {
+                confirmation_root: hash,
+                timestamp: Instant::now(),
+                finalization_epoch: Some(epoch),
+            });
+            if !guard.near_full && guard.set.len() + guard.current.len() >= guard.near_full_limit {
+                guard.near_full = true;
+                near_full_warning = true;
+            }
+        }
+        if added {
+            self.condition.notify_all();
+            self.stats.inc(StatType::ConfirmingSet, DetailType::Insert);
+        } else {
+            self.stats
+                .inc(StatType::ConfirmingSet, DetailType::Duplicate);
+        }
+        if near_full_warning {
+            self.notify(ConfirmingSetEvent::NearFull);
+        }
+    }
+
     fn stop(&self) {
         {
             let _guard = self.mutex.lock().unwrap();
