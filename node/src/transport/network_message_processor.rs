@@ -37,6 +37,8 @@ pub struct NetworkMessageProcessor {
     work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<crate::consensus::AecService>,
 }
 
 impl NetworkMessageProcessor {
@@ -53,6 +55,7 @@ impl NetworkMessageProcessor {
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
+        #[cfg(feature = "rai_protocol")] active_elections: Arc<crate::consensus::AecService>,
     ) -> Self {
         Self {
             stats,
@@ -68,6 +71,8 @@ impl NetworkMessageProcessor {
             work_thresholds,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
+            #[cfg(feature = "rai_protocol")]
+            active_elections,
         }
     }
 
@@ -215,6 +220,10 @@ impl NetworkMessageProcessor {
             Message::SnapshotProposalVote(proposal_vote) => {
                 self.ledger_snapshots.handle_vote(proposal_vote);
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReport(report) => {
+                self.active_elections.rai_report_received(report.into());
+            }
         }
     }
 }
@@ -291,6 +300,8 @@ mod tests {
             Bootstrapper::new_null().into(),
             WorkThresholds::new_stub(),
             ledger_snapshots.into(),
+            #[cfg(feature = "rai_protocol")]
+            crate::consensus::AecService::new_null().into(),
         )
     }
 }

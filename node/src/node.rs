@@ -836,6 +836,19 @@ impl Node {
         // Start bootstrap from genesis account
         bootstrapper.enqueue(network_params.ledger.genesis_account);
 
+        #[cfg(feature = "rai_protocol")]
+        ticker_pool.insert(
+            crate::consensus::RaiEpochTicker::new(
+                active_elections.clone(),
+                steady_clock.clone(),
+                wallet_reps.clone(),
+                ledger.clone(),
+                config.rai.epoch_duration,
+                message_flooder.clone(),
+            ),
+            config.rai.tick_interval,
+        );
+
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
@@ -956,6 +969,8 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         ));
 
         let network_threads = Arc::new(Mutex::new(NetworkThreads::new(

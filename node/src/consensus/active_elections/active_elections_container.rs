@@ -51,6 +51,155 @@ pub(crate) struct ActiveElectionsContainer {
 
 impl ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
+    pub fn rai_tick(
+        &mut self,
+        now: Timestamp,
+        local_key: &rsnano_types::PrivateKey,
+        epoch_duration: Duration,
+    ) -> Vec<crate::consensus::rai::RaiReport> {
+        self.process_rai_event(
+            crate::consensus::rai::RaiEpochEvent::Tick(now),
+            local_key,
+            epoch_duration,
+            now,
+        )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_report_received(
+        &mut self,
+        report: crate::consensus::rai::RaiReport,
+        local_key: &rsnano_types::PrivateKey,
+        epoch_duration: Duration,
+        now: Timestamp,
+    ) {
+        self.process_rai_event(
+            crate::consensus::rai::RaiEpochEvent::ReportReceived(report),
+            local_key,
+            epoch_duration,
+            now,
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_progress_close(
+        &mut self,
+        frontiers: crate::consensus::rai::RaiFrontierMap,
+        now: Timestamp,
+    ) {
+        use crate::consensus::rai::{RaiCloseElectionId, RaiCloseKind, RaiClosingPhase};
+
+        let Some(closing) = self.rai_epoch_manager.closing_epoch() else {
+            return;
+        };
+        if closing.phase != RaiClosingPhase::Draining {
+            return;
+        }
+        self.rai_epoch_manager
+            .initialize_drain_frontiers(closing.epoch, frontiers);
+        let Some((root, candidate)) = self.rai_epoch_manager.begin_close_record() else {
+            return;
+        };
+        let Some(committee) = self.rai_epoch_manager.close_committee(closing.epoch) else {
+            return;
+        };
+        let _ = self.insert_close_record(
+            super::RaiCloseElectionSpec {
+                id: RaiCloseElectionId {
+                    kind: RaiCloseKind::Record,
+                    epoch: closing.epoch,
+                    round: 0,
+                },
+                root,
+                candidate,
+                committee,
+            },
+            now,
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn process_rai_event(
+        &mut self,
+        event: crate::consensus::rai::RaiEpochEvent,
+        local_key: &rsnano_types::PrivateKey,
+        epoch_duration: Duration,
+        now: Timestamp,
+    ) -> Vec<crate::consensus::rai::RaiReport> {
+        use crate::consensus::rai::{RaiEpochLoop, RaiEpochLoopDriver};
+
+        #[derive(Default)]
+        struct LiveDriver {
+            reports: Vec<crate::consensus::rai::RaiReport>,
+            close_elections: Vec<(
+                crate::consensus::rai::RaiCloseKind,
+                rsnano_types::RaiEpoch,
+                u32,
+                QualifiedRoot,
+                BlockHash,
+            )>,
+        }
+
+        impl RaiEpochLoopDriver for LiveDriver {
+            fn start_close_election(
+                &mut self,
+                kind: crate::consensus::rai::RaiCloseKind,
+                epoch: rsnano_types::RaiEpoch,
+                round: u32,
+                root: QualifiedRoot,
+                hash: BlockHash,
+            ) {
+                self.close_elections.push((kind, epoch, round, root, hash));
+            }
+
+            fn close_election_winner(
+                &self,
+                _kind: crate::consensus::rai::RaiCloseKind,
+                _epoch: rsnano_types::RaiEpoch,
+                _round: u32,
+            ) -> Option<BlockHash> {
+                None
+            }
+
+            fn broadcast_report(&mut self, report: crate::consensus::rai::RaiReport) {
+                self.reports.push(report);
+            }
+        }
+
+        // Keep one source of truth: this is the same manager used by active
+        // elections and the rai_status RPC, moved through the loop for a tick.
+        let replacement = crate::consensus::rai::RaiEpochManager::new(
+            std::sync::Arc::new(RepWeights::default()),
+            BlockHash::ZERO,
+        );
+        let manager = std::mem::replace(&mut self.rai_epoch_manager, replacement);
+        let started_at = manager.state().open_started_at;
+        let mut epoch_loop = RaiEpochLoop::new(
+            manager,
+            LiveDriver::default(),
+            local_key.clone(),
+            epoch_duration,
+            started_at,
+        );
+        epoch_loop.process(event);
+        let (manager, driver) = epoch_loop.into_parts();
+        self.rai_epoch_manager = manager;
+        for (kind, epoch, round, root, candidate) in driver.close_elections {
+            let Some(committee) = self.rai_epoch_manager.close_committee(epoch) else {
+                continue;
+            };
+            let spec = super::RaiCloseElectionSpec {
+                id: crate::consensus::rai::RaiCloseElectionId { kind, epoch, round },
+                root,
+                candidate,
+                committee,
+            };
+            let _ = self.insert_close_election(spec, now);
+        }
+        driver.reports
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_epoch_state(&self) -> &crate::consensus::rai::RaiEpochState {
         self.rai_epoch_manager.state()
     }
@@ -58,6 +207,21 @@ impl ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     pub fn rai_installed_close_hash(&self, epoch: rsnano_types::RaiEpoch) -> Option<BlockHash> {
         self.rai_epoch_manager.installed_close_hash(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_decided_cut_hashes(
+        &self,
+    ) -> &std::collections::BTreeMap<rsnano_types::RaiEpoch, BlockHash> {
+        self.rai_epoch_manager.decided_cut_hashes()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_happy_path_drains(
+        &self,
+    ) -> &std::collections::BTreeMap<rsnano_types::RaiEpoch, crate::consensus::rai::RaiHappyPathDrain>
+    {
+        self.rai_epoch_manager.happy_path_drains()
     }
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {

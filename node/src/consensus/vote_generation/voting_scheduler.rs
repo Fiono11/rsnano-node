@@ -14,13 +14,30 @@ pub(crate) struct VoteTarget {
     pub root: QualifiedRoot,
     pub winner: BlockHash,
     pub vote_type: VoteType,
+    #[cfg(feature = "rai_protocol")]
+    pub metadata: rsnano_types::RaiVoteMetadata,
+    #[cfg(feature = "rai_protocol")]
+    pub is_rai_close: bool,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
         root: e.qualified_root().clone(),
-        winner: e.winner().hash(),
+        winner: {
+            #[cfg(feature = "rai_protocol")]
+            {
+                e.voting_hash()
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                e.winner().hash()
+            }
+        },
         vote_type: e.vote_type(),
+        #[cfg(feature = "rai_protocol")]
+        metadata: e.rai_vote_metadata(),
+        #[cfg(feature = "rai_protocol")]
+        is_rai_close: e.is_rai_close(),
     }
 }
 
@@ -181,6 +198,53 @@ mod tests {
         assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn vote_target_carries_the_election_context() {
+        use crate::consensus::election::ElectionBehavior;
+        use rsnano_types::{RaiEpoch, SavedBlock};
+
+        let governing_hash = BlockHash::from(42);
+        let election = Election::new_slot(
+            SavedBlock::new_test_instance(),
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            t(0),
+            RaiEpoch::new(3),
+        )
+        .with_rai_governing_hash(Some(governing_hash));
+
+        let target = vote_target(&election);
+
+        assert_eq!(target.metadata.epoch, RaiEpoch::new(3));
+        assert_eq!(target.metadata.governing_hash, governing_hash);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn close_vote_targets_the_digest_not_the_placeholder_block() {
+        use crate::consensus::rai::{RaiCloseElectionId, RaiCloseKind};
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::RaiEpoch;
+        use std::sync::Arc;
+
+        let candidate = BlockHash::from(42);
+        let election = Election::new_close(
+            RaiCloseElectionId {
+                kind: RaiCloseKind::Cut,
+                epoch: RaiEpoch::ZERO,
+                round: 0,
+            },
+            QualifiedRoot::new_test_instance(),
+            candidate,
+            Arc::new(RepWeights::default()),
+            Duration::from_secs(1),
+            t(0),
+        );
+
+        assert_eq!(vote_target(&election).winner, candidate);
+    }
+
     /*
      * Test helpers
      */
@@ -196,6 +260,10 @@ mod tests {
             root: QualifiedRoot::new_test_instance(),
             winner: BlockHash::from(1),
             vote_type,
+            #[cfg(feature = "rai_protocol")]
+            metadata: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            is_rai_close: false,
         }
     }
 
@@ -204,6 +272,10 @@ mod tests {
             root: QualifiedRoot::new_test_instance(),
             winner: BlockHash::from(2),
             vote_type,
+            #[cfg(feature = "rai_protocol")]
+            metadata: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            is_rai_close: false,
         }
     }
 

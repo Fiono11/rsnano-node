@@ -8,6 +8,8 @@ mod stats;
 mod vote_router;
 
 pub use active_elections_container::*;
+#[cfg(feature = "rai_protocol")]
+pub use aec_service::RaiEpochTicker;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 

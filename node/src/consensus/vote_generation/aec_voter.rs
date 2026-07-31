@@ -49,8 +49,15 @@ impl AecVoter {
     fn flush(&self, queue: &mut Vec<VoteTarget>) {
         // TODO: enqueue with one call
         for target in queue.drain(..) {
-            self.vote_generators
-                .generate_vote(&target.root.root, &target.winner, target.vote_type);
+            self.vote_generators.generate_vote_with_context(
+                &target.root.root,
+                &target.winner,
+                target.vote_type,
+                #[cfg(feature = "rai_protocol")]
+                target.metadata,
+                #[cfg(feature = "rai_protocol")]
+                target.is_rai_close,
+            );
         }
     }
 }

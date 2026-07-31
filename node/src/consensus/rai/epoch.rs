@@ -376,6 +376,10 @@ impl RaiEpochManager {
         self.cut_hashes.get(&epoch).copied()
     }
 
+    pub fn decided_cut_hashes(&self) -> &BTreeMap<RaiEpoch, BlockHash> {
+        &self.cut_hashes
+    }
+
     pub fn close_cut_round(&self, epoch: RaiEpoch) -> Option<u32> {
         self.cut_rounds
             .get(&epoch)
@@ -665,6 +669,10 @@ impl RaiEpochManager {
 
     pub fn happy_path_drain(&self, epoch: RaiEpoch) -> Option<&RaiHappyPathDrain> {
         self.drains.get(&epoch)
+    }
+
+    pub fn happy_path_drains(&self) -> &BTreeMap<RaiEpoch, RaiHappyPathDrain> {
+        &self.drains
     }
 
     /// After a cut, only included elections from the closing epoch remain

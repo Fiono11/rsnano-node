@@ -57,6 +57,28 @@ impl RaiReport {
     }
 }
 
+impl From<RaiReport> for rsnano_messages::RaiReportMessage {
+    fn from(report: RaiReport) -> Self {
+        Self {
+            reporter: report.reporter,
+            epoch: report.epoch,
+            visible_obligations: report.visible_obligations.into_iter().collect(),
+            signature: report.signature,
+        }
+    }
+}
+
+impl From<rsnano_messages::RaiReportMessage> for RaiReport {
+    fn from(report: rsnano_messages::RaiReportMessage) -> Self {
+        Self {
+            reporter: report.reporter,
+            epoch: report.epoch,
+            visible_obligations: report.visible_obligations.into_iter().collect(),
+            signature: report.signature,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReportInsert {
     Added,

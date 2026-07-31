@@ -230,6 +230,14 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
         &mut self.epoch_manager
     }
 
+    pub fn into_epoch_manager(self) -> RaiEpochManager {
+        self.epoch_manager
+    }
+
+    pub fn into_parts(self) -> (RaiEpochManager, D) {
+        (self.epoch_manager, self.driver)
+    }
+
     pub fn driver(&self) -> &D {
         &self.driver
     }

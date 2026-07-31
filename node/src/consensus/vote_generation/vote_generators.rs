@@ -136,16 +136,49 @@ impl VoteGenerators {
     }
 
     pub fn generate_vote(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
+        self.generate_vote_with_context(
+            root,
+            hash,
+            vote_type,
+            #[cfg(feature = "rai_protocol")]
+            Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            false,
+        );
+    }
+
+    pub fn generate_vote_with_context(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        vote_type: VoteType,
+        #[cfg(feature = "rai_protocol")] metadata: rsnano_types::RaiVoteMetadata,
+        #[cfg(feature = "rai_protocol")] is_rai_close: bool,
+    ) {
         match vote_type {
             VoteType::NonFinal => {
                 self.stats
                     .inc(StatType::Election, DetailType::GenerateVoteNormal);
-                self.non_final_vote_generator.add(root, hash);
+                self.non_final_vote_generator.add(
+                    root,
+                    hash,
+                    #[cfg(feature = "rai_protocol")]
+                    metadata,
+                    #[cfg(feature = "rai_protocol")]
+                    is_rai_close,
+                );
             }
             VoteType::Final => {
                 self.stats
                     .inc(StatType::Election, DetailType::GenerateVoteFinal);
-                self.final_vote_generator.add(root, hash);
+                self.final_vote_generator.add(
+                    root,
+                    hash,
+                    #[cfg(feature = "rai_protocol")]
+                    metadata,
+                    #[cfg(feature = "rai_protocol")]
+                    is_rai_close,
+                );
             }
         }
     }

@@ -98,6 +98,35 @@ impl LmdbRaiFinalizationStore {
         }
         result
     }
+
+    pub fn frontiers_through(
+        &self,
+        txn: &dyn Transaction,
+        through: RaiEpoch,
+    ) -> BTreeMap<Account, ConfirmationHeightInfo> {
+        let mut result: BTreeMap<Account, ConfirmationHeightInfo> = BTreeMap::new();
+        let mut cursor = txn
+            .open_ro_cursor(self.epoch_deltas)
+            .expect("could not open RAI epoch frontier cursor");
+        for row in cursor.iter_start() {
+            let (key, mut value) = row.expect("could not read RAI epoch frontier");
+            let epoch = RaiEpoch::new(u64::from_be_bytes(
+                key[..8].try_into().expect("invalid RAI epoch frontier key"),
+            ));
+            if epoch > through {
+                break;
+            }
+            let account =
+                Account::from_bytes(key[8..].try_into().expect("invalid RAI epoch account key"));
+            let info = ConfirmationHeightInfo::deserialize(&mut value)
+                .expect("invalid RAI epoch frontier");
+            let current = result.entry(account).or_default();
+            if info.height > current.height {
+                *current = info;
+            }
+        }
+        result
+    }
 }
 
 #[cfg(test)]
@@ -119,9 +148,14 @@ mod tests {
         assert_eq!(store.epoch(&txn, &hash), Some(RaiEpoch::new(7)));
         assert_eq!(
             store.frontier_delta(&txn, RaiEpoch::new(7), &account),
-            Some(info)
+            Some(info.clone())
         );
         assert_eq!(store.frontier_delta(&txn, RaiEpoch::new(8), &account), None);
+        assert!(store.frontiers_through(&txn, RaiEpoch::new(6)).is_empty());
+        assert_eq!(
+            store.frontiers_through(&txn, RaiEpoch::new(7)),
+            BTreeMap::from([(account, info)])
+        );
         assert_eq!(
             store.counts_by_epoch(&txn),
             BTreeMap::from([(RaiEpoch::new(7), 1)])

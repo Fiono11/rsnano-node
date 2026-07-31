@@ -14,6 +14,8 @@ use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{RaiVoteMetadata, RaiVotePhase};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -31,9 +33,29 @@ pub struct VoteRequest {
     pub channel: Arc<Channel>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VoteCandidate {
+    root: Root,
+    hash: BlockHash,
+    #[cfg(feature = "rai_protocol")]
+    metadata: RaiVoteMetadata,
+    #[cfg(feature = "rai_protocol")]
+    is_rai_close: bool,
+}
+
+impl VoteCandidate {
+    fn same_context(&self, _other: &Self) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        return self.metadata == _other.metadata;
+
+        #[cfg(not(feature = "rai_protocol"))]
+        true
+    }
+}
+
 pub(crate) struct VoteGenerator {
     ledger: Arc<Ledger>,
-    vote_generation_queue: ProcessingQueue<(Root, BlockHash)>,
+    vote_generation_queue: ProcessingQueue<VoteCandidate>,
     shared_state: Arc<SharedState>,
     thread: Mutex<Option<JoinHandle<()>>>,
     stats: Arc<Stats>,
@@ -128,8 +150,21 @@ impl VoteGenerator {
     }
 
     /// Queue items for vote generation, or broadcast votes already in cache
-    pub(crate) fn add(&self, root: &Root, hash: &BlockHash) {
-        self.vote_generation_queue.add((*root, *hash));
+    pub(crate) fn add(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        #[cfg(feature = "rai_protocol")] metadata: RaiVoteMetadata,
+        #[cfg(feature = "rai_protocol")] is_rai_close: bool,
+    ) {
+        self.vote_generation_queue.add(VoteCandidate {
+            root: *root,
+            hash: *hash,
+            #[cfg(feature = "rai_protocol")]
+            metadata,
+            #[cfg(feature = "rai_protocol")]
+            is_rai_close,
+        });
     }
 
     /// Queue blocks for vote generation, returning the number of successful candidates.
@@ -267,9 +302,17 @@ impl SharedState {
     fn broadcast<'a>(&'a self, mut queues: MutexGuard<'a, Queues>) -> MutexGuard<'a, Queues> {
         let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+        let context = queues.candidates.front().copied();
         {
             let spacing = self.spacing.lock().unwrap();
-            while let Some((root, hash)) = queues.candidates.pop_front() {
+            while queues
+                .candidates
+                .front()
+                .is_some_and(|candidate| context.unwrap().same_context(candidate))
+            {
+                let candidate = queues.candidates.pop_front().unwrap();
+                let root = candidate.root;
+                let hash = candidate.hash;
                 if !roots.contains(&root) {
                     if spacing.votable(&root, &hash, self.clock.now()) {
                         roots.push(root);
@@ -287,29 +330,40 @@ impl SharedState {
 
         if !hashes.is_empty() {
             drop(queues);
-            self.vote(&hashes, &roots, |generated_vote| {
-                self.stats
-                    .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
-                let sample = if self.is_final {
-                    Sample::VoteGeneratorFinalHashes
-                } else {
-                    Sample::VoteGeneratorHashes
-                };
-                self.stats.sample(
-                    sample,
-                    generated_vote.hashes.len() as i64,
-                    (0, ConfirmAck::HASHES_MAX as i64),
-                );
-                self.vote_broadcaster.broadcast(generated_vote);
-            });
+            self.vote(
+                &hashes,
+                &roots,
+                #[cfg(feature = "rai_protocol")]
+                context.unwrap().metadata,
+                |generated_vote| {
+                    self.stats
+                        .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
+                    let sample = if self.is_final {
+                        Sample::VoteGeneratorFinalHashes
+                    } else {
+                        Sample::VoteGeneratorHashes
+                    };
+                    self.stats.sample(
+                        sample,
+                        generated_vote.hashes.len() as i64,
+                        (0, ConfirmAck::HASHES_MAX as i64),
+                    );
+                    self.vote_broadcaster.broadcast(generated_vote);
+                },
+            );
             queues = self.queues.lock().unwrap();
         }
 
         queues
     }
 
-    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], action: F)
-    where
+    fn vote<F>(
+        &self,
+        hashes: &[BlockHash],
+        roots: &[Root],
+        #[cfg(feature = "rai_protocol")] mut metadata: RaiVoteMetadata,
+        action: F,
+    ) where
         F: Fn(Arc<Vote>),
     {
         debug_assert_eq!(hashes.len(), roots.len());
@@ -332,6 +386,22 @@ impl SharedState {
             } else {
                 0x9 /*8192ms*/
             };
+            #[cfg(feature = "rai_protocol")]
+            {
+                metadata.phase = if self.is_final {
+                    RaiVotePhase::Final
+                } else {
+                    RaiVotePhase::First
+                };
+                votes.push(Arc::new(Vote::new_rai(
+                    &rep_key,
+                    timestamp,
+                    duration,
+                    hashes.to_vec(),
+                    metadata,
+                )));
+            }
+            #[cfg(not(feature = "rai_protocol"))]
             votes.push(Arc::new(Vote::new(
                 &rep_key,
                 timestamp,
@@ -382,28 +452,48 @@ impl SharedState {
                     Direction::In,
                     hashes.len() as u64,
                 );
-                self.vote(&hashes, &roots, |vote| {
-                    let confirm =
-                        Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
-                    self.message_sender.lock().unwrap().try_send(
-                        &request.channel,
-                        &confirm,
-                        TrafficType::Vote,
-                    );
-                    self.stats.inc_dir(
-                        StatType::Requests,
-                        DetailType::RequestsGeneratedVotes,
-                        Direction::In,
-                    );
-                });
+                self.vote(
+                    &hashes,
+                    &roots,
+                    #[cfg(feature = "rai_protocol")]
+                    RaiVoteMetadata::default(),
+                    |vote| {
+                        let confirm =
+                            Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                        self.message_sender.lock().unwrap().try_send(
+                            &request.channel,
+                            &confirm,
+                            TrafficType::Vote,
+                        );
+                        self.stats.inc_dir(
+                            StatType::Requests,
+                            DetailType::RequestsGeneratedVotes,
+                            Direction::In,
+                        );
+                    },
+                );
             }
         }
         self.stats
             .inc(self.stat_type(), DetailType::GeneratorReplies);
     }
 
-    fn process_batch(&self, batch: VecDeque<(Root, BlockHash)>) {
-        let verified = self.ledger.verify_votes(batch, self.is_final);
+    fn process_batch(&self, batch: VecDeque<VoteCandidate>) {
+        let pairs = batch
+            .iter()
+            .map(|candidate| (candidate.root, candidate.hash))
+            .collect();
+        let verified = self.ledger.verify_votes(pairs, self.is_final);
+        let verified = batch
+            .into_iter()
+            .filter(|candidate| {
+                #[cfg(feature = "rai_protocol")]
+                if candidate.is_rai_close {
+                    return true;
+                }
+                verified.contains(&(candidate.root, candidate.hash))
+            })
+            .collect::<VecDeque<_>>();
 
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
@@ -429,7 +519,7 @@ impl SharedState {
 }
 
 struct Queues {
-    candidates: VecDeque<(Root, BlockHash)>,
+    candidates: VecDeque<VoteCandidate>,
     requests: VecDeque<VoteRequest>,
     next_broadcast: Instant,
 }

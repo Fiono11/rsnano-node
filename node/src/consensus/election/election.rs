@@ -220,6 +220,15 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_vote_metadata(&self) -> rsnano_types::RaiVoteMetadata {
+        rsnano_types::RaiVoteMetadata {
+            epoch: self.rai_epoch,
+            governing_hash: self.rai_governing_hash.unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn with_rai_committees(mut self, committees: Vec<Arc<RepWeights>>) -> Self {
         self.rai_votes = RaiElectionVoteState::new(committees);
         self
@@ -445,6 +454,26 @@ impl Election {
 
     pub fn winner(&self) -> &MaybeSavedBlock {
         &self.winner
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn voting_hash(&self) -> BlockHash {
+        match self.rai_kind {
+            RaiElectionKind::Slot => self.winner.hash(),
+            RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord => *self
+                .rai_hash_candidates
+                .iter()
+                .next()
+                .expect("close election must have a candidate"),
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn is_rai_close(&self) -> bool {
+        matches!(
+            self.rai_kind,
+            RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord
+        )
     }
 
     pub fn force_confirm(&mut self) -> bool {

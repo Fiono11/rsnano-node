@@ -273,9 +273,10 @@ impl Ledger {
     #[cfg(feature = "rai_protocol")]
     pub fn rai_confirmation_frontiers(
         &self,
+        through: rsnano_types::RaiEpoch,
     ) -> std::collections::BTreeMap<Account, ConfirmationHeightInfo> {
         let txn = self.store.begin_read();
-        self.store.confirmation_height.iter(&txn).collect()
+        self.store.rai_finalization.frontiers_through(&txn, through)
     }
 
     /// Representative weights at the cemented frontiers. Unconfirmed balance

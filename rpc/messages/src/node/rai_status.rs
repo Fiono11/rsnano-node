@@ -12,8 +12,12 @@ impl RpcCommand {
 pub struct RaiStatusResponse {
     pub open_epoch: RpcU64,
     pub closing_epoch: Option<RpcU64>,
+    pub closing_phase: Option<String>,
     pub closed_through: Option<RpcU64>,
+    pub cut_hashes: BTreeMap<String, String>,
     pub close_hashes: BTreeMap<String, String>,
+    pub drain_obligations: BTreeMap<String, RpcU64>,
+    pub drain_finalized: BTreeMap<String, RpcU64>,
     pub finalized_by_epoch: BTreeMap<String, RpcU64>,
 }
 
