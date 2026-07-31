@@ -17,7 +17,7 @@ pub use election_id::{rai_close_cut_root, rai_close_record_root};
 pub use election_vote_state::*;
 pub use epoch::{
     CloseRecordDecisionError, RaiClosingEpoch, RaiClosingPhase, RaiDurableCloseRoundState,
-    RaiDurableCloseState, RaiEpochManager, RaiEpochState,
+    RaiDurableCloseState, RaiEpochManager, RaiEpochState, RaiHappyPathDrain,
 };
 pub use epoch_loop::*;
 pub use report::*;

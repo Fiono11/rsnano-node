@@ -2,7 +2,9 @@ use std::{collections::BTreeSet, time::Duration};
 
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, ConfirmationHeightInfo, PrivateKey, QualifiedRoot, RaiEpoch};
+use rsnano_types::{
+    Account, BlockHash, ConfirmationHeightInfo, PrivateKey, QualifiedRoot, RaiEpoch,
+};
 
 use super::{RaiCloseKind, RaiClosingPhase, RaiEpochManager, RaiReport, ReportInsert};
 
@@ -152,6 +154,29 @@ pub trait RaiEpochLoopDriver {
         false
     }
 
+    /// Persistent vote evidence for a normal slot election.
+    fn slot_vote_evidence(
+        &self,
+        _epoch: RaiEpoch,
+        _root: &QualifiedRoot,
+    ) -> Option<super::RaiElectionVoteState> {
+        None
+    }
+
+    /// The epoch-local segment ending at the certified winner.
+    fn epoch_frontier_segment(
+        &self,
+        _epoch: RaiEpoch,
+        _root: &QualifiedRoot,
+        _winner: BlockHash,
+    ) -> Vec<(Account, ConfirmationHeightInfo)> {
+        Vec::new()
+    }
+
+    /// Applies the cut to active elections. Included old elections and all
+    /// successor-epoch elections remain enabled.
+    fn apply_decided_cut(&mut self, _epoch: RaiEpoch, _included: &BTreeSet<QualifiedRoot>) {}
+
     fn confirmation_heights(&self) -> Vec<(rsnano_types::Account, ConfirmationHeightInfo)> {
         Vec::new()
     }
@@ -232,7 +257,24 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                     self.maybe_start_cut(epoch);
                 }
             }
-            RaiEpochEvent::SlotEvidenceChanged { epoch, root: _ } => {
+            RaiEpochEvent::SlotEvidenceChanged { epoch, root } => {
+                if let Some(evidence) = self.driver.slot_vote_evidence(epoch, &root) {
+                    // Derive the winner before borrowing the driver mutably for
+                    // its corresponding epoch-local ledger segment.
+                    let winner = self
+                        .epoch_manager
+                        .happy_path_drain(epoch)
+                        .and_then(|drain| {
+                            let mut probe = drain.clone();
+                            probe.record_persistent_evidence(&root, &evidence)
+                        });
+                    if let Some(winner) = winner {
+                        let segment = self.driver.epoch_frontier_segment(epoch, &root, winner);
+                        let _ = self
+                            .epoch_manager
+                            .record_drain_evidence(epoch, &root, &evidence, segment);
+                    }
+                }
                 self.maybe_start_record(epoch);
             }
             RaiEpochEvent::CloseElectionChanged { kind, epoch, round } => {
@@ -275,16 +317,18 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
     }
 
     fn maybe_start_record(&mut self, epoch: RaiEpoch) {
-        let Some(obligations) = self.epoch_manager.obligations_to_drain(epoch).cloned() else {
+        let Some(drain) = self.epoch_manager.happy_path_drain(epoch) else {
             return;
         };
-        if !self.driver.obligations_settled(epoch, &obligations) {
+        if !drain.is_complete() {
             return;
         }
-        if let Some((root, hash)) = self
+        let frontiers = self
             .epoch_manager
-            .begin_record_election(true, self.driver.confirmation_heights())
-        {
+            .drain_frontiers(epoch)
+            .cloned()
+            .unwrap_or_default();
+        if let Some((root, hash)) = self.epoch_manager.begin_record_election(true, frontiers) {
             self.driver
                 .start_close_election(RaiCloseKind::Record, epoch, 0, root, hash);
         }
@@ -297,6 +341,15 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
         match kind {
             RaiCloseKind::Cut => {
                 if self.epoch_manager.install_cut(epoch, round, hash).is_ok() {
+                    let obligations = self
+                        .epoch_manager
+                        .obligations_to_drain(epoch)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.driver.apply_decided_cut(epoch, &obligations);
+                    let _ = self
+                        .epoch_manager
+                        .initialize_drain_frontiers(epoch, self.driver.confirmation_heights());
                     self.maybe_start_record(epoch);
                 }
             }

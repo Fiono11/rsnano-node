@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, QualifiedRoot, RaiEpoch};
+use rsnano_types::{Account, BlockHash, ConfirmationHeightInfo, QualifiedRoot, RaiEpoch};
 
 use super::{
     CloseCutDecisionError, RaiCloseCut, RaiCloseCutStore, RaiCloseRecord, RaiCloseRecordStore,
@@ -25,6 +25,60 @@ pub enum RaiClosingPhase {
 pub struct RaiClosingEpoch {
     pub epoch: RaiEpoch,
     pub phase: RaiClosingPhase,
+}
+
+/// The deliberately reduced happy-path drain.  An entry in `finalized` is a
+/// certificate-derived result, not a local election outcome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiHappyPathDrain {
+    pub epoch: RaiEpoch,
+    pub obligations: BTreeSet<QualifiedRoot>,
+    pub finalized: BTreeMap<QualifiedRoot, BlockHash>,
+}
+
+impl RaiHappyPathDrain {
+    pub fn is_complete(&self) -> bool {
+        self.obligations
+            .iter()
+            .all(|root| self.finalized.contains_key(root))
+    }
+
+    /// Records only ordinary valid fast/final evidence agreed by every
+    /// committee. Timeout and selected-notarization are intentionally ignored.
+    pub fn record_persistent_evidence(
+        &mut self,
+        root: &QualifiedRoot,
+        evidence: &super::RaiElectionVoteState,
+    ) -> Option<BlockHash> {
+        if !self.obligations.contains(root) || evidence.committees.is_empty() {
+            return None;
+        }
+        let mut certified = None;
+        for committee in 0..evidence.committees.len() {
+            let hash = match evidence.local_result(committee) {
+                Some(super::RaiLocalResult::Fast(hash) | super::RaiLocalResult::Final(hash)) => {
+                    hash
+                }
+                _ => return None,
+            };
+            if certified
+                .replace(hash)
+                .is_some_and(|previous| previous != hash)
+            {
+                return None;
+            }
+        }
+        let hash = certified?;
+        match self.finalized.entry(root.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(hash);
+                Some(hash)
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                (*entry.get() == hash).then_some(hash)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +127,8 @@ pub struct RaiEpochManager {
     close_records: RaiCloseRecordStore,
     visible_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
     frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
+    drains: BTreeMap<RaiEpoch, RaiHappyPathDrain>,
+    drain_frontiers: BTreeMap<RaiEpoch, BTreeMap<Account, ConfirmationHeightInfo>>,
     cut_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
     record_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
 }
@@ -125,6 +181,8 @@ impl RaiEpochManager {
             close_records: RaiCloseRecordStore::default(),
             visible_obligations: BTreeMap::new(),
             frozen_obligations: BTreeMap::new(),
+            drains: BTreeMap::new(),
+            drain_frontiers: BTreeMap::new(),
             cut_rounds: BTreeMap::new(),
             record_rounds: BTreeMap::new(),
         }
@@ -293,6 +351,14 @@ impl RaiEpochManager {
         }
         self.cut_hashes.insert(epoch, hash);
         self.frozen_obligations.insert(epoch, cut.obligations);
+        self.drains.insert(
+            epoch,
+            RaiHappyPathDrain {
+                epoch,
+                obligations: self.frozen_obligations[&epoch].clone(),
+                finalized: BTreeMap::new(),
+            },
+        );
         self.state.closing.as_mut().unwrap().phase = RaiClosingPhase::Draining;
         Ok(self.frozen_obligations.get(&epoch).expect("just inserted"))
     }
@@ -366,7 +432,10 @@ impl RaiEpochManager {
         >,
     ) -> Option<(QualifiedRoot, BlockHash)> {
         let closing = self.state.closing?;
-        if closing.phase != RaiClosingPhase::Draining || !obligations_settled {
+        if closing.phase != RaiClosingPhase::Draining
+            || !obligations_settled
+            || !self.drains.get(&closing.epoch)?.is_complete()
+        {
             return None;
         }
         let epoch = closing.epoch;
@@ -582,6 +651,67 @@ impl RaiEpochManager {
         self.frozen_obligations.get(&epoch)
     }
 
+    pub fn happy_path_drain(&self, epoch: RaiEpoch) -> Option<&RaiHappyPathDrain> {
+        self.drains.get(&epoch)
+    }
+
+    /// After a cut, only included elections from the closing epoch remain
+    /// enabled. Elections in the already-open successor are unaffected.
+    pub fn slot_election_enabled(&self, epoch: RaiEpoch, root: &QualifiedRoot) -> bool {
+        self.state.closing.is_none_or(|closing| {
+            closing.epoch != epoch
+                || self
+                    .frozen_obligations
+                    .get(&epoch)
+                    .is_none_or(|included| included.contains(root))
+        })
+    }
+
+    /// Captures the certified state immediately preceding this epoch. It may be
+    /// called repeatedly, but the first snapshot is immutable.
+    pub fn initialize_drain_frontiers(
+        &mut self,
+        epoch: RaiEpoch,
+        base: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
+    ) -> bool {
+        if !self.drains.contains_key(&epoch) || self.drain_frontiers.contains_key(&epoch) {
+            return false;
+        }
+        self.drain_frontiers
+            .insert(epoch, base.into_iter().collect());
+        true
+    }
+
+    /// Applies an epoch-local cemented segment after its persistent vote
+    /// certificate has been validated.
+    pub fn record_drain_evidence(
+        &mut self,
+        epoch: RaiEpoch,
+        root: &QualifiedRoot,
+        evidence: &super::RaiElectionVoteState,
+        segment: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
+    ) -> Option<BlockHash> {
+        let hash = self
+            .drains
+            .get_mut(&epoch)?
+            .record_persistent_evidence(root, evidence)?;
+        let frontiers = self.drain_frontiers.get_mut(&epoch)?;
+        for (account, info) in segment {
+            let current = frontiers.entry(account).or_default();
+            if info.height > current.height {
+                *current = info;
+            }
+        }
+        Some(hash)
+    }
+
+    pub fn drain_frontiers(
+        &self,
+        epoch: RaiEpoch,
+    ) -> Option<&BTreeMap<Account, ConfirmationHeightInfo>> {
+        self.drain_frontiers.get(&epoch)
+    }
+
     pub fn durable_close_round_state(&self) -> Option<RaiDurableCloseRoundState> {
         self.state.closing.and_then(|closing| {
             matches!(
@@ -691,7 +821,9 @@ impl RaiEpochManager {
 mod tests {
     use super::*;
     use crate::consensus::rai::RaiReport;
-    use rsnano_types::{Account, Amount, ConfirmationHeightInfo, PrivateKey, PublicKey};
+    use rsnano_types::{
+        Account, Amount, ConfirmationHeightInfo, PrivateKey, PublicKey, RaiCommitteeScope,
+    };
 
     fn weights(rep: u64, amount: u128) -> Arc<RepWeights> {
         Arc::new(RepWeights::from([(
@@ -702,6 +834,109 @@ mod tests {
 
     fn private_weights(key: &PrivateKey, amount: u128) -> Arc<RepWeights> {
         Arc::new(RepWeights::from([(key.public_key(), Amount::raw(amount))]))
+    }
+
+    fn final_evidence(key: &PrivateKey, hash: BlockHash) -> super::super::RaiElectionVoteState {
+        let mut evidence = super::super::RaiElectionVoteState::new(vec![private_weights(key, 100)]);
+        evidence
+            .record_final_vote(key.public_key(), hash, RaiCommitteeScope::All)
+            .unwrap();
+        evidence
+    }
+
+    #[test]
+    fn empty_cut_drain_is_immediately_complete() {
+        let drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::new(),
+            finalized: BTreeMap::new(),
+        };
+
+        assert!(drain.is_complete());
+    }
+
+    #[test]
+    fn final_certificate_settles_only_its_obligation() {
+        let key = PrivateKey::from(1);
+        let first = QualifiedRoot::new(1.into(), 2.into());
+        let second = QualifiedRoot::new(3.into(), 4.into());
+        let hash = BlockHash::from(10);
+        let mut drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::from([first.clone(), second]),
+            finalized: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            drain.record_persistent_evidence(&first, &final_evidence(&key, hash)),
+            Some(hash)
+        );
+        assert!(!drain.is_complete());
+    }
+
+    #[test]
+    fn local_timeout_does_not_settle_an_obligation() {
+        let root = QualifiedRoot::new(1.into(), 2.into());
+        let mut drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::from([root.clone()]),
+            finalized: BTreeMap::new(),
+        };
+        let mut evidence = super::super::RaiElectionVoteState::default();
+        evidence.outcome = super::super::RaiOutcome::TimedOut;
+
+        assert_eq!(drain.record_persistent_evidence(&root, &evidence), None);
+        assert!(!drain.is_complete());
+    }
+
+    #[test]
+    fn drain_finishes_only_after_every_cut_member_finalizes() {
+        let key = PrivateKey::from(1);
+        let first = QualifiedRoot::new(1.into(), 2.into());
+        let second = QualifiedRoot::new(3.into(), 4.into());
+        let mut drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::from([first.clone(), second.clone()]),
+            finalized: BTreeMap::new(),
+        };
+
+        drain.record_persistent_evidence(&first, &final_evidence(&key, BlockHash::from(10)));
+        assert!(!drain.is_complete());
+        drain.record_persistent_evidence(&second, &final_evidence(&key, BlockHash::from(11)));
+        assert!(drain.is_complete());
+    }
+
+    #[test]
+    fn successor_epoch_finalization_cannot_advance_captured_frontier() {
+        let key = PrivateKey::from(1);
+        let root = QualifiedRoot::new(1.into(), 2.into());
+        let account = Account::from(7);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::ZERO);
+        manager.drains.insert(
+            RaiEpoch::ZERO,
+            RaiHappyPathDrain {
+                epoch: RaiEpoch::ZERO,
+                obligations: BTreeSet::from([root.clone()]),
+                finalized: BTreeMap::new(),
+            },
+        );
+        manager.initialize_drain_frontiers(
+            RaiEpoch::ZERO,
+            [(account, ConfirmationHeightInfo::new(2, BlockHash::from(20)))],
+        );
+        manager.record_drain_evidence(
+            RaiEpoch::ZERO,
+            &root,
+            &final_evidence(&key, BlockHash::from(30)),
+            [(account, ConfirmationHeightInfo::new(3, BlockHash::from(30)))],
+        );
+
+        // An unrestricted ledger view could now be at epoch 1 / height 4; it
+        // is never consulted by the drain.
+        assert_eq!(
+            manager.drain_frontiers(RaiEpoch::ZERO).unwrap()[&account],
+            ConfirmationHeightInfo::new(3, BlockHash::from(30))
+        );
     }
 
     #[test]
@@ -958,6 +1193,29 @@ mod tests {
         assert_eq!(restarted.committee_at(0), manager.committee_at(0));
         assert_eq!(restarted.installed_close_hash(0.into()), Some(close));
         assert_eq!(restarted.governing_hash(1.into()), Some(BlockHash::from(7)));
+    }
+
+    #[test]
+    fn pending_cut_obligation_blocks_record_creation() {
+        let key = PrivateKey::from(1);
+        let obligation = QualifiedRoot::new(11.into(), 12.into());
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([obligation.clone()]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+
+        assert!(!manager.slot_election_enabled(RaiEpoch::ZERO, &QualifiedRoot::ZERO));
+        assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation));
+        assert!(manager.slot_election_enabled(RaiEpoch::new(1), &QualifiedRoot::ZERO));
+        assert!(
+            manager
+                .begin_record_election(true, std::iter::empty())
+                .is_none()
+        );
     }
 
     #[test]
