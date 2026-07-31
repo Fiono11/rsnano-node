@@ -144,6 +144,15 @@ impl AecService {
         self.aec.write().unwrap().insert_close_cut(spec, now)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_close_record(
+        &self,
+        spec: RaiCloseElectionSpec,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        self.aec.write().unwrap().insert_close_record(spec, now)
+    }
+
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
         self.aec.write().unwrap().try_add_fork(fork, fork_tally)
     }

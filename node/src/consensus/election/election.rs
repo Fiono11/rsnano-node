@@ -154,7 +154,7 @@ impl Election {
     /// than a ledger block. The placeholder block only satisfies the legacy
     /// election projection; it is deliberately not installed as a candidate.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn new_close_cut(
+    pub(crate) fn new_close(
         id: RaiCloseElectionId,
         root: QualifiedRoot,
         candidate: BlockHash,
@@ -162,7 +162,6 @@ impl Election {
         base_latency: Duration,
         now: Timestamp,
     ) -> Self {
-        debug_assert_eq!(id.kind, RaiCloseKind::Cut);
         debug_assert_eq!(id.round, 0);
         let placeholder = SavedBlock::new_test_instance();
         Self {
@@ -181,7 +180,10 @@ impl Election {
             base_latency,
             account: Account::ZERO,
             winner: MaybeSavedBlock::Saved(placeholder),
-            rai_kind: RaiElectionKind::CloseCut,
+            rai_kind: match id.kind {
+                RaiCloseKind::Cut => RaiElectionKind::CloseCut,
+                RaiCloseKind::Record => RaiElectionKind::CloseRecord,
+            },
             rai_epoch: id.epoch,
             rai_round: id.round,
             rai_governing_hash: None,

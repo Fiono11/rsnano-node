@@ -140,23 +140,30 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn insert_close_cut(
+    pub fn insert_close_election(
         &mut self,
         spec: super::RaiCloseElectionSpec,
         now: Timestamp,
     ) -> Result<(), AecInsertError> {
-        use crate::consensus::rai::{RaiCloseKind, rai_close_cut_root};
+        use crate::consensus::rai::{RaiCloseKind, rai_close_cut_root, rai_close_record_root};
 
         self.ensure_not_stopped()?;
-        if spec.id.kind != RaiCloseKind::Cut
-            || spec.id.round != 0
-            || spec.root != rai_close_cut_root(spec.id.epoch, 0)
-            || self
-                .rai_epoch_manager
-                .close_cut_tracker(spec.id.epoch)
+        let tracker = match spec.id.kind {
+            RaiCloseKind::Cut => self.rai_epoch_manager.close_cut_tracker(spec.id.epoch),
+            RaiCloseKind::Record => self.rai_epoch_manager.close_record_tracker(spec.id.epoch),
+        };
+        let expected_root = match spec.id.kind {
+            RaiCloseKind::Cut => rai_close_cut_root(spec.id.epoch, 0),
+            RaiCloseKind::Record => rai_close_record_root(spec.id.epoch, 0),
+        };
+        if spec.id.round != 0
+            || spec.root != expected_root
+            || tracker
                 .and_then(|tracker| tracker.round(0))
                 .is_none_or(|round| {
-                    round.id != spec.id || !round.validated_preimages.contains(&spec.candidate)
+                    round.id != spec.id
+                        || round.candidates.len() != 1
+                        || !round.validated_preimages.contains(&spec.candidate)
                 })
             || self
                 .rai_epoch_manager
@@ -172,7 +179,7 @@ impl ActiveElectionsContainer {
 
         let root = spec.root;
         let candidate = spec.candidate;
-        let election = Election::new_close_cut(
+        let election = Election::new_close(
             spec.id,
             root.clone(),
             candidate,
@@ -189,6 +196,30 @@ impl ActiveElectionsContainer {
         self.stats.started(ElectionBehavior::Manual);
         self.notify(AecFact::ElectionStarted(candidate, root));
         Ok(())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_close_cut(
+        &mut self,
+        spec: super::RaiCloseElectionSpec,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        if spec.id.kind != crate::consensus::rai::RaiCloseKind::Cut {
+            return Err(AecInsertError::InvalidRaiCloseElection);
+        }
+        self.insert_close_election(spec, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_close_record(
+        &mut self,
+        spec: super::RaiCloseElectionSpec,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        if spec.id.kind != crate::consensus::rai::RaiCloseKind::Record {
+            return Err(AecInsertError::InvalidRaiCloseElection);
+        }
+        self.insert_close_election(spec, now)
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -555,17 +586,37 @@ impl ActiveElectionsContainer {
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
             #[cfg(feature = "rai_protocol")]
-            if entry.election.rai_kind() == crate::consensus::election::RaiElectionKind::CloseCut {
+            if matches!(
+                entry.election.rai_kind(),
+                crate::consensus::election::RaiElectionKind::CloseCut
+                    | crate::consensus::election::RaiElectionKind::CloseRecord
+            ) {
                 let epoch = entry.election.rai_epoch();
                 let round = entry.election.rai_round();
                 let candidate = entry.election.rai_votes.outcome;
                 let evidence = entry.election.rai_votes.clone();
-                if self
-                    .rai_epoch_manager
-                    .store_close_cut_evidence(epoch, round, evidence)
-                {
+                let stored = match entry.election.rai_kind() {
+                    crate::consensus::election::RaiElectionKind::CloseCut => self
+                        .rai_epoch_manager
+                        .store_close_cut_evidence(epoch, round, evidence),
+                    crate::consensus::election::RaiElectionKind::CloseRecord => self
+                        .rai_epoch_manager
+                        .store_close_record_evidence(epoch, round, evidence),
+                    crate::consensus::election::RaiElectionKind::Slot => false,
+                };
+                if stored {
                     if let crate::consensus::rai::RaiOutcome::Confirmed(hash) = candidate {
-                        let _ = self.rai_epoch_manager.decide_close_cut(epoch, round, hash);
+                        match entry.election.rai_kind() {
+                            crate::consensus::election::RaiElectionKind::CloseCut => {
+                                let _ = self.rai_epoch_manager.decide_close_cut(epoch, round, hash);
+                            }
+                            crate::consensus::election::RaiElectionKind::CloseRecord => {
+                                let _ = self
+                                    .rai_epoch_manager
+                                    .install_close_record(epoch, round, hash);
+                            }
+                            crate::consensus::election::RaiElectionKind::Slot => {}
+                        }
                     }
                 }
             }
@@ -897,6 +948,107 @@ mod tests {
                 .rai_epoch_manager
                 .decide_close_cut(0.into(), 0, BlockHash::from(123)),
             Err(crate::consensus::rai::CloseCutDecisionError::ImmutableDecision)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn close_record_uses_normal_votes_and_closes_epoch_zero() {
+        use crate::consensus::{
+            FilteredVote, RaiCloseElectionSpec, ReceivedVote,
+            election::RaiElectionKind,
+            rai::{RaiCloseElectionId, RaiCloseKind, RaiReport, rai_close_record_root},
+        };
+        use rsnano_types::{
+            Account, Amount, ConfirmationHeightInfo, PrivateKey, RaiCommitteeScope,
+            RaiVoteMetadata, RaiVotePhase, UnixMillisTimestamp, Vote, VoteDelivery,
+        };
+
+        let key = PrivateKey::from(1);
+        let committee =
+            std::sync::Arc::new(RepWeights::from([(key.public_key(), Amount::raw(100))]));
+        let mut container = ActiveElectionsContainer::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            committee.clone(),
+            BlockHash::from(7),
+        );
+        let now = Timestamp::new_test_instance();
+        container.rai_epoch_manager.start_closing(now);
+        container
+            .rai_epoch_manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, 0.into(), []))
+            .unwrap();
+        let (_, cut) = container.rai_epoch_manager.begin_cut_election([]).unwrap();
+        container
+            .rai_epoch_manager
+            .install_cut(0.into(), 0, cut)
+            .unwrap();
+        container.rai_epoch_manager.initialize_drain_frontiers(
+            0.into(),
+            [(
+                Account::from(1),
+                ConfirmationHeightInfo::new(4, BlockHash::from(40)),
+            )],
+        );
+        let (root, candidate) = container.rai_epoch_manager.begin_close_record().unwrap();
+        let id = RaiCloseElectionId {
+            kind: RaiCloseKind::Record,
+            epoch: 0.into(),
+            round: 0,
+        };
+        container
+            .insert_close_record(
+                RaiCloseElectionSpec {
+                    id,
+                    root: root.clone(),
+                    candidate,
+                    committee,
+                },
+                now,
+            )
+            .unwrap();
+
+        assert_eq!(root, rai_close_record_root(0.into(), 0));
+        assert_eq!(
+            container.election_for_root(&root).unwrap().rai_kind(),
+            RaiElectionKind::CloseRecord
+        );
+        let vote: FilteredVote = ReceivedVote::new(
+            Vote::new_rai(
+                &key,
+                UnixMillisTimestamp::new(1),
+                0,
+                vec![candidate],
+                RaiVoteMetadata {
+                    phase: RaiVotePhase::First,
+                    epoch: 0.into(),
+                    governing_hash: BlockHash::from(999),
+                    scope: RaiCommitteeScope::All,
+                },
+            )
+            .into(),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        assert_eq!(
+            container.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            })[&candidate],
+            Ok(())
+        );
+        assert_eq!(
+            container.rai_epoch_manager.installed_close_hash(0.into()),
+            Some(candidate)
+        );
+        assert_eq!(
+            container.rai_epoch_manager.state().closed_through,
+            Some(crate::consensus::rai::RaiEpoch::ZERO)
         );
     }
 

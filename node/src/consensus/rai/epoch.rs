@@ -424,16 +424,9 @@ impl RaiEpochManager {
 
     /// Derives the sole round-zero close candidate after every cut obligation
     /// has reached the existing confirmation-height state.
-    pub fn begin_record_election(
-        &mut self,
-        obligations_settled: bool,
-        confirmation_heights: impl IntoIterator<
-            Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
-        >,
-    ) -> Option<(QualifiedRoot, BlockHash)> {
+    pub fn begin_close_record(&mut self) -> Option<(QualifiedRoot, BlockHash)> {
         let closing = self.state.closing?;
         if closing.phase != RaiClosingPhase::Draining
-            || !obligations_settled
             || !self.drains.get(&closing.epoch)?.is_complete()
         {
             return None;
@@ -448,7 +441,8 @@ impl RaiEpochManager {
             .checked_sub(1)
             .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
             .unwrap_or(BlockHash::ZERO);
-        let record = RaiCloseRecord::new(epoch, previous, confirmation_heights);
+        let record =
+            RaiCloseRecord::new(epoch, previous, self.drain_frontiers.get(&epoch)?.clone());
         let hash = self.close_records.insert(record);
         self.state.closing.as_mut().unwrap().phase = RaiClosingPhase::ElectingRecord;
         self.record_rounds
@@ -458,15 +452,11 @@ impl RaiEpochManager {
         Some((super::rai_close_record_root(epoch, 0), hash))
     }
 
-    pub fn install_record(
+    pub fn install_close_record(
         &mut self,
         epoch: RaiEpoch,
         round: u32,
         hash: BlockHash,
-        confirmation_heights: impl IntoIterator<
-            Item = (rsnano_types::Account, rsnano_types::ConfirmationHeightInfo),
-        >,
-        certified_weights: RepWeights,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
         if let Some(existing) = self.close_hashes.get(&epoch) {
             return if *existing == hash {
@@ -491,7 +481,10 @@ impl RaiEpochManager {
             .close_records
             .get(&hash)
             .ok_or(CloseRecordDecisionError::MissingPreimage)?;
-        let actual: RaiFrontierMap = confirmation_heights.into_iter().collect();
+        let actual = self
+            .drain_frontiers
+            .get(&epoch)
+            .ok_or(CloseRecordDecisionError::MissingPreimage)?;
         let previous = epoch
             .number()
             .checked_sub(1)
@@ -499,7 +492,7 @@ impl RaiEpochManager {
             .unwrap_or(BlockHash::ZERO);
         if record.epoch != epoch
             || record.previous != previous
-            || record.frontiers != actual
+            || &record.frontiers != actual
             || record.hash() != hash
         {
             return Err(CloseRecordDecisionError::InvalidRecord);
@@ -512,9 +505,6 @@ impl RaiEpochManager {
             return Err(CloseRecordDecisionError::MissingPreimage);
         }
         self.close_hashes.insert(epoch, hash);
-        self.committees
-            .entry(epoch)
-            .or_insert_with(|| Arc::new(certified_weights));
         self.state.closed_through = Some(epoch);
         self.state.closing = None;
         Ok(&self
@@ -532,6 +522,10 @@ impl RaiEpochManager {
         self.record_rounds
             .get(&epoch)
             .map(|rounds| rounds.current_round())
+    }
+
+    pub fn close_record_tracker(&self, epoch: RaiEpoch) -> Option<&super::RaiCloseRoundTracker> {
+        self.record_rounds.get(&epoch)
     }
 
     pub fn store_close_record_evidence(
@@ -1113,77 +1107,32 @@ mod tests {
             ConfirmationHeightInfo::new(4, BlockHash::from(40)),
         )];
 
-        assert!(
-            manager
-                .begin_record_election(false, frontiers.clone())
-                .is_none()
-        );
-        let (root, close) = manager
-            .begin_record_election(true, frontiers.clone())
-            .unwrap();
+        assert!(manager.begin_close_record().is_none());
+        assert!(manager.initialize_drain_frontiers(0.into(), frontiers.clone()));
+        let (root, close) = manager.begin_close_record().unwrap();
         assert_eq!(
             root,
             crate::consensus::rai::rai_close_record_root(0.into(), 0)
         );
 
-        let tampered = [(
-            Account::from(1),
-            ConfirmationHeightInfo::new(4, BlockHash::from(41)),
-        )];
-        assert_eq!(
-            manager.install_record(
-                0.into(),
-                0,
-                close,
-                tampered,
-                weights(2, 200).as_ref().clone(),
-            ),
-            Err(CloseRecordDecisionError::InvalidRecord)
-        );
         let expected: RaiFrontierMap = frontiers.clone().into_iter().collect();
         assert_eq!(
-            manager
-                .install_record(
-                    0.into(),
-                    0,
-                    close,
-                    frontiers.clone(),
-                    weights(2, 200).as_ref().clone(),
-                )
-                .unwrap(),
+            manager.install_close_record(0.into(), 0, close).unwrap(),
             &expected
         );
         assert!(manager.closing_epoch().is_none());
         assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
         assert_eq!(
-            manager.committee_at(0).unwrap().weight(&PublicKey::from(2)),
-            Amount::raw(200)
+            manager.committee_at(-1).unwrap().weight(&key.public_key()),
+            Amount::raw(100)
         );
         assert_eq!(manager.installed_close_hash(0.into()), Some(close));
         assert_eq!(
-            manager.install_record(
-                0.into(),
-                0,
-                BlockHash::from(99),
-                frontiers.clone(),
-                weights(3, 300).as_ref().clone(),
-            ),
+            manager.install_close_record(0.into(), 0, BlockHash::from(99)),
             Err(CloseRecordDecisionError::ImmutableDecision)
         );
-        manager
-            .install_record(
-                0.into(),
-                0,
-                close,
-                frontiers,
-                weights(3, 300).as_ref().clone(),
-            )
-            .unwrap();
+        manager.install_close_record(0.into(), 0, close).unwrap();
         assert_eq!(manager.current_epoch(), RaiEpoch::new(1));
-        assert_eq!(
-            manager.committee_at(0).unwrap().weight(&PublicKey::from(3)),
-            Amount::ZERO
-        );
 
         let durable = manager.durable_close_state(0.into()).unwrap();
         let mut restarted = RaiEpochManager::new(weights(1, 100), BlockHash::from(7));
@@ -1211,11 +1160,7 @@ mod tests {
         assert!(!manager.slot_election_enabled(RaiEpoch::ZERO, &QualifiedRoot::ZERO));
         assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation));
         assert!(manager.slot_election_enabled(RaiEpoch::new(1), &QualifiedRoot::ZERO));
-        assert!(
-            manager
-                .begin_record_election(true, std::iter::empty())
-                .is_none()
-        );
+        assert!(manager.begin_close_record().is_none());
     }
 
     #[test]
@@ -1256,21 +1201,102 @@ mod tests {
             Account::from(1),
             ConfirmationHeightInfo::new(4, BlockHash::from(40)),
         )];
-        let (_, record) = manager
-            .begin_record_election(true, frontiers.clone())
+        manager.initialize_drain_frontiers(0.into(), frontiers);
+        let (_, record) = manager.begin_close_record().unwrap();
+        assert!(manager.begin_close_record().is_none());
+        manager.install_close_record(0.into(), 0, record).unwrap();
+        manager.install_close_record(0.into(), 0, record).unwrap();
+        assert_eq!(manager.state().closed_through, Some(RaiEpoch::ZERO));
+    }
+
+    #[test]
+    fn replicas_bind_close_record_to_the_drained_cut() {
+        let key = PrivateKey::from(1);
+        let frontiers = [
+            (
+                Account::from(2),
+                ConfirmationHeightInfo::new(5, BlockHash::from(50)),
+            ),
+            (
+                Account::from(1),
+                ConfirmationHeightInfo::new(4, BlockHash::from(40)),
+            ),
+        ];
+        let mut hashes = Vec::new();
+
+        for _ in 0..4 {
+            let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+            manager.start_closing(Timestamp::new_test_instance());
+            manager
+                .reports_mut()
+                .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+                .unwrap();
+            let (_, cut) = manager.begin_cut_election([]).unwrap();
+            manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+            manager.initialize_drain_frontiers(RaiEpoch::ZERO, frontiers.clone());
+            hashes.push(manager.begin_close_record().unwrap().1);
+        }
+
+        assert!(hashes.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[test]
+    fn close_record_rejects_unknown_and_noncanonical_preimages() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+        let frontiers = [(
+            Account::from(1),
+            ConfirmationHeightInfo::new(4, BlockHash::from(40)),
+        )];
+        manager.initialize_drain_frontiers(RaiEpoch::ZERO, frontiers.clone());
+        let (_, canonical) = manager.begin_close_record().unwrap();
+
+        assert_eq!(
+            manager.install_close_record(RaiEpoch::ZERO, 0, BlockHash::from(999)),
+            Err(CloseRecordDecisionError::MissingPreimage)
+        );
+
+        for invalid in [
+            RaiCloseRecord::new(RaiEpoch::ZERO, BlockHash::from(123), frontiers),
+            RaiCloseRecord::new(
+                RaiEpoch::ZERO,
+                BlockHash::ZERO,
+                [(
+                    Account::from(1),
+                    ConfirmationHeightInfo::new(5, BlockHash::from(50)),
+                )],
+            ),
+        ] {
+            let invalid_hash = manager.close_records.insert(invalid);
+            manager
+                .record_rounds
+                .get_mut(&RaiEpoch::ZERO)
+                .unwrap()
+                .add_validated_preimage(0, invalid_hash);
+            assert_eq!(
+                manager.install_close_record(RaiEpoch::ZERO, 0, invalid_hash),
+                Err(CloseRecordDecisionError::InvalidRecord)
+            );
+        }
+
+        manager
+            .install_close_record(RaiEpoch::ZERO, 0, canonical)
             .unwrap();
         assert!(
             manager
-                .begin_record_election(true, frontiers.clone())
-                .is_none()
+                .install_close_record(RaiEpoch::ZERO, 0, canonical)
+                .is_ok()
         );
-        let certified = weights(2, 200).as_ref().clone();
-        manager
-            .install_record(0.into(), 0, record, frontiers.clone(), certified.clone())
-            .unwrap();
-        manager
-            .install_record(0.into(), 0, record, frontiers, certified)
-            .unwrap();
-        assert_eq!(manager.state().closed_through, Some(RaiEpoch::ZERO));
+        assert_eq!(
+            manager.install_close_record(RaiEpoch::ZERO, 0, BlockHash::from(998)),
+            Err(CloseRecordDecisionError::ImmutableDecision)
+        );
     }
 }

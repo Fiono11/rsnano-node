@@ -323,12 +323,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
         if !drain.is_complete() {
             return;
         }
-        let frontiers = self
-            .epoch_manager
-            .drain_frontiers(epoch)
-            .cloned()
-            .unwrap_or_default();
-        if let Some((root, hash)) = self.epoch_manager.begin_record_election(true, frontiers) {
+        if let Some((root, hash)) = self.epoch_manager.begin_close_record() {
             self.driver
                 .start_close_election(RaiCloseKind::Record, epoch, 0, root, hash);
         }
@@ -354,16 +349,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                 }
             }
             RaiCloseKind::Record => {
-                let Some(weights) = self.driver.certified_weights(epoch) else {
-                    return;
-                };
-                let _ = self.epoch_manager.install_record(
-                    epoch,
-                    round,
-                    hash,
-                    self.driver.confirmation_heights(),
-                    weights,
-                );
+                let _ = self.epoch_manager.install_close_record(epoch, round, hash);
             }
         }
     }
