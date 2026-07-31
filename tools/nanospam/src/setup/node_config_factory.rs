@@ -119,9 +119,18 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
 }
 
 fn rai_config(args: &CliArgs) -> String {
-    args.rai_epoch_duration_ms
-        .map(|duration| format!("[node.rai]\n    epoch_duration = {duration}"))
-        .unwrap_or_default()
+    if args.rai_epoch_duration_ms.is_none() && args.rai_tick_interval_ms.is_none() {
+        return String::new();
+    }
+
+    let mut config = String::from("[node.rai]");
+    if let Some(duration) = args.rai_epoch_duration_ms {
+        config.push_str(&format!("\n    epoch_duration = {duration}"));
+    }
+    if let Some(interval) = args.rai_tick_interval_ms {
+        config.push_str(&format!("\n    tick_interval = {interval}"));
+    }
+    config
 }
 
 fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
@@ -173,9 +182,18 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn writes_requested_rai_epoch_duration() {
-        let args = CliArgs::parse_from(["nanospam", "--rai-epoch-duration-ms", "5000"]);
+    fn writes_requested_rai_timing() {
+        let args = CliArgs::parse_from([
+            "nanospam",
+            "--rai-epoch-duration-ms",
+            "5000",
+            "--rai-tick-interval-ms",
+            "100",
+        ]);
 
-        assert_eq!(rai_config(&args), "[node.rai]\n    epoch_duration = 5000");
+        assert_eq!(
+            rai_config(&args),
+            "[node.rai]\n    epoch_duration = 5000\n    tick_interval = 100"
+        );
     }
 }

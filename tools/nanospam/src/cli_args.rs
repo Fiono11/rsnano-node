@@ -2,6 +2,8 @@ use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
 
 const DEFAULT_RATE: &str = "1+50@3s";
+const DEFAULT_RAI_EPOCH_DURATION_MS: u64 = 30_000;
+const DEFAULT_RAI_TICK_INTERVAL_MS: u64 = 100;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -75,11 +77,30 @@ pub(crate) struct CliArgs {
     pub fork_percentage: usize,
 
     /// RAI epoch duration for generated rsnano configs, in milliseconds
-    #[arg(long)]
+    #[arg(long, value_parser = parse_nonzero_duration)]
     pub rai_epoch_duration_ms: Option<u64>,
+
+    /// RAI close-loop tick interval for generated rsnano configs, in milliseconds
+    #[arg(long, value_parser = parse_nonzero_duration)]
+    pub rai_tick_interval_ms: Option<u64>,
 }
 
 impl CliArgs {
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        let epoch_duration = self
+            .rai_epoch_duration_ms
+            .unwrap_or(DEFAULT_RAI_EPOCH_DURATION_MS);
+        let tick_interval = self
+            .rai_tick_interval_ms
+            .unwrap_or(DEFAULT_RAI_TICK_INTERVAL_MS);
+        if tick_interval > epoch_duration {
+            anyhow::bail!(
+                "--rai-tick-interval-ms must be less than or equal to --rai-epoch-duration-ms"
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn spam_spec(&self) -> anyhow::Result<SpamSpec> {
         Ok(SpamSpec {
             spam_strategy: self.strategy(),
@@ -121,5 +142,67 @@ impl CliArgs {
     fn rate_spec(&self) -> Result<RateSpec, anyhow::Error> {
         let rate: RateSpec = self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?;
         Ok(rate)
+    }
+}
+
+fn parse_nonzero_duration(value: &str) -> Result<u64, String> {
+    let duration = value
+        .parse::<u64>()
+        .map_err(|_| format!("invalid duration: {value}"))?;
+    if duration == 0 {
+        return Err("duration must be nonzero".to_string());
+    }
+    Ok(duration)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_rai_timing_options() {
+        let args = CliArgs::try_parse_from([
+            "nanospam",
+            "--rai-epoch-duration-ms",
+            "5000",
+            "--rai-tick-interval-ms",
+            "100",
+        ])
+        .unwrap();
+
+        assert_eq!(args.rai_epoch_duration_ms, Some(5000));
+        assert_eq!(args.rai_tick_interval_ms, Some(100));
+        args.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_zero_rai_durations() {
+        assert!(CliArgs::try_parse_from(["nanospam", "--rai-epoch-duration-ms", "0"]).is_err());
+        assert!(CliArgs::try_parse_from(["nanospam", "--rai-tick-interval-ms", "0"]).is_err());
+    }
+
+    #[test]
+    fn rejects_tick_interval_larger_than_epoch_duration() {
+        let args = CliArgs::try_parse_from([
+            "nanospam",
+            "--rai-epoch-duration-ms",
+            "99",
+            "--rai-tick-interval-ms",
+            "100",
+        ])
+        .unwrap();
+
+        assert!(args.validate().is_err());
+    }
+
+    #[test]
+    fn validates_rai_timing_against_defaults() {
+        let short_epoch =
+            CliArgs::try_parse_from(["nanospam", "--rai-epoch-duration-ms", "99"]).unwrap();
+        assert!(short_epoch.validate().is_err());
+
+        let long_tick =
+            CliArgs::try_parse_from(["nanospam", "--rai-tick-interval-ms", "30001"]).unwrap();
+        assert!(long_tick.validate().is_err());
     }
 }

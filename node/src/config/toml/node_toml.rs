@@ -74,6 +74,7 @@ pub struct NodeToml {
 #[derive(Deserialize, Serialize, Default)]
 pub struct RaiToml {
     pub epoch_duration: Option<u64>,
+    pub tick_interval: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -492,10 +493,13 @@ impl NodeConfig {
         if let Some(limit) = toml.cps_limit {
             self.cps_limit = limit;
         }
-        if let Some(rai) = &toml.rai
-            && let Some(duration) = rai.epoch_duration
-        {
-            self.rai.epoch_duration = Duration::from_millis(duration);
+        if let Some(rai) = &toml.rai {
+            if let Some(duration) = rai.epoch_duration {
+                self.rai.epoch_duration = Duration::from_millis(duration);
+            }
+            if let Some(interval) = rai.tick_interval {
+                self.rai.tick_interval = Duration::from_millis(interval);
+            }
         }
     }
 }
@@ -644,6 +648,7 @@ impl From<&NodeConfig> for NodeToml {
             cps_limit: Some(config.cps_limit),
             rai: Some(RaiToml {
                 epoch_duration: Some(config.rai.epoch_duration.as_millis() as u64),
+                tick_interval: Some(config.rai.tick_interval.as_millis() as u64),
             }),
         }
     }
@@ -653,6 +658,23 @@ impl From<&NodeConfig> for NodeToml {
 mod tests {
     use super::*;
     use crate::{block_processing::ProcessQueueConfig, config::toml::AccountSetsToml};
+
+    #[test]
+    fn merge_rai_toml() {
+        let toml = NodeToml {
+            rai: Some(RaiToml {
+                epoch_duration: Some(5000),
+                tick_interval: Some(100),
+            }),
+            ..Default::default()
+        };
+
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&toml);
+
+        assert_eq!(cfg.rai.epoch_duration, Duration::from_millis(5000));
+        assert_eq!(cfg.rai.tick_interval, Duration::from_millis(100));
+    }
 
     #[test]
     fn merge_bootstrap_ascending_toml() {

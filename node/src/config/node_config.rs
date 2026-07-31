@@ -301,12 +301,14 @@ impl NodeConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RaiConfig {
     pub epoch_duration: Duration,
+    pub tick_interval: Duration,
 }
 
 impl Default for RaiConfig {
     fn default() -> Self {
         Self {
             epoch_duration: Duration::from_secs(30),
+            tick_interval: Duration::from_millis(100),
         }
     }
 }
