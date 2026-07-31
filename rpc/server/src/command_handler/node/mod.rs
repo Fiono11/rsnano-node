@@ -11,6 +11,7 @@ mod node_id;
 mod peers;
 mod populate_backlog;
 mod process;
+mod rai_status;
 mod receivable;
 mod receivable_exists;
 mod representatives_online;

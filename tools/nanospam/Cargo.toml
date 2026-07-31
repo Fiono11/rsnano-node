@@ -5,12 +5,10 @@ edition = "2024"
 
 [features]
 rai_protocol = [
-    "dep:rsnano_nullable_lmdb",
     "rsnano_types/rai_protocol",
     "rsnano_messages/rai_protocol",
     "rsnano_network/rai_protocol",
     "rsnano_network_protocol/rai_protocol",
-    "rsnano_store_lmdb/rai_protocol",
 ]
 
 [dependencies]
@@ -23,8 +21,6 @@ rsnano_utils = { path = "../../utils" }
 rsnano_messages = { path = "../../messages" }
 rsnano_network = { path = "../../network" }
 rsnano_network_protocol = { path = "../../network_protocol" }
-rsnano_store_lmdb = { path = "../../store_lmdb", optional = true }
-rsnano_nullable_lmdb = { path = "../../nullables/lmdb", optional = true }
 rsnano_websocket_messages = { path = "../../websocket/messages" }
 rsnano_websocket_client = { path = "../../websocket/client" }
 rsnano_rpc_client = { path = "../../rpc/client" }

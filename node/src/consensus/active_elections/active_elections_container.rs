@@ -50,6 +50,15 @@ pub(crate) struct ActiveElectionsContainer {
 }
 
 impl ActiveElectionsContainer {
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_epoch_state(&self) -> &crate::consensus::rai::RaiEpochState {
+        self.rai_epoch_manager.state()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_installed_close_hash(&self, epoch: rsnano_types::RaiEpoch) -> Option<BlockHash> {
+        self.rai_epoch_manager.installed_close_hash(epoch)
+    }
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::new(config.max_elections),

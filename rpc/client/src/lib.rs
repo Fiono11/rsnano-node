@@ -379,6 +379,10 @@ impl NanoRpcClient {
         self.request(&RpcCommand::BlockCount).await
     }
 
+    pub async fn rai_status(&self) -> Result<RaiStatusResponse> {
+        self.request(&RpcCommand::rai_status()).await
+    }
+
     pub async fn uptime(&self) -> Result<UptimeResponse> {
         self.request(&RpcCommand::uptime()).await
     }

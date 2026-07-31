@@ -122,6 +122,7 @@ pub enum RpcCommand {
     BlockCreate(BlockCreateArgs),
     WorkPeersClear,
     Version,
+    RaiStatus,
     #[cfg(feature = "ledger_snapshots")]
     StartLedgerSnapshot,
 }

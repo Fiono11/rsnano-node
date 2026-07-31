@@ -146,6 +146,7 @@ impl RpcCommandHandler {
             RpcCommand::Stats(args) => Ok(self.stats(args)?),
             RpcCommand::ConfirmationHistory(args) => to_value(self.confirmation_history(args)),
             RpcCommand::Version => to_value(self.version()),
+            RpcCommand::RaiStatus => to_value(self.rai_status()?),
             RpcCommand::ActiveDifficulty => to_value(self.active_difficulty()),
             #[cfg(feature = "ledger_snapshots")]
             RpcCommand::StartLedgerSnapshot => to_value(self.start_ledger_snapshot()),

@@ -220,30 +220,103 @@ impl NanoSpamApp {
         info!("Average conf time: {conf_time} ms");
 
         #[cfg(feature = "rai_protocol")]
-        print_finalized_blocks_by_epoch(&data_dir, self.args.prs)?;
+        {
+            let statuses = fetch_rai_statuses(&self.rpc_clients).await?;
+            print_finalized_blocks_by_epoch(&statuses);
+            if self.args.rai_epoch_duration_ms.is_some() {
+                validate_epoch_transition(&statuses, self.args.blocks.unwrap_or(0))?;
+            }
+        }
 
         Ok(())
     }
 }
 
 #[cfg(feature = "rai_protocol")]
-fn print_finalized_blocks_by_epoch(data_dir: &std::path::Path, prs: usize) -> anyhow::Result<()> {
-    use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-    use rsnano_store_lmdb::{LmdbRaiFinalizationStore, default_ledger_lmdb_options};
-
+fn print_finalized_blocks_by_epoch(statuses: &[rsnano_rpc_messages::RaiStatusResponse]) {
     println!("Finalized blocks by RAI epoch:");
-    for pr in 0..prs {
-        let path = data_dir.join(format!("pr{pr}")).join("data.ldb");
-        let env = LmdbEnvironmentFactory::default().create(default_ledger_lmdb_options(path))?;
-        let store = LmdbRaiFinalizationStore::new(&env)?;
-        let txn = env.begin_read();
-        let counts = store.counts_by_epoch(&txn);
-        let formatted = counts
+    for (pr, status) in statuses.iter().enumerate() {
+        let formatted = status
+            .finalized_by_epoch
             .iter()
-            .map(|(epoch, count)| format!("epoch {}: {count}", epoch.number()))
+            .map(|(epoch, count)| format!("epoch {epoch}: {}", count.inner()))
             .collect::<Vec<_>>()
             .join(", ");
         println!("  PR{pr}: {formatted}");
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn fetch_rai_statuses(
+    clients: &[NanoRpcClient],
+) -> anyhow::Result<Vec<rsnano_rpc_messages::RaiStatusResponse>> {
+    let mut statuses = Vec::with_capacity(clients.len());
+    for (pr, client) in clients.iter().enumerate() {
+        statuses.push(
+            client
+                .rai_status()
+                .await
+                .map_err(|error| anyhow!("could not query RAI status from PR{pr}: {error}"))?,
+        );
+    }
+    Ok(statuses)
+}
+
+#[cfg(feature = "rai_protocol")]
+fn validate_epoch_transition(
+    statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    requested_workload: usize,
+) -> anyhow::Result<()> {
+    let first = statuses
+        .first()
+        .ok_or_else(|| anyhow!("no PRs reported RAI status"))?;
+    for (pr, status) in statuses.iter().enumerate().skip(1) {
+        if status.finalized_by_epoch != first.finalized_by_epoch {
+            anyhow::bail!("PR{pr} reported different per-epoch finalized counts");
+        }
+        if status.close_hashes.get("0") != first.close_hashes.get("0") {
+            anyhow::bail!("PR{pr} installed a different epoch-0 close hash");
+        }
+    }
+
+    let epoch_0 = first
+        .finalized_by_epoch
+        .get("0")
+        .map(|value| value.inner())
+        .unwrap_or(0);
+    let epoch_1 = first
+        .finalized_by_epoch
+        .get("1")
+        .map(|value| value.inner())
+        .unwrap_or(0);
+    if epoch_0 == 0 {
+        anyhow::bail!("epoch 0 has no finalized workload blocks");
+    }
+    if epoch_1 == 0 {
+        anyhow::bail!("epoch 1 has no finalized workload blocks");
+    }
+
+    for (pr, status) in statuses.iter().enumerate() {
+        if status.close_hashes.get("0").is_none() {
+            anyhow::bail!("PR{pr} has no installed epoch-0 close hash");
+        }
+        if status.closed_through.as_ref().map(|value| value.inner()) != Some(0) {
+            anyhow::bail!("PR{pr} has not closed exactly through epoch 0");
+        }
+        if status.open_epoch.inner() != 1 || status.closing_epoch.is_some() {
+            anyhow::bail!("PR{pr} does not have epoch 1 open");
+        }
+    }
+
+    let finalized: u64 = first
+        .finalized_by_epoch
+        .values()
+        .map(|value| value.inner())
+        .sum();
+    if finalized != requested_workload as u64 {
+        anyhow::bail!(
+            "finalized workload is {finalized}, requested workload is {requested_workload}"
+        );
     }
     Ok(())
 }
@@ -435,5 +508,45 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use rsnano_rpc_messages::RaiStatusResponse;
+    use std::collections::BTreeMap;
+
+    fn status(epoch_0: u64, epoch_1: u64, close_hash: &str) -> RaiStatusResponse {
+        RaiStatusResponse {
+            open_epoch: 1.into(),
+            closing_epoch: None,
+            closed_through: Some(0.into()),
+            close_hashes: BTreeMap::from([("0".into(), close_hash.into())]),
+            finalized_by_epoch: BTreeMap::from([
+                ("0".into(), epoch_0.into()),
+                ("1".into(), epoch_1.into()),
+            ]),
+        }
+    }
+
+    #[test]
+    fn epoch_zero_only_fails() {
+        assert!(validate_epoch_transition(&[status(10, 0, "A")], 10).is_err());
+    }
+
+    #[test]
+    fn different_pr_counts_fail() {
+        assert!(validate_epoch_transition(&[status(4, 6, "A"), status(5, 5, "A")], 10).is_err());
+    }
+
+    #[test]
+    fn different_close_hashes_fail() {
+        assert!(validate_epoch_transition(&[status(4, 6, "A"), status(4, 6, "B")], 10).is_err());
+    }
+
+    #[test]
+    fn matching_epoch_transition_passes() {
+        validate_epoch_transition(&[status(4, 6, "A"), status(4, 6, "A")], 10).unwrap();
     }
 }

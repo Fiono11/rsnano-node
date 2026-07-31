@@ -852,6 +852,12 @@ impl Ledger {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn rai_finalized_counts(&self) -> std::collections::BTreeMap<rsnano_types::RaiEpoch, u64> {
+        let txn = self.store.begin_read();
+        self.store.rai_finalization.counts_by_epoch(&txn)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_frontier_delta(
         &self,
         epoch: rsnano_types::RaiEpoch,

@@ -241,6 +241,27 @@ impl AecService {
         let now = self.clock.now();
         self.aec.read().unwrap().snapshot(now)
     }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_epoch_status(
+        &self,
+    ) -> (
+        crate::consensus::rai::RaiEpochState,
+        std::collections::BTreeMap<rsnano_types::RaiEpoch, BlockHash>,
+    ) {
+        let aec = self.aec.read().unwrap();
+        let state = *aec.rai_epoch_state();
+        let mut hashes = std::collections::BTreeMap::new();
+        if let Some(last) = state.closed_through {
+            for number in 0..=last.number() {
+                let epoch = rsnano_types::RaiEpoch::new(number);
+                if let Some(hash) = aec.rai_installed_close_hash(epoch) {
+                    hashes.insert(epoch, hash);
+                }
+            }
+        }
+        (state, hashes)
+    }
 }
 
 impl StatsSource for AecService {
