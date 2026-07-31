@@ -654,7 +654,15 @@ mod tests {
         use crate::consensus::{election::RaiElectionKind, rai::RaiEpoch};
 
         let mut container = ActiveElectionsContainer::default();
-        container.rai_epoch_manager.open_epoch(RaiEpoch::new(1));
+        assert!(
+            container
+                .rai_epoch_manager
+                .start_closing(Timestamp::new_test_instance())
+        );
+        assert_eq!(
+            container.rai_epoch_manager.closing_epoch().unwrap().epoch,
+            RaiEpoch::ZERO
+        );
         let block = SavedBlock::new_test_instance();
         let root = block.qualified_root();
 
