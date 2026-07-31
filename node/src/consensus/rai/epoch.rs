@@ -249,7 +249,7 @@ impl RaiEpochManager {
         Some((super::rai_close_cut_root(epoch, 0), hash))
     }
 
-    pub fn install_cut(
+    pub fn decide_close_cut(
         &mut self,
         epoch: RaiEpoch,
         round: u32,
@@ -297,6 +297,15 @@ impl RaiEpochManager {
         Ok(self.frozen_obligations.get(&epoch).expect("just inserted"))
     }
 
+    pub fn install_cut(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        hash: BlockHash,
+    ) -> Result<&BTreeSet<QualifiedRoot>, CloseCutDecisionError> {
+        self.decide_close_cut(epoch, round, hash)
+    }
+
     pub fn decided_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
         self.cut_hashes.get(&epoch).copied()
     }
@@ -305,6 +314,10 @@ impl RaiEpochManager {
         self.cut_rounds
             .get(&epoch)
             .map(|rounds| rounds.current_round())
+    }
+
+    pub fn close_cut_tracker(&self, epoch: RaiEpoch) -> Option<&super::RaiCloseRoundTracker> {
+        self.cut_rounds.get(&epoch)
     }
 
     pub fn store_close_cut_evidence(

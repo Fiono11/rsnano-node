@@ -10,6 +10,8 @@ use rsnano_utils::{
     sync::backpressure_channel::Sender,
 };
 
+#[cfg(feature = "rai_protocol")]
+use super::RaiCloseElectionSpec;
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
@@ -131,6 +133,15 @@ impl AecService {
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
         self.aec.write().unwrap().insert(request, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_close_cut(
+        &self,
+        spec: RaiCloseElectionSpec,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        self.aec.write().unwrap().insert_close_cut(spec, now)
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {

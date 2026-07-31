@@ -157,6 +157,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         self.notify_winner_changed(old_winner);
 
         if self.election.is_final() && self.election.is_confirmed() {
+            #[cfg(feature = "rai_protocol")]
+            if self.election.rai_kind() != crate::consensus::election::RaiElectionKind::Slot {
+                return;
+            }
             self.election_got_confirmed();
         }
     }

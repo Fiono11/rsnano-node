@@ -83,7 +83,6 @@ impl RootContainer {
 
     pub fn insert(&mut self, entry: Entry) {
         let root = entry.root.clone();
-        let hash = entry.election.winner().hash();
         let bucket_entry = BucketEntry {
             root: entry.root.clone(),
             priority: entry.priority,
@@ -96,8 +95,14 @@ impl RootContainer {
         infos.election_count = bucket.len();
         infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
 
-        self.by_root.insert(root.clone(), entry);
-        self.vote_router.connect(hash, root.clone());
+        #[cfg(feature = "rai_protocol")]
+        for hash in entry.election.candidate_hashes() {
+            self.vote_router.connect(*hash, root.clone());
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        self.vote_router
+            .connect(entry.election.winner().hash(), root.clone());
+        self.by_root.insert(root, entry);
     }
 
     pub fn get(&self, root: &QualifiedRoot) -> Option<&Entry> {

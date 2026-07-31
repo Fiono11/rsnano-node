@@ -21,7 +21,8 @@ use rustc_hash::FxHashMap;
 
 #[cfg(feature = "rai_protocol")]
 use crate::consensus::rai::{
-    BlockHashOrTimeout, RaiElectionVoteState, RaiEpoch, RaiLocalResult, RaiOutcome,
+    BlockHashOrTimeout, RaiCloseElectionId, RaiCloseKind, RaiElectionVoteState, RaiEpoch,
+    RaiLocalResult, RaiOutcome,
 };
 #[cfg(feature = "rai_protocol")]
 use rsnano_ledger::RepWeights;
@@ -149,6 +150,45 @@ impl Election {
         }
     }
 
+    /// Creates an active election whose candidate is a close-cut digest rather
+    /// than a ledger block. The placeholder block only satisfies the legacy
+    /// election projection; it is deliberately not installed as a candidate.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn new_close_cut(
+        id: RaiCloseElectionId,
+        root: QualifiedRoot,
+        candidate: BlockHash,
+        committee: Arc<RepWeights>,
+        base_latency: Duration,
+        now: Timestamp,
+    ) -> Self {
+        debug_assert_eq!(id.kind, RaiCloseKind::Cut);
+        debug_assert_eq!(id.round, 0);
+        let placeholder = SavedBlock::new_test_instance();
+        Self {
+            qualified_root: root,
+            votes: HashMap::new(),
+            candidate_blocks: HashMap::new(),
+            rai_hash_candidates: HashSet::from([candidate]),
+            state: ElectionState::Passive,
+            tallies: BlockTallies::new(),
+            final_tallies: BlockTallies::new(),
+            winner_tally: Amount::ZERO,
+            winner_final_tally: Amount::ZERO,
+            behavior: ElectionBehavior::Manual,
+            has_quorum: false,
+            start: now,
+            base_latency,
+            account: Account::ZERO,
+            winner: MaybeSavedBlock::Saved(placeholder),
+            rai_kind: RaiElectionKind::CloseCut,
+            rai_epoch: id.epoch,
+            rai_round: id.round,
+            rai_governing_hash: None,
+            rai_votes: RaiElectionVoteState::new(vec![committee]),
+        }
+    }
+
     pub fn new_test_instance_with(block: SavedBlock) -> Self {
         Self::new(
             block,
@@ -199,7 +239,8 @@ impl Election {
         vote_received: Timestamp,
     ) -> Result<(), crate::consensus::rai::RaiVoteStateError> {
         if metadata.epoch != self.rai_epoch
-            || self.rai_governing_hash != Some(metadata.governing_hash)
+            || (self.rai_kind == RaiElectionKind::Slot
+                && self.rai_governing_hash != Some(metadata.governing_hash))
         {
             return Err(crate::consensus::rai::RaiVoteStateError::WrongElectionContext);
         }
@@ -499,8 +540,7 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     fn update_rai_tallies(&mut self) {
         let projected = self
-            .candidate_blocks
-            .keys()
+            .candidate_hashes()
             .map(|hash| {
                 let support = self
                     .rai_votes
@@ -517,11 +557,18 @@ impl Election {
             })
             .max_by_key(|(hash, support)| (*support, *hash));
         if let Some((hash, support)) = projected {
-            if !support.is_zero() && self.winner.hash() != hash {
+            if !support.is_zero()
+                && self.candidate_blocks.contains_key(&hash)
+                && self.winner.hash() != hash
+            {
                 tracing::warn!("Winner changed to {:?}!", hash);
                 self.change_winner_to(&hash);
             }
-            let winner = self.winner.hash();
+            let winner = if self.rai_kind == RaiElectionKind::Slot {
+                self.winner.hash()
+            } else {
+                hash
+            };
             self.winner_tally = self
                 .rai_votes
                 .committees

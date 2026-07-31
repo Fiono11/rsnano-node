@@ -139,6 +139,58 @@ impl ActiveElectionsContainer {
         self.insert_new_election(request, now)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_close_cut(
+        &mut self,
+        spec: super::RaiCloseElectionSpec,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        use crate::consensus::rai::{RaiCloseKind, rai_close_cut_root};
+
+        self.ensure_not_stopped()?;
+        if spec.id.kind != RaiCloseKind::Cut
+            || spec.id.round != 0
+            || spec.root != rai_close_cut_root(spec.id.epoch, 0)
+            || self
+                .rai_epoch_manager
+                .close_cut_tracker(spec.id.epoch)
+                .and_then(|tracker| tracker.round(0))
+                .is_none_or(|round| {
+                    round.id != spec.id || !round.validated_preimages.contains(&spec.candidate)
+                })
+            || self
+                .rai_epoch_manager
+                .close_committee(spec.id.epoch)
+                .is_none_or(|committee| committee != spec.committee)
+        {
+            return Err(AecInsertError::InvalidRaiCloseElection);
+        }
+        if self.roots.get(&spec.root).is_some() || self.roots.vote_router.is_active(&spec.candidate)
+        {
+            return Err(AecInsertError::Duplicate);
+        }
+
+        let root = spec.root;
+        let candidate = spec.candidate;
+        let election = Election::new_close_cut(
+            spec.id,
+            root.clone(),
+            candidate,
+            spec.committee,
+            self.base_latency,
+            now,
+        );
+        self.roots.insert(Entry {
+            root: root.clone(),
+            election,
+            priority: rsnano_types::BlockPriority::default(),
+        });
+        *self.count_by_behavior_mut(ElectionBehavior::Manual) += 1;
+        self.stats.started(ElectionBehavior::Manual);
+        self.notify(AecFact::ElectionStarted(candidate, root));
+        Ok(())
+    }
+
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
         if self.stopped {
             Err(AecInsertError::Stopped)
@@ -375,6 +427,8 @@ impl ActiveElectionsContainer {
                         self.stats.activate_failed_duplicate += 1;
                     }
                     Err(AecInsertError::MissingRaiGoverningClose) => {}
+                    #[cfg(feature = "rai_protocol")]
+                    Err(AecInsertError::InvalidRaiCloseElection) => {}
                     Err(AecInsertError::Stopped) => {}
                 }
             }
@@ -500,6 +554,21 @@ impl ActiveElectionsContainer {
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
+            #[cfg(feature = "rai_protocol")]
+            if entry.election.rai_kind() == crate::consensus::election::RaiElectionKind::CloseCut {
+                let epoch = entry.election.rai_epoch();
+                let round = entry.election.rai_round();
+                let candidate = entry.election.rai_votes.outcome;
+                let evidence = entry.election.rai_votes.clone();
+                if self
+                    .rai_epoch_manager
+                    .store_close_cut_evidence(epoch, round, evidence)
+                {
+                    if let crate::consensus::rai::RaiOutcome::Confirmed(hash) = candidate {
+                        let _ = self.rai_epoch_manager.decide_close_cut(epoch, round, hash);
+                    }
+                }
+            }
             self.cleanup_election(entry);
         }
         result.per_block
@@ -706,6 +775,160 @@ mod tests {
 
         assert_eq!(result, Err(AecInsertError::MissingRaiGoverningClose));
         assert_eq!(container.len(), 0);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn close_cut_uses_normal_vote_validation_and_enters_draining() {
+        use crate::consensus::{
+            FilteredVote, RaiCloseElectionSpec, ReceivedVote,
+            election::RaiElectionKind,
+            rai::{
+                RaiCloseElectionId, RaiCloseKind, RaiClosingPhase, RaiReport, rai_close_cut_root,
+            },
+        };
+        use rsnano_types::{
+            Amount, PrivateKey, RaiCommitteeScope, RaiVoteMetadata, RaiVotePhase,
+            UnixMillisTimestamp, Vote, VoteDelivery,
+        };
+
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+        ];
+        let committee = std::sync::Arc::new(RepWeights::from([
+            (keys[0].public_key(), Amount::raw(1)),
+            (keys[1].public_key(), Amount::raw(1)),
+            (keys[2].public_key(), Amount::raw(1)),
+            (keys[3].public_key(), Amount::raw(1)),
+        ]));
+        let mut container = ActiveElectionsContainer::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            committee.clone(),
+            BlockHash::from(7),
+        );
+        let now = Timestamp::new_test_instance();
+        assert!(container.rai_epoch_manager.start_closing(now));
+        for key in &keys {
+            container
+                .rai_epoch_manager
+                .reports_mut()
+                .insert(RaiReport::new(key, 0.into(), []))
+                .unwrap();
+        }
+        let (root, candidate) = container.rai_epoch_manager.begin_cut_election([]).unwrap();
+        let id = RaiCloseElectionId {
+            kind: RaiCloseKind::Cut,
+            epoch: 0.into(),
+            round: 0,
+        };
+        container
+            .insert_close_cut(
+                RaiCloseElectionSpec {
+                    id,
+                    root: root.clone(),
+                    candidate,
+                    committee,
+                },
+                now,
+            )
+            .unwrap();
+
+        let election = container.election_for_root(&root).unwrap();
+        assert_eq!(election.rai_kind(), RaiElectionKind::CloseCut);
+        assert!(election.candidate_blocks().is_empty());
+        assert_eq!(root, rai_close_cut_root(0.into(), 0));
+
+        let rep_weights = RepWeights::default();
+        let quorum = QuorumSnapshot::new_test_instance();
+        for key in &keys {
+            let vote: FilteredVote = ReceivedVote::new(
+                Vote::new_rai(
+                    key,
+                    UnixMillisTimestamp::new(1),
+                    0,
+                    vec![candidate],
+                    RaiVoteMetadata {
+                        phase: RaiVotePhase::First,
+                        epoch: 0.into(),
+                        governing_hash: BlockHash::from(999),
+                        scope: RaiCommitteeScope::All,
+                    },
+                )
+                .into(),
+                VoteDelivery::Direct,
+                None,
+            )
+            .into();
+            assert_eq!(
+                container.apply_vote(ApplyVoteArgs {
+                    vote: &vote,
+                    rep_weights: &rep_weights,
+                    quorum_snapshot: &quorum,
+                    now,
+                })[&candidate],
+                Ok(())
+            );
+        }
+
+        assert_eq!(
+            container.rai_epoch_manager.decided_close_hash(0.into()),
+            Some(candidate)
+        );
+        assert_eq!(
+            container.rai_epoch_manager.closing_epoch().unwrap().phase,
+            RaiClosingPhase::Draining
+        );
+        assert_eq!(
+            container
+                .rai_epoch_manager
+                .close_cut_tracker(0.into())
+                .unwrap()
+                .round(0)
+                .unwrap()
+                .id,
+            id
+        );
+        assert_eq!(
+            container
+                .rai_epoch_manager
+                .decide_close_cut(0.into(), 0, BlockHash::from(123)),
+            Err(crate::consensus::rai::CloseCutDecisionError::ImmutableDecision)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn unknown_close_cut_preimage_cannot_be_voted_for() {
+        use crate::consensus::{FilteredVote, ReceivedVote};
+        use rsnano_types::{PrivateKey, RaiVoteMetadata, UnixMillisTimestamp, Vote, VoteDelivery};
+
+        let mut container = ActiveElectionsContainer::default();
+        let unknown = BlockHash::from(999);
+        let vote: FilteredVote = ReceivedVote::new(
+            Vote::new_rai(
+                &PrivateKey::from(1),
+                UnixMillisTimestamp::new(1),
+                0,
+                vec![unknown],
+                RaiVoteMetadata::default(),
+            )
+            .into(),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        let result = container.apply_vote(ApplyVoteArgs {
+            vote: &vote,
+            rep_weights: &RepWeights::default(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now: Timestamp::new_test_instance(),
+        });
+
+        assert_eq!(result[&unknown], Err(VoteError::Indeterminate));
     }
 
     #[cfg(not(feature = "rai_protocol"))]

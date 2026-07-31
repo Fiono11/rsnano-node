@@ -11,8 +11,12 @@ pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 
+#[cfg(feature = "rai_protocol")]
+use std::sync::Arc;
 use std::{collections::HashMap, isize};
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::RepWeights;
 use rsnano_types::{
     Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, TimePriority, VoteError,
 };
@@ -66,6 +70,8 @@ pub enum AecInsertError {
     Stopped,
     Duplicate,
     MissingRaiGoverningClose,
+    #[cfg(feature = "rai_protocol")]
+    InvalidRaiCloseElection,
 
     /// This block or a fork got recently confirmed, so there is no need for a new election.
     RecentlyConfirmed,
@@ -85,6 +91,15 @@ pub struct AecInsertRequest {
     pub block: SavedBlock,
     pub behavior: ElectionBehavior,
     pub priority: BlockPriority,
+}
+
+/// Explicit request for a synthetic, round-zero close-cut election.
+#[cfg(feature = "rai_protocol")]
+pub struct RaiCloseElectionSpec {
+    pub id: crate::consensus::rai::RaiCloseElectionId,
+    pub root: QualifiedRoot,
+    pub candidate: BlockHash,
+    pub committee: Arc<RepWeights>,
 }
 
 impl AecInsertRequest {
