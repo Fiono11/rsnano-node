@@ -36,6 +36,16 @@ impl LocalVoteHistory {
     }
 
     fn max_cache_for(network: NetworkType) -> usize {
+        #[cfg(feature = "rai_protocol")]
+        {
+            // RAI replays signed First/Notar/Final material while draining a
+            // certified close cut.  The dev-network cache of 256 entries can
+            // evict the beginning of an ordinary multi-hundred-slot cut before
+            // a lagging replica receives it, permanently stalling close.
+            let _ = network;
+            return 128 * 1024;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         match network {
             NetworkType::NanoDevNetwork => 256,
             _ => 128 * 1024,
@@ -61,12 +71,24 @@ impl LocalVoteHistory {
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
+                let same_phase = {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        current.vote.metadata.phase == vote.metadata.phase
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        true
+                    }
+                };
                 if &current.hash != hash
-                    || (vote.voter == current.vote.voter
+                    || (same_phase
+                        && vote.voter == current.vote.voter
                         && current.vote.timestamp() <= vote.timestamp())
                 {
                     ids_to_delete.push(i);
-                } else if vote.voter == current.vote.voter
+                } else if same_phase
+                    && vote.voter == current.vote.voter
                     && current.vote.timestamp() > vote.timestamp()
                 {
                     add_vote = false;
@@ -148,6 +170,48 @@ impl LocalVoteHistory {
 
     pub fn size(&self) -> usize {
         self.data.lock().unwrap().history.len()
+    }
+
+    /// Signed vote batches are durable RAI quorum material.  A peer may learn
+    /// the referenced block after the original vote broadcast, so the epoch
+    /// ticker periodically replays every retained batch.  One vectorized vote
+    /// is indexed under each of its roots; return it only once.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_votes(&self) -> Vec<Arc<Vote>> {
+        let guard = self.data.lock().unwrap();
+        let mut votes = HashMap::new();
+        for entry in guard.history.values() {
+            votes.insert((entry.vote.voter, entry.vote.hash()), entry.vote.clone());
+        }
+        let mut votes = votes.into_values().collect::<Vec<_>>();
+        votes.sort_by_key(|vote| {
+            let phase = match vote.metadata.phase {
+                rsnano_types::RaiVotePhase::First => 0,
+                rsnano_types::RaiVotePhase::Notar => 1,
+                rsnano_types::RaiVotePhase::Final => 2,
+            };
+            // The ticker advances a cursor across this freshly built list.
+            // HashMap iteration is randomized, so phase alone is not enough:
+            // canonicalize within each phase to guarantee eventual coverage.
+            (phase, vote.hash())
+        });
+        votes
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_close_votes(&self) -> Vec<Arc<Vote>> {
+        self.rai_votes()
+            .into_iter()
+            .filter(|vote| vote.metadata.governing_hash.is_zero())
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_slot_votes(&self) -> Vec<Arc<Vote>> {
+        self.rai_votes()
+            .into_iter()
+            .filter(|vote| !vote.metadata.governing_hash.is_zero())
+            .collect()
     }
 }
 
@@ -276,5 +340,99 @@ mod tests {
         let votes = history.votes(&root, &BlockHash::from(3), false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_votes_returns_each_vectorized_batch_once() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let first_hash = BlockHash::from(11);
+        let second_hash = BlockHash::from(12);
+        let vote = Arc::new(Vote::new(
+            &key,
+            UnixMillisTimestamp::new(1),
+            0,
+            vec![first_hash, second_hash],
+        ));
+
+        history.add(&Root::from(1), &first_hash, &vote);
+        history.add(&Root::from(2), &second_hash, &vote);
+
+        let replay = history.rai_votes();
+        assert_eq!(replay.len(), 1);
+        assert!(Arc::ptr_eq(&replay[0], &vote));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_history_retains_first_and_final_votes() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let root = Root::from(1);
+        let hash = BlockHash::from(11);
+        let first = Arc::new(Vote::new(&key, UnixMillisTimestamp::new(1), 0, vec![hash]));
+        let final_vote = Arc::new(Vote::new_final(&key, vec![hash]));
+
+        history.add(&root, &hash, &first);
+        history.add(&root, &hash, &final_vote);
+
+        let replay = history.rai_votes();
+        assert_eq!(replay.len(), 2);
+        assert!(replay.iter().any(|vote| Arc::ptr_eq(vote, &first)));
+        assert!(replay.iter().any(|vote| Arc::ptr_eq(vote, &final_vote)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_dev_history_can_retain_a_complete_large_close_cut() {
+        let history = LocalVoteHistory::new(NetworkType::NanoDevNetwork);
+        let key = PrivateKey::new();
+
+        for value in 1..=1_214 {
+            let hash = BlockHash::from(value);
+            let vote = Arc::new(Vote::new(
+                &key,
+                UnixMillisTimestamp::new(value),
+                0,
+                vec![hash],
+            ));
+            history.add(&Root::from(value), &hash, &vote);
+        }
+
+        assert_eq!(history.rai_votes().len(), 1_214);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_replay_order_is_stable_across_snapshots() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        for value in 1..=64 {
+            let hash = BlockHash::from(value);
+            let vote = Arc::new(Vote::new(
+                &key,
+                UnixMillisTimestamp::new(value),
+                0,
+                vec![hash],
+            ));
+            history.add(&Root::from(value), &hash, &vote);
+        }
+
+        let expected = history
+            .rai_votes()
+            .into_iter()
+            .map(|vote| vote.hash())
+            .collect::<Vec<_>>();
+        for _ in 0..10 {
+            assert_eq!(
+                history
+                    .rai_votes()
+                    .into_iter()
+                    .map(|vote| vote.hash())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 }

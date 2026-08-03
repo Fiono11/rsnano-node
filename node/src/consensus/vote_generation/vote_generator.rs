@@ -95,6 +95,8 @@ impl VoteGenerator {
             spacing: Mutex::new(VoteSpacing::new(voting_delay)),
             vote_generator_delay,
             clock,
+            #[cfg(feature = "rai_protocol")]
+            rai_rep_keys: Mutex::new(Vec::new()),
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -266,6 +268,8 @@ struct SharedState {
     spacing: Mutex<VoteSpacing>,
     vote_generator_delay: Duration,
     clock: Arc<SteadyClock>,
+    #[cfg(feature = "rai_protocol")]
+    rai_rep_keys: Mutex<Vec<rsnano_types::PrivateKey>>,
 }
 
 impl SharedState {
@@ -367,12 +371,20 @@ impl SharedState {
         F: Fn(Arc<Vote>),
     {
         debug_assert_eq!(hashes.len(), roots.len());
-        let mut rep_keys = Vec::new();
-
-        self.wallet_reps
-            .lock()
-            .unwrap()
-            .rep_priv_keys(&mut rep_keys);
+        #[cfg(not(feature = "rai_protocol"))]
+        let mut rep_keys = {
+            let mut keys = Vec::new();
+            self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+            keys
+        };
+        #[cfg(feature = "rai_protocol")]
+        let mut rep_keys = {
+            let mut cached = self.rai_rep_keys.lock().unwrap();
+            if cached.is_empty() {
+                self.wallet_reps.lock().unwrap().rep_priv_keys(&mut cached);
+            }
+            cached.clone()
+        };
 
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {

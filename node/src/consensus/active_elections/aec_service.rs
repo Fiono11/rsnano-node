@@ -1,6 +1,8 @@
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::AnySet;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
 };
@@ -36,7 +38,12 @@ pub struct RaiEpochTicker {
     ledger: std::sync::Arc<rsnano_ledger::Ledger>,
     epoch_duration: Duration,
     flooder: crate::transport::MessageFlooder,
+    vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     reports: Vec<crate::consensus::rai::RaiReport>,
+    report_replay_cursor: usize,
+    close_vote_replay_cursor: usize,
+    slot_vote_replay_cursors: std::collections::BTreeMap<rsnano_types::RaiEpoch, usize>,
+    local_key: Option<rsnano_types::PrivateKey>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -48,6 +55,7 @@ impl RaiEpochTicker {
         ledger: std::sync::Arc<rsnano_ledger::Ledger>,
         epoch_duration: Duration,
         flooder: crate::transport::MessageFlooder,
+        vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     ) -> Self {
         Self {
             aec,
@@ -56,7 +64,12 @@ impl RaiEpochTicker {
             ledger,
             epoch_duration,
             flooder,
+            vote_history,
             reports: Vec::new(),
+            report_replay_cursor: 0,
+            close_vote_replay_cursor: 0,
+            slot_vote_replay_cursors: Default::default(),
+            local_key: None,
         }
     }
 }
@@ -64,9 +77,12 @@ impl RaiEpochTicker {
 #[cfg(feature = "rai_protocol")]
 impl Tickable for RaiEpochTicker {
     fn tick(&mut self, _cancel_token: &CancellationToken) {
-        let mut keys = Vec::new();
-        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
-        let Some(local_key) = keys.first() else {
+        if self.local_key.is_none() {
+            let mut keys = Vec::new();
+            self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+            self.local_key = keys.into_iter().next();
+        }
+        let Some(local_key) = self.local_key.as_ref() else {
             // Reports are committee votes and must be signed by a voting
             // representative. A node-id signature has no committee weight.
             return;
@@ -77,6 +93,18 @@ impl Tickable for RaiEpochTicker {
         if let Some(closing) = self.aec.rai_epoch_status().0.closing {
             self.aec
                 .rai_progress_close(self.ledger.rai_confirmation_frontiers(closing.epoch), now);
+            if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining {
+                for root in self.aec.rai_missing_drain_elections(closing.epoch) {
+                    let any = self.ledger.any();
+                    let Some(hash) = any.block_successor_by_qualified_root(&root) else {
+                        continue;
+                    };
+                    let Some(block) = any.get_block(&hash) else {
+                        continue;
+                    };
+                    let _ = self.aec.insert_drain_election(block, closing.epoch, now);
+                }
+            }
         }
         let closing = self
             .aec
@@ -84,17 +112,89 @@ impl Tickable for RaiEpochTicker {
             .0
             .closing
             .map(|state| state.epoch);
-        self.reports.retain(|report| Some(report.epoch) == closing);
-
         // Reports are quorum material, not best-effort announcements. Repeat
         // them throughout the close and target all known PR peers so a missed
         // first flood cannot leave part of the network in CollectingReports.
-        for report in &self.reports {
-            self.flooder.flood_prs_and_some_non_prs(
+        for report in self
+            .reports
+            .iter()
+            .filter(|report| Some(report.epoch) == closing)
+        {
+            self.flooder.flood_all(
                 &rsnano_messages::Message::RaiReport(report.clone().into()),
                 rsnano_network::TrafficType::Generic,
-                2.0,
             );
+        }
+
+        // Reports are durable authenticated objects. Replay one historical
+        // report per tick so a peer which joined after an epoch closed can
+        // obtain the quorum material needed to catch up, without flooding the
+        // complete history on every tick.
+        let historical = self
+            .reports
+            .iter()
+            .filter(|report| Some(report.epoch) != closing)
+            .collect::<Vec<_>>();
+        if !historical.is_empty() {
+            let report = historical[self.report_replay_cursor % historical.len()];
+            self.report_replay_cursor = self.report_replay_cursor.wrapping_add(1);
+            self.flooder.flood_all(
+                &rsnano_messages::Message::RaiReport(report.clone().into()),
+                rsnano_network::TrafficType::Generic,
+            );
+        }
+
+        // Close votes have their own replay lane so a large slot history
+        // cannot delay cut/record progress past the close window.
+        let close_votes = self.vote_history.rai_close_votes();
+        if !close_votes.is_empty() {
+            let vote = &close_votes[self.close_vote_replay_cursor % close_votes.len()];
+            self.close_vote_replay_cursor = self.close_vote_replay_cursor.wrapping_add(1);
+            self.flooder.flood_all(
+                &rsnano_messages::Message::ConfirmAck(
+                    rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
+                ),
+                rsnano_network::TrafficType::VoteRebroadcast,
+            );
+        }
+
+        let mut slot_votes_by_epoch = std::collections::BTreeMap::<_, Vec<_>>::new();
+        for vote in self.vote_history.rai_slot_votes() {
+            slot_votes_by_epoch
+                .entry(vote.metadata.epoch)
+                .or_default()
+                .push(vote);
+        }
+        for (epoch, slot_votes) in slot_votes_by_epoch {
+            // Sweep a bounded window per tick. A close cut can contain many
+            // elections. Each epoch has an independent cursor so votes added
+            // by a newer open epoch cannot starve a lagging peer's close.
+            let replay_count = slot_votes.len().min(16);
+            let cursor = self.slot_vote_replay_cursors.entry(epoch).or_default();
+            for offset in 0..replay_count {
+                let vote = &slot_votes[(cursor.wrapping_add(offset)) % slot_votes.len()];
+                // A durable certificate is not actionable until the peer has
+                // its candidate block. Replay the bounded set of referenced
+                // saved blocks alongside the vote so a missed publish cannot
+                // leave a certified cut obligation permanently unroutable.
+                for hash in &vote.hashes {
+                    if let Some(block) = self.ledger.any().get_block(hash) {
+                        self.flooder.flood_all(
+                            &rsnano_messages::Message::Publish(
+                                rsnano_messages::Publish::new_from_originator(block.into()),
+                            ),
+                            rsnano_network::TrafficType::BlockBroadcastInitial,
+                        );
+                    }
+                }
+                self.flooder.flood_all(
+                    &rsnano_messages::Message::ConfirmAck(
+                        rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
+                    ),
+                    rsnano_network::TrafficType::VoteRebroadcast,
+                );
+            }
+            *cursor = cursor.wrapping_add(replay_count);
         }
     }
 }
@@ -274,6 +374,42 @@ impl AecService {
         self.aec.write().unwrap().rai_progress_close(frontiers, now);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_missing_drain_elections(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> Vec<QualifiedRoot> {
+        let aec = self.aec.read().unwrap();
+        aec.rai_happy_path_drains()
+            .get(&epoch)
+            .map(|drain| {
+                drain
+                    .obligations
+                    .iter()
+                    .filter(|root| {
+                        !drain.finalized.contains_key(*root)
+                            && !drain.released.contains_key(*root)
+                            && aec.election_for_root(root).is_none()
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_drain_election(
+        &self,
+        block: SavedBlock,
+        epoch: rsnano_types::RaiEpoch,
+        now: Timestamp,
+    ) -> Result<(), AecInsertError> {
+        self.aec
+            .write()
+            .unwrap()
+            .insert_drain_election(block, epoch, now)
+    }
+
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
         self.aec.write().unwrap().transition_active(block_hash)
     }
@@ -372,7 +508,15 @@ impl AecService {
         let drains = aec
             .rai_happy_path_drains()
             .iter()
-            .map(|(epoch, drain)| (*epoch, (drain.obligations.len(), drain.finalized.len())))
+            .map(|(epoch, drain)| {
+                (
+                    *epoch,
+                    (
+                        drain.obligations.len(),
+                        drain.finalized.len() + drain.released.len(),
+                    ),
+                )
+            })
             .collect();
         (state, hashes, cut_hashes, drains)
     }

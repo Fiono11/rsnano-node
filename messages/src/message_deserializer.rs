@@ -110,7 +110,17 @@ impl MessageDeserializer {
         message_type: MessageType,
         payload_bytes: &[u8],
     ) -> Result<u128, ParseMessageError> {
-        if matches!(message_type, MessageType::Publish | MessageType::ConfirmAck) {
+        let filter_confirm_ack = {
+            #[cfg(feature = "rai_protocol")]
+            {
+                false
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                message_type == MessageType::ConfirmAck
+            }
+        };
+        if message_type == MessageType::Publish || filter_confirm_ack {
             if let Some(filter) = self.network_filter.as_ref() {
                 let (digest, existed) = filter.apply(payload_bytes);
                 if existed {
@@ -294,6 +304,7 @@ mod tests {
         }
         //
         // Send two publish messages and asserts that the duplication is detected.
+        #[cfg(not(feature = "rai_protocol"))]
         #[test]
         fn duplicate_confirm_ack() {
             let mut deserializer = create_deserializer();
@@ -310,6 +321,20 @@ mod tests {
                 result,
                 Some(Err(ParseMessageError::DuplicateConfirmAckMessage))
             );
+        }
+
+        #[cfg(feature = "rai_protocol")]
+        #[test]
+        fn rai_confirm_ack_replays_reach_vote_validation() {
+            let mut deserializer = create_deserializer();
+            let message = Message::ConfirmAck(ConfirmAck::new_test_instance());
+            let message_bytes = message_bytes(&message);
+
+            deserializer.push(&message_bytes);
+            assert!(deserializer.try_deserialize().unwrap().is_ok());
+
+            deserializer.push(&message_bytes);
+            assert!(deserializer.try_deserialize().unwrap().is_ok());
         }
     }
 

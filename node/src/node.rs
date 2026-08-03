@@ -631,7 +631,15 @@ impl Node {
         let active_elections = Arc::new(AecService::new_with_rai_committee(
             config.active_elections.clone(),
             base_latency,
-            Arc::new(rep_weights.read().clone()),
+            // Epochs 0 and 1 are governed by the immutable genesis
+            // committee. Seeding RAI from the current live cache makes a
+            // restarted node treat every historical representative as a
+            // genesis committee member, including representatives for which
+            // no node can produce a report.
+            Arc::new(rsnano_ledger::RepWeights::from([(
+                network_params.ledger.genesis_account.into(),
+                Amount::MAX,
+            )])),
             network_params.ledger.genesis_block.hash(),
         ));
         active_elections.set_observer(aec_tx.clone());
@@ -845,6 +853,7 @@ impl Node {
                 ledger.clone(),
                 config.rai.epoch_duration,
                 message_flooder.clone(),
+                vote_history.clone(),
             ),
             config.rai.tick_interval,
         );

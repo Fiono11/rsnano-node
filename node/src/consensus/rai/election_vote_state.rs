@@ -120,6 +120,14 @@ pub enum RaiVoteStateError {
 }
 
 impl RaiElectionVoteState {
+    pub fn has_timeout_certificate(&self, committee: usize) -> bool {
+        let Some(instance) = self.committees.get(committee) else {
+            return false;
+        };
+        self.notarization_tally(committee, BlockHashOrTimeout::Timeout)
+            >= instance.thresholds.notarization
+    }
+
     pub fn new(committees: Vec<Arc<RepWeights>>) -> Self {
         let mut unique = Vec::new();
         for weights in committees {

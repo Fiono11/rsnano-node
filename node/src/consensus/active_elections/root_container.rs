@@ -121,6 +121,18 @@ impl RootContainer {
         self.get_mut(root).map(|i| &mut i.election)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_rai_hash_candidate(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
+        let Some(entry) = self.by_root.get_mut(root) else {
+            return false;
+        };
+        if !entry.election.add_rai_hash_candidate(hash) {
+            return false;
+        }
+        self.vote_router.connect(hash, root.clone());
+        true
+    }
+
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
         let root = self.vote_router.qualified_root(block_hash)?;
         self.election_for_root(root)

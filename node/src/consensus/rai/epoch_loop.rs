@@ -146,6 +146,18 @@ pub trait RaiEpochLoopDriver {
         round: u32,
     ) -> Option<BlockHash>;
 
+    /// Returns the persistent, authenticated vote evidence accumulated for a
+    /// close round.  The epoch loop derives death/carry from this evidence;
+    /// a local election timeout is intentionally insufficient to retry.
+    fn close_election_evidence(
+        &self,
+        _kind: RaiCloseKind,
+        _epoch: RaiEpoch,
+        _round: u32,
+    ) -> Option<super::RaiElectionVoteState> {
+        None
+    }
+
     fn obligations_settled(
         &self,
         _epoch: RaiEpoch,
@@ -269,15 +281,21 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                 if let Some(evidence) = self.driver.slot_vote_evidence(epoch, &root) {
                     // Derive the winner before borrowing the driver mutably for
                     // its corresponding epoch-local ledger segment.
-                    let winner = self
+                    let outcome = self
                         .epoch_manager
                         .happy_path_drain(epoch)
                         .and_then(|drain| {
                             let mut probe = drain.clone();
                             probe.record_persistent_evidence(&root, &evidence)
                         });
-                    if let Some(winner) = winner {
-                        let segment = self.driver.epoch_frontier_segment(epoch, &root, winner);
+                    if let Some(outcome) = outcome {
+                        let segment = match outcome {
+                            super::RaiDrainOutcome::Finalized(winner) => {
+                                self.driver.epoch_frontier_segment(epoch, &root, winner)
+                            }
+                            super::RaiDrainOutcome::ReleasedTimeout
+                            | super::RaiDrainOutcome::ReleasedConflict => Vec::new(),
+                        };
                         let _ = self
                             .epoch_manager
                             .record_drain_evidence(epoch, &root, &evidence, segment);
@@ -338,7 +356,36 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
     }
 
     fn close_election_changed(&mut self, kind: RaiCloseKind, epoch: RaiEpoch, round: u32) {
+        if let Some(evidence) = self.driver.close_election_evidence(kind, epoch, round) {
+            match kind {
+                RaiCloseKind::Cut => {
+                    self.epoch_manager
+                        .store_close_cut_evidence(epoch, round, evidence);
+                }
+                RaiCloseKind::Record => {
+                    self.epoch_manager
+                        .store_close_record_evidence(epoch, round, evidence);
+                }
+            }
+        }
+
         let Some(hash) = self.driver.close_election_winner(kind, epoch, round) else {
+            let next = match kind {
+                RaiCloseKind::Cut => self.epoch_manager.advance_close_cut_round(),
+                RaiCloseKind::Record => self
+                    .epoch_manager
+                    .advance_close_record_round(self.driver.confirmation_heights()),
+            };
+            if let Some((root, hash)) = next {
+                let next_round = match kind {
+                    RaiCloseKind::Cut => self.epoch_manager.close_cut_round(epoch),
+                    RaiCloseKind::Record => self.epoch_manager.close_record_round(epoch),
+                };
+                if let Some(next_round) = next_round {
+                    self.driver
+                        .start_close_election(kind, epoch, next_round, root, hash);
+                }
+            }
             return;
         };
         match kind {

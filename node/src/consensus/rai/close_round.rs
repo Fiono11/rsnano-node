@@ -199,15 +199,22 @@ impl RaiCloseRoundTracker {
             RaiCloseRoundResult::Decided(_) => return RaiCloseRoundAction::Inert,
         };
         if let Some(existing) = self.rounds.get(&next_round) {
+            // A restored/replayed transition must reproduce the exact value
+            // already installed for the successor, never the caller's newly
+            // computed fresh preference.
+            let existing_hash = *existing
+                .validated_preimages
+                .first()
+                .expect("a close round always retains its opening");
             return if existing.carried.is_some() {
                 RaiCloseRoundAction::StartCarry {
                     round: next_round,
-                    hash,
+                    hash: existing_hash,
                 }
             } else {
                 RaiCloseRoundAction::StartFresh {
                     round: next_round,
-                    hash,
+                    hash: existing_hash,
                 }
             };
         }
@@ -315,6 +322,31 @@ mod tests {
         );
         assert_eq!(rounds.next(hash(3)), RaiCloseRoundAction::Wait);
         assert_eq!(rounds.current_round(), 1);
+    }
+
+    #[test]
+    fn replayed_retry_keeps_the_original_fresh_hash() {
+        let mut rounds = RaiCloseRoundTracker::new(RaiCloseKind::Cut, 0.into());
+        rounds.start_round_zero(hash(1));
+        rounds.store_evidence(0, evidence(&[(1, BlockHashOrTimeout::Timeout)]));
+        assert_eq!(
+            rounds.next(hash(2)),
+            RaiCloseRoundAction::StartFresh {
+                round: 1,
+                hash: hash(2)
+            }
+        );
+
+        // Replaying the source-round event after local visibility changed must
+        // not start the same election id with a different candidate.
+        rounds.current_round = 0;
+        assert_eq!(
+            rounds.next(hash(99)),
+            RaiCloseRoundAction::StartFresh {
+                round: 1,
+                hash: hash(2)
+            }
+        );
     }
 
     #[test]
