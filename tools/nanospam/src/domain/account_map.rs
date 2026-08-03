@@ -2,7 +2,7 @@ use rand::{
     rng,
     seq::{IndexedRandom, IteratorRandom},
 };
-use rsnano_types::{Account, Amount, BlockHash, PrivateKey};
+use rsnano_types::{Account, Amount, BlockHash, PrivateKey, PublicKey};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Default)]
@@ -31,6 +31,7 @@ struct UnconfirmedEntry {
 
 pub(crate) struct AccountState {
     pub key: PrivateKey,
+    pub representative: PublicKey,
     pub confirmed_frontier: BlockHash,
     pub unconfirmed_frontier: BlockHash,
     pub balance: Amount,
@@ -54,6 +55,7 @@ impl AccountMap {
         self.account_states.values().map(|s| &s.key)
     }
 
+    #[cfg(test)]
     pub fn initial_key(&self) -> &PrivateKey {
         &self.account_states.get(&self.all_accounts[0]).unwrap().key
     }
@@ -70,6 +72,13 @@ impl AccountMap {
         self.confirmed_accounts.insert(account);
         self.active_accounts.insert(account);
         self.active_accounts_vec.push(account);
+    }
+
+    pub fn set_representative(&mut self, account: Account, representative: PublicKey) {
+        self.account_states
+            .get_mut(&account)
+            .unwrap()
+            .representative = representative;
     }
 
     pub fn add_confirmed_receivable(
@@ -92,6 +101,7 @@ impl AccountMap {
         self.account_states.insert(
             account,
             AccountState {
+                representative: key.public_key(),
                 key,
                 confirmed_frontier: BlockHash::ZERO,
                 unconfirmed_frontier: BlockHash::ZERO,

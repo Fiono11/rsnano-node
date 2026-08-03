@@ -25,6 +25,13 @@ pub(crate) async fn sync_frontiers(rpc_clients: &[NanoRpcClient], account_map: &
             .unwrap()
             .balances;
 
+        let representatives = rpc_client
+            .accounts_representatives(chunk.to_vec())
+            .await
+            .unwrap()
+            .representatives
+            .unwrap_or_default();
+
         let AccountsReceivableResponse::Source(receivable) = rpc_client
             .accounts_receivable(
                 AccountsReceivableArgs::build(chunk.to_vec())
@@ -41,6 +48,9 @@ pub(crate) async fn sync_frontiers(rpc_clients: &[NanoRpcClient], account_map: &
             if let Some(frontier) = frontiers.get(account) {
                 let balance = balances.get(account).unwrap().balance;
                 account_map.set_account_state(*account, balance, *frontier);
+                if let Some(representative) = representatives.get(account) {
+                    account_map.set_representative(*account, (*representative).into());
+                }
             }
 
             if let Some(blocks) = receivable.blocks.get(account) {

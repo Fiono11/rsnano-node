@@ -1,5 +1,5 @@
 use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 const DEFAULT_RATE: &str = "1+50@3s";
@@ -8,89 +8,175 @@ const DEFAULT_RAI_TICK_INTERVAL_MS: u64 = 100;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-pub(crate) struct CliArgs {
-    /// Directory in which nanospam creates its PR node directories
+pub(crate) struct CommandLine {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Prepare funded node ledgers and stop all setup nodes.
+    Setup(SetupArgs),
+    /// Start a prepared network at RAI epoch 0 and run a workload.
+    Run(RunArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+struct NetworkArgs {
+    /// Directory containing the prepared PR node directories
     #[arg(long)]
-    pub data_dir: Option<PathBuf>,
+    data_dir: PathBuf,
 
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
-    pub prs: usize,
+    prs: usize,
 
-    /// Only create the node config files and set up the wallets, then exit
+    /// Maximum number of individual accounts used to produce blocks
+    #[arg(long, default_value_t = 500000)]
+    accounts: usize,
+
+    /// Run the C++ nano_node (must be in PATH)
     #[arg(long, default_value_t = false)]
-    pub setup_only: bool,
-
-    /// Attach to an already running node that was set up by a previous nanospam run
-    #[arg(long, default_value_t = false)]
-    pub attach: bool,
-
-    #[arg(long)]
-    /// Block rate in the form "1000+50@3s" or "1000"
-    pub rate: Option<String>,
-
-    #[arg(long)]
-    /// Number of blocks to publish
-    pub blocks: Option<usize>,
-
-    /// Don't wait for a block to get confirmed before publishing the next block
-    #[arg(long, default_value_t = false)]
-    pub unconfirmed: bool,
-
-    /// Query frontiers of the spam accounts before starting spam
-    #[arg(long, default_value_t = false)]
-    pub sync: bool,
-
-    /// Only publish change blocks. This requires --sync
-    #[arg(long, default_value_t = false)]
-    pub change: bool,
-
-    /// Run the C++ nano_node (must be in $PATH)
-    #[arg(long, default_value_t = false)]
-    pub cpp: bool,
+    cpp: bool,
 
     /// Use RocksDB (works only for nano_node)
     #[arg(long, default_value_t = false)]
-    pub rocksdb: bool,
-
-    /// Disable sending a high priority block every 10s
-    #[arg(long, default_value_t = false)]
-    pub no_prio: bool,
+    rocksdb: bool,
 
     /// Limit confirmations per second
     #[arg(long, default_value_t = 0)]
-    pub cps_limit: u32,
-
-    /// Don't kill the node processes on exit
-    #[arg(long, default_value_t = false)]
-    pub no_kill: bool,
-
-    /// Don't republish delayed blocks after 10 seconds
-    #[arg(long, default_value_t = false)]
-    pub no_republish: bool,
-
-    /// Maximum number of individual accounts to use to produce blocks
-    #[arg(long, default_value_t = 500000)]
-    pub accounts: usize,
-
-    /// Randomly drop publish messages
-    #[arg(long, default_value_t = 0)]
-    pub drop_percentage: usize,
-
-    /// Percentage of blocks that should have forks
-    #[arg(long, default_value_t = 0)]
-    pub fork_percentage: usize,
+    cps_limit: u32,
 
     /// RAI epoch duration for generated rsnano configs, in milliseconds
     #[arg(long, value_parser = parse_nonzero_duration)]
-    pub rai_epoch_duration_ms: Option<u64>,
+    rai_epoch_duration_ms: Option<u64>,
 
     /// RAI close-loop tick interval for generated rsnano configs, in milliseconds
     #[arg(long, value_parser = parse_nonzero_duration)]
+    rai_tick_interval_ms: Option<u64>,
+}
+
+#[derive(Args, Debug)]
+struct SetupArgs {
+    #[command(flatten)]
+    network: NetworkArgs,
+}
+
+#[derive(Args, Debug)]
+struct RunArgs {
+    #[command(flatten)]
+    network: NetworkArgs,
+
+    /// Block rate in the form "1000+50@3s" or "1000"
+    #[arg(long)]
+    rate: Option<String>,
+
+    /// Number of blocks to publish
+    #[arg(long)]
+    blocks: usize,
+
+    /// Don't wait for a block to get confirmed before publishing the next block
+    #[arg(long, default_value_t = false)]
+    unconfirmed: bool,
+
+    /// Only publish change blocks
+    #[arg(long, default_value_t = false)]
+    change: bool,
+
+    /// Disable sending a high priority block every 10s
+    #[arg(long, default_value_t = false)]
+    no_prio: bool,
+
+    /// Don't kill the node processes on exit
+    #[arg(long, default_value_t = false)]
+    no_kill: bool,
+
+    /// Don't republish delayed blocks after 10 seconds
+    #[arg(long, default_value_t = false)]
+    no_republish: bool,
+
+    /// Randomly drop publish messages
+    #[arg(long, default_value_t = 0)]
+    drop_percentage: usize,
+
+    /// Percentage of blocks that should have forks
+    #[arg(long, default_value_t = 0)]
+    fork_percentage: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Setup,
+    Run,
+}
+
+#[derive(Debug)]
+pub(crate) struct CliArgs {
+    pub mode: Mode,
+    pub data_dir: Option<PathBuf>,
+    pub prs: usize,
+    pub rate: Option<String>,
+    pub blocks: Option<usize>,
+    pub unconfirmed: bool,
+    pub change: bool,
+    pub cpp: bool,
+    pub rocksdb: bool,
+    pub no_prio: bool,
+    pub cps_limit: u32,
+    pub no_kill: bool,
+    pub no_republish: bool,
+    pub accounts: usize,
+    pub drop_percentage: usize,
+    pub fork_percentage: usize,
+    pub rai_epoch_duration_ms: Option<u64>,
     pub rai_tick_interval_ms: Option<u64>,
 }
 
+impl CommandLine {
+    pub(crate) fn into_args(self) -> CliArgs {
+        match self.command {
+            Command::Setup(args) => CliArgs::from_network(Mode::Setup, args.network),
+            Command::Run(args) => {
+                let mut result = CliArgs::from_network(Mode::Run, args.network);
+                result.rate = args.rate;
+                result.blocks = Some(args.blocks);
+                result.unconfirmed = args.unconfirmed;
+                result.change = args.change;
+                result.no_prio = args.no_prio;
+                result.no_kill = args.no_kill;
+                result.no_republish = args.no_republish;
+                result.drop_percentage = args.drop_percentage;
+                result.fork_percentage = args.fork_percentage;
+                result
+            }
+        }
+    }
+}
+
 impl CliArgs {
+    fn from_network(mode: Mode, args: NetworkArgs) -> Self {
+        Self {
+            mode,
+            data_dir: Some(args.data_dir),
+            prs: args.prs,
+            rate: None,
+            blocks: None,
+            unconfirmed: false,
+            change: false,
+            cpp: args.cpp,
+            rocksdb: args.rocksdb,
+            no_prio: false,
+            cps_limit: args.cps_limit,
+            no_kill: false,
+            no_republish: false,
+            accounts: args.accounts,
+            drop_percentage: 0,
+            fork_percentage: 0,
+            rai_epoch_duration_ms: args.rai_epoch_duration_ms,
+            rai_tick_interval_ms: args.rai_tick_interval_ms,
+        }
+    }
+
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         let epoch_duration = self
             .rai_epoch_duration_ms
@@ -102,6 +188,9 @@ impl CliArgs {
             anyhow::bail!(
                 "--rai-tick-interval-ms must be less than or equal to --rai-epoch-duration-ms"
             );
+        }
+        if self.prs == 0 || self.accounts < self.prs {
+            anyhow::bail!("--prs must be nonzero and --accounts must be at least --prs");
         }
         Ok(())
     }
@@ -119,21 +208,23 @@ impl CliArgs {
     pub(crate) fn high_prio_check(&self) -> bool {
         !self.no_prio
     }
-
     pub(crate) fn kill_nodes(&self) -> bool {
         !self.no_kill
     }
-
     pub(crate) fn fork_probability(&self) -> f64 {
         self.fork_percentage as f64 / 100.0
     }
-
     pub(crate) fn drop_probability(&self) -> f64 {
         self.drop_percentage as f64 / 100.0
     }
-
     pub(crate) fn set_up_new_nodes(&self) -> bool {
-        !self.attach && !self.sync
+        self.mode == Mode::Setup
+    }
+    pub(crate) fn sync(&self) -> bool {
+        self.mode == Mode::Run
+    }
+    pub(crate) fn setup_only(&self) -> bool {
+        self.mode == Mode::Setup
     }
 
     fn strategy(&self) -> SpamStrategy {
@@ -145,8 +236,7 @@ impl CliArgs {
     }
 
     fn rate_spec(&self) -> Result<RateSpec, anyhow::Error> {
-        let rate: RateSpec = self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?;
-        Ok(rate)
+        Ok(self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?)
     }
 }
 
@@ -165,49 +255,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_rai_timing_options() {
-        let args = CliArgs::try_parse_from([
+    fn parses_setup_command() {
+        let args = CommandLine::try_parse_from([
             "nanospam",
+            "setup",
+            "--data-dir",
+            "/tmp/rai",
+            "--prs",
+            "6",
+            "--accounts",
+            "6",
+        ])
+        .unwrap()
+        .into_args();
+        assert_eq!(args.mode, Mode::Setup);
+        assert_eq!(args.prs, 6);
+        args.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_run_timing_options() {
+        let args = CommandLine::try_parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "200",
             "--rai-epoch-duration-ms",
             "5000",
             "--rai-tick-interval-ms",
             "100",
         ])
-        .unwrap();
-
+        .unwrap()
+        .into_args();
+        assert_eq!(args.mode, Mode::Run);
         assert_eq!(args.rai_epoch_duration_ms, Some(5000));
-        assert_eq!(args.rai_tick_interval_ms, Some(100));
         args.validate().unwrap();
     }
 
     #[test]
     fn rejects_zero_rai_durations() {
-        assert!(CliArgs::try_parse_from(["nanospam", "--rai-epoch-duration-ms", "0"]).is_err());
-        assert!(CliArgs::try_parse_from(["nanospam", "--rai-tick-interval-ms", "0"]).is_err());
+        assert!(
+            CommandLine::try_parse_from([
+                "nanospam",
+                "run",
+                "--data-dir",
+                "/tmp/rai",
+                "--blocks",
+                "1",
+                "--rai-epoch-duration-ms",
+                "0"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn rejects_tick_interval_larger_than_epoch_duration() {
-        let args = CliArgs::try_parse_from([
+        let args = CommandLine::try_parse_from([
             "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "1",
             "--rai-epoch-duration-ms",
             "99",
             "--rai-tick-interval-ms",
             "100",
         ])
-        .unwrap();
-
+        .unwrap()
+        .into_args();
         assert!(args.validate().is_err());
-    }
-
-    #[test]
-    fn validates_rai_timing_against_defaults() {
-        let short_epoch =
-            CliArgs::try_parse_from(["nanospam", "--rai-epoch-duration-ms", "99"]).unwrap();
-        assert!(short_epoch.validate().is_err());
-
-        let long_tick =
-            CliArgs::try_parse_from(["nanospam", "--rai-tick-interval-ms", "30001"]).unwrap();
-        assert!(long_tick.validate().is_err());
     }
 }

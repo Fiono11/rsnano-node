@@ -51,8 +51,12 @@ impl ConfirmationReceiver {
                 _ = cancel_token.cancelled() =>{ break;}
             };
 
-            let msg = res.unwrap().unwrap();
-            tx_ws_msg.send((msg, clock.now())).unwrap();
+            let Some(Ok(msg)) = res else {
+                break;
+            };
+            if tx_ws_msg.send((msg, clock.now())).is_err() {
+                break;
+            }
         }
     }
 }

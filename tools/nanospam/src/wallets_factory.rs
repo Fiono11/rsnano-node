@@ -4,7 +4,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_rpc_messages::{ReceiveArgs, SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
+use rsnano_rpc_messages::{SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
 use rsnano_types::{Amount, Block, BlockHash, JsonBlock, StateBlockArgs, WalletId, WorkNonce};
 
 use crate::{
@@ -12,7 +12,9 @@ use crate::{
     setup::{genesis_key, pr_key},
 };
 
-const INITIAL_AMOUNT: Amount = Amount::nano(100_000_000);
+// Keep a small setup reserve on genesis for the optional priority accounts.
+// The remaining supply is split evenly across one spam account per PR.
+const SETUP_RESERVE: Amount = Amount::nano(100_000_000);
 
 pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
@@ -47,93 +49,90 @@ pub(crate) async fn create_wallets(
             })
             .await
             .unwrap();
+    }
 
-        // the first rpc client is the genesis client
-        if i > 0 {
-            let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
-            info!(
-                "Sending Ӿ{} to PR{i} wallet {} ...",
-                pr_balance.format_balance(0),
-                pr_key.account().encode_account()
-            );
-            let send_hash = genesis_rpc
-                .send(SendArgs {
-                    wallet: genesis_wallet,
-                    source: genesis_key.account(),
-                    destination: pr_key.account(),
-                    amount: pr_balance,
-                    work: Some(WorkNonce::new(0)),
-                    id: None,
-                })
-                .await
-                .unwrap()
-                .block;
-            wait_until_confirmed(rpc_client, send_hash).await;
+    // During stake redistribution the genesis representative loses almost all
+    // of its weight. Temporarily make every destination representative
+    // available on PR0 so the setup chain cannot strand itself between weight
+    // changes and the periodic local-representative refresh. These extra keys
+    // are removed again before the prepared ledgers are handed to `run`.
+    for i in 1..pr_count {
+        genesis_rpc
+            .wallet_add(WalletAddArgs {
+                wallet: genesis_wallet,
+                key: pr_key(i).raw_key(),
+                work: None,
+            })
+            .await
+            .unwrap();
+    }
+    if pr_count > 1 {
+        sleep(Duration::from_secs(11)).await;
+    }
 
-            info!("Receiving...");
-            // trigger wallet receive to speed things up
-            let _ = rpc_client
-                .receive(ReceiveArgs {
-                    wallet: resp.wallet,
-                    account: pr_key.account(),
-                    block: send_hash,
-                    work: Some(WorkNonce::new(0)),
-                })
-                .await;
-            let recv_hash = rpc_client
-                .account_info(pr_key.account())
-                .await
-                .unwrap()
-                .frontier;
-            wait_until_confirmed(rpc_client, recv_hash).await;
-            info!("DONE");
-            info!(
-                "********************************************************************************"
-            );
+    let distributable = Amount::MAX - SETUP_RESERVE;
+    let share = distributable / pr_count as u128;
+    let remainder = distributable - share * pr_count as u128;
+    for i in 0..pr_count {
+        let spam_key = account_map
+            .state(&account_map.accounts()[i])
+            .unwrap()
+            .key
+            .clone();
+        let amount = share
+            + if i == pr_count - 1 {
+                remainder
+            } else {
+                Amount::ZERO
+            };
+        let representative = pr_key(i).public_key();
+        info!("Funding spam account {i} and delegating it to PR{i}...");
+        let send_hash = genesis_rpc
+            .send(SendArgs {
+                wallet: genesis_wallet,
+                source: genesis_key.account(),
+                destination: spam_key.account(),
+                amount,
+                work: Some(WorkNonce::new(0)),
+                id: None,
+            })
+            .await
+            .unwrap()
+            .block;
+        wait_until_confirmed_on_all(rpc_clients, send_hash).await;
+        let receive: Block = StateBlockArgs {
+            key: &spam_key,
+            previous: BlockHash::ZERO,
+            representative,
+            balance: amount,
+            link: send_hash.into(),
+            work: 0.into(),
         }
+        .into();
+        let receive_hash = genesis_rpc
+            .process(JsonBlock::from(receive.clone()))
+            .await
+            .unwrap()
+            .hash;
+        wait_until_confirmed_on_all(rpc_clients, receive_hash).await;
+        account_map.set_account_state(spam_key.account(), amount, receive.hash());
+        account_map.set_representative(spam_key.account(), representative);
     }
 
-    info!("Sending initial spam amount...");
-    let initial_key = account_map.initial_key().clone();
-    // Send total spam amount
-    let genesis_send = genesis_rpc
-        .send(SendArgs {
-            wallet: genesis_wallet,
-            source: genesis_key.account(),
-            destination: initial_key.account(),
-            amount: INITIAL_AMOUNT,
-            work: Some(0.into()),
-            id: None,
-        })
-        .await
-        .unwrap()
-        .block;
-    wait_until_confirmed(genesis_rpc, genesis_send).await;
-    info!("Receiving initial spam amount...");
-    let genesis_receive: Block = StateBlockArgs {
-        key: &initial_key,
-        previous: BlockHash::ZERO,
-        representative: initial_key.public_key(),
-        balance: INITIAL_AMOUNT,
-        link: genesis_send.into(),
-        work: 0.into(),
+    for i in 1..pr_count {
+        genesis_rpc
+            .account_remove(genesis_wallet, pr_key(i).account())
+            .await
+            .unwrap();
     }
-    .into();
-
-    let recv = genesis_rpc
-        .process(JsonBlock::from(genesis_receive.clone()))
-        .await
-        .unwrap();
-
-    wait_until_confirmed(genesis_rpc, recv.hash).await;
-
-    account_map.set_account_state(
-        initial_key.account(),
-        INITIAL_AMOUNT,
-        genesis_receive.hash(),
-    );
 
     genesis_wallet
+}
+
+async fn wait_until_confirmed_on_all(rpc_clients: &[NanoRpcClient], hash: BlockHash) {
+    for rpc_client in rpc_clients {
+        wait_until_confirmed(rpc_client, hash).await;
+    }
 }
 
 async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {

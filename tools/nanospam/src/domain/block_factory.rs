@@ -107,7 +107,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative: state.representative,
             balance: state.balance + amount_sent,
             link: send_hash.into(),
             work: 0.into(),

@@ -51,15 +51,15 @@ pub(crate) async fn perform_handshake(
         bail!("no handshake response received");
     };
 
-    match handshake
+    let (node_id, response) = handshake
         .process_handshake(&handshake_response, peer_addr)
-        .unwrap()
-    {
-        (Some(_node_id), Some(response)) => {
-            let buffer = serializer.serialize(&Message::Handshake(response));
-            tcp_stream.write_all(buffer).await?;
-        }
-        _ => unreachable!(),
+        .map_err(|error| anyhow::anyhow!("handshake validation failed: {error}"))?;
+    if node_id.is_none() {
+        bail!("handshake response did not authenticate the remote node");
+    }
+    if let Some(response) = response {
+        let buffer = serializer.serialize(&Message::Handshake(response));
+        tcp_stream.write_all(buffer).await?;
     }
     Ok(())
 }

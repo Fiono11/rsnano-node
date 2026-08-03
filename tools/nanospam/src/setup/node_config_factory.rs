@@ -81,6 +81,11 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
         }
     }
 
+    configure_run_nodes(args, data_dir);
+}
+
+/// Rewrites configuration without touching the prepared ledgers.
+pub(crate) fn configure_run_nodes(args: &CliArgs, data_dir: &Path) {
     for i in 0..args.prs {
         info!("********************************************************************************");
         info!("Setting up node PR{i}...");
@@ -96,17 +101,15 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
 
         let mut node_config_path = node_dir.clone();
         node_config_path.push("config-node.toml");
-        if !node_config_path.exists() {
-            info!("Creating node config file: {node_config_path:?}");
-            let node_config = NODE_CONFIG
-                .replace("PEERING_PORT", &peering_port(i).to_string())
-                .replace("WS_PORT", &websocket_port(i).to_string())
-                .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
-                .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
-                .replace("CPS_LIMIT", &args.cps_limit.to_string())
-                .replace("RAI_CONFIG", &rai_config(args));
-            std::fs::write(node_config_path, node_config).unwrap();
-        }
+        info!("Writing node config file: {node_config_path:?}");
+        let node_config = NODE_CONFIG
+            .replace("PEERING_PORT", &peering_port(i).to_string())
+            .replace("WS_PORT", &websocket_port(i).to_string())
+            .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+            .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
+            .replace("CPS_LIMIT", &args.cps_limit.to_string())
+            .replace("RAI_CONFIG", &rai_config(args));
+        std::fs::write(node_config_path, node_config).unwrap();
 
         let mut rpc_config_path = node_dir.clone();
         rpc_config_path.push("config-rpc.toml");
@@ -119,6 +122,15 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
 }
 
 fn rai_config(args: &CliArgs) -> String {
+    if args.setup_only() {
+        // Setup must not race committee preparation against live epoch closes.
+        // The in-memory epoch state is discarded when setup stops the nodes.
+        return format!(
+            "[node.rai]\n    epoch_duration = {}\n    tick_interval = {}",
+            86_400_000,
+            args.rai_tick_interval_ms.unwrap_or(100)
+        );
+    }
     if args.rai_epoch_duration_ms.is_none() && args.rai_tick_interval_ms.is_none() {
         return String::new();
     }
@@ -179,17 +191,24 @@ pub(crate) fn get_genesis_hash() -> BlockHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli_args::CommandLine;
     use clap::Parser;
 
     #[test]
     fn writes_requested_rai_timing() {
-        let args = CliArgs::parse_from([
+        let args = CommandLine::parse_from([
             "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "1",
             "--rai-epoch-duration-ms",
             "5000",
             "--rai-tick-interval-ms",
             "100",
-        ]);
+        ])
+        .into_args();
 
         assert_eq!(
             rai_config(&args),
