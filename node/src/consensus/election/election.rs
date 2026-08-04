@@ -37,6 +37,21 @@ pub enum RaiElectionKind {
     CloseRecord,
 }
 
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RaiSlotId {
+    pub epoch: RaiEpoch,
+    pub root: QualifiedRoot,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RaiElectionId {
+    Slot(RaiSlotId),
+    CloseCut { epoch: RaiEpoch, round: u32 },
+    CloseRecord { epoch: RaiEpoch, round: u32 },
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum VoteType {
     NonFinal,
@@ -69,11 +84,7 @@ pub struct Election {
     account: Account,
 
     #[cfg(feature = "rai_protocol")]
-    rai_kind: RaiElectionKind,
-    #[cfg(feature = "rai_protocol")]
-    rai_epoch: RaiEpoch,
-    #[cfg(feature = "rai_protocol")]
-    rai_round: u32,
+    rai_id: RaiElectionId,
     #[cfg(feature = "rai_protocol")]
     rai_governing_hash: Option<BlockHash>,
     #[cfg(feature = "rai_protocol")]
@@ -123,8 +134,9 @@ impl Election {
         now: Timestamp,
         epoch: RaiEpoch,
     ) -> Self {
+        let root = block.qualified_root();
         Self {
-            qualified_root: block.qualified_root(),
+            qualified_root: root.clone(),
             votes: HashMap::new(),
             candidate_blocks: HashMap::from([(
                 block.hash(),
@@ -142,9 +154,7 @@ impl Election {
             base_latency,
             account: block.account(),
             winner: MaybeSavedBlock::Saved(block),
-            rai_kind: RaiElectionKind::Slot,
-            rai_epoch: epoch,
-            rai_round: 0,
+            rai_id: RaiElectionId::Slot(RaiSlotId { epoch, root }),
             rai_governing_hash: (epoch == RaiEpoch::ZERO).then_some(BlockHash::ZERO),
             rai_votes: RaiElectionVoteState::default(),
         }
@@ -162,7 +172,6 @@ impl Election {
         base_latency: Duration,
         now: Timestamp,
     ) -> Self {
-        debug_assert_eq!(id.round, 0);
         let placeholder = SavedBlock::new_test_instance();
         Self {
             qualified_root: root,
@@ -180,12 +189,16 @@ impl Election {
             base_latency,
             account: Account::ZERO,
             winner: MaybeSavedBlock::Saved(placeholder),
-            rai_kind: match id.kind {
-                RaiCloseKind::Cut => RaiElectionKind::CloseCut,
-                RaiCloseKind::Record => RaiElectionKind::CloseRecord,
+            rai_id: match id.kind {
+                RaiCloseKind::Cut => RaiElectionId::CloseCut {
+                    epoch: id.epoch,
+                    round: id.round,
+                },
+                RaiCloseKind::Record => RaiElectionId::CloseRecord {
+                    epoch: id.epoch,
+                    round: id.round,
+                },
             },
-            rai_epoch: id.epoch,
-            rai_round: id.round,
             rai_governing_hash: None,
             rai_votes: RaiElectionVoteState::new(vec![committee]),
         }
@@ -206,23 +219,42 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_kind(&self) -> RaiElectionKind {
-        self.rai_kind
+        match &self.rai_id {
+            RaiElectionId::Slot(_) => RaiElectionKind::Slot,
+            RaiElectionId::CloseCut { .. } => RaiElectionKind::CloseCut,
+            RaiElectionId::CloseRecord { .. } => RaiElectionKind::CloseRecord,
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_epoch(&self) -> RaiEpoch {
-        self.rai_epoch
+        match &self.rai_id {
+            RaiElectionId::Slot(id) => id.epoch,
+            RaiElectionId::CloseCut { epoch, .. } | RaiElectionId::CloseRecord { epoch, .. } => {
+                *epoch
+            }
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_round(&self) -> u32 {
-        self.rai_round
+        match &self.rai_id {
+            RaiElectionId::Slot(_) => 0,
+            RaiElectionId::CloseCut { round, .. } | RaiElectionId::CloseRecord { round, .. } => {
+                *round
+            }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_id(&self) -> &RaiElectionId {
+        &self.rai_id
     }
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_vote_metadata(&self) -> rsnano_types::RaiVoteMetadata {
         rsnano_types::RaiVoteMetadata {
-            epoch: self.rai_epoch,
+            epoch: self.rai_epoch(),
             governing_hash: self.rai_governing_hash.unwrap_or_default(),
             ..Default::default()
         }
@@ -249,8 +281,8 @@ impl Election {
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) -> Result<(), crate::consensus::rai::RaiVoteStateError> {
-        if metadata.epoch != self.rai_epoch
-            || (self.rai_kind == RaiElectionKind::Slot
+        if metadata.epoch != self.rai_epoch()
+            || (self.rai_kind() == RaiElectionKind::Slot
                 && self.rai_governing_hash != Some(metadata.governing_hash))
         {
             return Err(crate::consensus::rai::RaiVoteStateError::WrongElectionContext);
@@ -458,7 +490,7 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn voting_hash(&self) -> BlockHash {
-        match self.rai_kind {
+        match self.rai_kind() {
             RaiElectionKind::Slot => self.winner.hash(),
             RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord => *self
                 .rai_hash_candidates
@@ -471,7 +503,7 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn is_rai_close(&self) -> bool {
         matches!(
-            self.rai_kind,
+            self.rai_kind(),
             RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord
         )
     }
@@ -595,7 +627,7 @@ impl Election {
                 tracing::warn!("Winner changed to {:?}!", hash);
                 self.change_winner_to(&hash);
             }
-            let winner = if self.rai_kind == RaiElectionKind::Slot {
+            let winner = if self.rai_kind() == RaiElectionKind::Slot {
                 self.winner.hash()
             } else {
                 hash
@@ -747,7 +779,7 @@ impl Election {
                 self.rai_votes.outcome,
                 RaiOutcome::Confirmed(hash) if hash == self.winner.hash()
             )
-            .then_some(self.rai_epoch),
+            .then_some(self.rai_epoch()),
             winner: self.winner().clone(),
             tally: self.winner_tally(),
             final_tally: self.winner_final_tally(),
@@ -863,4 +895,81 @@ pub enum AddForkResult {
     TallyTooLow,
     Duplicate,
     ElectionEnded,
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_identity_tests {
+    use super::*;
+    use crate::consensus::rai::{rai_close_cut_root, rai_close_record_root};
+
+    #[test]
+    fn same_root_in_different_epochs_has_distinct_ids() {
+        let root = QualifiedRoot::new_test_instance();
+        let first = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: root.clone(),
+        });
+        let second = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(2),
+            root,
+        });
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn election_constructors_preserve_the_full_id() {
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let slot = Election::new_slot(
+            block,
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            Timestamp::new_test_instance(),
+            RaiEpoch::new(7),
+        );
+        assert_eq!(
+            slot.rai_id(),
+            &RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(7),
+                root,
+            })
+        );
+
+        let close_id = RaiCloseElectionId {
+            kind: RaiCloseKind::Cut,
+            epoch: RaiEpoch::new(8),
+            round: 3,
+        };
+        let close = Election::new_close(
+            close_id,
+            rai_close_cut_root(close_id.epoch, close_id.round),
+            BlockHash::from(1),
+            Arc::new(RepWeights::default()),
+            Duration::from_secs(1),
+            Timestamp::new_test_instance(),
+        );
+        assert_eq!(
+            close.rai_id(),
+            &RaiElectionId::CloseCut {
+                epoch: RaiEpoch::new(8),
+                round: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn close_kind_and_round_are_identity_components() {
+        let epoch = RaiEpoch::new(9);
+        let cut = RaiElectionId::CloseCut { epoch, round: 4 };
+        let record = RaiElectionId::CloseRecord { epoch, round: 4 };
+        let next_round = RaiElectionId::CloseCut { epoch, round: 5 };
+
+        assert_ne!(cut, record);
+        assert_ne!(cut, next_round);
+        assert_ne!(
+            rai_close_cut_root(epoch, 4),
+            rai_close_record_root(epoch, 4)
+        );
+    }
 }
