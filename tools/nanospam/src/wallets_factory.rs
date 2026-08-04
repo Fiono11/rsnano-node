@@ -1,5 +1,6 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use futures::future::join_all;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
@@ -103,7 +104,11 @@ pub(crate) async fn create_wallets(
         let receive: Block = StateBlockArgs {
             key: &spam_key,
             previous: BlockHash::ZERO,
-            representative,
+            // Keep the newly received voting weight on the already-live
+            // genesis representative until the open block is confirmed.
+            // Assigning it directly to PR{i} can strand the final open while
+            // representative weight and local voting keys are being refreshed.
+            representative: genesis_key.public_key(),
             balance: amount,
             link: send_hash.into(),
             work: 0.into(),
@@ -115,7 +120,23 @@ pub(crate) async fn create_wallets(
             .unwrap()
             .hash;
         wait_until_confirmed_on_all(rpc_clients, receive_hash).await;
-        account_map.set_account_state(spam_key.account(), amount, receive.hash());
+
+        let change: Block = StateBlockArgs {
+            key: &spam_key,
+            previous: receive_hash,
+            representative,
+            balance: amount,
+            link: BlockHash::ZERO.into(),
+            work: 0.into(),
+        }
+        .into();
+        let change_hash = genesis_rpc
+            .process(JsonBlock::from(change))
+            .await
+            .unwrap()
+            .hash;
+        wait_until_confirmed_on_all(rpc_clients, change_hash).await;
+        account_map.set_account_state(spam_key.account(), amount, change_hash);
         account_map.set_representative(spam_key.account(), representative);
     }
 
@@ -130,18 +151,31 @@ pub(crate) async fn create_wallets(
 }
 
 async fn wait_until_confirmed_on_all(rpc_clients: &[NanoRpcClient], hash: BlockHash) {
-    for rpc_client in rpc_clients {
-        wait_until_confirmed(rpc_client, hash).await;
-    }
+    join_all(
+        rpc_clients
+            .iter()
+            .map(|rpc_client| wait_until_confirmed(rpc_client, hash)),
+    )
+    .await;
 }
 
 async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
     info!("Waiting for confirmation for {hash}");
+    let mut last_confirm_request = None;
     loop {
         match rpc_client.block_info(hash).await {
             Ok(info) => {
                 if info.confirmed.inner() {
                     break;
+                }
+                if last_confirm_request
+                    .is_none_or(|last: Instant| last.elapsed() >= Duration::from_secs(1))
+                {
+                    // A block can arrive after its original election has already
+                    // finished on another PR. Start a local election so this
+                    // node does not wait forever with an uncemented block.
+                    let _ = rpc_client.block_confirm(hash).await;
+                    last_confirm_request = Some(Instant::now());
                 }
             }
             Err(e) => {
