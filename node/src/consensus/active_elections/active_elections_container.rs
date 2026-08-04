@@ -132,8 +132,11 @@ impl ActiveElectionsContainer {
                 round,
                 std::iter::empty(),
             ) {
-                let root = crate::consensus::rai::rai_close_cut_root(closing.epoch, round);
-                self.roots.add_rai_hash_candidate(&root, hash);
+                let id = crate::consensus::election::RaiElectionId::CloseCut {
+                    epoch: closing.epoch,
+                    round,
+                };
+                self.roots.add_rai_hash_candidate_for_id(&id, hash);
             }
             return;
         }
@@ -167,10 +170,16 @@ impl ActiveElectionsContainer {
                 );
                 continue;
             }
-            let Some(entry) = self.roots.get(&root) else {
+            let id = crate::consensus::election::RaiElectionId::Slot(
+                crate::consensus::election::RaiSlotId {
+                    epoch: closing.epoch,
+                    root: root.clone(),
+                },
+            );
+            let Some(election) = self.roots.election_for_rai_id(&id) else {
                 continue;
             };
-            let evidence = entry.election.rai_votes.clone();
+            let evidence = election.rai_votes.clone();
             let released = self
                 .rai_epoch_manager
                 .happy_path_drain(closing.epoch)
@@ -298,27 +307,35 @@ impl ActiveElectionsContainer {
         // derive a decision, death proof, or live carry from it.
         let (close_evidence, close_winner) = match &event {
             crate::consensus::rai::RaiEpochEvent::CloseElectionChanged { kind, epoch, round } => {
-                let root = match kind {
+                let id = match kind {
                     crate::consensus::rai::RaiCloseKind::Cut => {
-                        crate::consensus::rai::rai_close_cut_root(*epoch, *round)
+                        crate::consensus::election::RaiElectionId::CloseCut {
+                            epoch: *epoch,
+                            round: *round,
+                        }
                     }
                     crate::consensus::rai::RaiCloseKind::Record => {
-                        crate::consensus::rai::rai_close_record_root(*epoch, *round)
+                        crate::consensus::election::RaiElectionId::CloseRecord {
+                            epoch: *epoch,
+                            round: *round,
+                        }
                     }
                 };
-                self.roots.get(&root).map_or((None, None), |entry| {
-                    let evidence = entry.election.rai_votes.clone();
-                    let winner = match evidence.outcome {
-                        crate::consensus::rai::RaiOutcome::Confirmed(hash) => Some(hash),
-                        _ => None,
-                    };
-                    (Some(evidence), winner)
-                })
+                self.roots
+                    .election_for_rai_id(&id)
+                    .map_or((None, None), |election| {
+                        let evidence = election.rai_votes.clone();
+                        let winner = match evidence.outcome {
+                            crate::consensus::rai::RaiOutcome::Confirmed(hash) => Some(hash),
+                            _ => None,
+                        };
+                        (Some(evidence), winner)
+                    })
             }
             _ => (None, None),
         };
         let mut visible = self.rai_visible_obligations.clone();
-        for entry in self.roots.iter() {
+        for entry in self.roots.iter_rai() {
             if entry.election.rai_kind() == crate::consensus::election::RaiElectionKind::Slot {
                 visible
                     .entry(entry.election.rai_epoch())
@@ -504,12 +521,10 @@ impl ActiveElectionsContainer {
         if tip.qualified_root() != slot.root {
             return Err(CandidateError::InvalidSegment);
         }
-        let Some(entry) = self.roots.get_mut(&slot.root) else {
+        let election_id = RaiElectionId::Slot(slot.clone());
+        let Some(entry) = self.roots.election_for_rai_id_mut(&election_id) else {
             return Err(CandidateError::ElectionNotFound);
         };
-        if entry.election.rai_id() != &RaiElectionId::Slot(slot.clone()) {
-            return Err(CandidateError::WrongElection);
-        }
         if !self
             .rai_epoch_manager
             .slot_election_enabled(slot.epoch, &slot.root)
@@ -535,7 +550,7 @@ impl ActiveElectionsContainer {
         // A block at this qualified root is the one-block segment beginning at
         // the slot's certified base. Longer tips are admitted only after every
         // parent has independently passed block processing and is present.
-        let result = entry.election.try_add_fork(&tip, Amount::ZERO);
+        let result = entry.try_add_fork(&tip, Amount::ZERO);
         match result {
             AddForkResult::Added | AddForkResult::Duplicate => {
                 self.roots.vote_router.connect(candidate, slot.root);
@@ -640,8 +655,21 @@ impl ActiveElectionsContainer {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
 
+        #[cfg(not(feature = "rai_protocol"))]
         if self.try_upgrade_priority_election(&request)? {
             return Ok(());
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            let id = crate::consensus::election::RaiElectionId::Slot(
+                crate::consensus::election::RaiSlotId {
+                    epoch: self.rai_epoch_manager.state().open_epoch,
+                    root: request.block.qualified_root(),
+                },
+            );
+            if self.roots.election_for_rai_id(&id).is_some() {
+                return Err(AecInsertError::Duplicate);
+            }
         }
 
         self.insert_new_election(request, now)
@@ -695,7 +723,7 @@ impl ActiveElectionsContainer {
             self.base_latency,
             now,
         );
-        self.roots.insert(Entry {
+        self.roots.insert_rai(Entry {
             root: root.clone(),
             election,
             priority: rsnano_types::BlockPriority::default(),
@@ -743,7 +771,13 @@ impl ActiveElectionsContainer {
     ) -> Result<(), AecInsertError> {
         self.ensure_not_stopped()?;
         let root = block.qualified_root();
-        if self.roots.get(&root).is_some()
+        let rai_id = crate::consensus::election::RaiElectionId::Slot(
+            crate::consensus::election::RaiSlotId {
+                epoch,
+                root: root.clone(),
+            },
+        );
+        if self.roots.election_for_rai_id(&rai_id).is_some()
             || self.rai_terminal_slots.contains_key(&(epoch, root.clone()))
         {
             return Err(AecInsertError::Duplicate);
@@ -773,7 +807,7 @@ impl ActiveElectionsContainer {
         )
         .with_rai_committees(committees)
         .with_rai_governing_hash(Some(governing_hash));
-        self.roots.insert(Entry {
+        self.roots.insert_rai(Entry {
             root: root.clone(),
             election,
             priority: rsnano_types::BlockPriority::default(),
@@ -804,6 +838,7 @@ impl ActiveElectionsContainer {
         Ok(())
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn try_upgrade_priority_election(
         &mut self,
         request: &AecInsertRequest,
@@ -861,7 +896,14 @@ impl ActiveElectionsContainer {
             .or_default()
             .insert(root.clone());
 
+        #[cfg(not(feature = "rai_protocol"))]
         self.roots.insert(Entry {
+            root: root.clone(),
+            election,
+            priority: request.priority,
+        });
+        #[cfg(feature = "rai_protocol")]
+        self.roots.insert_rai(Entry {
             root: root.clone(),
             election,
             priority: request.priority,

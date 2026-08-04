@@ -38,14 +38,14 @@ pub enum RaiElectionKind {
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RaiSlotId {
     pub epoch: RaiEpoch,
     pub root: QualifiedRoot,
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RaiElectionId {
     Slot(RaiSlotId),
     CloseCut { epoch: RaiEpoch, round: u32 },

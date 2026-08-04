@@ -1,13 +1,20 @@
 use std::{cmp::Ordering, collections::BTreeSet};
 
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashMap;
+
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
-use super::{AecInsertRequest, vote_router::VoteRouter};
+#[cfg(not(feature = "rai_protocol"))]
+use super::AecInsertRequest;
+use super::vote_router::VoteRouter;
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::election::ElectionBehavior;
 use crate::consensus::{
     AecSnapshot, BucketInfo,
     active_elections::aec_service::{BucketSnapshot, ElectionSnapshot},
-    election::{Election, ElectionBehavior},
+    election::Election,
     election_schedulers::priority::{bucket_count, bucket_index},
 };
 use rsnano_nullable_clock::Timestamp;
@@ -54,6 +61,12 @@ impl PartialOrd for BucketEntry {
 /// Contains elections and their qualified roots
 pub(crate) struct RootContainer {
     by_root: FxHashMap<QualifiedRoot, Entry>,
+    #[cfg(feature = "rai_protocol")]
+    rai_entries: HashMap<crate::consensus::election::RaiElectionId, Entry>,
+    #[cfg(feature = "rai_protocol")]
+    rai_by_id: HashMap<crate::consensus::election::RaiElectionId, QualifiedRoot>,
+    #[cfg(feature = "rai_protocol")]
+    rai_ids_by_root: HashMap<QualifiedRoot, BTreeSet<crate::consensus::election::RaiElectionId>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -74,6 +87,12 @@ impl RootContainer {
         let max_elections_per_bucket = max_elections / bucket_count;
         Self {
             by_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_entries: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_by_id: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_ids_by_root: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -105,6 +124,97 @@ impl RootContainer {
         self.by_root.insert(root, entry);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_rai(&mut self, entry: Entry) -> bool {
+        let id = entry.election.rai_id().clone();
+        if self.rai_by_id.contains_key(&id) {
+            return false;
+        }
+
+        let root = entry.root.clone();
+        self.rai_by_id.insert(id.clone(), root.clone());
+        self.rai_ids_by_root
+            .entry(root.clone())
+            .or_default()
+            .insert(id.clone());
+
+        if self.by_root.contains_key(&root) {
+            self.rai_entries.insert(id, entry);
+        } else {
+            self.insert(entry);
+        }
+        true
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_rai_id(
+        &self,
+        id: &crate::consensus::election::RaiElectionId,
+    ) -> Option<&Election> {
+        let root = self.rai_by_id.get(id)?;
+        if let Some(entry) = self.by_root.get(root)
+            && entry.election.rai_id() == id
+        {
+            return Some(&entry.election);
+        }
+        self.rai_entries.get(id).map(|entry| &entry.election)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_rai_id_mut(
+        &mut self,
+        id: &crate::consensus::election::RaiElectionId,
+    ) -> Option<&mut Election> {
+        let root = self.rai_by_id.get(id)?.clone();
+        if self
+            .by_root
+            .get(&root)
+            .is_some_and(|entry| entry.election.rai_id() == id)
+        {
+            return self.by_root.get_mut(&root).map(|entry| &mut entry.election);
+        }
+        self.rai_entries
+            .get_mut(id)
+            .map(|entry| &mut entry.election)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn erase_rai_id(
+        &mut self,
+        id: &crate::consensus::election::RaiElectionId,
+    ) -> Option<Entry> {
+        let root = self.rai_by_id.remove(id)?;
+        let projected = self
+            .by_root
+            .get(&root)
+            .is_some_and(|entry| entry.election.rai_id() == id);
+        let erased = if projected {
+            self.erase(&root)
+        } else {
+            let erased = self.rai_entries.remove(id);
+            if let Some(entry) = &erased {
+                self.vote_router.disconnect_election(&entry.election);
+            }
+            erased
+        };
+
+        let mut promote = None;
+        if let Some(ids) = self.rai_ids_by_root.get_mut(&root) {
+            ids.remove(id);
+            if ids.is_empty() {
+                self.rai_ids_by_root.remove(&root);
+            } else if projected {
+                promote = ids
+                    .iter()
+                    .find_map(|remaining| self.rai_entries.remove(remaining));
+            }
+        }
+        if let Some(entry) = promote {
+            self.insert(entry);
+        }
+        erased
+    }
+
     pub fn get(&self, root: &QualifiedRoot) -> Option<&Entry> {
         self.by_root.get(root)
     }
@@ -114,14 +224,31 @@ impl RootContainer {
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
+        #[cfg(feature = "rai_protocol")]
+        if self
+            .rai_ids_by_root
+            .get(root)
+            .is_some_and(|ids| ids.len() > 1)
+        {
+            return None;
+        }
         self.get(root).map(|i| &i.election)
     }
 
     pub fn election_for_root_mut(&mut self, root: &QualifiedRoot) -> Option<&mut Election> {
+        #[cfg(feature = "rai_protocol")]
+        if self
+            .rai_ids_by_root
+            .get(root)
+            .is_some_and(|ids| ids.len() > 1)
+        {
+            return None;
+        }
         self.get_mut(root).map(|i| &mut i.election)
     }
 
     #[cfg(feature = "rai_protocol")]
+    #[allow(dead_code)] // Kept as the legacy root-qualified compatibility operation.
     pub fn add_rai_hash_candidate(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
         let Some(entry) = self.by_root.get_mut(root) else {
             return false;
@@ -130,6 +257,25 @@ impl RootContainer {
             return false;
         }
         self.vote_router.connect(hash, root.clone());
+        true
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_rai_hash_candidate_for_id(
+        &mut self,
+        id: &crate::consensus::election::RaiElectionId,
+        hash: BlockHash,
+    ) -> bool {
+        let Some(root) = self.rai_by_id.get(id).cloned() else {
+            return false;
+        };
+        let Some(election) = self.election_for_rai_id_mut(id) else {
+            return false;
+        };
+        if !election.add_rai_hash_candidate(hash) {
+            return false;
+        }
+        self.vote_router.connect(hash, root);
         true
     }
 
@@ -143,10 +289,31 @@ impl RootContainer {
         self.get_mut(&root).map(|i| &mut i.election)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_rai_block_mut(
+        &mut self,
+        block_hash: &BlockHash,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> Option<&mut Election> {
+        let root = self.vote_router.qualified_root(block_hash)?.clone();
+        let id = self
+            .rai_ids_by_root
+            .get(&root)?
+            .iter()
+            .find(|id| {
+                self.election_for_rai_id(id).is_some_and(|election| {
+                    election.rai_epoch() == epoch && election.contains_block(block_hash)
+                })
+            })?
+            .clone();
+        self.election_for_rai_id_mut(&id)
+    }
+
     pub fn bucket_infos(&self) -> &[BucketInfo] {
         &self.bucket_infos
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn try_upgrade_to_priority_election(
         &mut self,
         request: &AecInsertRequest,
@@ -234,6 +401,12 @@ impl RootContainer {
 
     pub fn clear(&mut self) {
         self.by_root.clear();
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.rai_entries.clear();
+            self.rai_by_id.clear();
+            self.rai_ids_by_root.clear();
+        }
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
         }
@@ -243,6 +416,10 @@ impl RootContainer {
     }
 
     pub fn len(&self) -> usize {
+        #[cfg(feature = "rai_protocol")]
+        return self.by_root.len() + self.rai_entries.len();
+
+        #[cfg(not(feature = "rai_protocol"))]
         self.by_root.len()
     }
 
@@ -252,6 +429,11 @@ impl RootContainer {
 
     pub fn iter(&self) -> impl Iterator<Item = &Entry> {
         self.by_root.values()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn iter_rai(&self) -> impl Iterator<Item = &Entry> {
+        self.by_root.values().chain(self.rai_entries.values())
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
@@ -310,6 +492,70 @@ impl RootContainer {
                 })
                 .collect(),
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use crate::consensus::election::{Election, ElectionBehavior, RaiElectionId, RaiSlotId};
+    use rsnano_types::{RaiEpoch, SavedBlock};
+    use std::time::Duration;
+
+    fn slot_entry(block: SavedBlock, epoch: RaiEpoch) -> Entry {
+        let root = block.qualified_root();
+        Entry {
+            root,
+            election: Election::new_slot(
+                block,
+                ElectionBehavior::Priority,
+                Duration::ZERO,
+                Timestamp::new_test_instance(),
+                epoch,
+            ),
+            priority: BlockPriority::default(),
+        }
+    }
+
+    #[test]
+    fn rai_elections_with_the_same_root_are_isolated_by_epoch() {
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let old_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: root.clone(),
+        });
+        let new_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(2),
+            root: root.clone(),
+        });
+        let mut roots = RootContainer::default();
+
+        assert!(roots.insert_rai(slot_entry(block.clone(), RaiEpoch::new(1))));
+        assert!(roots.insert_rai(slot_entry(block, RaiEpoch::new(2))));
+        assert!(roots.election_for_rai_id(&old_id).is_some());
+        assert!(roots.election_for_rai_id(&new_id).is_some());
+        assert!(roots.election_for_root(&root).is_none());
+
+        let candidate = BlockHash::from(42);
+        assert!(roots.add_rai_hash_candidate_for_id(&new_id, candidate));
+        assert!(
+            !roots
+                .election_for_rai_id(&old_id)
+                .unwrap()
+                .contains_block(&candidate)
+        );
+        assert!(
+            roots
+                .election_for_rai_id(&new_id)
+                .unwrap()
+                .contains_block(&candidate)
+        );
+
+        assert!(roots.erase_rai_id(&old_id).is_some());
+        assert!(roots.election_for_rai_id(&old_id).is_none());
+        assert!(roots.election_for_rai_id(&new_id).is_some());
+        assert_eq!(roots.election_for_root(&root).unwrap().rai_id(), &new_id);
     }
 }
 

@@ -32,7 +32,13 @@ impl<'a> ApplyVoteHelper<'a> {
                 continue;
             }
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
+            #[cfg(not(feature = "rai_protocol"))]
+            let election = self.roots.election_for_block_mut(block_hash);
+            #[cfg(feature = "rai_protocol")]
+            let election = self
+                .roots
+                .election_for_rai_block_mut(block_hash, self.args.vote.metadata.epoch);
+            if let Some(election) = election {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -47,8 +53,16 @@ impl<'a> ApplyVoteHelper<'a> {
                 }
 
                 if election.is_confirmed() {
+                    #[cfg(not(feature = "rai_protocol"))]
                     let root = election.qualified_root().clone();
+                    #[cfg(feature = "rai_protocol")]
+                    let rai_id = election.rai_id().clone();
+                    #[cfg(not(feature = "rai_protocol"))]
                     if let Some(entry) = self.roots.erase(&root) {
+                        result.confirmed.push(entry);
+                    }
+                    #[cfg(feature = "rai_protocol")]
+                    if let Some(entry) = self.roots.erase_rai_id(&rai_id) {
                         result.confirmed.push(entry);
                     }
                 }
