@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
-use rsnano_nullable_clock::{SteadyClock, Timestamp};
 #[cfg(feature = "rai_protocol")]
 use rsnano_ledger::AnySet;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
     Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
 };
@@ -330,6 +330,44 @@ impl AecService {
         self.aec.write().unwrap().try_add_fork(fork, fork_tally)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn published_block_available(&self, block: Block) {
+        self.aec.write().unwrap().published_block_available(block)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn admit_candidate(
+        &self,
+        slot: crate::consensus::election::RaiSlotId,
+        candidate: BlockHash,
+    ) -> Result<(), super::CandidateError> {
+        self.aec.write().unwrap().admit_candidate(slot, candidate)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_published_block(&self, hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().known_block(hash).is_some()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn published_blocks_at_root(&self, root: &QualifiedRoot) -> Vec<BlockHash> {
+        self.aec
+            .read()
+            .unwrap()
+            .candidate_hashes_at_root(root)
+            .copied()
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn slot_contains_candidate(
+        &self,
+        slot: &crate::consensus::election::RaiSlotId,
+        hash: &BlockHash,
+    ) -> bool {
+        self.aec.read().unwrap().slot_contains_candidate(slot, hash)
+    }
+
     pub fn apply_vote<'a>(
         &self,
         args: ApplyVoteArgs<'a>,
@@ -375,10 +413,7 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn rai_missing_drain_elections(
-        &self,
-        epoch: rsnano_types::RaiEpoch,
-    ) -> Vec<QualifiedRoot> {
+    pub fn rai_missing_drain_elections(&self, epoch: rsnano_types::RaiEpoch) -> Vec<QualifiedRoot> {
         let aec = self.aec.read().unwrap();
         aec.rai_happy_path_drains()
             .get(&epoch)

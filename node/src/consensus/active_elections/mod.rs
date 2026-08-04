@@ -81,6 +81,20 @@ pub enum AecInsertError {
     RecentlyConfirmed,
 }
 
+/// Why durable block data could not be made a candidate of an epoch-qualified
+/// slot election.
+#[cfg(feature = "rai_protocol")]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum CandidateError {
+    UnknownBlock,
+    IncompleteParentChain,
+    ElectionNotFound,
+    WrongElection,
+    ElectionDisabled,
+    InvalidSegment,
+    FinalizedSlotConflict,
+}
+
 #[derive(Default)]
 pub struct ActiveElectionsInfo {
     pub max_elections: usize,

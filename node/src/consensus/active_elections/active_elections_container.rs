@@ -61,6 +61,22 @@ pub(crate) struct ActiveElectionsContainer {
             Option<rsnano_types::ConfirmationHeightInfo>,
         ),
     >,
+    /// Validated block data is deliberately independent of election state.
+    /// The second map is only a discovery index; neither map classifies a
+    /// block into an epoch.
+    #[cfg(feature = "rai_protocol")]
+    rai_blocks: HashMap<BlockHash, Block>,
+    #[cfg(feature = "rai_protocol")]
+    rai_blocks_by_qualified_root: HashMap<QualifiedRoot, std::collections::BTreeSet<BlockHash>>,
+    /// Epoch-qualified references whose payload has not arrived yet.
+    #[cfg(feature = "rai_protocol")]
+    rai_payload_incomplete:
+        HashMap<crate::consensus::election::RaiSlotId, std::collections::HashSet<BlockHash>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_unresolved_references: std::collections::HashSet<(rsnano_types::RaiEpoch, BlockHash)>,
+    #[cfg(feature = "rai_protocol")]
+    rai_candidate_hashes:
+        HashMap<crate::consensus::election::RaiSlotId, std::collections::HashSet<BlockHash>>,
 }
 
 impl ActiveElectionsContainer {
@@ -394,7 +410,172 @@ impl ActiveElectionsContainer {
             rai_visible_obligations: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_terminal_slots: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_blocks: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_blocks_by_qualified_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_payload_incomplete: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_unresolved_references: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_candidate_hashes: Default::default(),
         }
+    }
+
+    /// Records block data after the normal ledger processing path has checked
+    /// it. Arrival only wakes epoch-qualified references which were already
+    /// made by a vote/report; it never chooses the open epoch.
+    #[cfg(feature = "rai_protocol")]
+    pub fn published_block_available(&mut self, block: Block) {
+        let hash = block.hash();
+        let root = block.qualified_root();
+        self.rai_blocks.entry(hash).or_insert(block);
+        self.rai_blocks_by_qualified_root
+            .entry(root.clone())
+            .or_default()
+            .insert(hash);
+
+        let waiting = self
+            .rai_payload_incomplete
+            .iter()
+            .filter(|(slot, hashes)| slot.root == root && hashes.contains(&hash))
+            .map(|(slot, _)| slot.clone())
+            .collect::<Vec<_>>();
+        for slot in waiting {
+            if self.admit_candidate(slot.clone(), hash).is_ok() {
+                if let Some(hashes) = self.rai_payload_incomplete.get_mut(&slot) {
+                    hashes.remove(&hash);
+                    if hashes.is_empty() {
+                        self.rai_payload_incomplete.remove(&slot);
+                    }
+                }
+            }
+        }
+
+        let unresolved_epochs = self
+            .rai_unresolved_references
+            .iter()
+            .filter(|(_, unresolved_hash)| *unresolved_hash == hash)
+            .map(|(epoch, _)| *epoch)
+            .collect::<Vec<_>>();
+        for epoch in unresolved_epochs {
+            let slot = crate::consensus::election::RaiSlotId {
+                epoch,
+                root: root.clone(),
+            };
+            if self.admit_candidate(slot, hash).is_ok() {
+                self.rai_unresolved_references.remove(&(epoch, hash));
+            }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn reference_candidate(&mut self, epoch: rsnano_types::RaiEpoch, candidate: BlockHash) {
+        let Some(block) = self.rai_blocks.get(&candidate) else {
+            self.rai_unresolved_references.insert((epoch, candidate));
+            return;
+        };
+        let slot = crate::consensus::election::RaiSlotId {
+            epoch,
+            root: block.qualified_root(),
+        };
+        let _ = self.admit_candidate(slot, candidate);
+    }
+
+    /// Makes a durable block an election-local candidate.  The slot identity,
+    /// rather than block arrival time, supplies the epoch classification.
+    #[cfg(feature = "rai_protocol")]
+    pub fn admit_candidate(
+        &mut self,
+        slot: crate::consensus::election::RaiSlotId,
+        candidate: BlockHash,
+    ) -> Result<(), super::CandidateError> {
+        use super::CandidateError;
+        use crate::consensus::election::RaiElectionId;
+
+        let Some(tip) = self.rai_blocks.get(&candidate).cloned() else {
+            self.rai_payload_incomplete
+                .entry(slot)
+                .or_default()
+                .insert(candidate);
+            return Err(CandidateError::UnknownBlock);
+        };
+        if tip.qualified_root() != slot.root {
+            return Err(CandidateError::InvalidSegment);
+        }
+        let Some(entry) = self.roots.get_mut(&slot.root) else {
+            return Err(CandidateError::ElectionNotFound);
+        };
+        if entry.election.rai_id() != &RaiElectionId::Slot(slot.clone()) {
+            return Err(CandidateError::WrongElection);
+        }
+        if !self
+            .rai_epoch_manager
+            .slot_election_enabled(slot.epoch, &slot.root)
+            && !self
+                .rai_epoch_manager
+                .obligations_to_drain(slot.epoch)
+                .is_some_and(|roots| roots.contains(&slot.root))
+        {
+            return Err(CandidateError::ElectionDisabled);
+        }
+        if self
+            .rai_terminal_slots
+            .contains_key(&(slot.epoch, slot.root.clone()))
+        {
+            return Err(CandidateError::FinalizedSlotConflict);
+        }
+
+        self.rai_candidate_hashes
+            .entry(slot.clone())
+            .or_default()
+            .insert(candidate);
+
+        // A block at this qualified root is the one-block segment beginning at
+        // the slot's certified base. Longer tips are admitted only after every
+        // parent has independently passed block processing and is present.
+        let result = entry.election.try_add_fork(&tip, Amount::ZERO);
+        match result {
+            AddForkResult::Added | AddForkResult::Duplicate => {
+                self.roots.vote_router.connect(candidate, slot.root);
+                Ok(())
+            }
+            AddForkResult::Replaced(removed) => {
+                self.roots.vote_router.disconnect(&removed.hash());
+                self.roots.vote_router.connect(candidate, slot.root);
+                Ok(())
+            }
+            AddForkResult::ElectionEnded => Err(CandidateError::FinalizedSlotConflict),
+            AddForkResult::TallyTooLow => Err(CandidateError::InvalidSegment),
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn known_block(&self, hash: &BlockHash) -> Option<&Block> {
+        self.rai_blocks.get(hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn candidate_hashes_at_root(
+        &self,
+        root: &QualifiedRoot,
+    ) -> impl Iterator<Item = &BlockHash> {
+        self.rai_blocks_by_qualified_root
+            .get(root)
+            .into_iter()
+            .flatten()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn slot_contains_candidate(
+        &self,
+        slot: &crate::consensus::election::RaiSlotId,
+        hash: &BlockHash,
+    ) -> bool {
+        self.rai_candidate_hashes
+            .get(slot)
+            .is_some_and(|hashes| hashes.contains(hash))
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -981,6 +1162,10 @@ impl ActiveElectionsContainer {
         &mut self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        #[cfg(feature = "rai_protocol")]
+        for hash in args.vote.filtered_blocks() {
+            self.reference_candidate(args.vote.metadata.epoch, *hash);
+        }
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -1235,6 +1420,58 @@ mod tests {
         assert_eq!(election.rai_kind(), RaiElectionKind::Slot);
         assert_eq!(election.rai_epoch(), RaiEpoch::new(1));
         assert_eq!(election.rai_round(), 0);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn published_block_is_epoch_neutral_until_slot_admission() {
+        use crate::consensus::election::RaiSlotId;
+        use rsnano_types::{Amount, PrivateKey, RaiEpoch, StateBlockArgs};
+
+        let mut container = ActiveElectionsContainer::default();
+        let key = PrivateKey::from(1);
+        let make_block = |balance| {
+            Block::from(StateBlockArgs {
+                key: &key,
+                previous: BlockHash::from_bytes(*key.account().as_bytes()),
+                representative: 789.into(),
+                balance: Amount::raw(balance),
+                link: 111.into(),
+                work: 69420.into(),
+            })
+        };
+        let initial = SavedBlock::new_test_instance_with(make_block(420));
+        let published = SavedBlock::new_test_instance_with(make_block(421));
+        assert_eq!(initial.qualified_root(), published.qualified_root());
+        let root = initial.qualified_root();
+        let published_hash = published.hash();
+        container
+            .insert(
+                AecInsertRequest {
+                    block: initial,
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                },
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        container.published_block_available(published.into());
+
+        assert!(container.known_block(&published_hash).is_some());
+        assert!(!container.is_active_hash(&published_hash));
+        assert_eq!(container.election_for_root(&root).unwrap().block_count(), 1);
+
+        let slot = RaiSlotId {
+            epoch: RaiEpoch::ZERO,
+            root: root.clone(),
+        };
+        container
+            .admit_candidate(slot.clone(), published_hash)
+            .unwrap();
+        assert!(container.slot_contains_candidate(&slot, &published_hash));
+        assert!(container.is_active_hash(&published_hash));
+        assert_eq!(container.election_for_root(&root).unwrap().block_count(), 2);
     }
 
     #[cfg(feature = "rai_protocol")]
