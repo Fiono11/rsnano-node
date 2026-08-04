@@ -38,19 +38,7 @@ pub enum RaiElectionKind {
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RaiSlotId {
-    pub epoch: RaiEpoch,
-    pub root: QualifiedRoot,
-}
-
-#[cfg(feature = "rai_protocol")]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RaiElectionId {
-    Slot(RaiSlotId),
-    CloseCut { epoch: RaiEpoch, round: u32 },
-    CloseRecord { epoch: RaiEpoch, round: u32 },
-}
+pub use rsnano_types::{RaiElectionId, RaiSlotId};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub enum VoteType {
@@ -254,6 +242,7 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_vote_metadata(&self) -> rsnano_types::RaiVoteMetadata {
         rsnano_types::RaiVoteMetadata {
+            election_id: self.rai_id.clone(),
             epoch: self.rai_epoch(),
             governing_hash: self.rai_governing_hash.unwrap_or_default(),
             ..Default::default()
@@ -281,7 +270,8 @@ impl Election {
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) -> Result<(), crate::consensus::rai::RaiVoteStateError> {
-        if metadata.epoch != self.rai_epoch()
+        if metadata.election_id != self.rai_id
+            || metadata.epoch != self.rai_epoch()
             || (self.rai_kind() == RaiElectionKind::Slot
                 && self.rai_governing_hash != Some(metadata.governing_hash))
         {

@@ -33,7 +33,7 @@ pub struct VoteRequest {
     pub channel: Arc<Channel>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct VoteCandidate {
     root: Root,
     hash: BlockHash,
@@ -306,13 +306,13 @@ impl SharedState {
     fn broadcast<'a>(&'a self, mut queues: MutexGuard<'a, Queues>) -> MutexGuard<'a, Queues> {
         let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
-        let context = queues.candidates.front().copied();
+        let context = queues.candidates.front().cloned();
         {
             let spacing = self.spacing.lock().unwrap();
             while queues
                 .candidates
                 .front()
-                .is_some_and(|candidate| context.unwrap().same_context(candidate))
+                .is_some_and(|candidate| context.as_ref().unwrap().same_context(candidate))
             {
                 let candidate = queues.candidates.pop_front().unwrap();
                 let root = candidate.root;
@@ -410,7 +410,7 @@ impl SharedState {
                     timestamp,
                     duration,
                     hashes.to_vec(),
-                    metadata,
+                    metadata.clone(),
                 )));
             }
             #[cfg(not(feature = "rai_protocol"))]

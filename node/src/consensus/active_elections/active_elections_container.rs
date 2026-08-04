@@ -74,6 +74,10 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     rai_candidate_hashes:
         HashMap<crate::consensus::election::RaiSlotId, std::collections::HashSet<BlockHash>>,
+    /// Process-lifetime vote evidence, including votes received before an
+    /// election starts and votes for elections evicted from the active set.
+    #[cfg(feature = "rai_protocol")]
+    rai_pending_votes: HashMap<crate::consensus::election::RaiElectionId, Vec<rsnano_types::Vote>>,
 }
 
 impl ActiveElectionsContainer {
@@ -448,6 +452,8 @@ impl ActiveElectionsContainer {
             rai_unresolved_references: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_candidate_hashes: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_votes: Default::default(),
         }
     }
 
@@ -731,11 +737,13 @@ impl ActiveElectionsContainer {
             self.base_latency,
             now,
         );
+        let election_id = election.rai_id().clone();
         self.roots.insert_rai(Entry {
             root: root.clone(),
             election,
             priority: rsnano_types::BlockPriority::default(),
         });
+        self.apply_pending_rai_votes(&election_id, now);
         *self.count_by_behavior_mut(ElectionBehavior::Manual) += 1;
         self.stats.started(ElectionBehavior::Manual);
         self.notify(AecFact::ElectionStarted(candidate, root));
@@ -820,11 +828,13 @@ impl ActiveElectionsContainer {
         )
         .with_rai_committees(committees)
         .with_rai_governing_hash(Some(governing_hash));
+        let election_id = election.rai_id().clone();
         self.roots.insert_rai(Entry {
             root: root.clone(),
             election,
             priority: rsnano_types::BlockPriority::default(),
         });
+        self.apply_pending_rai_votes(&election_id, now);
         *self.count_by_behavior_mut(ElectionBehavior::Manual) += 1;
         self.stats.started(ElectionBehavior::Manual);
         self.notify(AecFact::ElectionStarted(hash, root));
@@ -917,16 +927,47 @@ impl ActiveElectionsContainer {
             priority: request.priority,
         });
         #[cfg(feature = "rai_protocol")]
-        self.roots.insert_rai(Entry {
-            root: root.clone(),
-            election,
-            priority: request.priority,
-        });
+        {
+            let election_id = election.rai_id().clone();
+            self.roots.insert_rai(Entry {
+                root: root.clone(),
+                election,
+                priority: request.priority,
+            });
+            self.apply_pending_rai_votes(&election_id, now);
+        }
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
         self.notify(AecFact::ElectionStarted(hash, root));
         Ok(())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn apply_pending_rai_votes(
+        &mut self,
+        election_id: &crate::consensus::election::RaiElectionId,
+        now: Timestamp,
+    ) {
+        let Some(votes) = self.rai_pending_votes.get(election_id).cloned() else {
+            return;
+        };
+        let Some(election) = self.roots.election_for_rai_id_mut(election_id) else {
+            return;
+        };
+        for vote in votes {
+            for hash in &vote.hashes {
+                if election.contains_candidate(hash) {
+                    let _ = election.add_rai_vote(
+                        vote.voter,
+                        *hash,
+                        vote.metadata.clone(),
+                        vote.timestamp(),
+                        now,
+                    );
+                }
+            }
+        }
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
@@ -1222,8 +1263,18 @@ impl ActiveElectionsContainer {
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
         #[cfg(feature = "rai_protocol")]
-        for hash in args.vote.filtered_blocks() {
-            self.reference_candidate(args.vote.metadata.epoch, *hash);
+        {
+            for hash in args.vote.filtered_blocks() {
+                if let crate::consensus::election::RaiElectionId::Slot(slot) =
+                    &args.vote.metadata.election_id
+                {
+                    self.reference_candidate(slot.epoch, *hash);
+                }
+            }
+            self.rai_pending_votes
+                .entry(args.vote.metadata.election_id.clone())
+                .or_default()
+                .push((*args.vote.vote).clone());
         }
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
@@ -1578,6 +1629,12 @@ mod tests {
                 0,
                 vec![hash],
                 RaiVoteMetadata {
+                    election_id: crate::consensus::election::RaiElectionId::Slot(
+                        crate::consensus::election::RaiSlotId {
+                            epoch: 0.into(),
+                            root: root.clone(),
+                        },
+                    ),
                     phase: RaiVotePhase::First,
                     epoch: 0.into(),
                     governing_hash: BlockHash::from(7),
@@ -1734,6 +1791,10 @@ mod tests {
                     0,
                     vec![candidate],
                     RaiVoteMetadata {
+                        election_id: crate::consensus::election::RaiElectionId::CloseCut {
+                            epoch: 0.into(),
+                            round: 0,
+                        },
                         phase: RaiVotePhase::First,
                         epoch: 0.into(),
                         governing_hash: BlockHash::from(999),
@@ -1853,6 +1914,10 @@ mod tests {
                 0,
                 vec![candidate],
                 RaiVoteMetadata {
+                    election_id: crate::consensus::election::RaiElectionId::CloseRecord {
+                        epoch: 0.into(),
+                        round: 0,
+                    },
                     phase: RaiVotePhase::First,
                     epoch: 0.into(),
                     governing_hash: BlockHash::from(999),

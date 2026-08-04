@@ -26,18 +26,53 @@ pub(super) struct ApplyVoteHelper<'a> {
 impl<'a> ApplyVoteHelper<'a> {
     pub fn apply_vote(&mut self) -> ApplyVoteResult {
         let mut result = ApplyVoteResult::default();
+        #[cfg(feature = "rai_protocol")]
+        {
+            let election_id = &self.args.vote.metadata.election_id;
+            for block_hash in self.args.vote.filtered_blocks() {
+                if result.per_block.contains_key(block_hash) {
+                    continue;
+                }
+                let Some(election) = self.roots.election_for_rai_id_mut(election_id) else {
+                    result
+                        .per_block
+                        .insert(*block_hash, Err(VoteError::Indeterminate));
+                    continue;
+                };
+                if !election.contains_candidate(block_hash) {
+                    result
+                        .per_block
+                        .insert(*block_hash, Err(VoteError::Indeterminate));
+                    continue;
+                }
+                let vote_result = ApplyVoteToElectionHelper {
+                    args: self.args,
+                    recently_confirmed: self.recently_confirmed,
+                    vote_counter: self.vote_counter,
+                    observer: self.observer,
+                    election,
+                    block_hash,
+                }
+                .apply_vote();
+                result.per_block.insert(*block_hash, vote_result);
+                let confirmed = election.is_confirmed();
+                if confirmed
+                    && let Some(entry) = self.roots.erase_rai_id(election_id)
+                {
+                    result.confirmed.push(entry);
+                }
+            }
+            return result;
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
         for block_hash in self.args.vote.filtered_blocks() {
             // Ignore duplicate hashes (should not happen with a well-behaved voting node)
             if result.per_block.contains_key(block_hash) {
                 continue;
             }
 
-            #[cfg(not(feature = "rai_protocol"))]
             let election = self.roots.election_for_block_mut(block_hash);
-            #[cfg(feature = "rai_protocol")]
-            let election = self
-                .roots
-                .election_for_rai_block_mut(block_hash, self.args.vote.metadata.epoch);
             if let Some(election) = election {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
@@ -75,7 +110,8 @@ impl<'a> ApplyVoteHelper<'a> {
             }
         }
 
-        result
+        #[cfg(not(feature = "rai_protocol"))]
+        return result;
     }
 }
 
@@ -106,7 +142,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 .add_rai_vote(
                     self.args.vote.voter,
                     *self.block_hash,
-                    self.args.vote.metadata,
+                    self.args.vote.metadata.clone(),
                     self.args.vote.timestamp(),
                     self.args.now,
                 )

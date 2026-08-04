@@ -5,7 +5,7 @@ use super::{
     VoteTimestamp,
 };
 #[cfg(feature = "rai_protocol")]
-use crate::RaiEpoch;
+use crate::{QualifiedRoot, RaiEpoch};
 use crate::{DeserializationError, SignatureError};
 
 #[cfg(feature = "rai_protocol")]
@@ -29,8 +29,72 @@ pub enum RaiCommitteeScope {
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RaiSlotId {
+    pub epoch: RaiEpoch,
+    pub root: QualifiedRoot,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RaiElectionId {
+    Slot(RaiSlotId),
+    CloseCut { epoch: RaiEpoch, round: u32 },
+    CloseRecord { epoch: RaiEpoch, round: u32 },
+}
+
+#[cfg(feature = "rai_protocol")]
+impl Default for RaiElectionId {
+    fn default() -> Self {
+        Self::Slot(RaiSlotId::default())
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RaiElectionId {
+    pub const SERIALIZED_SIZE: usize = 1 + 8 + QualifiedRoot::SERIALIZED_SIZE + 4;
+
+    fn digest_bytes(&self) -> [u8; Self::SERIALIZED_SIZE] {
+        let mut bytes = [0; Self::SERIALIZED_SIZE];
+        self.serialize(&mut bytes.as_mut())
+            .expect("serializing an election ID into a fixed buffer cannot fail");
+        bytes
+    }
+
+    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        let (kind, epoch, root, round) = match self {
+            Self::Slot(id) => (0, id.epoch, id.root.clone(), 0),
+            Self::CloseCut { epoch, round } => (1, *epoch, QualifiedRoot::ZERO, *round),
+            Self::CloseRecord { epoch, round } => (2, *epoch, QualifiedRoot::ZERO, *round),
+        };
+        writer.write_all(&[kind])?;
+        writer.write_all(&epoch.number().to_le_bytes())?;
+        root.serialize(writer)?;
+        writer.write_all(&round.to_le_bytes())
+    }
+
+    fn deserialize<T: Read>(reader: &mut T) -> Result<Self, DeserializationError> {
+        let kind = crate::read_u8(reader)?;
+        let mut epoch_bytes = [0; 8];
+        reader.read_exact(&mut epoch_bytes)?;
+        let epoch = RaiEpoch::new(u64::from_le_bytes(epoch_bytes));
+        let root = QualifiedRoot::deserialize(reader)?;
+        let mut round_bytes = [0; 4];
+        reader.read_exact(&mut round_bytes)?;
+        let round = u32::from_le_bytes(round_bytes);
+        match kind {
+            0 if round == 0 => Ok(Self::Slot(RaiSlotId { epoch, root })),
+            1 if root == QualifiedRoot::ZERO => Ok(Self::CloseCut { epoch, round }),
+            2 if root == QualifiedRoot::ZERO => Ok(Self::CloseRecord { epoch, round }),
+            _ => Err(DeserializationError::InvalidData),
+        }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RaiVoteMetadata {
+    pub election_id: RaiElectionId,
     pub phase: RaiVotePhase,
     pub epoch: RaiEpoch,
     pub governing_hash: BlockHash,
@@ -219,6 +283,7 @@ impl Vote {
         {
             let mut builder = Blake2HashBuilder::new()
                 .update(RAI_HASH_PREFIX)
+                .update(self.metadata.election_id.digest_bytes())
                 .update([self.metadata.phase as u8])
                 .update(self.metadata.epoch.number().to_le_bytes())
                 .update(self.metadata.governing_hash.as_bytes())
@@ -254,6 +319,7 @@ impl Vote {
                 2 => RaiVotePhase::Final,
                 _ => return Err(DeserializationError::InvalidData),
             };
+            let election_id = RaiElectionId::deserialize(&mut bytes)?;
             bytes.read_exact(&mut buffer)?;
             let epoch = RaiEpoch::new(u64::from_le_bytes(buffer));
             let governing_hash = BlockHash::deserialize(&mut bytes)?;
@@ -264,6 +330,7 @@ impl Vote {
                 _ => return Err(DeserializationError::InvalidData),
             };
             RaiVoteMetadata {
+                election_id,
                 phase,
                 epoch,
                 governing_hash,
@@ -289,11 +356,19 @@ impl Vote {
     }
 
     pub const fn serialized_size(count: usize) -> usize {
-        Account::SERIALIZED_SIZE
-        + Signature::SERIALIZED_SIZE
-        + std::mem::size_of::<u64>() // timestamp
-        + (BlockHash::SERIALIZED_SIZE * count)
-        + if cfg!(feature = "rai_protocol") { 1 + 8 + BlockHash::SERIALIZED_SIZE + 1 } else { 0 }
+        let base = Account::SERIALIZED_SIZE
+            + Signature::SERIALIZED_SIZE
+            + std::mem::size_of::<u64>() // timestamp
+            + (BlockHash::SERIALIZED_SIZE * count);
+        #[cfg(feature = "rai_protocol")]
+        return base
+            + 1
+            + RaiElectionId::SERIALIZED_SIZE
+            + 8
+            + BlockHash::SERIALIZED_SIZE
+            + 1;
+        #[cfg(not(feature = "rai_protocol"))]
+        return base;
     }
 
     pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
@@ -306,6 +381,7 @@ impl Vote {
         #[cfg(feature = "rai_protocol")]
         {
             writer.write_all(&[self.metadata.phase as u8])?;
+            self.metadata.election_id.serialize(writer)?;
             writer.write_all(&self.metadata.epoch.number().to_le_bytes())?;
             self.metadata.governing_hash.serialize(writer)?;
             writer.write_all(&[self.metadata.scope as u8])?;
@@ -423,6 +499,10 @@ mod tests {
             3,
             vec![BlockHash::from(11), BlockHash::from(12)],
             RaiVoteMetadata {
+                election_id: RaiElectionId::Slot(RaiSlotId {
+                    epoch: RaiEpoch::new(7),
+                    root: QualifiedRoot::new_test_instance(),
+                }),
                 phase: RaiVotePhase::Notar,
                 epoch: RaiEpoch::new(7),
                 governing_hash: BlockHash::from(10),
@@ -465,6 +545,18 @@ mod tests {
     fn rai_signature_binds_phase() {
         let mut vote = rai_vote();
         vote.metadata.phase = RaiVotePhase::Final;
+        assert!(vote.validate().is_err());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_signature_binds_election_epoch() {
+        let mut vote = rai_vote();
+        let RaiElectionId::Slot(id) = &mut vote.metadata.election_id else {
+            panic!("test vote must target a slot election");
+        };
+        id.epoch = RaiEpoch::new(id.epoch.number() + 1);
+
         assert!(vote.validate().is_err());
     }
 
@@ -514,7 +606,11 @@ mod tests {
         invalid_phase[metadata_offset] = 3;
         assert!(Vote::deserialize(&invalid_phase).is_err());
 
-        bytes[metadata_offset + 1 + 8 + BlockHash::SERIALIZED_SIZE] = 3;
+        bytes[metadata_offset
+            + 1
+            + RaiElectionId::SERIALIZED_SIZE
+            + 8
+            + BlockHash::SERIALIZED_SIZE] = 3;
         assert!(Vote::deserialize(&bytes).is_err());
     }
 

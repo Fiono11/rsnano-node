@@ -289,26 +289,6 @@ impl RootContainer {
         self.get_mut(&root).map(|i| &mut i.election)
     }
 
-    #[cfg(feature = "rai_protocol")]
-    pub fn election_for_rai_block_mut(
-        &mut self,
-        block_hash: &BlockHash,
-        epoch: rsnano_types::RaiEpoch,
-    ) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
-        let id = self
-            .rai_ids_by_root
-            .get(&root)?
-            .iter()
-            .find(|id| {
-                self.election_for_rai_id(id).is_some_and(|election| {
-                    election.rai_epoch() == epoch && election.contains_candidate(block_hash)
-                })
-            })?
-            .clone();
-        self.election_for_rai_id_mut(&id)
-    }
-
     pub fn bucket_infos(&self) -> &[BucketInfo] {
         &self.bucket_infos
     }
