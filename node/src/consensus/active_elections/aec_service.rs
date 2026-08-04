@@ -548,7 +548,7 @@ impl AecService {
                     *epoch,
                     (
                         drain.obligations.len(),
-                        drain.finalized.len() + drain.released.len(),
+                        drain.finalized.len() + drain.selected.len() + drain.released.len(),
                     ),
                 )
             })

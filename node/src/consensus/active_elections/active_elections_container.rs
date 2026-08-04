@@ -528,6 +528,9 @@ impl ActiveElectionsContainer {
             return Err(CandidateError::InvalidSegment);
         }
         let election_id = RaiElectionId::Slot(slot.clone());
+        if self.rai_epoch_manager.certified_release(&slot).is_some() {
+            return Err(CandidateError::ElectionDisabled);
+        }
         let Some(entry) = self.roots.election_for_rai_id_mut(&election_id) else {
             return Err(CandidateError::ElectionNotFound);
         };
@@ -664,12 +667,20 @@ impl ActiveElectionsContainer {
         }
         #[cfg(feature = "rai_protocol")]
         {
-            let id = crate::consensus::election::RaiElectionId::Slot(
-                crate::consensus::election::RaiSlotId {
-                    epoch: self.rai_epoch_manager.state().open_epoch,
-                    root: request.block.qualified_root(),
-                },
-            );
+            let slot = crate::consensus::election::RaiSlotId {
+                epoch: self.rai_epoch_manager.state().open_epoch,
+                root: request.block.qualified_root(),
+            };
+            if let Some(previous) = self
+                .rai_visible_obligations
+                .iter()
+                .filter(|known| known.root == slot.root && known.epoch < slot.epoch)
+                .max_by_key(|known| known.epoch)
+                && self.rai_epoch_manager.certified_release(previous).is_none()
+            {
+                return Err(AecInsertError::Duplicate);
+            }
+            let id = crate::consensus::election::RaiElectionId::Slot(slot);
             if self.roots.election_for_rai_id(&id).is_some() {
                 return Err(AecInsertError::Duplicate);
             }
@@ -910,6 +921,13 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         self.rai_visible_obligations
             .insert(crate::consensus::election::RaiSlotId {
+                epoch,
+                root: root.clone(),
+            });
+
+        #[cfg(feature = "rai_protocol")]
+        self.rai_epoch_manager
+            .record_known_slot(crate::consensus::election::RaiSlotId {
                 epoch,
                 root: root.clone(),
             });
@@ -1334,6 +1352,17 @@ impl ActiveElectionsContainer {
                                     )
                                 {
                                     let frontiers = frontiers.clone();
+                                    let removed = self.roots.drain_filter(|entry| {
+                                        let crate::consensus::election::RaiElectionId::Slot(slot) =
+                                            entry.election.rai_id()
+                                        else {
+                                            return false;
+                                        };
+                                        self.rai_epoch_manager.certified_release(slot).is_some()
+                                    });
+                                    for released in removed {
+                                        self.cleanup_election(released);
+                                    }
                                     self.notify(AecFact::RaiCloseInstalled(frontiers));
                                 }
                             }

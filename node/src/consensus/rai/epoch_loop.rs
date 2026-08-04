@@ -299,7 +299,8 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                         });
                     if let Some(outcome) = outcome {
                         let segment = match outcome {
-                            super::RaiDrainOutcome::Finalized(winner) => {
+                            super::RaiDrainOutcome::Finalized(winner)
+                            | super::RaiDrainOutcome::Selected(winner) => {
                                 self.driver.epoch_frontier_segment(epoch, &root, winner)
                             }
                             super::RaiDrainOutcome::ReleasedTimeout
