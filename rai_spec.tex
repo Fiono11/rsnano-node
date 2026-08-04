@@ -1466,8 +1466,19 @@ from correct archival replicas so that joining replicas can reconstruct the comp
 
 There is no distinguished validator proposer and no explicit proposal object in the election core.
 For a slot election, the account owner creates and authorizes a contiguous candidate segment ending at \(B_t\);
-the owner or any relay may gossip its blocks, and a replica computes \(b=\hash(B_t)\) only after
-validating every block and the certified base.  Validators do not synthesize account blocks.
+the owner or any relay may gossip its blocks.  When a correct replica receives a bare block \(B_t\), together
+with every missing predecessor needed to reconstruct the contiguous candidate suffix for account \(a\), it sets
+\[
+s\gets\NextSlot(a),\qquad e\gets e_{\mathrm{open}},\qquad q\gets\Slot(a,s,e),
+\qquad b\gets\hash(B_t).
+\]
+The replica validates every block and the certified base under \(q\).  If the candidate is valid and no local
+slot-election state for \(q\) exists, the replica originates \(q\), stores every validated suffix block
+\(B_r\) as \(\blockMap[q,\hash(B_r)]\gets B_r\), and processes \(b\) through the generic slot-election
+loop for \(q\).  If local state for \(q\) already exists, it stores the candidate under that existing election
+and processes it through the same loop.  A bare block is one received without an authenticated election
+identifier; authenticated vote and report evidence and certified close-cut reconstruction retain their explicit
+election identifiers.  Validators do not synthesize account blocks.
 
 A correct replica constructs its fresh close-cut version from its current report-and-vote visibility set after
 locally deriving a valid report quorum.  Its fresh close-cut hash is
@@ -1994,7 +2005,7 @@ rule is semantics-preserving and is omitted from repeated pseudocode lines below
 \State locally derive, reconstruct, or learn the required data for value $x$ for $\id$ $\Rightarrow$
 \State \quad let $S_j\neq\varnothing$ be the maximal set of unvoted applicable committees in which $x$ is the selected first-vote value
 \State \quad \textbf{require} $S_j\subseteq\SignerCommittees(P_j,\id)$ and $\enabled(\id)$ and $\forall Q\in S_j:\neg\firstVoted(P_j,\id,Q)\wedge\neg\finalVoted(P_j,\id,Q)$
-\If{$\id=\Slot(a,s,e)$ and $x=b=\hash(B_t)$ for a received candidate segment}
+\If{$\id=\Slot(a,s,e)$ and $x=b=\hash(B_t)$ for a candidate segment bound to $\id$}
     \State store every validated block $B_r$ in the suffix as $\blockMap[\id,\hash(B_r)]\gets B_r$
 \EndIf
 \State \quad \textbf{require} $\admissible(\id,x)$
