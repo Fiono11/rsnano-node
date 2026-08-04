@@ -13,17 +13,30 @@ mod wallets_factory;
 use crate::cli_args::CommandLine;
 use app::NanoSpamApp;
 use clap::Parser;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> anyhow::Result<()> {
     let args = CommandLine::parse().into_args();
     args.validate()?;
-    tokio::select! {
-        result = NanoSpamApp::new(args).run() => result,
-        signal = shutdown_signal() => {
-            signal?;
-            Err(anyhow::anyhow!("interrupted; spawned nodes were terminated"))
-        }
+
+    let shutdown = CancellationToken::new();
+    let signal_shutdown = shutdown.clone();
+    let signal_task = tokio::spawn(async move {
+        shutdown_signal().await?;
+        signal_shutdown.cancel();
+        Ok::<_, std::io::Error>(())
+    });
+
+    let result = NanoSpamApp::new(args).run(shutdown.clone()).await;
+    signal_task.abort();
+
+    if shutdown.is_cancelled() {
+        Err(anyhow::anyhow!(
+            "interrupted; spawned nodes were terminated"
+        ))
+    } else {
+        result
     }
 }
 

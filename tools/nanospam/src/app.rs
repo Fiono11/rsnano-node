@@ -69,9 +69,9 @@ impl NanoSpamApp {
         }
     }
 
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let last_phase = self.last_rai_phase.clone();
-        match timeout(GLOBAL_TIMEOUT, self.run_inner()).await {
+        match timeout(GLOBAL_TIMEOUT, self.run_inner(shutdown)).await {
             Ok(result) => result.map_err(|error| {
                 anyhow!(
                     "{error:#}; last known RAI phase: {}",
@@ -85,7 +85,7 @@ impl NanoSpamApp {
         }
     }
 
-    async fn run_inner(mut self) -> anyhow::Result<()> {
+    async fn run_inner(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
         self.tracing_init.init();
 
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
@@ -187,9 +187,9 @@ impl NanoSpamApp {
         }
 
         let tx_forks_clone = tx_blocks.clone();
-        let cancel_block_creation = CancellationToken::new();
+        let cancel_block_creation = shutdown.child_token();
         let cancel_block_creation2 = cancel_block_creation.clone();
-        let cancel_nanospam = CancellationToken::new();
+        let cancel_nanospam = shutdown.child_token();
 
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
@@ -234,7 +234,7 @@ impl NanoSpamApp {
         let started = Instant::now();
         std::thread::scope(|s| {
             s.spawn(|| {
-                enqueue_blocks(&logic, tx_blocks, &self.clock);
+                enqueue_blocks(&logic, tx_blocks, &self.clock, &shutdown);
                 cancel_block_creation2.cancel();
             });
 
@@ -286,6 +286,7 @@ impl NanoSpamApp {
                         tx_forks_clone,
                         &logic,
                         &self.clock,
+                        shutdown.clone(),
                     ));
                 }
             });
@@ -576,8 +577,17 @@ fn workload_counts(
     Ok(counts)
 }
 
-fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
+fn enqueue_blocks(
+    logic: &Mutex<SpamLogic>,
+    tx_blocks: mpsc::Sender<Forks>,
+    clock: &SteadyClock,
+    cancel_token: &CancellationToken,
+) {
     loop {
+        if cancel_token.is_cancelled() {
+            break;
+        }
+
         let now = clock.now();
 
         let result = {
@@ -588,7 +598,20 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         match result {
             Some(BlockResult::Block(forks)) => {
-                tx_blocks.blocking_send(forks).unwrap();
+                let mut pending = forks;
+                loop {
+                    if cancel_token.is_cancelled() {
+                        return;
+                    }
+                    match tx_blocks.try_send(pending) {
+                        Ok(()) => break,
+                        Err(mpsc::error::TrySendError::Full(forks)) => {
+                            pending = forks;
+                            yield_now();
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => return,
+                    }
+                }
             }
             Some(BlockResult::Waiting) => {
                 yield_now();
@@ -614,7 +637,14 @@ async fn publish_blocks(
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
     let mut writer_index = 0;
-    while let Some(forks) = rx_blocks.recv().await {
+    loop {
+        let forks = select! {
+            _ = cancel_token.cancelled() => break,
+            forks = rx_blocks.recv() => match forks {
+                Some(forks) => forks,
+                None => break,
+            }
+        };
         let block = forks.block.clone();
         let hash = block.hash();
         let publish = Message::Publish(Publish::new_from_originator(block));
@@ -701,8 +731,13 @@ async fn republish_delayed_blocks(
     tx_forks: mpsc::Sender<Forks>,
     logic: &Mutex<SpamLogic>,
     clock: &SteadyClock,
+    cancel_token: CancellationToken,
 ) {
     loop {
+        if cancel_token.is_cancelled() {
+            return;
+        }
+
         while let Some(block) = {
             let now = clock.now();
             let mut l = logic.lock().unwrap();
@@ -711,12 +746,20 @@ async fn republish_delayed_blocks(
             }
             l.next_delayed(now)
         } {
-            if tx_forks.send(Forks::new(block)).await.is_err() {
-                return;
+            select! {
+                _ = cancel_token.cancelled() => return,
+                result = tx_forks.send(Forks::new(block)) => {
+                    if result.is_err() {
+                        return;
+                    }
+                }
             }
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        select! {
+            _ = cancel_token.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
     }
 }
 
