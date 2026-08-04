@@ -10,7 +10,13 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::consensus::election::{Election, VoteType};
 
+#[cfg(feature = "rai_protocol")]
+type VoteTargetId = crate::consensus::election::RaiElectionId;
+#[cfg(not(feature = "rai_protocol"))]
+type VoteTargetId = QualifiedRoot;
+
 pub(crate) struct VoteTarget {
+    id: VoteTargetId,
     pub root: QualifiedRoot,
     pub winner: BlockHash,
     pub vote_type: VoteType,
@@ -22,6 +28,10 @@ pub(crate) struct VoteTarget {
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
+        #[cfg(feature = "rai_protocol")]
+        id: e.rai_id().clone(),
+        #[cfg(not(feature = "rai_protocol"))]
+        id: e.qualified_root().clone(),
         root: e.qualified_root().clone(),
         winner: {
             #[cfg(feature = "rai_protocol")]
@@ -42,8 +52,8 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
 }
 
 pub(crate) struct VotingScheduler {
-    records: HashMap<QualifiedRoot, VoteRecord>,
-    expiry_queue: VecDeque<(Timestamp, QualifiedRoot)>,
+    records: HashMap<VoteTargetId, VoteRecord>,
+    expiry_queue: VecDeque<(Timestamp, VoteTargetId)>,
     interval: Duration,
 }
 
@@ -66,7 +76,7 @@ impl VotingScheduler {
     /// Returns true if enough time has passed since the last vote for this election,
     /// or if the winner has changed since the last vote.
     pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
-        let Some(record) = self.records.get(&target.root) else {
+        let Some(record) = self.records.get(&target.id) else {
             return true;
         };
 
@@ -86,15 +96,12 @@ impl VotingScheduler {
     }
 
     pub fn mark_voted(&mut self, target: &VoteTarget, now: Timestamp) {
-        let record = self
-            .records
-            .entry(target.root.clone())
-            .or_insert(VoteRecord {
-                last_non_final: None,
-                last_final: None,
-                last_voted_winner: BlockHash::ZERO,
-                last_voted: now,
-            });
+        let record = self.records.entry(target.id.clone()).or_insert(VoteRecord {
+            last_non_final: None,
+            last_final: None,
+            last_voted_winner: BlockHash::ZERO,
+            last_voted: now,
+        });
 
         debug_assert!(now >= record.last_voted);
 
@@ -105,21 +112,21 @@ impl VotingScheduler {
         record.last_voted_winner = target.winner;
         record.last_voted = now;
 
-        self.expiry_queue.push_back((now, target.root.clone()));
+        self.expiry_queue.push_back((now, target.id.clone()));
     }
 
     /// Remove entries whose most recent vote is older than the interval.
     /// Called once per tick to bound memory usage.
     pub fn cleanup(&mut self, now: Timestamp) {
-        while let Some(&(ts, ref root)) = self.expiry_queue.front() {
+        while let Some(&(ts, ref id)) = self.expiry_queue.front() {
             if now < ts + self.interval {
                 break;
             }
-            let root = root.clone();
+            let id = id.clone();
             self.expiry_queue.pop_front();
-            if let Some(record) = self.records.get(&root) {
+            if let Some(record) = self.records.get(&id) {
                 if record.last_voted == ts {
-                    self.records.remove(&root);
+                    self.records.remove(&id);
                 }
             }
         }
@@ -133,7 +140,7 @@ impl ContainerInfoProvider for VotingScheduler {
             (
                 "expiry_queue",
                 self.expiry_queue.len(),
-                size_of::<(Timestamp, QualifiedRoot)>(),
+                size_of::<(Timestamp, VoteTargetId)>(),
             ),
         ]
         .into()
@@ -245,6 +252,42 @@ mod tests {
         assert_eq!(vote_target(&election).winner, candidate);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn old_epoch_cooldown_does_not_suppress_new_epoch() {
+        use crate::consensus::election::{ElectionBehavior, RaiElectionId, RaiSlotId};
+        use rsnano_types::{RaiEpoch, SavedBlock};
+
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let old = Election::new_slot(
+            block.clone(),
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            t(0),
+            RaiEpoch::ZERO,
+        );
+        let new = Election::new_slot(
+            block,
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            t(0),
+            RaiEpoch::new(1),
+        );
+        assert_eq!(
+            old.rai_id(),
+            &RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::ZERO,
+                root
+            })
+        );
+
+        let mut scheduler = scheduler();
+        scheduler.mark_voted(&vote_target(&old), t(0));
+
+        assert!(scheduler.can_vote(&vote_target(&new), t(1)));
+    }
+
     /*
      * Test helpers
      */
@@ -257,6 +300,15 @@ mod tests {
 
     fn target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
+            #[cfg(feature = "rai_protocol")]
+            id: crate::consensus::election::RaiElectionId::Slot(
+                crate::consensus::election::RaiSlotId {
+                    epoch: Default::default(),
+                    root: QualifiedRoot::new_test_instance(),
+                },
+            ),
+            #[cfg(not(feature = "rai_protocol"))]
+            id: QualifiedRoot::new_test_instance(),
             root: QualifiedRoot::new_test_instance(),
             winner: BlockHash::from(1),
             vote_type,
@@ -269,6 +321,15 @@ mod tests {
 
     fn other_winner_target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
+            #[cfg(feature = "rai_protocol")]
+            id: crate::consensus::election::RaiElectionId::Slot(
+                crate::consensus::election::RaiSlotId {
+                    epoch: Default::default(),
+                    root: QualifiedRoot::new_test_instance(),
+                },
+            ),
+            #[cfg(not(feature = "rai_protocol"))]
+            id: QualifiedRoot::new_test_instance(),
             root: QualifiedRoot::new_test_instance(),
             winner: BlockHash::from(2),
             vote_type,

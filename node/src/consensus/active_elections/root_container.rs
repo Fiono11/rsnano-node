@@ -302,7 +302,7 @@ impl RootContainer {
             .iter()
             .find(|id| {
                 self.election_for_rai_id(id).is_some_and(|election| {
-                    election.rai_epoch() == epoch && election.contains_block(block_hash)
+                    election.rai_epoch() == epoch && election.contains_candidate(block_hash)
                 })
             })?
             .clone();
@@ -360,6 +360,12 @@ impl RootContainer {
     }
 
     pub fn drain_filter(&mut self, mut predicate: impl FnMut(&Entry) -> bool) -> Vec<Entry> {
+        #[cfg(feature = "rai_protocol")]
+        let to_remove: Vec<_> = self
+            .iter_rai()
+            .filter_map(|entry| predicate(entry).then(|| entry.election.rai_id().clone()))
+            .collect();
+        #[cfg(not(feature = "rai_protocol"))]
         let to_remove: Vec<_> = self
             .by_root
             .values()
@@ -373,8 +379,12 @@ impl RootContainer {
             .collect();
 
         let mut removed = Vec::new();
-        for root in to_remove {
-            if let Some(entry) = self.erase(&root) {
+        for key in to_remove {
+            #[cfg(feature = "rai_protocol")]
+            let erased = self.erase_rai_id(&key);
+            #[cfg(not(feature = "rai_protocol"))]
+            let erased = self.erase(&key);
+            if let Some(entry) = erased {
                 removed.push(entry);
             }
         }
@@ -437,7 +447,16 @@ impl RootContainer {
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
-        self.by_root.values_mut()
+        self.by_root.values_mut().chain({
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.rai_entries.values_mut()
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                std::iter::empty()
+            }
+        })
     }
 
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
@@ -543,19 +562,42 @@ mod rai_tests {
             !roots
                 .election_for_rai_id(&old_id)
                 .unwrap()
-                .contains_block(&candidate)
+                .contains_candidate(&candidate)
         );
         assert!(
             roots
                 .election_for_rai_id(&new_id)
                 .unwrap()
-                .contains_block(&candidate)
+                .contains_candidate(&candidate)
         );
 
         assert!(roots.erase_rai_id(&old_id).is_some());
         assert!(roots.election_for_rai_id(&old_id).is_none());
         assert!(roots.election_for_rai_id(&new_id).is_some());
         assert_eq!(roots.election_for_root(&root).unwrap().rai_id(), &new_id);
+    }
+
+    #[test]
+    fn expiring_an_old_election_does_not_remove_the_retry() {
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let old_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: root.clone(),
+        });
+        let retry_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(2),
+            root,
+        });
+        let mut roots = RootContainer::default();
+        roots.insert_rai(slot_entry(block.clone(), RaiEpoch::new(1)));
+        roots.insert_rai(slot_entry(block, RaiEpoch::new(2)));
+
+        let removed = roots.drain_filter(|entry| entry.election.rai_id() == &old_id);
+
+        assert_eq!(removed.len(), 1);
+        assert!(roots.election_for_rai_id(&old_id).is_none());
+        assert!(roots.election_for_rai_id(&retry_id).is_some());
     }
 }
 

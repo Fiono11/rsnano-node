@@ -48,13 +48,10 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     rai_epoch_manager: crate::consensus::rai::RaiEpochManager,
     #[cfg(feature = "rai_protocol")]
-    rai_visible_obligations: std::collections::BTreeMap<
-        rsnano_types::RaiEpoch,
-        std::collections::BTreeSet<QualifiedRoot>,
-    >,
+    rai_visible_obligations: std::collections::BTreeSet<crate::consensus::election::RaiSlotId>,
     #[cfg(feature = "rai_protocol")]
     rai_terminal_slots: std::collections::BTreeMap<
-        (rsnano_types::RaiEpoch, QualifiedRoot),
+        crate::consensus::election::RaiSlotId,
         (
             crate::consensus::rai::RaiElectionVoteState,
             rsnano_types::Account,
@@ -155,7 +152,11 @@ impl ActiveElectionsContainer {
             .unwrap_or_default();
         for root in obligations {
             if let Some((evidence, account, confirmed)) =
-                self.rai_terminal_slots.get(&(closing.epoch, root.clone()))
+                self.rai_terminal_slots
+                    .get(&crate::consensus::election::RaiSlotId {
+                        epoch: closing.epoch,
+                        root: root.clone(),
+                    })
             {
                 let segment = confirmed
                     .as_ref()
@@ -337,12 +338,22 @@ impl ActiveElectionsContainer {
         let mut visible = self.rai_visible_obligations.clone();
         for entry in self.roots.iter_rai() {
             if entry.election.rai_kind() == crate::consensus::election::RaiElectionKind::Slot {
-                visible
-                    .entry(entry.election.rai_epoch())
-                    .or_default()
-                    .insert(entry.root.clone());
+                visible.insert(crate::consensus::election::RaiSlotId {
+                    epoch: entry.election.rai_epoch(),
+                    root: entry.root.clone(),
+                });
             }
         }
+        let visible =
+            visible
+                .into_iter()
+                .fold(std::collections::BTreeMap::new(), |mut by_epoch, slot| {
+                    by_epoch
+                        .entry(slot.epoch)
+                        .or_insert_with(std::collections::BTreeSet::new)
+                        .insert(slot.root);
+                    by_epoch
+                });
 
         // Keep one source of truth: this is the same manager used by active
         // elections and the rai_status RPC, moved through the loop for a tick.
@@ -535,10 +546,7 @@ impl ActiveElectionsContainer {
         {
             return Err(CandidateError::ElectionDisabled);
         }
-        if self
-            .rai_terminal_slots
-            .contains_key(&(slot.epoch, slot.root.clone()))
-        {
+        if self.rai_terminal_slots.contains_key(&slot) {
             return Err(CandidateError::FinalizedSlotConflict);
         }
 
@@ -778,7 +786,12 @@ impl ActiveElectionsContainer {
             },
         );
         if self.roots.election_for_rai_id(&rai_id).is_some()
-            || self.rai_terminal_slots.contains_key(&(epoch, root.clone()))
+            || self
+                .rai_terminal_slots
+                .contains_key(&crate::consensus::election::RaiSlotId {
+                    epoch,
+                    root: root.clone(),
+                })
         {
             return Err(AecInsertError::Duplicate);
         }
@@ -892,9 +905,10 @@ impl ActiveElectionsContainer {
 
         #[cfg(feature = "rai_protocol")]
         self.rai_visible_obligations
-            .entry(epoch)
-            .or_default()
-            .insert(root.clone());
+            .insert(crate::consensus::election::RaiSlotId {
+                epoch,
+                root: root.clone(),
+            });
 
         #[cfg(not(feature = "rai_protocol"))]
         self.roots.insert(Entry {
@@ -1128,7 +1142,10 @@ impl ActiveElectionsContainer {
             // for close drain to recover an election that ended outside the
             // direct apply_vote confirmation path.
             self.rai_terminal_slots.insert(
-                (election.rai_epoch(), entry.root.clone()),
+                crate::consensus::election::RaiSlotId {
+                    epoch: election.rai_epoch(),
+                    root: entry.root.clone(),
+                },
                 (election.rai_votes.clone(), election.account(), confirmed),
             );
         }
@@ -1226,7 +1243,10 @@ impl ActiveElectionsContainer {
                     rsnano_types::MaybeSavedBlock::Unsaved(_) => None,
                 };
                 self.rai_terminal_slots.insert(
-                    (entry.election.rai_epoch(), entry.root.clone()),
+                    crate::consensus::election::RaiSlotId {
+                        epoch: entry.election.rai_epoch(),
+                        root: entry.root.clone(),
+                    },
                     (
                         entry.election.rai_votes.clone(),
                         entry.election.account(),
@@ -1579,11 +1599,12 @@ mod tests {
             Ok(())
         );
         assert!(container.election_for_root(&root).is_none());
-        assert!(
-            container
-                .rai_terminal_slots
-                .contains_key(&(0.into(), root.clone()))
-        );
+        assert!(container.rai_terminal_slots.contains_key(
+            &crate::consensus::election::RaiSlotId {
+                epoch: 0.into(),
+                root: root.clone(),
+            }
+        ));
 
         container.rai_epoch_manager.start_closing(now);
         container
