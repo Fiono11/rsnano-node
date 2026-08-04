@@ -204,8 +204,9 @@ fn create_change_block(account_map: &mut AccountMap) -> BlockResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
     use rsnano_types::PrivateKey;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     const MAX_BLOCKS: usize = 4;
 
@@ -239,6 +240,37 @@ mod tests {
         let receive = block_factory.create_next(false).unwrap().unwrap();
         assert_eq!(receive.account_field().unwrap(), account);
         assert_eq!(receive.link_field().unwrap(), send.hash().into());
+    }
+
+    #[test]
+    fn fixed_seed_regression_runs_beyond_1600_blocks() {
+        const BLOCKS: usize = 6_000;
+        const SEED: u64 = 0x5241_492d_4e41_4e4f;
+        let mut account_map = AccountMap::default();
+        for key in 1..=128 {
+            account_map.add_unopened(PrivateKey::from(key));
+        }
+        account_map.set_account_state(
+            PrivateKey::from(1).account(),
+            Amount::nano(1_000_000),
+            BlockHash::from(1),
+        );
+        let mut factory = BlockFactory::new(account_map, BLOCKS, SpamStrategy::SendReceive);
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let deadline = Instant::now() + Duration::from_secs(30);
+
+        while let Some(result) = factory.create_next(rng.random_bool(0.01)) {
+            assert!(
+                Instant::now() < deadline,
+                "fixed-seed nanospam workload timed out"
+            );
+            match result {
+                BlockResult::Block(forks) => factory.confirm(&forks.block.hash()),
+                BlockResult::Waiting => std::thread::yield_now(),
+            }
+        }
+
+        assert_eq!(factory.created(), BLOCKS);
     }
 
     #[test]

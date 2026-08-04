@@ -637,7 +637,17 @@ impl RaiEpochManager {
         for slot in self
             .known_slots
             .iter()
-            .filter(|slot| slot.epoch <= epoch)
+            // Cut members have a certificate-derived terminal outcome.  A
+            // close certificate releases only old obligations which the cut
+            // omitted; treating finalized cut members as released would make
+            // retry authorization ambiguous.
+            .filter(|slot| {
+                slot.epoch <= epoch
+                    && self
+                        .frozen_obligations
+                        .get(&slot.epoch)
+                        .is_none_or(|included| !included.contains(*slot))
+            })
             .cloned()
         {
             self.released_slots
@@ -987,7 +997,7 @@ impl RaiEpochManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::rai::RaiReport;
+    use crate::consensus::rai::{RaiElectionVoteState, RaiReport};
     use rsnano_types::{
         Account, Amount, ConfirmationHeightInfo, PrivateKey, PublicKey, RaiCommitteeScope,
     };
@@ -1410,6 +1420,172 @@ mod tests {
         assert!(manager.certified_release(&old).is_some());
         assert!(manager.certified_release(&retry).is_none());
         assert!(manager.slot_election_enabled(retry.epoch, &retry.root));
+    }
+
+    #[test]
+    fn six_replicas_close_release_and_retry_deterministically() {
+        const REPLICAS: usize = 6;
+        let keys = (1..=REPLICAS as u64)
+            .map(PrivateKey::from)
+            .collect::<Vec<_>>();
+        let committee = Arc::new(RepWeights::from([
+            (keys[0].public_key(), Amount::raw(1)),
+            (keys[1].public_key(), Amount::raw(1)),
+            (keys[2].public_key(), Amount::raw(1)),
+            (keys[3].public_key(), Amount::raw(1)),
+            (keys[4].public_key(), Amount::raw(1)),
+            (keys[5].public_key(), Amount::raw(1)),
+        ]));
+        let mut replicas = (0..REPLICAS)
+            .map(|_| RaiEpochManager::new(committee.clone(), BlockHash::from(7)))
+            .collect::<Vec<_>>();
+
+        let included = (1..=3u64)
+            .map(|number| RaiSlotId {
+                epoch: RaiEpoch::ZERO,
+                root: QualifiedRoot::new(number.into(), (number + 10).into()),
+            })
+            .collect::<Vec<_>>();
+        let omitted = RaiSlotId {
+            epoch: RaiEpoch::ZERO,
+            root: QualifiedRoot::new(90.into(), 91.into()),
+        };
+        let retry = RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: omitted.root.clone(),
+        };
+
+        // Publishing is deliberately epoch-qualified.  Every replica knows
+        // the old minority candidate, but only one representative reports it.
+        for replica in &mut replicas {
+            for slot in included.iter().chain([&omitted]) {
+                replica.record_known_slot(slot.clone());
+            }
+            assert!(replica.start_closing(Timestamp::new_test_instance()));
+            assert_eq!(replica.current_epoch(), RaiEpoch::new(1));
+            assert!(replica.certified_release(&omitted).is_none());
+        }
+        let reports = keys
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                let mut visible = included.clone();
+                if index == 0 {
+                    visible.push(omitted.clone());
+                }
+                RaiReport::new(key, RaiEpoch::ZERO, visible)
+            })
+            .collect::<Vec<_>>();
+
+        for replica in &mut replicas {
+            for report in &reports {
+                replica.reports_mut().insert(report.clone()).unwrap();
+            }
+        }
+
+        let cut_hashes = replicas
+            .iter_mut()
+            .map(|replica| replica.begin_cut_election([]).unwrap().1)
+            .collect::<Vec<_>>();
+        assert!(cut_hashes.windows(2).all(|pair| pair[0] == pair[1]));
+        for (replica, cut) in replicas.iter_mut().zip(&cut_hashes) {
+            assert_eq!(
+                replica.install_cut(RaiEpoch::ZERO, 0, *cut).unwrap(),
+                &included.iter().cloned().collect()
+            );
+        }
+
+        let account = Account::from(44);
+        let base = ConfirmationHeightInfo::new(1, BlockHash::from(100));
+        let candidate_hashes = [
+            BlockHash::from(101),
+            BlockHash::from(102),
+            BlockHash::from(103),
+        ];
+        for replica in &mut replicas {
+            assert!(replica.initialize_drain_frontiers(RaiEpoch::ZERO, [(account, base.clone())]));
+            for (index, slot) in included.iter().enumerate() {
+                // Each slot has its own vote state. Four of six equal
+                // representatives are exactly the final threshold.
+                let mut evidence = RaiElectionVoteState::new(vec![committee.clone()]);
+                for key in keys.iter().take(4) {
+                    evidence
+                        .record_final_vote(
+                            key.public_key(),
+                            candidate_hashes[index],
+                            RaiCommitteeScope::All,
+                        )
+                        .unwrap();
+                }
+                assert_eq!(
+                    replica.record_drain_evidence(
+                        RaiEpoch::ZERO,
+                        slot,
+                        &evidence,
+                        [(
+                            account,
+                            ConfirmationHeightInfo::new(index as u64 + 2, candidate_hashes[index],),
+                        )],
+                    ),
+                    Some(RaiDrainOutcome::Finalized(candidate_hashes[index]))
+                );
+            }
+        }
+
+        let close_hashes = replicas
+            .iter_mut()
+            .map(|replica| replica.begin_close_record().unwrap().1)
+            .collect::<Vec<_>>();
+        assert!(close_hashes.windows(2).all(|pair| pair[0] == pair[1]));
+
+        // The same-root successor retry cannot be authorized by release until
+        // the close record is installed, and its epoch never aliases the old
+        // election identity.
+        assert!(
+            replicas
+                .iter()
+                .all(|replica| replica.certified_release(&omitted).is_none())
+        );
+        assert_ne!(omitted, retry);
+
+        let expected_frontier = ConfirmationHeightInfo::new(4, candidate_hashes[2]);
+        for (replica, close) in replicas.iter_mut().zip(&close_hashes) {
+            let installed = replica
+                .install_certified_close_record(
+                    RaiEpoch::ZERO,
+                    0,
+                    *close,
+                    committee.as_ref().clone(),
+                )
+                .unwrap();
+            assert_eq!(installed[&account], expected_frontier);
+        }
+
+        let expected_releases = BTreeSet::from([omitted.clone()]);
+        for replica in &replicas {
+            assert_eq!(
+                replica
+                    .released_slots()
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+                expected_releases
+            );
+            assert!(replica.certified_release(&omitted).is_some());
+            assert!(replica.certified_release(&retry).is_none());
+            assert!(replica.slot_election_enabled(retry.epoch, &retry.root));
+            assert_eq!(
+                replica.happy_path_drain(RaiEpoch::ZERO).unwrap().finalized,
+                included
+                    .iter()
+                    .cloned()
+                    .zip(candidate_hashes)
+                    .collect::<BTreeMap<_, _>>()
+            );
+        }
+        assert!(replicas.windows(2).all(|pair| {
+            pair[0].drain_frontiers(RaiEpoch::ZERO) == pair[1].drain_frontiers(RaiEpoch::ZERO)
+        }));
     }
 
     #[test]
