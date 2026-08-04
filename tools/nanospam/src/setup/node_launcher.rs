@@ -1,4 +1,6 @@
 use std::{
+    env,
+    path::PathBuf,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -8,6 +10,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use rsnano_rpc_client::NanoRpcClient;
+use rsnano_rpc_messages::PeersDto;
 
 use crate::{
     cli_args::CliArgs,
@@ -16,6 +19,7 @@ use crate::{
 };
 
 const RPC_START_TIMEOUT: Duration = Duration::from_secs(30);
+const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) async fn start_nodes(
     args: &CliArgs,
@@ -40,7 +44,7 @@ pub(crate) async fn start_nodes(
         let mut cmd = if args.cpp {
             let mut cmd = Command::new("nano_node");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
-                .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+                .env("NANO_TEST_GENESIS_PRV", GENESIS_PRV)
                 .env("NANO_TEST_EPOCH_1", "0")
                 .env("NANO_TEST_EPOCH_2", "0")
                 .env("NANO_TEST_EPOCH_2_RECV", "0")
@@ -53,9 +57,9 @@ pub(crate) async fn start_nodes(
                 .stderr(Stdio::null());
             cmd
         } else {
-            let mut cmd = Command::new("rsnano");
+            let mut cmd = Command::new(rsnano_executable());
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
-                .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+                .env("NANO_TEST_GENESIS_PRV", GENESIS_PRV)
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")
@@ -100,5 +104,56 @@ pub(crate) async fn start_nodes(
         // Give time to connect
         sleep(Duration::from_secs(5)).await;
     }
+    wait_for_peer_convergence(rpc_clients, node_lifetime).await?;
     Ok(())
+}
+
+/// Prefer the node built in the same Cargo profile as nanospam. `cargo run`
+/// only builds the selected package, and resolving `rsnano` through PATH can
+/// otherwise launch a stale debug node alongside a release nanospam binary.
+fn rsnano_executable() -> PathBuf {
+    if let Ok(mut sibling) = env::current_exe() {
+        sibling.set_file_name(format!("rsnano{}", env::consts::EXE_SUFFIX));
+        if sibling.is_file() {
+            return sibling;
+        }
+    }
+    PathBuf::from("rsnano")
+}
+
+async fn wait_for_peer_convergence(
+    rpc_clients: &[NanoRpcClient],
+    node_lifetime: &mut NodeLifetime,
+) -> anyhow::Result<()> {
+    if rpc_clients.len() < 2 {
+        return Ok(());
+    }
+
+    let expected_peers = rpc_clients.len() - 1;
+    let started = Instant::now();
+    info!("Waiting for all PR nodes to connect to {expected_peers} peers...");
+    loop {
+        let mut peer_counts = Vec::with_capacity(rpc_clients.len());
+        for (i, rpc_client) in rpc_clients.iter().enumerate() {
+            if let Some(status) = node_lifetime.child_status(i)? {
+                bail!("node PR{i} exited while waiting for peer connections: {status}");
+            }
+            let count = match rpc_client.peers(None).await {
+                Ok(PeersDto::Simple(peers)) => peers.peers.len(),
+                Ok(PeersDto::Detailed(peers)) => peers.peers.len(),
+                Err(_) => 0,
+            };
+            peer_counts.push(count);
+        }
+
+        if peer_counts.iter().all(|&count| count >= expected_peers) {
+            return Ok(());
+        }
+        if started.elapsed() >= PEER_CONNECT_TIMEOUT {
+            bail!(
+                "PR nodes did not form a full mesh within {PEER_CONNECT_TIMEOUT:?}; peer counts: {peer_counts:?}"
+            );
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
 }
