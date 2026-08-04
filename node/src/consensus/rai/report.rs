@@ -5,7 +5,9 @@ use blake2::{
     digest::{Update, VariableOutput},
 };
 use rsnano_ledger::RepWeights;
-use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, QualifiedRoot, RaiEpoch, Signature};
+use rsnano_types::{
+    Amount, BlockHash, PrivateKey, PublicKey, QualifiedRoot, RaiEpoch, RaiSlotId, Signature,
+};
 
 use super::rai_fault_allowance;
 
@@ -18,7 +20,7 @@ const CLOSE_CUT_DOMAIN: &[u8] = b"RAI/CloseCut/v1";
 pub struct RaiReport {
     pub reporter: PublicKey,
     pub epoch: RaiEpoch,
-    pub visible_obligations: BTreeSet<QualifiedRoot>,
+    pub visible_obligations: BTreeSet<RaiSlotId>,
     pub signature: Signature,
 }
 
@@ -32,7 +34,7 @@ impl RaiReport {
     pub fn new(
         key: &PrivateKey,
         epoch: RaiEpoch,
-        obligations: impl IntoIterator<Item = QualifiedRoot>,
+        obligations: impl IntoIterator<Item = RaiSlotId>,
     ) -> Self {
         let reporter = key.public_key();
         let visible_obligations = obligations.into_iter().collect();
@@ -89,11 +91,15 @@ pub enum ReportInsert {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReportError {
     InvalidSignature,
+    WrongEpoch,
 }
 
 impl std::fmt::Display for ReportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid report signature")
+        f.write_str(match self {
+            Self::InvalidSignature => "invalid report signature",
+            Self::WrongEpoch => "report contains an obligation from a different epoch",
+        })
     }
 }
 impl std::error::Error for ReportError {}
@@ -108,6 +114,13 @@ pub struct RaiReportStore {
 
 impl RaiReportStore {
     pub fn insert(&mut self, report: RaiReport) -> Result<ReportInsert, ReportError> {
+        if report
+            .visible_obligations
+            .iter()
+            .any(|obligation| obligation.epoch != report.epoch)
+        {
+            return Err(ReportError::WrongEpoch);
+        }
         if !report.validate() {
             return Err(ReportError::InvalidSignature);
         }
@@ -187,9 +200,9 @@ impl RaiReportStore {
         &self,
         epoch: RaiEpoch,
         committee: &RepWeights,
-    ) -> BTreeSet<QualifiedRoot> {
+    ) -> BTreeSet<RaiSlotId> {
         let faulty = rai_fault_allowance(total_weight(committee));
-        let mut support = BTreeMap::<QualifiedRoot, u128>::new();
+        let mut support = BTreeMap::<RaiSlotId, u128>::new();
         for report in self.proof(epoch, committee).reports {
             let weight = raw(committee.weight(&report.reporter));
             for obligation in report.visible_obligations {
@@ -219,9 +232,9 @@ fn raw(amount: Amount) -> u128 {
 
 /// Returns obligations supported by a voter in any applicable slot committee.
 pub fn visible_from_slot_votes<'a>(
-    votes: impl IntoIterator<Item = (&'a PublicKey, &'a QualifiedRoot)>,
+    votes: impl IntoIterator<Item = (&'a PublicKey, &'a RaiSlotId)>,
     slot_committees: &[std::sync::Arc<RepWeights>],
-) -> BTreeSet<QualifiedRoot> {
+) -> BTreeSet<RaiSlotId> {
     votes
         .into_iter()
         .filter(|(voter, _)| slot_committees.iter().any(|c| !c.weight(voter).is_zero()))
@@ -232,11 +245,11 @@ pub fn visible_from_slot_votes<'a>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaiCloseCut {
     pub epoch: RaiEpoch,
-    pub obligations: BTreeSet<QualifiedRoot>,
+    pub obligations: BTreeSet<RaiSlotId>,
 }
 
 impl RaiCloseCut {
-    pub fn new(epoch: RaiEpoch, obligations: impl IntoIterator<Item = QualifiedRoot>) -> Self {
+    pub fn new(epoch: RaiEpoch, obligations: impl IntoIterator<Item = RaiSlotId>) -> Self {
         Self {
             epoch,
             obligations: obligations.into_iter().collect(),
@@ -290,15 +303,17 @@ impl RaiCloseCutStore {
 fn canonical_obligations(
     domain: &[u8],
     epoch: RaiEpoch,
-    obligations: &BTreeSet<QualifiedRoot>,
+    obligations: &BTreeSet<RaiSlotId>,
 ) -> Vec<u8> {
-    let mut bytes =
-        Vec::with_capacity(domain.len() + 12 + obligations.len() * QualifiedRoot::SERIALIZED_SIZE);
+    let mut bytes = Vec::with_capacity(
+        domain.len() + 12 + obligations.len() * (8 + QualifiedRoot::SERIALIZED_SIZE),
+    );
     bytes.extend_from_slice(domain);
     bytes.extend_from_slice(&epoch.number().to_be_bytes());
     bytes.extend_from_slice(&(obligations.len() as u32).to_be_bytes());
-    for root in obligations {
-        bytes.extend_from_slice(&root.to_bytes());
+    for slot in obligations {
+        bytes.extend_from_slice(&slot.epoch.number().to_be_bytes());
+        bytes.extend_from_slice(&slot.root.to_bytes());
     }
     bytes
 }
@@ -321,6 +336,12 @@ mod tests {
     fn root(n: u64) -> QualifiedRoot {
         QualifiedRoot::new(n.into(), (n + 100).into())
     }
+    fn slot(epoch: u64, n: u64) -> RaiSlotId {
+        RaiSlotId {
+            epoch: epoch.into(),
+            root: root(n),
+        }
+    }
     fn weights(items: &[(PublicKey, u128)]) -> Arc<RepWeights> {
         let mut result = RepWeights::default();
         for (key, weight) in items {
@@ -332,10 +353,38 @@ mod tests {
     #[test]
     fn report_signatures_are_checked() {
         let key = PrivateKey::from(1);
-        let mut report = RaiReport::new(&key, 4.into(), [root(1)]);
+        let mut report = RaiReport::new(&key, 4.into(), [slot(4, 1)]);
         assert!(report.validate());
-        report.visible_obligations.insert(root(2));
+        report.visible_obligations.insert(slot(4, 2));
         assert!(!report.validate());
+    }
+
+    #[test]
+    fn report_rejects_an_obligation_from_another_epoch() {
+        let key = PrivateKey::from(1);
+        let mut store = RaiReportStore::default();
+
+        assert_eq!(
+            store.insert(RaiReport::new(&key, 4.into(), [slot(3, 1)])),
+            Err(ReportError::WrongEpoch)
+        );
+    }
+
+    #[test]
+    fn same_root_in_adjacent_epochs_is_not_merged() {
+        let shared_root = root(1);
+        let obligations = BTreeSet::from([
+            RaiSlotId {
+                epoch: 3.into(),
+                root: shared_root.clone(),
+            },
+            RaiSlotId {
+                epoch: 4.into(),
+                root: shared_root,
+            },
+        ]);
+
+        assert_eq!(obligations.len(), 2);
     }
 
     #[test]
@@ -344,11 +393,11 @@ mod tests {
         let committee = weights(&[(key.public_key(), 50)]);
         let mut store = RaiReportStore::default();
         store
-            .insert(RaiReport::new(&key, 4.into(), [root(1)]))
+            .insert(RaiReport::new(&key, 4.into(), [slot(4, 1)]))
             .unwrap();
         assert_eq!(
             store
-                .insert(RaiReport::new(&key, 4.into(), [root(2)]))
+                .insert(RaiReport::new(&key, 4.into(), [slot(4, 2)]))
                 .unwrap(),
             ReportInsert::Equivocation
         );
@@ -366,23 +415,23 @@ mod tests {
         let committee = weights(&[(member.public_key(), 50)]);
         let mut reports = RaiReportStore::default();
         reports
-            .insert(RaiReport::new(&member, 3.into(), [root(2)]))
+            .insert(RaiReport::new(&member, 3.into(), [slot(3, 2)]))
             .unwrap();
         reports
-            .insert(RaiReport::new(&outsider, 3.into(), [root(3)]))
+            .insert(RaiReport::new(&outsider, 3.into(), [slot(3, 3)]))
             .unwrap();
         assert_eq!(
             reports.visible_from_reports(3.into(), &committee),
-            BTreeSet::from([root(2)])
+            BTreeSet::from([slot(3, 2)])
         );
         let member_key = member.public_key();
         let outsider_key = outsider.public_key();
-        let member_root = root(4);
-        let outsider_root = root(5);
+        let member_root = slot(3, 4);
+        let outsider_root = slot(3, 5);
         let votes = [(&member_key, &member_root), (&outsider_key, &outsider_root)];
         assert_eq!(
             visible_from_slot_votes(votes, &[committee]),
-            BTreeSet::from([root(4)])
+            BTreeSet::from([slot(3, 4)])
         );
     }
 
@@ -424,8 +473,8 @@ mod tests {
             (keys[2].public_key(), 6),
             (keys[3].public_key(), 7),
         ]);
-        let exactly_f = root(1);
-        let above_f = root(2);
+        let exactly_f = slot(3, 1);
+        let above_f = slot(3, 2);
         let mut reports = RaiReportStore::default();
         for (key, obligations) in [
             (&keys[0], vec![exactly_f, above_f.clone()]),
@@ -459,9 +508,9 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
         let reports = [
-            RaiReport::new(&keys[0], 3.into(), [root(1)]),
-            RaiReport::new(&keys[1], 3.into(), [root(2)]),
-            RaiReport::new(&keys[2], 3.into(), [root(1), root(2)]),
+            RaiReport::new(&keys[0], 3.into(), [slot(3, 1)]),
+            RaiReport::new(&keys[1], 3.into(), [slot(3, 2)]),
+            RaiReport::new(&keys[2], 3.into(), [slot(3, 1), slot(3, 2)]),
             RaiReport::new(&keys[3], 3.into(), []),
         ];
         let mut forward = RaiReportStore::default();
@@ -485,13 +534,34 @@ mod tests {
 
     #[test]
     fn cut_is_canonical_and_hash_validates_preimage() {
-        let a = RaiCloseCut::new(7.into(), [root(2), root(1), root(2)]);
-        let b = RaiCloseCut::new(7.into(), [root(1), root(2)]);
+        let a = RaiCloseCut::new(7.into(), [slot(7, 2), slot(7, 1), slot(7, 2)]);
+        let b = RaiCloseCut::new(7.into(), [slot(7, 1), slot(7, 2)]);
         assert_eq!(a.canonical_bytes(), b.canonical_bytes());
         assert_eq!(a.hash(), b.hash());
-        assert_ne!(a.hash(), RaiCloseCut::new(7.into(), [root(1)]).hash());
+        assert_ne!(a.hash(), RaiCloseCut::new(7.into(), [slot(7, 1)]).hash());
         let mut store = RaiCloseCutStore::default();
         let hash = store.insert(a.clone());
         assert_eq!(store.get(&hash), Some(&a));
+    }
+
+    #[test]
+    fn cut_hash_commits_to_obligation_epochs() {
+        let shared_root = root(1);
+        let epoch_seven = RaiCloseCut::new(
+            7.into(),
+            [RaiSlotId {
+                epoch: 7.into(),
+                root: shared_root.clone(),
+            }],
+        );
+        let epoch_eight_slot = RaiCloseCut::new(
+            7.into(),
+            [RaiSlotId {
+                epoch: 8.into(),
+                root: shared_root,
+            }],
+        );
+
+        assert_ne!(epoch_seven.hash(), epoch_eight_slot.hash());
     }
 }

@@ -5,7 +5,9 @@ use std::{
 
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Account, BlockHash, ConfirmationHeightInfo, QualifiedRoot, RaiEpoch};
+use rsnano_types::{
+    Account, BlockHash, ConfirmationHeightInfo, QualifiedRoot, RaiEpoch, RaiSlotId,
+};
 
 use super::{
     CloseCutDecisionError, RaiCloseCut, RaiCloseCutStore, RaiCloseRecord, RaiCloseRecordStore,
@@ -38,9 +40,9 @@ pub enum RaiDrainOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaiHappyPathDrain {
     pub epoch: RaiEpoch,
-    pub obligations: BTreeSet<QualifiedRoot>,
-    pub finalized: BTreeMap<QualifiedRoot, BlockHash>,
-    pub released: BTreeMap<QualifiedRoot, RaiDrainOutcome>,
+    pub obligations: BTreeSet<RaiSlotId>,
+    pub finalized: BTreeMap<RaiSlotId, BlockHash>,
+    pub released: BTreeMap<RaiSlotId, RaiDrainOutcome>,
 }
 
 impl RaiHappyPathDrain {
@@ -54,23 +56,23 @@ impl RaiHappyPathDrain {
     /// never advance the close-local frontier.
     pub fn record_persistent_evidence(
         &mut self,
-        root: &QualifiedRoot,
+        slot: &RaiSlotId,
         evidence: &super::RaiElectionVoteState,
     ) -> Option<RaiDrainOutcome> {
-        if !self.obligations.contains(root) || evidence.committees.is_empty() {
+        if !self.obligations.contains(slot) || evidence.committees.is_empty() {
             return None;
         }
-        if let Some(hash) = self.finalized.get(root) {
+        if let Some(hash) = self.finalized.get(slot) {
             return Some(RaiDrainOutcome::Finalized(*hash));
         }
-        if let Some(outcome) = self.released.get(root) {
+        if let Some(outcome) = self.released.get(slot) {
             return Some(*outcome);
         }
         if (0..evidence.committees.len())
             .any(|committee| evidence.has_timeout_certificate(committee))
         {
             self.released
-                .insert(root.clone(), RaiDrainOutcome::ReleasedTimeout);
+                .insert(slot.clone(), RaiDrainOutcome::ReleasedTimeout);
             return Some(RaiDrainOutcome::ReleasedTimeout);
         }
         let mut certified = None;
@@ -81,7 +83,7 @@ impl RaiHappyPathDrain {
                 }
                 Some(super::RaiLocalResult::Timeout) => {
                     self.released
-                        .insert(root.clone(), RaiDrainOutcome::ReleasedConflict);
+                        .insert(slot.clone(), RaiDrainOutcome::ReleasedConflict);
                     return Some(RaiDrainOutcome::ReleasedConflict);
                 }
                 Some(super::RaiLocalResult::Notarized(_)) | None => return None,
@@ -91,12 +93,12 @@ impl RaiHappyPathDrain {
                 .is_some_and(|previous| previous != hash)
             {
                 self.released
-                    .insert(root.clone(), RaiDrainOutcome::ReleasedConflict);
+                    .insert(slot.clone(), RaiDrainOutcome::ReleasedConflict);
                 return Some(RaiDrainOutcome::ReleasedConflict);
             }
         }
         let hash = certified?;
-        match self.finalized.entry(root.clone()) {
+        match self.finalized.entry(slot.clone()) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(hash);
                 Some(RaiDrainOutcome::Finalized(hash))
@@ -152,8 +154,8 @@ pub struct RaiEpochManager {
     reports: RaiReportStore,
     close_cuts: RaiCloseCutStore,
     close_records: RaiCloseRecordStore,
-    visible_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
-    frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<QualifiedRoot>>,
+    visible_obligations: BTreeMap<RaiEpoch, BTreeSet<RaiSlotId>>,
+    frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<RaiSlotId>>,
     drains: BTreeMap<RaiEpoch, RaiHappyPathDrain>,
     drain_frontiers: BTreeMap<RaiEpoch, BTreeMap<Account, ConfirmationHeightInfo>>,
     cut_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
@@ -173,7 +175,7 @@ pub struct RaiDurableCloseState {
     pub current_epoch: RaiEpoch,
     pub committees: BTreeMap<RaiEpoch, RepWeights>,
     pub decided_cut_hash: BlockHash,
-    pub frozen_obligations: BTreeSet<QualifiedRoot>,
+    pub frozen_obligations: BTreeSet<RaiSlotId>,
 }
 
 /// Restart image for an in-progress close. Evidence is retained, while
@@ -186,7 +188,7 @@ pub struct RaiDurableCloseRoundState {
     pub record_rounds: Option<super::RaiCloseRoundTracker>,
     pub close_cuts: RaiCloseCutStore,
     pub close_records: RaiCloseRecordStore,
-    pub visible_obligations: Option<BTreeSet<QualifiedRoot>>,
+    pub visible_obligations: Option<BTreeSet<RaiSlotId>>,
 }
 
 impl RaiEpochManager {
@@ -310,7 +312,7 @@ impl RaiEpochManager {
     /// Freezes visibility and creates the canonical round-zero candidate.
     pub fn begin_cut_election(
         &mut self,
-        vote_visible: impl IntoIterator<Item = QualifiedRoot>,
+        vote_visible: impl IntoIterator<Item = RaiSlotId>,
     ) -> Option<(QualifiedRoot, BlockHash)> {
         let closing = self.state.closing?;
         if closing.phase != RaiClosingPhase::CollectingReports {
@@ -341,7 +343,7 @@ impl RaiEpochManager {
         &mut self,
         epoch: RaiEpoch,
         round: u32,
-        vote_visible: impl IntoIterator<Item = QualifiedRoot>,
+        vote_visible: impl IntoIterator<Item = RaiSlotId>,
     ) -> Option<BlockHash> {
         if self.state.closing
             != Some(RaiClosingEpoch {
@@ -373,7 +375,7 @@ impl RaiEpochManager {
         epoch: RaiEpoch,
         round: u32,
         hash: BlockHash,
-    ) -> Result<&BTreeSet<QualifiedRoot>, CloseCutDecisionError> {
+    ) -> Result<&BTreeSet<RaiSlotId>, CloseCutDecisionError> {
         if let Some(existing) = self.cut_hashes.get(&epoch) {
             return if *existing == hash {
                 self.frozen_obligations
@@ -430,7 +432,7 @@ impl RaiEpochManager {
         epoch: RaiEpoch,
         round: u32,
         hash: BlockHash,
-    ) -> Result<&BTreeSet<QualifiedRoot>, CloseCutDecisionError> {
+    ) -> Result<&BTreeSet<RaiSlotId>, CloseCutDecisionError> {
         self.decide_close_cut(epoch, round, hash)
     }
 
@@ -729,7 +731,7 @@ impl RaiEpochManager {
         Ok(())
     }
 
-    pub fn obligations_to_drain(&self, epoch: RaiEpoch) -> Option<&BTreeSet<QualifiedRoot>> {
+    pub fn obligations_to_drain(&self, epoch: RaiEpoch) -> Option<&BTreeSet<RaiSlotId>> {
         self.frozen_obligations.get(&epoch)
     }
 
@@ -746,10 +748,12 @@ impl RaiEpochManager {
     pub fn slot_election_enabled(&self, epoch: RaiEpoch, root: &QualifiedRoot) -> bool {
         self.state.closing.is_none_or(|closing| {
             closing.epoch != epoch
-                || self
-                    .frozen_obligations
-                    .get(&epoch)
-                    .is_none_or(|included| included.contains(root))
+                || self.frozen_obligations.get(&epoch).is_none_or(|included| {
+                    included.contains(&RaiSlotId {
+                        epoch,
+                        root: root.clone(),
+                    })
+                })
         })
     }
 
@@ -773,14 +777,14 @@ impl RaiEpochManager {
     pub fn record_drain_evidence(
         &mut self,
         epoch: RaiEpoch,
-        root: &QualifiedRoot,
+        slot: &RaiSlotId,
         evidence: &super::RaiElectionVoteState,
         segment: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
     ) -> Option<RaiDrainOutcome> {
         let outcome = self
             .drains
             .get_mut(&epoch)?
-            .record_persistent_evidence(root, evidence)?;
+            .record_persistent_evidence(slot, evidence)?;
         if matches!(outcome, RaiDrainOutcome::Finalized(_)) {
             let frontiers = self.drain_frontiers.get_mut(&epoch)?;
             for (account, info) in segment {
@@ -958,6 +962,13 @@ mod tests {
         evidence
     }
 
+    fn slot(root: QualifiedRoot) -> RaiSlotId {
+        RaiSlotId {
+            epoch: RaiEpoch::ZERO,
+            root,
+        }
+    }
+
     #[test]
     fn empty_cut_drain_is_immediately_complete() {
         let drain = RaiHappyPathDrain {
@@ -973,8 +984,8 @@ mod tests {
     #[test]
     fn final_certificate_settles_only_its_obligation() {
         let key = PrivateKey::from(1);
-        let first = QualifiedRoot::new(1.into(), 2.into());
-        let second = QualifiedRoot::new(3.into(), 4.into());
+        let first = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let second = slot(QualifiedRoot::new(3.into(), 4.into()));
         let hash = BlockHash::from(10);
         let mut drain = RaiHappyPathDrain {
             epoch: RaiEpoch::ZERO,
@@ -992,7 +1003,7 @@ mod tests {
 
     #[test]
     fn local_timeout_does_not_settle_an_obligation() {
-        let root = QualifiedRoot::new(1.into(), 2.into());
+        let root = slot(QualifiedRoot::new(1.into(), 2.into()));
         let mut drain = RaiHappyPathDrain {
             epoch: RaiEpoch::ZERO,
             obligations: BTreeSet::from([root.clone()]),
@@ -1009,7 +1020,7 @@ mod tests {
     #[test]
     fn certified_timeout_releases_a_drain_obligation() {
         let key = PrivateKey::from(1);
-        let root = QualifiedRoot::new(1.into(), 2.into());
+        let root = slot(QualifiedRoot::new(1.into(), 2.into()));
         let mut drain = RaiHappyPathDrain {
             epoch: RaiEpoch::ZERO,
             obligations: BTreeSet::from([root.clone()]),
@@ -1028,7 +1039,7 @@ mod tests {
     #[test]
     fn fork_only_conflict_releases_a_drain_obligation() {
         let key = PrivateKey::from(1);
-        let root = QualifiedRoot::new(1.into(), 2.into());
+        let root = slot(QualifiedRoot::new(1.into(), 2.into()));
         let mut drain = RaiHappyPathDrain {
             epoch: RaiEpoch::ZERO,
             obligations: BTreeSet::from([root.clone()]),
@@ -1047,8 +1058,8 @@ mod tests {
     #[test]
     fn drain_finishes_only_after_every_cut_member_finalizes() {
         let key = PrivateKey::from(1);
-        let first = QualifiedRoot::new(1.into(), 2.into());
-        let second = QualifiedRoot::new(3.into(), 4.into());
+        let first = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let second = slot(QualifiedRoot::new(3.into(), 4.into()));
         let mut drain = RaiHappyPathDrain {
             epoch: RaiEpoch::ZERO,
             obligations: BTreeSet::from([first.clone(), second.clone()]),
@@ -1065,7 +1076,7 @@ mod tests {
     #[test]
     fn successor_epoch_finalization_cannot_advance_captured_frontier() {
         let key = PrivateKey::from(1);
-        let root = QualifiedRoot::new(1.into(), 2.into());
+        let root = slot(QualifiedRoot::new(1.into(), 2.into()));
         let account = Account::from(7);
         let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::ZERO);
         manager.drains.insert(
@@ -1188,7 +1199,7 @@ mod tests {
     fn round_zero_cut_decision_freezes_obligations_and_is_immutable() {
         let key = PrivateKey::from(1);
         let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
-        let obligation = QualifiedRoot::new(11.into(), 12.into());
+        let obligation = slot(QualifiedRoot::new(11.into(), 12.into()));
         manager.start_closing(Timestamp::new_test_instance());
         manager
             .reports_mut()
@@ -1323,7 +1334,7 @@ mod tests {
     #[test]
     fn pending_cut_obligation_blocks_record_creation() {
         let key = PrivateKey::from(1);
-        let obligation = QualifiedRoot::new(11.into(), 12.into());
+        let obligation = slot(QualifiedRoot::new(11.into(), 12.into()));
         let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
         manager.start_closing(Timestamp::new_test_instance());
         manager
@@ -1334,7 +1345,7 @@ mod tests {
         manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
 
         assert!(!manager.slot_election_enabled(RaiEpoch::ZERO, &QualifiedRoot::ZERO));
-        assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation));
+        assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation.root));
         assert!(manager.slot_election_enabled(RaiEpoch::new(1), &QualifiedRoot::ZERO));
         assert!(manager.begin_close_record().is_none());
     }

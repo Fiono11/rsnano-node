@@ -421,12 +421,12 @@ impl AecService {
                 drain
                     .obligations
                     .iter()
-                    .filter(|root| {
-                        !drain.finalized.contains_key(*root)
-                            && !drain.released.contains_key(*root)
-                            && aec.election_for_root(root).is_none()
+                    .filter(|slot| {
+                        !drain.finalized.contains_key(*slot)
+                            && !drain.released.contains_key(*slot)
+                            && aec.election_for_root(&slot.root).is_none()
                     })
-                    .cloned()
+                    .map(|slot| slot.root.clone())
                     .collect()
             })
             .unwrap_or_default()

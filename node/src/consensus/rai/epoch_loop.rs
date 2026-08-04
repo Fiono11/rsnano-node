@@ -122,11 +122,11 @@ mod tests {
 /// The deliberately small boundary between the lifecycle state machine and
 /// the ledger, active-election container, and network.
 pub trait RaiEpochLoopDriver {
-    fn visible_obligations(&self, _epoch: RaiEpoch) -> BTreeSet<QualifiedRoot> {
+    fn visible_obligations(&self, _epoch: RaiEpoch) -> BTreeSet<rsnano_types::RaiSlotId> {
         BTreeSet::new()
     }
 
-    fn vote_visible_obligations(&self, _epoch: RaiEpoch) -> BTreeSet<QualifiedRoot> {
+    fn vote_visible_obligations(&self, _epoch: RaiEpoch) -> BTreeSet<rsnano_types::RaiSlotId> {
         BTreeSet::new()
     }
 
@@ -161,7 +161,7 @@ pub trait RaiEpochLoopDriver {
     fn obligations_settled(
         &self,
         _epoch: RaiEpoch,
-        _obligations: &BTreeSet<QualifiedRoot>,
+        _obligations: &BTreeSet<rsnano_types::RaiSlotId>,
     ) -> bool {
         false
     }
@@ -187,7 +187,12 @@ pub trait RaiEpochLoopDriver {
 
     /// Applies the cut to active elections. Included old elections and all
     /// successor-epoch elections remain enabled.
-    fn apply_decided_cut(&mut self, _epoch: RaiEpoch, _included: &BTreeSet<QualifiedRoot>) {}
+    fn apply_decided_cut(
+        &mut self,
+        _epoch: RaiEpoch,
+        _included: &BTreeSet<rsnano_types::RaiSlotId>,
+    ) {
+    }
 
     fn confirmation_heights(&self) -> Vec<(rsnano_types::Account, ConfirmationHeightInfo)> {
         Vec::new()
@@ -279,6 +284,10 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
             }
             RaiEpochEvent::SlotEvidenceChanged { epoch, root } => {
                 if let Some(evidence) = self.driver.slot_vote_evidence(epoch, &root) {
+                    let slot = rsnano_types::RaiSlotId {
+                        epoch,
+                        root: root.clone(),
+                    };
                     // Derive the winner before borrowing the driver mutably for
                     // its corresponding epoch-local ledger segment.
                     let outcome = self
@@ -286,7 +295,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                         .happy_path_drain(epoch)
                         .and_then(|drain| {
                             let mut probe = drain.clone();
-                            probe.record_persistent_evidence(&root, &evidence)
+                            probe.record_persistent_evidence(&slot, &evidence)
                         });
                     if let Some(outcome) = outcome {
                         let segment = match outcome {
@@ -298,7 +307,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                         };
                         let _ = self
                             .epoch_manager
-                            .record_drain_evidence(epoch, &root, &evidence, segment);
+                            .record_drain_evidence(epoch, &slot, &evidence, segment);
                     }
                 }
                 self.maybe_start_record(epoch);

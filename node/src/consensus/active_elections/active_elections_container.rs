@@ -154,14 +154,8 @@ impl ActiveElectionsContainer {
             .obligations_to_drain(closing.epoch)
             .cloned()
             .unwrap_or_default();
-        for root in obligations {
-            if let Some((evidence, account, confirmed)) =
-                self.rai_terminal_slots
-                    .get(&crate::consensus::election::RaiSlotId {
-                        epoch: closing.epoch,
-                        root: root.clone(),
-                    })
-            {
+        for slot in obligations {
+            if let Some((evidence, account, confirmed)) = self.rai_terminal_slots.get(&slot) {
                 let segment = confirmed
                     .as_ref()
                     .cloned()
@@ -169,18 +163,13 @@ impl ActiveElectionsContainer {
                     .unwrap_or_default();
                 let _ = self.rai_epoch_manager.record_drain_evidence(
                     closing.epoch,
-                    &root,
+                    &slot,
                     evidence,
                     segment,
                 );
                 continue;
             }
-            let id = crate::consensus::election::RaiElectionId::Slot(
-                crate::consensus::election::RaiSlotId {
-                    epoch: closing.epoch,
-                    root: root.clone(),
-                },
-            );
+            let id = crate::consensus::election::RaiElectionId::Slot(slot.clone());
             let Some(election) = self.roots.election_for_rai_id(&id) else {
                 continue;
             };
@@ -190,7 +179,7 @@ impl ActiveElectionsContainer {
                 .happy_path_drain(closing.epoch)
                 .and_then(|drain| {
                     let mut probe = drain.clone();
-                    probe.record_persistent_evidence(&root, &evidence)
+                    probe.record_persistent_evidence(&slot, &evidence)
                 })
                 .is_some_and(|outcome| {
                     matches!(
@@ -202,7 +191,7 @@ impl ActiveElectionsContainer {
             if released {
                 let _ = self.rai_epoch_manager.record_drain_evidence(
                     closing.epoch,
-                    &root,
+                    &slot,
                     &evidence,
                     [],
                 );
@@ -244,7 +233,7 @@ impl ActiveElectionsContainer {
             reports: Vec<crate::consensus::rai::RaiReport>,
             visible: std::collections::BTreeMap<
                 rsnano_types::RaiEpoch,
-                std::collections::BTreeSet<QualifiedRoot>,
+                std::collections::BTreeSet<crate::consensus::election::RaiSlotId>,
             >,
             close_evidence: Option<crate::consensus::rai::RaiElectionVoteState>,
             close_winner: Option<BlockHash>,
@@ -261,14 +250,14 @@ impl ActiveElectionsContainer {
             fn visible_obligations(
                 &self,
                 epoch: rsnano_types::RaiEpoch,
-            ) -> std::collections::BTreeSet<QualifiedRoot> {
+            ) -> std::collections::BTreeSet<crate::consensus::election::RaiSlotId> {
                 self.visible.get(&epoch).cloned().unwrap_or_default()
             }
 
             fn vote_visible_obligations(
                 &self,
                 _epoch: rsnano_types::RaiEpoch,
-            ) -> std::collections::BTreeSet<QualifiedRoot> {
+            ) -> std::collections::BTreeSet<crate::consensus::election::RaiSlotId> {
                 // Local election presence is not the authenticated >F
                 // vote-visibility witness required by the protocol.
                 Default::default()
@@ -355,7 +344,7 @@ impl ActiveElectionsContainer {
                     by_epoch
                         .entry(slot.epoch)
                         .or_insert_with(std::collections::BTreeSet::new)
-                        .insert(slot.root);
+                        .insert(slot);
                     by_epoch
                 });
 
@@ -548,7 +537,7 @@ impl ActiveElectionsContainer {
             && !self
                 .rai_epoch_manager
                 .obligations_to_drain(slot.epoch)
-                .is_some_and(|roots| roots.contains(&slot.root))
+                .is_some_and(|roots| roots.contains(&slot))
         {
             return Err(CandidateError::ElectionDisabled);
         }
@@ -806,7 +795,12 @@ impl ActiveElectionsContainer {
         if self
             .rai_epoch_manager
             .obligations_to_drain(epoch)
-            .is_none_or(|obligations| !obligations.contains(&root))
+            .is_none_or(|obligations| {
+                !obligations.contains(&crate::consensus::election::RaiSlotId {
+                    epoch,
+                    root: root.clone(),
+                })
+            })
         {
             return Err(AecInsertError::InvalidRaiCloseElection);
         }
@@ -1667,7 +1661,14 @@ mod tests {
         container
             .rai_epoch_manager
             .reports_mut()
-            .insert(RaiReport::new(&key, 0.into(), [root.clone()]))
+            .insert(RaiReport::new(
+                &key,
+                0.into(),
+                [crate::consensus::election::RaiSlotId {
+                    epoch: 0.into(),
+                    root: root.clone(),
+                }],
+            ))
             .unwrap();
         let (_, cut) = container.rai_epoch_manager.begin_cut_election([]).unwrap();
         container
@@ -1685,7 +1686,13 @@ mod tests {
             .happy_path_drain(0.into())
             .unwrap();
         assert!(drain.is_complete());
-        assert_eq!(drain.finalized.get(&root), Some(&hash));
+        assert_eq!(
+            drain.finalized.get(&crate::consensus::election::RaiSlotId {
+                epoch: 0.into(),
+                root: root.clone(),
+            }),
+            Some(&hash)
+        );
         assert_eq!(
             container
                 .rai_epoch_manager

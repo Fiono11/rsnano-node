@@ -2,7 +2,7 @@ use std::io::Write;
 
 use bitvec::prelude::BitArray;
 use rsnano_types::{
-    DeserializationError, PublicKey, QualifiedRoot, RaiEpoch, Signature, read_u64_be,
+    DeserializationError, PublicKey, QualifiedRoot, RaiEpoch, RaiSlotId, Signature, read_u64_be,
 };
 
 use crate::MessageVariant;
@@ -13,7 +13,7 @@ use crate::MessageVariant;
 pub struct RaiReportMessage {
     pub reporter: PublicKey,
     pub epoch: RaiEpoch,
-    pub visible_obligations: Vec<QualifiedRoot>,
+    pub visible_obligations: Vec<RaiSlotId>,
     pub signature: Signature,
 }
 
@@ -22,8 +22,9 @@ impl RaiReportMessage {
         self.reporter.serialize(writer)?;
         writer.write_all(&self.epoch.number().to_be_bytes())?;
         self.signature.serialize(writer)?;
-        for root in &self.visible_obligations {
-            root.serialize(writer)?;
+        for slot in &self.visible_obligations {
+            writer.write_all(&slot.epoch.number().to_be_bytes())?;
+            slot.root.serialize(writer)?;
         }
         Ok(())
     }
@@ -32,12 +33,16 @@ impl RaiReportMessage {
         let reporter = PublicKey::deserialize(&mut bytes)?;
         let epoch = RaiEpoch::new(read_u64_be(&mut bytes)?);
         let signature = Signature::deserialize(&mut bytes)?;
-        if bytes.len() % QualifiedRoot::SERIALIZED_SIZE != 0 {
+        const SLOT_SIZE: usize = 8 + QualifiedRoot::SERIALIZED_SIZE;
+        if bytes.len() % SLOT_SIZE != 0 {
             return Err(DeserializationError::InvalidData);
         }
         let mut visible_obligations = Vec::new();
         while !bytes.is_empty() {
-            visible_obligations.push(QualifiedRoot::deserialize(&mut bytes)?);
+            visible_obligations.push(RaiSlotId {
+                epoch: RaiEpoch::new(read_u64_be(&mut bytes)?),
+                root: QualifiedRoot::deserialize(&mut bytes)?,
+            });
         }
         visible_obligations.sort();
         visible_obligations.dedup();
@@ -70,7 +75,10 @@ mod tests {
         assert_deserializable(&Message::RaiReport(RaiReportMessage {
             reporter: PublicKey::from(1),
             epoch: RaiEpoch::new(2),
-            visible_obligations: vec![QualifiedRoot::new_test_instance()],
+            visible_obligations: vec![RaiSlotId {
+                epoch: RaiEpoch::new(2),
+                root: QualifiedRoot::new_test_instance(),
+            }],
             signature: Signature::from_bytes([3; 64]),
         }));
     }
