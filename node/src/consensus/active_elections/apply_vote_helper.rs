@@ -56,9 +56,7 @@ impl<'a> ApplyVoteHelper<'a> {
                 .apply_vote();
                 result.per_block.insert(*block_hash, vote_result);
                 let confirmed = election.is_confirmed();
-                if confirmed
-                    && let Some(entry) = self.roots.erase_rai_id(election_id)
-                {
+                if confirmed && let Some(entry) = self.roots.erase_rai_id(election_id) {
                     result.confirmed.push(entry);
                 }
             }

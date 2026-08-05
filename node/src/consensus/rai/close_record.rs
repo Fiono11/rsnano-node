@@ -71,6 +71,10 @@ impl RaiCloseRecordStore {
     pub fn get(&self, hash: &BlockHash) -> Option<&RaiCloseRecord> {
         self.0.get(hash)
     }
+
+    pub fn all(&self) -> Vec<RaiCloseRecord> {
+        self.0.values().cloned().collect()
+    }
 }
 
 #[cfg(test)]

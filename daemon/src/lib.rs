@@ -136,7 +136,7 @@ impl DaemonBuilder {
         }
 
         node.start();
-        let mut node = Arc::new(node);
+        let node = Arc::new(node);
 
         if let Some(mut started_callback) = self.node_started {
             started_callback(node.clone());
@@ -161,7 +161,6 @@ impl DaemonBuilder {
             websocket.stop();
         }
 
-        let node = Arc::get_mut(&mut node).expect("No exclusive access to node!");
         node.stop();
         Ok(())
     }

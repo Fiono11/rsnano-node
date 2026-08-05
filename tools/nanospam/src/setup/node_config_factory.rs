@@ -123,25 +123,25 @@ pub(crate) fn configure_run_nodes(args: &CliArgs, data_dir: &Path) {
 
 fn rai_config(args: &CliArgs) -> String {
     if args.setup_only() {
-        // Setup must not race committee preparation against live epoch closes.
-        // The in-memory epoch state is discarded when setup stops the nodes.
-        return format!(
-            "[node.rai]\n    epoch_duration = {}\n    tick_interval = {}",
-            86_400_000,
-            args.rai_tick_interval_ms.unwrap_or(100)
-        );
+        // Keep all setup elections in epoch zero. `run` rewrites this config
+        // before restarting the prepared ledgers and enables timed boundaries.
+        return "[node.rai]\n    enable_epoch_ticker = false".to_string();
     }
-    if args.rai_epoch_duration_ms.is_none() && args.rai_tick_interval_ms.is_none() {
-        return String::new();
-    }
-
-    let mut config = String::from("[node.rai]");
+    let mut config = String::from("[node.rai]\n    enable_epoch_ticker = true");
     if let Some(duration) = args.rai_epoch_duration_ms {
         config.push_str(&format!("\n    epoch_duration = {duration}"));
     }
     if let Some(interval) = args.rai_tick_interval_ms {
         config.push_str(&format!("\n    tick_interval = {interval}"));
     }
+    let committee = (0..args.prs)
+        .map(|i| format!("\"{}\"", pr_key(i).account().encode_account()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // On run, the node reads these representatives' weights from the
+    // cemented distribution prepared by `nanospam setup`.
+    config.push_str(&format!("\n    genesis_committee = [{committee}]"));
+    config.push_str("\n    reset_finalization_on_start = true");
     config
 }
 
@@ -212,7 +212,53 @@ mod tests {
 
         assert_eq!(
             rai_config(&args),
-            "[node.rai]\n    epoch_duration = 5000\n    tick_interval = 100"
+            format!(
+                "[node.rai]\n    enable_epoch_ticker = true\n    epoch_duration = 5000\n    tick_interval = 100\n    genesis_committee = [\"{}\"]\n    reset_finalization_on_start = true",
+                pr_key(0).account().encode_account()
+            )
         );
+    }
+
+    #[test]
+    fn setup_disables_epoch_boundaries() {
+        let args = CommandLine::parse_from([
+            "nanospam",
+            "setup",
+            "--data-dir",
+            "/tmp/rai",
+            "--rai-epoch-duration-ms",
+            "1",
+            "--rai-tick-interval-ms",
+            "1",
+        ])
+        .into_args();
+
+        assert_eq!(
+            rai_config(&args),
+            "[node.rai]\n    enable_epoch_ticker = false"
+        );
+    }
+
+    #[test]
+    fn run_config_defines_one_genesis_committee_member_per_pr() {
+        let args = CommandLine::parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--prs",
+            "6",
+            "--accounts",
+            "6",
+            "--blocks",
+            "0",
+        ])
+        .into_args();
+
+        let config = rai_config(&args);
+        for i in 0..6 {
+            assert!(config.contains(&pr_key(i).account().encode_account()));
+        }
+        assert_eq!(config.matches('"').count() / 2, 6);
     }
 }

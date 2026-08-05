@@ -10,6 +10,7 @@ impl RpcCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RaiStatusResponse {
+    pub genesis_committee: Vec<String>,
     pub open_epoch: RpcU64,
     pub closing_epoch: Option<RpcU64>,
     pub closing_phase: Option<String>,

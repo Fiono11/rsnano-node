@@ -286,6 +286,15 @@ impl DataReceiver for NanoDataReceiver {
                     );
                     ReceiveResult::Continue
                 }
+                #[cfg(feature = "rai_protocol")]
+                Err(ParseMessageError::DuplicateRaiReportMessage) => {
+                    self.stats.inc_dir(
+                        StatType::Filter,
+                        DetailType::DuplicateRaiReportMessage,
+                        Direction::In,
+                    );
+                    ReceiveResult::Continue
+                }
                 Err(e) => {
                     // IO error or critical error when deserializing message
                     self.stats
@@ -307,7 +316,7 @@ impl DataReceiver for NanoDataReceiver {
         ReceiveResult::Continue
     }
 
-    fn try_unpause(&self) -> ReceiveResult {
+    fn try_unpause(&mut self) -> ReceiveResult {
         let mode = self.channel.mode();
         match mode {
             ChannelMode::Handshake => {
@@ -340,6 +349,7 @@ impl DataReceiver for NanoDataReceiver {
                 match message {
                     Some(message) => {
                         if self.try_enqueue(message) {
+                            self.retry_enqueue = None;
                             ReceiveResult::Continue
                         } else {
                             ReceiveResult::Pause

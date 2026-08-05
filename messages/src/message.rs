@@ -26,6 +26,8 @@ pub enum Message {
     SnapshotProposalVote(ProposalVote),
     #[cfg(feature = "rai_protocol")]
     RaiReport(RaiReportMessage),
+    #[cfg(feature = "rai_protocol")]
+    RaiFrontier(RaiFrontierMessage),
 }
 
 pub trait MessageVariant {
@@ -50,6 +52,8 @@ pub enum ParseMessageError {
     OutdatedVersion,
     DuplicatePublishMessage,
     DuplicateConfirmAckMessage,
+    #[cfg(feature = "rai_protocol")]
+    DuplicateRaiReportMessage,
     MessageSizeTooBig,
     Stopped,
 }
@@ -105,12 +109,16 @@ impl From<&ParseMessageError> for DetailType {
             }
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::RaiReport) => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiFrontier) => Self::InvalidMessageType,
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
             ParseMessageError::OutdatedVersion => Self::OutdatedVersion,
             ParseMessageError::DuplicatePublishMessage => Self::DuplicatePublishMessage,
             ParseMessageError::DuplicateConfirmAckMessage => Self::DuplicateConfirmAckMessage,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::DuplicateRaiReportMessage => Self::DuplicateRaiReportMessage,
             ParseMessageError::MessageSizeTooBig => Self::MessageSizeTooBig,
         }
     }
@@ -154,6 +162,8 @@ impl Message {
             Message::SnapshotProposalVote(_) => MessageType::ProposalVote,
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(_) => MessageType::RaiReport,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiFrontier(_) => MessageType::RaiFrontier,
         }
     }
 
@@ -178,6 +188,8 @@ impl Message {
             Message::SnapshotProposalVote(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiFrontier(x) => Some(x),
             _ => None,
         }
     }
@@ -214,6 +226,8 @@ impl Message {
             Message::SnapshotProposalVote(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiFrontier(m) => m.serialize(writer),
         }
     }
 
@@ -264,6 +278,10 @@ impl Message {
             }
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => Message::RaiReport(RaiReportMessage::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiFrontier => {
+                Message::RaiFrontier(RaiFrontierMessage::deserialize(payload)?)
+            }
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);
             }

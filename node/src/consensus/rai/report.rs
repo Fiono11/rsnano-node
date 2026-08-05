@@ -11,7 +11,8 @@ use rsnano_types::{
 
 use super::rai_fault_allowance;
 
-const REPORT_DOMAIN: &[u8] = b"RAI/Report/v1";
+const REPORT_DOMAIN: &[u8] = b"RAI/Report/v2";
+pub const MAX_REPORT_CHUNK_OBLIGATIONS: usize = 900;
 const CLOSE_CUT_DOMAIN: &[u8] = b"RAI/CloseCut/v1";
 
 /// A signed assertion of the slot obligations visible to a representative.
@@ -20,6 +21,8 @@ const CLOSE_CUT_DOMAIN: &[u8] = b"RAI/CloseCut/v1";
 pub struct RaiReport {
     pub reporter: PublicKey,
     pub epoch: RaiEpoch,
+    pub chunk_index: u16,
+    pub chunk_count: u16,
     pub visible_obligations: BTreeSet<RaiSlotId>,
     pub signature: Signature,
 }
@@ -41,11 +44,49 @@ impl RaiReport {
         let mut result = Self {
             reporter,
             epoch,
+            chunk_index: 0,
+            chunk_count: 1,
             visible_obligations,
             signature: Signature::new(),
         };
         result.signature = key.sign(&result.signing_bytes());
         result
+    }
+
+    pub fn new_chunks(
+        key: &PrivateKey,
+        epoch: RaiEpoch,
+        obligations: impl IntoIterator<Item = RaiSlotId>,
+    ) -> Vec<Self> {
+        let obligations = obligations.into_iter().collect::<BTreeSet<_>>();
+        let chunks = obligations
+            .into_iter()
+            .collect::<Vec<_>>()
+            .chunks(MAX_REPORT_CHUNK_OBLIGATIONS)
+            .map(|chunk| chunk.iter().cloned().collect::<BTreeSet<_>>())
+            .collect::<Vec<_>>();
+        let chunks = if chunks.is_empty() {
+            vec![BTreeSet::new()]
+        } else {
+            chunks
+        };
+        let chunk_count = u16::try_from(chunks.len()).expect("too many RAI report chunks");
+        chunks
+            .into_iter()
+            .enumerate()
+            .map(|(chunk_index, visible_obligations)| {
+                let mut report = Self {
+                    reporter: key.public_key(),
+                    epoch,
+                    chunk_index: chunk_index as u16,
+                    chunk_count,
+                    visible_obligations,
+                    signature: Signature::new(),
+                };
+                report.signature = key.sign(&report.signing_bytes());
+                report
+            })
+            .collect()
     }
 
     pub fn validate(&self) -> bool {
@@ -55,7 +96,10 @@ impl RaiReport {
     }
 
     pub fn signing_bytes(&self) -> Vec<u8> {
-        canonical_obligations(REPORT_DOMAIN, self.epoch, &self.visible_obligations)
+        let mut bytes = canonical_obligations(REPORT_DOMAIN, self.epoch, &self.visible_obligations);
+        bytes.extend_from_slice(&self.chunk_index.to_be_bytes());
+        bytes.extend_from_slice(&self.chunk_count.to_be_bytes());
+        bytes
     }
 }
 
@@ -64,6 +108,8 @@ impl From<RaiReport> for rsnano_messages::RaiReportMessage {
         Self {
             reporter: report.reporter,
             epoch: report.epoch,
+            chunk_index: report.chunk_index,
+            chunk_count: report.chunk_count,
             visible_obligations: report.visible_obligations.into_iter().collect(),
             signature: report.signature,
         }
@@ -75,6 +121,8 @@ impl From<rsnano_messages::RaiReportMessage> for RaiReport {
         Self {
             reporter: report.reporter,
             epoch: report.epoch,
+            chunk_index: report.chunk_index,
+            chunk_count: report.chunk_count,
             visible_obligations: report.visible_obligations.into_iter().collect(),
             signature: report.signature,
         }
@@ -108,11 +156,15 @@ impl std::error::Error for ReportError {}
 /// two different signed payloads are observed.
 #[derive(Default)]
 pub struct RaiReportStore {
-    reports: BTreeMap<(RaiEpoch, PublicKey), RaiReport>,
+    reports: BTreeMap<(RaiEpoch, PublicKey, u16), RaiReport>,
     equivocators: BTreeSet<(RaiEpoch, PublicKey)>,
 }
 
 impl RaiReportStore {
+    pub fn all(&self) -> Vec<RaiReport> {
+        self.reports.values().cloned().collect()
+    }
+
     pub fn insert(&mut self, report: RaiReport) -> Result<ReportInsert, ReportError> {
         if report
             .visible_obligations
@@ -124,10 +176,24 @@ impl RaiReportStore {
         if !report.validate() {
             return Err(ReportError::InvalidSignature);
         }
-        let key = (report.epoch, report.reporter);
-        if self.equivocators.contains(&key) {
+        let reporter_key = (report.epoch, report.reporter);
+        if report.chunk_count == 0 || report.chunk_index >= report.chunk_count {
+            return Err(ReportError::WrongEpoch);
+        }
+        if self.equivocators.contains(&reporter_key) {
             return Ok(ReportInsert::Equivocation);
         }
+        if self.reports.iter().any(|((epoch, reporter, _), existing)| {
+            *epoch == report.epoch
+                && *reporter == report.reporter
+                && existing.chunk_count != report.chunk_count
+        }) {
+            self.reports
+                .retain(|(epoch, reporter, _), _| (*epoch, *reporter) != reporter_key);
+            self.equivocators.insert(reporter_key);
+            return Ok(ReportInsert::Equivocation);
+        }
+        let key = (report.epoch, report.reporter, report.chunk_index);
         match self.reports.get(&key) {
             None => {
                 self.reports.insert(key, report);
@@ -138,7 +204,9 @@ impl RaiReportStore {
             }
             Some(_) => {
                 self.reports.remove(&key);
-                self.equivocators.insert(key);
+                self.reports
+                    .retain(|(epoch, reporter, _), _| (*epoch, *reporter) != reporter_key);
+                self.equivocators.insert(reporter_key);
                 Ok(ReportInsert::Equivocation)
             }
         }
@@ -154,7 +222,7 @@ impl RaiReportStore {
         reporter: &PublicKey,
         committee: &RepWeights,
     ) -> Amount {
-        if self.is_equivocator(epoch, reporter) {
+        if self.is_equivocator(epoch, reporter) || !self.has_complete_report(epoch, reporter) {
             Amount::ZERO
         } else {
             committee.weight(reporter)
@@ -169,9 +237,10 @@ impl RaiReportStore {
             reports: self
                 .reports
                 .iter()
-                .filter(|((e, reporter), _)| {
+                .filter(|((e, reporter, _), _)| {
                     *e == epoch
                         && !self.is_equivocator(epoch, reporter)
+                        && self.has_complete_report(epoch, reporter)
                         && !committee.weight(reporter).is_zero()
                 })
                 .map(|(_, report)| report.clone())
@@ -188,10 +257,29 @@ impl RaiReportStore {
         self.proof(epoch, committee)
             .reports
             .iter()
-            .fold(0u128, |sum, report| {
-                sum.saturating_add(raw(committee.weight(&report.reporter)))
+            .map(|report| report.reporter)
+            .collect::<BTreeSet<_>>()
+            .iter()
+            .fold(0u128, |sum, reporter| {
+                sum.saturating_add(raw(committee.weight(reporter)))
             })
             >= total.saturating_sub(faulty)
+    }
+
+    fn has_complete_report(&self, epoch: RaiEpoch, reporter: &PublicKey) -> bool {
+        let chunks = self
+            .reports
+            .iter()
+            .filter(|((e, r, _), _)| *e == epoch && r == reporter)
+            .map(|(_, report)| report)
+            .collect::<Vec<_>>();
+        chunks.first().is_some_and(|first| {
+            chunks.len() == first.chunk_count as usize
+                && chunks
+                    .iter()
+                    .enumerate()
+                    .all(|(index, report)| report.chunk_index as usize == index)
+        })
     }
 
     /// An obligation is report-visible when its support from valid,
@@ -367,6 +455,31 @@ mod tests {
         assert_eq!(
             store.insert(RaiReport::new(&key, 4.into(), [slot(3, 1)])),
             Err(ReportError::WrongEpoch)
+        );
+    }
+
+    #[test]
+    fn chunked_report_counts_weight_only_after_all_chunks_arrive() {
+        let key = PrivateKey::from(1);
+        let committee = weights(&[(key.public_key(), 1)]);
+        let reports = RaiReport::new_chunks(
+            &key,
+            RaiEpoch::new(4),
+            (0..=MAX_REPORT_CHUNK_OBLIGATIONS as u64).map(|n| slot(4, n)),
+        );
+        assert_eq!(reports.len(), 2);
+        assert!(reports.iter().all(RaiReport::validate));
+
+        let mut store = RaiReportStore::default();
+        store.insert(reports[0].clone()).unwrap();
+        assert!(!store.has_quorum(RaiEpoch::new(4), &committee));
+        store.insert(reports[1].clone()).unwrap();
+        assert!(store.has_quorum(RaiEpoch::new(4), &committee));
+        assert_eq!(
+            store
+                .visible_from_reports(RaiEpoch::new(4), &committee)
+                .len(),
+            MAX_REPORT_CHUNK_OBLIGATIONS + 1
         );
     }
 

@@ -4,9 +4,9 @@ use super::{
     Account, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, Signature, UnixMillisTimestamp,
     VoteTimestamp,
 };
+use crate::{DeserializationError, SignatureError};
 #[cfg(feature = "rai_protocol")]
 use crate::{QualifiedRoot, RaiEpoch};
-use crate::{DeserializationError, SignatureError};
 
 #[cfg(feature = "rai_protocol")]
 #[repr(u8)]
@@ -361,12 +361,7 @@ impl Vote {
             + std::mem::size_of::<u64>() // timestamp
             + (BlockHash::SERIALIZED_SIZE * count);
         #[cfg(feature = "rai_protocol")]
-        return base
-            + 1
-            + RaiElectionId::SERIALIZED_SIZE
-            + 8
-            + BlockHash::SERIALIZED_SIZE
-            + 1;
+        return base + 1 + RaiElectionId::SERIALIZED_SIZE + 8 + BlockHash::SERIALIZED_SIZE + 1;
         #[cfg(not(feature = "rai_protocol"))]
         return base;
     }

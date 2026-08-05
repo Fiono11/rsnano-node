@@ -13,6 +13,7 @@ use rsnano_types::{
 };
 
 use crate::domain::{Forks, spam_logic::SpamLogic};
+use crate::wallets_factory::wait_until_confirmed_on_all;
 
 const PRIO_ACCOUNTS: usize = 20;
 const INITIAL_ACCOUNT_BALANCE: Amount = Amount::millinano(1500); // bucket 16
@@ -36,7 +37,11 @@ impl<'a> HighPrioCheck<'a> {
         }
     }
 
-    pub(crate) async fn create_prio_accounts(&mut self, wallet_id: WalletId) -> anyhow::Result<()> {
+    pub(crate) async fn create_prio_accounts(
+        &mut self,
+        wallet_id: WalletId,
+        rpc_clients: &[NanoRpcClient],
+    ) -> anyhow::Result<()> {
         info!("Creating high priority accounts...");
         let account = self
             .rpc_client
@@ -65,6 +70,7 @@ impl<'a> HighPrioCheck<'a> {
                     id: None,
                 })
                 .await?;
+            wait_until_confirmed_on_all(rpc_clients, send_block.block).await?;
 
             let receive_block: Block = StateBlockArgs {
                 key: &key,
@@ -80,19 +86,12 @@ impl<'a> HighPrioCheck<'a> {
             self.rpc_client
                 .process(JsonBlock::from(receive_block))
                 .await?;
+            wait_until_confirmed_on_all(rpc_clients, receive_hash).await?;
 
             self.accounts
                 .insert(key.account(), (key.clone(), receive_hash, 1));
         }
 
-        info!("Waiting for confirmations...");
-        loop {
-            let count = self.rpc_client.block_count().await?;
-            if count.count.inner() == count.cemented.inner() {
-                break;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
         Ok(())
     }
 

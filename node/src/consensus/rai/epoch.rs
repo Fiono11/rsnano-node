@@ -337,6 +337,47 @@ impl RaiEpochManager {
     pub fn reports_mut(&mut self) -> &mut RaiReportStore {
         &mut self.reports
     }
+
+    pub fn close_record_versions(&self) -> Vec<RaiCloseRecord> {
+        self.close_records.all()
+    }
+
+    /// Retains a transferred canonical preimage for the active close-record
+    /// election. Certificate support is still established exclusively by the
+    /// signed vote leaves; receiving a preimage grants no authority by itself.
+    pub fn reconcile_close_record(
+        &mut self,
+        record: RaiCloseRecord,
+    ) -> Option<(RaiEpoch, u32, BlockHash)> {
+        let closing = self.state.closing?;
+        if closing.epoch != record.epoch || closing.phase != RaiClosingPhase::ElectingRecord {
+            return None;
+        }
+        let expected_previous = record
+            .epoch
+            .number()
+            .checked_sub(1)
+            .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
+            .unwrap_or(BlockHash::ZERO);
+        if record.previous != expected_previous {
+            return None;
+        }
+        let round = self.close_record_round(record.epoch)?;
+        // Keep the transferred version as the currently reconstructed
+        // preimage. It does not become durable until signed vote evidence for
+        // its hash satisfies the close-record certificate in the caller.
+        self.drain_frontiers
+            .insert(closing.epoch, record.frontiers.clone());
+        let hash = self.close_records.insert(record);
+        if !self
+            .record_rounds
+            .get_mut(&closing.epoch)?
+            .add_validated_preimage(round, hash)
+        {
+            return None;
+        }
+        Some((closing.epoch, round, hash))
+    }
     pub fn close_cuts(&self) -> &RaiCloseCutStore {
         &self.close_cuts
     }
@@ -435,11 +476,11 @@ impl RaiEpochManager {
             .get(&hash)
             .cloned()
             .ok_or(CloseCutDecisionError::MissingPreimage)?;
-        let expected = self
-            .visible_obligations
-            .get(&epoch)
-            .ok_or(CloseCutDecisionError::InvalidCut)?;
-        if cut.epoch != epoch || &cut.obligations != expected || cut.hash() != hash {
+        // The round tracker records every locally validated preimage.  Once a
+        // quorum certificate selects one of them, later report delivery must
+        // not invalidate that decision merely because the replica's fresh
+        // candidate has grown in the meantime.
+        if cut.epoch != epoch || cut.hash() != hash {
             return Err(CloseCutDecisionError::InvalidCut);
         }
         let tracker = self
@@ -1321,6 +1362,31 @@ mod tests {
             manager.install_cut(0.into(), 0, BlockHash::from(999)),
             Err(CloseCutDecisionError::ImmutableDecision)
         );
+    }
+
+    #[test]
+    fn certified_cut_remains_valid_after_fresh_visibility_grows() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        let first = slot(QualifiedRoot::new(11.into(), 12.into()));
+        let late = slot(QualifiedRoot::new(21.into(), 22.into()));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, certified) = manager.begin_cut_election([first.clone()]).unwrap();
+
+        let fresh = manager
+            .refresh_close_cut_candidate(RaiEpoch::ZERO, 0, [first.clone(), late])
+            .unwrap();
+        assert_ne!(fresh, certified);
+
+        assert_eq!(
+            manager.install_cut(RaiEpoch::ZERO, 0, certified).unwrap(),
+            &BTreeSet::from([first])
+        );
+        assert_eq!(manager.decided_close_hash(RaiEpoch::ZERO), Some(certified));
     }
 
     #[test]

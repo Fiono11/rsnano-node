@@ -54,7 +54,10 @@ pub(crate) fn validate_prepared_network(data_dir: &Path, args: &CliArgs) -> anyh
     );
     let requested = PreparedNetwork::from_args(args);
     ensure!(
-        prepared == requested,
+        prepared.prs == requested.prs
+            && prepared.accounts == requested.accounts
+            && prepared.cpp == requested.cpp
+            && prepared.rocksdb == requested.rocksdb,
         "run configuration does not match setup manifest: prepared={prepared:?}, requested={requested:?}"
     );
     for pr in 0..args.prs {
@@ -106,6 +109,27 @@ mod tests {
         validate_prepared_network(&directory, &run).unwrap();
         let mismatch = args("run", "2");
         assert!(validate_prepared_network(&directory, &mismatch).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn manifest_ignores_rai_timing_configuration() {
+        let directory = std::env::temp_dir().join(format!(
+            "nanospam-manifest-rai-timing-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(directory.join("pr0")).unwrap();
+        fs::write(directory.join("pr0/data.ldb"), []).unwrap();
+
+        let mut setup = args("setup", "1");
+        setup.rai_epoch_duration_ms = None;
+        setup.rai_tick_interval_ms = None;
+        write_prepared_network(&directory, &setup).unwrap();
+
+        let run = args("run", "1");
+        validate_prepared_network(&directory, &run).unwrap();
+
         fs::remove_dir_all(directory).unwrap();
     }
 }

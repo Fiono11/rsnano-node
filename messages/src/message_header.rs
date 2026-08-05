@@ -39,6 +39,8 @@ pub enum MessageType {
     ProposalVote = 0x12,
     #[cfg(feature = "rai_protocol")]
     RaiReport = 0x13,
+    #[cfg(feature = "rai_protocol")]
+    RaiFrontier = 0x14,
 }
 
 impl MessageType {
@@ -67,13 +69,15 @@ impl MessageType {
             MessageType::ProposalVote => "proposal_vote",
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => "rai_report",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiFrontier => "rai_frontier",
         }
     }
 
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            return Self::RaiReport as usize;
+            return Self::RaiFrontier as usize;
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -207,6 +211,8 @@ impl MessageHeader {
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => RaiReportMessage::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiFrontier => RaiFrontierMessage::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -268,6 +274,8 @@ impl From<MessageType> for DetailType {
             MessageType::AscPullAck => DetailType::AscPullAck,
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => DetailType::Generic,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiFrontier => DetailType::Generic,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]

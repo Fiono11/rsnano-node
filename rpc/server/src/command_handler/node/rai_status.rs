@@ -6,6 +6,17 @@ impl RpcCommandHandler {
     pub(crate) fn rai_status(&self) -> anyhow::Result<RaiStatusResponse> {
         let (state, close_hashes, cut_hashes, drains) = self.node.aec.rai_epoch_status();
         Ok(RaiStatusResponse {
+            genesis_committee: {
+                let mut accounts = self
+                    .node
+                    .aec
+                    .rai_genesis_committee()
+                    .keys()
+                    .map(|key| rsnano_types::Account::from(*key).encode_account())
+                    .collect::<Vec<_>>();
+                accounts.sort();
+                accounts
+            },
             open_epoch: state.open_epoch.number().into(),
             closing_epoch: state.closing.map(|value| value.epoch.number().into()),
             closing_phase: state.closing.map(|value| format!("{:?}", value.phase)),

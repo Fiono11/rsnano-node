@@ -1,8 +1,9 @@
 use std::time::{Duration, Instant};
 
+use anyhow::{Context, bail};
 use futures::future::join_all;
 use tokio::time::sleep;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::{SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
@@ -21,13 +22,17 @@ pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
-) -> WalletId {
+) -> anyhow::Result<WalletId> {
     let mut genesis_wallet = WalletId::ZERO;
+    #[cfg(feature = "rai_protocol")]
+    let mut setup_wallets = Vec::with_capacity(rpc_clients.len());
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
+        #[cfg(feature = "rai_protocol")]
+        setup_wallets.push(resp.wallet);
         if i == 0 {
             genesis_wallet = resp.wallet;
         }
@@ -40,6 +45,22 @@ pub(crate) async fn create_wallets(
             })
             .await
             .unwrap();
+
+        // RAI setup runs in epoch zero, whose fixed committee contains only
+        // the genesis representative. Give every setup node that key so a
+        // missed PR0 vote cannot strand a locally restarted election. Remove
+        // these temporary copies before preserving the prepared wallets.
+        #[cfg(feature = "rai_protocol")]
+        if i != 0 {
+            rpc_client
+                .wallet_add(WalletAddArgs {
+                    wallet: resp.wallet,
+                    key: genesis_key.raw_key(),
+                    work: None,
+                })
+                .await
+                .unwrap();
+        }
 
         info!("Setting default representative...");
         rpc_client
@@ -100,7 +121,7 @@ pub(crate) async fn create_wallets(
             .await
             .unwrap()
             .block;
-        wait_until_confirmed_on_all(rpc_clients, send_hash).await;
+        wait_until_confirmed_on_all(rpc_clients, send_hash).await?;
         let receive: Block = StateBlockArgs {
             key: &spam_key,
             previous: BlockHash::ZERO,
@@ -119,7 +140,7 @@ pub(crate) async fn create_wallets(
             .await
             .unwrap()
             .hash;
-        wait_until_confirmed_on_all(rpc_clients, receive_hash).await;
+        wait_until_confirmed_on_all(rpc_clients, receive_hash).await?;
 
         let change: Block = StateBlockArgs {
             key: &spam_key,
@@ -135,7 +156,7 @@ pub(crate) async fn create_wallets(
             .await
             .unwrap()
             .hash;
-        wait_until_confirmed_on_all(rpc_clients, change_hash).await;
+        wait_until_confirmed_on_all(rpc_clients, change_hash).await?;
         account_map.set_account_state(spam_key.account(), amount, change_hash);
         account_map.set_representative(spam_key.account(), representative);
     }
@@ -145,28 +166,60 @@ pub(crate) async fn create_wallets(
             .account_remove(genesis_wallet, pr_key(i).account())
             .await
             .unwrap();
+        #[cfg(feature = "rai_protocol")]
+        rpc_clients[i]
+            .account_remove(setup_wallets[i], genesis_key.account())
+            .await
+            .unwrap();
     }
 
-    genesis_wallet
+    Ok(genesis_wallet)
 }
 
-async fn wait_until_confirmed_on_all(rpc_clients: &[NanoRpcClient], hash: BlockHash) {
-    join_all(
+const CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub(crate) async fn wait_until_confirmed_on_all(
+    rpc_clients: &[NanoRpcClient],
+    hash: BlockHash,
+) -> anyhow::Result<()> {
+    let block = rpc_clients[0]
+        .block_info(hash)
+        .await
+        .with_context(|| format!("source node lost setup block {hash}"))?
+        .contents;
+    let results = join_all(
         rpc_clients
             .iter()
-            .map(|rpc_client| wait_until_confirmed(rpc_client, hash)),
+            .enumerate()
+            .map(|(index, rpc_client)| wait_until_confirmed(rpc_client, index, hash, &block)),
     )
     .await;
+    for result in results {
+        result?;
+    }
+    Ok(())
 }
 
-async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
-    info!("Waiting for confirmation for {hash}");
+async fn wait_until_confirmed(
+    rpc_client: &NanoRpcClient,
+    node_index: usize,
+    hash: BlockHash,
+    block: &JsonBlock,
+) -> anyhow::Result<()> {
+    info!("Waiting for confirmation for {hash} on PR{node_index}");
+    let started = Instant::now();
     let mut last_confirm_request = None;
+    let mut last_process_request = None;
     loop {
+        if started.elapsed() >= CONFIRMATION_TIMEOUT {
+            bail!(
+                "setup block {hash} was not confirmed on PR{node_index} within {CONFIRMATION_TIMEOUT:?}"
+            );
+        }
         match rpc_client.block_info(hash).await {
             Ok(info) => {
                 if info.confirmed.inner() {
-                    break;
+                    return Ok(());
                 }
                 if last_confirm_request
                     .is_none_or(|last: Instant| last.elapsed() >= Duration::from_secs(1))
@@ -179,7 +232,19 @@ async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
                 }
             }
             Err(e) => {
-                debug!("Got error: {e:?}")
+                debug!("PR{node_index} does not have setup block {hash}: {e:?}");
+                if last_process_request
+                    .is_none_or(|last: Instant| last.elapsed() >= Duration::from_secs(1))
+                {
+                    // Setup blocks originate on PR0. Epidemic publish is not a
+                    // delivery guarantee, so explicitly repair a peer which
+                    // missed the original broadcast before asking it to
+                    // confirm the block.
+                    if let Err(error) = rpc_client.process(block.clone()).await {
+                        warn!("Could not repair setup block {hash} on PR{node_index}: {error:?}");
+                    }
+                    last_process_request = Some(Instant::now());
+                }
             }
         }
 

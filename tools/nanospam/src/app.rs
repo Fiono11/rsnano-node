@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow, ensure};
 use num_format::{Locale, ToFormattedString};
 use rand::{RngExt, rng};
 use tokio::{
@@ -134,9 +134,23 @@ impl NanoSpamApp {
             .await?;
         }
 
+        if !self.args.setup_only() {
+            let mut expected = (0..self.args.prs)
+                .map(|i| crate::setup::pr_key(i).account().encode_account())
+                .collect::<Vec<_>>();
+            expected.sort();
+            for (i, rpc) in self.rpc_clients.iter().enumerate() {
+                let actual = rpc.rai_status().await?.genesis_committee;
+                ensure!(
+                    actual == expected,
+                    "PR{i} initialized with the wrong RAI genesis committee: expected {expected:?}, got {actual:?}"
+                );
+            }
+        }
+
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
             *self.last_rai_phase.lock().unwrap() = "creating test wallets".to_string();
-            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
+            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await?
         } else {
             WalletId::ZERO
         };
@@ -152,12 +166,13 @@ impl NanoSpamApp {
 
         if self.args.set_up_new_nodes() {
             high_prio_check
-                .create_prio_accounts(genesis_wallet_id)
+                .create_prio_accounts(genesis_wallet_id, &self.rpc_clients)
                 .await?;
         }
 
         if self.args.setup_only() {
             write_prepared_network(&data_dir, &self.args)?;
+            self.stop_nodes_gracefully().await?;
             return Ok(());
         }
 
@@ -326,6 +341,33 @@ impl NanoSpamApp {
         }
 
         Ok(())
+    }
+
+    async fn stop_nodes_gracefully(&mut self) -> anyhow::Result<()> {
+        *self.last_rai_phase.lock().unwrap() = "stopping setup nodes gracefully".to_string();
+        for (i, rpc) in self.rpc_clients.iter().enumerate() {
+            rpc.stop()
+                .await
+                .with_context(|| format!("could not stop setup node PR{i} through RPC"))?;
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let mut all_stopped = true;
+            for i in 0..self.rpc_clients.len() {
+                if self.node_lifetime.child_status(i)?.is_none() {
+                    all_stopped = false;
+                }
+            }
+            if all_stopped {
+                return Ok(());
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "setup nodes did not stop within 10 seconds after the stop RPC"
+            );
+            sleep(Duration::from_millis(50)).await;
+        }
     }
 }
 
@@ -509,7 +551,8 @@ fn validate_epoch_transition(
     }
     let expected_counts = workload_counts(first, initial_first)?;
     for (pr, (status, initial)) in statuses.iter().zip(initial_statuses).enumerate().skip(1) {
-        let finalized: u64 = workload_counts(status, initial)?.values().sum();
+        let actual_counts = workload_counts(status, initial)?;
+        let finalized: u64 = actual_counts.values().sum();
         if finalized != requested_workload as u64 {
             anyhow::bail!(
                 "PR{pr} finalized {finalized} workload blocks, requested {requested_workload}"
@@ -523,7 +566,7 @@ fn validate_epoch_transition(
         .collect::<Vec<_>>();
     let first_workload_epoch = workload_epochs.iter().min().copied().unwrap_or(0);
     let last_workload_epoch = workload_epochs.iter().max().copied().unwrap_or(0);
-    if workload_epochs.len() < 2 {
+    if requested_workload > 1 && workload_epochs.len() < 2 {
         anyhow::bail!("workload did not span at least two RAI epochs");
     }
     for epoch in first_workload_epoch..=last_workload_epoch {
@@ -845,6 +888,7 @@ mod tests {
 
     fn status(epoch_0: u64, epoch_1: u64, close_hash: &str) -> RaiStatusResponse {
         RaiStatusResponse {
+            genesis_committee: Vec::new(),
             open_epoch: 1.into(),
             closing_epoch: None,
             closing_phase: None,
@@ -880,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn different_local_boundary_split_passes_when_close_hashes_and_totals_match() {
+    fn local_election_epoch_split_does_not_override_matching_close_records() {
         validate_epoch_transition(
             &[status(4, 6, "A"), status(5, 5, "A")],
             &[status(0, 0, "A"), status(0, 0, "A")],
@@ -892,13 +936,15 @@ mod tests {
 
     #[test]
     fn different_pr_totals_fail() {
-        assert!(validate_epoch_transition(
-            &[status(4, 6, "A"), status(5, 4, "A")],
-            &[status(0, 0, "A"), status(0, 0, "A")],
-            10,
-            &observed(),
-        )
-        .is_err());
+        assert!(
+            validate_epoch_transition(
+                &[status(4, 6, "A"), status(5, 4, "A")],
+                &[status(0, 0, "A"), status(0, 0, "A")],
+                10,
+                &observed(),
+            )
+            .is_err()
+        );
     }
 
     #[test]

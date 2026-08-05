@@ -149,8 +149,8 @@ pub struct Node {
     pub message_flooder: Arc<Mutex<MessageFlooder>>, // TODO remove this. It is needed right now
     pub keepalive_publisher: Arc<KeepalivePublisher>,
     start_stop_listener: OutputListenerMt<&'static str>,
-    vote_rebroadcaster: VoteRebroadcaster,
-    tokio_runner: TokioRunner,
+    vote_rebroadcaster: Mutex<VoteRebroadcaster>,
+    tokio_runner: Mutex<TokioRunner>,
     pub aec_ticker: TimerThread<AecTicker>,
     pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
     pub stats_collector: StatsCollector,
@@ -159,7 +159,7 @@ pub struct Node {
     pub block_rates: Arc<CurrentBlockRates>,
     aec_voter: TimerThread<Arc<Mutex<AecVoter>>>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
-    ticker_pool: TickerPool,
+    ticker_pool: Mutex<TickerPool>,
     channel_event_processor: EventProcessor<ChannelEvent>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
@@ -339,6 +339,11 @@ impl Node {
                 panic!("Could not open ledger: {:?}. Details: {:?}", ledger_path, e)
             }
         };
+
+        #[cfg(feature = "rai_protocol")]
+        if config.rai.reset_finalization_on_start {
+            ledger.rai_reset_finalization_baseline();
+        }
 
         // hard coded version! TODO: read version from Cargo
         info!("Database backend: {}", ledger.store_vendor());
@@ -628,6 +633,25 @@ impl Node {
             base_latency,
         ));
         #[cfg(feature = "rai_protocol")]
+        let genesis_committee = if config.rai.genesis_committee.is_empty() {
+            rsnano_ledger::RepWeights::from([(
+                network_params.ledger.genesis_account.into(),
+                Amount::MAX,
+            )])
+        } else {
+            // A prepared ledger is the equivalent of RAI's genesis epoch:
+            // its cemented delegation determines both committee membership
+            // and voting weight. The config only selects which prepared
+            // representatives participate; it must not synthesize weights.
+            let confirmed_weights = ledger.rai_confirmed_rep_weights();
+            let mut weights = rsnano_ledger::RepWeights::default();
+            for account in &config.rai.genesis_committee {
+                let representative = (*account).into();
+                weights.put(representative, confirmed_weights.weight(&representative));
+            }
+            weights
+        };
+        #[cfg(feature = "rai_protocol")]
         let active_elections = Arc::new(AecService::new_with_rai_committee(
             config.active_elections.clone(),
             base_latency,
@@ -636,10 +660,7 @@ impl Node {
             // restarted node treat every historical representative as a
             // genesis committee member, including representatives for which
             // no node can produce a report.
-            Arc::new(rsnano_ledger::RepWeights::from([(
-                network_params.ledger.genesis_account.into(),
-                Amount::MAX,
-            )])),
+            Arc::new(genesis_committee),
             network_params.ledger.genesis_block.hash(),
         ));
         active_elections.set_observer(aec_tx.clone());
@@ -845,18 +866,20 @@ impl Node {
         bootstrapper.enqueue(network_params.ledger.genesis_account);
 
         #[cfg(feature = "rai_protocol")]
-        ticker_pool.insert(
-            crate::consensus::RaiEpochTicker::new(
-                active_elections.clone(),
-                steady_clock.clone(),
-                wallet_reps.clone(),
-                ledger.clone(),
-                config.rai.epoch_duration,
-                message_flooder.clone(),
-                vote_history.clone(),
-            ),
-            config.rai.tick_interval,
-        );
+        if config.rai.enable_epoch_ticker {
+            ticker_pool.insert(
+                crate::consensus::RaiEpochTicker::new(
+                    active_elections.clone(),
+                    steady_clock.clone(),
+                    wallet_reps.clone(),
+                    ledger.clone(),
+                    config.rai.epoch_duration,
+                    message_flooder.clone(),
+                    vote_history.clone(),
+                ),
+                config.rai.tick_interval,
+            );
+        }
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
@@ -1368,8 +1391,8 @@ impl Node {
             keepalive_publisher,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
-            vote_rebroadcaster,
-            tokio_runner,
+            vote_rebroadcaster: Mutex::new(vote_rebroadcaster),
+            tokio_runner: Mutex::new(tokio_runner),
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
             recently_cemented,
             stats_collector,
@@ -1378,7 +1401,7 @@ impl Node {
             block_rates,
             aec_voter: TimerThread::new("AEC voter", Arc::clone(&aec_voter)),
             wallet_reps,
-            ticker_pool,
+            ticker_pool: Mutex::new(ticker_pool),
             channel_event_processor,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
@@ -1614,12 +1637,12 @@ impl Node {
         self.local_block_broadcaster.start();
 
         if self.config.enable_vote_rebroadcast {
-            self.vote_rebroadcaster.start();
+            self.vote_rebroadcaster.lock().unwrap().start();
         }
-        self.ticker_pool.start();
+        self.ticker_pool.lock().unwrap().start();
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.start_stop_listener.emit("stop");
         if self.is_nulled {
             return; // TODO better nullability implementation
@@ -1631,7 +1654,7 @@ impl Node {
         }
         info!("Node stopping...");
 
-        self.ticker_pool.stop();
+        self.ticker_pool.lock().unwrap().stop();
         self.tcp_listener.stop();
         self.backlog_scan.stop();
         self.aec_voter.stop();
@@ -1666,10 +1689,10 @@ impl Node {
         // dispatcher thread exit. Join it before subsystems are dropped so handlers
         // never call into a half-dropped subsystem.
         self.channel_event_processor.join();
-        self.vote_rebroadcaster.stop();
+        self.vote_rebroadcaster.lock().unwrap().stop();
         self.ledger.drop_publisher();
         self.workers.join();
-        self.tokio_runner.stop();
+        self.tokio_runner.lock().unwrap().stop();
         // work pool is not stopped on purpose due to testing setup
     }
 }
@@ -1740,7 +1763,7 @@ mod tests {
 
         // helper:
         fn assert_ticker<T: Tickable + 'static>(node: &Node, expected: Duration) {
-            let Some(interval) = node.ticker_pool.get::<T>() else {
+            let Some(interval) = node.ticker_pool.lock().unwrap().get::<T>() else {
                 panic!("Should schedule ticker of type: {}", type_name::<T>());
             };
             assert_eq!(interval, expected, "interval for {}", type_name::<T>());

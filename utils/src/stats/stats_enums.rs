@@ -241,6 +241,7 @@ pub enum DetailType {
     // duplicate
     DuplicatePublishMessage,
     DuplicateConfirmAckMessage,
+    DuplicateRaiReportMessage,
 
     // telemetry
     InvalidSignature,

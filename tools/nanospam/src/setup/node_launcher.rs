@@ -117,6 +117,14 @@ fn rsnano_executable() -> PathBuf {
         if sibling.is_file() {
             return sibling;
         }
+        // Test executables live in target/<profile>/deps, while the node
+        // executable lives one directory above them.
+        if let Some(profile_dir) = sibling.parent().and_then(|deps| deps.parent()) {
+            let candidate = profile_dir.join(format!("rsnano{}", env::consts::EXE_SUFFIX));
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
     }
     PathBuf::from("rsnano")
 }

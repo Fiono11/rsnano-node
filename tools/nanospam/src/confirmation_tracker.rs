@@ -30,12 +30,26 @@ pub(crate) async fn reconcile_confirmations(
             _ = ticker.tick() => {}
         }
 
+        // The websocket receiver may have observed the final confirmation
+        // before this reconciliation tick. In that case there are no newly
+        // confirmed outstanding hashes below, but the publisher still needs
+        // to be woken from rx_blocks.recv().
+        if logic.lock().unwrap().is_finished() {
+            cancel_token.cancel();
+            return;
+        }
+
         if let Some(expected) = expected_cemented
             && let Ok(count) = rpc_client.block_count().await
             && count.count.inner() == count.cemented.inner()
             && count.cemented.inner() >= expected
         {
             logic.lock().unwrap().mark_workload_cemented(clock.now());
+            // Wake the publisher if it is waiting on an empty channel. Sender
+            // clones are retained by the optional high-priority and delayed
+            // republish paths, so channel closure is not a reliable workload
+            // completion signal.
+            cancel_token.cancel();
             return;
         }
 
@@ -57,6 +71,12 @@ pub(crate) async fn reconcile_confirmations(
             let mut logic = logic.lock().unwrap();
             for hash in confirmed {
                 logic.confirmed(&hash, now);
+            }
+            if logic.is_finished() {
+                // Do not leave publish_blocks asleep in rx_blocks.recv() after
+                // the last confirmation arrives through reconciliation.
+                cancel_token.cancel();
+                return;
             }
         }
     }

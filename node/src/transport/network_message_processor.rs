@@ -224,6 +224,10 @@ impl NetworkMessageProcessor {
             Message::RaiReport(report) => {
                 self.active_elections.rai_report_received(report.into());
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiFrontier(frontier) => {
+                self.active_elections.rai_frontier_received(frontier);
+            }
         }
     }
 }

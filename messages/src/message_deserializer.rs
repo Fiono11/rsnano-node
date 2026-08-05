@@ -120,14 +120,27 @@ impl MessageDeserializer {
                 message_type == MessageType::ConfirmAck
             }
         };
-        if message_type == MessageType::Publish || filter_confirm_ack {
+        let filter_rai_report = {
+            #[cfg(feature = "rai_protocol")]
+            {
+                message_type == MessageType::RaiReport
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                false
+            }
+        };
+        if message_type == MessageType::Publish || filter_confirm_ack || filter_rai_report {
             if let Some(filter) = self.network_filter.as_ref() {
                 let (digest, existed) = filter.apply(payload_bytes);
                 if existed {
-                    if message_type == MessageType::ConfirmAck {
-                        Err(ParseMessageError::DuplicateConfirmAckMessage)
-                    } else {
-                        Err(ParseMessageError::DuplicatePublishMessage)
+                    match message_type {
+                        MessageType::ConfirmAck => {
+                            Err(ParseMessageError::DuplicateConfirmAckMessage)
+                        }
+                        #[cfg(feature = "rai_protocol")]
+                        MessageType::RaiReport => Err(ParseMessageError::DuplicateRaiReportMessage),
+                        _ => Err(ParseMessageError::DuplicatePublishMessage),
                     }
                 } else {
                     Ok(digest)
@@ -335,6 +348,33 @@ mod tests {
 
             deserializer.push(&message_bytes);
             assert!(deserializer.try_deserialize().unwrap().is_ok());
+        }
+
+        #[cfg(feature = "rai_protocol")]
+        #[test]
+        fn duplicate_rai_report_is_filtered() {
+            use crate::RaiReportMessage;
+            use rsnano_types::{PublicKey, RaiEpoch, Signature};
+
+            let mut deserializer = create_deserializer();
+            let message = Message::RaiReport(RaiReportMessage {
+                reporter: PublicKey::from(1),
+                epoch: RaiEpoch::ZERO,
+                chunk_index: 0,
+                chunk_count: 1,
+                visible_obligations: Vec::new(),
+                signature: Signature::from_bytes([2; 64]),
+            });
+            let bytes = message_bytes(&message);
+
+            deserializer.push(&bytes);
+            assert!(deserializer.try_deserialize().unwrap().is_ok());
+
+            deserializer.push(&bytes);
+            assert_eq!(
+                deserializer.try_deserialize(),
+                Some(Err(ParseMessageError::DuplicateRaiReportMessage))
+            );
         }
     }
 

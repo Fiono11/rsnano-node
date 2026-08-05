@@ -1,6 +1,9 @@
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 #[cfg(feature = "rai_protocol")]
+use std::collections::{HashSet, VecDeque};
+
+#[cfg(feature = "rai_protocol")]
 use rsnano_ledger::AnySet;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
@@ -39,8 +42,8 @@ pub struct RaiEpochTicker {
     epoch_duration: Duration,
     flooder: crate::transport::MessageFlooder,
     vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
-    reports: Vec<crate::consensus::rai::RaiReport>,
-    report_replay_cursor: usize,
+    known_reports: HashSet<Vec<u8>>,
+    report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
     close_vote_replay_cursor: usize,
     slot_vote_replay_cursors: std::collections::BTreeMap<rsnano_types::RaiEpoch, usize>,
     local_key: Option<rsnano_types::PrivateKey>,
@@ -65,8 +68,8 @@ impl RaiEpochTicker {
             epoch_duration,
             flooder,
             vote_history,
-            reports: Vec::new(),
-            report_replay_cursor: 0,
+            known_reports: Default::default(),
+            report_rebroadcast_queue: Default::default(),
             close_vote_replay_cursor: 0,
             slot_vote_replay_cursors: Default::default(),
             local_key: None,
@@ -88,11 +91,10 @@ impl Tickable for RaiEpochTicker {
             return;
         };
         let now = self.clock.now();
-        self.reports
-            .extend(self.aec.rai_tick(now, local_key, self.epoch_duration));
+        self.aec.rai_tick(now, local_key, self.epoch_duration);
         if let Some(closing) = self.aec.rai_epoch_status().0.closing {
             self.aec
-                .rai_progress_close(self.ledger.rai_confirmation_frontiers(closing.epoch), now);
+                .rai_progress_close(self.ledger.rai_preceding_frontiers(closing.epoch), now);
             if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining {
                 for root in self.aec.rai_missing_drain_elections(closing.epoch) {
                     let any = self.ledger.any();
@@ -106,40 +108,53 @@ impl Tickable for RaiEpochTicker {
                 }
             }
         }
-        let closing = self
-            .aec
-            .rai_epoch_status()
-            .0
-            .closing
-            .map(|state| state.epoch);
-        // Reports are quorum material, not best-effort announcements. Repeat
-        // them throughout the close and target all known PR peers so a missed
-        // first flood cannot leave part of the network in CollectingReports.
-        for report in self
-            .reports
-            .iter()
-            .filter(|report| Some(report.epoch) == closing)
+        // Reports use the same epidemic dissemination model as legacy votes:
+        // relay each newly learned immutable object once to all known PRs and
+        // a bounded random fanout of other peers. Receiving peers repeat this
+        // step, while their report identity set prevents gossip loops.
+        self.report_rebroadcast_queue.extend(newly_seen_reports(
+            &mut self.known_reports,
+            self.aec.rai_reports(),
+        ));
+        while !self.report_rebroadcast_queue.is_empty()
+            && self
+                .flooder
+                .check_capacity(rsnano_network::TrafficType::Generic, 1.0)
         {
+            let report = self.report_rebroadcast_queue.pop_front().unwrap();
             self.flooder.flood_all(
                 &rsnano_messages::Message::RaiReport(report.clone().into()),
                 rsnano_network::TrafficType::Generic,
             );
         }
 
-        // Reports are durable authenticated objects. Replay one historical
-        // report per tick so a peer which joined after an epoch closed can
-        // obtain the quorum material needed to catch up, without flooding the
-        // complete history on every tick.
-        let historical = self
-            .reports
-            .iter()
-            .filter(|report| Some(report.epoch) != closing)
-            .collect::<Vec<_>>();
-        if !historical.is_empty() {
-            let report = historical[self.report_replay_cursor % historical.len()];
-            self.report_replay_cursor = self.report_replay_cursor.wrapping_add(1);
+        // Initial epidemic delivery is not durable. Periodically replay one
+        // report so a PR which missed the first transmission can still reach
+        // report quorum and finish closing its epoch.
+        let reports = self.aec.rai_reports();
+        for report in reports {
             self.flooder.flood_all(
-                &rsnano_messages::Message::RaiReport(report.clone().into()),
+                &rsnano_messages::Message::RaiReport(report.into()),
+                rsnano_network::TrafficType::Generic,
+            );
+        }
+
+        // Frontier preimages are the reconciliation payload for close-record
+        // hashes. Votes authenticate the decision; this transfer lets a peer
+        // which derived another fresh version validate and install the winner.
+        let records = self.aec.rai_close_record_versions();
+        for record in records {
+            let message = rsnano_messages::RaiFrontierMessage {
+                epoch: record.epoch,
+                previous: record.previous,
+                frontiers: record
+                    .frontiers
+                    .iter()
+                    .map(|(account, info)| (*account, info.clone()))
+                    .collect(),
+            };
+            self.flooder.flood_all(
+                &rsnano_messages::Message::RaiFrontier(message),
                 rsnano_network::TrafficType::Generic,
             );
         }
@@ -199,6 +214,21 @@ impl Tickable for RaiEpochTicker {
     }
 }
 
+#[cfg(feature = "rai_protocol")]
+fn newly_seen_reports(
+    known: &mut HashSet<Vec<u8>>,
+    reports: Vec<crate::consensus::rai::RaiReport>,
+) -> Vec<crate::consensus::rai::RaiReport> {
+    reports
+        .into_iter()
+        .filter(|report| {
+            let mut identity = report.reporter.as_bytes().to_vec();
+            identity.extend_from_slice(&report.signing_bytes());
+            known.insert(identity)
+        })
+        .collect()
+}
+
 impl AecService {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
@@ -214,14 +244,20 @@ impl AecService {
         genesis_committee: std::sync::Arc<rsnano_ledger::RepWeights>,
         genesis_governing_hash: BlockHash,
     ) -> Self {
+        let clock = SteadyClock::default();
+        let mut aec = ActiveElectionsContainer::new_with_rai_committee(
+            config,
+            base_latency,
+            genesis_committee,
+            genesis_governing_hash,
+        );
+        // Epoch zero begins when this node initializes RAI. Leaving the
+        // manager at Timestamp::default() makes the first ticker invocation
+        // close epoch zero immediately, before nanospam can publish work.
+        aec.rai_set_open_started_at(clock.now());
         Self {
-            aec: RwLock::new(ActiveElectionsContainer::new_with_rai_committee(
-                config,
-                base_latency,
-                genesis_committee,
-                genesis_governing_hash,
-            )),
-            clock: SteadyClock::default(),
+            aec: RwLock::new(aec),
+            clock,
         }
     }
 
@@ -404,6 +440,24 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn rai_reports(&self) -> Vec<crate::consensus::rai::RaiReport> {
+        self.aec.read().unwrap().rai_reports()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_close_record_versions(&self) -> Vec<crate::consensus::rai::RaiCloseRecord> {
+        self.aec.read().unwrap().rai_close_record_versions()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_frontier_received(&self, message: rsnano_messages::RaiFrontierMessage) {
+        self.aec
+            .write()
+            .unwrap()
+            .rai_frontier_received(message, self.clock.now());
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_progress_close(
         &self,
         frontiers: crate::consensus::rai::RaiFrontierMap,
@@ -555,6 +609,11 @@ impl AecService {
             .collect();
         (state, hashes, cut_hashes, drains)
     }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_genesis_committee(&self) -> std::sync::Arc<rsnano_ledger::RepWeights> {
+        self.aec.read().unwrap().rai_genesis_committee()
+    }
 }
 
 impl StatsSource for AecService {
@@ -574,10 +633,24 @@ mod rai_tests {
     use std::{sync::Arc, time::Duration};
 
     use rsnano_ledger::RepWeights;
-    use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Amount, BlockHash, PrivateKey, RaiEpoch};
 
     use super::*;
+
+    #[test]
+    fn each_distinct_report_is_relayed_once() {
+        use crate::consensus::rai::RaiReport;
+
+        let first = RaiReport::new(&PrivateKey::from(1), RaiEpoch::ZERO, []);
+        let second = RaiReport::new(&PrivateKey::from(2), RaiEpoch::ZERO, []);
+        let mut known = HashSet::new();
+
+        assert_eq!(
+            newly_seen_reports(&mut known, vec![first.clone(), second.clone()]),
+            vec![first.clone(), second.clone()]
+        );
+        assert!(newly_seen_reports(&mut known, vec![first, second]).is_empty());
+    }
 
     #[test]
     fn live_tick_opens_epoch_one_at_the_deadline() {
@@ -591,7 +664,7 @@ mod rai_tests {
             BlockHash::ZERO,
         );
         let duration = Duration::from_secs(30);
-        let start = Timestamp::default();
+        let start = service.clock.now();
 
         service.rai_tick(start, &key, duration);
         assert_eq!(service.rai_epoch_status().0.open_epoch, RaiEpoch::ZERO);
@@ -618,7 +691,7 @@ mod rai_tests {
             BlockHash::ZERO,
         );
         let duration = Duration::from_secs(30);
-        let deadline = Timestamp::default() + duration;
+        let deadline = service.clock.now() + duration;
 
         let reports = service.rai_tick(deadline, &keys[0], duration);
         assert_eq!(reports.len(), 1);
@@ -630,6 +703,7 @@ mod rai_tests {
 
         service.rai_report_received(RaiReport::new(&keys[1], RaiEpoch::ZERO, []));
         service.rai_report_received(RaiReport::new(&keys[2], RaiEpoch::ZERO, []));
+        assert_eq!(service.rai_reports().len(), 3);
         assert_eq!(
             service.rai_epoch_status().0.closing.unwrap().phase,
             RaiClosingPhase::CollectingReports

@@ -279,6 +279,15 @@ impl Ledger {
         self.store.rai_finalization.frontiers_through(&txn, through)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_preceding_frontiers(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> std::collections::BTreeMap<Account, ConfirmationHeightInfo> {
+        let txn = self.store.begin_read();
+        self.store.rai_finalization.frontiers_before(&txn, epoch)
+    }
+
     /// Representative weights at the cemented frontiers. Unconfirmed balance
     /// and delegation changes are deliberately excluded.
     #[cfg(feature = "rai_protocol")]
@@ -856,6 +865,22 @@ impl Ledger {
     pub fn rai_finalized_counts(&self) -> std::collections::BTreeMap<rsnano_types::RaiEpoch, u64> {
         let txn = self.store.begin_read();
         self.store.rai_finalization.counts_by_epoch(&txn)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_reset_finalization_baseline(&self) {
+        let frontiers = {
+            let txn = self.store.begin_read();
+            self.store
+                .confirmation_height
+                .iter(&txn)
+                .collect::<Vec<_>>()
+        };
+        let mut txn = self.store.begin_write();
+        self.store
+            .rai_finalization
+            .reset_to_baseline(&mut txn, frontiers);
+        txn.commit();
     }
 
     #[cfg(feature = "rai_protocol")]

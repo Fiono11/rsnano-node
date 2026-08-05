@@ -73,8 +73,11 @@ pub struct NodeToml {
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct RaiToml {
+    pub enable_epoch_ticker: Option<bool>,
     pub epoch_duration: Option<u64>,
     pub tick_interval: Option<u64>,
+    pub genesis_committee: Option<Vec<String>>,
+    pub reset_finalization_on_start: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -494,11 +497,25 @@ impl NodeConfig {
             self.cps_limit = limit;
         }
         if let Some(rai) = &toml.rai {
+            if let Some(enable) = rai.enable_epoch_ticker {
+                self.rai.enable_epoch_ticker = enable;
+            }
             if let Some(duration) = rai.epoch_duration {
                 self.rai.epoch_duration = Duration::from_millis(duration);
             }
             if let Some(interval) = rai.tick_interval {
                 self.rai.tick_interval = Duration::from_millis(interval);
+            }
+            if let Some(accounts) = &rai.genesis_committee {
+                self.rai.genesis_committee = accounts
+                    .iter()
+                    .map(|account| {
+                        Account::parse(account).expect("invalid RAI genesis committee account")
+                    })
+                    .collect();
+            }
+            if let Some(reset) = rai.reset_finalization_on_start {
+                self.rai.reset_finalization_on_start = reset;
             }
         }
     }
@@ -647,8 +664,18 @@ impl From<&NodeConfig> for NodeToml {
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
             rai: Some(RaiToml {
+                enable_epoch_ticker: Some(config.rai.enable_epoch_ticker),
                 epoch_duration: Some(config.rai.epoch_duration.as_millis() as u64),
                 tick_interval: Some(config.rai.tick_interval.as_millis() as u64),
+                genesis_committee: Some(
+                    config
+                        .rai
+                        .genesis_committee
+                        .iter()
+                        .map(Account::encode_account)
+                        .collect(),
+                ),
+                reset_finalization_on_start: Some(config.rai.reset_finalization_on_start),
             }),
         }
     }
@@ -663,8 +690,11 @@ mod tests {
     fn merge_rai_toml() {
         let toml = NodeToml {
             rai: Some(RaiToml {
+                enable_epoch_ticker: Some(false),
                 epoch_duration: Some(5000),
                 tick_interval: Some(100),
+                genesis_committee: None,
+                reset_finalization_on_start: None,
             }),
             ..Default::default()
         };
@@ -672,6 +702,7 @@ mod tests {
         let mut cfg = NodeConfig::new_test_instance();
         cfg.merge_toml(&toml);
 
+        assert!(!cfg.rai.enable_epoch_ticker);
         assert_eq!(cfg.rai.epoch_duration, Duration::from_millis(5000));
         assert_eq!(cfg.rai.tick_interval, Duration::from_millis(100));
     }

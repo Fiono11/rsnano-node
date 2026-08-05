@@ -11,6 +11,7 @@ use rsnano_types::{Account, BlockHash, ConfirmationHeightInfo, RaiEpoch};
 pub struct LmdbRaiFinalizationStore {
     blocks: LmdbDatabase,
     epoch_deltas: LmdbDatabase,
+    baseline_frontiers: LmdbDatabase,
 }
 
 impl LmdbRaiFinalizationStore {
@@ -19,7 +20,51 @@ impl LmdbRaiFinalizationStore {
             blocks: env.create_db(Some("rai_block_finalization_epoch"), DatabaseFlags::empty())?,
             epoch_deltas: env
                 .create_db(Some("rai_epoch_frontier_deltas"), DatabaseFlags::empty())?,
+            baseline_frontiers: env
+                .create_db(Some("rai_baseline_frontiers"), DatabaseFlags::empty())?,
         })
+    }
+
+    /// Reclassifies the current cemented ledger as pre-epoch state. Existing
+    /// epoch attribution is discarded, while the frontiers remain available
+    /// as the base of subsequent close records.
+    pub fn reset_to_baseline(
+        &self,
+        txn: &mut WriteTransaction,
+        frontiers: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
+    ) {
+        self.clear_database(txn, self.blocks);
+        self.clear_database(txn, self.epoch_deltas);
+        self.clear_database(txn, self.baseline_frontiers);
+        for (account, info) in frontiers {
+            txn.put(
+                self.baseline_frontiers,
+                account.as_bytes(),
+                &info.to_bytes(),
+                WriteFlags::empty(),
+            )
+            .expect("could not persist RAI baseline frontier");
+        }
+    }
+
+    fn clear_database(&self, txn: &mut WriteTransaction, database: LmdbDatabase) {
+        let keys = {
+            let mut cursor = txn
+                .open_ro_cursor(database)
+                .expect("could not open RAI metadata cursor for reset");
+            cursor
+                .iter_start()
+                .map(|row| {
+                    row.expect("could not read RAI metadata during reset")
+                        .0
+                        .to_vec()
+                })
+                .collect::<Vec<_>>()
+        };
+        for key in keys {
+            txn.delete(database, &key, None)
+                .expect("could not clear RAI metadata during reset");
+        }
     }
 
     pub fn epoch(&self, txn: &dyn Transaction, hash: &BlockHash) -> Option<RaiEpoch> {
@@ -105,6 +150,19 @@ impl LmdbRaiFinalizationStore {
         through: RaiEpoch,
     ) -> BTreeMap<Account, ConfirmationHeightInfo> {
         let mut result: BTreeMap<Account, ConfirmationHeightInfo> = BTreeMap::new();
+        let mut baseline = txn
+            .open_ro_cursor(self.baseline_frontiers)
+            .expect("could not open RAI baseline frontier cursor");
+        for row in baseline.iter_start() {
+            let (key, mut value) = row.expect("could not read RAI baseline frontier");
+            let account = Account::from_bytes(
+                key.try_into()
+                    .expect("invalid RAI baseline frontier account"),
+            );
+            let info = ConfirmationHeightInfo::deserialize(&mut value)
+                .expect("invalid RAI baseline frontier");
+            result.insert(account, info);
+        }
         let mut cursor = txn
             .open_ro_cursor(self.epoch_deltas)
             .expect("could not open RAI epoch frontier cursor");
@@ -114,6 +172,48 @@ impl LmdbRaiFinalizationStore {
                 key[..8].try_into().expect("invalid RAI epoch frontier key"),
             ));
             if epoch > through {
+                break;
+            }
+            let account =
+                Account::from_bytes(key[8..].try_into().expect("invalid RAI epoch account key"));
+            let info = ConfirmationHeightInfo::deserialize(&mut value)
+                .expect("invalid RAI epoch frontier");
+            let current = result.entry(account).or_default();
+            if info.height > current.height {
+                *current = info;
+            }
+        }
+        result
+    }
+
+    pub fn frontiers_before(
+        &self,
+        txn: &dyn Transaction,
+        epoch: RaiEpoch,
+    ) -> BTreeMap<Account, ConfirmationHeightInfo> {
+        let mut result: BTreeMap<Account, ConfirmationHeightInfo> = BTreeMap::new();
+        let mut baseline = txn
+            .open_ro_cursor(self.baseline_frontiers)
+            .expect("could not open RAI baseline frontier cursor");
+        for row in baseline.iter_start() {
+            let (key, mut value) = row.expect("could not read RAI baseline frontier");
+            let account = Account::from_bytes(
+                key.try_into()
+                    .expect("invalid RAI baseline frontier account"),
+            );
+            let info = ConfirmationHeightInfo::deserialize(&mut value)
+                .expect("invalid RAI baseline frontier");
+            result.insert(account, info);
+        }
+        let mut cursor = txn
+            .open_ro_cursor(self.epoch_deltas)
+            .expect("could not open RAI epoch frontier cursor");
+        for row in cursor.iter_start() {
+            let (key, mut value) = row.expect("could not read RAI epoch frontier");
+            let stored_epoch = RaiEpoch::new(u64::from_be_bytes(
+                key[..8].try_into().expect("invalid RAI epoch frontier key"),
+            ));
+            if stored_epoch >= epoch {
                 break;
             }
             let account =
@@ -160,5 +260,31 @@ mod tests {
             store.counts_by_epoch(&txn),
             BTreeMap::from([(RaiEpoch::new(7), 1)])
         );
+    }
+
+    #[test]
+    fn reset_moves_cemented_frontiers_out_of_epoch_accounting() {
+        let env = LmdbEnvironment::new_null();
+        let store = LmdbRaiFinalizationStore::new(&env).unwrap();
+        let account = Account::from(2);
+        let old_hash = BlockHash::from(3);
+        let old_info = ConfirmationHeightInfo::new(4, old_hash);
+        let mut txn = env.begin_write();
+        store.put(&mut txn, &old_hash, RaiEpoch::ZERO, &account, &old_info);
+
+        store.reset_to_baseline(&mut txn, [(account, old_info.clone())]);
+        txn.commit();
+        let txn = env.begin_read();
+
+        assert!(store.counts_by_epoch(&txn).is_empty());
+        assert_eq!(
+            store.frontiers_through(&txn, RaiEpoch::ZERO),
+            BTreeMap::from([(account, old_info.clone())])
+        );
+        assert_eq!(
+            store.frontiers_before(&txn, RaiEpoch::ZERO),
+            BTreeMap::from([(account, old_info)])
+        );
+        assert_eq!(store.epoch(&txn, &old_hash), None);
     }
 }

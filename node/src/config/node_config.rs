@@ -4,7 +4,7 @@ use rsnano_network::NetworkConfig;
 use rsnano_nullable_http_client::Url;
 use rsnano_store_lmdb::LmdbConfig;
 use rsnano_types::{
-    Amount, Peer, PublicKey,
+    Account, Amount, Peer, PublicKey,
     currency_constants::{
         DEFAULT_ONLINE_WEIGHT_MINIMUM, PRECONFIGURED_PEERS_BETA, PRECONFIGURED_PEERS_LIVE,
         PRECONFIGURED_PEERS_TEST,
@@ -300,15 +300,27 @@ impl NodeConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RaiConfig {
+    /// Enables automatic epoch boundaries. Disabling this keeps the node in
+    /// its initial open epoch while retaining RAI voting semantics.
+    pub enable_epoch_ticker: bool,
     pub epoch_duration: Duration,
     pub tick_interval: Duration,
+    /// Representatives whose confirmed ledger weights form the immutable
+    /// committee used before the first derived committee is available. An
+    /// empty list selects the network genesis with the full genesis supply.
+    pub genesis_committee: Vec<Account>,
+    /// Treat the cemented ledger at startup as pre-epoch baseline state.
+    pub reset_finalization_on_start: bool,
 }
 
 impl Default for RaiConfig {
     fn default() -> Self {
         Self {
+            enable_epoch_ticker: true,
             epoch_duration: Duration::from_secs(30),
             tick_interval: Duration::from_millis(100),
+            genesis_committee: Vec::new(),
+            reset_finalization_on_start: false,
         }
     }
 }

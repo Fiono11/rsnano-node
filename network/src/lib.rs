@@ -127,7 +127,7 @@ pub enum ReceiveResult {
 pub trait DataReceiver {
     fn receive(&mut self, data: &[u8]) -> ReceiveResult;
     /// after receive returns Pause this has to be called until it returns true
-    fn try_unpause(&self) -> ReceiveResult;
+    fn try_unpause(&mut self) -> ReceiveResult;
 }
 
 #[derive(Default)]
@@ -159,7 +159,7 @@ impl DataReceiver for NullDataReceiver {
         ReceiveResult::Continue
     }
 
-    fn try_unpause(&self) -> ReceiveResult {
+    fn try_unpause(&mut self) -> ReceiveResult {
         ReceiveResult::Continue
     }
 }

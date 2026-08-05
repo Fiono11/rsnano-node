@@ -122,20 +122,29 @@ impl TcpNetworkAdapter {
 
                 let new_data = &buffer[..read_count];
 
-                match receiver.receive(new_data) {
-                    ReceiveResult::Continue => {}
-                    ReceiveResult::Abort => break,
-                    ReceiveResult::Pause => {
-                        loop {
-                            // TODO find better solution than sleep and polling
-                            tokio::select! {
-                                _ = sleep(Duration::from_millis(5)) => {},
-                                _ = channel.cancelled() => { break;}
-                            }
-                            match receiver.try_unpause() {
-                                ReceiveResult::Continue => break,
-                                ReceiveResult::Abort => return,
-                                ReceiveResult::Pause => {}
+                let mut receive_result = receiver.receive(new_data);
+                loop {
+                    match receive_result {
+                        ReceiveResult::Continue => break,
+                        ReceiveResult::Abort => return,
+                        ReceiveResult::Pause => {
+                            loop {
+                                // TODO find better solution than sleep and polling
+                                tokio::select! {
+                                    _ = sleep(Duration::from_millis(5)) => {},
+                                    _ = channel.cancelled() => { return; }
+                                }
+                                match receiver.try_unpause() {
+                                    ReceiveResult::Continue => {
+                                        // receive() may have parsed multiple messages from one TCP
+                                        // read before backpressure paused it. Drain that buffered tail
+                                        // before waiting for another socket-readability event.
+                                        receive_result = receiver.receive(&[]);
+                                        break;
+                                    }
+                                    ReceiveResult::Abort => return,
+                                    ReceiveResult::Pause => {}
+                                }
                             }
                         }
                     }

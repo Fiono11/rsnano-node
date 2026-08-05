@@ -328,12 +328,14 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
 
         let closing = state.open_epoch;
         let obligations = self.driver.visible_obligations(closing);
-        let report = RaiReport::new(&self.local_key, closing, obligations);
+        let reports = RaiReport::new_chunks(&self.local_key, closing, obligations);
         if self.epoch_manager.start_closing(now) {
             // Store our own report through the same validation/deduplication
             // path before publishing it. Repeated ticks are consequently inert.
-            let _ = self.epoch_manager.reports_mut().insert(report.clone());
-            self.driver.broadcast_report(report);
+            for report in reports {
+                let _ = self.epoch_manager.reports_mut().insert(report.clone());
+                self.driver.broadcast_report(report);
+            }
             self.maybe_start_cut(closing);
         }
     }

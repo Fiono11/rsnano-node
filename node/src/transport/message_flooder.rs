@@ -107,11 +107,7 @@ impl MessageFlooder {
     /// Unlike ordinary epidemic flooding, callers use this for messages whose
     /// rebroadcast flag prevents another hop from relaying them.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn flood_all(
-        &mut self,
-        message: &Message,
-        traffic_type: TrafficType,
-    ) -> usize {
+    pub(crate) fn flood_all(&mut self, message: &Message, traffic_type: TrafficType) -> usize {
         let (channels, loopback) = {
             let network = self.network.read().unwrap();
             (
