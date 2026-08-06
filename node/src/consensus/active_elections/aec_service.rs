@@ -41,11 +41,8 @@ pub struct RaiEpochTicker {
     ledger: std::sync::Arc<rsnano_ledger::Ledger>,
     epoch_duration: Duration,
     flooder: crate::transport::MessageFlooder,
-    vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     known_reports: HashSet<Vec<u8>>,
     report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
-    close_vote_replay_cursor: usize,
-    slot_vote_replay_cursors: std::collections::BTreeMap<rsnano_types::RaiEpoch, usize>,
     local_key: Option<rsnano_types::PrivateKey>,
 }
 
@@ -58,7 +55,7 @@ impl RaiEpochTicker {
         ledger: std::sync::Arc<rsnano_ledger::Ledger>,
         epoch_duration: Duration,
         flooder: crate::transport::MessageFlooder,
-        vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
+        _vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     ) -> Self {
         Self {
             aec,
@@ -67,11 +64,8 @@ impl RaiEpochTicker {
             ledger,
             epoch_duration,
             flooder,
-            vote_history,
             known_reports: Default::default(),
             report_rebroadcast_queue: Default::default(),
-            close_vote_replay_cursor: 0,
-            slot_vote_replay_cursors: Default::default(),
             local_key: None,
         }
     }
@@ -92,9 +86,13 @@ impl Tickable for RaiEpochTicker {
         };
         let now = self.clock.now();
         self.aec.rai_tick(now, local_key, self.epoch_duration);
-        if let Some(closing) = self.aec.rai_epoch_status().0.closing {
-            self.aec
-                .rai_progress_close(self.ledger.rai_preceding_frontiers(closing.epoch), now);
+        let closing = self.aec.rai_epoch_status().0.closing;
+        if let Some(closing) = closing {
+            self.aec.rai_progress_close(
+                self.ledger.rai_preceding_frontiers(closing.epoch),
+                &self.ledger,
+                now,
+            );
             if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining {
                 for root in self.aec.rai_missing_drain_elections(closing.epoch) {
                     let any = self.ledger.any();
@@ -112,104 +110,25 @@ impl Tickable for RaiEpochTicker {
         // relay each newly learned immutable object once to all known PRs and
         // a bounded random fanout of other peers. Receiving peers repeat this
         // step, while their report identity set prevents gossip loops.
-        self.report_rebroadcast_queue.extend(newly_seen_reports(
-            &mut self.known_reports,
-            self.aec.rai_reports(),
-        ));
+        const MAX_REPORT_QUEUE: usize = 16 * 1024;
+        let available = MAX_REPORT_QUEUE.saturating_sub(self.report_rebroadcast_queue.len());
+        self.report_rebroadcast_queue.extend(
+            newly_seen_reports(&mut self.known_reports, self.aec.rai_reports())
+                .into_iter()
+                .take(available),
+        );
         while !self.report_rebroadcast_queue.is_empty()
             && self
                 .flooder
                 .check_capacity(rsnano_network::TrafficType::Generic, 1.0)
         {
             let report = self.report_rebroadcast_queue.pop_front().unwrap();
-            self.flooder.flood_all(
+            tracing::warn!(?report, "RAI_CLOSE_TRACE report send epidemic");
+            self.flooder.flood_prs_and_some_non_prs(
                 &rsnano_messages::Message::RaiReport(report.clone().into()),
                 rsnano_network::TrafficType::Generic,
+                1.0,
             );
-        }
-
-        // Initial epidemic delivery is not durable. Periodically replay one
-        // report so a PR which missed the first transmission can still reach
-        // report quorum and finish closing its epoch.
-        let reports = self.aec.rai_reports();
-        for report in reports {
-            self.flooder.flood_all(
-                &rsnano_messages::Message::RaiReport(report.into()),
-                rsnano_network::TrafficType::Generic,
-            );
-        }
-
-        // Frontier preimages are the reconciliation payload for close-record
-        // hashes. Votes authenticate the decision; this transfer lets a peer
-        // which derived another fresh version validate and install the winner.
-        let records = self.aec.rai_close_record_versions();
-        for record in records {
-            let message = rsnano_messages::RaiFrontierMessage {
-                epoch: record.epoch,
-                previous: record.previous,
-                frontiers: record
-                    .frontiers
-                    .iter()
-                    .map(|(account, info)| (*account, info.clone()))
-                    .collect(),
-            };
-            self.flooder.flood_all(
-                &rsnano_messages::Message::RaiFrontier(message),
-                rsnano_network::TrafficType::Generic,
-            );
-        }
-
-        // Close votes have their own replay lane so a large slot history
-        // cannot delay cut/record progress past the close window.
-        let close_votes = self.vote_history.rai_close_votes();
-        if !close_votes.is_empty() {
-            let vote = &close_votes[self.close_vote_replay_cursor % close_votes.len()];
-            self.close_vote_replay_cursor = self.close_vote_replay_cursor.wrapping_add(1);
-            self.flooder.flood_all(
-                &rsnano_messages::Message::ConfirmAck(
-                    rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
-                ),
-                rsnano_network::TrafficType::VoteRebroadcast,
-            );
-        }
-
-        let mut slot_votes_by_epoch = std::collections::BTreeMap::<_, Vec<_>>::new();
-        for vote in self.vote_history.rai_slot_votes() {
-            slot_votes_by_epoch
-                .entry(vote.metadata.epoch)
-                .or_default()
-                .push(vote);
-        }
-        for (epoch, slot_votes) in slot_votes_by_epoch {
-            // Sweep a bounded window per tick. A close cut can contain many
-            // elections. Each epoch has an independent cursor so votes added
-            // by a newer open epoch cannot starve a lagging peer's close.
-            let replay_count = slot_votes.len().min(16);
-            let cursor = self.slot_vote_replay_cursors.entry(epoch).or_default();
-            for offset in 0..replay_count {
-                let vote = &slot_votes[(cursor.wrapping_add(offset)) % slot_votes.len()];
-                // A durable certificate is not actionable until the peer has
-                // its candidate block. Replay the bounded set of referenced
-                // saved blocks alongside the vote so a missed publish cannot
-                // leave a certified cut obligation permanently unroutable.
-                for hash in &vote.hashes {
-                    if let Some(block) = self.ledger.any().get_block(hash) {
-                        self.flooder.flood_all(
-                            &rsnano_messages::Message::Publish(
-                                rsnano_messages::Publish::new_from_originator(block.into()),
-                            ),
-                            rsnano_network::TrafficType::BlockBroadcastInitial,
-                        );
-                    }
-                }
-                self.flooder.flood_all(
-                    &rsnano_messages::Message::ConfirmAck(
-                        rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
-                    ),
-                    rsnano_network::TrafficType::VoteRebroadcast,
-                );
-            }
-            *cursor = cursor.wrapping_add(replay_count);
         }
     }
 }
@@ -430,6 +349,7 @@ impl AecService {
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_report_received(&self, report: crate::consensus::rai::RaiReport) {
+        tracing::warn!(?report, "RAI_CLOSE_TRACE report receive");
         let now = self.clock.now();
         self.aec.write().unwrap().rai_report_received(
             report,
@@ -445,25 +365,16 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn rai_close_record_versions(&self) -> Vec<crate::consensus::rai::RaiCloseRecord> {
-        self.aec.read().unwrap().rai_close_record_versions()
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn rai_frontier_received(&self, message: rsnano_messages::RaiFrontierMessage) {
-        self.aec
-            .write()
-            .unwrap()
-            .rai_frontier_received(message, self.clock.now());
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub fn rai_progress_close(
         &self,
         frontiers: crate::consensus::rai::RaiFrontierMap,
+        ledger: &rsnano_ledger::Ledger,
         now: Timestamp,
     ) {
-        self.aec.write().unwrap().rai_progress_close(frontiers, now);
+        self.aec
+            .write()
+            .unwrap()
+            .rai_progress_close(frontiers, ledger, now);
     }
 
     #[cfg(feature = "rai_protocol")]

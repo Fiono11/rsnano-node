@@ -312,6 +312,34 @@ impl Ledger {
         }
         weights
     }
+
+    /// Representative weights at an exact certified account-frontier view.
+    /// Unlike the live weight cache, this is deterministic for a close record.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_rep_weights_at_frontiers(
+        &self,
+        frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
+    ) -> RepWeights {
+        let txn = self.store.begin_read();
+        let mut weights = RepWeights::default();
+        for info in frontiers.values() {
+            let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
+                continue;
+            };
+            let rep_hash =
+                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
+            let Some(rep) = self
+                .store
+                .block
+                .get(&txn, &rep_hash)
+                .and_then(|block| block.representative_field())
+            else {
+                continue;
+            };
+            weights.put(rep, weights.weight(&rep).wrapping_add(frontier.balance()));
+        }
+        weights
+    }
     pub fn new_null() -> Self {
         Self::new(
             LmdbEnvironment::new_null(),

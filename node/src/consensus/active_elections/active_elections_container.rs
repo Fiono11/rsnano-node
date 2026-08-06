@@ -118,34 +118,10 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn rai_close_record_versions(&self) -> Vec<crate::consensus::rai::RaiCloseRecord> {
-        self.rai_epoch_manager.close_record_versions()
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn rai_frontier_received(
-        &mut self,
-        message: rsnano_messages::RaiFrontierMessage,
-        now: Timestamp,
-    ) {
-        let record = crate::consensus::rai::RaiCloseRecord::new(
-            message.epoch,
-            message.previous,
-            message.frontiers,
-        );
-        let Some((epoch, round, hash)) = self.rai_epoch_manager.reconcile_close_record(record)
-        else {
-            return;
-        };
-        let id = crate::consensus::election::RaiElectionId::CloseRecord { epoch, round };
-        self.roots.add_rai_hash_candidate_for_id(&id, hash);
-        self.apply_pending_rai_votes(&id, now);
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub fn rai_progress_close(
         &mut self,
         frontiers: crate::consensus::rai::RaiFrontierMap,
+        ledger: &rsnano_ledger::Ledger,
         now: Timestamp,
     ) {
         use crate::consensus::rai::{RaiCloseElectionId, RaiCloseKind, RaiClosingPhase};
@@ -237,7 +213,15 @@ impl ActiveElectionsContainer {
                 );
             }
         }
-        let Some((root, candidate)) = self.rai_epoch_manager.begin_close_record() else {
+        let Some(close_frontiers) = self
+            .rai_epoch_manager
+            .drain_frontiers(closing.epoch)
+            .cloned()
+        else {
+            return;
+        };
+        let committee = ledger.rai_rep_weights_at_frontiers(&close_frontiers);
+        let Some((root, candidate)) = self.rai_epoch_manager.begin_close_record(committee) else {
             return;
         };
         let Some(committee) = self.rai_epoch_manager.close_committee(closing.epoch) else {
@@ -311,6 +295,14 @@ impl ActiveElectionsContainer {
                 root: QualifiedRoot,
                 hash: BlockHash,
             ) {
+                tracing::warn!(
+                    ?kind,
+                    ?epoch,
+                    round,
+                    ?root,
+                    ?hash,
+                    "RAI_CLOSE_TRACE close election start"
+                );
                 self.close_elections.push((kind, epoch, round, root, hash));
             }
 
@@ -355,7 +347,8 @@ impl ActiveElectionsContainer {
                         }
                     }
                 };
-                self.roots
+                let result = self
+                    .roots
                     .election_for_rai_id(&id)
                     .map_or((None, None), |election| {
                         let evidence = election.rai_votes.clone();
@@ -364,7 +357,17 @@ impl ActiveElectionsContainer {
                             _ => None,
                         };
                         (Some(evidence), winner)
-                    })
+                    });
+                tracing::warn!(
+                    ?kind,
+                    ?epoch,
+                    round,
+                    election_id = ?id,
+                    evidence = ?result.0,
+                    winner = ?result.1,
+                    "RAI_CLOSE_TRACE close election update"
+                );
+                result
             }
             _ => (None, None),
         };
@@ -1759,6 +1762,7 @@ mod tests {
 
         container.rai_progress_close(
             [(account, expected_frontier.clone())].into_iter().collect(),
+            &rsnano_ledger::Ledger::new_null(),
             now,
         );
 
@@ -1854,7 +1858,7 @@ mod tests {
             .install_cut(RaiEpoch::ZERO, 0, cut)
             .unwrap();
 
-        container.rai_progress_close(Default::default(), now);
+        container.rai_progress_close(Default::default(), &rsnano_ledger::Ledger::new_null(), now);
 
         let drain = container
             .rai_epoch_manager
@@ -2053,7 +2057,10 @@ mod tests {
                 ConfirmationHeightInfo::new(4, BlockHash::from(40)),
             )],
         );
-        let (root, candidate) = container.rai_epoch_manager.begin_close_record().unwrap();
+        let (root, candidate) = container
+            .rai_epoch_manager
+            .begin_close_record(RepWeights::default())
+            .unwrap();
         let id = RaiCloseElectionId {
             kind: RaiCloseKind::Record,
             epoch: 0.into(),

@@ -361,7 +361,10 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
         if !drain.is_complete() {
             return;
         }
-        if let Some((root, hash)) = self.epoch_manager.begin_close_record() {
+        let Some(committee) = self.driver.certified_weights(epoch) else {
+            return;
+        };
+        if let Some((root, hash)) = self.epoch_manager.begin_close_record(committee) {
             self.driver
                 .start_close_election(RaiCloseKind::Record, epoch, 0, root, hash);
         }

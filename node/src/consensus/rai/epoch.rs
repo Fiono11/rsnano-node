@@ -187,6 +187,7 @@ pub struct RaiEpochManager {
     reports: RaiReportStore,
     close_cuts: RaiCloseCutStore,
     close_records: RaiCloseRecordStore,
+    close_record_committees: BTreeMap<BlockHash, RepWeights>,
     visible_obligations: BTreeMap<RaiEpoch, BTreeSet<RaiSlotId>>,
     frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<RaiSlotId>>,
     drains: BTreeMap<RaiEpoch, RaiHappyPathDrain>,
@@ -223,6 +224,7 @@ pub struct RaiDurableCloseRoundState {
     pub record_rounds: Option<super::RaiCloseRoundTracker>,
     pub close_cuts: RaiCloseCutStore,
     pub close_records: RaiCloseRecordStore,
+    pub close_record_committees: BTreeMap<BlockHash, RepWeights>,
     pub visible_obligations: Option<BTreeSet<RaiSlotId>>,
 }
 
@@ -243,6 +245,7 @@ impl RaiEpochManager {
             reports: RaiReportStore::default(),
             close_cuts: RaiCloseCutStore::default(),
             close_records: RaiCloseRecordStore::default(),
+            close_record_committees: BTreeMap::new(),
             visible_obligations: BTreeMap::new(),
             frozen_obligations: BTreeMap::new(),
             drains: BTreeMap::new(),
@@ -404,6 +407,12 @@ impl RaiEpochManager {
         let mut visible = self.reports.visible_from_reports(epoch, &committee);
         visible.extend(vote_visible);
         let cut = RaiCloseCut::new(epoch, visible.clone());
+        tracing::warn!(
+            hash = ?cut.hash(),
+            cut = ?cut,
+            round = 0,
+            "RAI_CLOSE_TRACE local close cut hash update"
+        );
         let hash = self.close_cuts.insert(cut);
         self.visible_obligations.insert(epoch, visible);
         self.state.closing.as_mut().unwrap().phase = RaiClosingPhase::ElectingCut;
@@ -438,9 +447,24 @@ impl RaiEpochManager {
         }
         let mut visible = self.reports.visible_from_reports(epoch, &committee);
         visible.extend(vote_visible);
-        let hash = self
-            .close_cuts
-            .insert(RaiCloseCut::new(epoch, visible.clone()));
+        let cut = RaiCloseCut::new(epoch, visible.clone());
+        let hash = cut.hash();
+        let unchanged = self.visible_obligations.get(&epoch) == Some(&visible)
+            && self
+                .cut_rounds
+                .get(&epoch)
+                .and_then(|rounds| rounds.round(round))
+                .is_some_and(|state| state.validated_preimages.contains(&hash));
+        if unchanged {
+            return None;
+        }
+        tracing::warn!(
+            ?hash,
+            cut = ?cut,
+            round,
+            "RAI_CLOSE_TRACE local close cut hash update"
+        );
+        self.close_cuts.insert(cut);
         self.visible_obligations.insert(epoch, visible);
         self.cut_rounds
             .get_mut(&epoch)?
@@ -572,7 +596,10 @@ impl RaiEpochManager {
 
     /// Derives the sole round-zero close candidate after every cut obligation
     /// has reached the existing confirmation-height state.
-    pub fn begin_close_record(&mut self) -> Option<(QualifiedRoot, BlockHash)> {
+    pub fn begin_close_record(
+        &mut self,
+        committee: RepWeights,
+    ) -> Option<(QualifiedRoot, BlockHash)> {
         let closing = self.state.closing?;
         if closing.phase != RaiClosingPhase::Draining
             || !self.drains.get(&closing.epoch)?.is_complete()
@@ -591,7 +618,14 @@ impl RaiEpochManager {
             .unwrap_or(BlockHash::ZERO);
         let record =
             RaiCloseRecord::new(epoch, previous, self.drain_frontiers.get(&epoch)?.clone());
+        tracing::warn!(
+            hash = ?record.hash(),
+            record = ?record,
+            round = 0,
+            "RAI_CLOSE_TRACE local close record hash update"
+        );
         let hash = self.close_records.insert(record);
+        self.close_record_committees.insert(hash, committee);
         self.state.closing.as_mut().unwrap().phase = RaiClosingPhase::ElectingRecord;
         self.record_rounds
             .entry(epoch)
@@ -619,7 +653,7 @@ impl RaiEpochManager {
         epoch: RaiEpoch,
         round: u32,
         hash: BlockHash,
-        certified_weights: RepWeights,
+        _certified_weights: RepWeights,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
         if let Some(existing) = self.close_hashes.get(&epoch) {
             return if *existing == hash {
@@ -660,6 +694,11 @@ impl RaiEpochManager {
         {
             return Err(CloseRecordDecisionError::InvalidRecord);
         }
+        let certified_weights = self
+            .close_record_committees
+            .get(&hash)
+            .cloned()
+            .ok_or(CloseRecordDecisionError::MissingPreimage)?;
         let tracker = self
             .record_rounds
             .get_mut(&epoch)
@@ -753,9 +792,14 @@ impl RaiEpochManager {
         // replay captured while draining. Ordinary confirmation-height writes
         // after that point must not perturb a fresh retry candidate.
         let frontiers = self.drain_frontiers.get(&epoch)?.clone();
-        let fresh = self
-            .close_records
-            .insert(RaiCloseRecord::new(epoch, previous, frontiers));
+        let record = RaiCloseRecord::new(epoch, previous, frontiers);
+        tracing::warn!(
+            hash = ?record.hash(),
+            record = ?record,
+            round = self.close_record_round(epoch).unwrap_or(0).saturating_add(1),
+            "RAI_CLOSE_TRACE local close record hash update"
+        );
+        let fresh = self.close_records.insert(record);
         let action = self.record_rounds.get_mut(&epoch)?.next(fresh);
         let (round, hash) = match action {
             super::RaiCloseRoundAction::StartFresh { round, hash }
@@ -943,6 +987,7 @@ impl RaiEpochManager {
                 record_rounds: self.record_rounds.get(&closing.epoch).map(|r| r.snapshot()),
                 close_cuts: self.close_cuts.clone(),
                 close_records: self.close_records.clone(),
+                close_record_committees: self.close_record_committees.clone(),
                 visible_obligations: self.visible_obligations.get(&closing.epoch).cloned(),
             })
         })
@@ -982,6 +1027,7 @@ impl RaiEpochManager {
         });
         self.close_cuts = state.close_cuts;
         self.close_records = state.close_records;
+        self.close_record_committees = state.close_record_committees;
         if let Some(rounds) = cut {
             self.cut_rounds.insert(state.epoch, rounds);
         }
@@ -1440,7 +1486,7 @@ mod tests {
         assert!(manager.certified_release(&old).is_none());
 
         manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
-        let (_, close) = manager.begin_close_record().unwrap();
+        let (_, close) = manager.begin_close_record(RepWeights::default()).unwrap();
         manager
             .install_close_record(RaiEpoch::ZERO, 0, close)
             .unwrap();
@@ -1478,7 +1524,7 @@ mod tests {
         let (_, cut) = manager.begin_cut_election([]).unwrap();
         manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
         manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
-        let (_, close) = manager.begin_close_record().unwrap();
+        let (_, close) = manager.begin_close_record(RepWeights::default()).unwrap();
         manager
             .install_close_record(RaiEpoch::ZERO, 0, close)
             .unwrap();
@@ -1600,7 +1646,7 @@ mod tests {
 
         let close_hashes = replicas
             .iter_mut()
-            .map(|replica| replica.begin_close_record().unwrap().1)
+            .map(|replica| replica.begin_close_record(RepWeights::default()).unwrap().1)
             .collect::<Vec<_>>();
         assert!(close_hashes.windows(2).all(|pair| pair[0] == pair[1]));
 
@@ -1670,9 +1716,10 @@ mod tests {
             ConfirmationHeightInfo::new(4, BlockHash::from(40)),
         )];
 
-        assert!(manager.begin_close_record().is_none());
+        assert!(manager.begin_close_record(RepWeights::default()).is_none());
         assert!(manager.initialize_drain_frontiers(0.into(), frontiers.clone()));
-        let (root, close) = manager.begin_close_record().unwrap();
+        let derived = weights(2, 200).as_ref().clone();
+        let (root, close) = manager.begin_close_record(derived).unwrap();
         assert_eq!(
             root,
             crate::consensus::rai::rai_close_record_root(0.into(), 0)
@@ -1736,7 +1783,7 @@ mod tests {
         assert!(!manager.slot_election_enabled(RaiEpoch::ZERO, &QualifiedRoot::ZERO));
         assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation.root));
         assert!(manager.slot_election_enabled(RaiEpoch::new(1), &QualifiedRoot::ZERO));
-        assert!(manager.begin_close_record().is_none());
+        assert!(manager.begin_close_record(RepWeights::default()).is_none());
     }
 
     #[test]
@@ -1778,8 +1825,8 @@ mod tests {
             ConfirmationHeightInfo::new(4, BlockHash::from(40)),
         )];
         manager.initialize_drain_frontiers(0.into(), frontiers);
-        let (_, record) = manager.begin_close_record().unwrap();
-        assert!(manager.begin_close_record().is_none());
+        let (_, record) = manager.begin_close_record(RepWeights::default()).unwrap();
+        assert!(manager.begin_close_record(RepWeights::default()).is_none());
         manager.install_close_record(0.into(), 0, record).unwrap();
         manager.install_close_record(0.into(), 0, record).unwrap();
         assert_eq!(manager.state().closed_through, Some(RaiEpoch::ZERO));
@@ -1810,7 +1857,7 @@ mod tests {
             let (_, cut) = manager.begin_cut_election([]).unwrap();
             manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
             manager.initialize_drain_frontiers(RaiEpoch::ZERO, frontiers.clone());
-            hashes.push(manager.begin_close_record().unwrap().1);
+            hashes.push(manager.begin_close_record(RepWeights::default()).unwrap().1);
         }
 
         assert!(hashes.windows(2).all(|pair| pair[0] == pair[1]));
@@ -1832,7 +1879,7 @@ mod tests {
             ConfirmationHeightInfo::new(4, BlockHash::from(40)),
         )];
         manager.initialize_drain_frontiers(RaiEpoch::ZERO, frontiers.clone());
-        let (_, canonical) = manager.begin_close_record().unwrap();
+        let (_, canonical) = manager.begin_close_record(RepWeights::default()).unwrap();
 
         assert_eq!(
             manager.install_close_record(RaiEpoch::ZERO, 0, BlockHash::from(999)),
