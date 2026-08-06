@@ -145,7 +145,10 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let send: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            // A state send must preserve the account's current delegation.
+            // Changing it to the account key silently moves committee weight
+            // to spam keys which the test nodes do not host as representatives.
+            representative: state.representative,
             balance: new_balance,
             link: destination.into(),
             work: 0.into(),
@@ -212,13 +215,17 @@ mod tests {
 
     #[test]
     fn initial_send_to_random_account() {
+        let mut account_map = test_account_map();
+        let representative = PublicKey::from(999);
+        account_map.set_representative(initial_test_key().account(), representative);
         let mut block_factory =
-            BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
+            BlockFactory::new(account_map, MAX_BLOCKS, SpamStrategy::SendReceive);
         let block = block_factory.create_next(false).unwrap().unwrap();
         let account = block.account_field().unwrap();
         let destination = block.destination_or_link();
 
         assert_eq!(account, initial_test_key().account());
+        assert_eq!(block.representative_field(), Some(representative));
         assert!(block_factory.account_map.contains(&destination));
         assert!(
             block_factory
