@@ -18,10 +18,6 @@ mod network_filter;
 mod rai_report;
 #[cfg(feature = "rai_protocol")]
 pub use rai_report::*;
-#[cfg(feature = "rai_protocol")]
-mod rai_frontier;
-#[cfg(feature = "rai_protocol")]
-pub use rai_frontier::*;
 
 pub use message::*;
 pub use message_deserializer::*;

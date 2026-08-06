@@ -103,26 +103,6 @@ impl MessageFlooder {
         flood_count
     }
 
-    /// Sends durable protocol material to every currently established peer.
-    /// Unlike ordinary epidemic flooding, callers use this for messages whose
-    /// rebroadcast flag prevents another hop from relaying them.
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn flood_all(&mut self, message: &Message, traffic_type: TrafficType) -> usize {
-        let (channels, loopback) = {
-            let network = self.network.read().unwrap();
-            (
-                network.shuffled_channels(traffic_type),
-                network.loopback().clone(),
-            )
-        };
-        let mut sent = usize::from(self.sender.try_send(&loopback, message, traffic_type));
-        sent += channels
-            .into_iter()
-            .filter(|channel| self.sender.try_send(channel, message, traffic_type))
-            .count();
-        sent
-    }
-
     pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {
         self.network.read().unwrap().get(channel_id).cloned()
     }

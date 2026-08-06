@@ -158,6 +158,18 @@ impl NetworkMessageProcessor {
                 }
             }
             Message::ConfirmAck(ack) => {
+                #[cfg(feature = "rai_protocol")]
+                if matches!(
+                    ack.vote().metadata.election_id,
+                    rsnano_types::RaiElectionId::CloseCut { .. }
+                        | rsnano_types::RaiElectionId::CloseRecord { .. }
+                ) {
+                    tracing::warn!(
+                        vote = ?ack.vote(),
+                        rebroadcasted = ack.is_rebroadcasted(),
+                        "RAI_CLOSE_TRACE close election vote receive"
+                    );
+                }
                 // Ignore zero account votes
                 if ack.vote().voter.is_zero() {
                     self.stats.inc_dir(
@@ -223,10 +235,6 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(report) => {
                 self.active_elections.rai_report_received(report.into());
-            }
-            #[cfg(feature = "rai_protocol")]
-            Message::RaiFrontier(frontier) => {
-                self.active_elections.rai_frontier_received(frontier);
             }
         }
     }
