@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, Mutex},
     thread::yield_now,
@@ -312,7 +313,9 @@ impl NanoSpamApp {
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
-        let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
+        let average_finalization_time =
+            average_confirmation_time(logic.sum_conf_time_total, created_blocks);
+        let conf_time = average_finalization_time.as_millis();
         info!("Average conf time: {conf_time} ms");
 
         #[cfg(feature = "rai_protocol")]
@@ -328,15 +331,23 @@ impl NanoSpamApp {
                 .await?;
             }
             let statuses = fetch_rai_statuses(&self.rpc_clients).await?;
-            print_finalized_blocks_by_epoch(&statuses);
             if self.args.rai_epoch_duration_ms.is_some() {
                 record_rai_statuses(&statuses, &transition, &self.last_rai_phase);
+                let observed = transition.into_inner().unwrap();
                 validate_epoch_transition(
                     &statuses,
                     &initial_rai_statuses,
                     self.args.blocks.unwrap_or(0),
-                    &transition.into_inner().unwrap(),
+                    &observed,
                 )?;
+                print_rai_final_report(
+                    &statuses,
+                    &initial_rai_statuses,
+                    &observed,
+                    average_finalization_time,
+                )?;
+            } else {
+                print_finalized_blocks_by_epoch(&statuses);
             }
         }
 
@@ -379,6 +390,17 @@ struct RaiTransitionObservation {
     saw_matching_cut: bool,
     saw_obligations_finalized: bool,
     validation_error: Option<String>,
+    epoch_timings: BTreeMap<u64, RaiEpochTiming>,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+struct RaiEpochTiming {
+    close_started: Option<Instant>,
+    cut_started: Option<Instant>,
+    cut_finished: Option<Duration>,
+    record_started: Option<Instant>,
+    record_finished: Option<Duration>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -407,6 +429,7 @@ fn record_rai_statuses(
     observation: &Mutex<RaiTransitionObservation>,
     last_phase: &Arc<Mutex<String>>,
 ) {
+    let now = Instant::now();
     let phase = statuses
         .iter()
         .enumerate()
@@ -461,6 +484,69 @@ fn record_rai_statuses(
             .unwrap_or(0);
         finalized == obligations
     });
+
+    let mut epochs = statuses
+        .iter()
+        .filter_map(|status| status.closing_epoch.as_ref().map(|epoch| epoch.inner()))
+        .collect::<Vec<_>>();
+    epochs.extend(statuses.iter().flat_map(|status| {
+        status
+            .cut_hashes
+            .keys()
+            .chain(status.close_hashes.keys())
+            .filter_map(|epoch| epoch.parse::<u64>().ok())
+    }));
+    epochs.sort_unstable();
+    epochs.dedup();
+
+    for epoch in epochs {
+        let timing = observed.epoch_timings.entry(epoch).or_default();
+        let closing_here = statuses
+            .iter()
+            .any(|status| status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch));
+        if closing_here {
+            timing.close_started.get_or_insert(now);
+        }
+        if statuses.iter().any(|status| {
+            status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch)
+                && status.closing_phase.as_deref() == Some("ElectingCut")
+        }) {
+            timing.cut_started.get_or_insert(now);
+        }
+        let epoch_key = epoch.to_string();
+        let cut_installed = !statuses.is_empty()
+            && statuses
+                .iter()
+                .all(|status| status.cut_hashes.contains_key(&epoch_key));
+        if cut_installed && timing.cut_finished.is_none() {
+            let started = timing.cut_started.or(timing.close_started).unwrap_or(now);
+            timing.cut_finished = Some(started.elapsed());
+        }
+        if statuses.iter().any(|status| {
+            status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch)
+                && status.closing_phase.as_deref() == Some("ElectingRecord")
+        }) {
+            timing.record_started.get_or_insert(now);
+        }
+        let record_installed = !statuses.is_empty()
+            && statuses
+                .iter()
+                .all(|status| status.close_hashes.contains_key(&epoch_key));
+        if record_installed {
+            if timing.record_finished.is_none() {
+                let started = timing
+                    .record_started
+                    .or_else(|| {
+                        timing
+                            .cut_started
+                            .map(|start| start + timing.cut_finished.unwrap_or_default())
+                    })
+                    .or(timing.close_started)
+                    .unwrap_or(now);
+                timing.record_finished = Some(started.elapsed());
+            }
+        }
+    }
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -512,6 +598,59 @@ fn print_finalized_blocks_by_epoch(statuses: &[rsnano_rpc_messages::RaiStatusRes
             .join(", ");
         println!("  PR{pr}: {formatted}");
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn print_rai_final_report(
+    statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    observed: &RaiTransitionObservation,
+    average_finalization_time: Duration,
+) -> anyhow::Result<()> {
+    let status = statuses
+        .first()
+        .ok_or_else(|| anyhow!("no PRs reported final RAI status"))?;
+    let initial = initial_statuses
+        .first()
+        .ok_or_else(|| anyhow!("no initial RAI status was recorded"))?;
+    let counts = workload_counts(status, initial)?;
+
+    let finalized: u64 = counts.values().sum();
+    println!("RAI finalization report:");
+    println!(
+        "  {finalized} finalized blocks, average finalization time {}",
+        format_duration(Some(average_finalization_time))
+    );
+    println!("  close protocol timings by epoch:");
+    for (epoch, count) in counts {
+        let epoch_number = epoch.parse::<u64>()?;
+        let timing = observed.epoch_timings.get(&epoch_number);
+        println!("    epoch {epoch}: {count} finalized blocks");
+        println!(
+            "      close cut election: {}",
+            format_duration(timing.and_then(|value| value.cut_finished))
+        );
+        println!(
+            "      close record election: {}",
+            format_duration(timing.and_then(|value| value.record_finished))
+        );
+    }
+    Ok(())
+}
+
+fn average_confirmation_time(total: Duration, confirmed: usize) -> Duration {
+    if confirmed == 0 {
+        Duration::ZERO
+    } else {
+        total / confirmed as u32
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn format_duration(duration: Option<Duration>) -> String {
+    duration
+        .map(|value| format!("{:.2} ms", value.as_secs_f64() * 1_000.0))
+        .unwrap_or_else(|| "not observed".to_string())
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -886,6 +1025,18 @@ mod tests {
     use rsnano_rpc_messages::RaiStatusResponse;
     use std::collections::BTreeMap;
 
+    #[test]
+    fn finalization_average_uses_per_block_confirmation_times() {
+        assert_eq!(
+            average_confirmation_time(Duration::from_millis(900), 3),
+            Duration::from_millis(300)
+        );
+        assert_eq!(
+            average_confirmation_time(Duration::from_millis(900), 0),
+            Duration::ZERO
+        );
+    }
+
     fn status(epoch_0: u64, epoch_1: u64, close_hash: &str) -> RaiStatusResponse {
         RaiStatusResponse {
             genesis_committee: Vec::new(),
@@ -988,6 +1139,7 @@ mod tests {
             saw_matching_cut: true,
             saw_obligations_finalized: true,
             validation_error: None,
+            epoch_timings: Default::default(),
         }
     }
 }
