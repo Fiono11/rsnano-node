@@ -202,7 +202,13 @@ impl LocalVoteHistory {
     pub fn rai_close_votes(&self) -> Vec<Arc<Vote>> {
         self.rai_votes()
             .into_iter()
-            .filter(|vote| vote.metadata.governing_hash.is_zero())
+            .filter(|vote| {
+                matches!(
+                    vote.metadata.election_id,
+                    rsnano_types::RaiElectionId::CloseCut { .. }
+                        | rsnano_types::RaiElectionId::CloseRecord { .. }
+                )
+            })
             .collect()
     }
 
@@ -210,7 +216,12 @@ impl LocalVoteHistory {
     pub fn rai_slot_votes(&self) -> Vec<Arc<Vote>> {
         self.rai_votes()
             .into_iter()
-            .filter(|vote| !vote.metadata.governing_hash.is_zero())
+            .filter(|vote| {
+                matches!(
+                    vote.metadata.election_id,
+                    rsnano_types::RaiElectionId::Slot(_)
+                )
+            })
             .collect()
     }
 }

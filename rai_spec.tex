@@ -539,14 +539,14 @@ and \(\chi\) is either omitted on the wire, represented here by \(\bot\), or is 
 scope.  The election identifier contains its epoch and election type, from which every verifier derives
 \(\Committees(\id)\), \(\SignerCommittees(P_i,\id)\), and then
 \(\EffectiveCommittees(P_i,\id,\chi)\).  Because \(\chi\) is part of the canonical leaf, the batch
-signature binds the scope.  For one signer and one governing close hash, let \(M\) be a canonical
+signature binds the scope.  For one signer, let \(M\) be a canonical
 duplicate-free set of leaves and let \(r_M=\hash(\operatorname{canon}(M))\).  The authenticated wire
 object is
 \[
-\VoteBatch(P_i,\governingHash(e),r_M,M,\sigma_i),
+\VoteBatch(P_i,r_M,M,\sigma_i),
 \qquad
 \sigma_i=\operatorname{Sign}_{P_i}
- \bigl(\hash(\mathsf{RAI/VoteBatch/v3}\parallel\governingHash(e)\parallel r_M)\bigr).
+ \bigl(\hash(\mathsf{RAI/VoteBatch/v3}\parallel r_M)\bigr).
 \]
 A sender may transmit the complete batch or one leaf with a Merkle inclusion proof against \(r_M\).
 A receiver validates the batch signature, canonical root, election identifier, governing context,

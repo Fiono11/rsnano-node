@@ -97,7 +97,6 @@ pub struct RaiVoteMetadata {
     pub election_id: RaiElectionId,
     pub phase: RaiVotePhase,
     pub epoch: RaiEpoch,
-    pub governing_hash: BlockHash,
     pub scope: RaiCommitteeScope,
 }
 
@@ -286,7 +285,6 @@ impl Vote {
                 .update(self.metadata.election_id.digest_bytes())
                 .update([self.metadata.phase as u8])
                 .update(self.metadata.epoch.number().to_le_bytes())
-                .update(self.metadata.governing_hash.as_bytes())
                 .update([self.metadata.scope as u8])
                 .update(self.timestamp.to_le_bytes());
             for hash in &self.hashes {
@@ -322,7 +320,6 @@ impl Vote {
             let election_id = RaiElectionId::deserialize(&mut bytes)?;
             bytes.read_exact(&mut buffer)?;
             let epoch = RaiEpoch::new(u64::from_le_bytes(buffer));
-            let governing_hash = BlockHash::deserialize(&mut bytes)?;
             let scope = match crate::read_u8(&mut bytes)? {
                 0 => RaiCommitteeScope::All,
                 1 => RaiCommitteeScope::Older,
@@ -333,7 +330,6 @@ impl Vote {
                 election_id,
                 phase,
                 epoch,
-                governing_hash,
                 scope,
             }
         };
@@ -361,7 +357,7 @@ impl Vote {
             + std::mem::size_of::<u64>() // timestamp
             + (BlockHash::SERIALIZED_SIZE * count);
         #[cfg(feature = "rai_protocol")]
-        return base + 1 + RaiElectionId::SERIALIZED_SIZE + 8 + BlockHash::SERIALIZED_SIZE + 1;
+        return base + 1 + RaiElectionId::SERIALIZED_SIZE + 8 + 1;
         #[cfg(not(feature = "rai_protocol"))]
         return base;
     }
@@ -378,7 +374,6 @@ impl Vote {
             writer.write_all(&[self.metadata.phase as u8])?;
             self.metadata.election_id.serialize(writer)?;
             writer.write_all(&self.metadata.epoch.number().to_le_bytes())?;
-            self.metadata.governing_hash.serialize(writer)?;
             writer.write_all(&[self.metadata.scope as u8])?;
         }
         for hash in &self.hashes {
@@ -500,7 +495,6 @@ mod tests {
                 }),
                 phase: RaiVotePhase::Notar,
                 epoch: RaiEpoch::new(7),
-                governing_hash: BlockHash::from(10),
                 scope: RaiCommitteeScope::Older,
             },
         )
@@ -531,7 +525,6 @@ mod tests {
         assert_eq!(first.metadata.phase, RaiVotePhase::First);
         assert_eq!(final_vote.metadata.phase, RaiVotePhase::Final);
         assert_eq!(final_vote.metadata.epoch, RaiEpoch::ZERO);
-        assert_eq!(final_vote.metadata.governing_hash, BlockHash::ZERO);
         assert_eq!(final_vote.metadata.scope, RaiCommitteeScope::All);
     }
 
@@ -565,14 +558,6 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn rai_signature_binds_governing_hash() {
-        let mut vote = rai_vote();
-        vote.metadata.governing_hash = BlockHash::from(99);
-        assert!(vote.validate().is_err());
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    #[test]
     fn rai_signature_binds_committee_scope() {
         let mut vote = rai_vote();
         vote.metadata.scope = RaiCommitteeScope::Newer;
@@ -601,11 +586,7 @@ mod tests {
         invalid_phase[metadata_offset] = 3;
         assert!(Vote::deserialize(&invalid_phase).is_err());
 
-        bytes[metadata_offset
-            + 1
-            + RaiElectionId::SERIALIZED_SIZE
-            + 8
-            + BlockHash::SERIALIZED_SIZE] = 3;
+        bytes[metadata_offset + 1 + RaiElectionId::SERIALIZED_SIZE + 8] = 3;
         assert!(Vote::deserialize(&bytes).is_err());
     }
 

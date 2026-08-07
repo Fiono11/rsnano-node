@@ -870,8 +870,7 @@ impl ActiveElectionsContainer {
         {
             return Err(AecInsertError::InvalidRaiCloseElection);
         }
-        let governing_hash = self
-            .rai_epoch_manager
+        self.rai_epoch_manager
             .governing_hash(epoch)
             .ok_or(AecInsertError::MissingRaiGoverningClose)?;
         let committees = self
@@ -886,8 +885,7 @@ impl ActiveElectionsContainer {
             now,
             epoch,
         )
-        .with_rai_committees(committees)
-        .with_rai_governing_hash(Some(governing_hash));
+        .with_rai_committees(committees);
         let election_id = election.rai_id().clone();
         self.roots.insert_rai(Entry {
             root: root.clone(),
@@ -953,8 +951,7 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         let epoch = epoch_state.open_epoch;
         #[cfg(feature = "rai_protocol")]
-        let governing_hash = self
-            .rai_epoch_manager
+        self.rai_epoch_manager
             .governing_hash(epoch)
             .ok_or(AecInsertError::MissingRaiGoverningClose)?;
         #[cfg(feature = "rai_protocol")]
@@ -970,8 +967,7 @@ impl ActiveElectionsContainer {
             now,
             epoch,
         )
-        .with_rai_committees(committees)
-        .with_rai_governing_hash(Some(governing_hash));
+        .with_rai_committees(committees);
 
         #[cfg(feature = "rai_protocol")]
         self.rai_visible_obligations
@@ -1331,6 +1327,26 @@ impl ActiveElectionsContainer {
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
         #[cfg(feature = "rai_protocol")]
         {
+            // The governing close is an implicit, deterministic part of the
+            // epoch context. Never retain or apply a vote until that certified
+            // state is locally available.
+            let election_epoch = match &args.vote.metadata.election_id {
+                crate::consensus::election::RaiElectionId::Slot(slot) => slot.epoch,
+                crate::consensus::election::RaiElectionId::CloseCut { epoch, .. }
+                | crate::consensus::election::RaiElectionId::CloseRecord { epoch, .. } => *epoch,
+            };
+            if election_epoch != args.vote.metadata.epoch
+                || self
+                    .rai_epoch_manager
+                    .governing_hash(election_epoch)
+                    .is_none()
+            {
+                return args
+                    .vote
+                    .filtered_blocks()
+                    .map(|hash| (*hash, Err(VoteError::Invalid)))
+                    .collect();
+            }
             for hash in args.vote.filtered_blocks() {
                 if let crate::consensus::election::RaiElectionId::Slot(slot) =
                     &args.vote.metadata.election_id
@@ -1715,7 +1731,6 @@ mod tests {
                     ),
                     phase: RaiVotePhase::First,
                     epoch: 0.into(),
-                    governing_hash: BlockHash::from(7),
                     scope: RaiCommitteeScope::All,
                 },
             )
@@ -1838,7 +1853,6 @@ mod tests {
                     election_id: id,
                     phase: RaiVotePhase::First,
                     epoch: RaiEpoch::ZERO,
-                    governing_hash: BlockHash::from(7),
                     scope: RaiCommitteeScope::All,
                 },
                 UnixMillisTimestamp::new(1),
@@ -1970,7 +1984,6 @@ mod tests {
                         },
                         phase: RaiVotePhase::First,
                         epoch: 0.into(),
-                        governing_hash: BlockHash::from(999),
                         scope: RaiCommitteeScope::All,
                     },
                 )
@@ -2096,7 +2109,6 @@ mod tests {
                     },
                     phase: RaiVotePhase::First,
                     epoch: 0.into(),
-                    governing_hash: BlockHash::from(999),
                     scope: RaiCommitteeScope::All,
                 },
             )
@@ -2241,6 +2253,52 @@ mod tests {
 
         assert_eq!(container.info(start).stale, 0);
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rejects_vote_when_governing_close_is_unavailable() {
+        use crate::consensus::{FilteredVote, ReceivedVote};
+        use rsnano_types::{
+            PrivateKey, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata,
+            RaiVotePhase, UnixMillisTimestamp, Vote, VoteDelivery,
+        };
+
+        let mut container = ActiveElectionsContainer::default();
+        let hash = BlockHash::from(1);
+        let epoch = RaiEpoch::new(2);
+        let election_id = RaiElectionId::Slot(RaiSlotId {
+            epoch,
+            root: QualifiedRoot::new_test_instance(),
+        });
+        let received: FilteredVote = ReceivedVote::new(
+            Vote::new_rai(
+                &PrivateKey::from(1),
+                UnixMillisTimestamp::new(16),
+                0,
+                vec![hash],
+                RaiVoteMetadata {
+                    election_id: election_id.clone(),
+                    phase: RaiVotePhase::First,
+                    epoch,
+                    scope: RaiCommitteeScope::All,
+                },
+            )
+            .into(),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+
+        let result = container.apply_vote(ApplyVoteArgs {
+            vote: &received,
+            rep_weights: &RepWeights::default(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now: Timestamp::new_test_instance(),
+        });
+
+        assert_eq!(result[&hash], Err(VoteError::Invalid));
+        assert!(!container.rai_pending_votes.contains_key(&election_id));
     }
 
     #[cfg(not(feature = "rai_protocol"))]

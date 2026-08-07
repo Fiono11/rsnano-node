@@ -211,20 +211,17 @@ mod tests {
         use crate::consensus::election::ElectionBehavior;
         use rsnano_types::{RaiEpoch, SavedBlock};
 
-        let governing_hash = BlockHash::from(42);
         let election = Election::new_slot(
             SavedBlock::new_test_instance(),
             ElectionBehavior::Priority,
             Duration::from_secs(1),
             t(0),
             RaiEpoch::new(3),
-        )
-        .with_rai_governing_hash(Some(governing_hash));
+        );
 
         let target = vote_target(&election);
 
         assert_eq!(target.metadata.epoch, RaiEpoch::new(3));
-        assert_eq!(target.metadata.governing_hash, governing_hash);
     }
 
     #[cfg(feature = "rai_protocol")]

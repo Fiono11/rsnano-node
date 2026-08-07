@@ -74,8 +74,6 @@ pub struct Election {
     #[cfg(feature = "rai_protocol")]
     rai_id: RaiElectionId,
     #[cfg(feature = "rai_protocol")]
-    rai_governing_hash: Option<BlockHash>,
-    #[cfg(feature = "rai_protocol")]
     pub rai_votes: RaiElectionVoteState,
 }
 
@@ -143,7 +141,6 @@ impl Election {
             account: block.account(),
             winner: MaybeSavedBlock::Saved(block),
             rai_id: RaiElectionId::Slot(RaiSlotId { epoch, root }),
-            rai_governing_hash: (epoch == RaiEpoch::ZERO).then_some(BlockHash::ZERO),
             rai_votes: RaiElectionVoteState::default(),
         }
     }
@@ -187,7 +184,6 @@ impl Election {
                     round: id.round,
                 },
             },
-            rai_governing_hash: None,
             rai_votes: RaiElectionVoteState::new(vec![committee]),
         }
     }
@@ -244,7 +240,6 @@ impl Election {
         rsnano_types::RaiVoteMetadata {
             election_id: self.rai_id.clone(),
             epoch: self.rai_epoch(),
-            governing_hash: self.rai_governing_hash.unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -252,12 +247,6 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn with_rai_committees(mut self, committees: Vec<Arc<RepWeights>>) -> Self {
         self.rai_votes = RaiElectionVoteState::new(committees);
-        self
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn with_rai_governing_hash(mut self, hash: Option<BlockHash>) -> Self {
-        self.rai_governing_hash = hash;
         self
     }
 
@@ -270,11 +259,7 @@ impl Election {
         vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) -> Result<(), crate::consensus::rai::RaiVoteStateError> {
-        if metadata.election_id != self.rai_id
-            || metadata.epoch != self.rai_epoch()
-            || (self.rai_kind() == RaiElectionKind::Slot
-                && self.rai_governing_hash != Some(metadata.governing_hash))
-        {
+        if metadata.election_id != self.rai_id || metadata.epoch != self.rai_epoch() {
             return Err(crate::consensus::rai::RaiVoteStateError::WrongElectionContext);
         }
         self.rai_votes.record_vote(
