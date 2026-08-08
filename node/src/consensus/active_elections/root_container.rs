@@ -414,7 +414,16 @@ impl RootContainer {
     }
 
     pub fn round_robin(&self) -> impl Iterator<Item = &Entry> {
-        RoundRobinIterator::new(self)
+        RoundRobinIterator::new(self).chain({
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.rai_entries.values()
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                std::iter::empty()
+            }
+        })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Entry> {

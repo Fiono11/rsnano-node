@@ -363,7 +363,7 @@ fn two() {
                 Direction::In,
             )
         },
-        4,
+        if cfg!(feature = "rai_protocol") { 2 } else { 4 },
     );
     assert_timely_eq2(
         || {

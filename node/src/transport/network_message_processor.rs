@@ -39,6 +39,8 @@ pub struct NetworkMessageProcessor {
     ledger_snapshots: Arc<LedgerSnapshots>,
     #[cfg(feature = "rai_protocol")]
     active_elections: Arc<crate::consensus::AecService>,
+    #[cfg(feature = "rai_protocol")]
+    message_sender: Mutex<crate::transport::MessageSender>,
 }
 
 impl NetworkMessageProcessor {
@@ -56,6 +58,7 @@ impl NetworkMessageProcessor {
         work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
         #[cfg(feature = "rai_protocol")] active_elections: Arc<crate::consensus::AecService>,
+        #[cfg(feature = "rai_protocol")] message_sender: crate::transport::MessageSender,
     ) -> Self {
         Self {
             stats,
@@ -73,6 +76,8 @@ impl NetworkMessageProcessor {
             ledger_snapshots,
             #[cfg(feature = "rai_protocol")]
             active_elections,
+            #[cfg(feature = "rai_protocol")]
+            message_sender: Mutex::new(message_sender),
         }
     }
 
@@ -147,6 +152,14 @@ impl NetworkMessageProcessor {
                 }
             }
             Message::ConfirmReq(req) => {
+                #[cfg(feature = "rai_protocol")]
+                if std::env::var_os("RSNANO_RAI_TRACE_PR").is_some() {
+                    eprintln!(
+                        "RAI_SOLICIT_TRACE recv_confirm_req channel={:?} requests={:?}",
+                        channel.channel_id(),
+                        req.roots_hashes
+                    );
+                }
                 // Don't load nodes with disabled voting
                 // TODO: This check should be cached somewhere
                 if self.wallet_reps.lock().unwrap().voting_enabled() {
@@ -190,6 +203,20 @@ impl NetworkMessageProcessor {
                     source,
                     None,
                 );
+
+                #[cfg(feature = "rai_protocol")]
+                if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
+                    let vote = ack.vote();
+                    eprintln!(
+                        "RAI_MSG pr={pr} event=recv_vote enqueued={added} channel={} id={:?} phase={:?} voter={} vote_hash={} hashes={:?}",
+                        channel.channel_id(),
+                        vote.metadata.election_id,
+                        vote.metadata.phase,
+                        vote.voter,
+                        vote.hash(),
+                        vote.hashes
+                    );
+                }
 
                 if !added {
                     // The message couldn't be handled. We have to remove it from the duplicate
@@ -235,6 +262,219 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(report) => {
                 self.active_elections.rai_report_received(report.into());
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReportRequest(request) => {
+                for report in self.active_elections.rai_reports_for_epoch(request.epoch) {
+                    self.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &Message::RaiReport(report.into()),
+                        rsnano_network::TrafficType::Generic,
+                    );
+                }
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVoteRequest(request) => {
+                let requested_epoch = rsnano_types::RaiEpoch::new(request.epoch);
+                if let Some(version) = request.close_version {
+                    match version {
+                        rsnano_messages::RaiCloseVersionWire::Cut(cut) => {
+                            if cut.epoch == request.epoch
+                                && cut
+                                    .obligations
+                                    .iter()
+                                    .all(|slot| slot.epoch == requested_epoch)
+                            {
+                                let reconciled = self.active_elections.reconcile_rai_close_cut(
+                                    crate::consensus::rai::RaiCloseCut::new(
+                                        requested_epoch,
+                                        cut.obligations,
+                                    ),
+                                    request.root,
+                                );
+                                if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
+                                    eprintln!(
+                                        "RAI_MSG pr={pr} event=reconcile_cut epoch={requested_epoch:?} reconciled={reconciled}"
+                                    );
+                                }
+                            }
+                        }
+                        rsnano_messages::RaiCloseVersionWire::Record(record) => {
+                            if record.epoch == request.epoch {
+                                let reconciled = self.active_elections.reconcile_rai_close_record(
+                                    crate::consensus::rai::RaiCloseRecord::new(
+                                        requested_epoch,
+                                        record.previous,
+                                        record.frontiers.into_iter().map(
+                                            |(account, height, frontier)| {
+                                                (
+                                                    account,
+                                                    rsnano_types::ConfirmationHeightInfo::new(
+                                                        height, frontier,
+                                                    ),
+                                                )
+                                            },
+                                        ),
+                                    ),
+                                    request.root,
+                                );
+                                if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
+                                    eprintln!(
+                                        "RAI_MSG pr={pr} event=reconcile_record epoch={requested_epoch:?} reconciled={reconciled}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+                // Close votes authenticate only a hash. Send every locally
+                // retained canonical preimage as a one-way repair reply so a
+                // lagging peer can validate and apply the signed vote leaves.
+                // A lagging peer may already be in a successor round which
+                // this responder never entered. Recognize the synthetic root
+                // from the requested epoch/round domain rather than only from
+                // locally retained election ids.
+                let is_close_request = (0..=1024).any(|round| {
+                    crate::consensus::rai::rai_close_cut_root(requested_epoch, round).root
+                        == request.root
+                        || crate::consensus::rai::rai_close_record_root(requested_epoch, round).root
+                            == request.root
+                });
+                if !is_close_request {
+                    for block in self.active_elections.rai_blocks_for_request(
+                        request.hash,
+                        request.root,
+                        requested_epoch,
+                    ) {
+                        self.message_sender.lock().unwrap().try_send(
+                            channel,
+                            &Message::Publish(rsnano_messages::Publish::new_forward(block)),
+                            rsnano_network::TrafficType::BlockBroadcast,
+                        );
+                    }
+                }
+                let cut_versions = is_close_request
+                    .then(|| {
+                        self.active_elections
+                            .rai_close_cut_versions(requested_epoch)
+                    })
+                    .unwrap_or_default();
+                let record_versions = is_close_request
+                    .then(|| {
+                        self.active_elections
+                            .rai_close_record_versions(requested_epoch)
+                    })
+                    .unwrap_or_default();
+                if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
+                    eprintln!(
+                        "RAI_MSG pr={pr} event=repair_request epoch={requested_epoch:?} root={} cuts={} records={}",
+                        request.root,
+                        cut_versions.len(),
+                        record_versions.len()
+                    );
+                }
+                for cut in cut_versions {
+                    self.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &Message::RaiVoteRequest(rsnano_messages::RaiVoteRequest {
+                            sequence: request.sequence,
+                            epoch: request.epoch,
+                            hash: cut.hash(),
+                            root: request.root,
+                            close_version: Some(rsnano_messages::RaiCloseVersionWire::Cut(
+                                rsnano_messages::RaiCloseCutWire {
+                                    epoch: request.epoch,
+                                    obligations: cut.obligations.into_iter().collect(),
+                                },
+                            )),
+                        }),
+                        rsnano_network::TrafficType::VoteReply,
+                    );
+                }
+                for record in record_versions {
+                    self.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &Message::RaiVoteRequest(rsnano_messages::RaiVoteRequest {
+                            sequence: request.sequence,
+                            epoch: request.epoch,
+                            hash: record.hash(),
+                            root: request.root,
+                            close_version: Some(rsnano_messages::RaiCloseVersionWire::Record(
+                                rsnano_messages::RaiCloseRecordWire {
+                                    epoch: request.epoch,
+                                    previous: record.previous,
+                                    frontiers: record
+                                        .frontiers
+                                        .into_iter()
+                                        .map(|(account, info)| {
+                                            (account, info.height, info.frontier)
+                                        })
+                                        .collect(),
+                                },
+                            )),
+                        }),
+                        rsnano_network::TrafficType::VoteReply,
+                    );
+                }
+                // Return all signed evidence retained for this election, not
+                // merely this node's own cached vote. A single replica which
+                // already has a certificate can therefore repair a lagging
+                // peer even when earlier requests reached an incomplete set of
+                // representatives.
+                let votes = if is_close_request {
+                    self.active_elections
+                        .rai_close_votes_for_epoch(requested_epoch)
+                } else {
+                    self.active_elections
+                        .rai_votes_for_root(&request.root, requested_epoch)
+                };
+                for vote in votes {
+                    self.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &Message::ConfirmAck(rsnano_messages::ConfirmAck::new_with_own_vote(vote)),
+                        rsnano_network::TrafficType::VoteReply,
+                    );
+                }
+                if self.wallet_reps.lock().unwrap().voting_enabled() {
+                    // A compact terminal marker is authoritative for this
+                    // slot even if drain repair has recreated a pending local
+                    // election for the same root.  Prefer regenerating the
+                    // notar vote from that marker; otherwise the pending
+                    // election masks the ended outcome and peers can remain
+                    // split between Draining and ElectingRecord forever.
+                    let generated_notar = self.request_aggregator.generate_rai_notar_vote(
+                        &request.hash,
+                        &request.root,
+                        requested_epoch,
+                        channel,
+                    );
+                    if generated_notar == 0
+                        && self.active_elections.rai_has_active_request_target(
+                            &request.hash,
+                            &request.root,
+                            requested_epoch,
+                        )
+                    {
+                        // Preserve the epoch carried by RaiVoteRequest. Slot
+                        // roots can recur in several active epochs; routing
+                        // this through the legacy aggregator (root/hash only)
+                        // could sign for an arbitrary newer election and
+                        // leave the requested drain permanently unrepaired.
+                        self.request_aggregator.generate_rai_active_slot_vote(
+                            &request.root,
+                            requested_epoch,
+                            channel,
+                        );
+                    } else if generated_notar == 0 {
+                        self.request_aggregator.generate_rai_final_vote(
+                            &request.hash,
+                            &request.root,
+                            requested_epoch,
+                            channel,
+                        );
+                    }
+                }
             }
         }
     }
@@ -314,6 +554,8 @@ mod tests {
             ledger_snapshots.into(),
             #[cfg(feature = "rai_protocol")]
             crate::consensus::AecService::new_null().into(),
+            #[cfg(feature = "rai_protocol")]
+            crate::transport::MessageSender::new_null(),
         )
     }
 }

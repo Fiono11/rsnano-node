@@ -40,6 +40,10 @@ pub enum MessageType {
     #[cfg(feature = "rai_protocol")]
     RaiReport = 0x13,
     /* deleted 0x14 */
+    #[cfg(feature = "rai_protocol")]
+    RaiReportRequest = 0x15,
+    #[cfg(feature = "rai_protocol")]
+    RaiVoteRequest = 0x16,
 }
 
 impl MessageType {
@@ -68,13 +72,17 @@ impl MessageType {
             MessageType::ProposalVote => "proposal_vote",
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => "rai_report",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReportRequest => "rai_report_request",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVoteRequest => "rai_vote_request",
         }
     }
 
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            return Self::RaiReport as usize;
+            return Self::RaiVoteRequest as usize;
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -208,6 +216,10 @@ impl MessageHeader {
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => RaiReportMessage::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReportRequest => RaiReportRequest::serialized_size(),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVoteRequest => RaiVoteRequest::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -269,6 +281,10 @@ impl From<MessageType> for DetailType {
             MessageType::AscPullAck => DetailType::AscPullAck,
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => DetailType::Generic,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReportRequest => DetailType::Generic,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVoteRequest => DetailType::Generic,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]

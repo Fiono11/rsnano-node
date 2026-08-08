@@ -78,6 +78,7 @@ pub struct RaiToml {
     pub tick_interval: Option<u64>,
     pub genesis_committee: Option<Vec<String>>,
     pub reset_finalization_on_start: Option<bool>,
+    pub retry_released_slots: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -517,6 +518,9 @@ impl NodeConfig {
             if let Some(reset) = rai.reset_finalization_on_start {
                 self.rai.reset_finalization_on_start = reset;
             }
+            if let Some(retry) = rai.retry_released_slots {
+                self.rai.retry_released_slots = retry;
+            }
         }
     }
 }
@@ -676,6 +680,7 @@ impl From<&NodeConfig> for NodeToml {
                         .collect(),
                 ),
                 reset_finalization_on_start: Some(config.rai.reset_finalization_on_start),
+                retry_released_slots: Some(config.rai.retry_released_slots),
             }),
         }
     }
@@ -695,6 +700,7 @@ mod tests {
                 tick_interval: Some(100),
                 genesis_committee: None,
                 reset_finalization_on_start: None,
+                retry_released_slots: Some(true),
             }),
             ..Default::default()
         };
@@ -703,6 +709,7 @@ mod tests {
         cfg.merge_toml(&toml);
 
         assert!(!cfg.rai.enable_epoch_ticker);
+        assert!(cfg.rai.retry_released_slots);
         assert_eq!(cfg.rai.epoch_duration, Duration::from_millis(5000));
         assert_eq!(cfg.rai.tick_interval, Duration::from_millis(100));
     }

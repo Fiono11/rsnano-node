@@ -18,6 +18,14 @@ mod network_filter;
 mod rai_report;
 #[cfg(feature = "rai_protocol")]
 pub use rai_report::*;
+#[cfg(feature = "rai_protocol")]
+mod rai_report_request;
+#[cfg(feature = "rai_protocol")]
+pub use rai_report_request::*;
+#[cfg(feature = "rai_protocol")]
+mod rai_vote_request;
+#[cfg(feature = "rai_protocol")]
+pub use rai_vote_request::*;
 
 pub use message::*;
 pub use message_deserializer::*;

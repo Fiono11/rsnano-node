@@ -51,6 +51,8 @@ pub struct RequestAggregator {
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<crate::consensus::AecService>,
 }
 
 impl RequestAggregator {
@@ -59,6 +61,7 @@ impl RequestAggregator {
         stats: Arc<Stats>,
         vote_generators: Arc<VoteGenerators>,
         ledger: Arc<Ledger>,
+        #[cfg(feature = "rai_protocol")] active_elections: Arc<crate::consensus::AecService>,
     ) -> Self {
         let max_queue = config.max_queue;
         Self {
@@ -71,6 +74,8 @@ impl RequestAggregator {
                 queue: FairQueue::new(move |_| max_queue, |_| 1),
                 stopped: false,
             })),
+            #[cfg(feature = "rai_protocol")]
+            active_elections,
             threads: Mutex::new(Vec::new()),
         }
     }
@@ -81,6 +86,8 @@ impl RequestAggregator {
             Stats::default().into(),
             VoteGenerators::new_null().into(),
             Ledger::new_null().into(),
+            #[cfg(feature = "rai_protocol")]
+            crate::consensus::AecService::new_null().into(),
         )
     }
 
@@ -94,6 +101,8 @@ impl RequestAggregator {
                 config: self.config.clone(),
                 ledger: self.ledger.clone(),
                 vote_generators: self.vote_generators.clone(),
+                #[cfg(feature = "rai_protocol")]
+                active_elections: self.active_elections.clone(),
             };
 
             guard.push(
@@ -150,6 +159,68 @@ impl RequestAggregator {
         );
 
         added
+    }
+
+    /// Reply to a repair request from durable RAI finalization state. This
+    /// deliberately bypasses ordinary aggregation, whose final-vote decision
+    /// does not retain the original RAI election identity.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_final_vote(
+        &self,
+        hash: &BlockHash,
+        root: &Root,
+        epoch: rsnano_types::RaiEpoch,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let Some(target) =
+            self.active_elections
+                .rai_finalized_vote_target(&self.ledger, hash, root, epoch)
+        else {
+            return 0;
+        };
+        self.vote_generators
+            .generate_rai_final_vote(&target, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_notar_vote(
+        &self,
+        _hash: &BlockHash,
+        root: &Root,
+        epoch: rsnano_types::RaiEpoch,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let Some((terminal_hash, metadata)) = self
+            .active_elections
+            .rai_terminal_notarized_target_for_root(root, epoch)
+        else {
+            return 0;
+        };
+        let target = rsnano_ledger::RaiFinalizedVoteTarget {
+            election_id: metadata.election_id.clone(),
+            hash: terminal_hash,
+            root: *root,
+            metadata,
+        };
+        self.vote_generators
+            .generate_rai_notar_vote(&target, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_active_slot_vote(
+        &self,
+        root: &Root,
+        epoch: rsnano_types::RaiEpoch,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let Some(target) = self
+            .active_elections
+            .rai_active_slot_vote_target_for_root(root, epoch)
+        else {
+            return 0;
+        };
+        self.vote_generators
+            .generate_rai_notar_vote(&target, channel)
     }
 
     pub fn stop(&self) {
@@ -216,6 +287,8 @@ struct RequestAggregatorLoop {
     config: RequestAggregatorConfig,
     ledger: Arc<Ledger>,
     vote_generators: Arc<VoteGenerators>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<crate::consensus::AecService>,
 }
 
 impl RequestAggregatorLoop {
@@ -264,6 +337,66 @@ impl RequestAggregatorLoop {
     }
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        #[cfg(feature = "rai_protocol")]
+        let ordinary = request
+            .roots_hashes
+            .iter()
+            .filter_map(|(hash, root)| {
+                if hash.is_zero()
+                    && let Some(metadata) =
+                        self.active_elections.rai_close_vote_context_for_root(root)
+                {
+                    self.vote_generators
+                        .reply_cached_rai_election_votes(&metadata, &request.channel);
+                    if let Some(target) = self
+                        .active_elections
+                        .rai_active_close_vote_target_for_root(root)
+                    {
+                        if target.metadata.phase == rsnano_types::RaiVotePhase::Final {
+                            self.vote_generators
+                                .generate_rai_final_vote(&target, &request.channel);
+                        } else {
+                            self.vote_generators
+                                .generate_rai_notar_vote(&target, &request.channel);
+                        }
+                    }
+                    return None;
+                }
+                if hash.is_zero()
+                    && let Some(metadata) =
+                        self.active_elections.rai_slot_vote_context_for_root(root)
+                {
+                    self.vote_generators
+                        .reply_cached_rai_election_votes(&metadata, &request.channel);
+                    return None;
+                }
+                if let Some((metadata, _)) = self.active_elections.rai_vote_context(hash) {
+                    self.vote_generators.reply_cached_rai_votes(
+                        root,
+                        hash,
+                        &metadata,
+                        &request.channel,
+                    );
+                    // Cached evidence may be incomplete when the first repair
+                    // request arrives. Keep the ordinary request in the batch
+                    // as well so the local representative generates a vote in
+                    // its current election phase. Repeated sequenced repairs
+                    // therefore make progress instead of replaying the same
+                    // partial cache forever.
+                    Some((*hash, *root))
+                } else {
+                    Some((*hash, *root))
+                }
+            })
+            .collect::<Vec<_>>();
+        #[cfg(feature = "rai_protocol")]
+        let ordinary_request = AggregatorRequest {
+            channel: request.channel.clone(),
+            roots_hashes: ordinary,
+        };
+        #[cfg(feature = "rai_protocol")]
+        let request = &ordinary_request;
+
         let remaining = self.aggregate(any, request);
 
         if !remaining.remaining_normal.is_empty() {
@@ -275,6 +408,8 @@ impl RequestAggregatorLoop {
                 &remaining.remaining_normal,
                 &request.channel,
                 VoteType::NonFinal,
+                #[cfg(feature = "rai_protocol")]
+                &self.rai_contexts(&remaining.remaining_normal),
             );
             self.stats.add_dir(
                 StatType::Requests,
@@ -293,6 +428,8 @@ impl RequestAggregatorLoop {
                 &remaining.remaining_final,
                 &request.channel,
                 VoteType::Final,
+                #[cfg(feature = "rai_protocol")]
+                &self.rai_contexts(&remaining.remaining_final),
             );
             self.stats.add_dir(
                 StatType::Requests,
@@ -301,6 +438,21 @@ impl RequestAggregatorLoop {
                 (remaining.remaining_final.len() - generated) as u64,
             );
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_contexts(
+        &self,
+        blocks: &[rsnano_types::SavedBlock],
+    ) -> Vec<(rsnano_types::RaiVoteMetadata, bool)> {
+        blocks
+            .iter()
+            .map(|block| {
+                self.active_elections
+                    .rai_vote_context(&block.hash())
+                    .unwrap_or_default()
+            })
+            .collect()
     }
 
     /// Aggregate requests and send cached votes to channel.

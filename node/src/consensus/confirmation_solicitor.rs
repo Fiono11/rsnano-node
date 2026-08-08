@@ -41,7 +41,10 @@ impl ConfirmationSolicitor {
         debug_assert!(self.prepared);
         let mut added = false;
         let mut rep_request_count = 0;
-        let winner = election.winner();
+        #[cfg(feature = "rai_protocol")]
+        let requested_hash = election.voting_hash();
+        #[cfg(not(feature = "rai_protocol"))]
+        let requested_hash = election.winner().hash();
         let mut to_remove = Vec::new();
         for rep in &self.representatives {
             if rep_request_count >= self.max_election_requests {
@@ -49,13 +52,14 @@ impl ConfirmationSolicitor {
             }
             let mut full_queue = false;
             let existing_vote = election.votes().get(&rep.rep_key);
-            let is_final = if let Some(vote) = existing_vote {
-                !election.has_quorum() || vote.is_final_vote()
-            } else {
-                false
-            };
+            #[cfg(feature = "rai_protocol")]
+            let is_final = existing_vote.is_some_and(|vote| vote.is_final_vote());
+            #[cfg(not(feature = "rai_protocol"))]
+            let is_final = existing_vote
+                .map(|vote| !election.has_quorum() || vote.is_final_vote())
+                .unwrap_or(false);
             let different_hash = if let Some(existing) = existing_vote {
-                existing.hash != winner.hash()
+                existing.hash != requested_hash
             } else {
                 false
             };
@@ -69,7 +73,15 @@ impl ConfirmationSolicitor {
                             .entry(rep_channel.channel_id())
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
-                        request_queue.push((winner.hash(), winner.root()));
+                        #[cfg(feature = "rai_protocol")]
+                        let request_hash = if election.is_rai_close() {
+                            BlockHash::ZERO
+                        } else {
+                            requested_hash
+                        };
+                        #[cfg(not(feature = "rai_protocol"))]
+                        let request_hash = requested_hash;
+                        request_queue.push((request_hash, election.qualified_root().root));
 
                         if !different_hash {
                             rep_request_count += 1;
@@ -109,6 +121,14 @@ impl ConfirmationSolicitor {
             }
             if !roots_hashes.is_empty() {
                 let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                #[cfg(feature = "rai_protocol")]
+                if std::env::var_os("RSNANO_RAI_TRACE_PR").is_some() {
+                    eprintln!(
+                        "RAI_SOLICIT_TRACE send_confirm_req channel={:?} requests={:?}",
+                        channel.channel_id(),
+                        requests
+                    );
+                }
                 self.message_flooder
                     .try_send(channel, &req, TrafficType::ConfirmationRequests);
             }

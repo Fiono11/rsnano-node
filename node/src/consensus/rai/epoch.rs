@@ -6,7 +6,7 @@ use std::{
 use rsnano_ledger::{RepWeightCache, RepWeights};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, BlockHash, ConfirmationHeightInfo, QualifiedRoot, RaiEpoch, RaiSlotId,
+    Account, BlockHash, ConfirmationHeightInfo, QualifiedRoot, RaiEpoch, RaiSlotId, Root,
 };
 
 use super::{
@@ -139,6 +139,31 @@ impl RaiHappyPathDrain {
                 } else {
                     RaiDrainOutcome::Selected(hash)
                 }),
+        }
+    }
+
+    /// Restores a locally validated notarized outcome without retaining the
+    /// quorum's individual votes. The outcome is provisional until the close
+    /// record includes it.
+    pub fn record_notarized(
+        &mut self,
+        slot: &RaiSlotId,
+        hash: BlockHash,
+    ) -> Option<RaiDrainOutcome> {
+        if !self.obligations.contains(slot)
+            || self.finalized.contains_key(slot)
+            || self.released.contains_key(slot)
+        {
+            return None;
+        }
+        match self.selected.entry(slot.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(hash);
+                Some(RaiDrainOutcome::Selected(hash))
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                (*entry.get() == hash).then_some(RaiDrainOutcome::Selected(hash))
+            }
         }
     }
 }
@@ -345,15 +370,44 @@ impl RaiEpochManager {
         self.close_records.all()
     }
 
+    pub fn close_cut_versions(&self) -> Vec<RaiCloseCut> {
+        self.close_cuts.all()
+    }
+
+    /// Retains a transferred canonical cut preimage for the active close-cut
+    /// election. Signed vote evidence remains the sole source of authority;
+    /// receiving this hash-checked preimage only makes cached votes applicable.
+    pub fn reconcile_close_cut(
+        &mut self,
+        cut: RaiCloseCut,
+        round: u32,
+    ) -> Option<(RaiEpoch, u32, BlockHash)> {
+        let closing = self.state.closing?;
+        if closing.epoch != cut.epoch || closing.phase != RaiClosingPhase::ElectingCut {
+            return None;
+        }
+        let rounds = self.cut_rounds.get_mut(&closing.epoch)?;
+        rounds.round(round)?;
+        let hash = self.close_cuts.insert(cut);
+        rounds.add_validated_preimage(round, hash);
+        Some((closing.epoch, round, hash))
+    }
+
     /// Retains a transferred canonical preimage for the active close-record
     /// election. Certificate support is still established exclusively by the
     /// signed vote leaves; receiving a preimage grants no authority by itself.
     pub fn reconcile_close_record(
         &mut self,
         record: RaiCloseRecord,
+        round: u32,
     ) -> Option<(RaiEpoch, u32, BlockHash)> {
         let closing = self.state.closing?;
-        if closing.epoch != record.epoch || closing.phase != RaiClosingPhase::ElectingRecord {
+        if closing.epoch != record.epoch
+            || !matches!(
+                closing.phase,
+                RaiClosingPhase::Draining | RaiClosingPhase::ElectingRecord
+            )
+        {
             return None;
         }
         let expected_previous = record
@@ -365,21 +419,23 @@ impl RaiEpochManager {
         if record.previous != expected_previous {
             return None;
         }
-        let round = self.close_record_round(record.epoch)?;
-        // Keep the transferred version as the currently reconstructed
-        // preimage. It does not become durable until signed vote evidence for
-        // its hash satisfies the close-record certificate in the caller.
-        self.drain_frontiers
-            .insert(closing.epoch, record.frontiers.clone());
         let hash = self.close_records.insert(record);
-        if !self
-            .record_rounds
-            .get_mut(&closing.epoch)?
-            .add_validated_preimage(round, hash)
-        {
-            return None;
+        // A peer may enter the record election before this replica completes
+        // its local drain.  Retain the hash-checked preimage without replacing
+        // the local fresh frontier.  Once our record round exists, admit it as
+        // an alternative validated candidate and replay the already retained
+        // signed votes against it.
+        if let Some(rounds) = self.record_rounds.get_mut(&closing.epoch) {
+            rounds.round(round)?;
+            rounds.add_validated_preimage(round, hash);
+            if let Some(committee) = self.close_record_committees.values().next().cloned() {
+                self.close_record_committees
+                    .entry(hash)
+                    .or_insert(committee);
+            }
+            return Some((closing.epoch, round, hash));
         }
-        Some((closing.epoch, round, hash))
+        (round == 0).then_some((closing.epoch, round, hash))
     }
     pub fn close_cuts(&self) -> &RaiCloseCutStore {
         &self.close_cuts
@@ -388,6 +444,11 @@ impl RaiEpochManager {
     pub fn report_quorum_available(&self, epoch: RaiEpoch) -> bool {
         self.close_committee(epoch)
             .is_some_and(|committee| self.reports.has_quorum(epoch, &committee))
+    }
+
+    pub fn full_report_coverage_available(&self, epoch: RaiEpoch) -> bool {
+        self.close_committee(epoch)
+            .is_some_and(|committee| self.reports.has_full_coverage(epoch, &committee))
     }
 
     /// Freezes visibility and creates the canonical round-zero candidate.
@@ -423,9 +484,10 @@ impl RaiEpochManager {
         Some((super::rai_close_cut_root(epoch, 0), hash))
     }
 
-    /// Rebuild an undecided fresh cut as authenticated visibility grows.
-    /// Fresh values are replica-relative until certificate support, so the
-    /// active round may adopt a newly converged validated preimage.
+    /// Rebuild the replica's fresh cut preference as authenticated visibility
+    /// grows. This does not add the value to the active round: a changed
+    /// preference may be voted only in a successor round after the current
+    /// round is positively dead.
     pub fn refresh_close_cut_candidate(
         &mut self,
         epoch: RaiEpoch,
@@ -466,6 +528,10 @@ impl RaiEpochManager {
         );
         self.close_cuts.insert(cut);
         self.visible_obligations.insert(epoch, visible);
+        // Retain the validated preimage so remote votes and a later
+        // certificate for this hash can be checked. This is admissibility
+        // state only; the vote generator separately enforces the immutable
+        // first-vote slot for the active round.
         self.cut_rounds
             .get_mut(&epoch)?
             .add_validated_preimage(round, hash);
@@ -546,6 +612,22 @@ impl RaiEpochManager {
 
     pub fn decided_cut_hashes(&self) -> &BTreeMap<RaiEpoch, BlockHash> {
         &self.cut_hashes
+    }
+
+    /// Resolve an installed close-cut election by its synthetic request root.
+    pub fn installed_close_cut_for_root(
+        &self,
+        requested_root: &Root,
+    ) -> Option<(RaiEpoch, u32, BlockHash)> {
+        self.cut_rounds.iter().find_map(|(epoch, tracker)| {
+            let (round, hash) = tracker.decision()?;
+            if self.cut_hashes.get(epoch) != Some(&hash)
+                || super::rai_close_cut_root(*epoch, round).root != *requested_root
+            {
+                return None;
+            }
+            Some((*epoch, round, hash))
+        })
     }
 
     pub fn close_cut_round(&self, epoch: RaiEpoch) -> Option<u32> {
@@ -631,6 +713,18 @@ impl RaiEpochManager {
             .entry(epoch)
             .or_insert_with(|| super::RaiCloseRoundTracker::new(super::RaiCloseKind::Record, epoch))
             .start_round_zero(hash);
+        let record_committee = self.close_record_committees[&hash].clone();
+        if let Some(rounds) = self.record_rounds.get_mut(&epoch) {
+            for version in self.close_records.all() {
+                if version.epoch == epoch && version.previous == previous {
+                    let version_hash = version.hash();
+                    rounds.add_validated_preimage(0, version_hash);
+                    self.close_record_committees
+                        .entry(version_hash)
+                        .or_insert_with(|| record_committee.clone());
+                }
+            }
+        }
         Some((super::rai_close_record_root(epoch, 0), hash))
     }
 
@@ -678,19 +772,20 @@ impl RaiEpochManager {
             .close_records
             .get(&hash)
             .ok_or(CloseRecordDecisionError::MissingPreimage)?;
-        let actual = self
-            .drain_frontiers
-            .get(&epoch)
-            .ok_or(CloseRecordDecisionError::MissingPreimage)?;
         let previous = epoch
             .number()
             .checked_sub(1)
             .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
             .unwrap_or(BlockHash::ZERO);
+        let local_frontiers = self
+            .drain_frontiers
+            .get(&epoch)
+            .ok_or(CloseRecordDecisionError::MissingPreimage)?;
         if record.epoch != epoch
             || record.previous != previous
-            || &record.frontiers != actual
             || record.hash() != hash
+            || (&record.frontiers != local_frontiers
+                && !self.close_record_committees.contains_key(&hash))
         {
             return Err(CloseRecordDecisionError::InvalidRecord);
         }
@@ -706,6 +801,9 @@ impl RaiEpochManager {
         if !tracker.decide(round, hash) {
             return Err(CloseRecordDecisionError::MissingPreimage);
         }
+        // The certificate, not this replica's provisional drain observation,
+        // selects the durable frontier map.
+        self.drain_frontiers.insert(epoch, record.frontiers.clone());
         self.close_hashes.insert(epoch, hash);
         self.committees
             .entry(epoch)
@@ -747,6 +845,24 @@ impl RaiEpochManager {
 
     pub fn installed_close_hash(&self, epoch: RaiEpoch) -> Option<BlockHash> {
         self.close_hashes.get(&epoch).copied()
+    }
+
+    /// Resolve an installed close-record election by its synthetic request
+    /// root. The round and winning digest come from the certified decision,
+    /// rather than being guessed from the current open epoch.
+    pub fn installed_close_record_for_root(
+        &self,
+        requested_root: &Root,
+    ) -> Option<(RaiEpoch, u32, BlockHash)> {
+        self.record_rounds.iter().find_map(|(epoch, tracker)| {
+            let (round, hash) = tracker.decision()?;
+            if self.close_hashes.get(epoch) != Some(&hash)
+                || super::rai_close_record_root(*epoch, round).root != *requested_root
+            {
+                return None;
+            }
+            Some((*epoch, round, hash))
+        })
     }
 
     pub fn close_record_round(&self, epoch: RaiEpoch) -> Option<u32> {
@@ -965,6 +1081,64 @@ impl RaiEpochManager {
             }
         }
         Some(outcome)
+    }
+
+    pub fn record_notarized_drain(
+        &mut self,
+        epoch: RaiEpoch,
+        slot: &RaiSlotId,
+        hash: BlockHash,
+        segment: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
+    ) -> Option<RaiDrainOutcome> {
+        let outcome = self.drains.get_mut(&epoch)?.record_notarized(slot, hash)?;
+        let frontiers = self.drain_frontiers.get_mut(&epoch)?;
+        for (account, info) in segment {
+            let current = frontiers.entry(account).or_default();
+            if info.height > current.height {
+                *current = info;
+            }
+        }
+        Some(outcome)
+    }
+
+    /// Resolve a cut obligation from the ledger's durable RAI-finalization
+    /// index. Finalized slots do not need their old vote certificate retained.
+    pub fn record_finalized_drain(
+        &mut self,
+        epoch: RaiEpoch,
+        slot: &RaiSlotId,
+        hash: BlockHash,
+        segment: impl IntoIterator<Item = (Account, ConfirmationHeightInfo)>,
+    ) -> bool {
+        let Some(drain) = self.drains.get_mut(&epoch) else {
+            return false;
+        };
+        if slot.epoch != epoch || !drain.obligations.contains(slot) {
+            return false;
+        }
+        if drain
+            .finalized
+            .get(slot)
+            .is_some_and(|existing| *existing != hash)
+        {
+            return false;
+        }
+        // Resolution maps are mutually exclusive. A durable ledger
+        // finalization supersedes an earlier certificate-derived selection or
+        // release and must not make status accounting count the slot twice.
+        drain.selected.remove(slot);
+        drain.released.remove(slot);
+        drain.finalized.insert(slot.clone(), hash);
+        let Some(frontiers) = self.drain_frontiers.get_mut(&epoch) else {
+            return false;
+        };
+        for (account, info) in segment {
+            let current = frontiers.entry(account).or_default();
+            if info.height > current.height {
+                *current = info;
+            }
+        }
+        true
     }
 
     pub fn drain_frontiers(
@@ -1249,6 +1423,36 @@ mod tests {
         assert!(!drain.is_complete());
         drain.record_persistent_evidence(&second, &final_evidence(&key, BlockHash::from(11)));
         assert!(drain.is_complete());
+    }
+
+    #[test]
+    fn durable_finalization_replaces_an_earlier_drain_outcome() {
+        let root = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let selected = BlockHash::from(10);
+        let finalized = BlockHash::from(11);
+        let mut manager = RaiEpochManager::new(Arc::new(RepWeights::default()), BlockHash::ZERO);
+        manager.drains.insert(
+            RaiEpoch::ZERO,
+            RaiHappyPathDrain {
+                epoch: RaiEpoch::ZERO,
+                obligations: BTreeSet::from([root.clone()]),
+                finalized: BTreeMap::new(),
+                selected: BTreeMap::from([(root.clone(), selected)]),
+                released: BTreeMap::new(),
+            },
+        );
+        manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
+
+        assert!(manager.record_finalized_drain(RaiEpoch::ZERO, &root, finalized, [],));
+
+        let drain = manager.happy_path_drain(RaiEpoch::ZERO).unwrap();
+        assert_eq!(drain.finalized.get(&root), Some(&finalized));
+        assert!(!drain.selected.contains_key(&root));
+        assert!(!drain.released.contains_key(&root));
+        assert_eq!(
+            drain.finalized.len() + drain.selected.len() + drain.released.len(),
+            drain.obligations.len()
+        );
     }
 
     #[test]
@@ -1698,6 +1902,63 @@ mod tests {
         assert!(replicas.windows(2).all(|pair| {
             pair[0].drain_frontiers(RaiEpoch::ZERO) == pair[1].drain_frontiers(RaiEpoch::ZERO)
         }));
+    }
+
+    #[test]
+    fn lagging_drain_retains_and_installs_remote_close_record() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+
+        let local = [(
+            Account::from(1),
+            ConfirmationHeightInfo::new(1, BlockHash::from(10)),
+        )];
+        let remote_frontiers = [(
+            Account::from(1),
+            ConfirmationHeightInfo::new(2, BlockHash::from(20)),
+        )];
+        let remote = RaiCloseRecord::new(RaiEpoch::ZERO, BlockHash::ZERO, remote_frontiers);
+        let remote_hash = remote.hash();
+
+        assert_eq!(
+            manager.closing_epoch().unwrap().phase,
+            RaiClosingPhase::Draining
+        );
+        assert_eq!(
+            manager.reconcile_close_record(remote, 0),
+            Some((RaiEpoch::ZERO, 0, remote_hash))
+        );
+        assert!(manager.initialize_drain_frontiers(RaiEpoch::ZERO, local));
+        let (_, local_hash) = manager
+            .begin_close_record(private_weights(&key, 100).as_ref().clone())
+            .unwrap();
+        assert_ne!(local_hash, remote_hash);
+        assert!(
+            manager
+                .close_record_tracker(RaiEpoch::ZERO)
+                .unwrap()
+                .round(0)
+                .unwrap()
+                .validated_preimages
+                .contains(&remote_hash)
+        );
+
+        let installed = manager
+            .install_certified_close_record(
+                RaiEpoch::ZERO,
+                0,
+                remote_hash,
+                private_weights(&key, 100).as_ref().clone(),
+            )
+            .unwrap();
+        assert_eq!(installed[&Account::from(1)].frontier, BlockHash::from(20));
     }
 
     #[test]

@@ -81,13 +81,37 @@ impl LocalVoteHistory {
                         true
                     }
                 };
-                if &current.hash != hash
-                    || (same_phase
-                        && vote.voter == current.vote.voter
-                        && current.vote.timestamp() <= vote.timestamp())
-                {
+                let same_election = {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        current.vote.metadata.election_id == vote.metadata.election_id
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        true
+                    }
+                };
+                let replace = {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        same_election
+                            && same_phase
+                            && vote.voter == current.vote.voter
+                            && (vote.metadata.phase != rsnano_types::RaiVotePhase::Notar
+                                || &current.hash == hash)
+                            && current.vote.timestamp() <= vote.timestamp()
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        &current.hash != hash
+                            || (vote.voter == current.vote.voter
+                                && current.vote.timestamp() <= vote.timestamp())
+                    }
+                };
+                if replace {
                     ids_to_delete.push(i);
-                } else if same_phase
+                } else if same_election
+                    && same_phase
                     && vote.voter == current.vote.voter
                     && current.vote.timestamp() > vote.timestamp()
                 {
@@ -166,6 +190,32 @@ impl LocalVoteHistory {
     pub fn exists(&self, root: &Root) -> bool {
         let data_lk = self.data.lock().unwrap();
         data_lk.history_by_root.contains_key(root)
+    }
+
+    /// A RAI signer has one immutable logical vote slot per election phase.
+    /// Candidate changes inside the same close round must not authorize a
+    /// second signature for a different value.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_phase_vote_exists(
+        &self,
+        root: &Root,
+        voter: &rsnano_types::PublicKey,
+        metadata: &rsnano_types::RaiVoteMetadata,
+    ) -> bool {
+        if metadata.phase == rsnano_types::RaiVotePhase::Notar {
+            // Kudzu/RAI permits notarization plurality, including a later
+            // timeout notarization after a value-specific second look.
+            return false;
+        }
+        let guard = self.data.lock().unwrap();
+        guard.history_by_root.get(root).is_some_and(|ids| {
+            ids.iter().any(|id| {
+                let current = &guard.history[id];
+                current.vote.voter == *voter
+                    && current.vote.metadata.election_id == metadata.election_id
+                    && current.vote.metadata.phase == metadata.phase
+            })
+        })
     }
 
     pub fn size(&self) -> usize {
@@ -347,7 +397,10 @@ mod tests {
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
         history.add(&root, &BlockHash::from(3), &vote3);
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(history.size(), 1);
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(history.size(), 3);
         let votes = history.votes(&root, &BlockHash::from(3), false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));

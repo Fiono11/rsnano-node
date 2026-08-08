@@ -39,7 +39,16 @@ impl<'a> ApplyVoteHelper<'a> {
                         .insert(*block_hash, Err(VoteError::Indeterminate));
                     continue;
                 };
-                if !election.contains_candidate(block_hash) {
+                let timeout_vote = block_hash.is_zero()
+                    && self.args.vote.metadata.phase != rsnano_types::RaiVotePhase::Final;
+                // A signed close First vote is also the authenticated start
+                // witness used to discover a remote close version. Count it
+                // for split/timeout derivation while reconciliation obtains
+                // the preimage; notar/final votes still require an admitted
+                // validated candidate.
+                let close_first = election.is_rai_close()
+                    && self.args.vote.metadata.phase == rsnano_types::RaiVotePhase::First;
+                if !timeout_vote && !close_first && !election.contains_candidate(block_hash) {
                     result
                         .per_block
                         .insert(*block_hash, Err(VoteError::Indeterminate));
@@ -630,13 +639,18 @@ mod rai_tests {
             Timestamp::new_test_instance(),
         )
         .with_rai_committees(vec![committee]);
+        let metadata = RaiVoteMetadata {
+            election_id: election.rai_id().clone(),
+            epoch: election.rai_epoch(),
+            ..Default::default()
+        };
         let vote: FilteredVote = ReceivedVote::new(
             Vote::new_rai(
                 &key,
                 UnixMillisTimestamp::new(1),
                 0,
                 vec![block.hash()],
-                RaiVoteMetadata::default(),
+                metadata,
             )
             .into(),
             VoteDelivery::Direct,

@@ -55,6 +55,10 @@ pub struct Election {
     candidate_blocks: HashMap<BlockHash, MaybeSavedBlock>,
     #[cfg(feature = "rai_protocol")]
     rai_hash_candidates: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    rai_selected_hash: Option<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    rai_timeout_expired: bool,
     votes: HashMap<PublicKey, VoteSummary>,
     winner_tally: Amount,
     winner_final_tally: Amount,
@@ -129,6 +133,8 @@ impl Election {
                 MaybeSavedBlock::Saved(block.clone()),
             )]),
             rai_hash_candidates: HashSet::new(),
+            rai_selected_hash: None,
+            rai_timeout_expired: false,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -163,6 +169,8 @@ impl Election {
             votes: HashMap::new(),
             candidate_blocks: HashMap::new(),
             rai_hash_candidates: HashSet::from([candidate]),
+            rai_selected_hash: Some(candidate),
+            rai_timeout_expired: false,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -235,12 +243,90 @@ impl Election {
         &self.rai_id
     }
 
+    /// Whether this election still carries protocol state needed to close its
+    /// epoch.  In particular, a locally ended/notarized election is not a
+    /// terminal RAI result and must not be removed by ordinary AEC cleanup.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_requires_retention(&self) -> bool {
+        self.rai_votes.outcome == RaiOutcome::Pending
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_is_terminal(&self) -> bool {
+        matches!(
+            self.rai_votes.outcome,
+            RaiOutcome::Notarized(_) | RaiOutcome::Confirmed(_) | RaiOutcome::TimedOut
+        )
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_vote_metadata(&self) -> rsnano_types::RaiVoteMetadata {
         rsnano_types::RaiVoteMetadata {
             election_id: self.rai_id.clone(),
             epoch: self.rai_epoch(),
+            phase: self.rai_vote_phase(),
             ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_vote_phase(&self) -> rsnano_types::RaiVotePhase {
+        if self.is_final() {
+            return rsnano_types::RaiVotePhase::Final;
+        }
+        if self.rai_timeout_notar_ready() {
+            return rsnano_types::RaiVotePhase::Notar;
+        }
+        if self.rai_candidate_progressed() {
+            rsnano_types::RaiVotePhase::Notar
+        } else {
+            rsnano_types::RaiVotePhase::First
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_timeout_notar_ready(&self) -> bool {
+        !self.rai_votes.committees.is_empty()
+            && (0..self.rai_votes.committees.len()).all(|index| self.rai_votes.timeout_ready(index))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_candidate_progressed(&self) -> bool {
+        use crate::consensus::rai::BlockHashOrTimeout;
+
+        let hash = match self.rai_kind() {
+            RaiElectionKind::Slot => self.winner.hash(),
+            RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord => self
+                .rai_selected_hash
+                .expect("close election must have a selected candidate"),
+        };
+        let value = BlockHashOrTimeout::Block(hash);
+        !self.rai_votes.committees.is_empty()
+            && self
+                .rai_votes
+                .committees
+                .iter()
+                .enumerate()
+                .all(|(index, committee)| {
+                    self.rai_votes.first_tally(index, value) >= committee.thresholds.progression
+                })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_should_first_timeout(&self) -> bool {
+        self.rai_kind() == RaiElectionKind::Slot
+            && self.rai_timeout_expired
+            && !self.rai_candidate_progressed()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_request_hash(&self) -> BlockHash {
+        if !self.rai_votes.committees.is_empty()
+            && (0..self.rai_votes.committees.len()).all(|index| self.rai_votes.timeout_ready(index))
+        {
+            BlockHash::ZERO
+        } else {
+            self.voting_hash()
         }
     }
 
@@ -262,14 +348,18 @@ impl Election {
         if metadata.election_id != self.rai_id || metadata.epoch != self.rai_epoch() {
             return Err(crate::consensus::rai::RaiVoteStateError::WrongElectionContext);
         }
-        self.rai_votes.record_vote(
-            voter,
-            BlockHashOrTimeout::Block(hash),
-            metadata.phase,
-            metadata.scope,
-        )?;
+        let is_timeout = hash.is_zero() && metadata.phase != rsnano_types::RaiVotePhase::Final;
+        let value = if is_timeout {
+            BlockHashOrTimeout::Timeout
+        } else {
+            BlockHashOrTimeout::Block(hash)
+        };
+        self.rai_votes
+            .record_vote(voter, value, metadata.phase, metadata.scope)?;
         // Compatibility/RPC projection only; certificate decisions never read this map.
-        self.add_vote(voter, hash, vote_created, vote_received);
+        if !is_timeout {
+            self.add_vote(voter, hash, vote_created, vote_received);
+        }
         Ok(())
     }
 
@@ -383,6 +473,27 @@ impl Election {
 
     pub fn transition_time(&mut self, now: Timestamp) {
         let duration = self.start.elapsed(now);
+
+        // A ledger confirmation is not a terminal RAI certificate. Keep
+        // the election active (and therefore eligible for confirm_req
+        // solicitation) until its persistent RAI evidence reaches a terminal
+        // outcome. In particular, neither confirmation-height processing nor
+        // the legacy election TTL may retire a pending RAI election.
+        #[cfg(feature = "rai_protocol")]
+        if self.rai_votes.outcome == RaiOutcome::Pending {
+            if self.rai_kind() == RaiElectionKind::Slot
+                && self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration
+            {
+                self.rai_timeout_expired = true;
+            }
+            if self.state != ElectionState::Passive {
+                self.state = ElectionState::Active;
+            } else if self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration {
+                self.state = ElectionState::Active;
+            }
+            return;
+        }
+
         match self.state {
             ElectionState::Passive => {
                 if self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration {
@@ -465,13 +576,14 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn voting_hash(&self) -> BlockHash {
+        if self.rai_timeout_notar_ready() || self.rai_should_first_timeout() {
+            return BlockHash::ZERO;
+        }
         match self.rai_kind() {
             RaiElectionKind::Slot => self.winner.hash(),
-            RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord => *self
-                .rai_hash_candidates
-                .iter()
-                .next()
-                .expect("close election must have a candidate"),
+            RaiElectionKind::CloseCut | RaiElectionKind::CloseRecord => self
+                .rai_selected_hash
+                .expect("close election must have a selected candidate"),
         }
     }
 
@@ -484,6 +596,10 @@ impl Election {
     }
 
     pub fn force_confirm(&mut self) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        if self.rai_votes.outcome == RaiOutcome::Pending {
+            return false;
+        }
         if !self.state.has_ended() {
             self.state = ElectionState::Confirmed;
             true
@@ -641,6 +757,7 @@ impl Election {
             | RaiLocalResult::Final(hash) => hash,
             RaiLocalResult::Timeout => {
                 self.rai_votes.outcome = RaiOutcome::TimedOut;
+                self.state = ElectionState::Confirmed;
                 return;
             }
         };
@@ -649,6 +766,7 @@ impl Election {
                 || matches!(result, RaiLocalResult::Notarized(hash) | RaiLocalResult::Fast(hash) | RaiLocalResult::Final(hash) if *hash != first_hash)
         }) {
             self.rai_votes.outcome = RaiOutcome::TimedOut;
+            self.state = ElectionState::Confirmed;
             return;
         }
 
@@ -659,6 +777,12 @@ impl Election {
         self.has_quorum = true;
         if results.iter().all(|result| matches!(result, RaiLocalResult::Fast(hash) | RaiLocalResult::Final(hash) if *hash == first_hash)) {
             self.rai_votes.outcome = RaiOutcome::Confirmed(first_hash);
+            self.state = ElectionState::Confirmed;
+        } else if self.rai_kind() == RaiElectionKind::Slot {
+            // Compatible notarization results finish the RAI election without
+            // finalizing its segment.  The close record later either promotes
+            // this provisional result or releases it.
+            self.rai_votes.outcome = RaiOutcome::Notarized(first_hash);
             self.state = ElectionState::Confirmed;
         }
     }
@@ -946,5 +1070,167 @@ mod rai_identity_tests {
             rai_close_cut_root(epoch, 4),
             rai_close_record_root(epoch, 4)
         );
+    }
+
+    #[test]
+    fn compatible_notarization_finishes_without_finalizing() {
+        use crate::consensus::rai::BlockHashOrTimeout;
+        use rsnano_types::{Amount, PrivateKey, RaiCommitteeScope};
+
+        let keys = (1..=6).map(PrivateKey::from).collect::<Vec<_>>();
+        let committee = Arc::new(RepWeights::from([
+            (keys[0].public_key(), Amount::raw(1)),
+            (keys[1].public_key(), Amount::raw(1)),
+            (keys[2].public_key(), Amount::raw(1)),
+            (keys[3].public_key(), Amount::raw(1)),
+            (keys[4].public_key(), Amount::raw(1)),
+            (keys[5].public_key(), Amount::raw(1)),
+        ]));
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_slot(
+            block,
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            Timestamp::new_test_instance(),
+            RaiEpoch::ZERO,
+        )
+        .with_rai_committees(vec![committee]);
+
+        // Four of six first votes cross notarization, but not the fast
+        // threshold. The result is terminal and remains provisional.
+        for key in keys.iter().take(4) {
+            election
+                .rai_votes
+                .record_first_vote(
+                    key.public_key(),
+                    BlockHashOrTimeout::Block(hash),
+                    RaiCommitteeScope::All,
+                )
+                .unwrap();
+        }
+        for key in keys.iter().take(4) {
+            election
+                .rai_votes
+                .record_notarization_vote(
+                    key.public_key(),
+                    BlockHashOrTimeout::Block(hash),
+                    RaiCommitteeScope::All,
+                )
+                .unwrap();
+        }
+        election.update_rai_tallies();
+
+        assert_eq!(election.rai_votes.outcome, RaiOutcome::Notarized(hash));
+        assert!(election.state().has_ended());
+        assert!(
+            election
+                .into_confirmed_election(
+                    Timestamp::new_test_instance(),
+                    ConfirmationType::ActiveConfirmedQuorum,
+                )
+                .rai_finalization_epoch
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn slot_timeout_votes_finish_the_election() {
+        use rsnano_types::{Amount, PrivateKey, RaiVoteMetadata, RaiVotePhase};
+
+        let keys = (1..=6).map(PrivateKey::from).collect::<Vec<_>>();
+        let committee = Arc::new(RepWeights::from([
+            (keys[0].public_key(), Amount::raw(1)),
+            (keys[1].public_key(), Amount::raw(1)),
+            (keys[2].public_key(), Amount::raw(1)),
+            (keys[3].public_key(), Amount::raw(1)),
+            (keys[4].public_key(), Amount::raw(1)),
+            (keys[5].public_key(), Amount::raw(1)),
+        ]));
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_slot(
+            block,
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            Timestamp::new_test_instance(),
+            RaiEpoch::ZERO,
+        )
+        .with_rai_committees(vec![committee]);
+        let metadata = RaiVoteMetadata {
+            election_id: election.rai_id().clone(),
+            epoch: election.rai_epoch(),
+            ..Default::default()
+        };
+        let received = Timestamp::new_test_instance();
+
+        for key in keys.iter().take(2) {
+            election
+                .add_rai_vote(
+                    key.public_key(),
+                    hash,
+                    metadata.clone(),
+                    UnixMillisTimestamp::new(1),
+                    received,
+                )
+                .unwrap();
+        }
+        for key in keys.iter().skip(2) {
+            election
+                .add_rai_vote(
+                    key.public_key(),
+                    BlockHash::ZERO,
+                    metadata.clone(),
+                    UnixMillisTimestamp::new(1),
+                    received,
+                )
+                .unwrap();
+        }
+
+        assert_eq!(election.voting_hash(), BlockHash::ZERO);
+        assert_eq!(election.rai_vote_metadata().phase, RaiVotePhase::Notar);
+
+        let timeout_notar = RaiVoteMetadata {
+            phase: RaiVotePhase::Notar,
+            ..metadata
+        };
+        for key in keys.iter().take(4) {
+            election
+                .add_rai_vote(
+                    key.public_key(),
+                    BlockHash::ZERO,
+                    timeout_notar.clone(),
+                    UnixMillisTimestamp::new(2),
+                    received,
+                )
+                .unwrap();
+        }
+        election.update_rai_tallies();
+
+        assert_eq!(election.rai_votes.outcome, RaiOutcome::TimedOut);
+        assert!(election.state().has_ended());
+    }
+
+    #[test]
+    fn expired_slot_targets_a_timeout_first_vote() {
+        use rsnano_types::{Amount, PrivateKey, RaiVotePhase};
+
+        let key = PrivateKey::from(1);
+        let committee = Arc::new(RepWeights::from([(key.public_key(), Amount::raw(1))]));
+        let start = Timestamp::new_test_instance();
+        let mut election = Election::new_slot(
+            SavedBlock::new_test_instance(),
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            start,
+            RaiEpoch::ZERO,
+        )
+        .with_rai_committees(vec![committee]);
+
+        election.transition_time(start + Duration::from_secs(6));
+
+        assert_eq!(election.voting_hash(), BlockHash::ZERO);
+        assert_eq!(election.rai_vote_metadata().phase, RaiVotePhase::First);
+        assert_eq!(election.rai_votes.outcome, RaiOutcome::Pending);
     }
 }

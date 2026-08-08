@@ -266,6 +266,22 @@ impl RaiReportStore {
             >= total.saturating_sub(faulty)
     }
 
+    pub fn has_full_coverage(&self, epoch: RaiEpoch, committee: &RepWeights) -> bool {
+        let total = total_weight(committee);
+        total != 0
+            && self
+                .proof(epoch, committee)
+                .reports
+                .iter()
+                .map(|report| report.reporter)
+                .collect::<BTreeSet<_>>()
+                .iter()
+                .fold(0u128, |sum, reporter| {
+                    sum.saturating_add(raw(committee.weight(reporter)))
+                })
+                == total
+    }
+
     fn has_complete_report(&self, epoch: RaiEpoch, reporter: &PublicKey) -> bool {
         let chunks = self
             .reports
@@ -385,6 +401,10 @@ impl RaiCloseCutStore {
     }
     pub fn get(&self, hash: &BlockHash) -> Option<&RaiCloseCut> {
         self.cuts.get(hash)
+    }
+
+    pub fn all(&self) -> Vec<RaiCloseCut> {
+        self.cuts.values().cloned().collect()
     }
 }
 

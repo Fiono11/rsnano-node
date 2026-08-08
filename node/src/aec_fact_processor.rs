@@ -143,9 +143,10 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::Recovered => self.election_schedulers.notify(),
             #[cfg(feature = "rai_protocol")]
-            AecFact::RaiCloseInstalled(frontiers) => {
+            AecFact::RaiCloseInstalled(epoch, frontiers) => {
                 for frontier in frontiers.values() {
-                    self.confirming_set.add_rai_close_block(frontier.frontier);
+                    self.confirming_set
+                        .add_rai_close_block(frontier.frontier, epoch);
                 }
             }
         }

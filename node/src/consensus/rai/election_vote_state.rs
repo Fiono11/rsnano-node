@@ -16,6 +16,9 @@ pub enum BlockHashOrTimeout {
 pub enum RaiOutcome {
     #[default]
     Pending,
+    /// Every applicable committee produced a compatible non-timeout
+    /// notarization result, but the segment is not yet finalized.
+    Notarized(BlockHash),
     Confirmed(BlockHash),
     TimedOut,
 }

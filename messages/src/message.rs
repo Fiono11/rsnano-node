@@ -26,6 +26,10 @@ pub enum Message {
     SnapshotProposalVote(ProposalVote),
     #[cfg(feature = "rai_protocol")]
     RaiReport(RaiReportMessage),
+    #[cfg(feature = "rai_protocol")]
+    RaiReportRequest(RaiReportRequest),
+    #[cfg(feature = "rai_protocol")]
+    RaiVoteRequest(RaiVoteRequest),
 }
 
 pub trait MessageVariant {
@@ -107,6 +111,14 @@ impl From<&ParseMessageError> for DetailType {
             }
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::RaiReport) => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiReportRequest) => {
+                Self::InvalidMessageType
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::RaiVoteRequest) => {
+                Self::InvalidMessageType
+            }
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
@@ -158,6 +170,10 @@ impl Message {
             Message::SnapshotProposalVote(_) => MessageType::ProposalVote,
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(_) => MessageType::RaiReport,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReportRequest(_) => MessageType::RaiReportRequest,
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVoteRequest(_) => MessageType::RaiVoteRequest,
         }
     }
 
@@ -182,6 +198,10 @@ impl Message {
             Message::SnapshotProposalVote(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReportRequest(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVoteRequest(x) => Some(x),
             _ => None,
         }
     }
@@ -218,6 +238,10 @@ impl Message {
             Message::SnapshotProposalVote(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::RaiReport(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiReportRequest(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::RaiVoteRequest(m) => m.serialize(writer),
         }
     }
 
@@ -268,6 +292,14 @@ impl Message {
             }
             #[cfg(feature = "rai_protocol")]
             MessageType::RaiReport => Message::RaiReport(RaiReportMessage::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiReportRequest => {
+                Message::RaiReportRequest(RaiReportRequest::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::RaiVoteRequest => {
+                Message::RaiVoteRequest(RaiVoteRequest::deserialize(payload)?)
+            }
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);
             }

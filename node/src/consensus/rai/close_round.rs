@@ -39,6 +39,9 @@ pub enum RaiCloseRoundAction {
 #[derive(Clone, Debug)]
 pub struct RaiCloseRoundState {
     pub id: RaiCloseElectionId,
+    /// The value selected by NextCloseHash for this round.  This is distinct
+    /// from the set of preimages retained to validate votes for other values.
+    pub selected: BlockHash,
     pub candidates: BTreeSet<BlockHash>,
     pub validated_preimages: BTreeSet<BlockHash>,
     pub evidence: RaiElectionVoteState,
@@ -50,6 +53,7 @@ impl RaiCloseRoundState {
     fn new(id: RaiCloseElectionId, hash: BlockHash, carried: Option<BlockHash>) -> Self {
         Self {
             id,
+            selected: hash,
             candidates: BTreeSet::from([hash]),
             validated_preimages: BTreeSet::from([hash]),
             evidence: RaiElectionVoteState::default(),
@@ -131,7 +135,7 @@ impl RaiCloseRoundTracker {
         if current.id.kind != snapshot.kind
             || current.id.epoch != snapshot.epoch
             || current.id.round != snapshot.current_round
-            || current.validated_preimages.is_empty()
+            || !current.validated_preimages.contains(&current.selected)
         {
             return None;
         }
@@ -202,10 +206,7 @@ impl RaiCloseRoundTracker {
             // A restored/replayed transition must reproduce the exact value
             // already installed for the successor, never the caller's newly
             // computed fresh preference.
-            let existing_hash = *existing
-                .validated_preimages
-                .first()
-                .expect("a close round always retains its opening");
+            let existing_hash = existing.selected;
             return if existing.carried.is_some() {
                 RaiCloseRoundAction::StartCarry {
                     round: next_round,
@@ -336,6 +337,10 @@ mod tests {
                 hash: hash(2)
             }
         );
+
+        // A lower, historically admissible hash is validation material, not
+        // the selected fresh preference for this round.
+        rounds.add_validated_preimage(1, hash(1));
 
         // Replaying the source-round event after local visibility changed must
         // not start the same election id with a different candidate.

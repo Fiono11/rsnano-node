@@ -62,6 +62,8 @@ struct VoteRecord {
     last_final: Option<Timestamp>,
     last_voted_winner: BlockHash,
     last_voted: Timestamp,
+    #[cfg(feature = "rai_protocol")]
+    last_rai_phase: rsnano_types::RaiVotePhase,
 }
 
 impl VotingScheduler {
@@ -84,6 +86,11 @@ impl VotingScheduler {
             return true;
         }
 
+        #[cfg(feature = "rai_protocol")]
+        if record.last_rai_phase != target.metadata.phase {
+            return true;
+        }
+
         let last = match target.vote_type {
             VoteType::NonFinal => record.last_non_final,
             VoteType::Final => record.last_final,
@@ -101,6 +108,8 @@ impl VotingScheduler {
             last_final: None,
             last_voted_winner: BlockHash::ZERO,
             last_voted: now,
+            #[cfg(feature = "rai_protocol")]
+            last_rai_phase: target.metadata.phase,
         });
 
         debug_assert!(now >= record.last_voted);
@@ -111,6 +120,10 @@ impl VotingScheduler {
         }
         record.last_voted_winner = target.winner;
         record.last_voted = now;
+        #[cfg(feature = "rai_protocol")]
+        {
+            record.last_rai_phase = target.metadata.phase;
+        }
 
         self.expiry_queue.push_back((now, target.id.clone()));
     }
@@ -186,6 +199,18 @@ mod tests {
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         // Final vote type not recorded yet, so can vote immediately
         assert!(s.can_vote(&target(VoteType::Final), t(1)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn can_vote_immediately_when_rai_phase_changes() {
+        let mut s = scheduler();
+        let first = target(VoteType::NonFinal);
+        s.mark_voted(&first, t(0));
+        let mut notar = target(VoteType::NonFinal);
+        notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
+
+        assert!(s.can_vote(&notar, t(1)));
     }
 
     #[test]

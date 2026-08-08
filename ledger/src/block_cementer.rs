@@ -37,6 +37,10 @@ impl<'a> BlockCementer<'a> {
         #[cfg(feature = "rai_protocol")] finalization_epoch: Option<RaiEpoch>,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
+        #[cfg(feature = "rai_protocol")]
+        let preceding_frontiers = finalization_epoch
+            .map(|epoch| self.store.rai_finalization.frontiers_before(&txn, epoch))
+            .unwrap_or_default();
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
@@ -46,7 +50,18 @@ impl<'a> BlockCementer<'a> {
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
             for dependent in dependents.iter() {
-                if !dependent.is_zero() && !self.is_confirmed(&txn, dependent) {
+                let unconfirmed = !dependent.is_zero() && !self.is_confirmed(&txn, dependent);
+                #[cfg(feature = "rai_protocol")]
+                let certified_account_predecessor = finalization_epoch.is_some()
+                    && !dependent.is_zero()
+                    && *dependent == block.previous()
+                    && preceding_frontiers
+                        .get(&block.account())
+                        .is_none_or(|base| block.height() > base.height)
+                    && self.store.rai_finalization.epoch(&txn, dependent).is_none();
+                #[cfg(not(feature = "rai_protocol"))]
+                let certified_account_predecessor = false;
+                if unconfirmed || certified_account_predecessor {
                     self.stats.inc(
                         StatType::ConfirmationHeight,
                         DetailType::DependentUnconfirmed,
@@ -64,7 +79,8 @@ impl<'a> BlockCementer<'a> {
 
             if stack.back() == Some(&hash) {
                 stack.pop_back();
-                if !self.is_confirmed(&txn, &hash) {
+                let was_confirmed = self.is_confirmed(&txn, &hash);
+                if !was_confirmed {
                     // We must only confirm blocks that have their dependencies confirmed
 
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
@@ -73,19 +89,6 @@ impl<'a> BlockCementer<'a> {
                     self.store
                         .confirmation_height
                         .put(&mut txn, &block.account(), &conf_height);
-                    #[cfg(feature = "rai_protocol")]
-                    if let Some(epoch) = finalization_epoch {
-                        assert!(
-                            self.store.rai_finalization.put(
-                                &mut txn,
-                                &block.hash(),
-                                epoch,
-                                &block.account(),
-                                &conf_height,
-                            ),
-                            "a finalized block cannot move to a different RAI epoch"
-                        );
-                    }
                     self.store
                         .cache
                         .confirmed_count
@@ -98,7 +101,25 @@ impl<'a> BlockCementer<'a> {
                         1,
                     );
 
-                    result.push(block);
+                    result.push(block.clone());
+                }
+                #[cfg(feature = "rai_protocol")]
+                if let Some(epoch) = finalization_epoch
+                    && preceding_frontiers
+                        .get(&block.account())
+                        .is_none_or(|base| block.height() > base.height)
+                {
+                    let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
+                    assert!(
+                        self.store.rai_finalization.put(
+                            &mut txn,
+                            &block.hash(),
+                            epoch,
+                            &block.account(),
+                            &conf_height,
+                        ),
+                        "a finalized block cannot move to a different RAI epoch"
+                    );
                 }
             } else {
                 // Unconfirmed dependencies were added

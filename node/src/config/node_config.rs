@@ -311,6 +311,9 @@ pub struct RaiConfig {
     pub genesis_committee: Vec<Account>,
     /// Treat the cemented ledger at startup as pre-epoch baseline state.
     pub reset_finalization_on_start: bool,
+    /// Allow a slot omitted by a certified close to be scheduled again in a
+    /// later epoch. Disabled by default: close exclusion discards the slot.
+    pub retry_released_slots: bool,
 }
 
 impl Default for RaiConfig {
@@ -321,7 +324,18 @@ impl Default for RaiConfig {
             tick_interval: Duration::from_millis(100),
             genesis_committee: Vec::new(),
             reset_finalization_on_start: false,
+            retry_released_slots: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod rai_config_tests {
+    use super::RaiConfig;
+
+    #[test]
+    fn released_slot_retry_is_disabled_by_default() {
+        assert!(!RaiConfig::default().retry_released_slots);
     }
 }
 

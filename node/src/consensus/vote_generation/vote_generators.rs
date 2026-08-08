@@ -38,6 +38,48 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_notar_vote(
+        &self,
+        target: &rsnano_ledger::RaiFinalizedVoteTarget,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        self.non_final_vote_generator
+            .generate_rai_notar_vote(target, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_final_vote(
+        &self,
+        target: &rsnano_ledger::RaiFinalizedVoteTarget,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        self.final_vote_generator
+            .generate_rai_final_vote(target, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_votes(
+        &self,
+        root: &rsnano_types::Root,
+        hash: &BlockHash,
+        metadata: &rsnano_types::RaiVoteMetadata,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        self.non_final_vote_generator
+            .reply_cached_rai_votes(root, hash, metadata, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_election_votes(
+        &self,
+        metadata: &rsnano_types::RaiVoteMetadata,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        self.non_final_vote_generator
+            .reply_cached_rai_election_votes(metadata, channel)
+    }
+
     fn voting_delay_for(network: NetworkType) -> Duration {
         match network {
             NetworkType::NanoDevNetwork => Duration::from_secs(1),
@@ -188,6 +230,7 @@ impl VoteGenerators {
         blocks: &[SavedBlock],
         channel: &Arc<Channel>,
         vote_type: VoteType,
+        #[cfg(feature = "rai_protocol")] contexts: &[(rsnano_types::RaiVoteMetadata, bool)],
     ) -> usize {
         if self.vote_listener.is_tracked() {
             self.vote_listener.emit(VoteGenerationEvent {
@@ -198,8 +241,18 @@ impl VoteGenerators {
         }
 
         match vote_type {
-            VoteType::NonFinal => self.non_final_vote_generator.generate(blocks, channel),
-            VoteType::Final => self.final_vote_generator.generate(blocks, channel),
+            VoteType::NonFinal => self.non_final_vote_generator.generate(
+                blocks,
+                channel,
+                #[cfg(feature = "rai_protocol")]
+                contexts,
+            ),
+            VoteType::Final => self.final_vote_generator.generate(
+                blocks,
+                channel,
+                #[cfg(feature = "rai_protocol")]
+                contexts,
+            ),
         }
     }
 

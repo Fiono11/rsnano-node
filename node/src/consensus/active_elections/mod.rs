@@ -35,6 +35,8 @@ pub struct ActiveElectionsConfig {
     pub max_elections: usize,
     /// Maximum cache size for recently_confirmed
     pub confirmation_cache: usize,
+    #[cfg(feature = "rai_protocol")]
+    pub retry_released_slots: bool,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -42,6 +44,8 @@ impl Default for ActiveElectionsConfig {
         Self {
             max_elections: 5000,
             confirmation_cache: 65536,
+            #[cfg(feature = "rai_protocol")]
+            retry_released_slots: false,
         }
     }
 }
@@ -66,7 +70,10 @@ pub enum AecFact {
     ),
     Recovered,
     #[cfg(feature = "rai_protocol")]
-    RaiCloseInstalled(crate::consensus::rai::RaiFrontierMap),
+    RaiCloseInstalled(
+        rsnano_types::RaiEpoch,
+        crate::consensus::rai::RaiFrontierMap,
+    ),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

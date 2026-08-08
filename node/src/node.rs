@@ -66,14 +66,15 @@ use crate::{
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
-        BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
-        CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
-        VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
-        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
-        get_bootstrap_weights, log_bootstrap_weights, vote_cache::VoteCache,
+        ActiveElectionsConfig, AecFact, AecForkInserter, AecService, AecTicker, AecVoter,
+        BootstrapElectionActivator, BootstrapStaleElections, ConfirmReqSender,
+        ConfirmationSolicitorPlugin, CpsLimiter, CurrentRepTiers, DependentElectionsConfirmer,
+        ForkCache, ForkCacheUpdater, LocalVoteHistory, LocalVotesRemover, RepTiersCalculator,
+        RequestAggregator, VoteApplier, VoteBroadcaster, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster,
+        WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
+        election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
+        vote_cache::VoteCache,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
@@ -652,8 +653,13 @@ impl Node {
             weights
         };
         #[cfg(feature = "rai_protocol")]
+        let active_elections_config = ActiveElectionsConfig {
+            retry_released_slots: config.rai.retry_released_slots,
+            ..config.active_elections.clone()
+        };
+        #[cfg(feature = "rai_protocol")]
         let active_elections = Arc::new(AecService::new_with_rai_committee(
-            config.active_elections.clone(),
+            active_elections_config,
             base_latency,
             // Epochs 0 and 1 are governed by the immutable genesis
             // committee. Seeding RAI from the current live cache makes a
@@ -811,6 +817,8 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         ));
 
         let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));
@@ -1003,6 +1011,8 @@ impl Node {
             ledger_snapshots.clone(),
             #[cfg(feature = "rai_protocol")]
             active_elections.clone(),
+            #[cfg(feature = "rai_protocol")]
+            message_sender.clone(),
         ));
 
         let network_threads = Arc::new(Mutex::new(NetworkThreads::new(

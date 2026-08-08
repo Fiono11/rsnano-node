@@ -101,7 +101,7 @@ impl LedgerObserver {
                         self.bootstrap_queue.processing_failed(&hash);
                         if self.inspect_live_traffic {
                             // Prevent live traffic from evicting accounts from the priority list
-                            if result.source == BlockSource::Live
+                            if is_live_traffic(result.source)
                                 && !self.bootstrap_queue.queue_half_full()
                                 && !self.bootstrap_queue.blocked_half_full()
                                 && result.block.block_type() == BlockType::State
@@ -140,5 +140,22 @@ impl LedgerObserver {
                 self.bootstrap_queue.insert(destination);
             }
         }
+    }
+}
+
+fn is_live_traffic(source: BlockSource) -> bool {
+    matches!(source, BlockSource::Live | BlockSource::LiveOriginator)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn originator_publish_is_live_traffic() {
+        assert!(is_live_traffic(BlockSource::Live));
+        assert!(is_live_traffic(BlockSource::LiveOriginator));
+        assert!(!is_live_traffic(BlockSource::Bootstrap));
+        assert!(!is_live_traffic(BlockSource::Unchecked));
     }
 }

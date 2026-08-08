@@ -6,7 +6,7 @@ use rsnano_types::{
     Account, BlockHash, ConfirmationHeightInfo, PrivateKey, QualifiedRoot, RaiEpoch,
 };
 
-use super::{RaiCloseKind, RaiClosingPhase, RaiEpochManager, RaiReport, ReportInsert};
+use super::{RaiCloseKind, RaiClosingPhase, RaiEpochManager, RaiReport};
 
 /// Notifications consumed by the epoch lifecycle service.
 #[derive(Clone, Debug)]
@@ -37,17 +37,19 @@ mod tests {
     #[derive(Default)]
     struct TestDriver {
         reports: Vec<RaiReport>,
+        close_starts: Vec<(RaiCloseKind, RaiEpoch, u32, BlockHash)>,
     }
 
     impl RaiEpochLoopDriver for TestDriver {
         fn start_close_election(
             &mut self,
-            _kind: RaiCloseKind,
-            _epoch: RaiEpoch,
-            _round: u32,
+            kind: RaiCloseKind,
+            epoch: RaiEpoch,
+            round: u32,
             _root: QualifiedRoot,
-            _hash: BlockHash,
+            hash: BlockHash,
         ) {
+            self.close_starts.push((kind, epoch, round, hash));
         }
 
         fn close_election_winner(
@@ -116,6 +118,44 @@ mod tests {
         assert!(service.is_stopped());
         assert_eq!(service.epoch_state().open_epoch, RaiEpoch::ZERO);
         assert!(service.driver().reports.is_empty());
+    }
+
+    #[test]
+    fn report_quorum_at_epoch_boundary_waits_for_collection_grace() {
+        let start = Timestamp::new_test_instance();
+        let duration = Duration::from_secs(30);
+        let local = PrivateKey::from(1);
+        let remote = PrivateKey::from(2);
+        let committee = Arc::new(RepWeights::from([
+            (local.public_key(), rsnano_types::Amount::raw(1)),
+            (remote.public_key(), rsnano_types::Amount::raw(1)),
+        ]));
+        let mut service = RaiEpochLoop::new(
+            RaiEpochManager::new(committee, BlockHash::ZERO),
+            TestDriver::default(),
+            local,
+            duration,
+            start,
+        );
+
+        // The remote report plus the locally generated boundary report form a
+        // complete quorum.  Closing must still pass through the collection
+        // barrier instead of starting from an arrival-order-dependent subset.
+        service.process(RaiEpochEvent::ReportReceived(RaiReport::new(
+            &remote,
+            RaiEpoch::ZERO,
+            [],
+        )));
+        let boundary = start + duration;
+        service.process(RaiEpochEvent::Tick(boundary));
+        assert!(service.driver().close_starts.is_empty());
+        assert_eq!(
+            service.epoch_state().closing.unwrap().phase,
+            RaiClosingPhase::CollectingReports
+        );
+
+        service.process(RaiEpochEvent::Tick(boundary + Duration::from_millis(1)));
+        assert_eq!(service.driver().close_starts.len(), 1);
     }
 }
 
@@ -274,13 +314,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
         match event {
             RaiEpochEvent::Tick(now) => self.tick(now),
             RaiEpochEvent::ReportReceived(report) => {
-                let epoch = report.epoch;
-                if matches!(
-                    self.epoch_manager.reports_mut().insert(report),
-                    Ok(ReportInsert::Added | ReportInsert::Duplicate)
-                ) {
-                    self.maybe_start_cut(epoch);
-                }
+                let _ = self.epoch_manager.reports_mut().insert(report);
             }
             RaiEpochEvent::SlotEvidenceChanged { epoch, root } => {
                 if let Some(evidence) = self.driver.slot_vote_evidence(epoch, &root) {
@@ -322,7 +356,33 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
 
     fn tick(&mut self, now: Timestamp) {
         let state = *self.epoch_manager.state();
-        if state.closing.is_some() || now < state.open_started_at + self.epoch_duration {
+        if let Some(closing) = state.closing {
+            if closing.phase == RaiClosingPhase::CollectingReports {
+                // Batch report arrivals until the next protocol tick. This
+                // preserves the W-F barrier while giving epidemic delivery a
+                // deterministic collection window, avoiding needless round-0
+                // preference splits caused solely by per-message ordering.
+                // Give epidemic report repair enough time to converge before
+                // falling back to the W-F minimum. The fallback preserves
+                // liveness with missing/faulty reporters; healthy committees
+                // normally reach full coverage first and avoid an artificial
+                // close-version split caused only by network scheduling.
+                // Three seconds is also the accelerated test epoch length and
+                // proved too short for six peers to relay all chunked reports
+                // while block/vote traffic is active. Starting at that edge
+                // split otherwise-healthy replicas across different cuts.
+                const REPORT_COLLECTION_GRACE: Duration = Duration::from_secs(5);
+                if self
+                    .epoch_manager
+                    .full_report_coverage_available(closing.epoch)
+                    || now >= state.open_started_at + REPORT_COLLECTION_GRACE
+                {
+                    self.maybe_start_cut(closing.epoch);
+                }
+            }
+            return;
+        }
+        if now < state.open_started_at + self.epoch_duration {
             return;
         }
 
@@ -336,7 +396,9 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                 let _ = self.epoch_manager.reports_mut().insert(report.clone());
                 self.driver.broadcast_report(report);
             }
-            self.maybe_start_cut(closing);
+            // Do not bypass the report-collection barrier merely because the
+            // reports already on hand happen to form W-F.  The next tick will
+            // start the cut after full coverage or REPORT_COLLECTION_GRACE.
         }
     }
 

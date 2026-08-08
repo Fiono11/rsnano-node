@@ -9,6 +9,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashSet;
+
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
@@ -29,7 +32,7 @@ use crate::{
 
 /// Vote requested by a given channel
 pub struct VoteRequest {
-    pub candidates: Vec<(Root, BlockHash)>,
+    candidates: Vec<VoteCandidate>,
     pub channel: Arc<Channel>,
 }
 
@@ -62,6 +65,109 @@ pub(crate) struct VoteGenerator {
 }
 
 impl VoteGenerator {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_notar_vote(
+        &self,
+        target: &rsnano_ledger::RaiFinalizedVoteTarget,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let generated = std::sync::atomic::AtomicUsize::new(0);
+        self.shared_state.vote(
+            &[target.hash],
+            &[target.root],
+            target.metadata.clone(),
+            false,
+            |vote| {
+                generated.fetch_add(1, Ordering::Relaxed);
+                let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                self.shared_state.message_sender.lock().unwrap().try_send(
+                    channel,
+                    &message,
+                    TrafficType::VoteReply,
+                );
+            },
+        );
+        generated.load(Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_final_vote(
+        &self,
+        target: &rsnano_ledger::RaiFinalizedVoteTarget,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let generated = std::sync::atomic::AtomicUsize::new(0);
+        self.shared_state.vote(
+            &[target.hash],
+            &[target.root],
+            target.metadata.clone(),
+            true,
+            |vote| {
+                generated.fetch_add(1, Ordering::Relaxed);
+                let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                self.shared_state.message_sender.lock().unwrap().try_send(
+                    channel,
+                    &message,
+                    TrafficType::VoteReply,
+                );
+            },
+        );
+        generated.load(Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_votes(
+        &self,
+        root: &rsnano_types::Root,
+        hash: &BlockHash,
+        metadata: &RaiVoteMetadata,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let votes = self
+            .shared_state
+            .history
+            .votes(root, hash, false)
+            .into_iter()
+            .filter(|vote| {
+                vote.metadata.election_id == metadata.election_id
+                    && vote.metadata.epoch == metadata.epoch
+            })
+            .collect::<Vec<_>>();
+        for vote in &votes {
+            let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((**vote).clone()));
+            self.shared_state.message_sender.lock().unwrap().try_send(
+                channel,
+                &confirm,
+                TrafficType::VoteReply,
+            );
+        }
+        votes.len()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_election_votes(
+        &self,
+        metadata: &RaiVoteMetadata,
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let votes = self
+            .shared_state
+            .history
+            .rai_votes()
+            .into_iter()
+            .filter(|vote| vote.metadata.election_id == metadata.election_id)
+            .collect::<Vec<_>>();
+        for vote in &votes {
+            let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((**vote).clone()));
+            self.shared_state.message_sender.lock().unwrap().try_send(
+                channel,
+                &confirm,
+                TrafficType::VoteReply,
+            );
+        }
+        votes.len()
+    }
+
     const MAX_REQUESTS: usize = 2048;
     const MAX_HASHES: usize = 255;
 
@@ -170,7 +276,16 @@ impl VoteGenerator {
     }
 
     /// Queue blocks for vote generation, returning the number of successful candidates.
-    pub(crate) fn generate(&self, blocks: &[SavedBlock], channel: &Arc<Channel>) -> usize {
+    pub(crate) fn generate(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+        #[cfg(feature = "rai_protocol")] contexts: &[(RaiVoteMetadata, bool)],
+    ) -> usize {
+        #[cfg(feature = "rai_protocol")]
+        let mut cached = 0;
+        #[cfg(feature = "rai_protocol")]
+        let mut sent_cached = HashSet::new();
         let req_candidates = {
             let any = self.ledger.any();
 
@@ -194,9 +309,84 @@ impl VoteGenerator {
 
             blocks
                 .iter()
-                .filter_map(|i| {
+                .enumerate()
+                .filter_map(|(_index, i)| {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        let context = &contexts[_index].0;
+                        let votes = self
+                            .shared_state
+                            .history
+                            .votes(&i.root(), &i.hash(), false)
+                            .into_iter()
+                            .filter(|vote| {
+                                // ConfirmReq does not carry RAI metadata. If
+                                // this node no longer has the requested
+                                // election, replay its signed persistent vote
+                                // history for the requested root/hash instead
+                                // of generating an unusable all-zero-context
+                                // vote. A live election still narrows replay
+                                // to its exact governing context.
+                                context == &RaiVoteMetadata::default()
+                                    || (vote.metadata.election_id == context.election_id
+                                        && vote.metadata.epoch == context.epoch)
+                            })
+                            .collect::<Vec<_>>();
+                        if !votes.is_empty() {
+                            for vote in votes {
+                                // Vote::hash() covers the signed payload, not
+                                // the representative identity. Every signer
+                                // of the same phase/value is distinct
+                                // certificate evidence and must be replayed.
+                                if !sent_cached.insert((vote.voter, vote.hash())) {
+                                    continue;
+                                }
+                                if std::env::var_os("RSNANO_RAI_TRACE_PR").is_some() {
+                                    eprintln!(
+                                        "RAI_SOLICIT_TRACE send_cached_vote channel={:?} vote={:?}",
+                                        channel.channel_id(),
+                                        vote
+                                    );
+                                }
+                                let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(
+                                    (*vote).clone(),
+                                ));
+                                self.shared_state.message_sender.lock().unwrap().try_send(
+                                    channel,
+                                    &confirm,
+                                    TrafficType::Vote,
+                                );
+                                self.stats.inc_dir(
+                                    StatType::Requests,
+                                    DetailType::RequestsGeneratedVotes,
+                                    Direction::In,
+                                );
+                            }
+                            // A cached RAI vote is evidence, but it does not
+                            // necessarily cover the election's current phase.
+                            // When the election is still live, keep the
+                            // candidate so this node's representative can
+                            // generate the currently required vote as well as
+                            // replaying its retained evidence.  Contextless
+                            // ConfirmReq repair can only replay history safely.
+                            if context == &RaiVoteMetadata::default() {
+                                cached += 1;
+                                return None;
+                            }
+                        }
+                        if context == &RaiVoteMetadata::default() {
+                            return None;
+                        }
+                    }
                     if can_vote(i) {
-                        Some((i.root(), i.hash()))
+                        Some(VoteCandidate {
+                            root: i.root(),
+                            hash: i.hash(),
+                            #[cfg(feature = "rai_protocol")]
+                            metadata: contexts[_index].0.clone(),
+                            #[cfg(feature = "rai_protocol")]
+                            is_rai_close: contexts[_index].1,
+                        })
                     } else {
                         None
                     }
@@ -205,6 +395,8 @@ impl VoteGenerator {
         };
 
         let result = req_candidates.len();
+        #[cfg(feature = "rai_protocol")]
+        let result = result + cached;
         let mut guard = self.shared_state.queues.lock().unwrap();
         let vote_req = VoteRequest {
             candidates: req_candidates,
@@ -339,6 +531,8 @@ impl SharedState {
                 &roots,
                 #[cfg(feature = "rai_protocol")]
                 context.unwrap().metadata,
+                #[cfg(feature = "rai_protocol")]
+                false,
                 |generated_vote| {
                     self.stats
                         .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
@@ -366,6 +560,7 @@ impl SharedState {
         hashes: &[BlockHash],
         roots: &[Root],
         #[cfg(feature = "rai_protocol")] mut metadata: RaiVoteMetadata,
+        #[cfg(feature = "rai_protocol")] regenerate_finalized: bool,
         action: F,
     ) where
         F: Fn(Arc<Vote>),
@@ -402,9 +597,23 @@ impl SharedState {
             {
                 metadata.phase = if self.is_final {
                     RaiVotePhase::Final
+                } else if metadata.phase == RaiVotePhase::Notar {
+                    RaiVotePhase::Notar
                 } else {
                     RaiVotePhase::First
                 };
+                // An explicit repair request for a durably finalized target
+                // must always receive a freshly signed reply. The immutable
+                // target fixes the election, phase, and value, so bypassing
+                // live phase-slot suppression cannot authorize equivocation.
+                if !regenerate_finalized
+                    && roots.iter().any(|root| {
+                        self.history
+                            .rai_phase_vote_exists(root, &rep_key.public_key(), &metadata)
+                    })
+                {
+                    continue;
+                }
                 votes.push(Arc::new(Vote::new_rai(
                     &rep_key,
                     timestamp,
@@ -440,16 +649,24 @@ impl SharedState {
         while i.peek().is_some() && !self.stopped.load(Ordering::SeqCst) {
             let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
             let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+            #[cfg(feature = "rai_protocol")]
+            let context = i.peek().unwrap().metadata.clone();
             {
                 let spacing = self.spacing.lock().unwrap();
                 while hashes.len() < VoteGenerator::MAX_HASHES {
-                    let Some((root, hash)) = i.next() else {
+                    #[cfg(feature = "rai_protocol")]
+                    if i.peek()
+                        .is_some_and(|candidate| candidate.metadata != context)
+                    {
+                        break;
+                    }
+                    let Some(candidate) = i.next() else {
                         break;
                     };
-                    if !roots.contains(root) {
-                        if spacing.votable(root, hash, self.clock.now()) {
-                            roots.push(*root);
-                            hashes.push(*hash);
+                    if !roots.contains(&candidate.root) {
+                        if spacing.votable(&candidate.root, &candidate.hash, self.clock.now()) {
+                            roots.push(candidate.root);
+                            hashes.push(candidate.hash);
                         } else {
                             self.stats
                                 .inc(self.stat_type(), DetailType::GeneratorSpacing);
@@ -468,7 +685,9 @@ impl SharedState {
                     &hashes,
                     &roots,
                     #[cfg(feature = "rai_protocol")]
-                    RaiVoteMetadata::default(),
+                    context,
+                    #[cfg(feature = "rai_protocol")]
+                    false,
                     |vote| {
                         let confirm =
                             Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
@@ -500,7 +719,7 @@ impl SharedState {
             .into_iter()
             .filter(|candidate| {
                 #[cfg(feature = "rai_protocol")]
-                if candidate.is_rai_close {
+                if candidate.is_rai_close || candidate.hash.is_zero() {
                     return true;
                 }
                 verified.contains(&(candidate.root, candidate.hash))

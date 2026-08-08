@@ -68,6 +68,22 @@ impl MessageSender {
         let sent =
             { try_send_serialized_message(channel, &self.stats, buffer, message, traffic_type) };
 
+        #[cfg(feature = "rai_protocol")]
+        if let Message::ConfirmAck(ack) = message
+            && let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR")
+        {
+            let vote = ack.vote();
+            eprintln!(
+                "RAI_MSG pr={pr} event=send_vote queued={sent} channel={} id={:?} phase={:?} voter={} vote_hash={} hashes={:?}",
+                channel.channel_id(),
+                vote.metadata.election_id,
+                vote.metadata.phase,
+                vote.voter,
+                vote.hash(),
+                vote.hashes
+            );
+        }
+
         if let Some(callback) = &self.published_callback {
             callback(channel.channel_id(), message);
         }

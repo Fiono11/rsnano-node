@@ -62,6 +62,8 @@ impl<'a> RequestAggregatorImpl<'a> {
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsFinal);
                 } else {
+                    #[cfg(feature = "rai_protocol")]
+                    self.to_generate.push(block);
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsNonFinal);
                 }
@@ -103,6 +105,20 @@ mod tests {
 
         assert_eq!(result.remaining_final.len(), 1);
         assert_eq!(result.remaining_final[0].hash(), block.hash());
+    }
+
+    #[test]
+    fn generates_non_final_vote_for_unconfirmed_block() {
+        let ledger = Ledger::new_null();
+        let block = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let root = block.root();
+        ledger.process_one(&block).unwrap();
+
+        let result = run_aggregator(&ledger, &[(block.hash(), root)]);
+
+        assert_eq!(result.remaining_normal.len(), 1);
+        assert_eq!(result.remaining_normal[0].hash(), block.hash());
+        assert!(result.remaining_final.is_empty());
     }
 
     #[test]

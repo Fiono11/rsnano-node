@@ -35,6 +35,8 @@ use rsnano_work::WorkThresholds;
 #[cfg(feature = "rai_protocol")]
 use crate::{RepWeights, RepresentativeBlockFinder};
 
+#[cfg(feature = "rai_protocol")]
+use crate::AnySet;
 use crate::{
     BlockRollbackPerformer, BlockSource, BootstrapWeights, BorrowingAnySet, BorrowingConfirmedSet,
     LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
@@ -49,6 +51,15 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 type RaiFinalizationEpoch = rsnano_types::RaiEpoch;
 #[cfg(not(feature = "rai_protocol"))]
 type RaiFinalizationEpoch = ();
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaiFinalizedVoteTarget {
+    pub election_id: rsnano_types::RaiElectionId,
+    pub hash: BlockHash,
+    pub root: Root,
+    pub metadata: rsnano_types::RaiVoteMetadata,
+}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BlockError {
@@ -889,6 +900,38 @@ impl Ledger {
         self.store.rai_finalization.epoch(&txn, hash)
     }
 
+    /// Reconstruct the original RAI slot identity for a durable finalized
+    /// block.  This is the sole lookup used by repair vote generation, so a
+    /// merely confirmed/notarized block can never be upgraded to a Final vote.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_finalized_vote_target(
+        &self,
+        hash: &BlockHash,
+        requested_root: &Root,
+    ) -> Option<RaiFinalizedVoteTarget> {
+        let epoch = self.rai_finalization_epoch(hash)?;
+        let block = self.any().get_block(hash)?;
+        if block.root() != *requested_root {
+            return None;
+        }
+        let qualified_root = block.qualified_root();
+        let election_id = rsnano_types::RaiElectionId::Slot(rsnano_types::RaiSlotId {
+            epoch,
+            root: qualified_root,
+        });
+        Some(RaiFinalizedVoteTarget {
+            election_id: election_id.clone(),
+            hash: *hash,
+            root: *requested_root,
+            metadata: rsnano_types::RaiVoteMetadata {
+                election_id,
+                epoch,
+                phase: rsnano_types::RaiVotePhase::Final,
+                ..Default::default()
+            },
+        })
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn rai_finalized_counts(&self) -> std::collections::BTreeMap<rsnano_types::RaiEpoch, u64> {
         let txn = self.store.begin_read();
@@ -1350,6 +1393,24 @@ mod tests {
             ledger.rai_finalization_epoch(&epoch_one.hash()),
             Some(RaiEpoch::new(1))
         );
+        let target = ledger
+            .rai_finalized_vote_target(&send.hash(), &send.root())
+            .unwrap();
+        assert_eq!(target.hash, send.hash());
+        assert_eq!(target.metadata.epoch, RaiEpoch::ZERO);
+        assert_eq!(target.metadata.phase, rsnano_types::RaiVotePhase::Final);
+        assert_eq!(
+            target.election_id,
+            rsnano_types::RaiElectionId::Slot(rsnano_types::RaiSlotId {
+                epoch: RaiEpoch::ZERO,
+                root: send.qualified_root(),
+            })
+        );
+        assert!(
+            ledger
+                .rai_finalized_vote_target(&send.hash(), &Root::from(123))
+                .is_none()
+        );
         assert_eq!(
             ledger.rai_frontier_delta(RaiEpoch::ZERO, &send.account()),
             Some(ConfirmationHeightInfo::new(send.height(), send.hash()))
@@ -1357,6 +1418,47 @@ mod tests {
         assert_eq!(
             ledger.roll_back(&send.hash()),
             Err(RollbackError::BlockConfirmed)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_attributes_an_already_cemented_new_account_chain() {
+        use crate::LedgerInserter;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        ledger.rai_reset_finalization_baseline();
+        let key = rsnano_types::PrivateKey::from(42);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        let open = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai([(&open.hash(), None)], &stopped, 1024, &mut observer);
+        assert_eq!(ledger.rai_finalization_epoch(&open.hash()), None);
+
+        ledger.confirm_batch_rai(
+            [(&open.hash(), Some(rsnano_types::RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+
+        assert_eq!(
+            ledger.rai_finalization_epoch(&open.hash()),
+            Some(rsnano_types::RaiEpoch::ZERO)
         );
     }
 }

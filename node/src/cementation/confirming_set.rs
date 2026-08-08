@@ -113,9 +113,8 @@ impl ConfirmingSet {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn add_rai_close_block(&self, hash: BlockHash) {
-        self.thread
-            .add_with_finalization_epoch(hash, RaiEpoch::ZERO);
+    pub fn add_rai_close_block(&self, hash: BlockHash, epoch: RaiEpoch) {
+        self.thread.add_with_finalization_epoch(hash, epoch);
     }
 
     /// Adds a block + its election to the set of blocks to be confirmed
@@ -270,8 +269,6 @@ impl ConfirmingSetThread {
     }
 
     fn add(&self, hash: BlockHash, election: Option<ConfirmedElection>) {
-        #[cfg(feature = "rai_protocol")]
-        let finalization_epoch = election.as_ref().and_then(|e| e.rai_finalization_epoch);
         let added;
         let mut near_full_warning = false;
         {
@@ -283,7 +280,9 @@ impl ConfirmingSetThread {
                 confirmation_root: hash,
                 timestamp: Instant::now(),
                 #[cfg(feature = "rai_protocol")]
-                finalization_epoch,
+                // Slot confirmation is not epoch finalization. The epoch is
+                // assigned only when a certified close record is installed.
+                finalization_epoch: None,
             });
 
             if !guard.near_full && guard.set.len() + guard.current.len() >= guard.near_full_limit {
