@@ -35,6 +35,10 @@ struct NetworkArgs {
     #[arg(long, default_value_t = 500000)]
     accounts: usize,
 
+    /// Fund every prepared account instead of only one stake account per PR
+    #[arg(long, default_value_t = false)]
+    fund_all_accounts: bool,
+
     /// Run the C++ nano_node (must be in PATH)
     #[arg(long, default_value_t = false)]
     cpp: bool,
@@ -83,6 +87,10 @@ struct RunArgs {
     #[arg(long, default_value_t = false)]
     change: bool,
 
+    /// Publish at most one change block from each prepared account
+    #[arg(long, default_value_t = false)]
+    one_block_per_account: bool,
+
     /// Disable sending a high priority block every 10s
     #[arg(long, default_value_t = false)]
     no_prio: bool,
@@ -119,6 +127,7 @@ pub(crate) struct CliArgs {
     pub blocks: Option<usize>,
     pub unconfirmed: bool,
     pub change: bool,
+    pub one_block_per_account: bool,
     pub cpp: bool,
     pub rocksdb: bool,
     pub no_prio: bool,
@@ -126,6 +135,7 @@ pub(crate) struct CliArgs {
     pub no_kill: bool,
     pub no_republish: bool,
     pub accounts: usize,
+    pub fund_all_accounts: bool,
     pub drop_percentage: usize,
     pub fork_percentage: usize,
     pub rai_epoch_duration_ms: Option<u64>,
@@ -142,6 +152,7 @@ impl CommandLine {
                 result.blocks = Some(args.blocks);
                 result.unconfirmed = args.unconfirmed;
                 result.change = args.change;
+                result.one_block_per_account = args.one_block_per_account;
                 result.no_prio = args.no_prio;
                 result.no_kill = args.no_kill;
                 result.no_republish = args.no_republish;
@@ -163,6 +174,7 @@ impl CliArgs {
             blocks: None,
             unconfirmed: false,
             change: false,
+            one_block_per_account: false,
             cpp: args.cpp,
             rocksdb: args.rocksdb,
             no_prio: false,
@@ -170,6 +182,7 @@ impl CliArgs {
             no_kill: false,
             no_republish: false,
             accounts: args.accounts,
+            fund_all_accounts: args.fund_all_accounts,
             drop_percentage: 0,
             fork_percentage: 0,
             rai_epoch_duration_ms: args.rai_epoch_duration_ms,
@@ -192,6 +205,9 @@ impl CliArgs {
         if self.prs == 0 || self.accounts < self.prs {
             anyhow::bail!("--prs must be nonzero and --accounts must be at least --prs");
         }
+        if self.one_block_per_account && self.blocks.unwrap_or(0) > self.accounts {
+            anyhow::bail!("--one-block-per-account requires --blocks <= --accounts");
+        }
         Ok(())
     }
 
@@ -201,7 +217,10 @@ impl CliArgs {
             max_blocks: self.blocks.unwrap_or(0),
             rate: self.rate_spec()?,
             fork_probability: self.fork_probability(),
-            track_confirmations: !self.unconfirmed,
+            // Timed RAI spam is a publication workload. A certified close may
+            // intentionally discard a submitted slot, so confirmation cannot
+            // gate construction of the remaining submissions.
+            track_confirmations: !self.unconfirmed && self.rai_epoch_duration_ms.is_none(),
         })
     }
 
@@ -228,7 +247,9 @@ impl CliArgs {
     }
 
     fn strategy(&self) -> SpamStrategy {
-        if self.change {
+        if self.one_block_per_account {
+            SpamStrategy::OneChangePerAccount
+        } else if self.change {
             SpamStrategy::Change
         } else {
             SpamStrategy::SendReceive
@@ -291,6 +312,7 @@ mod tests {
         .into_args();
         assert_eq!(args.mode, Mode::Run);
         assert_eq!(args.rai_epoch_duration_ms, Some(5000));
+        assert!(!args.spam_spec().unwrap().track_confirmations);
         args.validate().unwrap();
     }
 

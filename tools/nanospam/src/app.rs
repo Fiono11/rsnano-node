@@ -24,7 +24,9 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_types::{BlockHash, JsonBlock, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
+use rsnano_types::{
+    Account, BlockHash, JsonBlock, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId,
+};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
@@ -72,7 +74,16 @@ impl NanoSpamApp {
 
     pub async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let last_phase = self.last_rai_phase.clone();
-        match timeout(GLOBAL_TIMEOUT, self.run_inner(shutdown)).await {
+        // `run_inner` contains a synchronous scoped workload. A Tokio timer
+        // alone cannot be polled while that scope is blocking this executor
+        // thread, so a small OS-thread watchdog must also cancel its workers.
+        let timed_shutdown = shutdown.child_token();
+        let watchdog_shutdown = timed_shutdown.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(GLOBAL_TIMEOUT);
+            watchdog_shutdown.cancel();
+        });
+        match timeout(GLOBAL_TIMEOUT, self.run_inner(timed_shutdown)).await {
             Ok(result) => result.map_err(|error| {
                 anyhow!(
                     "{error:#}; last known RAI phase: {}",
@@ -135,6 +146,7 @@ impl NanoSpamApp {
             .await?;
         }
 
+        #[cfg(feature = "rai_protocol")]
         if !self.args.setup_only() {
             let mut expected = (0..self.args.prs)
                 .map(|i| crate::setup::pr_key(i).account().encode_account())
@@ -151,7 +163,13 @@ impl NanoSpamApp {
 
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
             *self.last_rai_phase.lock().unwrap() = "creating test wallets".to_string();
-            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await?
+            create_wallets(
+                &self.rpc_clients,
+                genesis_rpc,
+                &mut account_map,
+                self.args.fund_all_accounts,
+            )
+            .await?
         } else {
             WalletId::ZERO
         };
@@ -295,6 +313,7 @@ impl NanoSpamApp {
                     cancel_nanospam,
                     self.args.drop_probability(),
                     &self.clock,
+                    self.args.rai_epoch_duration_ms.is_some(),
                 ));
 
                 if !self.args.no_republish {
@@ -325,8 +344,7 @@ impl NanoSpamApp {
                     &self.rpc_clients,
                     &transition,
                     &self.last_rai_phase,
-                    &initial_rai_statuses,
-                    Duration::from_secs(240),
+                    Duration::from_secs(24),
                 )
                 .await?;
             }
@@ -334,12 +352,7 @@ impl NanoSpamApp {
             if self.args.rai_epoch_duration_ms.is_some() {
                 record_rai_statuses(&statuses, &transition, &self.last_rai_phase);
                 let observed = transition.into_inner().unwrap();
-                validate_epoch_transition(
-                    &statuses,
-                    &initial_rai_statuses,
-                    self.args.blocks.unwrap_or(0),
-                    &observed,
-                )?;
+                validate_epoch_transition(&statuses, &initial_rai_statuses, &observed)?;
                 print_rai_final_report(
                     &statuses,
                     &initial_rai_statuses,
@@ -554,21 +567,21 @@ async fn wait_for_rai_close(
     clients: &[NanoRpcClient],
     observation: &Mutex<RaiTransitionObservation>,
     last_phase: &Arc<Mutex<String>>,
-    initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     timeout_after: Duration,
 ) -> anyhow::Result<()> {
+    // Publications are complete before this function starts. Every submitted
+    // slot belongs to at most the currently open epoch, so closing through
+    // that epoch gives a stable final protocol state for comparison.
+    let target_epoch = fetch_rai_statuses(clients)
+        .await?
+        .iter()
+        .map(|status| status.open_epoch.inner())
+        .max()
+        .unwrap_or(0);
     let deadline = Instant::now() + timeout_after;
     loop {
         let statuses = fetch_rai_statuses(clients).await?;
         record_rai_statuses(&statuses, observation, last_phase);
-        let target_epoch = statuses
-            .iter()
-            .zip(initial_statuses)
-            .filter_map(|(status, initial)| workload_counts(status, initial).ok())
-            .flat_map(|counts| counts.into_keys())
-            .filter_map(|epoch| epoch.parse::<u64>().ok())
-            .max()
-            .unwrap_or(0);
         if statuses.iter().all(|status| {
             status
                 .closed_through
@@ -673,7 +686,6 @@ async fn fetch_rai_statuses(
 fn validate_epoch_transition(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
-    requested_workload: usize,
     observed: &RaiTransitionObservation,
 ) -> anyhow::Result<()> {
     if let Some(error) = &observed.validation_error {
@@ -691,24 +703,19 @@ fn validate_epoch_transition(
     let expected_counts = workload_counts(first, initial_first)?;
     for (pr, (status, initial)) in statuses.iter().zip(initial_statuses).enumerate().skip(1) {
         let actual_counts = workload_counts(status, initial)?;
-        let finalized: u64 = actual_counts.values().sum();
-        if finalized != requested_workload as u64 {
+        if actual_counts != expected_counts {
             anyhow::bail!(
-                "PR{pr} finalized {finalized} workload blocks, requested {requested_workload}"
+                "PR{pr} finalized a different per-epoch workload: expected {expected_counts:?}, got {actual_counts:?}"
             );
         }
     }
 
-    let workload_epochs = expected_counts
-        .keys()
-        .filter_map(|epoch| epoch.parse::<u64>().ok())
-        .collect::<Vec<_>>();
-    let first_workload_epoch = workload_epochs.iter().min().copied().unwrap_or(0);
-    let last_workload_epoch = workload_epochs.iter().max().copied().unwrap_or(0);
-    if requested_workload > 1 && workload_epochs.len() < 2 {
-        anyhow::bail!("workload did not span at least two RAI epochs");
-    }
-    for epoch in first_workload_epoch..=last_workload_epoch {
+    let closed_through = first
+        .closed_through
+        .as_ref()
+        .map(|e| e.inner())
+        .unwrap_or(0);
+    for epoch in 0..=closed_through {
         let epoch = epoch.to_string();
         let expected_cut = first.cut_hashes.get(&epoch);
         let expected_close = first.close_hashes.get(&epoch);
@@ -725,12 +732,6 @@ fn validate_epoch_transition(
         }
     }
 
-    let finalized: u64 = expected_counts.values().sum();
-    if finalized != requested_workload as u64 {
-        anyhow::bail!(
-            "finalized workload is {finalized}, requested workload is {requested_workload}"
-        );
-    }
     Ok(())
 }
 
@@ -815,10 +816,10 @@ async fn publish_blocks(
     cancel_token: CancellationToken,
     drop_probability: f64,
     clock: &SteadyClock,
+    finish_on_published: bool,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
-    let mut writer_index = 0;
     loop {
         let forks = select! {
             _ = cancel_token.cancelled() => break,
@@ -828,6 +829,7 @@ async fn publish_blocks(
             }
         };
         let block = forks.block.clone();
+        let writer_index = connection_index(&block);
         let hash = block.hash();
         let publish = Message::Publish(Publish::new_from_originator(block));
         let buffer = serializer.serialize(&publish);
@@ -887,16 +889,11 @@ async fn publish_blocks(
 
         let now = clock.now();
 
-        writer_index += 1;
-        if writer_index >= CONNECTIONS_PER_NODE {
-            writer_index = 0;
-        }
-
         let was_high_prio = {
             let mut l = logic.lock().unwrap();
             // TODO support delayed forks
             let prio = l.published(&hash, now);
-            if l.is_finished() {
+            if l.is_finished() || (finish_on_published && l.workload_published()) {
                 break;
             }
             prio
@@ -907,6 +904,17 @@ async fn publish_blocks(
         }
     }
     cancel_token.cancel();
+}
+
+fn connection_index(block: &rsnano_types::Block) -> usize {
+    block
+        .account_field()
+        .map(connection_index_for_account)
+        .unwrap_or(0)
+}
+
+fn connection_index_for_account(account: Account) -> usize {
+    account.as_bytes()[31] as usize % CONNECTIONS_PER_NODE
 }
 
 async fn republish_delayed_blocks(
@@ -1037,6 +1045,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn connection_selection_is_account_affine() {
+        let account = PrivateKey::from(42).account();
+        let first = connection_index_for_account(account);
+        assert_eq!(connection_index_for_account(account), first);
+        assert!(first < CONNECTIONS_PER_NODE);
+    }
+
     fn status(epoch_0: u64, epoch_1: u64, close_hash: &str) -> RaiStatusResponse {
         RaiStatusResponse {
             genesis_committee: Vec::new(),
@@ -1062,27 +1078,21 @@ mod tests {
     }
 
     #[test]
-    fn epoch_zero_only_fails() {
+    fn epoch_zero_only_can_converge() {
+        validate_epoch_transition(&[status(10, 0, "A")], &[status(0, 0, "A")], &observed())
+            .unwrap();
+    }
+
+    #[test]
+    fn different_per_epoch_finalization_fails() {
         assert!(
             validate_epoch_transition(
-                &[status(10, 0, "A")],
-                &[status(0, 0, "A")],
-                10,
+                &[status(4, 6, "A"), status(5, 5, "A")],
+                &[status(0, 0, "A"), status(0, 0, "A")],
                 &observed(),
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn local_election_epoch_split_does_not_override_matching_close_records() {
-        validate_epoch_transition(
-            &[status(4, 6, "A"), status(5, 5, "A")],
-            &[status(0, 0, "A"), status(0, 0, "A")],
-            10,
-            &observed(),
-        )
-        .unwrap();
     }
 
     #[test]
@@ -1091,7 +1101,6 @@ mod tests {
             validate_epoch_transition(
                 &[status(4, 6, "A"), status(5, 4, "A")],
                 &[status(0, 0, "A"), status(0, 0, "A")],
-                10,
                 &observed(),
             )
             .is_err()
@@ -1104,7 +1113,6 @@ mod tests {
             validate_epoch_transition(
                 &[status(4, 6, "A"), status(4, 6, "B")],
                 &[status(0, 0, "A"), status(0, 0, "A")],
-                10,
                 &observed(),
             )
             .is_err()
@@ -1126,7 +1134,6 @@ mod tests {
                 status(0, 0, "A"),
                 status(0, 0, "A"),
             ],
-            10,
             &observed(),
         )
         .unwrap();

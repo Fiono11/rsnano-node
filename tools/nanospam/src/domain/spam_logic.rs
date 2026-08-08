@@ -25,6 +25,7 @@ pub(crate) struct SpamLogic {
     bps_start: Option<Timestamp>,
     spec: SpamSpec,
     pub(crate) confirmed_total: usize,
+    published_total: usize,
     pub(crate) confirmed_recent: usize,
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
@@ -43,6 +44,7 @@ impl SpamLogic {
             bps_start: None,
             spec,
             confirmed_total: 0,
+            published_total: 0,
             confirmed_recent: 0,
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
@@ -53,6 +55,11 @@ impl SpamLogic {
     pub(crate) fn is_finished(&self) -> bool {
         self.block_factory.max_blocks() > 0
             && self.confirmed_total >= self.block_factory.max_blocks()
+    }
+
+    pub(crate) fn workload_published(&self) -> bool {
+        self.block_factory.max_blocks() > 0
+            && self.published_total >= self.block_factory.max_blocks()
     }
 
     pub(crate) fn fork_propability(&self) -> f64 {
@@ -98,7 +105,9 @@ impl SpamLogic {
     }
 
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
-        self.delayed.published(hash, now);
+        if self.delayed.published(hash, now) {
+            self.published_total += 1;
+        }
 
         if !self.spec.track_confirmations {
             self.delayed.confirmed(hash, now);

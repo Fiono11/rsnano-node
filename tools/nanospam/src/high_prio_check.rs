@@ -13,6 +13,7 @@ use rsnano_types::{
 };
 
 use crate::domain::{Forks, spam_logic::SpamLogic};
+use crate::setup::pr_key;
 use crate::wallets_factory::wait_until_confirmed_on_all;
 
 const PRIO_ACCOUNTS: usize = 20;
@@ -75,7 +76,10 @@ impl<'a> HighPrioCheck<'a> {
             let receive_block: Block = StateBlockArgs {
                 key: &key,
                 previous: BlockHash::ZERO,
-                representative: key.public_key(),
+                // These funds come from the genesis account, which represents
+                // PR0. Retaining that delegation keeps the balanced committee
+                // weights unchanged while creating the priority accounts.
+                representative: pr_key(0).public_key(),
                 balance: INITIAL_ACCOUNT_BALANCE,
                 link: send_block.block.into(),
                 work: 0.into(),

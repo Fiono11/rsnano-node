@@ -15,13 +15,32 @@ use crate::{
 };
 
 // Keep a small setup reserve on genesis for the optional priority accounts.
-// The remaining supply is split evenly across one spam account per PR.
-const SETUP_RESERVE: Amount = Amount::nano(100_000_000);
+// Genesis delegates to PR0, so PR0's spam account receives a correspondingly
+// smaller amount and the final representative weights remain balanced.
+const SETUP_RESERVE: Amount = Amount::nano(100);
+
+fn spam_account_amount(pr_index: usize, pr_count: usize) -> Amount {
+    let share = Amount::MAX / pr_count as u128;
+    let remainder = Amount::MAX - share * pr_count as u128;
+    let target_weight = share
+        + if pr_index == pr_count - 1 {
+            remainder
+        } else {
+            Amount::ZERO
+        };
+
+    if pr_index == 0 {
+        target_weight - SETUP_RESERVE
+    } else {
+        target_weight
+    }
+}
 
 pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
+    fund_all_accounts: bool,
 ) -> anyhow::Result<WalletId> {
     let mut genesis_wallet = WalletId::ZERO;
     #[cfg(feature = "rai_protocol")]
@@ -92,21 +111,13 @@ pub(crate) async fn create_wallets(
         sleep(Duration::from_secs(11)).await;
     }
 
-    let distributable = Amount::MAX - SETUP_RESERVE;
-    let share = distributable / pr_count as u128;
-    let remainder = distributable - share * pr_count as u128;
     for i in 0..pr_count {
         let spam_key = account_map
             .state(&account_map.accounts()[i])
             .unwrap()
             .key
             .clone();
-        let amount = share
-            + if i == pr_count - 1 {
-                remainder
-            } else {
-                Amount::ZERO
-            };
+        let amount = spam_account_amount(i, pr_count);
         let representative = pr_key(i).public_key();
         info!("Funding spam account {i} and delegating it to PR{i}...");
         let send_hash = genesis_rpc
@@ -161,6 +172,44 @@ pub(crate) async fn create_wallets(
         account_map.set_representative(spam_key.account(), representative);
     }
 
+    if fund_all_accounts {
+        for i in pr_count..account_map.accounts().len() {
+            let spam_key = account_map
+                .state(&account_map.accounts()[i])
+                .unwrap()
+                .key
+                .clone();
+            let representative = pr_key(i % pr_count).public_key();
+            let amount = Amount::raw(1);
+            info!("Funding independent spam account {i}...");
+            let send_hash = genesis_rpc
+                .send(SendArgs {
+                    wallet: genesis_wallet,
+                    source: genesis_key.account(),
+                    destination: spam_key.account(),
+                    amount,
+                    work: Some(WorkNonce::new(0)),
+                    id: None,
+                })
+                .await?
+                .block;
+            wait_until_confirmed_on_all(rpc_clients, send_hash).await?;
+            let open: Block = StateBlockArgs {
+                key: &spam_key,
+                previous: BlockHash::ZERO,
+                representative,
+                balance: amount,
+                link: send_hash.into(),
+                work: 0.into(),
+            }
+            .into();
+            let open_hash = genesis_rpc.process(JsonBlock::from(open)).await?.hash;
+            wait_until_confirmed_on_all(rpc_clients, open_hash).await?;
+            account_map.set_account_state(spam_key.account(), amount, open_hash);
+            account_map.set_representative(spam_key.account(), representative);
+        }
+    }
+
     for i in 1..pr_count {
         genesis_rpc
             .account_remove(genesis_wallet, pr_key(i).account())
@@ -174,6 +223,30 @@ pub(crate) async fn create_wallets(
     }
 
     Ok(genesis_wallet)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entire_supply_is_balanced_between_prs() {
+        let pr_count = 6;
+        let amounts = (0..pr_count)
+            .map(|i| spam_account_amount(i, pr_count))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            amounts.iter().copied().sum::<Amount>(),
+            Amount::MAX - SETUP_RESERVE
+        );
+
+        let pr0_weight = amounts[0] + SETUP_RESERVE;
+        for amount in &amounts[1..pr_count - 1] {
+            assert_eq!(*amount, pr0_weight);
+        }
+        assert_eq!(amounts[pr_count - 1] - pr0_weight, Amount::raw(3));
+    }
 }
 
 const CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(60);

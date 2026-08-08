@@ -47,9 +47,10 @@ impl DelayedBlocks {
         }
     }
 
-    pub fn published(&mut self, hash: &BlockHash, timestamp: Timestamp) {
+    pub fn published(&mut self, hash: &BlockHash, timestamp: Timestamp) -> bool {
         if let Some(info) = self.blocks.get_mut(hash) {
-            if info.first_publish.is_none() {
+            let first = info.first_publish.is_none();
+            if first {
                 info.first_publish = Some(timestamp);
             }
             let old_sent = info.last_publish;
@@ -59,6 +60,9 @@ impl DelayedBlocks {
                 self.remove_from_time_index(hash, old_sent);
             }
             self.by_time.entry(timestamp).or_default().push(*hash);
+            first
+        } else {
+            false
         }
     }
 

@@ -1,4 +1,5 @@
 use rand::RngExt;
+use std::collections::VecDeque;
 
 use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 
@@ -9,6 +10,7 @@ pub(crate) struct BlockFactory {
     created: usize,
     account_map: AccountMap,
     strategy: SpamStrategy,
+    one_shot_accounts: VecDeque<rsnano_types::Account>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -45,19 +47,35 @@ impl BlockResult {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SpamStrategy {
     SendReceive,
     Change,
+    OneChangePerAccount,
 }
 
 impl BlockFactory {
     pub(crate) fn new(account_map: AccountMap, max_blocks: usize, strategy: SpamStrategy) -> Self {
+        let one_shot_accounts = if strategy == SpamStrategy::OneChangePerAccount {
+            account_map
+                .accounts()
+                .iter()
+                .copied()
+                .filter(|account| {
+                    account_map
+                        .state(account)
+                        .is_some_and(|state| state.confirmed() && !state.balance.is_zero())
+                })
+                .collect()
+        } else {
+            VecDeque::new()
+        };
         Self {
             max_blocks,
             created: 0,
             account_map,
             strategy,
+            one_shot_accounts,
         }
     }
 
@@ -73,6 +91,10 @@ impl BlockFactory {
             SpamStrategy::Change => {
                 // TODO: use is_fork flag
                 create_change_block(&mut self.account_map)
+            }
+            SpamStrategy::OneChangePerAccount => {
+                let account = self.one_shot_accounts.pop_front()?;
+                create_change_block_for(&mut self.account_map, account)
             }
         };
 
@@ -204,6 +226,26 @@ fn create_change_block(account_map: &mut AccountMap) -> BlockResult {
     BlockResult::Block(Forks::new(block))
 }
 
+fn create_change_block_for(
+    account_map: &mut AccountMap,
+    account: rsnano_types::Account,
+) -> BlockResult {
+    let state = account_map
+        .state(&account)
+        .expect("prepared account must exist");
+    let block: Block = StateBlockArgs {
+        key: &state.key,
+        previous: state.confirmed_frontier,
+        representative: PublicKey::from_bytes(rand::rng().random()),
+        balance: state.balance,
+        link: Link::ZERO,
+        work: WorkNonce::new(0),
+    }
+    .into();
+    account_map.process_change(account, block.hash());
+    BlockResult::Block(Forks::new(block))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,6 +320,27 @@ mod tests {
         }
 
         assert_eq!(factory.created(), BLOCKS);
+    }
+
+    #[test]
+    fn one_change_per_account_uses_each_confirmed_frontier_once() {
+        let mut account_map = AccountMap::default();
+        let mut expected = std::collections::BTreeSet::new();
+        for i in 1..=3 {
+            let key = PrivateKey::from(i);
+            let account = key.account();
+            account_map.add_unopened(key);
+            account_map.set_account_state(account, Amount::raw(1), BlockHash::from(100 + i));
+            expected.insert(account);
+        }
+        let mut factory = BlockFactory::new(account_map, 3, SpamStrategy::OneChangePerAccount);
+        let mut actual = std::collections::BTreeSet::new();
+        while let Some(BlockResult::Block(forks)) = factory.create_next(false) {
+            actual.insert(forks.block.account_field().unwrap());
+        }
+
+        assert_eq!(actual, expected);
+        assert_eq!(factory.created(), 3);
     }
 
     #[test]

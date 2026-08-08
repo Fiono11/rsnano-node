@@ -70,6 +70,12 @@ pub(crate) async fn start_nodes(
             cmd
         };
 
+        if !args.set_up_new_nodes() && std::env::var_os("RSNANO_RAI_TRACE").is_some() {
+            cmd.env("RSNANO_RAI_TRACE_PR", i.to_string());
+            let trace = std::fs::File::create(node_dir.join("rai-message-trace.log"))?;
+            cmd.stderr(Stdio::from(trace));
+        }
+
         info!("Starting node: {cmd:?}");
         let child = cmd
             .spawn()
