@@ -38,6 +38,13 @@ impl<'a> BlockCementer<'a> {
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
         #[cfg(feature = "rai_protocol")]
+        let finalization_account = finalization_epoch.and_then(|_| {
+            self.store
+                .block
+                .get(&txn, &target_hash)
+                .map(|block| block.account())
+        });
+        #[cfg(feature = "rai_protocol")]
         let preceding_frontiers = finalization_epoch
             .map(|epoch| self.store.rai_finalization.frontiers_before(&txn, epoch))
             .unwrap_or_default();
@@ -52,13 +59,29 @@ impl<'a> BlockCementer<'a> {
             for dependent in dependents.iter() {
                 let unconfirmed = !dependent.is_zero() && !self.is_confirmed(&txn, dependent);
                 #[cfg(feature = "rai_protocol")]
-                let certified_account_predecessor = finalization_epoch.is_some()
-                    && !dependent.is_zero()
-                    && *dependent == block.previous()
-                    && preceding_frontiers
-                        .get(&block.account())
-                        .is_none_or(|base| block.height() > base.height)
-                    && self.store.rai_finalization.epoch(&txn, dependent).is_none();
+                let certified_account_predecessor = finalization_epoch.is_some_and(|epoch| {
+                    !dependent.is_zero()
+                        && *dependent == block.previous()
+                        && preceding_frontiers
+                            .get(&block.account())
+                            .is_none_or(|base| {
+                                self.store
+                                    .block
+                                    .get(&txn, dependent)
+                                    .is_some_and(|predecessor| predecessor.height() > base.height)
+                            })
+                        // Epochs overlap while the predecessor close drains.
+                        // Walk through an already tagged later-epoch suffix so
+                        // an earlier certificate can repair every block, not
+                        // only the requested frontier. Once repaired to this
+                        // epoch it becomes the stopping prefix when the parent
+                        // is revisited.
+                        && self
+                            .store
+                            .rai_finalization
+                            .epoch(&txn, dependent)
+                            .is_none_or(|assigned| assigned > epoch)
+                });
                 #[cfg(not(feature = "rai_protocol"))]
                 let certified_account_predecessor = false;
                 if unconfirmed || certified_account_predecessor {
@@ -105,20 +128,23 @@ impl<'a> BlockCementer<'a> {
                 }
                 #[cfg(feature = "rai_protocol")]
                 if let Some(epoch) = finalization_epoch
+                    && finalization_account == Some(block.account())
                     && preceding_frontiers
                         .get(&block.account())
                         .is_none_or(|base| block.height() > base.height)
                 {
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
-                    assert!(
-                        self.store.rai_finalization.put(
-                            &mut txn,
-                            &block.hash(),
-                            epoch,
-                            &block.account(),
-                            &conf_height,
-                        ),
-                        "a finalized block cannot move to a different RAI epoch"
+                    // Cementation requests can overlap an epoch boundary.
+                    // Finality is immutable, while its epoch attribution
+                    // converges to the earliest valid certificate: later
+                    // requests are inert and earlier evidence repairs an
+                    // out-of-order successor-epoch assignment.
+                    let _ = self.store.rai_finalization.put(
+                        &mut txn,
+                        &block.hash(),
+                        epoch,
+                        &block.account(),
+                        &conf_height,
                     );
                 }
             } else {

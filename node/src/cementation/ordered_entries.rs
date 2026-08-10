@@ -16,8 +16,20 @@ impl OrderedEntries {
 
         self.by_hash
             .entry(hash)
-            .and_modify(|_| {
+            .and_modify(|existing| {
                 inserted = false;
+                #[cfg(feature = "rai_protocol")]
+                if let Some(epoch) = entry.finalization_epoch {
+                    // An unchanged account frontier can occur in several
+                    // consecutive close records. Attribute the block to the
+                    // first epoch which certified it while still upgrading an
+                    // ordinary pending confirmation with certificate data.
+                    existing.finalization_epoch = Some(
+                        existing
+                            .finalization_epoch
+                            .map_or(epoch, |existing_epoch| existing_epoch.min(epoch)),
+                    );
+                }
             })
             .or_insert(entry);
 

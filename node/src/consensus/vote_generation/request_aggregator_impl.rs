@@ -62,7 +62,6 @@ impl<'a> RequestAggregatorImpl<'a> {
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsFinal);
                 } else {
-                    #[cfg(feature = "rai_protocol")]
                     self.to_generate.push(block);
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsNonFinal);

@@ -1384,6 +1384,15 @@ mod tests {
             1024,
             &mut Observer,
         );
+        // A slot-confirmation request queued across the boundary can arrive
+        // after the close above. It must preserve the first durable epoch
+        // instead of panicking the confirmation-height worker.
+        ledger.confirm_batch_rai(
+            [(&send.hash(), Some(RaiEpoch::new(1)))],
+            &AtomicBool::new(false),
+            1024,
+            &mut Observer,
+        );
 
         assert_eq!(
             ledger.rai_finalization_epoch(&send.hash()),
@@ -1459,6 +1468,220 @@ mod tests {
         assert_eq!(
             ledger.rai_finalization_epoch(&open.hash()),
             Some(rsnano_types::RaiEpoch::ZERO)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_stops_at_an_existing_account_baseline() {
+        use crate::LedgerInserter;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let key = rsnano_types::PrivateKey::from(42);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        let baseline = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai([(&baseline.hash(), None)], &stopped, 1024, &mut observer);
+        ledger.rai_reset_finalization_baseline();
+
+        let successor = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(7));
+        ledger.confirm_batch_rai([(&successor.hash(), None)], &stopped, 1024, &mut observer);
+        ledger.confirm_batch_rai(
+            [(&successor.hash(), Some(rsnano_types::RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+
+        assert_eq!(ledger.rai_finalization_epoch(&baseline.hash()), None);
+        assert_eq!(
+            ledger.rai_finalization_epoch(&successor.hash()),
+            Some(rsnano_types::RaiEpoch::ZERO)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_attributes_a_multi_block_suffix_after_baseline() {
+        use crate::LedgerInserter;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let key = rsnano_types::PrivateKey::from(43);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        let baseline = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai([(&baseline.hash(), None)], &stopped, 1024, &mut observer);
+        ledger.rai_reset_finalization_baseline();
+
+        let first = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(8));
+        let second = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(9));
+        ledger.confirm_batch_rai([(&second.hash(), None)], &stopped, 1024, &mut observer);
+        ledger.confirm_batch_rai(
+            [(&second.hash(), Some(rsnano_types::RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+
+        assert_eq!(ledger.rai_finalization_epoch(&baseline.hash()), None);
+        assert_eq!(
+            ledger.rai_finalization_epoch(&first.hash()),
+            Some(rsnano_types::RaiEpoch::ZERO)
+        );
+        assert_eq!(
+            ledger.rai_finalization_epoch(&second.hash()),
+            Some(rsnano_types::RaiEpoch::ZERO)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_earlier_epoch_reattributes_suffix_without_moving_successor() {
+        use crate::LedgerInserter;
+        use rsnano_types::RaiEpoch;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let key = rsnano_types::PrivateKey::from(44);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        let baseline = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai([(&baseline.hash(), None)], &stopped, 1024, &mut observer);
+        ledger.rai_reset_finalization_baseline();
+
+        let first = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(10));
+        let close_frontier = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(11));
+        let successor = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(rsnano_types::PublicKey::from(12));
+        let epoch = RaiEpoch::ZERO;
+        let successor_epoch = RaiEpoch::new(1);
+
+        // The successor epoch wins the local race and initially attributes
+        // the whole newly cemented suffix to itself.
+        ledger.confirm_batch_rai(
+            [(&successor.hash(), Some(successor_epoch))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        for block in [&first, &close_frontier, &successor] {
+            assert_eq!(
+                ledger.rai_finalization_epoch(&block.hash()),
+                Some(successor_epoch)
+            );
+        }
+
+        // A certified earlier close owns exactly the prefix through its
+        // frontier. The concurrently finalized successor remains in e+1.
+        ledger.confirm_batch_rai(
+            [(&close_frontier.hash(), Some(epoch))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+
+        assert_eq!(ledger.rai_finalization_epoch(&first.hash()), Some(epoch));
+        assert_eq!(
+            ledger.rai_finalization_epoch(&close_frontier.hash()),
+            Some(epoch)
+        );
+        assert_eq!(
+            ledger.rai_finalization_epoch(&successor.hash()),
+            Some(successor_epoch)
+        );
+        assert_eq!(
+            ledger.rai_frontier_delta(epoch, &key.account()),
+            Some(ConfirmationHeightInfo::new(
+                close_frontier.height(),
+                close_frontier.hash(),
+            ))
+        );
+        assert_eq!(
+            ledger.rai_frontier_delta(successor_epoch, &key.account()),
+            Some(ConfirmationHeightInfo::new(
+                successor.height(),
+                successor.hash(),
+            ))
+        );
+        assert_eq!(
+            ledger.rai_confirmation_frontiers(epoch)[&key.account()],
+            ConfirmationHeightInfo::new(close_frontier.height(), close_frontier.hash())
+        );
+        assert_eq!(
+            ledger.rai_confirmation_frontiers(successor_epoch)[&key.account()],
+            ConfirmationHeightInfo::new(successor.height(), successor.hash())
+        );
+
+        // A late successor-epoch request cannot move the certified prefix
+        // forward again.
+        ledger.confirm_batch_rai(
+            [(&close_frontier.hash(), Some(successor_epoch))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        assert_eq!(
+            ledger.rai_finalization_epoch(&close_frontier.hash()),
+            Some(epoch)
+        );
+        assert_eq!(
+            ledger.rai_frontier_delta(successor_epoch, &key.account()),
+            Some(ConfirmationHeightInfo::new(
+                successor.height(),
+                successor.hash(),
+            ))
         );
     }
 }

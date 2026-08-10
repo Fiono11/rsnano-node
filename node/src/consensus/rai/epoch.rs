@@ -182,6 +182,7 @@ pub enum CloseRecordDecisionError {
     MissingPreimage,
     InvalidRecord,
     ImmutableDecision,
+    LedgerCommitFailed,
 }
 
 impl std::fmt::Display for CloseRecordDecisionError {
@@ -191,6 +192,7 @@ impl std::fmt::Display for CloseRecordDecisionError {
             Self::MissingPreimage => "canonical close-record preimage is unavailable",
             Self::InvalidRecord => "close record does not match confirmation heights",
             Self::ImmutableDecision => "the epoch already has a different close record",
+            Self::LedgerCommitFailed => "close-record ledger finalization failed",
         })
     }
 }
@@ -747,7 +749,25 @@ impl RaiEpochManager {
         epoch: RaiEpoch,
         round: u32,
         hash: BlockHash,
+        certified_weights: RepWeights,
+    ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
+        self.install_certified_close_record_after(epoch, round, hash, certified_weights, |_, _| {
+            true
+        })
+    }
+
+    /// Installs a certified close record only after its selected ledger
+    /// frontiers have been durably finalized by the caller. The callback runs
+    /// before any close hash, committee, release, or closed-through state is
+    /// published; returning false leaves the epoch in ElectingRecord so the
+    /// same certificate can be retried safely.
+    pub fn install_certified_close_record_after(
+        &mut self,
+        epoch: RaiEpoch,
+        round: u32,
+        hash: BlockHash,
         _certified_weights: RepWeights,
+        commit: impl FnOnce(RaiEpoch, &RaiFrontierMap) -> bool,
     ) -> Result<&RaiFrontierMap, CloseRecordDecisionError> {
         if let Some(existing) = self.close_hashes.get(&epoch) {
             return if *existing == hash {
@@ -794,37 +814,56 @@ impl RaiEpochManager {
             .get(&hash)
             .cloned()
             .ok_or(CloseRecordDecisionError::MissingPreimage)?;
+        let mut tracker_probe = self
+            .record_rounds
+            .get(&epoch)
+            .ok_or(CloseRecordDecisionError::WrongPhase)?
+            .clone();
+        if !tracker_probe.decide(round, hash) {
+            return Err(CloseRecordDecisionError::MissingPreimage);
+        }
+        let frontiers = record.frontiers.clone();
+        if !commit(epoch, &frontiers) {
+            return Err(CloseRecordDecisionError::LedgerCommitFailed);
+        }
         let tracker = self
             .record_rounds
             .get_mut(&epoch)
             .ok_or(CloseRecordDecisionError::WrongPhase)?;
-        if !tracker.decide(round, hash) {
-            return Err(CloseRecordDecisionError::MissingPreimage);
-        }
+        assert!(
+            tracker.decide(round, hash),
+            "validated close decision changed"
+        );
         // The certificate, not this replica's provisional drain observation,
         // selects the durable frontier map.
-        self.drain_frontiers.insert(epoch, record.frontiers.clone());
+        self.drain_frontiers.insert(epoch, frontiers);
         self.close_hashes.insert(epoch, hash);
         self.committees
             .entry(epoch)
             .or_insert_with(|| Arc::new(certified_weights));
         self.state.closed_through = Some(epoch);
+        let drained_releases = self
+            .drains
+            .get(&epoch)
+            .map(|drain| drain.released.keys().cloned().collect::<BTreeSet<_>>())
+            .unwrap_or_default();
         if let Some(drain) = self.drains.get_mut(&epoch) {
             drain.finalized.append(&mut drain.selected);
         }
         for slot in self
             .known_slots
             .iter()
-            // Cut members have a certificate-derived terminal outcome.  A
-            // close certificate releases only old obligations which the cut
-            // omitted; treating finalized cut members as released would make
-            // retry authorization ambiguous.
+            // A close certificate releases old obligations omitted by the cut
+            // and cut members whose certified drain outcome was timeout or
+            // conflict. Finalized/selected cut members remain locked so a
+            // successor cannot retry their starting slot.
             .filter(|slot| {
                 slot.epoch <= epoch
-                    && self
-                        .frozen_obligations
-                        .get(&slot.epoch)
-                        .is_none_or(|included| !included.contains(*slot))
+                    && (drained_releases.contains(*slot)
+                        || self
+                            .frozen_obligations
+                            .get(&slot.epoch)
+                            .is_none_or(|included| !included.contains(*slot)))
             })
             .cloned()
         {
@@ -1022,13 +1061,22 @@ impl RaiEpochManager {
     }
 
     /// After a cut, only included elections from the closing epoch remain
-    /// enabled. Elections in the already-open successor are unaffected.
+    /// enabled. An unrelated election in the already-open successor remains
+    /// enabled, but a same-root retry must wait for every earlier known slot
+    /// to be released by a certified close record.
     pub fn slot_election_enabled(&self, epoch: RaiEpoch, root: &QualifiedRoot) -> bool {
         let slot = RaiSlotId {
             epoch,
             root: root.clone(),
         };
         if self.released_slots.contains_key(&slot) {
+            return false;
+        }
+        if self.known_slots.iter().any(|known| {
+            known.epoch < epoch
+                && known.root == slot.root
+                && !self.released_slots.contains_key(known)
+        }) {
             return false;
         }
         self.state.closing.is_none_or(|closing| {
@@ -1306,6 +1354,105 @@ mod tests {
                 .unwrap();
         }
         evidence
+    }
+
+    #[test]
+    fn drain_resolution_is_invariant_to_compatible_first_final_delivery_order() {
+        use super::super::{BlockHashOrTimeout, RaiLocalResult, RaiVoteStateError};
+
+        let reps = [
+            PublicKey::from(1),
+            PublicKey::from(2),
+            PublicKey::from(3),
+            PublicKey::from(4),
+            PublicKey::from(5),
+            PublicKey::from(6),
+        ];
+        let committee = Arc::new(RepWeights::from(reps.map(|rep| (rep, Amount::raw(1)))));
+        let hash = BlockHash::from(42);
+        let block = BlockHashOrTimeout::Block(hash);
+
+        let evidence_for = |final_before_first: bool| {
+            let mut evidence = RaiElectionVoteState::new(vec![committee.clone()]);
+
+            // Three block First leaves and both timeout First leaves arrive first.
+            for rep in &reps[..3] {
+                evidence
+                    .record_first_vote(*rep, block, RaiCommitteeScope::All)
+                    .unwrap();
+            }
+            for rep in &reps[4..] {
+                evidence
+                    .record_first_vote(*rep, BlockHashOrTimeout::Timeout, RaiCommitteeScope::All)
+                    .unwrap();
+            }
+
+            evidence
+                .record_final_vote(reps[0], hash, RaiCommitteeScope::All)
+                .unwrap();
+            if final_before_first {
+                evidence
+                    .record_final_vote(reps[3], hash, RaiCommitteeScope::All)
+                    .unwrap();
+                evidence
+                    .record_first_vote(reps[3], block, RaiCommitteeScope::All)
+                    .unwrap();
+            } else {
+                evidence
+                    .record_first_vote(reps[3], block, RaiCommitteeScope::All)
+                    .unwrap();
+                evidence
+                    .record_final_vote(reps[3], hash, RaiCommitteeScope::All)
+                    .unwrap();
+            }
+
+            // These complete the four observed Final leaves, but the two
+            // timeout-supported Finals are invalid in either permutation.
+            for rep in &reps[4..] {
+                assert_eq!(
+                    evidence.record_final_vote(*rep, hash, RaiCommitteeScope::All),
+                    Err(RaiVoteStateError::IncompatibleFinalSupport)
+                );
+            }
+            evidence
+        };
+
+        let final_before_first = evidence_for(true);
+        let first_before_final = evidence_for(false);
+        for evidence in [&final_before_first, &first_before_final] {
+            assert_eq!(evidence.first_tally(0, block), Amount::raw(4));
+            assert_eq!(
+                evidence.first_tally(0, BlockHashOrTimeout::Timeout),
+                Amount::raw(2)
+            );
+            assert_eq!(evidence.final_tally(0, hash), Amount::raw(2));
+            assert_eq!(
+                evidence.local_result(0),
+                Some(RaiLocalResult::Notarized(hash))
+            );
+        }
+
+        let slot = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let resolve = |evidence: &RaiElectionVoteState| {
+            let mut drain = RaiHappyPathDrain {
+                epoch: RaiEpoch::ZERO,
+                obligations: BTreeSet::from([slot.clone()]),
+                finalized: BTreeMap::new(),
+                selected: BTreeMap::new(),
+                released: BTreeMap::new(),
+            };
+            let outcome = drain.record_persistent_evidence(&slot, evidence);
+            assert!(drain.is_complete());
+            outcome
+        };
+
+        let final_before_first_outcome = resolve(&final_before_first);
+        let first_before_final_outcome = resolve(&first_before_final);
+        assert_eq!(
+            final_before_first_outcome,
+            Some(RaiDrainOutcome::Selected(hash))
+        );
+        assert_eq!(first_before_final_outcome, final_before_first_outcome);
     }
 
     fn slot(root: QualifiedRoot) -> RaiSlotId {
@@ -1706,6 +1853,45 @@ mod tests {
     }
 
     #[test]
+    fn included_timeout_release_enables_successor_retry_after_close_installation() {
+        let key = PrivateKey::from(1);
+        let old = slot(QualifiedRoot::new(11.into(), 12.into()));
+        let retry = RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: old.root.clone(),
+        };
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, [old.clone()]))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([old.clone()]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+        manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
+        assert_eq!(
+            manager.record_drain_evidence(RaiEpoch::ZERO, &old, &timeout_evidence(&key), [],),
+            Some(RaiDrainOutcome::ReleasedTimeout)
+        );
+        assert!(!manager.slot_election_enabled(retry.epoch, &retry.root));
+
+        let (_, close) = manager.begin_close_record(RepWeights::default()).unwrap();
+        manager
+            .install_close_record(RaiEpoch::ZERO, 0, close)
+            .unwrap();
+
+        assert_eq!(
+            manager.certified_release(&old),
+            Some(&RaiCertifiedRelease {
+                close_epoch: RaiEpoch::ZERO,
+                close_record_hash: close,
+            })
+        );
+        assert!(!manager.slot_election_enabled(old.epoch, &old.root));
+        assert!(manager.slot_election_enabled(retry.epoch, &retry.root));
+    }
+
+    #[test]
     fn certified_release_is_epoch_qualified() {
         let key = PrivateKey::from(1);
         let root = QualifiedRoot::new(11.into(), 12.into());
@@ -1727,6 +1913,11 @@ mod tests {
             .unwrap();
         let (_, cut) = manager.begin_cut_election([]).unwrap();
         manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+
+        // The successor epoch is open, but reusing an unresolved old root is
+        // a retry and therefore remains disabled until the close certifies a
+        // release for the old slot.
+        assert!(!manager.slot_election_enabled(retry.epoch, &retry.root));
         manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
         let (_, close) = manager.begin_close_record(RepWeights::default()).unwrap();
         manager
@@ -1988,6 +2179,26 @@ mod tests {
 
         let expected: RaiFrontierMap = frontiers.clone().into_iter().collect();
         assert_eq!(
+            manager.install_certified_close_record_after(
+                0.into(),
+                0,
+                close,
+                weights(2, 200).as_ref().clone(),
+                |_, committed| {
+                    assert_eq!(committed, &expected);
+                    false
+                },
+            ),
+            Err(CloseRecordDecisionError::LedgerCommitFailed)
+        );
+        assert_eq!(
+            manager.closing_epoch().unwrap().phase,
+            RaiClosingPhase::ElectingRecord
+        );
+        assert_eq!(manager.state().closed_through, None);
+        assert_eq!(manager.installed_close_hash(0.into()), None);
+
+        assert_eq!(
             manager
                 .install_certified_close_record(
                     0.into(),
@@ -2044,6 +2255,7 @@ mod tests {
         assert!(!manager.slot_election_enabled(RaiEpoch::ZERO, &QualifiedRoot::ZERO));
         assert!(manager.slot_election_enabled(RaiEpoch::ZERO, &obligation.root));
         assert!(manager.slot_election_enabled(RaiEpoch::new(1), &QualifiedRoot::ZERO));
+        assert!(!manager.slot_election_enabled(RaiEpoch::new(1), &obligation.root));
         assert!(manager.begin_close_record(RepWeights::default()).is_none());
     }
 

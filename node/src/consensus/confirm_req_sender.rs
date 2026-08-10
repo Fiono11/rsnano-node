@@ -16,6 +16,58 @@ pub(crate) struct ConfirmReqSender {
     clock: Arc<SteadyClock>,
 }
 
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use crate::consensus::{
+        election::Election,
+        rai::{RaiCloseElectionId, RaiCloseKind},
+    };
+    use rsnano_ledger::RepWeights;
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{BlockHash, QualifiedRoot, RaiEpoch, SavedBlock};
+    use std::sync::Arc;
+
+    #[test]
+    fn close_elections_retry_at_base_latency() {
+        let base_latency = Duration::from_secs(1);
+        let election = Election::new_close(
+            RaiCloseElectionId {
+                kind: RaiCloseKind::Cut,
+                epoch: RaiEpoch::ZERO,
+                round: 0,
+            },
+            QualifiedRoot::new_test_instance(),
+            BlockHash::from(1),
+            Arc::new(RepWeights::default()),
+            base_latency,
+            Timestamp::new_test_instance(),
+        );
+
+        assert_eq!(
+            ConfirmReqSender::confirm_req_interval(&election),
+            base_latency
+        );
+    }
+
+    #[test]
+    fn pending_slot_elections_retry_at_base_latency() {
+        let base_latency = Duration::from_secs(1);
+        let election = Election::new_slot(
+            SavedBlock::new_test_instance(),
+            ElectionBehavior::Priority,
+            base_latency,
+            Timestamp::new_test_instance(),
+            RaiEpoch::ZERO,
+        );
+
+        assert_eq!(
+            ConfirmReqSender::confirm_req_interval(&election),
+            base_latency
+        );
+    }
+}
+
 impl ConfirmReqSender {
     pub(crate) fn new(stats: Arc<Stats>, clock: Arc<SteadyClock>) -> Self {
         Self {
@@ -51,6 +103,10 @@ impl ConfirmReqSender {
 
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_interval(election: &Election) -> Duration {
+        #[cfg(feature = "rai_protocol")]
+        if election.is_rai_close() || election.rai_requires_retention() {
+            return election.base_latency();
+        }
         match election.behavior() {
             ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted => {
                 election.base_latency() * 5

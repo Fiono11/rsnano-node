@@ -199,14 +199,10 @@ impl LocalVoteHistory {
     pub fn rai_phase_vote_exists(
         &self,
         root: &Root,
+        hash: &BlockHash,
         voter: &rsnano_types::PublicKey,
         metadata: &rsnano_types::RaiVoteMetadata,
     ) -> bool {
-        if metadata.phase == rsnano_types::RaiVotePhase::Notar {
-            // Kudzu/RAI permits notarization plurality, including a later
-            // timeout notarization after a value-specific second look.
-            return false;
-        }
         let guard = self.data.lock().unwrap();
         guard.history_by_root.get(root).is_some_and(|ids| {
             ids.iter().any(|id| {
@@ -214,6 +210,35 @@ impl LocalVoteHistory {
                 current.vote.voter == *voter
                     && current.vote.metadata.election_id == metadata.election_id
                     && current.vote.metadata.phase == metadata.phase
+                    // Notarization plurality remains legal, but repeatedly
+                    // signing the same value is not a new logical vote.
+                    && (metadata.phase != rsnano_types::RaiVotePhase::Notar
+                        || current.hash == *hash)
+            })
+        })
+    }
+
+    /// Whether this signer's previously signed First/Notar support in the
+    /// overlapping committee scope is compatible with a Final vote for
+    /// `hash`. Empty support is compatible, as permitted by the slot final
+    /// rule; any different supported value makes that Final vote invalid.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_support_is_compatible(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        voter: &rsnano_types::PublicKey,
+        metadata: &rsnano_types::RaiVoteMetadata,
+    ) -> bool {
+        let guard = self.data.lock().unwrap();
+        guard.history_by_root.get(root).is_none_or(|ids| {
+            ids.iter().all(|id| {
+                let current = &guard.history[id];
+                current.vote.voter != *voter
+                    || current.vote.metadata.election_id != metadata.election_id
+                    || current.vote.metadata.phase == rsnano_types::RaiVotePhase::Final
+                    || !rai_scopes_overlap(current.vote.metadata.scope, metadata.scope)
+                    || current.hash == *hash
             })
         })
     }
@@ -274,6 +299,15 @@ impl LocalVoteHistory {
             })
             .collect()
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_scopes_overlap(
+    first: rsnano_types::RaiCommitteeScope,
+    second: rsnano_types::RaiCommitteeScope,
+) -> bool {
+    use rsnano_types::RaiCommitteeScope;
+    first == RaiCommitteeScope::All || second == RaiCommitteeScope::All || first == second
 }
 
 impl ContainerInfoProvider for LocalVoteHistory {

@@ -159,20 +159,27 @@ impl RaiElectionVoteState {
         scope: RaiCommitteeScope,
     ) -> Result<(), RaiVoteStateError> {
         let targets = self.checked_targets(signer, scope)?;
+        if targets
+            .iter()
+            .any(|&index| self.committees[index].votes.first.contains_key(&signer))
+        {
+            return Err(RaiVoteStateError::DuplicateFirstVote);
+        }
+        // A correctly emitted Final leaf can overtake its earlier First leaf
+        // in transport. Accept that delayed leaf only when it is compatible
+        // with the already locked Final; conflicting post-Final support stays
+        // invalid and can never retract a certificate.
         if targets.iter().any(|&index| {
             let votes = &self.committees[index].votes;
-            votes.final_locked.contains(&signer) || votes.first.contains_key(&signer)
+            votes.final_locked.contains(&signer)
+                && match value {
+                    BlockHashOrTimeout::Block(hash) => {
+                        votes.final_votes.get(&signer) != Some(&hash)
+                    }
+                    BlockHashOrTimeout::Timeout => true,
+                }
         }) {
-            return Err(
-                if targets
-                    .iter()
-                    .any(|&index| self.committees[index].votes.final_locked.contains(&signer))
-                {
-                    RaiVoteStateError::FinalLocked
-                } else {
-                    RaiVoteStateError::DuplicateFirstVote
-                },
-            );
+            return Err(RaiVoteStateError::FinalLocked);
         }
 
         for index in targets {
@@ -188,10 +195,16 @@ impl RaiElectionVoteState {
         scope: RaiCommitteeScope,
     ) -> Result<(), RaiVoteStateError> {
         let targets = self.checked_targets(signer, scope)?;
-        if targets
-            .iter()
-            .any(|&index| self.committees[index].votes.final_locked.contains(&signer))
-        {
+        if targets.iter().any(|&index| {
+            let votes = &self.committees[index].votes;
+            votes.final_locked.contains(&signer)
+                && match value {
+                    BlockHashOrTimeout::Block(hash) => {
+                        votes.final_votes.get(&signer) != Some(&hash)
+                    }
+                    BlockHashOrTimeout::Timeout => true,
+                }
+        }) {
             return Err(RaiVoteStateError::FinalLocked);
         }
 
@@ -671,24 +684,40 @@ mod tests {
     }
 
     #[test]
-    fn post_final_lock_rejects_every_later_phase() {
+    fn compatible_earlier_phases_are_order_independent_after_final_arrives() {
+        let mut state = state(&[(1, 10)], &[]);
+        state
+            .record_final_vote(rep(1), hash(1), RaiCommitteeScope::All)
+            .unwrap();
+
+        state
+            .record_notarization_vote(rep(1), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        state
+            .record_first_vote(rep(1), block(1), RaiCommitteeScope::All)
+            .unwrap();
+        assert_eq!(state.first_tally(0, block(1)), Amount::raw(10));
+        assert_eq!(state.notarization_tally(0, block(1)), Amount::raw(10));
+        assert_eq!(state.final_tally(0, hash(1)), Amount::raw(10));
+        assert_eq!(
+            state.record_final_vote(rep(1), hash(1), RaiCommitteeScope::All),
+            Err(RaiVoteStateError::FinalLocked)
+        );
+    }
+
+    #[test]
+    fn delayed_conflicting_first_cannot_retract_final() {
         let mut state = state(&[(1, 10)], &[]);
         state
             .record_final_vote(rep(1), hash(1), RaiCommitteeScope::All)
             .unwrap();
 
         assert_eq!(
-            state.record_first_vote(rep(1), block(1), RaiCommitteeScope::All),
+            state.record_first_vote(rep(1), BlockHashOrTimeout::Timeout, RaiCommitteeScope::All),
             Err(RaiVoteStateError::FinalLocked)
         );
-        assert_eq!(
-            state.record_notarization_vote(rep(1), block(1), RaiCommitteeScope::All),
-            Err(RaiVoteStateError::FinalLocked)
-        );
-        assert_eq!(
-            state.record_final_vote(rep(1), hash(1), RaiCommitteeScope::All),
-            Err(RaiVoteStateError::FinalLocked)
-        );
+        assert_eq!(state.final_tally(0, hash(1)), Amount::raw(10));
+        assert!(state.committees[0].votes.final_locked.contains(&rep(1)));
     }
 
     #[test]

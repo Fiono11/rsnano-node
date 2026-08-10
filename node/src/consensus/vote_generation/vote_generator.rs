@@ -18,7 +18,7 @@ use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
 #[cfg(feature = "rai_protocol")]
-use rsnano_types::{RaiVoteMetadata, RaiVotePhase};
+use rsnano_types::{PublicKey, RaiVoteMetadata, RaiVotePhase};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -65,6 +65,78 @@ pub(crate) struct VoteGenerator {
 }
 
 impl VoteGenerator {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn all_local_reps_voted_first(
+        &self,
+        root: &Root,
+        metadata: &RaiVoteMetadata,
+    ) -> bool {
+        let mut first = metadata.clone();
+        first.phase = RaiVotePhase::First;
+        self.shared_state
+            .wallet_reps
+            .lock()
+            .unwrap()
+            .rep_pub_keys()
+            .all(|voter| {
+                self.shared_state.history.rai_phase_vote_exists(
+                    root,
+                    &BlockHash::ZERO,
+                    &voter,
+                    &first,
+                )
+            })
+    }
+
+    /// Generates a signed response for a contextless representative-crawler
+    /// query. Discovery votes are sent only to the requesting channel and are
+    /// deliberately excluded from local vote history and vote spacing; the
+    /// receiver rejects their reserved metadata before RAI consensus handling.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_discovery_votes(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+    ) -> usize {
+        let rep_keys = self.shared_state.rai_rep_keys();
+        if rep_keys.is_empty() {
+            return 0;
+        }
+
+        for chunk in blocks.chunks(Self::MAX_HASHES) {
+            let hashes = chunk.iter().map(|block| block.hash()).collect::<Vec<_>>();
+            self.stats.add_dir(
+                StatType::Requests,
+                DetailType::RequestsGeneratedHashes,
+                Direction::In,
+                hashes.len() as u64,
+            );
+
+            for rep_key in &rep_keys {
+                let vote = Vote::new_rai(
+                    rep_key,
+                    UnixMillisTimestamp::now(),
+                    0x9, // 8192ms
+                    hashes.clone(),
+                    RaiVoteMetadata::default(),
+                );
+                let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
+                self.shared_state.message_sender.lock().unwrap().try_send(
+                    channel,
+                    &confirm,
+                    TrafficType::VoteReply,
+                );
+                self.stats.inc_dir(
+                    StatType::Requests,
+                    DetailType::RequestsGeneratedVotes,
+                    Direction::In,
+                );
+            }
+        }
+
+        blocks.len()
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn generate_rai_notar_vote(
         &self,
@@ -175,6 +247,7 @@ impl VoteGenerator {
         ledger: Arc<Ledger>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         history: Arc<LocalVoteHistory>,
+        #[cfg(feature = "rai_protocol")] rai_signing_lock: Arc<Mutex<()>>,
         is_final: bool,
         stats: Arc<Stats>,
         message_sender: MessageSender,
@@ -187,6 +260,8 @@ impl VoteGenerator {
             ledger: Arc::clone(&ledger),
             message_sender: Mutex::new(message_sender),
             history,
+            #[cfg(feature = "rai_protocol")]
+            rai_signing_lock,
             wallet_reps,
             condition: Condvar::new(),
             queues: Mutex::new(Queues {
@@ -367,7 +442,7 @@ impl VoteGenerator {
                             // When the election is still live, keep the
                             // candidate so this node's representative can
                             // generate the currently required vote as well as
-                            // replaying its retained evidence.  Contextless
+                            // replaying its retained evidence. Contextless
                             // ConfirmReq repair can only replay history safely.
                             if context == &RaiVoteMetadata::default() {
                                 cached += 1;
@@ -446,10 +521,65 @@ impl Drop for VoteGenerator {
     }
 }
 
+/// Computes the phase this representative may sign for a RAI election.
+/// Second-look Notar votes require a prior First vote by the same signer, and
+/// a signer which already emitted Final must not return to an earlier phase.
+#[cfg(feature = "rai_protocol")]
+fn rai_signing_metadata(
+    history: &LocalVoteHistory,
+    roots: &[Root],
+    hashes: &[BlockHash],
+    voter: &PublicKey,
+    mut metadata: RaiVoteMetadata,
+    is_final_generator: bool,
+) -> Option<RaiVoteMetadata> {
+    metadata.phase = if is_final_generator {
+        RaiVotePhase::Final
+    } else if metadata.phase == RaiVotePhase::Notar {
+        RaiVotePhase::Notar
+    } else {
+        RaiVotePhase::First
+    };
+
+    if is_final_generator {
+        if roots
+            .iter()
+            .zip(hashes)
+            .any(|(root, hash)| !history.rai_support_is_compatible(root, hash, voter, &metadata))
+        {
+            return None;
+        }
+        return Some(metadata);
+    }
+
+    let mut final_metadata = metadata.clone();
+    final_metadata.phase = RaiVotePhase::Final;
+    if roots
+        .iter()
+        .any(|root| history.rai_phase_vote_exists(root, &BlockHash::ZERO, voter, &final_metadata))
+    {
+        return None;
+    }
+
+    if metadata.phase == RaiVotePhase::Notar {
+        let mut first_metadata = metadata.clone();
+        first_metadata.phase = RaiVotePhase::First;
+        if roots.iter().any(|root| {
+            !history.rai_phase_vote_exists(root, &BlockHash::ZERO, voter, &first_metadata)
+        }) {
+            metadata.phase = RaiVotePhase::First;
+        }
+    }
+
+    Some(metadata)
+}
+
 struct SharedState {
     ledger: Arc<Ledger>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     history: Arc<LocalVoteHistory>,
+    #[cfg(feature = "rai_protocol")]
+    rai_signing_lock: Arc<Mutex<()>>,
     message_sender: Mutex<MessageSender>,
     is_final: bool,
     condition: Condvar,
@@ -465,6 +595,15 @@ struct SharedState {
 }
 
 impl SharedState {
+    #[cfg(feature = "rai_protocol")]
+    fn rai_rep_keys(&self) -> Vec<rsnano_types::PrivateKey> {
+        let mut cached = self.rai_rep_keys.lock().unwrap();
+        if cached.is_empty() {
+            self.wallet_reps.lock().unwrap().rep_priv_keys(&mut cached);
+        }
+        cached.clone()
+    }
+
     fn run(&self) {
         let mut queues = self.queues.lock().unwrap();
         while !self.stopped.load(Ordering::SeqCst) {
@@ -484,7 +623,22 @@ impl SharedState {
 
             if queues.should_broadcast() {
                 queues = self.broadcast(queues);
-                queues.next_broadcast = Instant::now() + self.vote_generator_delay;
+                #[cfg(feature = "rai_protocol")]
+                {
+                    // RAI metadata is signed and unique per election, so its
+                    // candidates cannot be vectorized. Drain the next context
+                    // immediately instead of imposing the legacy batching
+                    // delay on every individual slot.
+                    queues.next_broadcast = if queues.candidates.is_empty() {
+                        Instant::now() + self.vote_generator_delay
+                    } else {
+                        Instant::now()
+                    };
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    queues.next_broadcast = Instant::now() + self.vote_generator_delay;
+                }
             }
 
             if let Some(request) = queues.requests.pop_front() {
@@ -559,7 +713,7 @@ impl SharedState {
         &self,
         hashes: &[BlockHash],
         roots: &[Root],
-        #[cfg(feature = "rai_protocol")] mut metadata: RaiVoteMetadata,
+        #[cfg(feature = "rai_protocol")] metadata: RaiVoteMetadata,
         #[cfg(feature = "rai_protocol")] regenerate_finalized: bool,
         action: F,
     ) where
@@ -573,13 +727,9 @@ impl SharedState {
             keys
         };
         #[cfg(feature = "rai_protocol")]
-        let mut rep_keys = {
-            let mut cached = self.rai_rep_keys.lock().unwrap();
-            if cached.is_empty() {
-                self.wallet_reps.lock().unwrap().rep_priv_keys(&mut cached);
-            }
-            cached.clone()
-        };
+        let mut rep_keys = self.rai_rep_keys();
+        #[cfg(feature = "rai_protocol")]
+        let rai_signing_guard = self.rai_signing_lock.lock().unwrap();
 
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {
@@ -595,21 +745,28 @@ impl SharedState {
             };
             #[cfg(feature = "rai_protocol")]
             {
-                metadata.phase = if self.is_final {
-                    RaiVotePhase::Final
-                } else if metadata.phase == RaiVotePhase::Notar {
-                    RaiVotePhase::Notar
-                } else {
-                    RaiVotePhase::First
+                let Some(metadata) = rai_signing_metadata(
+                    &self.history,
+                    roots,
+                    hashes,
+                    &rep_key.public_key(),
+                    metadata.clone(),
+                    self.is_final,
+                ) else {
+                    continue;
                 };
                 // An explicit repair request for a durably finalized target
                 // must always receive a freshly signed reply. The immutable
                 // target fixes the election, phase, and value, so bypassing
                 // live phase-slot suppression cannot authorize equivocation.
                 if !regenerate_finalized
-                    && roots.iter().any(|root| {
-                        self.history
-                            .rai_phase_vote_exists(root, &rep_key.public_key(), &metadata)
+                    && roots.iter().zip(hashes).any(|(root, hash)| {
+                        self.history.rai_phase_vote_exists(
+                            root,
+                            hash,
+                            &rep_key.public_key(),
+                            &metadata,
+                        )
                     })
                 {
                     continue;
@@ -619,7 +776,7 @@ impl SharedState {
                     timestamp,
                     duration,
                     hashes.to_vec(),
-                    metadata.clone(),
+                    metadata,
                 )));
             }
             #[cfg(not(feature = "rai_protocol"))]
@@ -631,15 +788,31 @@ impl SharedState {
             )));
         }
 
-        for vote in votes {
-            {
-                let now = self.clock.now();
-                let mut spacing = self.spacing.lock().unwrap();
-                for i in 0..hashes.len() {
-                    self.history.add(&roots[i], &hashes[i], &vote);
-                    spacing.flag(&roots[i], &hashes[i], now);
-                }
+        let record_vote = |vote: &Arc<Vote>| {
+            let now = self.clock.now();
+            let mut spacing = self.spacing.lock().unwrap();
+            for i in 0..hashes.len() {
+                self.history.add(&roots[i], &hashes[i], &vote);
+                spacing.flag(&roots[i], &hashes[i], now);
             }
+        };
+
+        #[cfg(feature = "rai_protocol")]
+        {
+            // Phase selection and history insertion are one atomic local
+            // signing decision shared by the final and non-final generators.
+            for vote in &votes {
+                record_vote(vote);
+            }
+            drop(rai_signing_guard);
+            for vote in votes {
+                action(vote);
+            }
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
+        for vote in votes {
+            record_vote(&vote);
             action(vote);
         }
     }
@@ -762,5 +935,192 @@ impl Queues {
         }
 
         !self.candidates.is_empty() && Instant::now() >= self.next_broadcast
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_signing_tests {
+    use super::*;
+    use rsnano_types::{
+        PrivateKey, QualifiedRoot, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId,
+    };
+
+    fn metadata(slot_root: Root, phase: RaiVotePhase) -> RaiVoteMetadata {
+        RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::ZERO,
+                root: QualifiedRoot::new(slot_root, BlockHash::from(99)),
+            }),
+            phase,
+            epoch: RaiEpoch::ZERO,
+            scope: RaiCommitteeScope::All,
+        }
+    }
+
+    fn remember(
+        history: &LocalVoteHistory,
+        key: &PrivateKey,
+        root: Root,
+        hash: BlockHash,
+        metadata: RaiVoteMetadata,
+    ) {
+        let vote = Arc::new(Vote::new_rai(
+            key,
+            UnixMillisTimestamp::new(16),
+            0,
+            vec![hash],
+            metadata,
+        ));
+        history.add(&root, &hash, &vote);
+    }
+
+    #[test]
+    fn notar_requires_first_from_each_signer_for_the_same_election() {
+        let history = LocalVoteHistory::with_max_cache(32);
+        let first_signer = PrivateKey::new();
+        let missing_signer = PrivateKey::new();
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let requested = metadata(root, RaiVotePhase::Notar);
+
+        assert_eq!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &first_signer.public_key(),
+                requested.clone(),
+                false,
+            )
+            .unwrap()
+            .phase,
+            RaiVotePhase::First
+        );
+
+        // A First vote for another election does not unlock this Notar slot.
+        remember(
+            &history,
+            &first_signer,
+            root,
+            hash,
+            metadata(Root::from(77), RaiVotePhase::First),
+        );
+        assert_eq!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &first_signer.public_key(),
+                requested.clone(),
+                false,
+            )
+            .unwrap()
+            .phase,
+            RaiVotePhase::First
+        );
+
+        remember(
+            &history,
+            &first_signer,
+            root,
+            hash,
+            metadata(root, RaiVotePhase::First),
+        );
+        assert_eq!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &first_signer.public_key(),
+                requested.clone(),
+                false,
+            )
+            .unwrap()
+            .phase,
+            RaiVotePhase::Notar
+        );
+        assert_eq!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &missing_signer.public_key(),
+                requested,
+                false,
+            )
+            .unwrap()
+            .phase,
+            RaiVotePhase::First
+        );
+    }
+
+    #[test]
+    fn final_locks_earlier_phases_but_does_not_require_slot_first() {
+        let history = LocalVoteHistory::with_max_cache(32);
+        let signer = PrivateKey::new();
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let requested = metadata(root, RaiVotePhase::Notar);
+
+        assert_eq!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &signer.public_key(),
+                requested.clone(),
+                true,
+            )
+            .unwrap()
+            .phase,
+            RaiVotePhase::Final
+        );
+
+        remember(
+            &history,
+            &signer,
+            root,
+            hash,
+            metadata(root, RaiVotePhase::Final),
+        );
+        assert!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &signer.public_key(),
+                requested,
+                false,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn final_generation_rejects_conflicting_existing_support() {
+        let history = LocalVoteHistory::with_max_cache(32);
+        let signer = PrivateKey::new();
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let requested = metadata(root, RaiVotePhase::Notar);
+
+        remember(
+            &history,
+            &signer,
+            root,
+            BlockHash::ZERO,
+            metadata(root, RaiVotePhase::First),
+        );
+        assert!(
+            rai_signing_metadata(
+                &history,
+                &[root],
+                &[hash],
+                &signer.public_key(),
+                requested,
+                true,
+            )
+            .is_none()
+        );
     }
 }

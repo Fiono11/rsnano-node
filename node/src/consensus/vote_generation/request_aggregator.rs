@@ -423,13 +423,36 @@ impl RequestAggregatorLoop {
             self.stats
                 .inc(StatType::RequestAggregatorReplies, DetailType::FinalVote);
 
-            // Generate final votes for the remaining hashes
+            #[cfg(feature = "rai_protocol")]
+            let (contextual, discovery): (Vec<_>, Vec<_>) = remaining
+                .remaining_final
+                .iter()
+                .cloned()
+                .partition(|block| {
+                    self.active_elections
+                        .rai_vote_context(&block.hash())
+                        .is_some()
+                });
+
+            // Generate final votes only when the original RAI election context
+            // is known. Contextless requests for confirmed blocks are
+            // representative-crawler challenges and receive a discovery-only
+            // signature which cannot enter consensus state.
+            #[cfg(feature = "rai_protocol")]
+            let generated = self.vote_generators.generate_votes(
+                &contextual,
+                &request.channel,
+                VoteType::Final,
+                &self.rai_contexts(&contextual),
+            ) + self
+                .vote_generators
+                .generate_rai_discovery_votes(&discovery, &request.channel);
+
+            #[cfg(not(feature = "rai_protocol"))]
             let generated = self.vote_generators.generate_votes(
                 &remaining.remaining_final,
                 &request.channel,
                 VoteType::Final,
-                #[cfg(feature = "rai_protocol")]
-                &self.rai_contexts(&remaining.remaining_final),
             );
             self.stats.add_dir(
                 StatType::Requests,

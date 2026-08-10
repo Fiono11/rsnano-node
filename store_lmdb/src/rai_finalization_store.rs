@@ -5,9 +5,11 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_types::{Account, BlockHash, ConfirmationHeightInfo, RaiEpoch};
 
-/// Durable RAI metadata. Blocks are absent until certified; certification is
-/// immutable. The delta table contains only the last certified frontier for an
-/// account in an epoch, avoiding a full frontier snapshot per close.
+/// Durable RAI metadata. Blocks are absent until certified and finality is
+/// immutable. Epoch attribution converges to the earliest valid certificate
+/// when evidence arrives out of order. The delta table contains only the last
+/// certified frontier for an account in an epoch, avoiding a full frontier
+/// snapshot per close.
 pub struct LmdbRaiFinalizationStore {
     blocks: LmdbDatabase,
     epoch_deltas: LmdbDatabase,
@@ -77,7 +79,20 @@ impl LmdbRaiFinalizationStore {
         }
     }
 
-    /// Returns false when a different epoch was already assigned.
+    fn epoch_account_key(epoch: RaiEpoch, account: &Account) -> Vec<u8> {
+        let mut key = Vec::with_capacity(8 + Account::SERIALIZED_SIZE);
+        key.extend_from_slice(&epoch.number().to_be_bytes());
+        key.extend_from_slice(account.as_bytes());
+        key
+    }
+
+    /// Assigns the block to its earliest known valid finalization epoch.
+    ///
+    /// Evidence can arrive out of order when an epoch closes concurrently
+    /// with its successor. A later assignment is therefore corrected when an
+    /// earlier certificate or certified close is installed, while an earlier
+    /// assignment is never moved forward. Returns true when the block is
+    /// assigned to `epoch` after the call.
     pub fn put(
         &self,
         txn: &mut WriteTransaction,
@@ -86,27 +101,55 @@ impl LmdbRaiFinalizationStore {
         account: &Account,
         frontier: &ConfirmationHeightInfo,
     ) -> bool {
-        if let Some(existing) = self.epoch(txn, hash) {
-            return existing == epoch;
+        match self.epoch(txn, hash) {
+            Some(existing) if existing < epoch => return false,
+            Some(existing) if existing > epoch => {
+                // If this block was the recorded frontier of the later epoch,
+                // remove that stale delta. A later successor, when present,
+                // remains the later epoch's frontier and must be preserved.
+                if self
+                    .frontier_delta(txn, existing, account)
+                    .is_some_and(|current| current.frontier == *hash)
+                {
+                    txn.delete(
+                        self.epoch_deltas,
+                        &Self::epoch_account_key(existing, account),
+                        None,
+                    )
+                    .expect("could not remove superseded RAI epoch frontier delta");
+                }
+                txn.put(
+                    self.blocks,
+                    hash.as_bytes(),
+                    &epoch.number().to_be_bytes(),
+                    WriteFlags::empty(),
+                )
+                .expect("could not correct RAI finalization epoch");
+            }
+            Some(_) => {}
+            None => {
+                txn.put(
+                    self.blocks,
+                    hash.as_bytes(),
+                    &epoch.number().to_be_bytes(),
+                    WriteFlags::NO_OVERWRITE,
+                )
+                .expect("could not persist RAI finalization epoch");
+            }
         }
-        txn.put(
-            self.blocks,
-            hash.as_bytes(),
-            &epoch.number().to_be_bytes(),
-            WriteFlags::NO_OVERWRITE,
-        )
-        .expect("could not persist RAI finalization epoch");
 
-        let mut key = Vec::with_capacity(8 + Account::SERIALIZED_SIZE);
-        key.extend_from_slice(&epoch.number().to_be_bytes());
-        key.extend_from_slice(account.as_bytes());
-        txn.put(
-            self.epoch_deltas,
-            &key,
-            &frontier.to_bytes(),
-            WriteFlags::empty(),
-        )
-        .expect("could not persist RAI epoch frontier delta");
+        if self
+            .frontier_delta(txn, epoch, account)
+            .is_none_or(|current| frontier.height > current.height)
+        {
+            txn.put(
+                self.epoch_deltas,
+                &Self::epoch_account_key(epoch, account),
+                &frontier.to_bytes(),
+                WriteFlags::empty(),
+            )
+            .expect("could not persist RAI epoch frontier delta");
+        }
         true
     }
 
@@ -116,9 +159,7 @@ impl LmdbRaiFinalizationStore {
         epoch: RaiEpoch,
         account: &Account,
     ) -> Option<ConfirmationHeightInfo> {
-        let mut key = Vec::with_capacity(8 + Account::SERIALIZED_SIZE);
-        key.extend_from_slice(&epoch.number().to_be_bytes());
-        key.extend_from_slice(account.as_bytes());
+        let key = Self::epoch_account_key(epoch, account);
         match txn.get(self.epoch_deltas, &key) {
             Ok(mut bytes) => Some(
                 ConfirmationHeightInfo::deserialize(&mut bytes)
@@ -234,7 +275,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn finalization_epoch_is_immutable_and_delta_is_compact() {
+    fn finalization_epoch_moves_only_earlier_and_delta_is_compact() {
         let env = LmdbEnvironment::new_null();
         let store = LmdbRaiFinalizationStore::new(&env).unwrap();
         let hash = BlockHash::from(1);
@@ -245,20 +286,22 @@ mod tests {
         assert!(store.put(&mut txn, &hash, RaiEpoch::new(7), &account, &info));
         assert!(store.put(&mut txn, &hash, RaiEpoch::new(7), &account, &info));
         assert!(!store.put(&mut txn, &hash, RaiEpoch::new(8), &account, &info));
-        assert_eq!(store.epoch(&txn, &hash), Some(RaiEpoch::new(7)));
+        assert!(store.put(&mut txn, &hash, RaiEpoch::new(6), &account, &info));
+        assert_eq!(store.epoch(&txn, &hash), Some(RaiEpoch::new(6)));
         assert_eq!(
-            store.frontier_delta(&txn, RaiEpoch::new(7), &account),
+            store.frontier_delta(&txn, RaiEpoch::new(6), &account),
             Some(info.clone())
         );
+        assert_eq!(store.frontier_delta(&txn, RaiEpoch::new(7), &account), None);
         assert_eq!(store.frontier_delta(&txn, RaiEpoch::new(8), &account), None);
-        assert!(store.frontiers_through(&txn, RaiEpoch::new(6)).is_empty());
+        assert!(store.frontiers_through(&txn, RaiEpoch::new(5)).is_empty());
         assert_eq!(
-            store.frontiers_through(&txn, RaiEpoch::new(7)),
+            store.frontiers_through(&txn, RaiEpoch::new(6)),
             BTreeMap::from([(account, info)])
         );
         assert_eq!(
             store.counts_by_epoch(&txn),
-            BTreeMap::from([(RaiEpoch::new(7), 1)])
+            BTreeMap::from([(RaiEpoch::new(6), 1)])
         );
     }
 

@@ -80,6 +80,13 @@ impl Tickable for AecVoter {
         let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             iter.filter_map(|e| {
                 let target = vote_target(e);
+                #[cfg(feature = "rai_protocol")]
+                let target = {
+                    let mut target = target;
+                    self.vote_generators
+                        .ensure_local_first_vote(&target.root.root, &mut target.metadata);
+                    target
+                };
                 if scheduler.can_vote(&target, now) {
                     Some(target)
                 } else {

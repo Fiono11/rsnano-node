@@ -61,6 +61,14 @@ mod tests {
             None
         }
 
+        fn commit_close_record(
+            &mut self,
+            _epoch: RaiEpoch,
+            _frontiers: &crate::consensus::rai::RaiFrontierMap,
+        ) -> bool {
+            true
+        }
+
         fn broadcast_report(&mut self, report: RaiReport) {
             self.reports.push(report);
         }
@@ -241,6 +249,11 @@ pub trait RaiEpochLoopDriver {
     fn certified_weights(&self, _epoch: RaiEpoch) -> Option<RepWeights> {
         None
     }
+
+    /// Durably finalizes every suffix selected by the certified frontier map.
+    /// Returning true acknowledges that the ledger commit completed and is
+    /// the gate for publishing the close decision.
+    fn commit_close_record(&mut self, epoch: RaiEpoch, frontiers: &super::RaiFrontierMap) -> bool;
 
     fn broadcast_report(&mut self, report: RaiReport);
 }
@@ -484,9 +497,13 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                 let Some(weights) = self.driver.certified_weights(epoch) else {
                     return;
                 };
-                let _ = self
-                    .epoch_manager
-                    .install_certified_close_record(epoch, round, hash, weights);
+                let _ = self.epoch_manager.install_certified_close_record_after(
+                    epoch,
+                    round,
+                    hash,
+                    weights,
+                    |epoch, frontiers| self.driver.commit_close_record(epoch, frontiers),
+                );
             }
         }
     }

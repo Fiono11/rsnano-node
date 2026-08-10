@@ -100,6 +100,15 @@ pub struct RaiVoteMetadata {
     pub scope: RaiCommitteeScope,
 }
 
+#[cfg(feature = "rai_protocol")]
+impl RaiVoteMetadata {
+    /// Reserved context for a signed representative-discovery response. It is
+    /// never admissible as slot or close-election evidence.
+    pub fn is_discovery(&self) -> bool {
+        self.election_id == RaiElectionId::default()
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, EnumCount, EnumIter)]
 pub enum VoteDelivery {
     Direct,

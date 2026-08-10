@@ -668,6 +668,7 @@ impl Node {
             // no node can produce a report.
             Arc::new(genesis_committee),
             network_params.ledger.genesis_block.hash(),
+            ledger.clone(),
         ));
         active_elections.set_observer(aec_tx.clone());
 

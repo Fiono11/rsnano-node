@@ -5,6 +5,10 @@ use std::{
 
 use rsnano_ledger::{AnySet, test_helpers::UnsavedBlockLatticeBuilder};
 use rsnano_messages::ConfirmAck;
+#[cfg(feature = "rai_protocol")]
+use rsnano_messages::Message;
+#[cfg(feature = "rai_protocol")]
+use rsnano_network::TrafficType;
 use rsnano_node::{
     config::NodeFlags,
     consensus::{AggregatorRequest, VoteGenerationEvent},
@@ -17,6 +21,64 @@ use test_helpers::{
     System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
     make_fake_channel,
 };
+
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn contextless_confirmed_request_is_discovery_only() {
+    let mut system = System::new();
+    let node = system
+        .build_node()
+        .flags(NodeFlags {
+            disable_rep_crawler: true,
+            ..Default::default()
+        })
+        .finish();
+    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    // Representative discovery is recomputed asynchronously after wallet
+    // mutations. Make the signing precondition explicit so this request cannot
+    // race the first local-representative ticker run.
+    node.wallet_reps.lock().unwrap().compute_reps();
+
+    let genesis = node
+        .ledger
+        .any()
+        .get_block(&node.network_params.ledger.genesis_block.hash())
+        .unwrap();
+    let channel = make_fake_channel(&node);
+    let send_tracker = node.message_sender.lock().unwrap().track();
+    node.request_aggregator.request(AggregatorRequest {
+        channel: channel.clone(),
+        roots_hashes: vec![(genesis.hash(), genesis.root())],
+    });
+
+    let mut discovery = None;
+    assert_timely_msg(
+        Duration::from_secs(3),
+        || {
+            discovery = send_tracker.output().into_iter().find_map(|event| {
+                let Message::ConfirmAck(ack) = event.message else {
+                    return None;
+                };
+                let vote = ack.vote();
+                (event.channel_id == channel.channel_id()
+                    && event.traffic_type == TrafficType::VoteReply
+                    && vote.metadata.is_discovery()
+                    && vote.hashes.contains(&genesis.hash()))
+                .then(|| (*vote).clone())
+            });
+            discovery.is_some()
+        },
+        "no RAI discovery response",
+    );
+
+    let discovery = discovery.unwrap();
+    discovery.validate().unwrap();
+    assert!(
+        node.history
+            .votes(&genesis.root(), &genesis.hash(), false)
+            .is_empty()
+    );
+}
 
 #[test]
 fn one() {

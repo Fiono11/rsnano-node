@@ -252,6 +252,7 @@ impl AecService {
         base_latency: Duration,
         genesis_committee: std::sync::Arc<rsnano_ledger::RepWeights>,
         genesis_governing_hash: BlockHash,
+        ledger: std::sync::Arc<rsnano_ledger::Ledger>,
     ) -> Self {
         let clock = SteadyClock::default();
         let mut aec = ActiveElectionsContainer::new_with_rai_committee(
@@ -260,6 +261,7 @@ impl AecService {
             genesis_committee,
             genesis_governing_hash,
         );
+        aec.set_rai_ledger(ledger);
         // Epoch zero begins when this node initializes RAI. Leaving the
         // manager at Timestamp::default() makes the first ticker invocation
         // close epoch zero immediately, before nanospam can publish work.
@@ -317,6 +319,7 @@ impl AecService {
             .rai_close_vote_context_for_root(root)
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_active_close_vote_target_for_root(
         &self,
         root: &rsnano_types::Root,
@@ -647,7 +650,11 @@ impl AecService {
         drop(aec);
         let target = ledger.rai_finalized_vote_target(hash, root)?;
         let epoch = target.metadata.epoch;
-        if epoch != requested_epoch || !self.aec.read().unwrap().rai_has_governing_context(epoch) {
+        let aec = self.aec.read().unwrap();
+        if epoch != requested_epoch
+            || !aec.rai_has_governing_context(epoch)
+            || !aec.rai_election_vote_enabled(&target.election_id)
+        {
             return None;
         }
         Some(target)
@@ -820,6 +827,18 @@ impl AecService {
     pub fn rai_genesis_committee(&self) -> std::sync::Arc<rsnano_ledger::RepWeights> {
         self.aec.read().unwrap().rai_genesis_committee()
     }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_close_election_durations(
+        &self,
+    ) -> (
+        std::collections::BTreeMap<rsnano_types::RaiEpoch, Duration>,
+        std::collections::BTreeMap<rsnano_types::RaiEpoch, Duration>,
+    ) {
+        let aec = self.aec.read().unwrap();
+        let (cut, record) = aec.rai_close_election_durations();
+        (cut.clone(), record.clone())
+    }
 }
 
 impl StatsSource for AecService {
@@ -868,6 +887,7 @@ mod rai_tests {
             Duration::from_millis(25),
             Arc::new(weights),
             BlockHash::ZERO,
+            Arc::new(rsnano_ledger::Ledger::new_null()),
         );
         let duration = Duration::from_secs(30);
         let start = service.clock.now();
@@ -895,6 +915,7 @@ mod rai_tests {
             Duration::from_millis(25),
             Arc::new(weights),
             BlockHash::ZERO,
+            Arc::new(rsnano_ledger::Ledger::new_null()),
         );
         let duration = Duration::from_secs(30);
         let deadline = service.clock.now() + duration;

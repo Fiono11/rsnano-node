@@ -248,7 +248,10 @@ impl Election {
     /// terminal RAI result and must not be removed by ordinary AEC cleanup.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_requires_retention(&self) -> bool {
-        self.rai_votes.outcome == RaiOutcome::Pending
+        matches!(
+            self.rai_votes.outcome,
+            RaiOutcome::Pending | RaiOutcome::Notarized(_)
+        )
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -474,23 +477,21 @@ impl Election {
     pub fn transition_time(&mut self, now: Timestamp) {
         let duration = self.start.elapsed(now);
 
-        // A ledger confirmation is not a terminal RAI certificate. Keep
-        // the election active (and therefore eligible for confirm_req
-        // solicitation) until its persistent RAI evidence reaches a terminal
-        // outcome. In particular, neither confirmation-height processing nor
-        // the legacy election TTL may retire a pending RAI election.
+        // A ledger confirmation or provisional notarization is not a terminal
+        // RAI certificate. Keep the election active (and therefore eligible
+        // for confirm_req solicitation) until its persistent RAI evidence
+        // reaches a fast/final/timeout outcome. RAI slots cannot wait through
+        // the legacy passive window: a short epoch may close before their
+        // first repair request is sent.
         #[cfg(feature = "rai_protocol")]
-        if self.rai_votes.outcome == RaiOutcome::Pending {
-            if self.rai_kind() == RaiElectionKind::Slot
+        if self.rai_requires_retention() {
+            if self.rai_votes.outcome == RaiOutcome::Pending
+                && self.rai_kind() == RaiElectionKind::Slot
                 && self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration
             {
                 self.rai_timeout_expired = true;
             }
-            if self.state != ElectionState::Passive {
-                self.state = ElectionState::Active;
-            } else if self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration {
-                self.state = ElectionState::Active;
-            }
+            self.state = ElectionState::Active;
             return;
         }
 
@@ -779,11 +780,10 @@ impl Election {
             self.rai_votes.outcome = RaiOutcome::Confirmed(first_hash);
             self.state = ElectionState::Confirmed;
         } else if self.rai_kind() == RaiElectionKind::Slot {
-            // Compatible notarization results finish the RAI election without
-            // finalizing its segment.  The close record later either promotes
-            // this provisional result or releases it.
+            // Notarization settles the close-drain obligation, but it does not
+            // finalize the slot. Keep the election active so later First or
+            // Final evidence can still produce a fast/final certificate.
             self.rai_votes.outcome = RaiOutcome::Notarized(first_hash);
-            self.state = ElectionState::Confirmed;
         }
     }
 
@@ -1073,7 +1073,7 @@ mod rai_identity_tests {
     }
 
     #[test]
-    fn compatible_notarization_finishes_without_finalizing() {
+    fn compatible_notarization_remains_live_and_can_fast_finalize() {
         use crate::consensus::rai::BlockHashOrTimeout;
         use rsnano_types::{Amount, PrivateKey, RaiCommitteeScope};
 
@@ -1098,7 +1098,7 @@ mod rai_identity_tests {
         .with_rai_committees(vec![committee]);
 
         // Four of six first votes cross notarization, but not the fast
-        // threshold. The result is terminal and remains provisional.
+        // threshold. The result remains provisional and retained.
         for key in keys.iter().take(4) {
             election
                 .rai_votes
@@ -1122,7 +1122,8 @@ mod rai_identity_tests {
         election.update_rai_tallies();
 
         assert_eq!(election.rai_votes.outcome, RaiOutcome::Notarized(hash));
-        assert!(election.state().has_ended());
+        assert!(!election.state().has_ended());
+        assert!(election.rai_requires_retention());
         assert!(
             election
                 .into_confirmed_election(
@@ -1131,6 +1132,28 @@ mod rai_identity_tests {
                 )
                 .rai_finalization_epoch
                 .is_none()
+        );
+
+        election
+            .rai_votes
+            .record_first_vote(
+                keys[4].public_key(),
+                BlockHashOrTimeout::Block(hash),
+                RaiCommitteeScope::All,
+            )
+            .unwrap();
+        election.update_rai_tallies();
+
+        assert_eq!(election.rai_votes.outcome, RaiOutcome::Confirmed(hash));
+        assert!(election.state().has_ended());
+        assert_eq!(
+            election
+                .into_confirmed_election(
+                    Timestamp::new_test_instance(),
+                    ConfirmationType::ActiveConfirmedQuorum,
+                )
+                .rai_finalization_epoch,
+            Some(RaiEpoch::ZERO)
         );
     }
 
@@ -1209,6 +1232,23 @@ mod rai_identity_tests {
 
         assert_eq!(election.rai_votes.outcome, RaiOutcome::TimedOut);
         assert!(election.state().has_ended());
+    }
+
+    #[test]
+    fn pending_slot_activates_without_legacy_passive_delay() {
+        let start = Timestamp::new_test_instance();
+        let mut election = Election::new_slot(
+            SavedBlock::new_test_instance(),
+            ElectionBehavior::Priority,
+            Duration::from_secs(1),
+            start,
+            RaiEpoch::ZERO,
+        );
+
+        assert_eq!(election.state(), ElectionState::Passive);
+        election.transition_time(start);
+        assert_eq!(election.state(), ElectionState::Active);
+        assert!(!election.rai_timeout_expired);
     }
 
     #[test]

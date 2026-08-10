@@ -39,6 +39,21 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn ensure_local_first_vote(
+        &self,
+        root: &Root,
+        metadata: &mut rsnano_types::RaiVoteMetadata,
+    ) {
+        if metadata.phase == rsnano_types::RaiVotePhase::Notar
+            && !self
+                .non_final_vote_generator
+                .all_local_reps_voted_first(root, metadata)
+        {
+            metadata.phase = rsnano_types::RaiVotePhase::First;
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn generate_rai_notar_vote(
         &self,
         target: &rsnano_ledger::RaiFinalizedVoteTarget,
@@ -46,6 +61,23 @@ impl VoteGenerators {
     ) -> usize {
         self.non_final_vote_generator
             .generate_rai_notar_vote(target, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn generate_rai_discovery_votes(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+    ) -> usize {
+        if self.vote_listener.is_tracked() {
+            self.vote_listener.emit(VoteGenerationEvent {
+                channel_id: channel.channel_id(),
+                blocks: blocks.to_vec(),
+                final_vote: false,
+            });
+        }
+        self.non_final_vote_generator
+            .generate_rai_discovery_votes(blocks, channel)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -99,11 +131,15 @@ impl VoteGenerators {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
+        #[cfg(feature = "rai_protocol")]
+        let rai_signing_lock = Arc::new(Mutex::new(()));
 
         let non_final_vote_generator = VoteGenerator::new(
             ledger.clone(),
             wallet_reps.clone(),
             history.clone(),
+            #[cfg(feature = "rai_protocol")]
+            rai_signing_lock.clone(),
             false, //none-final
             stats.clone(),
             message_sender.clone(),
@@ -117,6 +153,8 @@ impl VoteGenerators {
             ledger,
             wallet_reps.clone(),
             history,
+            #[cfg(feature = "rai_protocol")]
+            rai_signing_lock,
             true, //final
             stats.clone(),
             message_sender.clone(),

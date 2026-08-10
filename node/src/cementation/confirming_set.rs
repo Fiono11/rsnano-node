@@ -273,6 +273,10 @@ impl ConfirmingSetThread {
         let mut near_full_warning = false;
         {
             let mut guard = self.mutex.lock().unwrap();
+            #[cfg(feature = "rai_protocol")]
+            let finalization_epoch = election
+                .as_ref()
+                .and_then(|election| election.rai_finalization_epoch);
             if let Some(e) = election {
                 guard.election_cache.insert(e);
             }
@@ -280,9 +284,7 @@ impl ConfirmingSetThread {
                 confirmation_root: hash,
                 timestamp: Instant::now(),
                 #[cfg(feature = "rai_protocol")]
-                // Slot confirmation is not epoch finalization. The epoch is
-                // assigned only when a certified close record is installed.
-                finalization_epoch: None,
+                finalization_epoch,
             });
 
             if !guard.near_full && guard.set.len() + guard.current.len() >= guard.near_full_limit {
@@ -513,6 +515,59 @@ mod tests {
         let hash = BlockHash::from(1);
         confirming_set.add_block(hash);
         assert!(confirming_set.contains(&hash));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_upgrades_pending_confirmation_with_finalization_epoch() {
+        let ledger = Arc::new(Ledger::new_null());
+        let confirming_set =
+            ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
+        let hash = BlockHash::from(1);
+
+        confirming_set.add_block(hash);
+        confirming_set.add_rai_close_block(hash, RaiEpoch::new(7));
+
+        let mut guard = confirming_set.thread.mutex.lock().unwrap();
+        let entry = guard.set.front().unwrap();
+        assert_eq!(entry.confirmation_root, hash);
+        assert_eq!(entry.finalization_epoch, Some(RaiEpoch::new(7)));
+        assert_eq!(guard.set.len(), 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn fast_slot_confirmation_preserves_finalization_epoch() {
+        let ledger = Arc::new(Ledger::new_null());
+        let confirming_set =
+            ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
+        let mut election = ConfirmedElection::new_test_instance();
+        let hash = election.winner.hash();
+        election.rai_finalization_epoch = Some(RaiEpoch::new(7));
+
+        confirming_set.add(election);
+
+        let mut guard = confirming_set.thread.mutex.lock().unwrap();
+        let entry = guard.set.front().unwrap();
+        assert_eq!(entry.confirmation_root, hash);
+        assert_eq!(entry.finalization_epoch, Some(RaiEpoch::new(7)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn consecutive_closes_keep_the_earliest_finalization_epoch() {
+        let ledger = Arc::new(Ledger::new_null());
+        let confirming_set =
+            ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
+        let hash = BlockHash::from(1);
+
+        confirming_set.add_rai_close_block(hash, RaiEpoch::ZERO);
+        confirming_set.add_rai_close_block(hash, RaiEpoch::new(1));
+
+        let mut guard = confirming_set.thread.mutex.lock().unwrap();
+        let entry = guard.set.front().unwrap();
+        assert_eq!(entry.finalization_epoch, Some(RaiEpoch::ZERO));
+        assert_eq!(guard.set.len(), 1);
     }
 
     #[test]
