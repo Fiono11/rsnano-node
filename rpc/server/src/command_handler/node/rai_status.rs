@@ -5,6 +5,7 @@ impl RpcCommandHandler {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_status(&self) -> anyhow::Result<RaiStatusResponse> {
         let (state, close_hashes, cut_hashes, drains) = self.node.aec.rai_epoch_status();
+        let (cut_durations, record_durations) = self.node.aec.rai_close_election_durations();
         Ok(RaiStatusResponse {
             genesis_committee: {
                 let mut accounts = self
@@ -47,6 +48,24 @@ impl RpcCommandHandler {
                 .rai_finalized_counts()
                 .into_iter()
                 .map(|(epoch, count)| (epoch.number().to_string(), count.into()))
+                .collect(),
+            cut_election_durations_us: cut_durations
+                .into_iter()
+                .map(|(epoch, duration)| {
+                    (
+                        epoch.number().to_string(),
+                        (duration.as_micros() as u64).into(),
+                    )
+                })
+                .collect(),
+            record_election_durations_us: record_durations
+                .into_iter()
+                .map(|(epoch, duration)| {
+                    (
+                        epoch.number().to_string(),
+                        (duration.as_micros() as u64).into(),
+                    )
+                })
                 .collect(),
         })
     }

@@ -42,6 +42,8 @@ pub struct BlockInfoResponse {
     pub source_account: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rai_finalization_epoch: Option<RpcU64>,
 }
 
 #[cfg(test)]
@@ -72,6 +74,7 @@ mod tests {
             receive_hash: None,
             source_account: None,
             linked_account: None,
+            rai_finalization_epoch: None,
         };
 
         let serialized = serde_json::to_value(&block_info).unwrap();

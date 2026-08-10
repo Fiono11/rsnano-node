@@ -20,6 +20,8 @@ pub struct RaiStatusResponse {
     pub drain_obligations: BTreeMap<String, RpcU64>,
     pub drain_finalized: BTreeMap<String, RpcU64>,
     pub finalized_by_epoch: BTreeMap<String, RpcU64>,
+    pub cut_election_durations_us: BTreeMap<String, RpcU64>,
+    pub record_election_durations_us: BTreeMap<String, RpcU64>,
 }
 
 #[cfg(test)]

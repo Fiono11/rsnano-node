@@ -39,6 +39,14 @@ impl RpcCommandHandler {
             receive_hash: None,
             receivable: None,
             linked_account,
+            #[cfg(feature = "rai_protocol")]
+            rai_finalization_epoch: self
+                .node
+                .ledger
+                .rai_finalization_epoch(&args.hash)
+                .map(|epoch| epoch.number().into()),
+            #[cfg(not(feature = "rai_protocol"))]
+            rai_finalization_epoch: None,
         })
     }
 
