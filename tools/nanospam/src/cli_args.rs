@@ -91,6 +91,10 @@ struct RunArgs {
     #[arg(long, default_value_t = false)]
     one_block_per_account: bool,
 
+    /// Publish exactly one send block from each prepared account
+    #[arg(long, default_value_t = false)]
+    one_send_per_account: bool,
+
     /// Disable sending a high priority block every 10s
     #[arg(long, default_value_t = false)]
     no_prio: bool,
@@ -128,6 +132,7 @@ pub(crate) struct CliArgs {
     pub unconfirmed: bool,
     pub change: bool,
     pub one_block_per_account: bool,
+    pub one_send_per_account: bool,
     pub cpp: bool,
     pub rocksdb: bool,
     pub no_prio: bool,
@@ -153,6 +158,7 @@ impl CommandLine {
                 result.unconfirmed = args.unconfirmed;
                 result.change = args.change;
                 result.one_block_per_account = args.one_block_per_account;
+                result.one_send_per_account = args.one_send_per_account;
                 result.no_prio = args.no_prio;
                 result.no_kill = args.no_kill;
                 result.no_republish = args.no_republish;
@@ -175,6 +181,7 @@ impl CliArgs {
             unconfirmed: false,
             change: false,
             one_block_per_account: false,
+            one_send_per_account: false,
             cpp: args.cpp,
             rocksdb: args.rocksdb,
             no_prio: false,
@@ -208,6 +215,20 @@ impl CliArgs {
         if self.one_block_per_account && self.blocks.unwrap_or(0) > self.accounts {
             anyhow::bail!("--one-block-per-account requires --blocks <= --accounts");
         }
+        if self.one_send_per_account && self.blocks.unwrap_or(0) != self.accounts {
+            anyhow::bail!("--one-send-per-account requires --blocks == --accounts");
+        }
+        if self.one_send_per_account && !self.fund_all_accounts {
+            anyhow::bail!("--one-send-per-account requires --fund-all-accounts");
+        }
+        if self.one_send_per_account && self.one_block_per_account {
+            anyhow::bail!(
+                "--one-send-per-account and --one-block-per-account are mutually exclusive"
+            );
+        }
+        if self.one_block_per_account && self.prs < 2 {
+            anyhow::bail!("--one-block-per-account requires --prs >= 2");
+        }
         Ok(())
     }
 
@@ -217,10 +238,7 @@ impl CliArgs {
             max_blocks: self.blocks.unwrap_or(0),
             rate: self.rate_spec()?,
             fork_probability: self.fork_probability(),
-            // Timed RAI spam is a publication workload. A certified close may
-            // intentionally discard a submitted slot, so confirmation cannot
-            // gate construction of the remaining submissions.
-            track_confirmations: !self.unconfirmed && self.rai_epoch_duration_ms.is_none(),
+            track_confirmations: !self.unconfirmed,
         })
     }
 
@@ -247,7 +265,9 @@ impl CliArgs {
     }
 
     fn strategy(&self) -> SpamStrategy {
-        if self.one_block_per_account {
+        if self.one_send_per_account {
+            SpamStrategy::OneSendPerAccount
+        } else if self.one_block_per_account {
             SpamStrategy::OneChangePerAccount
         } else if self.change {
             SpamStrategy::Change
@@ -312,7 +332,7 @@ mod tests {
         .into_args();
         assert_eq!(args.mode, Mode::Run);
         assert_eq!(args.rai_epoch_duration_ms, Some(5000));
-        assert!(!args.spam_spec().unwrap().track_confirmations);
+        assert!(args.spam_spec().unwrap().track_confirmations);
         args.validate().unwrap();
     }
 
@@ -349,6 +369,48 @@ mod tests {
         ])
         .unwrap()
         .into_args();
+        assert!(args.validate().is_err());
+    }
+
+    #[test]
+    fn parses_one_send_per_account_workload() {
+        let args = CommandLine::try_parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--prs",
+            "6",
+            "--accounts",
+            "100",
+            "--fund-all-accounts",
+            "--blocks",
+            "100",
+            "--one-send-per-account",
+        ])
+        .unwrap()
+        .into_args();
+
+        args.validate().unwrap();
+        assert_eq!(args.strategy(), SpamStrategy::OneSendPerAccount);
+    }
+
+    #[test]
+    fn one_change_per_account_requires_two_prs() {
+        let args = CommandLine::try_parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--accounts",
+            "1",
+            "--blocks",
+            "1",
+            "--one-block-per-account",
+        ])
+        .unwrap()
+        .into_args();
+
         assert!(args.validate().is_err());
     }
 }

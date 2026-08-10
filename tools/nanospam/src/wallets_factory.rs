@@ -19,7 +19,7 @@ use crate::{
 // smaller amount and the final representative weights remain balanced.
 const SETUP_RESERVE: Amount = Amount::nano(100);
 
-fn spam_account_amount(pr_index: usize, pr_count: usize) -> Amount {
+fn representative_target(pr_index: usize, pr_count: usize) -> Amount {
     let share = Amount::MAX / pr_count as u128;
     let remainder = Amount::MAX - share * pr_count as u128;
     let target_weight = share
@@ -33,6 +33,21 @@ fn spam_account_amount(pr_index: usize, pr_count: usize) -> Amount {
         target_weight - SETUP_RESERVE
     } else {
         target_weight
+    }
+}
+
+fn spam_account_amount(account_index: usize, account_count: usize, pr_count: usize) -> Amount {
+    let pr_index = account_index % pr_count;
+    let accounts_for_pr = 1 + (account_count - 1 - pr_index) / pr_count;
+    let target = representative_target(pr_index, pr_count);
+    let base = target / accounts_for_pr as u128;
+    let remainder = target - base * accounts_for_pr as u128;
+    let position_for_pr = account_index / pr_count;
+
+    base + if position_for_pr == accounts_for_pr - 1 {
+        remainder
+    } else {
+        Amount::ZERO
     }
 }
 
@@ -111,15 +126,21 @@ pub(crate) async fn create_wallets(
         sleep(Duration::from_secs(11)).await;
     }
 
-    for i in 0..pr_count {
+    let funded_account_count = if fund_all_accounts {
+        account_map.accounts().len()
+    } else {
+        pr_count
+    };
+    for i in 0..funded_account_count {
         let spam_key = account_map
             .state(&account_map.accounts()[i])
             .unwrap()
             .key
             .clone();
-        let amount = spam_account_amount(i, pr_count);
-        let representative = pr_key(i).public_key();
-        info!("Funding spam account {i} and delegating it to PR{i}...");
+        let pr_index = i % pr_count;
+        let amount = spam_account_amount(i, funded_account_count, pr_count);
+        let representative = pr_key(pr_index).public_key();
+        info!("Funding spam account {i} and delegating it to PR{pr_index}...");
         let send_hash = genesis_rpc
             .send(SendArgs {
                 wallet: genesis_wallet,
@@ -136,11 +157,10 @@ pub(crate) async fn create_wallets(
         let receive: Block = StateBlockArgs {
             key: &spam_key,
             previous: BlockHash::ZERO,
-            // Keep the newly received voting weight on the already-live
-            // genesis representative until the open block is confirmed.
-            // Assigning it directly to PR{i} can strand the final open while
-            // representative weight and local voting keys are being refreshed.
-            representative: genesis_key.public_key(),
+            // Opening receives the funding send and delegates its balance in
+            // the same block. All PR keys are temporarily present on PR0 while
+            // setup redistributes the genesis voting weight.
+            representative,
             balance: amount,
             link: send_hash.into(),
             work: 0.into(),
@@ -153,61 +173,8 @@ pub(crate) async fn create_wallets(
             .hash;
         wait_until_confirmed_on_all(rpc_clients, receive_hash).await?;
 
-        let change: Block = StateBlockArgs {
-            key: &spam_key,
-            previous: receive_hash,
-            representative,
-            balance: amount,
-            link: BlockHash::ZERO.into(),
-            work: 0.into(),
-        }
-        .into();
-        let change_hash = genesis_rpc
-            .process(JsonBlock::from(change))
-            .await
-            .unwrap()
-            .hash;
-        wait_until_confirmed_on_all(rpc_clients, change_hash).await?;
-        account_map.set_account_state(spam_key.account(), amount, change_hash);
+        account_map.set_account_state(spam_key.account(), amount, receive_hash);
         account_map.set_representative(spam_key.account(), representative);
-    }
-
-    if fund_all_accounts {
-        for i in pr_count..account_map.accounts().len() {
-            let spam_key = account_map
-                .state(&account_map.accounts()[i])
-                .unwrap()
-                .key
-                .clone();
-            let representative = pr_key(i % pr_count).public_key();
-            let amount = Amount::raw(1);
-            info!("Funding independent spam account {i}...");
-            let send_hash = genesis_rpc
-                .send(SendArgs {
-                    wallet: genesis_wallet,
-                    source: genesis_key.account(),
-                    destination: spam_key.account(),
-                    amount,
-                    work: Some(WorkNonce::new(0)),
-                    id: None,
-                })
-                .await?
-                .block;
-            wait_until_confirmed_on_all(rpc_clients, send_hash).await?;
-            let open: Block = StateBlockArgs {
-                key: &spam_key,
-                previous: BlockHash::ZERO,
-                representative,
-                balance: amount,
-                link: send_hash.into(),
-                work: 0.into(),
-            }
-            .into();
-            let open_hash = genesis_rpc.process(JsonBlock::from(open)).await?.hash;
-            wait_until_confirmed_on_all(rpc_clients, open_hash).await?;
-            account_map.set_account_state(spam_key.account(), amount, open_hash);
-            account_map.set_representative(spam_key.account(), representative);
-        }
     }
 
     for i in 1..pr_count {
@@ -232,8 +199,9 @@ mod tests {
     #[test]
     fn entire_supply_is_balanced_between_prs() {
         let pr_count = 6;
-        let amounts = (0..pr_count)
-            .map(|i| spam_account_amount(i, pr_count))
+        let account_count = 100;
+        let amounts = (0..account_count)
+            .map(|i| spam_account_amount(i, account_count, pr_count))
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -241,11 +209,38 @@ mod tests {
             Amount::MAX - SETUP_RESERVE
         );
 
-        let pr0_weight = amounts[0] + SETUP_RESERVE;
-        for amount in &amounts[1..pr_count - 1] {
-            assert_eq!(*amount, pr0_weight);
+        let mut weights = vec![Amount::ZERO; pr_count];
+        weights[0] += SETUP_RESERVE;
+        for (i, amount) in amounts.into_iter().enumerate() {
+            weights[i % pr_count] += amount;
         }
-        assert_eq!(amounts[pr_count - 1] - pr0_weight, Amount::raw(3));
+        for weight in &weights[..pr_count - 1] {
+            assert_eq!(*weight, weights[0]);
+        }
+        assert_eq!(weights[pr_count - 1] - weights[0], Amount::raw(3));
+    }
+
+    #[test]
+    fn rotating_all_funded_accounts_keeps_six_pr_weights_nearly_equal() {
+        let pr_count = 6;
+        let account_count = 100;
+        let mut weights = vec![Amount::ZERO; pr_count];
+        // The genesis account is not part of the one-change-per-account
+        // workload and continues to delegate the setup reserve to PR0.
+        weights[0] = SETUP_RESERVE;
+        for account_index in 0..account_count {
+            let source_pr = account_index % pr_count;
+            let destination_pr = (source_pr + 1) % pr_count;
+            weights[destination_pr] += spam_account_amount(account_index, account_count, pr_count);
+        }
+
+        let share = Amount::MAX / pr_count as u128;
+        assert_eq!(weights[0], share + SETUP_RESERVE + Amount::raw(3));
+        assert_eq!(weights[1], share - SETUP_RESERVE);
+        assert_eq!(&weights[2..], vec![share; 4]);
+        let minimum = *weights.iter().min().unwrap();
+        let maximum = *weights.iter().max().unwrap();
+        assert_eq!(maximum - minimum, SETUP_RESERVE * 2 + Amount::raw(3));
     }
 }
 

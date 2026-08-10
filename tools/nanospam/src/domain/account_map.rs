@@ -189,9 +189,10 @@ impl AccountMap {
         );
     }
 
-    pub fn process_change(&mut self, account: Account, hash: BlockHash) {
+    pub fn process_change(&mut self, account: Account, hash: BlockHash, representative: PublicKey) {
         let state = self.account_states.get_mut(&account).unwrap();
         state.unconfirmed_frontier = hash;
+        state.representative = representative;
         self.confirmed_accounts.remove(&account);
         self.unconfirmed.insert(
             hash,

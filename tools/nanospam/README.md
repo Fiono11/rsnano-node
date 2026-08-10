@@ -1,7 +1,18 @@
 # Tool: nanospam
 
 ## Example Usage
-Run a single node spam test, starting at 1 bps and continually increase bps. (rsnano_node has to be in $PATH)
+
+Build nanospam and the node executable from the same source revision and Cargo
+profile:
+```
+cargo build --release --features rai_protocol -p rsnano_cli -p nanospam
+export PATH="$PWD/target/release:$PATH"
+```
+
+`rsnano_node` is the node library package; the executable launched by nanospam
+is `rsnano`, built by `rsnano_cli`.
+
+Run a single node spam test, starting at 1 bps and continually increase bps.
 ```
 nanospam
 ```
@@ -33,6 +44,14 @@ nanospam --prs 4 --rate 3000 --blocks 50000
 
 # Start change block spam
 nanospam --prs 4 --rate 3000 --blocks 50000 --sync --change --unconfirmed
+```
+
+Prepare 100 independently funded accounts with their voting weight balanced
+across six PRs, then rotate every account to the next PR with one change block.
+The full workload keeps the six-way voting-weight distribution balanced:
+```
+nanospam setup --data-dir /tmp/nanospam-100 --prs 6 --accounts 100 --fund-all-accounts
+nanospam run --data-dir /tmp/nanospam-100 --prs 6 --accounts 100 --fund-all-accounts --blocks 100 --rate 20 --one-block-per-account --no-prio --rai-epoch-duration-ms 5000 --rai-tick-interval-ms 100
 ```
 
 Only create the node folders in ~/NanoSpam and configure them and create the node wallets, then stop.

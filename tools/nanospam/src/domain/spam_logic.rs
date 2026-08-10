@@ -4,8 +4,11 @@ use crate::domain::{
 };
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Block, BlockHash};
-use std::time::Duration;
+use rsnano_types::{Block, BlockHash, PublicKey};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
@@ -30,14 +33,24 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) cps_measure_start: Option<Timestamp>,
+    publication_times: HashMap<BlockHash, Instant>,
 }
 
 impl SpamLogic {
-    pub(crate) fn new(account_map: AccountMap, spec: SpamSpec) -> Self {
+    pub(crate) fn new(
+        account_map: AccountMap,
+        spec: SpamSpec,
+        live_representatives: Vec<PublicKey>,
+    ) -> Self {
         Self {
             delayed: Default::default(),
             high_prio_tracker: Default::default(),
-            block_factory: BlockFactory::new(account_map, spec.max_blocks, spec.spam_strategy),
+            block_factory: BlockFactory::new_with_live_representatives(
+                account_map,
+                spec.max_blocks,
+                spec.spam_strategy,
+                live_representatives,
+            ),
             current_bps: spec.rate.initial_bps,
             bps_limiter: TokenBucketLogic::new(spec.rate.initial_bps),
             next_block: None,
@@ -49,17 +62,13 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             cps_measure_start: None,
+            publication_times: Default::default(),
         }
     }
 
     pub(crate) fn is_finished(&self) -> bool {
         self.block_factory.max_blocks() > 0
             && self.confirmed_total >= self.block_factory.max_blocks()
-    }
-
-    pub(crate) fn workload_published(&self) -> bool {
-        self.block_factory.max_blocks() > 0
-            && self.published_total >= self.block_factory.max_blocks()
     }
 
     pub(crate) fn fork_propability(&self) -> f64 {
@@ -107,6 +116,9 @@ impl SpamLogic {
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
         if self.delayed.published(hash, now) {
             self.published_total += 1;
+            self.publication_times
+                .entry(*hash)
+                .or_insert_with(Instant::now);
         }
 
         if !self.spec.track_confirmations {
@@ -115,6 +127,10 @@ impl SpamLogic {
             self.confirmed_total += 1;
         }
         self.high_prio_tracker.published(hash, now)
+    }
+
+    pub(crate) fn publication_times(&self) -> &HashMap<BlockHash, Instant> {
+        &self.publication_times
     }
 
     pub(crate) fn confirmed(
@@ -201,6 +217,7 @@ mod tests {
                 fork_probability: 0.0,
                 track_confirmations: true,
             },
+            Vec::new(),
         );
 
         logic.mark_workload_cemented(Timestamp::new_test_instance());
@@ -224,6 +241,7 @@ mod tests {
                 fork_probability: 0.0,
                 track_confirmations: true,
             },
+            Vec::new(),
         );
         let now = Timestamp::new_test_instance();
         let BlockResult::Block(first) = logic.next_block(false, now).unwrap() else {

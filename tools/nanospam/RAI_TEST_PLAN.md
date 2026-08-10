@@ -12,10 +12,15 @@ Build both programs with the same source revision and the `rai_protocol`
 feature:
 
 ```sh
-cargo build --release -p rsnano_node --features rai_protocol
-cargo build --release -p nanospam --features rai_protocol
+cargo build --release --features rai_protocol \
+  -p rsnano_cli \
+  -p nanospam
 export PATH="$PWD/target/release:$PATH"
 ```
+
+`rsnano_node` is a library package. Nanospam launches the `rsnano` executable
+from `rsnano_cli`, so building only `rsnano_node` can silently leave an older
+node executable in `target/release`.
 
 Use a fresh, unique `--data-dir` for every test. Do not run two nanospam
 networks concurrently: their peer, RPC, and websocket ports are fixed. Preserve

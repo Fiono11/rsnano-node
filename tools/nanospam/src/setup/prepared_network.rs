@@ -6,13 +6,14 @@ use serde::{Deserialize, Serialize};
 use crate::cli_args::CliArgs;
 
 const MANIFEST_NAME: &str = "nanospam-setup.json";
-const MANIFEST_VERSION: u32 = 1;
+const MANIFEST_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct PreparedNetwork {
     version: u32,
     prs: usize,
     accounts: usize,
+    fund_all_accounts: bool,
     cpp: bool,
     rocksdb: bool,
     rai_epoch_duration_ms: Option<u64>,
@@ -25,6 +26,7 @@ impl PreparedNetwork {
             version: MANIFEST_VERSION,
             prs: args.prs,
             accounts: args.accounts,
+            fund_all_accounts: args.fund_all_accounts,
             cpp: args.cpp,
             rocksdb: args.rocksdb,
             rai_epoch_duration_ms: args.rai_epoch_duration_ms,
@@ -56,6 +58,7 @@ pub(crate) fn validate_prepared_network(data_dir: &Path, args: &CliArgs) -> anyh
     ensure!(
         prepared.prs == requested.prs
             && prepared.accounts == requested.accounts
+            && prepared.fund_all_accounts == requested.fund_all_accounts
             && prepared.cpp == requested.cpp
             && prepared.rocksdb == requested.rocksdb,
         "run configuration does not match setup manifest: prepared={prepared:?}, requested={requested:?}"

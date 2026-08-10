@@ -1,10 +1,13 @@
 use std::{
-    collections::BTreeMap,
+    collections::HashMap,
     net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, Mutex},
     thread::yield_now,
     time::{Duration, Instant},
 };
+
+#[cfg(feature = "rai_protocol")]
+use std::collections::BTreeMap;
 
 use anyhow::{Context, anyhow, ensure};
 use num_format::{Locale, ToFormattedString};
@@ -48,6 +51,11 @@ use crate::{
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
 const GLOBAL_TIMEOUT: Duration = Duration::from_secs(300);
+// Close elections use eventual repair and have no 24-second protocol bound.
+// Leave enough room for several report/cut/drain/record repair rounds while
+// retaining the global watchdog as the outer harness deadline.
+#[cfg(feature = "rai_protocol")]
+const RAI_CLOSE_TIMEOUT: Duration = Duration::from_secs(240);
 
 pub(crate) struct NanoSpamApp {
     tracing_init: TracingInitializer,
@@ -178,7 +186,14 @@ impl NanoSpamApp {
             sync_frontiers(&self.rpc_clients, &mut account_map).await;
         }
 
-        let logic = Mutex::new(SpamLogic::new(account_map, self.args.spam_spec()?));
+        let live_representatives = (0..self.args.prs)
+            .map(|index| crate::setup::pr_key(index).public_key())
+            .collect();
+        let logic = Mutex::new(SpamLogic::new(
+            account_map,
+            self.args.spam_spec()?,
+            live_representatives,
+        ));
 
         let (tx_blocks, rx_blocks) = mpsc::channel::<Forks>(MAX_BUFFERED_BLOCKS);
         let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &logic);
@@ -229,6 +244,7 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         let transition = Mutex::new(RaiTransitionObservation::default());
+        let confirmation_latencies = Mutex::new(HashMap::new());
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
@@ -249,13 +265,6 @@ impl NanoSpamApp {
                     "prepared PRs did not all start in open epoch 0; restart the prepared network"
                 );
             }
-            // C1's 200 blocks at 50 BPS take roughly four seconds. Starting
-            // halfway through a five-second epoch intentionally places
-            // finalized workload on both sides of the first boundary.
-            sleep(Duration::from_millis(
-                self.args.rai_epoch_duration_ms.unwrap() / 2,
-            ))
-            .await;
             statuses
         } else {
             Vec::new()
@@ -276,6 +285,12 @@ impl NanoSpamApp {
 
             tokio_scoped::scope(|scope| {
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+                scope.spawn(observe_block_confirmations(
+                    &self.rpc_clients,
+                    &logic,
+                    &confirmation_latencies,
+                    cancel_nanospam.clone(),
+                ));
 
                 #[cfg(feature = "rai_protocol")]
                 if self.args.rai_epoch_duration_ms.is_some() {
@@ -313,7 +328,6 @@ impl NanoSpamApp {
                     cancel_nanospam,
                     self.args.drop_probability(),
                     &self.clock,
-                    self.args.rai_epoch_duration_ms.is_some(),
                 ));
 
                 if !self.args.no_republish {
@@ -332,19 +346,39 @@ impl NanoSpamApp {
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
-        let average_finalization_time =
-            average_confirmation_time(logic.sum_conf_time_total, created_blocks);
-        let conf_time = average_finalization_time.as_millis();
-        info!("Average conf time: {conf_time} ms");
+        let publication_times = logic.publication_times().clone();
+        drop(logic);
+        wait_for_block_confirmations(
+            &self.rpc_clients,
+            &publication_times,
+            &confirmation_latencies,
+            GLOBAL_TIMEOUT,
+        )
+        .await?;
+        let confirmation_latencies = confirmation_latencies.into_inner().unwrap();
+        let confirmation_samples = confirmation_latencies.len();
+        let average_confirmation_time = average_latency_samples(&confirmation_latencies);
+        info!(
+            "Average ledger confirmation time: {}",
+            format_duration(average_confirmation_time)
+        );
+        println!("Block confirmation report:");
+        println!(
+            "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average ledger finalization time {}",
+            self.rpc_clients.len(),
+            format_duration(average_confirmation_time)
+        );
 
         #[cfg(feature = "rai_protocol")]
         {
             if self.args.rai_epoch_duration_ms.is_some() {
                 wait_for_rai_close(
                     &self.rpc_clients,
+                    &initial_rai_statuses,
+                    created_blocks as u64,
                     &transition,
                     &self.last_rai_phase,
-                    Duration::from_secs(24),
+                    RAI_CLOSE_TIMEOUT,
                 )
                 .await?;
             }
@@ -356,8 +390,7 @@ impl NanoSpamApp {
                 print_rai_final_report(
                     &statuses,
                     &initial_rai_statuses,
-                    &observed,
-                    average_finalization_time,
+                    average_confirmation_time,
                 )?;
             } else {
                 print_finalized_blocks_by_epoch(&statuses);
@@ -409,11 +442,7 @@ struct RaiTransitionObservation {
 #[cfg(feature = "rai_protocol")]
 #[derive(Default)]
 struct RaiEpochTiming {
-    close_started: Option<Instant>,
-    cut_started: Option<Instant>,
-    cut_finished: Option<Duration>,
-    record_started: Option<Instant>,
-    record_finished: Option<Duration>,
+    close_finished_at: Option<Instant>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -426,7 +455,7 @@ async fn observe_rai_transition(
     loop {
         select! {
             _ = cancel.cancelled() => break,
-            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
         }
 
         let Ok(statuses) = fetch_rai_statuses(clients).await else {
@@ -514,50 +543,13 @@ fn record_rai_statuses(
 
     for epoch in epochs {
         let timing = observed.epoch_timings.entry(epoch).or_default();
-        let closing_here = statuses
-            .iter()
-            .any(|status| status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch));
-        if closing_here {
-            timing.close_started.get_or_insert(now);
-        }
-        if statuses.iter().any(|status| {
-            status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch)
-                && status.closing_phase.as_deref() == Some("ElectingCut")
-        }) {
-            timing.cut_started.get_or_insert(now);
-        }
         let epoch_key = epoch.to_string();
-        let cut_installed = !statuses.is_empty()
-            && statuses
-                .iter()
-                .all(|status| status.cut_hashes.contains_key(&epoch_key));
-        if cut_installed && timing.cut_finished.is_none() {
-            let started = timing.cut_started.or(timing.close_started).unwrap_or(now);
-            timing.cut_finished = Some(started.elapsed());
-        }
-        if statuses.iter().any(|status| {
-            status.closing_epoch.as_ref().map(|value| value.inner()) == Some(epoch)
-                && status.closing_phase.as_deref() == Some("ElectingRecord")
-        }) {
-            timing.record_started.get_or_insert(now);
-        }
         let record_installed = !statuses.is_empty()
             && statuses
                 .iter()
                 .all(|status| status.close_hashes.contains_key(&epoch_key));
-        if record_installed {
-            if timing.record_finished.is_none() {
-                let started = timing
-                    .record_started
-                    .or_else(|| {
-                        timing
-                            .cut_started
-                            .map(|start| start + timing.cut_finished.unwrap_or_default())
-                    })
-                    .or(timing.close_started)
-                    .unwrap_or(now);
-                timing.record_finished = Some(started.elapsed());
-            }
+        if record_installed && timing.close_finished_at.is_none() {
+            timing.close_finished_at = Some(now);
         }
     }
 }
@@ -565,6 +557,8 @@ fn record_rai_statuses(
 #[cfg(feature = "rai_protocol")]
 async fn wait_for_rai_close(
     clients: &[NanoRpcClient],
+    initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    expected_finalized: u64,
     observation: &Mutex<RaiTransitionObservation>,
     last_phase: &Arc<Mutex<String>>,
     timeout_after: Duration,
@@ -587,7 +581,8 @@ async fn wait_for_rai_close(
                 .closed_through
                 .as_ref()
                 .is_some_and(|epoch| epoch.inner() >= target_epoch)
-        }) {
+        }) && rai_finalization_tags_converged(&statuses, initial_statuses, expected_finalized)
+        {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -595,8 +590,33 @@ async fn wait_for_rai_close(
                 "RAI workload epochs did not finish closing within {timeout_after:?}; statuses: {statuses:?}"
             );
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_finalization_tags_converged(
+    statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
+    expected_finalized: u64,
+) -> bool {
+    let Some((first, initial_first)) = statuses.first().zip(initial_statuses.first()) else {
+        return false;
+    };
+    if statuses.len() != initial_statuses.len() {
+        return false;
+    }
+    let Ok(expected_counts) = workload_counts(first, initial_first) else {
+        return false;
+    };
+    expected_counts.values().sum::<u64>() >= expected_finalized
+        && statuses
+            .iter()
+            .zip(initial_statuses)
+            .skip(1)
+            .all(|(status, initial)| {
+                workload_counts(status, initial).is_ok_and(|counts| counts == expected_counts)
+            })
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -617,8 +637,7 @@ fn print_finalized_blocks_by_epoch(statuses: &[rsnano_rpc_messages::RaiStatusRes
 fn print_rai_final_report(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
-    observed: &RaiTransitionObservation,
-    average_finalization_time: Duration,
+    average_finalization: Option<Duration>,
 ) -> anyhow::Result<()> {
     let status = statuses
         .first()
@@ -632,34 +651,127 @@ fn print_rai_final_report(
     println!("RAI finalization report:");
     println!(
         "  {finalized} finalized blocks, average finalization time {}",
-        format_duration(Some(average_finalization_time))
+        format_duration(average_finalization)
     );
     println!("  close protocol timings by epoch:");
-    for (epoch, count) in counts {
-        let epoch_number = epoch.parse::<u64>()?;
-        let timing = observed.epoch_timings.get(&epoch_number);
+    for (epoch, close_hash) in &status.close_hashes {
+        let count = counts.get(epoch).copied().unwrap_or(0);
         println!("    epoch {epoch}: {count} finalized blocks");
+        println!("      close hash: {close_hash}");
         println!(
             "      close cut election: {}",
-            format_duration(timing.and_then(|value| value.cut_finished))
+            format_duration(average_close_election_duration(statuses, epoch, |status| {
+                &status.cut_election_durations_us
+            }))
         );
         println!(
             "      close record election: {}",
-            format_duration(timing.and_then(|value| value.record_finished))
+            format_duration(average_close_election_duration(statuses, epoch, |status| {
+                &status.record_election_durations_us
+            }))
         );
     }
     Ok(())
 }
 
-fn average_confirmation_time(total: Duration, confirmed: usize) -> Duration {
-    if confirmed == 0 {
-        Duration::ZERO
-    } else {
-        total / confirmed as u32
+fn average_latency_samples(latencies: &HashMap<(usize, BlockHash), Duration>) -> Option<Duration> {
+    if latencies.is_empty() {
+        return None;
+    }
+    Some(latencies.values().copied().sum::<Duration>() / latencies.len() as u32)
+}
+
+async fn wait_for_block_confirmations(
+    clients: &[NanoRpcClient],
+    publication_times: &HashMap<BlockHash, Instant>,
+    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
+    timeout_after: Duration,
+) -> anyhow::Result<()> {
+    let expected = clients.len() * publication_times.len();
+    let deadline = Instant::now() + timeout_after;
+    loop {
+        observe_block_confirmations_once(clients, publication_times, latencies).await;
+        if latencies.lock().unwrap().len() == expected {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "only observed {}/{} all-block/all-PR ledger confirmations within {timeout_after:?}",
+                latencies.lock().unwrap().len(),
+                expected
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn observe_block_confirmations(
+    clients: &[NanoRpcClient],
+    logic: &Mutex<SpamLogic>,
+    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
+    cancel: CancellationToken,
+) {
+    loop {
+        select! {
+            _ = cancel.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(25)) => {}
+        }
+        let publication_times = logic.lock().unwrap().publication_times().clone();
+        observe_block_confirmations_once(clients, &publication_times, latencies).await;
+    }
+}
+
+async fn observe_block_confirmations_once(
+    clients: &[NanoRpcClient],
+    publication_times: &HashMap<BlockHash, Instant>,
+    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
+) {
+    for (pr, client) in clients.iter().enumerate() {
+        let pending = publication_times
+            .keys()
+            .filter(|hash| !latencies.lock().unwrap().contains_key(&(pr, **hash)))
+            .copied()
+            .collect::<Vec<_>>();
+        for batch in pending.chunks(128) {
+            let Ok(response) = client.blocks_info(batch.to_vec()).await else {
+                continue;
+            };
+            let observed_at = Instant::now();
+            let mut recorded = latencies.lock().unwrap();
+            for (hash, info) in response.blocks {
+                if info.confirmed.inner()
+                    && let Some(published_at) = publication_times.get(&hash)
+                {
+                    recorded
+                        .entry((pr, hash))
+                        .or_insert_with(|| observed_at.saturating_duration_since(*published_at));
+                }
+            }
+        }
     }
 }
 
 #[cfg(feature = "rai_protocol")]
+fn average_close_election_duration<'a>(
+    statuses: &'a [rsnano_rpc_messages::RaiStatusResponse],
+    epoch: &str,
+    durations: impl Fn(
+        &'a rsnano_rpc_messages::RaiStatusResponse,
+    ) -> &'a BTreeMap<String, rsnano_rpc_messages::RpcU64>,
+) -> Option<Duration> {
+    if statuses.is_empty() {
+        return None;
+    }
+    let total = statuses.iter().try_fold(0_u128, |total, status| {
+        durations(status)
+            .get(epoch)
+            .map(|duration| total + duration.inner() as u128)
+    })?;
+    Some(Duration::from_micros(
+        (total / statuses.len() as u128) as u64,
+    ))
+}
+
 fn format_duration(duration: Option<Duration>) -> String {
     duration
         .map(|value| format!("{:.2} ms", value.as_secs_f64() * 1_000.0))
@@ -691,6 +803,22 @@ fn validate_epoch_transition(
     if let Some(error) = &observed.validation_error {
         anyhow::bail!("RAI validation error: {error}");
     }
+    ensure!(
+        observed.saw_epoch_zero_closing,
+        "epoch 0 was never observed closing"
+    );
+    ensure!(
+        observed.saw_open_epoch_one_overlap,
+        "epoch 1 was not observed open while epoch 0 was closing"
+    );
+    ensure!(
+        observed.saw_matching_cut,
+        "no matching epoch-0 cut was observed"
+    );
+    ensure!(
+        observed.saw_obligations_finalized,
+        "epoch-0 drain obligations did not all reach terminal outcomes"
+    );
     let first = statuses
         .first()
         .ok_or_else(|| anyhow!("no PRs reported RAI status"))?;
@@ -729,6 +857,22 @@ fn validate_epoch_transition(
             if status.close_hashes.get(&epoch) != expected_close {
                 anyhow::bail!("PR{pr} installed a different close hash for epoch {epoch}");
             }
+        }
+        for (pr, status) in statuses.iter().enumerate() {
+            ensure!(
+                status
+                    .cut_election_durations_us
+                    .get(&epoch)
+                    .is_some_and(|duration| duration.inner() > 0),
+                "PR{pr} did not report a positive cut-election duration for epoch {epoch}"
+            );
+            ensure!(
+                status
+                    .record_election_durations_us
+                    .get(&epoch)
+                    .is_some_and(|duration| duration.inner() > 0),
+                "PR{pr} did not report a positive record-election duration for epoch {epoch}"
+            );
         }
     }
 
@@ -816,7 +960,6 @@ async fn publish_blocks(
     cancel_token: CancellationToken,
     drop_probability: f64,
     clock: &SteadyClock,
-    finish_on_published: bool,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
@@ -841,6 +984,14 @@ async fn publish_blocks(
             let publish_fork = Message::Publish(Publish::new_from_originator(fork));
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
+
+        // Start timing before the socket writes. A fast confirmation can
+        // otherwise arrive before DelayedBlocks has a publication timestamp
+        // and silently disappear from the average.
+        let was_high_prio = {
+            let mut l = logic.lock().unwrap();
+            l.published(&hash, clock.now())
+        };
 
         let mut counter = 0;
         tokio_scoped::scope(|s| {
@@ -887,20 +1038,11 @@ async fn publish_blocks(
             }
         }
 
-        let now = clock.now();
-
-        let was_high_prio = {
-            let mut l = logic.lock().unwrap();
-            // TODO support delayed forks
-            let prio = l.published(&hash, now);
-            if l.is_finished() || (finish_on_published && l.workload_published()) {
-                break;
-            }
-            prio
-        };
-
         if was_high_prio {
             tracing::info!("High prio block published: {hash}");
+        }
+        if logic.lock().unwrap().is_finished() {
+            break;
         }
     }
     cancel_token.cancel();
@@ -1034,15 +1176,21 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn finalization_average_uses_per_block_confirmation_times() {
+    fn finalization_average_uses_every_block_on_every_pr() {
+        let hash_1 = BlockHash::from(1);
+        let hash_2 = BlockHash::from(2);
+        let latencies = HashMap::from([
+            ((0, hash_1), Duration::from_millis(100)),
+            ((1, hash_1), Duration::from_millis(300)),
+            ((0, hash_2), Duration::from_millis(500)),
+            ((1, hash_2), Duration::from_millis(200)),
+        ]);
+
         assert_eq!(
-            average_confirmation_time(Duration::from_millis(900), 3),
-            Duration::from_millis(300)
+            average_latency_samples(&latencies),
+            Some(Duration::from_millis(275))
         );
-        assert_eq!(
-            average_confirmation_time(Duration::from_millis(900), 0),
-            Duration::ZERO
-        );
+        assert_eq!(average_latency_samples(&HashMap::new()), None);
     }
 
     #[test]
@@ -1073,6 +1221,14 @@ mod tests {
             finalized_by_epoch: BTreeMap::from([
                 ("0".into(), epoch_0.into()),
                 ("1".into(), epoch_1.into()),
+            ]),
+            cut_election_durations_us: BTreeMap::from([
+                ("0".into(), 1_000.into()),
+                ("1".into(), 1_000.into()),
+            ]),
+            record_election_durations_us: BTreeMap::from([
+                ("0".into(), 2_000.into()),
+                ("1".into(), 2_000.into()),
             ]),
         }
     }
@@ -1137,6 +1293,31 @@ mod tests {
             &observed(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn finalized_tags_must_cover_workload_and_match_on_every_pr() {
+        let converged = status(1, 0, "A");
+        let initial = status(0, 0, "A");
+        assert!(rai_finalization_tags_converged(
+            &[converged.clone(), converged.clone()],
+            &[initial.clone(), initial.clone()],
+            1,
+        ));
+
+        let mut missing_tag = converged.clone();
+        missing_tag.finalized_by_epoch.insert("0".into(), 0.into());
+        assert!(!rai_finalization_tags_converged(
+            &[converged.clone(), missing_tag],
+            &[initial.clone(), initial.clone()],
+            1,
+        ));
+
+        assert!(!rai_finalization_tags_converged(
+            &[converged],
+            &[initial],
+            2,
+        ));
     }
 
     fn observed() -> RaiTransitionObservation {
