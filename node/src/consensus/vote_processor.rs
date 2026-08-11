@@ -117,14 +117,18 @@ impl VoteProcessor {
             let start = Instant::now();
 
             for (_, (vote, source, channel, filter)) in &batch {
-                let filter = filter.unwrap_or_default();
+                let filter_hash = filter.unwrap_or_default();
                 let received_vote = ReceivedVote::new(
                     vote.clone(),
                     *source,
                     channel.as_ref().map(|c| c.channel_id()),
                 );
-                let filtered_vote = FilteredVote::new(received_vote.clone(), filter);
+                let filtered_vote = FilteredVote::new(received_vote.clone(), filter_hash);
                 let _ = self.vote_blocking(&filtered_vote);
+                #[cfg(feature = "rai_protocol")]
+                if *source == VoteDelivery::Forwarded {
+                    self.queue.forwarded_vote_processed(vote, *filter);
+                }
             }
 
             self.total_processed

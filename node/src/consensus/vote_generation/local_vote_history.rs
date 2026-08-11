@@ -27,6 +27,8 @@ impl LocalVoteHistoryData {
 struct LocalVote {
     root: Root,
     hash: BlockHash,
+    #[cfg(feature = "rai_protocol")]
+    metadata: rsnano_types::RaiVoteMetadata,
     vote: Arc<Vote>,
 }
 
@@ -60,6 +62,40 @@ impl LocalVoteHistory {
     }
 
     pub fn add(&self, root: &Root, hash: &BlockHash, vote: &Arc<Vote>) {
+        #[cfg(feature = "rai_protocol")]
+        {
+            let metadata = vote
+                .hashes
+                .iter()
+                .position(|candidate| candidate == hash)
+                .and_then(|index| vote.rai_metadata(index))
+                .cloned()
+                .unwrap_or_default();
+            self.add_rai(root, hash, &metadata, vote);
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
+        self.add_impl(root, hash, vote);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn add_rai(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        metadata: &rsnano_types::RaiVoteMetadata,
+        vote: &Arc<Vote>,
+    ) {
+        self.add_impl(root, hash, metadata.clone(), vote);
+    }
+
+    fn add_impl(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        #[cfg(feature = "rai_protocol")] metadata: rsnano_types::RaiVoteMetadata,
+        vote: &Arc<Vote>,
+    ) {
         let mut data_lk = self.data.lock().unwrap();
         let data: &mut LocalVoteHistoryData = &mut data_lk;
         clean(data, self.max_cache);
@@ -74,7 +110,7 @@ impl LocalVoteHistory {
                 let same_phase = {
                     #[cfg(feature = "rai_protocol")]
                     {
-                        current.vote.metadata.phase == vote.metadata.phase
+                        current.metadata.phase == metadata.phase
                     }
                     #[cfg(not(feature = "rai_protocol"))]
                     {
@@ -84,7 +120,8 @@ impl LocalVoteHistory {
                 let same_election = {
                     #[cfg(feature = "rai_protocol")]
                     {
-                        current.vote.metadata.election_id == vote.metadata.election_id
+                        current.metadata.election_id == metadata.election_id
+                            && current.metadata.scope == metadata.scope
                     }
                     #[cfg(not(feature = "rai_protocol"))]
                     {
@@ -97,7 +134,7 @@ impl LocalVoteHistory {
                         same_election
                             && same_phase
                             && vote.voter == current.vote.voter
-                            && (vote.metadata.phase != rsnano_types::RaiVotePhase::Notar
+                            && (metadata.phase != rsnano_types::RaiVotePhase::Notar
                                 || &current.hash == hash)
                             && current.vote.timestamp() <= vote.timestamp()
                     }
@@ -143,6 +180,8 @@ impl LocalVoteHistory {
                 LocalVote {
                     root: root.to_owned(),
                     hash: hash.to_owned(),
+                    #[cfg(feature = "rai_protocol")]
+                    metadata,
                     vote: vote.clone(),
                 },
             );
@@ -192,9 +231,10 @@ impl LocalVoteHistory {
         data_lk.history_by_root.contains_key(root)
     }
 
-    /// A RAI signer has one immutable logical vote slot per election phase.
-    /// Candidate changes inside the same close round must not authorize a
-    /// second signature for a different value.
+    /// A RAI signer has one immutable logical vote slot per election phase and
+    /// overlapping committee scope. Candidate changes inside the same close
+    /// round must not authorize a second signature for a different value;
+    /// disjoint old/new committee scopes remain independent.
     #[cfg(feature = "rai_protocol")]
     pub fn rai_phase_vote_exists(
         &self,
@@ -208,8 +248,9 @@ impl LocalVoteHistory {
             ids.iter().any(|id| {
                 let current = &guard.history[id];
                 current.vote.voter == *voter
-                    && current.vote.metadata.election_id == metadata.election_id
-                    && current.vote.metadata.phase == metadata.phase
+                    && current.metadata.election_id == metadata.election_id
+                    && current.metadata.phase == metadata.phase
+                    && rai_scopes_overlap(current.metadata.scope, metadata.scope)
                     // Notarization plurality remains legal, but repeatedly
                     // signing the same value is not a new logical vote.
                     && (metadata.phase != rsnano_types::RaiVotePhase::Notar
@@ -235,9 +276,9 @@ impl LocalVoteHistory {
             ids.iter().all(|id| {
                 let current = &guard.history[id];
                 current.vote.voter != *voter
-                    || current.vote.metadata.election_id != metadata.election_id
-                    || current.vote.metadata.phase == rsnano_types::RaiVotePhase::Final
-                    || !rai_scopes_overlap(current.vote.metadata.scope, metadata.scope)
+                    || current.metadata.election_id != metadata.election_id
+                    || current.metadata.phase == rsnano_types::RaiVotePhase::Final
+                    || !rai_scopes_overlap(current.metadata.scope, metadata.scope)
                     || current.hash == *hash
             })
         })
@@ -255,49 +296,122 @@ impl LocalVoteHistory {
     pub fn rai_votes(&self) -> Vec<Arc<Vote>> {
         let guard = self.data.lock().unwrap();
         let mut votes = HashMap::new();
-        for entry in guard.history.values() {
-            votes.insert((entry.vote.voter, entry.vote.hash()), entry.vote.clone());
+        for (id, entry) in &guard.history {
+            // Every leaf index holds the same Arc. Pointer identity avoids
+            // rehashing the full canonical batch once per indexed leaf.
+            votes
+                .entry(Arc::as_ptr(&entry.vote))
+                .or_insert((*id, entry.vote.clone()));
         }
+        drop(guard);
+
+        // A batch can contain different phases for independent elections.
+        // Preserve signing order so every election's First evidence is
+        // replayed before a later batch containing its Notar evidence.
         let mut votes = votes.into_values().collect::<Vec<_>>();
-        votes.sort_by_key(|vote| {
-            let phase = match vote.metadata.phase {
-                rsnano_types::RaiVotePhase::First => 0,
-                rsnano_types::RaiVotePhase::Notar => 1,
-                rsnano_types::RaiVotePhase::Final => 2,
-            };
-            // The ticker advances a cursor across this freshly built list.
-            // HashMap iteration is randomized, so phase alone is not enough:
-            // canonicalize within each phase to guarantee eventual coverage.
-            (phase, vote.hash())
-        });
-        votes
+        votes.sort_by_key(|(id, vote)| (*id, vote.hash()));
+        votes.into_iter().map(|(_, vote)| vote).collect()
+    }
+
+    /// Returns retained batches covering one root/hash. `context == None`
+    /// means a contextless legacy ConfirmReq and permits every RAI context;
+    /// otherwise only the governing election and epoch are returned.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_votes_for_candidate(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        context: Option<&rsnano_types::RaiVoteMetadata>,
+    ) -> Vec<Arc<Vote>> {
+        self.rai_votes_from_root(root, |entry| {
+            entry.hash == *hash
+                && context.is_none_or(|context| {
+                    entry.metadata.election_id == context.election_id
+                        && entry.metadata.epoch == context.epoch
+                })
+        })
+    }
+
+    /// Returns retained evidence for one election through the per-root index.
+    /// ConfirmReq repair is root-qualified, so scanning and sorting the entire
+    /// process-lifetime RAI history here is unnecessary and can hold the
+    /// signing-path mutex for seconds once the cache is large.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_votes_for_election(
+        &self,
+        root: &Root,
+        election_id: &rsnano_types::RaiElectionId,
+    ) -> Vec<Arc<Vote>> {
+        self.rai_votes_from_root(root, |entry| entry.metadata.election_id == *election_id)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_close_votes(&self) -> Vec<Arc<Vote>> {
-        self.rai_votes()
-            .into_iter()
-            .filter(|vote| {
-                matches!(
-                    vote.metadata.election_id,
-                    rsnano_types::RaiElectionId::CloseCut { .. }
-                        | rsnano_types::RaiElectionId::CloseRecord { .. }
-                )
-            })
-            .collect()
+        self.rai_votes_matching(|entry| {
+            matches!(
+                entry.metadata.election_id,
+                rsnano_types::RaiElectionId::CloseCut { .. }
+                    | rsnano_types::RaiElectionId::CloseRecord { .. }
+            )
+        })
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_slot_votes(&self) -> Vec<Arc<Vote>> {
-        self.rai_votes()
-            .into_iter()
-            .filter(|vote| {
-                matches!(
-                    vote.metadata.election_id,
-                    rsnano_types::RaiElectionId::Slot(_)
-                )
-            })
-            .collect()
+        self.rai_votes_matching(|entry| {
+            matches!(
+                entry.metadata.election_id,
+                rsnano_types::RaiElectionId::Slot(_)
+            )
+        })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_votes_from_root(
+        &self,
+        root: &Root,
+        predicate: impl Fn(&LocalVote) -> bool,
+    ) -> Vec<Arc<Vote>> {
+        let guard = self.data.lock().unwrap();
+        let mut votes = HashMap::new();
+        for id in guard.history_by_root.get(root).into_iter().flatten() {
+            let entry = &guard.history[id];
+            if predicate(entry) {
+                let order = (entry.metadata.phase as u8, *id);
+                votes
+                    .entry(Arc::as_ptr(&entry.vote))
+                    .and_modify(|current: &mut ((u8, usize), Arc<Vote>)| {
+                        if order < current.0 {
+                            *current = (order, entry.vote.clone());
+                        }
+                    })
+                    .or_insert((order, entry.vote.clone()));
+            }
+        }
+        drop(guard);
+
+        // First evidence must precede Notar evidence during targeted repair.
+        let mut votes = votes.into_values().collect::<Vec<_>>();
+        votes.sort_by_key(|(order, vote)| (*order, vote.hash()));
+        votes.into_iter().map(|(_, vote)| vote).collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_votes_matching(&self, predicate: impl Fn(&LocalVote) -> bool) -> Vec<Arc<Vote>> {
+        let guard = self.data.lock().unwrap();
+        let mut votes = HashMap::new();
+        for (id, entry) in &guard.history {
+            if predicate(entry) {
+                votes
+                    .entry(Arc::as_ptr(&entry.vote))
+                    .or_insert((*id, entry.vote.clone()));
+            }
+        }
+        drop(guard);
+
+        let mut votes = votes.into_values().collect::<Vec<_>>();
+        votes.sort_by_key(|(id, vote)| (*id, vote.hash()));
+        votes.into_iter().map(|(_, vote)| vote).collect()
     }
 }
 
@@ -404,7 +518,7 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new(&keys, UnixMillisTimestamp::ZERO, 0, vec![hash]));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
@@ -424,18 +538,24 @@ mod tests {
         let vote1a = Arc::new(Vote::null());
         let vote1b = Arc::new(Vote::null());
         let keys1 = PrivateKey::new();
-        let vote2 = Arc::new(Vote::new(&keys1, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let vote2 = Arc::new(Vote::new(&keys1, UnixMillisTimestamp::ZERO, 0, vec![hash]));
         let keys2 = PrivateKey::new();
-        let vote3 = Arc::new(Vote::new(&keys2, UnixMillisTimestamp::ZERO, 0, Vec::new()));
+        let other_hash = BlockHash::from(3);
+        let vote3 = Arc::new(Vote::new(
+            &keys2,
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![other_hash],
+        ));
         history.add(&root, &hash, &vote1a);
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
-        history.add(&root, &BlockHash::from(3), &vote3);
+        history.add(&root, &other_hash, &vote3);
         #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(history.size(), 1);
         #[cfg(feature = "rai_protocol")]
         assert_eq!(history.size(), 3);
-        let votes = history.votes(&root, &BlockHash::from(3), false);
+        let votes = history.votes(&root, &other_hash, false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));
     }
@@ -460,6 +580,131 @@ mod tests {
         let replay = history.rai_votes();
         assert_eq!(replay.len(), 1);
         assert!(Arc::ptr_eq(&replay[0], &vote));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_batch_is_indexed_with_leaf_metadata_and_replayed_once() {
+        use rsnano_types::{
+            QualifiedRoot, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata,
+            RaiVotePhase,
+        };
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let roots = [Root::from(1), Root::from(2)];
+        let hashes = [BlockHash::from(11), BlockHash::from(12)];
+        let metadata = roots.map(|root| RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(3),
+                root: QualifiedRoot::new(root, BlockHash::from(99)),
+            }),
+            phase: if root == roots[0] {
+                RaiVotePhase::First
+            } else {
+                RaiVotePhase::Notar
+            },
+            epoch: RaiEpoch::new(3),
+            scope: RaiCommitteeScope::All,
+        });
+        let vote = Arc::new(Vote::new_rai_batch(
+            &key,
+            UnixMillisTimestamp::new(16),
+            0,
+            metadata
+                .iter()
+                .cloned()
+                .zip(hashes)
+                .map(|(metadata, hash)| (metadata, hash)),
+        ));
+
+        history.add_rai(&roots[0], &hashes[0], &metadata[0], &vote);
+        history.add_rai(&roots[1], &hashes[1], &metadata[1], &vote);
+
+        assert_eq!(history.size(), 2);
+        assert!(history.rai_phase_vote_exists(
+            &roots[0],
+            &hashes[0],
+            &key.public_key(),
+            &metadata[0]
+        ));
+        assert!(history.rai_phase_vote_exists(
+            &roots[1],
+            &hashes[1],
+            &key.public_key(),
+            &metadata[1]
+        ));
+        assert!(!history.rai_phase_vote_exists(
+            &roots[0],
+            &hashes[0],
+            &key.public_key(),
+            &metadata[1]
+        ));
+
+        let replay = history.rai_votes();
+        assert_eq!(replay.len(), 1);
+        assert!(Arc::ptr_eq(&replay[0], &vote));
+        for index in 0..2 {
+            let targeted = history.rai_votes_for_candidate(
+                &roots[index],
+                &hashes[index],
+                Some(&metadata[index]),
+            );
+            assert_eq!(targeted.len(), 1);
+            assert!(Arc::ptr_eq(&targeted[0], &vote));
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_mixed_phase_batches_replay_in_signing_order() {
+        use rsnano_types::{
+            QualifiedRoot, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata,
+            RaiVotePhase,
+        };
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let roots = [Root::from(1), Root::from(2)];
+        let hashes = [BlockHash::from(11), BlockHash::from(12)];
+        let metadata = |root, phase| RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(3),
+                root: QualifiedRoot::new(root, BlockHash::from(99)),
+            }),
+            phase,
+            epoch: RaiEpoch::new(3),
+            scope: RaiCommitteeScope::All,
+        };
+        let first_a = metadata(roots[0], RaiVotePhase::First);
+        let notar_a = metadata(roots[0], RaiVotePhase::Notar);
+        let notar_b = metadata(roots[1], RaiVotePhase::Notar);
+        let mixed = Arc::new(Vote::new_rai_batch(
+            &key,
+            UnixMillisTimestamp::new(16),
+            0,
+            [(first_a.clone(), hashes[0]), (notar_b.clone(), hashes[1])],
+        ));
+        let later = Arc::new(Vote::new_rai(
+            &key,
+            UnixMillisTimestamp::new(32),
+            0,
+            hashes[0],
+            notar_a.clone(),
+        ));
+        history.add_rai(&roots[0], &hashes[0], &first_a, &mixed);
+        history.add_rai(&roots[1], &hashes[1], &notar_b, &mixed);
+        history.add_rai(&roots[0], &hashes[0], &notar_a, &later);
+
+        let replay = history.rai_votes();
+        assert_eq!(replay.len(), 2);
+        assert!(Arc::ptr_eq(&replay[0], &mixed));
+        assert!(Arc::ptr_eq(&replay[1], &later));
+
+        let election = history.rai_votes_for_election(&roots[0], &first_a.election_id);
+        assert_eq!(election.len(), 2);
+        assert!(Arc::ptr_eq(&election[0], &mixed));
+        assert!(Arc::ptr_eq(&election[1], &later));
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -532,5 +777,67 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_election_lookup_uses_root_index_and_preserves_phase_order() {
+        use rsnano_types::{
+            QualifiedRoot, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata,
+            RaiVotePhase,
+        };
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let root = Root::from(1);
+        let other_root = Root::from(2);
+        let election_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(3),
+            root: QualifiedRoot::new(root, BlockHash::from(10)),
+        });
+        let other_election_id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(3),
+            root: QualifiedRoot::new(root, BlockHash::from(20)),
+        });
+        let make_vote = |hash, phase, election_id| {
+            Arc::new(Vote::new_rai(
+                &key,
+                UnixMillisTimestamp::new(16),
+                0,
+                hash,
+                RaiVoteMetadata {
+                    election_id,
+                    phase,
+                    epoch: RaiEpoch::new(3),
+                    scope: RaiCommitteeScope::All,
+                },
+            ))
+        };
+
+        let notar = make_vote(
+            BlockHash::from(11),
+            RaiVotePhase::Notar,
+            election_id.clone(),
+        );
+        let first = make_vote(
+            BlockHash::from(11),
+            RaiVotePhase::First,
+            election_id.clone(),
+        );
+        let other_election = make_vote(BlockHash::from(12), RaiVotePhase::First, other_election_id);
+        let other_root_vote = make_vote(
+            BlockHash::from(13),
+            RaiVotePhase::First,
+            election_id.clone(),
+        );
+        history.add(&root, &BlockHash::from(11), &notar);
+        history.add(&root, &BlockHash::from(11), &first);
+        history.add(&root, &BlockHash::from(12), &other_election);
+        history.add(&other_root, &BlockHash::from(13), &other_root_vote);
+
+        let votes = history.rai_votes_for_election(&root, &election_id);
+        assert_eq!(votes.len(), 2);
+        assert!(Arc::ptr_eq(&votes[0], &first));
+        assert!(Arc::ptr_eq(&votes[1], &notar));
     }
 }

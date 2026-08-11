@@ -128,6 +128,14 @@ impl<'a> OwningAnySet<'a> {
         self.store.pending.iter_range(&self.txn, range)
     }
 
+    /// Returns the durable RAI finalization epoch using this set's existing
+    /// read snapshot. Batch ledger queries should use this instead of opening a
+    /// new read transaction for every block.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_finalization_epoch(&self, hash: &BlockHash) -> Option<rsnano_types::RaiEpoch> {
+        self.store.rai_finalization.epoch(&self.txn, hash)
+    }
+
     pub fn random_blocks(&self, count: usize) -> Vec<SavedBlock> {
         let mut result = Vec::with_capacity(count);
         let starting_hash = BlockHash::random();

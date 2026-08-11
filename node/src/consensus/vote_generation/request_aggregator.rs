@@ -3,6 +3,9 @@ use std::{
     thread::JoinHandle,
 };
 
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashSet;
+
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
 use rsnano_types::{BlockHash, Root};
@@ -338,6 +341,12 @@ impl RequestAggregatorLoop {
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
         #[cfg(feature = "rai_protocol")]
+        let mut rai_slot_contexts = Vec::new();
+        #[cfg(feature = "rai_protocol")]
+        let mut rai_slot_targets = Vec::new();
+        #[cfg(feature = "rai_protocol")]
+        let mut seen_rai_slots = HashSet::new();
+        #[cfg(feature = "rai_protocol")]
         let ordinary = request
             .roots_hashes
             .iter()
@@ -346,8 +355,11 @@ impl RequestAggregatorLoop {
                     && let Some(metadata) =
                         self.active_elections.rai_close_vote_context_for_root(root)
                 {
-                    self.vote_generators
-                        .reply_cached_rai_election_votes(&metadata, &request.channel);
+                    self.vote_generators.reply_cached_rai_election_votes(
+                        root,
+                        &metadata,
+                        &request.channel,
+                    );
                     if let Some(target) = self
                         .active_elections
                         .rai_active_close_vote_target_for_root(root)
@@ -366,29 +378,32 @@ impl RequestAggregatorLoop {
                     && let Some(metadata) =
                         self.active_elections.rai_slot_vote_context_for_root(root)
                 {
-                    self.vote_generators
-                        .reply_cached_rai_election_votes(&metadata, &request.channel);
+                    if seen_rai_slots.insert((*root, metadata.election_id.clone())) {
+                        if let Some(target) = self
+                            .active_elections
+                            .rai_active_slot_vote_target_for_root(root, metadata.epoch)
+                        {
+                            rai_slot_targets.push(target);
+                        }
+                        rai_slot_contexts.push((*root, metadata));
+                    }
                     return None;
                 }
-                if let Some((metadata, _)) = self.active_elections.rai_vote_context(hash) {
-                    self.vote_generators.reply_cached_rai_votes(
-                        root,
-                        hash,
-                        &metadata,
-                        &request.channel,
-                    );
-                    // Cached evidence may be incomplete when the first repair
-                    // request arrives. Keep the ordinary request in the batch
-                    // as well so the local representative generates a vote in
-                    // its current election phase. Repeated sequenced repairs
-                    // therefore make progress instead of replaying the same
-                    // partial cache forever.
-                    Some((*hash, *root))
-                } else {
-                    Some((*hash, *root))
-                }
+                // Ordinary nonzero requests flow through aggregate/generate.
+                // The generator replays cached signed batches once per request
+                // and then generates any missing current-phase leaves. Eagerly
+                // replying here once per hash would retransmit the same full
+                // vectorized batch for every leaf it contains.
+                Some((*hash, *root))
             })
             .collect::<Vec<_>>();
+        #[cfg(feature = "rai_protocol")]
+        self.vote_generators
+            .reply_cached_and_generate_rai_slot_votes(
+                &rai_slot_contexts,
+                &rai_slot_targets,
+                &request.channel,
+            );
         #[cfg(feature = "rai_protocol")]
         let ordinary_request = AggregatorRequest {
             channel: request.channel.clone(),
@@ -423,30 +438,34 @@ impl RequestAggregatorLoop {
             self.stats
                 .inc(StatType::RequestAggregatorReplies, DetailType::FinalVote);
 
-            #[cfg(feature = "rai_protocol")]
-            let (contextual, discovery): (Vec<_>, Vec<_>) = remaining
-                .remaining_final
-                .iter()
-                .cloned()
-                .partition(|block| {
-                    self.active_elections
-                        .rai_vote_context(&block.hash())
-                        .is_some()
-                });
-
             // Generate final votes only when the original RAI election context
             // is known. Contextless requests for confirmed blocks are
             // representative-crawler challenges and receive a discovery-only
             // signature which cannot enter consensus state.
             #[cfg(feature = "rai_protocol")]
-            let generated = self.vote_generators.generate_votes(
-                &contextual,
-                &request.channel,
-                VoteType::Final,
-                &self.rai_contexts(&contextual),
-            ) + self
-                .vote_generators
-                .generate_rai_discovery_votes(&discovery, &request.channel);
+            let generated = {
+                let contexts = self.optional_rai_contexts(&remaining.remaining_final);
+                let mut contextual = Vec::with_capacity(remaining.remaining_final.len());
+                let mut contextual_contexts = Vec::with_capacity(contexts.len());
+                let mut discovery = Vec::new();
+                for (block, context) in remaining.remaining_final.iter().cloned().zip(contexts) {
+                    if let Some(context) = context {
+                        contextual.push(block);
+                        contextual_contexts.push(context);
+                    } else {
+                        discovery.push(block);
+                    }
+                }
+
+                self.vote_generators.generate_votes(
+                    &contextual,
+                    &request.channel,
+                    VoteType::Final,
+                    &contextual_contexts,
+                ) + self
+                    .vote_generators
+                    .generate_rai_discovery_votes(&discovery, &request.channel)
+            };
 
             #[cfg(not(feature = "rai_protocol"))]
             let generated = self.vote_generators.generate_votes(
@@ -468,14 +487,19 @@ impl RequestAggregatorLoop {
         &self,
         blocks: &[rsnano_types::SavedBlock],
     ) -> Vec<(rsnano_types::RaiVoteMetadata, bool)> {
-        blocks
-            .iter()
-            .map(|block| {
-                self.active_elections
-                    .rai_vote_context(&block.hash())
-                    .unwrap_or_default()
-            })
+        self.optional_rai_contexts(blocks)
+            .into_iter()
+            .map(Option::unwrap_or_default)
             .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn optional_rai_contexts(
+        &self,
+        blocks: &[rsnano_types::SavedBlock],
+    ) -> Vec<Option<(rsnano_types::RaiVoteMetadata, bool)>> {
+        let hashes = blocks.iter().map(|block| block.hash()).collect::<Vec<_>>();
+        self.active_elections.rai_vote_contexts(&hashes)
     }
 
     /// Aggregate requests and send cached votes to channel.

@@ -10,7 +10,7 @@ use crate::{QualifiedRoot, RaiEpoch};
 
 #[cfg(feature = "rai_protocol")]
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RaiVotePhase {
     #[default]
     First = 0,
@@ -20,7 +20,7 @@ pub enum RaiVotePhase {
 
 #[cfg(feature = "rai_protocol")]
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RaiCommitteeScope {
     #[default]
     All = 0,
@@ -54,13 +54,6 @@ impl Default for RaiElectionId {
 impl RaiElectionId {
     pub const SERIALIZED_SIZE: usize = 1 + 8 + QualifiedRoot::SERIALIZED_SIZE + 4;
 
-    fn digest_bytes(&self) -> [u8; Self::SERIALIZED_SIZE] {
-        let mut bytes = [0; Self::SERIALIZED_SIZE];
-        self.serialize(&mut bytes.as_mut())
-            .expect("serializing an election ID into a fixed buffer cannot fail");
-        bytes
-    }
-
     fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         let (kind, epoch, root, round) = match self {
             Self::Slot(id) => (0, id.epoch, id.root.clone(), 0),
@@ -92,7 +85,7 @@ impl RaiElectionId {
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RaiVoteMetadata {
     pub election_id: RaiElectionId,
     pub phase: RaiVotePhase,
@@ -102,10 +95,51 @@ pub struct RaiVoteMetadata {
 
 #[cfg(feature = "rai_protocol")]
 impl RaiVoteMetadata {
+    pub const SERIALIZED_SIZE: usize = 1 + RaiElectionId::SERIALIZED_SIZE + 8 + 1;
+
     /// Reserved context for a signed representative-discovery response. It is
     /// never admissible as slot or close-election evidence.
     pub fn is_discovery(&self) -> bool {
         self.election_id == RaiElectionId::default()
+    }
+
+    fn digest_bytes(&self) -> [u8; Self::SERIALIZED_SIZE] {
+        let mut bytes = [0; Self::SERIALIZED_SIZE];
+        self.serialize(&mut bytes.as_mut())
+            .expect("serializing vote metadata into a fixed buffer cannot fail");
+        bytes
+    }
+
+    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        writer.write_all(&[self.phase as u8])?;
+        self.election_id.serialize(writer)?;
+        writer.write_all(&self.epoch.number().to_le_bytes())?;
+        writer.write_all(&[self.scope as u8])
+    }
+
+    fn deserialize<T: Read>(reader: &mut T) -> Result<Self, DeserializationError> {
+        let phase = match crate::read_u8(reader)? {
+            0 => RaiVotePhase::First,
+            1 => RaiVotePhase::Notar,
+            2 => RaiVotePhase::Final,
+            _ => return Err(DeserializationError::InvalidData),
+        };
+        let election_id = RaiElectionId::deserialize(reader)?;
+        let mut buffer = [0; 8];
+        reader.read_exact(&mut buffer)?;
+        let epoch = RaiEpoch::new(u64::from_le_bytes(buffer));
+        let scope = match crate::read_u8(reader)? {
+            0 => RaiCommitteeScope::All,
+            1 => RaiCommitteeScope::Older,
+            2 => RaiCommitteeScope::Newer,
+            _ => return Err(DeserializationError::InvalidData),
+        };
+        Ok(Self {
+            election_id,
+            phase,
+            epoch,
+            scope,
+        })
     }
 }
 
@@ -165,12 +199,12 @@ pub struct Vote {
     timestamp: VoteTimestamp,
 
     #[cfg(feature = "rai_protocol")]
-    pub metadata: RaiVoteMetadata,
+    pub metadata: Vec<RaiVoteMetadata>,
 
     // Account that's voting
     pub voter: PublicKey,
 
-    // Signature of timestamp + block hashes
+    // Signature of the vote digest (including all RAI metadata/hash leaves)
     pub signature: Signature,
 
     // The hashes for which this vote directly covers
@@ -180,7 +214,7 @@ pub struct Vote {
 #[cfg(not(feature = "rai_protocol"))]
 static HASH_PREFIX: &str = "vote ";
 #[cfg(feature = "rai_protocol")]
-static RAI_HASH_PREFIX: &[u8] = b"RAI/Vote/v1";
+static RAI_HASH_PREFIX: &[u8] = b"RAI/VoteBatch/v3";
 
 impl Vote {
     pub const MAX_HASHES: usize = 255;
@@ -188,7 +222,7 @@ impl Vote {
         Self {
             timestamp: 0.into(),
             #[cfg(feature = "rai_protocol")]
-            metadata: RaiVoteMetadata::default(),
+            metadata: Vec::new(),
             voter: PublicKey::ZERO,
             signature: Signature::new(),
             hashes: Vec::new(),
@@ -214,15 +248,19 @@ impl Vote {
             RaiVotePhase::First
         };
         #[cfg(feature = "rai_protocol")]
-        return Self::new_rai(
+        return Self::new_rai_batch(
             priv_key,
             timestamp,
             duration,
-            hashes,
-            RaiVoteMetadata {
-                phase,
-                ..Default::default()
-            },
+            hashes.into_iter().map(|hash| {
+                (
+                    RaiVoteMetadata {
+                        phase,
+                        ..Default::default()
+                    },
+                    hash,
+                )
+            }),
         );
 
         #[cfg(not(feature = "rai_protocol"))]
@@ -239,14 +277,31 @@ impl Vote {
     }
 
     #[cfg(feature = "rai_protocol")]
+    /// Constructs and signs one RAI logical vote leaf.
     pub fn new_rai(
         priv_key: &PrivateKey,
         timestamp: UnixMillisTimestamp,
         duration: u8,
-        hashes: Vec<BlockHash>,
+        hash: BlockHash,
         metadata: RaiVoteMetadata,
     ) -> Self {
-        assert!(hashes.len() <= Self::MAX_HASHES);
+        Self::new_rai_batch(priv_key, timestamp, duration, [(metadata, hash)])
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    /// Constructs one signed transport batch. Entries are sorted into their
+    /// canonical `(metadata, hash)` order and exact duplicates are removed.
+    pub fn new_rai_batch(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        entries: impl IntoIterator<Item = (RaiVoteMetadata, BlockHash)>,
+    ) -> Self {
+        let mut entries: Vec<_> = entries.into_iter().collect();
+        entries.sort_unstable();
+        entries.dedup();
+        assert!(entries.len() <= Self::MAX_HASHES);
+        let (metadata, hashes) = entries.into_iter().unzip();
         let mut result = Self {
             voter: priv_key.public_key(),
             timestamp: VoteTimestamp::new(timestamp, duration),
@@ -256,6 +311,24 @@ impl Vote {
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    /// Iterates over the aligned logical leaves covered by this signature.
+    pub fn rai_entries(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&RaiVoteMetadata, &BlockHash)> + '_ {
+        self.metadata.iter().zip(&self.hashes)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_metadata(&self, index: usize) -> Option<&RaiVoteMetadata> {
+        self.metadata.get(index)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_entry_count(&self) -> usize {
+        self.hashes.len()
     }
 
     pub fn new_test_instance() -> Self {
@@ -289,17 +362,19 @@ impl Vote {
     pub fn hash(&self) -> BlockHash {
         #[cfg(feature = "rai_protocol")]
         {
-            let mut builder = Blake2HashBuilder::new()
-                .update(RAI_HASH_PREFIX)
-                .update(self.metadata.election_id.digest_bytes())
-                .update([self.metadata.phase as u8])
-                .update(self.metadata.epoch.number().to_le_bytes())
-                .update([self.metadata.scope as u8])
-                .update(self.timestamp.to_le_bytes());
-            for hash in &self.hashes {
-                builder = builder.update(hash.as_bytes());
+            let mut root_builder = Blake2HashBuilder::new()
+                .update(self.timestamp.to_le_bytes())
+                .update([self.hashes.len() as u8]);
+            for (metadata, hash) in self.rai_entries() {
+                root_builder = root_builder
+                    .update(metadata.digest_bytes())
+                    .update(hash.as_bytes());
             }
-            return builder.build();
+            let root = root_builder.build();
+            return Blake2HashBuilder::new()
+                .update(RAI_HASH_PREFIX)
+                .update(root.as_bytes())
+                .build();
         }
 
         #[cfg(not(feature = "rai_protocol"))]
@@ -319,72 +394,92 @@ impl Vote {
         bytes.read_exact(&mut buffer)?;
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
         #[cfg(feature = "rai_protocol")]
-        let metadata = {
-            let phase = match crate::read_u8(&mut bytes)? {
-                0 => RaiVotePhase::First,
-                1 => RaiVotePhase::Notar,
-                2 => RaiVotePhase::Final,
-                _ => return Err(DeserializationError::InvalidData),
-            };
-            let election_id = RaiElectionId::deserialize(&mut bytes)?;
-            bytes.read_exact(&mut buffer)?;
-            let epoch = RaiEpoch::new(u64::from_le_bytes(buffer));
-            let scope = match crate::read_u8(&mut bytes)? {
-                0 => RaiCommitteeScope::All,
-                1 => RaiCommitteeScope::Older,
-                2 => RaiCommitteeScope::Newer,
-                _ => return Err(DeserializationError::InvalidData),
-            };
-            RaiVoteMetadata {
-                election_id,
-                phase,
-                epoch,
-                scope,
+        {
+            const ENTRY_SIZE: usize = RaiVoteMetadata::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE;
+            if bytes.len() % ENTRY_SIZE != 0 || bytes.len() / ENTRY_SIZE > Self::MAX_HASHES {
+                return Err(DeserializationError::InvalidData);
             }
-        };
-        let mut hashes = Vec::new();
-        while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
-            hashes.push(BlockHash::deserialize(&mut bytes)?);
+            let count = bytes.len() / ENTRY_SIZE;
+            let mut metadata = Vec::with_capacity(count);
+            let mut hashes = Vec::with_capacity(count);
+            while !bytes.is_empty() {
+                metadata.push(RaiVoteMetadata::deserialize(&mut bytes)?);
+                hashes.push(BlockHash::deserialize(&mut bytes)?);
+            }
+            let vote = Self {
+                timestamp,
+                metadata,
+                voter,
+                signature,
+                hashes,
+            };
+            if !vote.rai_batch_is_canonical() {
+                return Err(DeserializationError::InvalidData);
+            }
+            return Ok(vote);
         }
-        Ok(Self {
-            timestamp,
-            #[cfg(feature = "rai_protocol")]
-            metadata,
-            voter,
-            signature,
-            hashes,
-        })
+
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let mut hashes = Vec::new();
+            while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
+                hashes.push(BlockHash::deserialize(&mut bytes)?);
+            }
+            Ok(Self {
+                timestamp,
+                voter,
+                signature,
+                hashes,
+            })
+        }
     }
 
     pub fn validate(&self) -> Result<(), SignatureError> {
+        #[cfg(feature = "rai_protocol")]
+        if !self.rai_batch_is_canonical() {
+            return Err(SignatureError {});
+        }
         self.voter.verify(self.hash().as_bytes(), &self.signature)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn rai_batch_is_canonical(&self) -> bool {
+        self.metadata.len() == self.hashes.len()
+            && self.hashes.len() <= Self::MAX_HASHES
+            && (1..self.hashes.len()).all(|i| {
+                (&self.metadata[i - 1], &self.hashes[i - 1]) < (&self.metadata[i], &self.hashes[i])
+            })
+    }
+
     pub const fn serialized_size(count: usize) -> usize {
-        let base = Account::SERIALIZED_SIZE
-            + Signature::SERIALIZED_SIZE
-            + std::mem::size_of::<u64>() // timestamp
-            + (BlockHash::SERIALIZED_SIZE * count);
+        let base =
+            Account::SERIALIZED_SIZE + Signature::SERIALIZED_SIZE + std::mem::size_of::<u64>(); // timestamp
         #[cfg(feature = "rai_protocol")]
-        return base + 1 + RaiElectionId::SERIALIZED_SIZE + 8 + 1;
+        return base + ((RaiVoteMetadata::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE) * count);
         #[cfg(not(feature = "rai_protocol"))]
-        return base;
+        return base + (BlockHash::SERIALIZED_SIZE * count);
     }
 
     pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
     where
         T: std::io::Write,
     {
+        #[cfg(feature = "rai_protocol")]
+        if !self.rai_batch_is_canonical() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "RAI vote entries must be aligned, canonical, and duplicate-free",
+            ));
+        }
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
         #[cfg(feature = "rai_protocol")]
-        {
-            writer.write_all(&[self.metadata.phase as u8])?;
-            self.metadata.election_id.serialize(writer)?;
-            writer.write_all(&self.metadata.epoch.number().to_le_bytes())?;
-            writer.write_all(&[self.metadata.scope as u8])?;
+        for (metadata, hash) in self.rai_entries() {
+            metadata.serialize(writer)?;
+            hash.serialize(writer)?;
         }
+        #[cfg(not(feature = "rai_protocol"))]
         for hash in &self.hashes {
             hash.serialize(writer)?;
         }
@@ -475,7 +570,14 @@ impl TestVoteBuilder {
             } else {
                 self.duration
             };
-            return Vote::new_rai(&self.key, timestamp, duration, self.hashes, self.metadata);
+            return Vote::new_rai_batch(
+                &self.key,
+                timestamp,
+                duration,
+                self.hashes
+                    .into_iter()
+                    .map(|hash| (self.metadata.clone(), hash)),
+            );
         }
         #[cfg(not(feature = "rai_protocol"))]
         if self.is_final {
@@ -491,21 +593,29 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "rai_protocol")]
+    fn rai_metadata() -> RaiVoteMetadata {
+        RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(7),
+                root: QualifiedRoot::new_test_instance(),
+            }),
+            phase: RaiVotePhase::Notar,
+            epoch: RaiEpoch::new(7),
+            scope: RaiCommitteeScope::Older,
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     fn rai_vote() -> Vote {
-        Vote::new_rai(
+        let metadata = rai_metadata();
+        Vote::new_rai_batch(
             &PrivateKey::from(42),
             UnixMillisTimestamp::new(0x12340),
             3,
-            vec![BlockHash::from(11), BlockHash::from(12)],
-            RaiVoteMetadata {
-                election_id: RaiElectionId::Slot(RaiSlotId {
-                    epoch: RaiEpoch::new(7),
-                    root: QualifiedRoot::new_test_instance(),
-                }),
-                phase: RaiVotePhase::Notar,
-                epoch: RaiEpoch::new(7),
-                scope: RaiCommitteeScope::Older,
-            },
+            [
+                (metadata.clone(), BlockHash::from(12)),
+                (metadata, BlockHash::from(11)),
+            ],
         )
     }
 
@@ -524,6 +634,72 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
+    fn rai_batch_is_sorted_deduplicated_and_exposed_as_aligned_entries() {
+        let metadata = rai_metadata();
+        let vote = Vote::new_rai_batch(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::new(0x12340),
+            3,
+            [
+                (metadata.clone(), BlockHash::from(12)),
+                (metadata.clone(), BlockHash::from(11)),
+                (metadata.clone(), BlockHash::from(12)),
+            ],
+        );
+
+        let entries: Vec<_> = vote
+            .rai_entries()
+            .map(|(metadata, hash)| (metadata.clone(), *hash))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![
+                (metadata.clone(), BlockHash::from(11)),
+                (metadata.clone(), BlockHash::from(12)),
+            ]
+        );
+        assert_eq!(vote.rai_entry_count(), 2);
+        assert_eq!(vote.rai_metadata(0), Some(&metadata));
+        assert_eq!(vote.rai_metadata(2), None);
+        assert!(vote.validate().is_ok());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_singleton_constructor_creates_one_leaf() {
+        let metadata = rai_metadata();
+        let hash = BlockHash::from(11);
+        let vote = Vote::new_rai(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::new(0x12340),
+            3,
+            hash,
+            metadata.clone(),
+        );
+
+        assert_eq!(vote.rai_entries().next(), Some((&metadata, &hash)));
+        assert!(vote.validate().is_ok());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_empty_batch_preserves_legacy_zero_hash_vote_compatibility() {
+        let vote = Vote::new_rai_batch(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::new(0x12340),
+            3,
+            [],
+        );
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+
+        assert_eq!(bytes.len(), Vote::serialized_size(0));
+        assert_eq!(Vote::deserialize(&bytes).unwrap(), vote);
+        assert!(vote.validate().is_ok());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
     fn generated_vote_phase_matches_legacy_final_timestamp() {
         let key = PrivateKey::from(42);
         let hash = BlockHash::from(11);
@@ -531,17 +707,17 @@ mod tests {
         let first = Vote::new(&key, UnixMillisTimestamp::new(16), 0, vec![hash]);
         let final_vote = Vote::new_final(&key, vec![hash]);
 
-        assert_eq!(first.metadata.phase, RaiVotePhase::First);
-        assert_eq!(final_vote.metadata.phase, RaiVotePhase::Final);
-        assert_eq!(final_vote.metadata.epoch, RaiEpoch::ZERO);
-        assert_eq!(final_vote.metadata.scope, RaiCommitteeScope::All);
+        assert_eq!(first.metadata[0].phase, RaiVotePhase::First);
+        assert_eq!(final_vote.metadata[0].phase, RaiVotePhase::Final);
+        assert_eq!(final_vote.metadata[0].epoch, RaiEpoch::ZERO);
+        assert_eq!(final_vote.metadata[0].scope, RaiCommitteeScope::All);
     }
 
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn rai_signature_binds_phase() {
         let mut vote = rai_vote();
-        vote.metadata.phase = RaiVotePhase::Final;
+        vote.metadata[0].phase = RaiVotePhase::Final;
         assert!(vote.validate().is_err());
     }
 
@@ -549,7 +725,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_election_epoch() {
         let mut vote = rai_vote();
-        let RaiElectionId::Slot(id) = &mut vote.metadata.election_id else {
+        let RaiElectionId::Slot(id) = &mut vote.metadata[0].election_id else {
             panic!("test vote must target a slot election");
         };
         id.epoch = RaiEpoch::new(id.epoch.number() + 1);
@@ -561,7 +737,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_epoch() {
         let mut vote = rai_vote();
-        vote.metadata.epoch = RaiEpoch::new(8);
+        vote.metadata[0].epoch = RaiEpoch::new(8);
         assert!(vote.validate().is_err());
     }
 
@@ -569,7 +745,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_committee_scope() {
         let mut vote = rai_vote();
-        vote.metadata.scope = RaiCommitteeScope::Newer;
+        vote.metadata[0].scope = RaiCommitteeScope::Newer;
         assert!(vote.validate().is_err());
     }
 
@@ -579,6 +755,18 @@ mod tests {
         for index in 0..2 {
             let mut vote = rai_vote();
             vote.hashes[index] = BlockHash::from(100 + index as u64);
+            assert!(vote.validate().is_err());
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_signature_binds_metadata_for_every_leaf() {
+        for index in 0..2 {
+            let mut vote = rai_vote();
+            let old_hash = vote.hash();
+            vote.metadata[index].epoch = RaiEpoch::new(100 + index as u64);
+            assert_ne!(vote.hash(), old_hash);
             assert!(vote.validate().is_err());
         }
     }
@@ -597,6 +785,42 @@ mod tests {
 
         bytes[metadata_offset + 1 + RaiElectionId::SERIALIZED_SIZE + 8] = 3;
         assert!(Vote::deserialize(&bytes).is_err());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_deserialization_rejects_partial_noncanonical_and_duplicate_entries() {
+        const BASE_SIZE: usize = PublicKey::SERIALIZED_SIZE + Signature::SERIALIZED_SIZE + 8;
+        const ENTRY_SIZE: usize = RaiVoteMetadata::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE;
+        let vote = rai_vote();
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+
+        let mut partial = bytes.clone();
+        partial.push(0);
+        assert!(Vote::deserialize(&partial).is_err());
+
+        let first = bytes[BASE_SIZE..BASE_SIZE + ENTRY_SIZE].to_vec();
+        let second = bytes[BASE_SIZE + ENTRY_SIZE..BASE_SIZE + 2 * ENTRY_SIZE].to_vec();
+
+        let mut noncanonical = bytes.clone();
+        noncanonical[BASE_SIZE..BASE_SIZE + ENTRY_SIZE].copy_from_slice(&second);
+        noncanonical[BASE_SIZE + ENTRY_SIZE..BASE_SIZE + 2 * ENTRY_SIZE].copy_from_slice(&first);
+        assert!(Vote::deserialize(&noncanonical).is_err());
+
+        let mut duplicate = bytes;
+        duplicate[BASE_SIZE + ENTRY_SIZE..BASE_SIZE + 2 * ENTRY_SIZE].copy_from_slice(&first);
+        assert!(Vote::deserialize(&duplicate).is_err());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_serialize_and_validate_reject_misaligned_entries() {
+        let mut vote = rai_vote();
+        vote.metadata.pop();
+
+        assert!(vote.serialize(&mut Vec::new()).is_err());
+        assert!(vote.validate().is_err());
     }
 
     #[cfg(not(feature = "rai_protocol"))]

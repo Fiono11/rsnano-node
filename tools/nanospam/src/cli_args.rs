@@ -58,6 +58,10 @@ struct NetworkArgs {
     /// RAI close-loop tick interval for generated rsnano configs, in milliseconds
     #[arg(long, value_parser = parse_nonzero_duration)]
     rai_tick_interval_ms: Option<u64>,
+
+    /// Maximum total runtime for setup or run, in seconds
+    #[arg(long, default_value_t = 300, value_parser = parse_nonzero_duration)]
+    global_timeout_secs: u64,
 }
 
 #[derive(Args, Debug)]
@@ -145,6 +149,7 @@ pub(crate) struct CliArgs {
     pub fork_percentage: usize,
     pub rai_epoch_duration_ms: Option<u64>,
     pub rai_tick_interval_ms: Option<u64>,
+    pub global_timeout_secs: u64,
 }
 
 impl CommandLine {
@@ -194,6 +199,7 @@ impl CliArgs {
             fork_percentage: 0,
             rai_epoch_duration_ms: args.rai_epoch_duration_ms,
             rai_tick_interval_ms: args.rai_tick_interval_ms,
+            global_timeout_secs: args.global_timeout_secs,
         }
     }
 
@@ -306,11 +312,14 @@ mod tests {
             "6",
             "--accounts",
             "6",
+            "--global-timeout-secs",
+            "1800",
         ])
         .unwrap()
         .into_args();
         assert_eq!(args.mode, Mode::Setup);
         assert_eq!(args.prs, 6);
+        assert_eq!(args.global_timeout_secs, 1800);
         args.validate().unwrap();
     }
 

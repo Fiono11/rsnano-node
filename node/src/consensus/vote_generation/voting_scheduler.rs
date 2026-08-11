@@ -24,9 +24,16 @@ pub(crate) struct VoteTarget {
     pub metadata: rsnano_types::RaiVoteMetadata,
     #[cfg(feature = "rai_protocol")]
     pub is_rai_close: bool,
+    #[cfg(feature = "rai_protocol")]
+    pub is_rai_timeout: bool,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_slot_notar_grace: Duration,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
+    #[cfg(feature = "rai_protocol")]
+    let winner = e.voting_hash();
+
     VoteTarget {
         #[cfg(feature = "rai_protocol")]
         id: e.rai_id().clone(),
@@ -36,7 +43,7 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
         winner: {
             #[cfg(feature = "rai_protocol")]
             {
-                e.voting_hash()
+                winner
             }
             #[cfg(not(feature = "rai_protocol"))]
             {
@@ -48,6 +55,10 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
         metadata: e.rai_vote_metadata(),
         #[cfg(feature = "rai_protocol")]
         is_rai_close: e.is_rai_close(),
+        #[cfg(feature = "rai_protocol")]
+        is_rai_timeout: winner.is_zero(),
+        #[cfg(feature = "rai_protocol")]
+        rai_slot_notar_grace: e.base_latency() / 2,
     }
 }
 
@@ -88,6 +99,16 @@ impl VotingScheduler {
 
         #[cfg(feature = "rai_protocol")]
         if record.last_rai_phase != target.metadata.phase {
+            // First votes count toward notarization. Give an ordinary slot time to
+            // collect a terminal First certificate before issuing the optional
+            // Notar second-look vote.
+            if !target.is_rai_close
+                && !target.is_rai_timeout
+                && record.last_rai_phase == rsnano_types::RaiVotePhase::First
+                && target.metadata.phase == rsnano_types::RaiVotePhase::Notar
+            {
+                return now >= record.last_voted + target.rai_slot_notar_grace;
+            }
             return true;
         }
 
@@ -190,7 +211,7 @@ mod tests {
     fn can_vote_immediately_if_winner_changed() {
         let mut s = scheduler();
         s.mark_voted(&target(VoteType::NonFinal), t(0));
-        assert!(s.can_vote(&other_winner_target(VoteType::NonFinal), t(1)));
+        assert!(s.can_vote(&other_winner_target(VoteType::NonFinal), t(0)));
     }
 
     #[test]
@@ -203,14 +224,54 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn can_vote_immediately_when_rai_phase_changes() {
+    fn slot_notar_vote_waits_for_grace_period() {
         let mut s = scheduler();
         let first = target(VoteType::NonFinal);
         s.mark_voted(&first, t(0));
         let mut notar = target(VoteType::NonFinal);
         notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
 
-        assert!(s.can_vote(&notar, t(1)));
+        assert!(!s.can_vote(&notar, t_millis(499)));
+        assert!(s.can_vote(&notar, t_millis(500)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn timeout_notar_vote_is_immediate() {
+        let mut s = scheduler();
+        let mut timeout_first = target(VoteType::NonFinal);
+        timeout_first.winner = BlockHash::ZERO;
+        timeout_first.is_rai_timeout = true;
+        s.mark_voted(&timeout_first, t(0));
+        let mut timeout_notar = timeout_first;
+        timeout_notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
+
+        assert!(s.can_vote(&timeout_notar, t(0)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn close_notar_vote_is_immediate() {
+        let mut s = scheduler();
+        let mut first = target(VoteType::NonFinal);
+        first.is_rai_close = true;
+        s.mark_voted(&first, t(0));
+        let mut notar = first;
+        notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
+
+        assert!(s.can_vote(&notar, t(0)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn final_phase_vote_is_immediate() {
+        let mut s = scheduler();
+        let first = target(VoteType::NonFinal);
+        s.mark_voted(&first, t(0));
+        let mut final_vote = target(VoteType::Final);
+        final_vote.metadata.phase = rsnano_types::RaiVotePhase::Final;
+
+        assert!(s.can_vote(&final_vote, t(0)));
     }
 
     #[test]
@@ -247,6 +308,7 @@ mod tests {
         let target = vote_target(&election);
 
         assert_eq!(target.metadata.epoch, RaiEpoch::new(3));
+        assert_eq!(target.rai_slot_notar_grace, Duration::from_millis(500));
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -338,6 +400,10 @@ mod tests {
             metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             is_rai_close: false,
+            #[cfg(feature = "rai_protocol")]
+            is_rai_timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            rai_slot_notar_grace: Duration::from_millis(500),
         }
     }
 
@@ -359,10 +425,19 @@ mod tests {
             metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             is_rai_close: false,
+            #[cfg(feature = "rai_protocol")]
+            is_rai_timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            rai_slot_notar_grace: Duration::from_millis(500),
         }
     }
 
     fn t(secs: u64) -> Timestamp {
         Timestamp::new_test_instance() + Duration::from_secs(secs)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn t_millis(millis: u64) -> Timestamp {
+        Timestamp::new_test_instance() + Duration::from_millis(millis)
     }
 }

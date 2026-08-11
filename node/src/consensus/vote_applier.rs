@@ -6,11 +6,22 @@ use std::{
 use rsnano_nullable_clock::SteadyClock;
 
 use rsnano_ledger::RepWeightCache;
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::RepWeights;
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, AecService, FilteredVote, ReceivedVote};
 use crate::{consensus::ApplyVoteArgs, representatives::RepresentativeTracker};
+
+#[cfg(feature = "rai_protocol")]
+fn with_rai_tally_weights<T>(apply: impl FnOnce(&RepWeights) -> T) -> T {
+    // RAI tallies use the committees embedded in their election state. Keep a
+    // local placeholder for the legacy-shaped ApplyVoteArgs without touching
+    // or cloning the live representative-weight cache.
+    let weights = RepWeights::default();
+    apply(&weights)
+}
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
@@ -65,6 +76,19 @@ impl VoteApplier {
                 .collect();
         }
 
+        #[cfg(feature = "rai_protocol")]
+        let has_election = if vote.filter.is_zero() {
+            self.active_elections.any_active_hash(&vote.hashes)
+        } else {
+            // A nonzero filter only selects a leaf when that hash is actually
+            // present in the signed vote. Keep that filtering behavior while
+            // performing at most one AEC read-lock acquisition.
+            vote.hashes.contains(&vote.filter)
+                && self
+                    .active_elections
+                    .any_active_hash(std::slice::from_ref(&vote.filter))
+        };
+        #[cfg(not(feature = "rai_protocol"))]
         let has_election = vote
             .filtered_blocks()
             .any(|hash| self.active_elections.is_active_hash(hash));
@@ -76,6 +100,19 @@ impl VoteApplier {
         }
         let quorum_snapshot = self.rep_tracker.quorum_snapshot();
 
+        #[cfg(feature = "rai_protocol")]
+        let results = {
+            let now = self.clock.now();
+            with_rai_tally_weights(|rep_weights| {
+                self.active_elections.apply_vote(ApplyVoteArgs {
+                    vote,
+                    rep_weights,
+                    quorum_snapshot: &quorum_snapshot,
+                    now,
+                })
+            })
+        };
+        #[cfg(not(feature = "rai_protocol"))]
         let results = {
             let now = self.clock.now();
             let rep_weights = self.rep_weights.read();
@@ -104,6 +141,36 @@ impl VoteApplier {
                 results.clone(),
             ));
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod lock_order_tests {
+    use super::*;
+    use rsnano_types::PrivateKey;
+    use std::{sync::mpsc, thread, time::Duration};
+
+    #[test]
+    fn rai_tally_weights_do_not_retain_the_live_cache_lock() {
+        let rep_weights = Arc::new(RepWeightCache::default());
+        let representative = PrivateKey::from(1).public_key();
+
+        with_rai_tally_weights(|tally_weights| {
+            assert!(tally_weights.is_empty());
+            let (sender, receiver) = mpsc::channel();
+            let rep_weights = rep_weights.clone();
+            let writer = thread::spawn(move || {
+                rep_weights.put(representative, Amount::nano(1));
+                sender.send(()).unwrap();
+            });
+
+            receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("cache writer blocked while RAI tally weights were in use");
+            writer.join().unwrap();
+        });
+
+        assert_eq!(rep_weights.weight(&representative), Amount::nano(1));
     }
 }
 

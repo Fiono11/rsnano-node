@@ -70,6 +70,9 @@ impl ConfirmAck {
         digest: u128,
     ) -> Result<Self, DeserializationError> {
         let vote = Vote::deserialize(bytes)?;
+        if vote.hashes.len() != ConfirmReq::count(extensions) as usize {
+            return Err(DeserializationError::InvalidData);
+        }
 
         let is_rebroadcasted = extensions[Self::REBROADCASTED_FLAG];
         let mut ack = if is_rebroadcasted {
@@ -177,7 +180,7 @@ mod tests {
         let vote = Vote::new_test_instance();
         vote.serialize(&mut bytes).unwrap();
 
-        let mut extensions = BitArray::<u16>::new(0);
+        let mut extensions = ConfirmReq::count_bits(vote.hashes.len() as u8);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, true);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
@@ -190,11 +193,55 @@ mod tests {
         let vote = Vote::new_test_instance();
         vote.serialize(&mut bytes).unwrap();
 
-        let mut extensions = BitArray::<u16>::new(0);
+        let mut extensions = ConfirmReq::count_bits(vote.hashes.len() as u8);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, false);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
 
         assert_eq!(ack.is_rebroadcasted(), false);
+    }
+
+    #[test]
+    fn deserialize_rejects_header_count_mismatch() {
+        let vote = Vote::new(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![BlockHash::from(1), BlockHash::from(2)],
+        );
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+
+        let extensions = ConfirmReq::count_bits(1);
+        assert!(ConfirmAck::deserialize(&bytes, extensions, 0).is_err());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_batch_uses_existing_confirm_ack_count_header() {
+        use rsnano_types::{
+            RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata, RaiVotePhase,
+        };
+
+        let metadata = RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId::default()),
+            phase: RaiVotePhase::First,
+            epoch: RaiEpoch::new(7),
+            scope: RaiCommitteeScope::All,
+        };
+        let vote = Vote::new_rai_batch(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::ZERO,
+            0,
+            [
+                (metadata.clone(), BlockHash::from(1)),
+                (metadata, BlockHash::from(2)),
+            ],
+        );
+        let ack = ConfirmAck::new_with_own_vote(vote);
+        let extensions = ack.header_extensions(0);
+
+        assert_eq!(ConfirmReq::count(extensions), 2);
+        assert_deserializable(&Message::ConfirmAck(ack));
     }
 }

@@ -51,7 +51,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_slot_elections_retry_at_base_latency() {
+    fn pending_slot_elections_retry_at_priority_cadence() {
         let base_latency = Duration::from_secs(1);
         let election = Election::new_slot(
             SavedBlock::new_test_instance(),
@@ -63,7 +63,7 @@ mod tests {
 
         assert_eq!(
             ConfirmReqSender::confirm_req_interval(&election),
-            base_latency
+            base_latency * 5
         );
     }
 }
@@ -104,7 +104,7 @@ impl ConfirmReqSender {
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_interval(election: &Election) -> Duration {
         #[cfg(feature = "rai_protocol")]
-        if election.is_rai_close() || election.rai_requires_retention() {
+        if election.is_rai_close() {
             return election.base_latency();
         }
         match election.behavior() {

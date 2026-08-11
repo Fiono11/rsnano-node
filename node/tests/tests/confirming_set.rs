@@ -24,7 +24,7 @@ fn certify_rai_tip(node: &rsnano_node::Node, tip: &Block) {
             &DEV_GENESIS_KEY,
             UnixMillisTimestamp::new(1),
             0,
-            vec![tip.hash()],
+            tip.hash(),
             RaiVoteMetadata::default(),
         )),
         VoteDelivery::Direct,

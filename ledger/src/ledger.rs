@@ -299,6 +299,35 @@ impl Ledger {
         self.store.rai_finalization.frontiers_before(&txn, epoch)
     }
 
+    /// Returns at most `max_results` close frontiers which still need durable
+    /// attribution to `epoch`. All account and epoch lookups share one read
+    /// transaction so callers can advance a large close record in bounded
+    /// passes without opening one transaction per account.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_uncommitted_close_frontiers(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
+        max_results: usize,
+    ) -> Vec<BlockHash> {
+        assert!(max_results > 0);
+        let txn = self.store.begin_read();
+        frontiers
+            .iter()
+            .filter(|(account, frontier)| {
+                !self
+                    .store
+                    .rai_finalization
+                    .frontier_before(&txn, epoch, account)
+                    .as_ref()
+                    .is_some_and(|base| frontier.height <= base.height)
+                    && self.store.rai_finalization.epoch(&txn, &frontier.frontier) != Some(epoch)
+            })
+            .map(|(_, frontier)| frontier.frontier)
+            .take(max_results)
+            .collect()
+    }
+
     /// Representative weights at the cemented frontiers. Unconfirmed balance
     /// and delegation changes are deliberately excluded.
     #[cfg(feature = "rai_protocol")]
@@ -1007,6 +1036,7 @@ impl Ledger {
     {
         let mut confirmed = Vec::new();
         let mut blocks_confirmed = 0;
+        let mut roots_processed = 0;
         {
             let mut txn = self.store.begin_write();
 
@@ -1026,13 +1056,17 @@ impl Ledger {
                     }
 
                     // Issue notifications here, so that `confirmed` set is not too large before we add more blocks
-                    if blocks_confirmed >= max_blocks {
+                    if blocks_confirmed >= max_blocks || roots_processed >= max_blocks {
                         txn.commit();
                         blocks_confirmed = 0;
+                        roots_processed = 0;
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
-                        self.notify(LedgerEvent::BlocksConfirmed(confirmed));
-                        confirmed = Vec::new();
+                        if !confirmed.is_empty() {
+                            self.notify(LedgerEvent::BlocksConfirmed(std::mem::take(
+                                &mut confirmed,
+                            )));
+                        }
                         txn = self.store.env.begin_write();
                     }
 
@@ -1104,6 +1138,7 @@ impl Ledger {
                     // Add them to the deferred set while still holding the exclusive database write transaction to avoid block processor races
                     cementing_observer.cementing_failed(confirmation_root);
                 }
+                roots_processed += 1;
             }
             txn.commit();
         }
@@ -1402,6 +1437,19 @@ mod tests {
             ledger.rai_finalization_epoch(&epoch_one.hash()),
             Some(RaiEpoch::new(1))
         );
+        let any = ledger.any();
+        assert_eq!(
+            any.rai_finalization_epoch(&send.hash()),
+            ledger.rai_finalization_epoch(&send.hash())
+        );
+        assert_eq!(
+            any.rai_finalization_epoch(&epoch_one.hash()),
+            ledger.rai_finalization_epoch(&epoch_one.hash())
+        );
+        assert_eq!(
+            any.rai_finalization_epoch(&BlockHash::from(123)),
+            ledger.rai_finalization_epoch(&BlockHash::from(123))
+        );
         let target = ledger
             .rai_finalized_vote_target(&send.hash(), &send.root())
             .unwrap();
@@ -1468,6 +1516,87 @@ mod tests {
         assert_eq!(
             ledger.rai_finalization_epoch(&open.hash()),
             Some(rsnano_types::RaiEpoch::ZERO)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_frontiers_can_be_committed_in_bounded_passes() {
+        use crate::LedgerInserter;
+        use std::collections::BTreeMap;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        ledger.rai_reset_finalization_baseline();
+        let first_key = rsnano_types::PrivateKey::from(42);
+        let first_send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(first_key.account(), 1);
+        let first_open = LedgerInserter::new(&ledger)
+            .account(&first_key)
+            .receive(first_send.hash());
+        let second_key = rsnano_types::PrivateKey::from(43);
+        let second_send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(second_key.account(), 1);
+        let second_open = LedgerInserter::new(&ledger)
+            .account(&second_key)
+            .receive(second_send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai(
+            [(&first_open.hash(), None), (&second_open.hash(), None)],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        let frontiers = BTreeMap::from([
+            (
+                first_key.account(),
+                ConfirmationHeightInfo::new(first_open.height(), first_open.hash()),
+            ),
+            (
+                second_key.account(),
+                ConfirmationHeightInfo::new(second_open.height(), second_open.hash()),
+            ),
+        ]);
+
+        let first_pass =
+            ledger.rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1);
+        assert_eq!(first_pass.len(), 1);
+        ledger.confirm_batch_rai(
+            first_pass
+                .iter()
+                .map(|hash| (hash, Some(rsnano_types::RaiEpoch::ZERO))),
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        let second_pass =
+            ledger.rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1);
+        assert_eq!(second_pass.len(), 1);
+        assert_ne!(first_pass, second_pass);
+        ledger.confirm_batch_rai(
+            second_pass
+                .iter()
+                .map(|hash| (hash, Some(rsnano_types::RaiEpoch::ZERO))),
+            &stopped,
+            1024,
+            &mut observer,
+        );
+
+        assert!(
+            ledger
+                .rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1,)
+                .is_empty()
         );
     }
 

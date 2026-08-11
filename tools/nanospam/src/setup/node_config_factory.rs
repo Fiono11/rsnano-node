@@ -142,6 +142,12 @@ fn rai_config(args: &CliArgs) -> String {
     // cemented distribution prepared by `nanospam setup`.
     config.push_str(&format!("\n    genesis_committee = [{committee}]"));
     config.push_str("\n    reset_finalization_on_start = true");
+    // A block published on an epoch boundary can be assigned to the old
+    // epoch by one PR and the successor epoch by another. Once the certified
+    // close releases the old slot, let every PR retry that same starting slot
+    // in the successor epoch so the benchmark measures continuous protocol
+    // throughput instead of waiting for the next close to settle it.
+    config.push_str("\n    retry_released_slots = true");
     config
 }
 
@@ -213,7 +219,7 @@ mod tests {
         assert_eq!(
             rai_config(&args),
             format!(
-                "[node.rai]\n    enable_epoch_ticker = true\n    epoch_duration = 5000\n    tick_interval = 100\n    genesis_committee = [\"{}\"]\n    reset_finalization_on_start = true",
+                "[node.rai]\n    enable_epoch_ticker = true\n    epoch_duration = 5000\n    tick_interval = 100\n    genesis_committee = [\"{}\"]\n    reset_finalization_on_start = true\n    retry_released_slots = true",
                 pr_key(0).account().encode_account()
             )
         );

@@ -91,25 +91,25 @@ impl VoteGenerators {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn reply_cached_rai_votes(
+    pub(crate) fn reply_cached_rai_election_votes(
         &self,
         root: &rsnano_types::Root,
-        hash: &BlockHash,
         metadata: &rsnano_types::RaiVoteMetadata,
         channel: &Arc<Channel>,
     ) -> usize {
         self.non_final_vote_generator
-            .reply_cached_rai_votes(root, hash, metadata, channel)
+            .reply_cached_rai_election_votes(root, metadata, channel)
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn reply_cached_rai_election_votes(
+    pub(crate) fn reply_cached_and_generate_rai_slot_votes(
         &self,
-        metadata: &rsnano_types::RaiVoteMetadata,
+        contexts: &[(Root, rsnano_types::RaiVoteMetadata)],
+        targets: &[rsnano_ledger::RaiFinalizedVoteTarget],
         channel: &Arc<Channel>,
     ) -> usize {
         self.non_final_vote_generator
-            .reply_cached_rai_election_votes(metadata, channel)
+            .reply_cached_and_generate_rai_slot_votes(contexts, targets, channel)
     }
 
     fn voting_delay_for(network: NetworkType) -> Duration {

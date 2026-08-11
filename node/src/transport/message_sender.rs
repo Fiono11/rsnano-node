@@ -74,10 +74,9 @@ impl MessageSender {
         {
             let vote = ack.vote();
             eprintln!(
-                "RAI_MSG pr={pr} event=send_vote queued={sent} channel={} id={:?} phase={:?} voter={} vote_hash={} hashes={:?}",
+                "RAI_MSG pr={pr} event=send_vote queued={sent} channel={} metadata={:?} voter={} vote_hash={} hashes={:?}",
                 channel.channel_id(),
-                vote.metadata.election_id,
-                vote.metadata.phase,
+                vote.metadata,
                 vote.voter,
                 vote.hash(),
                 vote.hashes

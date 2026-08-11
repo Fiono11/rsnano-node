@@ -62,7 +62,7 @@ fn contextless_confirmed_request_is_discovery_only() {
                 let vote = ack.vote();
                 (event.channel_id == channel.channel_id()
                     && event.traffic_type == TrafficType::VoteReply
-                    && vote.metadata.is_discovery()
+                    && vote.metadata.iter().all(|metadata| metadata.is_discovery())
                     && vote.hashes.contains(&genesis.hash()))
                 .then(|| (*vote).clone())
             });

@@ -45,9 +45,13 @@ impl<'a> BlockCementer<'a> {
                 .map(|block| block.account())
         });
         #[cfg(feature = "rai_protocol")]
-        let preceding_frontiers = finalization_epoch
-            .map(|epoch| self.store.rai_finalization.frontiers_before(&txn, epoch))
-            .unwrap_or_default();
+        let preceding_frontier = finalization_epoch.and_then(|epoch| {
+            finalization_account.as_ref().and_then(|account| {
+                self.store
+                    .rai_finalization
+                    .frontier_before(&txn, epoch, account)
+            })
+        });
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
@@ -60,16 +64,15 @@ impl<'a> BlockCementer<'a> {
                 let unconfirmed = !dependent.is_zero() && !self.is_confirmed(&txn, dependent);
                 #[cfg(feature = "rai_protocol")]
                 let certified_account_predecessor = finalization_epoch.is_some_and(|epoch| {
-                    !dependent.is_zero()
+                    finalization_account == Some(block.account())
+                        && !dependent.is_zero()
                         && *dependent == block.previous()
-                        && preceding_frontiers
-                            .get(&block.account())
-                            .is_none_or(|base| {
-                                self.store
-                                    .block
-                                    .get(&txn, dependent)
-                                    .is_some_and(|predecessor| predecessor.height() > base.height)
-                            })
+                        && preceding_frontier.as_ref().is_none_or(|base| {
+                            self.store
+                                .block
+                                .get(&txn, dependent)
+                                .is_some_and(|predecessor| predecessor.height() > base.height)
+                        })
                         // Epochs overlap while the predecessor close drains.
                         // Walk through an already tagged later-epoch suffix so
                         // an earlier certificate can repair every block, not
@@ -129,8 +132,8 @@ impl<'a> BlockCementer<'a> {
                 #[cfg(feature = "rai_protocol")]
                 if let Some(epoch) = finalization_epoch
                     && finalization_account == Some(block.account())
-                    && preceding_frontiers
-                        .get(&block.account())
+                    && preceding_frontier
+                        .as_ref()
                         .is_none_or(|base| block.height() > base.height)
                 {
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());

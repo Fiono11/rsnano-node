@@ -170,6 +170,38 @@ impl LmdbRaiFinalizationStore {
         }
     }
 
+    /// Returns the latest certified frontier for one account before `epoch`.
+    ///
+    /// Live finalization only needs the target account's stopping frontier.
+    /// Looking it up directly avoids reconstructing the full ledger-wide
+    /// frontier map for every confirmed block.
+    pub fn frontier_before(
+        &self,
+        txn: &dyn Transaction,
+        epoch: RaiEpoch,
+        account: &Account,
+    ) -> Option<ConfirmationHeightInfo> {
+        let mut result = match txn.get(self.baseline_frontiers, account.as_bytes()) {
+            Ok(mut bytes) => Some(
+                ConfirmationHeightInfo::deserialize(&mut bytes)
+                    .expect("invalid RAI baseline frontier"),
+            ),
+            Err(Error::NotFound) => None,
+            Err(e) => panic!("could not load RAI baseline frontier: {e:?}"),
+        };
+
+        for number in 0..epoch.number() {
+            if let Some(candidate) = self.frontier_delta(txn, RaiEpoch::new(number), account)
+                && result
+                    .as_ref()
+                    .is_none_or(|current| candidate.height > current.height)
+            {
+                result = Some(candidate);
+            }
+        }
+        result
+    }
+
     pub fn counts_by_epoch(&self, txn: &dyn Transaction) -> BTreeMap<RaiEpoch, u64> {
         let mut result = BTreeMap::new();
         let mut cursor = txn
@@ -329,5 +361,55 @@ mod tests {
             BTreeMap::from([(account, old_info)])
         );
         assert_eq!(store.epoch(&txn, &old_hash), None);
+    }
+
+    #[test]
+    fn looks_up_one_preceding_account_without_rebuilding_all_frontiers() {
+        let env = LmdbEnvironment::new_null();
+        let store = LmdbRaiFinalizationStore::new(&env).unwrap();
+        let account = Account::from(2);
+        let other = Account::from(3);
+        let baseline = ConfirmationHeightInfo::new(4, BlockHash::from(5));
+        let epoch_zero = ConfirmationHeightInfo::new(6, BlockHash::from(7));
+        let epoch_one = ConfirmationHeightInfo::new(8, BlockHash::from(9));
+        let mut txn = env.begin_write();
+        store.reset_to_baseline(
+            &mut txn,
+            [
+                (account, baseline.clone()),
+                (other, ConfirmationHeightInfo::new(10, BlockHash::from(11))),
+            ],
+        );
+        store.put(
+            &mut txn,
+            &epoch_zero.frontier,
+            RaiEpoch::ZERO,
+            &account,
+            &epoch_zero,
+        );
+        store.put(
+            &mut txn,
+            &epoch_one.frontier,
+            RaiEpoch::new(1),
+            &account,
+            &epoch_one,
+        );
+
+        assert_eq!(
+            store.frontier_before(&txn, RaiEpoch::ZERO, &account),
+            Some(baseline)
+        );
+        assert_eq!(
+            store.frontier_before(&txn, RaiEpoch::new(1), &account),
+            Some(epoch_zero)
+        );
+        assert_eq!(
+            store.frontier_before(&txn, RaiEpoch::new(2), &account),
+            Some(epoch_one)
+        );
+        assert_eq!(
+            store.frontier_before(&txn, RaiEpoch::new(2), &Account::from(99)),
+            None
+        );
     }
 }

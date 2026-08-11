@@ -123,13 +123,12 @@ impl MessageDeserializer {
         let filter_rai_report = {
             #[cfg(feature = "rai_protocol")]
             {
-                // RAI report repair deliberately retransmits identical signed
-                // evidence. An early copy can be valid but not yet actionable
-                // (for example before the governing close context is ready),
-                // so transport-level duplicate suppression must not prevent a
-                // later repair response from being reconsidered. Report
-                // validation/storage itself is idempotent.
-                false
+                // Unlike a RAI vote, a validated report is retained even when
+                // it arrives before its epoch starts closing. Revalidating the
+                // same near-64-KiB signed chunk from epidemic gossip and every
+                // repair peer only burns CPU; a genuinely missing chunk has no
+                // filter entry and still passes through.
+                message_type == MessageType::RaiReport
             }
             #[cfg(not(feature = "rai_protocol"))]
             {
@@ -358,7 +357,7 @@ mod tests {
 
         #[cfg(feature = "rai_protocol")]
         #[test]
-        fn duplicate_rai_report_replays_reach_validation() {
+        fn duplicate_rai_report_is_filtered_after_the_retained_first_copy() {
             use crate::RaiReportMessage;
             use rsnano_types::{PublicKey, RaiEpoch, Signature};
 
@@ -377,7 +376,10 @@ mod tests {
             assert!(deserializer.try_deserialize().unwrap().is_ok());
 
             deserializer.push(&bytes);
-            assert!(deserializer.try_deserialize().unwrap().is_ok());
+            assert_eq!(
+                deserializer.try_deserialize(),
+                Some(Err(ParseMessageError::DuplicateRaiReportMessage))
+            );
         }
     }
 

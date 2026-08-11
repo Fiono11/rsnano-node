@@ -1,5 +1,8 @@
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
+#[cfg(all(test, feature = "rai_protocol"))]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 #[cfg(feature = "rai_protocol")]
 use std::collections::{HashSet, VecDeque};
 
@@ -28,9 +31,14 @@ use crate::consensus::{
     election::{ConfirmedElection, Election, ElectionBehavior, ElectionState},
 };
 
+#[cfg(feature = "rai_protocol")]
+type RaiReportIdentity = (u64, PublicKey, u16, rsnano_types::Signature);
+
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     clock: SteadyClock,
+    #[cfg(all(test, feature = "rai_protocol"))]
+    lookup_read_locks: AtomicUsize,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -41,13 +49,17 @@ pub struct RaiEpochTicker {
     ledger: std::sync::Arc<rsnano_ledger::Ledger>,
     epoch_duration: Duration,
     flooder: crate::transport::MessageFlooder,
-    known_reports: HashSet<Vec<u8>>,
+    known_reports: HashSet<RaiReportIdentity>,
     report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
     local_key: Option<rsnano_types::PrivateKey>,
     last_report_request: Option<Timestamp>,
     last_close_vote_request: Option<Timestamp>,
-    last_slot_vote_request: Option<Timestamp>,
+    last_slot_payload_request: Option<Timestamp>,
+    slot_payload_request_epoch: Option<rsnano_types::RaiEpoch>,
+    slot_payload_request_cursor: usize,
+    initialized_drain_frontiers_epoch: Option<rsnano_types::RaiEpoch>,
     request_sequence: u64,
+    close_request_sequence: u64,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -73,10 +85,100 @@ impl RaiEpochTicker {
             local_key: None,
             last_report_request: None,
             last_close_vote_request: None,
-            last_slot_vote_request: None,
+            last_slot_payload_request: None,
+            slot_payload_request_epoch: None,
+            slot_payload_request_cursor: 0,
+            initialized_drain_frontiers_epoch: None,
             request_sequence: 0,
+            close_request_sequence: 0,
         }
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+// Payload repair must stay below the request and block queues' sustained
+// capacity. Rotating over the sorted missing-root list bounds one tick without
+// starving an obligation which remains unresolved.
+const MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK: usize = 64;
+
+#[cfg(feature = "rai_protocol")]
+fn rai_slot_payload_repair_window<T: Clone>(requests: &[T], cursor: &mut usize) -> Vec<T> {
+    if requests.is_empty() {
+        *cursor = 0;
+        return Vec::new();
+    }
+
+    let start = *cursor % requests.len();
+    let count = requests.len().min(MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK);
+    let result = (0..count)
+        .map(|offset| requests[(start + offset) % requests.len()].clone())
+        .collect();
+    *cursor = (start + count) % requests.len();
+    result
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_drain_frontier_snapshot_needed(
+    initialized_epoch: &mut Option<rsnano_types::RaiEpoch>,
+    closing: Option<crate::consensus::rai::RaiClosingEpoch>,
+) -> bool {
+    let Some(closing) = closing else {
+        *initialized_epoch = None;
+        return false;
+    };
+    if initialized_epoch.is_some_and(|epoch| epoch != closing.epoch) {
+        *initialized_epoch = None;
+    }
+    if closing.phase != crate::consensus::rai::RaiClosingPhase::Draining
+        || *initialized_epoch == Some(closing.epoch)
+    {
+        return false;
+    }
+    *initialized_epoch = Some(closing.epoch);
+    true
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_close_repair_phase_active(phase: crate::consensus::rai::RaiClosingPhase) -> bool {
+    matches!(
+        phase,
+        crate::consensus::rai::RaiClosingPhase::ElectingCut
+            | crate::consensus::rai::RaiClosingPhase::ElectingRecord
+    )
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_report_epidemic_phase_active(
+    closing: Option<crate::consensus::rai::RaiClosingEpoch>,
+) -> bool {
+    closing.is_some_and(|closing| {
+        matches!(
+            closing.phase,
+            crate::consensus::rai::RaiClosingPhase::CollectingReports
+                | crate::consensus::rai::RaiClosingPhase::ElectingCut
+        )
+    })
+}
+
+#[cfg(feature = "rai_protocol")]
+fn genuinely_missing_slot_payload_requests(
+    any: &dyn AnySet,
+    candidates: Vec<(QualifiedRoot, Option<BlockHash>)>,
+) -> Vec<(BlockHash, rsnano_types::Root)> {
+    let mut requests = candidates
+        .into_iter()
+        .filter(|(root, hash)| match hash {
+            Some(hash) => any.get_block(hash).is_none(),
+            None => any
+                .block_successor_by_qualified_root(root)
+                .and_then(|hash| any.get_block(&hash))
+                .is_none(),
+        })
+        .map(|(root, _)| (BlockHash::ZERO, root.root))
+        .collect::<Vec<_>>();
+    requests.sort_unstable();
+    requests.dedup();
+    requests
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -96,28 +198,13 @@ impl Tickable for RaiEpochTicker {
         self.aec.rai_tick(now, local_key, self.epoch_duration);
         let closing = self.aec.rai_epoch_status().0.closing;
         if let Some(closing) = closing {
-            self.aec.rai_progress_close(
-                self.ledger.rai_preceding_frontiers(closing.epoch),
-                &self.ledger,
-                now,
-            );
-            if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining {
-                // A replica may learn the winning cut after the corresponding
-                // live election was cleaned up (or before it ever observed
-                // that election). Recreate every missing obligation locally;
-                // the sequenced repair requests below can only solicit votes
-                // for elections which exist and have the winning cut context.
-                for root in self.aec.rai_missing_drain_elections(closing.epoch) {
-                    let any = self.ledger.any();
-                    let Some(hash) = any.block_successor_by_qualified_root(&root) else {
-                        continue;
-                    };
-                    let Some(block) = any.get_block(&hash) else {
-                        continue;
-                    };
-                    let _ = self.aec.insert_drain_election(block, closing.epoch, now);
-                }
-            }
+            let initial_frontiers = rai_drain_frontier_snapshot_needed(
+                &mut self.initialized_drain_frontiers_epoch,
+                Some(closing),
+            )
+            .then(|| self.ledger.rai_preceding_frontiers(closing.epoch));
+            self.aec
+                .rai_progress_close(initial_frontiers, &self.ledger, now);
             // A report quorum is only enough to propose a cut.  Peers may have
             // reached quorum from different subsets and therefore be voting on
             // different cut hashes.  Keep repairing the report set until the
@@ -139,7 +226,7 @@ impl Tickable for RaiEpochTicker {
                             sequence: self.request_sequence,
                         },
                     ),
-                    rsnano_network::TrafficType::Generic,
+                    rsnano_network::TrafficType::ConfirmationRequests,
                     1.0,
                 );
                 self.last_report_request = Some(now);
@@ -147,17 +234,26 @@ impl Tickable for RaiEpochTicker {
             // Repair the active round. After a timeout certificate the root
             // changes with the round number; continuing to request round zero
             // strands replicas with incomplete First evidence forever.
-            let close_root = self.aec.rai_current_close_root();
+            let close_root = if rai_close_repair_phase_active(closing.phase) {
+                self.aec.rai_current_close_root()
+            } else {
+                None
+            };
             const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_secs(2);
             if let Some(root) = close_root
                 && self
                     .last_close_vote_request
                     .is_none_or(|last| last.elapsed(now) >= CLOSE_REPAIR_INTERVAL)
             {
-                self.request_sequence = self.request_sequence.wrapping_add(1);
+                self.close_request_sequence = self.close_request_sequence.wrapping_add(1);
                 self.flooder.flood_prs_and_some_non_prs(
                     &rsnano_messages::Message::RaiVoteRequest(rsnano_messages::RaiVoteRequest {
-                        sequence: self.request_sequence,
+                        // Close repair uses its own consecutive sequence so a
+                        // responder can rotate through bounded preimage chunk
+                        // windows without gaps caused by unrelated requests.
+                        sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG
+                            | self.close_request_sequence
+                                & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
                         epoch: closing.epoch.number(),
                         hash: BlockHash::ZERO,
                         root,
@@ -174,18 +270,36 @@ impl Tickable for RaiEpochTicker {
             }
             if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining
                 && self
-                    .last_slot_vote_request
+                    .last_slot_payload_request
                     .is_none_or(|last| last.elapsed(now) >= Duration::from_secs(2))
             {
-                for request in self.aec.rai_pending_slot_requests(closing.epoch) {
+                if self.slot_payload_request_epoch != Some(closing.epoch) {
+                    self.slot_payload_request_epoch = Some(closing.epoch);
+                    self.slot_payload_request_cursor = 0;
+                }
+                // Candidate discovery is maintained by the bounded drain
+                // worklist. Recheck every candidate against one ledger read
+                // snapshot so the custom ZERO request is sent only when the
+                // payload itself is genuinely absent.
+                let requests = {
+                    let candidates = self.aec.rai_missing_slot_payload_candidates(closing.epoch);
+                    let any = self.ledger.any();
+                    genuinely_missing_slot_payload_requests(&any, candidates)
+                };
+                for (hash, root) in
+                    rai_slot_payload_repair_window(&requests, &mut self.slot_payload_request_cursor)
+                {
+                    debug_assert!(hash.is_zero());
                     self.request_sequence = self.request_sequence.wrapping_add(1);
                     self.flooder.flood_prs_and_some_non_prs(
                         &rsnano_messages::Message::RaiVoteRequest(
                             rsnano_messages::RaiVoteRequest {
-                                sequence: self.request_sequence,
+                                sequence: rsnano_messages::RAI_SLOT_REPAIR_SEQUENCE_FLAG
+                                    | self.request_sequence
+                                        & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
                                 epoch: closing.epoch.number(),
-                                hash: request.0,
-                                root: request.1,
+                                hash,
+                                root,
                                 close_version: None,
                             },
                         ),
@@ -193,47 +307,75 @@ impl Tickable for RaiEpochTicker {
                         8.0,
                     );
                 }
-                self.last_slot_vote_request = Some(now);
+                self.last_slot_payload_request = Some(now);
             }
+        } else {
+            rai_drain_frontier_snapshot_needed(&mut self.initialized_drain_frontiers_epoch, None);
+            self.last_slot_payload_request = None;
+            self.slot_payload_request_epoch = None;
+            self.slot_payload_request_cursor = 0;
         }
-        // Reports use the same epidemic dissemination model as legacy votes:
-        // relay each newly learned immutable object once to all known PRs and
-        // a bounded random fanout of other peers. Receiving peers repeat this
-        // step, while their report identity set prevents gossip loops.
-        const MAX_REPORT_QUEUE: usize = 16 * 1024;
-        let available = MAX_REPORT_QUEUE.saturating_sub(self.report_rebroadcast_queue.len());
-        self.report_rebroadcast_queue.extend(
-            newly_seen_reports(&mut self.known_reports, self.aec.rai_reports())
+        if rai_report_epidemic_phase_active(closing) {
+            // Reports use the same epidemic dissemination model as legacy
+            // votes while they can still affect the active cut. Once this
+            // replica enters Draining, lagging peers use the explicit report
+            // request path; repeatedly cloning every retained report here
+            // would monopolize the AEC read lock at the boundary.
+            const MAX_REPORT_QUEUE: usize = 16 * 1024;
+            let available = MAX_REPORT_QUEUE.saturating_sub(self.report_rebroadcast_queue.len());
+            let epoch = closing
+                .expect("active report phase has a closing epoch")
+                .epoch;
+            self.report_rebroadcast_queue.extend(
+                newly_seen_reports(
+                    &mut self.known_reports,
+                    self.aec.rai_reports_for_epoch(epoch),
+                )
                 .into_iter()
                 .take(available),
-        );
-        while !self.report_rebroadcast_queue.is_empty()
-            && self
-                .flooder
-                .check_capacity(rsnano_network::TrafficType::Generic, 1.0)
-        {
-            let report = self.report_rebroadcast_queue.pop_front().unwrap();
-            tracing::warn!(?report, "RAI_CLOSE_TRACE report send epidemic");
-            self.flooder.flood_prs_and_some_non_prs(
-                &rsnano_messages::Message::RaiReport(report.clone().into()),
-                rsnano_network::TrafficType::Generic,
-                1.0,
             );
+            while !self.report_rebroadcast_queue.is_empty()
+                && self
+                    .flooder
+                    .check_capacity(rsnano_network::TrafficType::Generic, 1.0)
+            {
+                let report = self.report_rebroadcast_queue.pop_front().unwrap();
+                tracing::trace!(
+                    epoch = report.epoch.number(),
+                    reporter = ?report.reporter,
+                    chunk_index = report.chunk_index,
+                    chunk_count = report.chunk_count,
+                    obligations = report.visible_obligations.len(),
+                    "RAI report epidemic send"
+                );
+                self.flooder.flood_prs_and_some_non_prs(
+                    &rsnano_messages::Message::RaiReport(report.clone().into()),
+                    rsnano_network::TrafficType::Generic,
+                    1.0,
+                );
+            }
+        } else {
+            // Explicit report repair supersedes any epidemic work which could
+            // not be sent before the cut was decided.
+            self.report_rebroadcast_queue.clear();
         }
     }
 }
 
 #[cfg(feature = "rai_protocol")]
 fn newly_seen_reports(
-    known: &mut HashSet<Vec<u8>>,
+    known: &mut HashSet<RaiReportIdentity>,
     reports: Vec<crate::consensus::rai::RaiReport>,
 ) -> Vec<crate::consensus::rai::RaiReport> {
     reports
         .into_iter()
         .filter(|report| {
-            let mut identity = report.reporter.as_bytes().to_vec();
-            identity.extend_from_slice(&report.signing_bytes());
-            known.insert(identity)
+            known.insert((
+                report.epoch.number(),
+                report.reporter,
+                report.chunk_index,
+                report.signature.clone(),
+            ))
         })
         .collect()
 }
@@ -243,6 +385,8 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             clock: SteadyClock::default(),
+            #[cfg(all(test, feature = "rai_protocol"))]
+            lookup_read_locks: AtomicUsize::new(0),
         }
     }
 
@@ -269,6 +413,8 @@ impl AecService {
         Self {
             aec: RwLock::new(aec),
             clock,
+            #[cfg(all(test, feature = "rai_protocol"))]
+            lookup_read_locks: AtomicUsize::new(0),
         }
     }
 
@@ -276,7 +422,20 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             clock: SteadyClock::new_null(),
+            #[cfg(all(test, feature = "rai_protocol"))]
+            lookup_read_locks: AtomicUsize::new(0),
         }
+    }
+
+    fn read_for_lookup(&self) -> std::sync::RwLockReadGuard<'_, ActiveElectionsContainer> {
+        #[cfg(all(test, feature = "rai_protocol"))]
+        self.lookup_read_locks.fetch_add(1, Ordering::Relaxed);
+        self.aec.read().unwrap()
+    }
+
+    #[cfg(all(test, feature = "rai_protocol"))]
+    fn lookup_read_lock_count(&self) -> usize {
+        self.lookup_read_locks.load(Ordering::Relaxed)
     }
 
     // --- Read forwarding ---
@@ -300,12 +459,20 @@ impl AecService {
             .cloned()
     }
 
-    #[cfg(feature = "rai_protocol")]
+    #[cfg(all(feature = "rai_protocol", test))]
     pub(crate) fn rai_vote_context(
         &self,
         block_hash: &BlockHash,
     ) -> Option<(rsnano_types::RaiVoteMetadata, bool)> {
-        self.aec.read().unwrap().rai_vote_context(block_hash)
+        self.read_for_lookup().rai_vote_context(block_hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_vote_contexts(
+        &self,
+        block_hashes: &[BlockHash],
+    ) -> Vec<Option<(rsnano_types::RaiVoteMetadata, bool)>> {
+        self.read_for_lookup().rai_vote_contexts(block_hashes)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -404,7 +571,11 @@ impl AecService {
     }
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
-        self.aec.read().unwrap().is_active_hash(block_hash)
+        self.read_for_lookup().is_active_hash(block_hash)
+    }
+
+    pub fn any_active_hash(&self, block_hashes: &[BlockHash]) -> bool {
+        self.read_for_lookup().any_active_hash(block_hashes)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -598,7 +769,14 @@ impl AecService {
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_report_received(&self, report: crate::consensus::rai::RaiReport) {
-        tracing::warn!(?report, "RAI_CLOSE_TRACE report receive");
+        tracing::trace!(
+            epoch = report.epoch.number(),
+            reporter = ?report.reporter,
+            chunk_index = report.chunk_index,
+            chunk_count = report.chunk_count,
+            obligations = report.visible_obligations.len(),
+            "RAI report receive"
+        );
         let now = self.clock.now();
         self.aec.write().unwrap().rai_report_received(
             report,
@@ -674,17 +852,20 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn rai_pending_slot_requests(
+    pub(crate) fn rai_missing_slot_payload_candidates(
         &self,
         epoch: rsnano_types::RaiEpoch,
-    ) -> Vec<(BlockHash, rsnano_types::Root)> {
-        self.aec.read().unwrap().rai_pending_slot_requests(epoch)
+    ) -> Vec<(QualifiedRoot, Option<BlockHash>)> {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_missing_slot_payload_candidates(epoch)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_progress_close(
         &self,
-        frontiers: crate::consensus::rai::RaiFrontierMap,
+        frontiers: Option<crate::consensus::rai::RaiFrontierMap>,
         ledger: &rsnano_ledger::Ledger,
         now: Timestamp,
     ) {
@@ -692,24 +873,6 @@ impl AecService {
             .write()
             .unwrap()
             .rai_progress_close(frontiers, ledger, now);
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn rai_missing_drain_elections(&self, epoch: rsnano_types::RaiEpoch) -> Vec<QualifiedRoot> {
-        self.aec.read().unwrap().rai_missing_drain_elections(epoch)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn insert_drain_election(
-        &self,
-        block: SavedBlock,
-        epoch: rsnano_types::RaiEpoch,
-        now: Timestamp,
-    ) -> Result<(), AecInsertError> {
-        self.aec
-            .write()
-            .unwrap()
-            .insert_drain_election(block, epoch, now)
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
@@ -841,6 +1004,159 @@ impl AecService {
     }
 }
 
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_epoch_ticker_tests {
+    use super::*;
+
+    #[test]
+    fn payload_repair_selects_a_bounded_window_in_order() {
+        let requests = (0..70).collect::<Vec<_>>();
+        let mut cursor = 0;
+
+        let selected = rai_slot_payload_repair_window(&requests, &mut cursor);
+
+        assert_eq!(selected, (0..64).collect::<Vec<_>>());
+        assert_eq!(cursor, 64);
+    }
+
+    #[test]
+    fn payload_repair_window_wraps_to_the_start() {
+        let requests = (0..70).collect::<Vec<_>>();
+        let mut cursor = 64;
+
+        let selected = rai_slot_payload_repair_window(&requests, &mut cursor);
+
+        assert_eq!(selected, (64..70).chain(0..58).collect::<Vec<_>>());
+        assert_eq!(cursor, 58);
+    }
+
+    #[test]
+    fn repeated_payload_repair_windows_do_not_starve_requests() {
+        let requests = (0..130).collect::<Vec<_>>();
+        let mut cursor = 0;
+        let mut seen = std::collections::HashSet::new();
+
+        for _ in 0..3 {
+            seen.extend(rai_slot_payload_repair_window(&requests, &mut cursor));
+        }
+
+        assert_eq!(seen.len(), requests.len());
+        assert!(requests.iter().all(|request| seen.contains(request)));
+    }
+
+    #[test]
+    fn drain_frontier_snapshot_is_taken_once_per_closing_epoch() {
+        use crate::consensus::rai::{RaiClosingEpoch, RaiClosingPhase};
+        use rsnano_types::RaiEpoch;
+
+        let closing = |epoch, phase| {
+            Some(RaiClosingEpoch {
+                epoch: RaiEpoch::new(epoch),
+                phase,
+            })
+        };
+        let mut initialized_epoch = None;
+
+        assert!(!rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            closing(0, RaiClosingPhase::ElectingCut),
+        ));
+        assert!(initialized_epoch.is_none());
+        assert!(rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            closing(0, RaiClosingPhase::Draining),
+        ));
+        assert!(!rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            closing(0, RaiClosingPhase::Draining),
+        ));
+        assert_eq!(initialized_epoch, Some(RaiEpoch::ZERO));
+
+        assert!(!rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            closing(1, RaiClosingPhase::ElectingCut),
+        ));
+        assert!(initialized_epoch.is_none());
+        assert!(rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            closing(1, RaiClosingPhase::Draining),
+        ));
+        assert_eq!(initialized_epoch, Some(RaiEpoch::new(1)));
+
+        assert!(!rai_drain_frontier_snapshot_needed(
+            &mut initialized_epoch,
+            None,
+        ));
+        assert!(initialized_epoch.is_none());
+    }
+
+    #[test]
+    fn close_vote_repair_runs_only_during_an_active_close_election() {
+        use crate::consensus::rai::RaiClosingPhase;
+
+        assert!(!rai_close_repair_phase_active(
+            RaiClosingPhase::CollectingReports
+        ));
+        assert!(rai_close_repair_phase_active(RaiClosingPhase::ElectingCut));
+        assert!(!rai_close_repair_phase_active(RaiClosingPhase::Draining));
+        assert!(rai_close_repair_phase_active(
+            RaiClosingPhase::ElectingRecord
+        ));
+    }
+
+    #[test]
+    fn report_epidemic_runs_only_while_reports_can_change_the_cut() {
+        use crate::consensus::rai::{RaiClosingEpoch, RaiClosingPhase};
+        use rsnano_types::RaiEpoch;
+
+        let closing = |phase| {
+            Some(RaiClosingEpoch {
+                epoch: RaiEpoch::ZERO,
+                phase,
+            })
+        };
+        assert!(!rai_report_epidemic_phase_active(None));
+        assert!(rai_report_epidemic_phase_active(closing(
+            RaiClosingPhase::CollectingReports
+        )));
+        assert!(rai_report_epidemic_phase_active(closing(
+            RaiClosingPhase::ElectingCut
+        )));
+        assert!(!rai_report_epidemic_phase_active(closing(
+            RaiClosingPhase::Draining
+        )));
+        assert!(!rai_report_epidemic_phase_active(closing(
+            RaiClosingPhase::ElectingRecord
+        )));
+    }
+
+    #[test]
+    fn zero_payload_repair_rechecks_exact_and_root_candidates_in_one_ledger_snapshot() {
+        let ledger = rsnano_ledger::Ledger::new_null();
+        let known = ledger.genesis();
+        let unknown_root = QualifiedRoot::new(BlockHash::from(10).into(), BlockHash::from(11));
+        let exact_unknown_root =
+            QualifiedRoot::new(BlockHash::from(20).into(), BlockHash::from(21));
+        let exact_known_root = QualifiedRoot::new(BlockHash::from(30).into(), BlockHash::from(31));
+        let candidates = vec![
+            (known.qualified_root(), None),
+            (unknown_root.clone(), None),
+            (exact_known_root, Some(known.hash())),
+            (exact_unknown_root.clone(), Some(BlockHash::from(999_999))),
+        ];
+
+        let any = ledger.any();
+        let requests = genuinely_missing_slot_payload_requests(&any, candidates);
+        let mut expected = vec![
+            (BlockHash::ZERO, unknown_root.root),
+            (BlockHash::ZERO, exact_unknown_root.root),
+        ];
+        expected.sort_unstable();
+
+        assert_eq!(requests, expected);
+    }
+}
+
 impl StatsSource for AecService {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.aec.read().unwrap().collect_stats(result)
@@ -858,9 +1174,72 @@ mod rai_tests {
     use std::{sync::Arc, time::Duration};
 
     use rsnano_ledger::RepWeights;
-    use rsnano_types::{Amount, BlockHash, PrivateKey, RaiEpoch};
+    use rsnano_types::{Amount, BlockHash, BlockPriority, PrivateKey, RaiEpoch, SavedBlock};
 
     use super::*;
+
+    #[test]
+    fn batch_vote_lookups_match_scalar_results_with_one_read_lock() {
+        let service = AecService::new_null();
+        let blocks = [
+            SavedBlock::new_test_instance_with_key(10),
+            SavedBlock::new_test_instance_with_key(11),
+        ];
+        for block in &blocks {
+            service
+                .insert(
+                    AecInsertRequest {
+                        block: block.clone(),
+                        behavior: ElectionBehavior::Priority,
+                        priority: BlockPriority::new_test_instance(),
+                    },
+                    Timestamp::new_test_instance(),
+                )
+                .unwrap();
+        }
+        let hashes = vec![
+            blocks[0].hash(),
+            BlockHash::from(999),
+            blocks[1].hash(),
+            blocks[0].hash(),
+        ];
+
+        let locks_before_batch = service.lookup_read_lock_count();
+        let batch_contexts = service.rai_vote_contexts(&hashes);
+        assert_eq!(service.lookup_read_lock_count() - locks_before_batch, 1);
+
+        let locks_before_scalar = service.lookup_read_lock_count();
+        let scalar_contexts = hashes
+            .iter()
+            .map(|hash| service.rai_vote_context(hash))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            service.lookup_read_lock_count() - locks_before_scalar,
+            hashes.len()
+        );
+        assert_eq!(batch_contexts, scalar_contexts);
+        assert!(batch_contexts[0].is_some());
+        assert!(batch_contexts[1].is_none());
+        assert_eq!(batch_contexts[0], batch_contexts[3]);
+
+        let locks_before_batch = service.lookup_read_lock_count();
+        let any_active = service.any_active_hash(&hashes);
+        assert_eq!(service.lookup_read_lock_count() - locks_before_batch, 1);
+
+        let locks_before_scalar = service.lookup_read_lock_count();
+        let scalar_membership = hashes
+            .iter()
+            .map(|hash| service.is_active_hash(hash))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            service.lookup_read_lock_count() - locks_before_scalar,
+            hashes.len()
+        );
+        assert_eq!(
+            any_active,
+            scalar_membership.into_iter().any(|active| active)
+        );
+    }
 
     #[test]
     fn each_distinct_report_is_relayed_once() {

@@ -1,5 +1,7 @@
 use std::{collections::HashMap, ops::Deref};
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiVoteMetadata;
 #[cfg(not(feature = "rai_protocol"))]
 use rsnano_types::{Amount, VoteDelivery};
 use rsnano_types::{BlockHash, VoteError};
@@ -24,55 +26,9 @@ pub(super) struct ApplyVoteHelper<'a> {
 }
 
 impl<'a> ApplyVoteHelper<'a> {
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn apply_vote(&mut self) -> ApplyVoteResult {
         let mut result = ApplyVoteResult::default();
-        #[cfg(feature = "rai_protocol")]
-        {
-            let election_id = &self.args.vote.metadata.election_id;
-            for block_hash in self.args.vote.filtered_blocks() {
-                if result.per_block.contains_key(block_hash) {
-                    continue;
-                }
-                let Some(election) = self.roots.election_for_rai_id_mut(election_id) else {
-                    result
-                        .per_block
-                        .insert(*block_hash, Err(VoteError::Indeterminate));
-                    continue;
-                };
-                let timeout_vote = block_hash.is_zero()
-                    && self.args.vote.metadata.phase != rsnano_types::RaiVotePhase::Final;
-                // A signed close First vote is also the authenticated start
-                // witness used to discover a remote close version. Count it
-                // for split/timeout derivation while reconciliation obtains
-                // the preimage; notar/final votes still require an admitted
-                // validated candidate.
-                let close_first = election.is_rai_close()
-                    && self.args.vote.metadata.phase == rsnano_types::RaiVotePhase::First;
-                if !timeout_vote && !close_first && !election.contains_candidate(block_hash) {
-                    result
-                        .per_block
-                        .insert(*block_hash, Err(VoteError::Indeterminate));
-                    continue;
-                }
-                let vote_result = ApplyVoteToElectionHelper {
-                    args: self.args,
-                    recently_confirmed: self.recently_confirmed,
-                    vote_counter: self.vote_counter,
-                    observer: self.observer,
-                    election,
-                    block_hash,
-                }
-                .apply_vote();
-                result.per_block.insert(*block_hash, vote_result);
-                let confirmed = election.is_confirmed();
-                if confirmed && let Some(entry) = self.roots.erase_rai_id(election_id) {
-                    result.confirmed.push(entry);
-                }
-            }
-            return result;
-        }
-
-        #[cfg(not(feature = "rai_protocol"))]
         for block_hash in self.args.vote.filtered_blocks() {
             // Ignore duplicate hashes (should not happen with a well-behaved voting node)
             if result.per_block.contains_key(block_hash) {
@@ -95,16 +51,8 @@ impl<'a> ApplyVoteHelper<'a> {
                 }
 
                 if election.is_confirmed() {
-                    #[cfg(not(feature = "rai_protocol"))]
                     let root = election.qualified_root().clone();
-                    #[cfg(feature = "rai_protocol")]
-                    let rai_id = election.rai_id().clone();
-                    #[cfg(not(feature = "rai_protocol"))]
                     if let Some(entry) = self.roots.erase(&root) {
-                        result.confirmed.push(entry);
-                    }
-                    #[cfg(feature = "rai_protocol")]
-                    if let Some(entry) = self.roots.erase_rai_id(&rai_id) {
                         result.confirmed.push(entry);
                     }
                 }
@@ -117,8 +65,61 @@ impl<'a> ApplyVoteHelper<'a> {
             }
         }
 
-        #[cfg(not(feature = "rai_protocol"))]
-        return result;
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rai_entries(
+        &mut self,
+        entries: &[(RaiVoteMetadata, BlockHash)],
+    ) -> ApplyVoteResult {
+        let mut result = ApplyVoteResult::default();
+        // A valid wire vote is canonical, but callers may construct a Vote
+        // directly. Deduplicate the complete leaf identity rather than only
+        // the hash: the same block can legitimately appear in different RAI
+        // election contexts (for example after a retry).
+        let mut applied_entries = std::collections::HashSet::new();
+
+        for (metadata, block_hash) in entries {
+            if !applied_entries.insert((metadata.clone(), *block_hash)) {
+                continue;
+            }
+
+            let election_id = &metadata.election_id;
+            let Some(election) = self.roots.election_for_rai_id_mut(election_id) else {
+                result.record_block_result(*block_hash, Err(VoteError::Indeterminate));
+                continue;
+            };
+            let timeout_vote =
+                block_hash.is_zero() && metadata.phase != rsnano_types::RaiVotePhase::Final;
+            // A signed close First vote is also the authenticated start
+            // witness used to discover a remote close version. Count it for
+            // split/timeout derivation while reconciliation obtains the
+            // preimage; notar/final votes still require an admitted candidate.
+            let close_first =
+                election.is_rai_close() && metadata.phase == rsnano_types::RaiVotePhase::First;
+            if !timeout_vote && !close_first && !election.contains_candidate(block_hash) {
+                result.record_block_result(*block_hash, Err(VoteError::Indeterminate));
+                continue;
+            }
+            let vote_result = ApplyVoteToElectionHelper {
+                args: self.args,
+                recently_confirmed: self.recently_confirmed,
+                vote_counter: self.vote_counter,
+                observer: self.observer,
+                election,
+                block_hash,
+                rai_metadata: metadata.clone(),
+            }
+            .apply_vote();
+            result.record_block_result(*block_hash, vote_result);
+            let confirmed = election.is_confirmed();
+            if confirmed && let Some(entry) = self.roots.erase_rai_id(election_id) {
+                result.confirmed.push(entry);
+            }
+        }
+
+        result
     }
 }
 
@@ -128,6 +129,22 @@ pub(crate) struct ApplyVoteResult {
     pub confirmed: Vec<Entry>,
 }
 
+impl ApplyVoteResult {
+    #[cfg(feature = "rai_protocol")]
+    fn record_block_result(&mut self, block_hash: BlockHash, vote_result: Result<(), VoteError>) {
+        if let Some(existing) = self.per_block.get_mut(&block_hash) {
+            // The public result remains hash-keyed for compatibility, while
+            // every distinct RAI leaf is still applied. Report success if any
+            // context for that hash was accepted.
+            if existing.is_err() && vote_result.is_ok() {
+                *existing = vote_result;
+            }
+        } else {
+            self.per_block.insert(block_hash, vote_result);
+        }
+    }
+}
+
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
@@ -135,6 +152,8 @@ struct ApplyVoteToElectionHelper<'a> {
     pub observer: &'a Option<Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_metadata: RaiVoteMetadata,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -149,7 +168,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 .add_rai_vote(
                     self.args.vote.voter,
                     *self.block_hash,
-                    self.args.vote.metadata.clone(),
+                    self.rai_metadata.clone(),
                     self.args.vote.timestamp(),
                     self.args.now,
                 )
@@ -622,7 +641,8 @@ mod rai_tests {
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
-        Amount, PrivateKey, RaiVoteMetadata, SavedBlock, UnixMillisTimestamp, Vote, VoteDelivery,
+        Amount, BlockPriority, PrivateKey, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId,
+        RaiVoteMetadata, RaiVotePhase, SavedBlock, UnixMillisTimestamp, Vote, VoteDelivery,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::{sync::Arc, time::Duration};
@@ -649,8 +669,8 @@ mod rai_tests {
                 &key,
                 UnixMillisTimestamp::new(1),
                 0,
-                vec![block.hash()],
-                metadata,
+                block.hash(),
+                metadata.clone(),
             )
             .into(),
             VoteDelivery::Direct,
@@ -675,6 +695,7 @@ mod rai_tests {
             observer: &Some(tx),
             election: &mut election,
             block_hash: &block.hash(),
+            rai_metadata: metadata,
         }
         .apply_vote()
         .unwrap();
@@ -684,5 +705,98 @@ mod rai_tests {
             panic!("expected confirmation")
         };
         assert_eq!(confirmed.rai_finalization_epoch, Some(election.rai_epoch()));
+    }
+
+    #[test]
+    fn rai_batch_applies_same_hash_to_each_election_context() {
+        use crate::consensus::rai::BlockHashOrTimeout;
+
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let hash = block.hash();
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+        ];
+        let mut committee_weights = RepWeights::default();
+        for key in &keys {
+            committee_weights.put(key.public_key(), Amount::raw(1));
+        }
+        let committee = Arc::new(committee_weights);
+        let ids = [RaiEpoch::ZERO, RaiEpoch::new(1)].map(|epoch| {
+            RaiElectionId::Slot(RaiSlotId {
+                epoch,
+                root: root.clone(),
+            })
+        });
+        let mut roots = RootContainer::default();
+        for epoch in [RaiEpoch::ZERO, RaiEpoch::new(1)] {
+            let election = Election::new_slot(
+                block.clone(),
+                ElectionBehavior::Priority,
+                Duration::from_secs(1),
+                Timestamp::new_test_instance(),
+                epoch,
+            )
+            .with_rai_committees(vec![committee.clone()]);
+            assert!(roots.insert_rai(Entry {
+                root: root.clone(),
+                election,
+                priority: BlockPriority::new_test_instance(),
+            }));
+        }
+        let entries = ids
+            .iter()
+            .map(|election_id| {
+                (
+                    RaiVoteMetadata {
+                        election_id: election_id.clone(),
+                        phase: RaiVotePhase::First,
+                        epoch: match election_id {
+                            RaiElectionId::Slot(slot) => slot.epoch,
+                            _ => unreachable!(),
+                        },
+                        scope: RaiCommitteeScope::All,
+                    },
+                    hash,
+                )
+            })
+            .collect::<Vec<_>>();
+        let signed = Vote::new_rai_batch(&keys[0], UnixMillisTimestamp::new(1), 0, entries.clone());
+        signed.validate().unwrap();
+        let vote: FilteredVote =
+            ReceivedVote::new(Arc::new(signed), VoteDelivery::Direct, None).into();
+        let rep_weights = RepWeights::default();
+        let quorum_snapshot = QuorumSnapshot::new_test_instance();
+        let mut recently_confirmed = RecentlyConfirmedCache::default();
+        let mut vote_counter = VoteCounter::default();
+        let mut helper = ApplyVoteHelper {
+            args: &ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum_snapshot,
+                now: Timestamp::new_test_instance(),
+            },
+            recently_confirmed: &mut recently_confirmed,
+            vote_counter: &mut vote_counter,
+            observer: &None,
+            roots: &mut roots,
+        };
+
+        let result = helper.apply_rai_entries(&entries);
+
+        assert_eq!(result.per_block[&hash], Ok(()));
+        for id in ids {
+            let election = helper.roots.election_for_rai_id(&id).unwrap();
+            assert_eq!(
+                election.rai_votes.committees[0]
+                    .votes
+                    .first
+                    .get(&keys[0].public_key()),
+                Some(&BlockHashOrTimeout::Block(hash))
+            );
+        }
     }
 }

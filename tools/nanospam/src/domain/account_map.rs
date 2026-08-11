@@ -1,7 +1,4 @@
-use rand::{
-    rng,
-    seq::{IndexedRandom, IteratorRandom},
-};
+use rand::{rng, seq::IndexedRandom};
 use rsnano_types::{Account, Amount, BlockHash, PrivateKey, PublicKey};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -11,6 +8,8 @@ pub(crate) struct AccountMap {
     all_accounts: Vec<Account>,
     active_accounts: FxHashSet<Account>,
     active_accounts_vec: Vec<Account>,
+    sendable_accounts: Vec<Account>,
+    sendable_positions: FxHashMap<Account, usize>,
     confirmed_accounts: FxHashSet<Account>,
 
     /// Account => Send block hash + amount sent
@@ -65,13 +64,17 @@ impl AccountMap {
     }
 
     pub fn set_account_state(&mut self, account: Account, balance: Amount, frontier: BlockHash) {
-        let state = self.account_states.get_mut(&account).unwrap();
-        state.balance = balance;
-        state.unconfirmed_frontier = frontier;
-        state.confirmed_frontier = frontier;
+        {
+            let state = self.account_states.get_mut(&account).unwrap();
+            state.balance = balance;
+            state.unconfirmed_frontier = frontier;
+            state.confirmed_frontier = frontier;
+        }
         self.confirmed_accounts.insert(account);
-        self.active_accounts.insert(account);
-        self.active_accounts_vec.push(account);
+        if self.active_accounts.insert(account) {
+            self.active_accounts_vec.push(account);
+        }
+        self.set_sendable(account, !balance.is_zero());
     }
 
     pub fn set_representative(&mut self, account: Account, representative: PublicKey) {
@@ -145,6 +148,7 @@ impl AccountMap {
             },
         );
         self.confirmed_accounts.remove(&source);
+        self.remove_sendable(source);
 
         if self.active_accounts.insert(destination) {
             self.active_accounts_vec.push(destination);
@@ -175,6 +179,7 @@ impl AccountMap {
         }
         self.confirmed_receivable.remove(&(receiver, send_hash));
         self.confirmed_accounts.remove(&receiver);
+        self.remove_sendable(receiver);
 
         let state = self.account_states.get_mut(&receiver).unwrap();
         state.balance += amount;
@@ -194,6 +199,7 @@ impl AccountMap {
         state.unconfirmed_frontier = hash;
         state.representative = representative;
         self.confirmed_accounts.remove(&account);
+        self.remove_sendable(account);
         self.unconfirmed.insert(
             hash,
             UnconfirmedEntry {
@@ -224,9 +230,12 @@ impl AccountMap {
             return;
         };
         state.confirmed_frontier = *hash;
-        if state.confirmed() {
+        let confirmed = state.confirmed();
+        let sendable = confirmed && !state.balance.is_zero();
+        if confirmed {
             self.confirmed_accounts.insert(entry.source);
         }
+        self.set_sendable(entry.source, sendable);
     }
 
     #[allow(dead_code)]
@@ -253,14 +262,35 @@ impl AccountMap {
     }
 
     pub fn random_account_that_can_send(&self) -> Option<&AccountState> {
-        for _ in 0..100 {
-            let account = self.active_accounts_vec.iter().choose(&mut rng())?;
-            let state = self.account_states.get(account).unwrap();
-            if state.confirmed() && !state.balance.is_zero() {
-                return Some(state);
+        let account = self.sendable_accounts.choose(&mut rng())?;
+        Some(self.account_states.get(account).unwrap())
+    }
+
+    fn set_sendable(&mut self, account: Account, sendable: bool) {
+        if sendable {
+            if self.sendable_positions.contains_key(&account) {
+                return;
             }
+
+            let position = self.sendable_accounts.len();
+            self.sendable_accounts.push(account);
+            self.sendable_positions.insert(account, position);
+        } else {
+            self.remove_sendable(account);
         }
-        None
+    }
+
+    fn remove_sendable(&mut self, account: Account) {
+        let Some(position) = self.sendable_positions.remove(&account) else {
+            return;
+        };
+
+        let last_position = self.sendable_accounts.len() - 1;
+        self.sendable_accounts.swap_remove(position);
+        if position != last_position {
+            let moved = self.sendable_accounts[position];
+            *self.sendable_positions.get_mut(&moved).unwrap() = position;
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -388,6 +418,80 @@ mod tests {
             map.random_account_that_can_send().unwrap().key.account(),
             dest_account
         );
+    }
+
+    #[test]
+    fn sender_selection_is_exact_with_one_eligible_among_thousands() {
+        let mut map = AccountMap::default();
+        let eligible = PrivateKey::from(1).account();
+
+        for i in 1..=4_096 {
+            let key = PrivateKey::from(i);
+            let account = key.account();
+            map.add_unopened(key);
+            let balance = if account == eligible {
+                Amount::raw(1)
+            } else {
+                Amount::ZERO
+            };
+            map.set_account_state(account, balance, BlockHash::from(10_000 + i));
+        }
+
+        assert_eq!(map.active_accounts_vec.len(), 4_096);
+        assert_eq!(map.sendable_accounts, vec![eligible]);
+        assert_eq!(map.sendable_positions.get(&eligible), Some(&0));
+        for _ in 0..256 {
+            assert_eq!(
+                map.random_account_that_can_send().unwrap().key.account(),
+                eligible
+            );
+        }
+    }
+
+    #[test]
+    fn sendable_index_tracks_account_state_transitions() {
+        let mut map = AccountMap::default();
+        let source_key = PrivateKey::from(100);
+        let source = source_key.account();
+        let destination_key = PrivateKey::from(101);
+        let destination = destination_key.account();
+        map.add_unopened(source_key);
+        map.add_unopened(destination_key);
+
+        map.set_account_state(source, Amount::raw(10), BlockHash::from(1));
+        map.set_account_state(source, Amount::raw(10), BlockHash::from(1));
+        map.set_account_state(destination, Amount::raw(1), BlockHash::from(10));
+        assert_eq!(map.active_accounts_vec, vec![source, destination]);
+        assert_eq!(map.sendable_accounts, vec![source, destination]);
+        assert_eq!(map.sendable_positions.get(&source), Some(&0));
+        assert_eq!(map.sendable_positions.get(&destination), Some(&1));
+
+        let send_hash = BlockHash::from(2);
+        map.process_send(source, destination, send_hash, Amount::raw(10), None);
+        assert_eq!(map.sendable_accounts, vec![destination]);
+        assert_eq!(map.sendable_positions.get(&destination), Some(&0));
+
+        map.confirm(&send_hash);
+        assert!(map.state(&source).unwrap().confirmed());
+        assert_eq!(map.state(&source).unwrap().balance, Amount::ZERO);
+        assert!(!map.sendable_positions.contains_key(&source));
+        assert_eq!(map.sendable_accounts, vec![destination]);
+
+        let receive_hash = BlockHash::from(3);
+        map.process_receive(destination, send_hash, receive_hash, None);
+        assert!(map.random_account_that_can_send().is_none());
+        map.confirm(&receive_hash);
+        assert_eq!(
+            map.random_account_that_can_send().unwrap().key.account(),
+            destination
+        );
+
+        let change_hash = BlockHash::from(4);
+        map.process_change(destination, change_hash, PublicKey::from(200));
+        assert!(map.random_account_that_can_send().is_none());
+        map.confirm(&change_hash);
+        assert_eq!(map.sendable_accounts, vec![destination]);
+        assert_eq!(map.sendable_positions.get(&destination), Some(&0));
     }
 
     const TEST_GENESIS_ACCOUNT: Account = Account::from_bytes([1; 32]);

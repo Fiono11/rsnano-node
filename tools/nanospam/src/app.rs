@@ -50,7 +50,6 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
-const GLOBAL_TIMEOUT: Duration = Duration::from_secs(300);
 // Close elections use eventual repair and have no 24-second protocol bound.
 // Leave enough room for several report/cut/drain/record repair rounds while
 // retaining the global watchdog as the outer harness deadline.
@@ -82,16 +81,17 @@ impl NanoSpamApp {
 
     pub async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let last_phase = self.last_rai_phase.clone();
+        let global_timeout = Duration::from_secs(self.args.global_timeout_secs);
         // `run_inner` contains a synchronous scoped workload. A Tokio timer
         // alone cannot be polled while that scope is blocking this executor
         // thread, so a small OS-thread watchdog must also cancel its workers.
         let timed_shutdown = shutdown.child_token();
         let watchdog_shutdown = timed_shutdown.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(GLOBAL_TIMEOUT);
+            std::thread::sleep(global_timeout);
             watchdog_shutdown.cancel();
         });
-        match timeout(GLOBAL_TIMEOUT, self.run_inner(timed_shutdown)).await {
+        match timeout(global_timeout, self.run_inner(timed_shutdown)).await {
             Ok(result) => result.map_err(|error| {
                 anyhow!(
                     "{error:#}; last known RAI phase: {}",
@@ -99,7 +99,7 @@ impl NanoSpamApp {
                 )
             }),
             Err(_) => Err(anyhow!(
-                "nanospam exceeded the {GLOBAL_TIMEOUT:?} global timeout; last known RAI phase: {}",
+                "nanospam exceeded the {global_timeout:?} global timeout; last known RAI phase: {}",
                 last_phase.lock().unwrap()
             )),
         }
@@ -352,7 +352,7 @@ impl NanoSpamApp {
             &self.rpc_clients,
             &publication_times,
             &confirmation_latencies,
-            GLOBAL_TIMEOUT,
+            Duration::from_secs(self.args.global_timeout_secs),
         )
         .await?;
         let confirmation_latencies = confirmation_latencies.into_inner().unwrap();
@@ -500,6 +500,21 @@ fn record_rai_statuses(
             && status.closing_epoch.as_ref().map(|epoch| epoch.inner()) == Some(0)
     });
 
+    // A fast close can complete while the workload observer is stopped and
+    // before the post-workload waiter polls again. These durable fields prove
+    // the same transition: start_closing opens epoch 1 atomically with marking
+    // epoch 0 closing, and the cut/close hashes plus closed_through are retained
+    // only after that close has completed on every PR.
+    let epoch_zero_close_completed = !statuses.is_empty()
+        && statuses.iter().all(|status| {
+            status.open_epoch.inner() >= 1
+                && status.closed_through.is_some()
+                && status.cut_hashes.contains_key("0")
+                && status.close_hashes.contains_key("0")
+        });
+    observed.saw_epoch_zero_closing |= epoch_zero_close_completed;
+    observed.saw_open_epoch_one_overlap |= epoch_zero_close_completed;
+
     let cuts = statuses
         .iter()
         .filter_map(|status| status.cut_hashes.get("0"))
@@ -563,25 +578,22 @@ async fn wait_for_rai_close(
     last_phase: &Arc<Mutex<String>>,
     timeout_after: Duration,
 ) -> anyhow::Result<()> {
-    // Publications are complete before this function starts. Every submitted
-    // slot belongs to at most the currently open epoch, so closing through
-    // that epoch gives a stable final protocol state for comparison.
-    let target_epoch = fetch_rai_statuses(clients)
-        .await?
-        .iter()
-        .map(|status| status.open_epoch.inner())
-        .max()
-        .unwrap_or(0);
     let deadline = Instant::now() + timeout_after;
     loop {
         let statuses = fetch_rai_statuses(clients).await?;
         record_rai_statuses(&statuses, observation, last_phase);
-        if statuses.iter().all(|status| {
-            status
-                .closed_through
-                .as_ref()
-                .is_some_and(|epoch| epoch.inner() >= target_epoch)
-        }) && rai_finalization_tags_converged(&statuses, initial_statuses, expected_finalized)
+        // Derive the close target from epochs that actually contain this
+        // workload. Using the currently-open epoch races a fast close: by the
+        // time all confirmations are observed, the node may already have
+        // advanced and the harness would wait for an unrelated empty epoch.
+        if let Some(target_epoch) =
+            converged_workload_epoch(&statuses, initial_statuses, expected_finalized)
+            && statuses.iter().all(|status| {
+                status
+                    .closed_through
+                    .as_ref()
+                    .is_some_and(|epoch| epoch.inner() >= target_epoch)
+            })
         {
             return Ok(());
         }
@@ -595,28 +607,39 @@ async fn wait_for_rai_close(
 }
 
 #[cfg(feature = "rai_protocol")]
-fn rai_finalization_tags_converged(
+fn converged_workload_epoch(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     expected_finalized: u64,
-) -> bool {
+) -> Option<u64> {
     let Some((first, initial_first)) = statuses.first().zip(initial_statuses.first()) else {
-        return false;
+        return None;
     };
     if statuses.len() != initial_statuses.len() {
-        return false;
+        return None;
     }
     let Ok(expected_counts) = workload_counts(first, initial_first) else {
-        return false;
+        return None;
     };
-    expected_counts.values().sum::<u64>() >= expected_finalized
-        && statuses
+    if expected_counts.values().sum::<u64>() != expected_finalized
+        || !statuses
             .iter()
             .zip(initial_statuses)
             .skip(1)
             .all(|(status, initial)| {
                 workload_counts(status, initial).is_ok_and(|counts| counts == expected_counts)
             })
+    {
+        return None;
+    }
+
+    expected_counts
+        .keys()
+        .map(|epoch| epoch.parse::<u64>())
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?
+        .into_iter()
+        .max()
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -1296,28 +1319,80 @@ mod tests {
     }
 
     #[test]
-    fn finalized_tags_must_cover_workload_and_match_on_every_pr() {
+    fn completed_close_proves_transition_when_transient_phase_was_missed() {
+        let statuses = [status(4, 6, "A"), status(4, 6, "A")];
+        let initial = [status(0, 0, "A"), status(0, 0, "A")];
+        let observation = Mutex::new(RaiTransitionObservation::default());
+        let last_phase = Arc::new(Mutex::new(String::new()));
+
+        record_rai_statuses(&statuses, &observation, &last_phase);
+
+        let observed = observation.into_inner().unwrap();
+        assert!(observed.saw_epoch_zero_closing);
+        assert!(observed.saw_open_epoch_one_overlap);
+        validate_epoch_transition(&statuses, &initial, &observed).unwrap();
+    }
+
+    #[test]
+    fn incomplete_durable_close_does_not_infer_a_missed_transition() {
+        let mut incomplete = status(4, 6, "A");
+        incomplete.close_hashes.remove("0");
+        let observation = Mutex::new(RaiTransitionObservation::default());
+        let last_phase = Arc::new(Mutex::new(String::new()));
+
+        record_rai_statuses(&[incomplete], &observation, &last_phase);
+
+        let observed = observation.into_inner().unwrap();
+        assert!(!observed.saw_epoch_zero_closing);
+        assert!(!observed.saw_open_epoch_one_overlap);
+    }
+
+    #[test]
+    fn finalized_tags_must_exactly_cover_workload_and_match_on_every_pr() {
         let converged = status(1, 0, "A");
         let initial = status(0, 0, "A");
-        assert!(rai_finalization_tags_converged(
-            &[converged.clone(), converged.clone()],
-            &[initial.clone(), initial.clone()],
-            1,
-        ));
+        assert_eq!(
+            converged_workload_epoch(
+                &[converged.clone(), converged.clone()],
+                &[initial.clone(), initial.clone()],
+                1,
+            ),
+            Some(0)
+        );
+
+        let two_epochs = status(4, 6, "A");
+        assert_eq!(
+            converged_workload_epoch(
+                &[two_epochs.clone(), two_epochs],
+                &[initial.clone(), initial.clone()],
+                10,
+            ),
+            Some(1)
+        );
+
+        // Extra finalization tags must not let priority or unrelated blocks
+        // satisfy the workload oracle.
+        assert_eq!(
+            converged_workload_epoch(
+                &[converged.clone(), converged.clone()],
+                &[initial.clone(), initial.clone()],
+                0,
+            ),
+            None
+        );
 
         let mut missing_tag = converged.clone();
         missing_tag.finalized_by_epoch.insert("0".into(), 0.into());
-        assert!(!rai_finalization_tags_converged(
-            &[converged.clone(), missing_tag],
-            &[initial.clone(), initial.clone()],
-            1,
-        ));
+        assert_eq!(
+            converged_workload_epoch(
+                &[converged.clone(), missing_tag],
+                &[initial.clone(), initial.clone()],
+                1,
+            ),
+            None
+        );
 
-        assert!(!rai_finalization_tags_converged(
-            &[converged],
-            &[initial],
-            2,
-        ));
+        assert_eq!(converged_workload_epoch(&[converged], &[initial], 2,), None);
     }
 
     fn observed() -> RaiTransitionObservation {

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
@@ -55,17 +55,19 @@ pub struct RaiHappyPathDrain {
 
 impl RaiHappyPathDrain {
     pub fn is_complete(&self) -> bool {
-        self.obligations.iter().all(|slot| {
-            self.finalized.contains_key(slot)
-                || self.selected.contains_key(slot)
-                || self.released.contains_key(slot)
-        })
+        // Every mutation keeps these maps mutually exclusive. Counting their
+        // entries therefore avoids walking the entire frozen cut on every
+        // close tick.
+        let resolved = self.finalized.len() + self.selected.len() + self.released.len();
+        debug_assert!(resolved <= self.obligations.len());
+        resolved == self.obligations.len()
     }
 
-    /// Resolves an obligation from persistent certificate evidence. Releases
-    /// never advance the close-local frontier.
-    pub fn record_persistent_evidence(
-        &mut self,
+    /// Derives an obligation outcome from persistent certificate evidence
+    /// without changing the drain. Releases never advance the close-local
+    /// frontier.
+    pub fn persistent_evidence_outcome(
+        &self,
         slot: &RaiSlotId,
         evidence: &super::RaiElectionVoteState,
     ) -> Option<RaiDrainOutcome> {
@@ -84,8 +86,6 @@ impl RaiHappyPathDrain {
         if (0..evidence.committees.len())
             .any(|committee| evidence.has_timeout_certificate(committee))
         {
-            self.released
-                .insert(slot.clone(), RaiDrainOutcome::ReleasedTimeout);
             return Some(RaiDrainOutcome::ReleasedTimeout);
         }
         let mut certified = None;
@@ -95,8 +95,6 @@ impl RaiHappyPathDrain {
                     hash
                 }
                 Some(super::RaiLocalResult::Timeout) => {
-                    self.released
-                        .insert(slot.clone(), RaiDrainOutcome::ReleasedConflict);
                     return Some(RaiDrainOutcome::ReleasedConflict);
                 }
                 Some(super::RaiLocalResult::Notarized(hash)) => hash,
@@ -106,8 +104,6 @@ impl RaiHappyPathDrain {
                 .replace(hash)
                 .is_some_and(|previous| previous != hash)
             {
-                self.released
-                    .insert(slot.clone(), RaiDrainOutcome::ReleasedConflict);
                 return Some(RaiDrainOutcome::ReleasedConflict);
             }
         }
@@ -119,26 +115,48 @@ impl RaiHappyPathDrain {
                     if candidate == hash
             )
         });
-        let target = if globally_strong {
-            &mut self.finalized
+        Some(if globally_strong {
+            RaiDrainOutcome::Finalized(hash)
         } else {
-            &mut self.selected
+            RaiDrainOutcome::Selected(hash)
+        })
+    }
+
+    /// Resolves an obligation from persistent certificate evidence. Releases
+    /// never advance the close-local frontier.
+    pub fn record_persistent_evidence(
+        &mut self,
+        slot: &RaiSlotId,
+        evidence: &super::RaiElectionVoteState,
+    ) -> Option<RaiDrainOutcome> {
+        let outcome = self.persistent_evidence_outcome(slot, evidence)?;
+        let target = match outcome {
+            RaiDrainOutcome::Finalized(_) => &mut self.finalized,
+            RaiDrainOutcome::Selected(_) => &mut self.selected,
+            RaiDrainOutcome::ReleasedTimeout | RaiDrainOutcome::ReleasedConflict => {
+                return match self.released.entry(slot.clone()) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(outcome);
+                        Some(outcome)
+                    }
+                    std::collections::btree_map::Entry::Occupied(entry) => {
+                        (*entry.get() == outcome).then_some(outcome)
+                    }
+                };
+            }
+        };
+        let hash = match outcome {
+            RaiDrainOutcome::Finalized(hash) | RaiDrainOutcome::Selected(hash) => hash,
+            RaiDrainOutcome::ReleasedTimeout | RaiDrainOutcome::ReleasedConflict => unreachable!(),
         };
         match target.entry(slot.clone()) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(hash);
-                Some(if globally_strong {
-                    RaiDrainOutcome::Finalized(hash)
-                } else {
-                    RaiDrainOutcome::Selected(hash)
-                })
+                Some(outcome)
             }
-            std::collections::btree_map::Entry::Occupied(entry) => (*entry.get() == hash)
-                .then_some(if globally_strong {
-                    RaiDrainOutcome::Finalized(hash)
-                } else {
-                    RaiDrainOutcome::Selected(hash)
-                }),
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                (*entry.get() == hash).then_some(outcome)
+            }
         }
     }
 
@@ -219,6 +237,14 @@ pub struct RaiEpochManager {
     frozen_obligations: BTreeMap<RaiEpoch, BTreeSet<RaiSlotId>>,
     drains: BTreeMap<RaiEpoch, RaiHappyPathDrain>,
     known_slots: BTreeSet<RaiSlotId>,
+    /// Epochs which still lock a qualified root against a successor retry.
+    ///
+    /// `slot_election_enabled` is called once per visible election while an
+    /// epoch boundary is prepared. Looking for an older unresolved slot in
+    /// `known_slots` made that preparation quadratic in the number of slots.
+    /// Keep the same information indexed by root so each eligibility check is
+    /// independent of the total slot history.
+    unresolved_epochs_by_root: HashMap<QualifiedRoot, BTreeSet<RaiEpoch>>,
     released_slots: BTreeMap<RaiSlotId, RaiCertifiedRelease>,
     drain_frontiers: BTreeMap<RaiEpoch, BTreeMap<Account, ConfirmationHeightInfo>>,
     cut_rounds: BTreeMap<RaiEpoch, super::RaiCloseRoundTracker>,
@@ -277,6 +303,7 @@ impl RaiEpochManager {
             frozen_obligations: BTreeMap::new(),
             drains: BTreeMap::new(),
             known_slots: BTreeSet::new(),
+            unresolved_epochs_by_root: HashMap::new(),
             released_slots: BTreeMap::new(),
             drain_frontiers: BTreeMap::new(),
             cut_rounds: BTreeMap::new(),
@@ -583,7 +610,9 @@ impl RaiEpochManager {
             return Err(CloseCutDecisionError::MissingPreimage);
         }
         self.cut_hashes.insert(epoch, hash);
-        self.known_slots.extend(cut.obligations.iter().cloned());
+        for slot in cut.obligations.iter().cloned() {
+            self.record_known_slot(slot);
+        }
         self.frozen_obligations.insert(epoch, cut.obligations);
         self.drains.insert(
             epoch,
@@ -850,7 +879,7 @@ impl RaiEpochManager {
         if let Some(drain) = self.drains.get_mut(&epoch) {
             drain.finalized.append(&mut drain.selected);
         }
-        for slot in self
+        let released = self
             .known_slots
             .iter()
             // A close certificate releases old obligations omitted by the cut
@@ -866,13 +895,28 @@ impl RaiEpochManager {
                             .is_none_or(|included| !included.contains(*slot)))
             })
             .cloned()
-        {
-            self.released_slots
-                .entry(slot)
-                .or_insert(RaiCertifiedRelease {
+            .collect::<Vec<_>>();
+        for slot in released {
+            if self.released_slots.contains_key(&slot) {
+                continue;
+            }
+            self.released_slots.insert(
+                slot.clone(),
+                RaiCertifiedRelease {
                     close_epoch: epoch,
                     close_record_hash: hash,
+                },
+            );
+            let remove_root = self
+                .unresolved_epochs_by_root
+                .get_mut(&slot.root)
+                .is_some_and(|epochs| {
+                    epochs.remove(&slot.epoch);
+                    epochs.is_empty()
                 });
+            if remove_root {
+                self.unresolved_epochs_by_root.remove(&slot.root);
+            }
         }
         self.state.closing = None;
         Ok(&self
@@ -1040,6 +1084,40 @@ impl RaiEpochManager {
         self.frozen_obligations.get(&epoch)
     }
 
+    /// Certificate-unresolved slots at the point a close-drain scheduler is
+    /// initialized. The cut is immutable, so a scheduler can retain this set
+    /// and remove entries as they settle instead of rebuilding it each tick.
+    pub fn unresolved_drain_obligations(&self, epoch: RaiEpoch) -> Option<Vec<RaiSlotId>> {
+        let drain = self.drains.get(&epoch)?;
+        Some(
+            drain
+                .obligations
+                .iter()
+                .filter(|slot| {
+                    !drain.finalized.contains_key(*slot)
+                        && !drain.selected.contains_key(*slot)
+                        && !drain.released.contains_key(*slot)
+                })
+                .cloned()
+                .collect(),
+        )
+    }
+
+    /// Slots which still require a durable-ledger check while draining. A
+    /// durable finalization is terminal, while selected and released outcomes
+    /// remain eligible for the existing durable-upgrade path.
+    pub fn obligations_requiring_durable_check(&self, epoch: RaiEpoch) -> Option<Vec<RaiSlotId>> {
+        let drain = self.drains.get(&epoch)?;
+        Some(
+            drain
+                .obligations
+                .iter()
+                .filter(|slot| !drain.finalized.contains_key(*slot))
+                .cloned()
+                .collect(),
+        )
+    }
+
     pub fn happy_path_drain(&self, epoch: RaiEpoch) -> Option<&RaiHappyPathDrain> {
         self.drains.get(&epoch)
     }
@@ -1049,7 +1127,12 @@ impl RaiEpochManager {
     }
 
     pub fn record_known_slot(&mut self, slot: RaiSlotId) {
-        self.known_slots.insert(slot);
+        if self.known_slots.insert(slot.clone()) && !self.released_slots.contains_key(&slot) {
+            self.unresolved_epochs_by_root
+                .entry(slot.root)
+                .or_default()
+                .insert(slot.epoch);
+        }
     }
 
     pub fn released_slots(&self) -> &BTreeMap<RaiSlotId, RaiCertifiedRelease> {
@@ -1072,11 +1155,12 @@ impl RaiEpochManager {
         if self.released_slots.contains_key(&slot) {
             return false;
         }
-        if self.known_slots.iter().any(|known| {
-            known.epoch < epoch
-                && known.root == slot.root
-                && !self.released_slots.contains_key(known)
-        }) {
+        if self
+            .unresolved_epochs_by_root
+            .get(root)
+            .and_then(|epochs| epochs.first())
+            .is_some_and(|oldest| *oldest < epoch)
+        {
             return false;
         }
         self.state.closing.is_none_or(|closing| {
@@ -1497,6 +1581,117 @@ mod tests {
     }
 
     #[test]
+    fn persistent_evidence_outcome_does_not_clone_or_mutate_the_drain() {
+        let key = PrivateKey::from(1);
+        let slot = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let hash = BlockHash::from(10);
+        let evidence = final_evidence(&key, hash);
+        let mut drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::from([slot.clone()]),
+            finalized: BTreeMap::new(),
+            selected: BTreeMap::new(),
+            released: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            drain.persistent_evidence_outcome(&slot, &evidence),
+            Some(RaiDrainOutcome::Finalized(hash))
+        );
+        assert!(drain.finalized.is_empty());
+        assert!(drain.selected.is_empty());
+        assert!(drain.released.is_empty());
+        assert!(!drain.is_complete());
+
+        assert_eq!(
+            drain.record_persistent_evidence(&slot, &evidence),
+            Some(RaiDrainOutcome::Finalized(hash))
+        );
+        assert!(drain.is_complete());
+    }
+
+    #[test]
+    fn durable_drain_checks_skip_only_already_finalized_slots() {
+        let finalized = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let selected = slot(QualifiedRoot::new(3.into(), 4.into()));
+        let released = slot(QualifiedRoot::new(5.into(), 6.into()));
+        let unresolved = slot(QualifiedRoot::new(7.into(), 8.into()));
+        let mut manager = RaiEpochManager::new(Arc::new(RepWeights::default()), BlockHash::ZERO);
+        manager.drains.insert(
+            RaiEpoch::ZERO,
+            RaiHappyPathDrain {
+                epoch: RaiEpoch::ZERO,
+                obligations: BTreeSet::from([
+                    finalized.clone(),
+                    selected.clone(),
+                    released.clone(),
+                    unresolved.clone(),
+                ]),
+                finalized: BTreeMap::from([(finalized, BlockHash::from(10))]),
+                selected: BTreeMap::from([(selected.clone(), BlockHash::from(11))]),
+                released: BTreeMap::from([(released.clone(), RaiDrainOutcome::ReleasedTimeout)]),
+            },
+        );
+
+        assert_eq!(
+            manager.obligations_requiring_durable_check(RaiEpoch::ZERO),
+            Some(vec![selected, released, unresolved.clone()])
+        );
+        assert_eq!(
+            manager.unresolved_drain_obligations(RaiEpoch::ZERO),
+            Some(vec![unresolved])
+        );
+    }
+
+    #[test]
+    fn drain_resolution_maps_remain_mutually_exclusive() {
+        let key = PrivateKey::from(1);
+        let finalized = slot(QualifiedRoot::new(1.into(), 2.into()));
+        let selected = slot(QualifiedRoot::new(3.into(), 4.into()));
+        let released = slot(QualifiedRoot::new(5.into(), 6.into()));
+        let mut drain = RaiHappyPathDrain {
+            epoch: RaiEpoch::ZERO,
+            obligations: BTreeSet::from([finalized.clone(), selected.clone(), released.clone()]),
+            finalized: BTreeMap::new(),
+            selected: BTreeMap::new(),
+            released: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            drain.record_persistent_evidence(
+                &finalized,
+                &final_evidence(&key, BlockHash::from(10)),
+            ),
+            Some(RaiDrainOutcome::Finalized(BlockHash::from(10)))
+        );
+        assert_eq!(
+            drain.record_notarized(&selected, BlockHash::from(11)),
+            Some(RaiDrainOutcome::Selected(BlockHash::from(11)))
+        );
+        assert_eq!(
+            drain.record_persistent_evidence(&released, &timeout_evidence(&key)),
+            Some(RaiDrainOutcome::ReleasedTimeout)
+        );
+
+        assert!(drain.is_complete());
+        assert_eq!(
+            drain.finalized.len() + drain.selected.len() + drain.released.len(),
+            drain.obligations.len()
+        );
+        assert!(
+            drain.finalized.keys().all(
+                |slot| !drain.selected.contains_key(slot) && !drain.released.contains_key(slot)
+            )
+        );
+        assert!(
+            drain
+                .selected
+                .keys()
+                .all(|slot| !drain.released.contains_key(slot))
+        );
+    }
+
+    #[test]
     fn local_timeout_does_not_settle_an_obligation() {
         let root = slot(QualifiedRoot::new(1.into(), 2.into()));
         let mut drain = RaiHappyPathDrain {
@@ -1901,6 +2096,10 @@ mod tests {
         };
         let retry = RaiSlotId {
             epoch: RaiEpoch::new(1),
+            root: root.clone(),
+        };
+        let later_retry = RaiSlotId {
+            epoch: RaiEpoch::new(2),
             root,
         };
         let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
@@ -1927,6 +2126,9 @@ mod tests {
         assert!(manager.certified_release(&old).is_some());
         assert!(manager.certified_release(&retry).is_none());
         assert!(manager.slot_election_enabled(retry.epoch, &retry.root));
+        // Releasing epoch zero advances the per-root lock to epoch one; it
+        // must not accidentally make every later retry eligible.
+        assert!(!manager.slot_election_enabled(later_retry.epoch, &later_retry.root));
     }
 
     #[test]
