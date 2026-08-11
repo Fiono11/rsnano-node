@@ -3,6 +3,8 @@ use std::{cmp::Ordering, collections::BTreeSet};
 #[cfg(feature = "rai_protocol")]
 use std::collections::HashMap;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::Root;
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
@@ -67,6 +69,15 @@ pub(crate) struct RootContainer {
     rai_by_id: HashMap<crate::consensus::election::RaiElectionId, QualifiedRoot>,
     #[cfg(feature = "rai_protocol")]
     rai_ids_by_root: HashMap<QualifiedRoot, BTreeSet<crate::consensus::election::RaiElectionId>>,
+    /// Network ConfirmReq carries only the unqualified root. Keep an exact
+    /// reverse index so zero-hash RAI repair never scans every active election
+    /// to recover its protocol election id.
+    #[cfg(feature = "rai_protocol")]
+    rai_ids_by_request_root: HashMap<Root, BTreeSet<crate::consensus::election::RaiElectionId>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_ids_by_candidate: HashMap<BlockHash, BTreeSet<crate::consensus::election::RaiElectionId>>,
+    #[cfg(feature = "rai_protocol")]
+    unindexed_roots_by_candidate: HashMap<BlockHash, BTreeSet<QualifiedRoot>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -93,6 +104,12 @@ impl RootContainer {
             rai_by_id: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_ids_by_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_ids_by_request_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_ids_by_candidate: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            unindexed_roots_by_candidate: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -115,8 +132,17 @@ impl RootContainer {
         infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
 
         #[cfg(feature = "rai_protocol")]
-        for hash in entry.election.candidate_hashes() {
-            self.vote_router.connect(*hash, root.clone());
+        {
+            let indexed = self.rai_by_id.contains_key(entry.election.rai_id());
+            for hash in entry.election.candidate_hashes() {
+                self.vote_router.connect(*hash, root.clone());
+                if !indexed {
+                    self.unindexed_roots_by_candidate
+                        .entry(*hash)
+                        .or_default()
+                        .insert(root.clone());
+                }
+            }
         }
         #[cfg(not(feature = "rai_protocol"))]
         self.vote_router
@@ -142,6 +168,16 @@ impl RootContainer {
             .entry(root.clone())
             .or_default()
             .insert(id.clone());
+        self.rai_ids_by_request_root
+            .entry(root.root)
+            .or_default()
+            .insert(id.clone());
+        for hash in &candidate_hashes {
+            self.rai_ids_by_candidate
+                .entry(*hash)
+                .or_default()
+                .insert(id.clone());
+        }
 
         if self.by_root.contains_key(&root) {
             self.rai_entries.insert(id, entry);
@@ -191,7 +227,7 @@ impl RootContainer {
         &mut self,
         id: &crate::consensus::election::RaiElectionId,
     ) -> Option<Entry> {
-        let root = self.rai_by_id.remove(id)?;
+        let root = self.rai_by_id.get(id)?.clone();
         let projected = self
             .by_root
             .get(&root)
@@ -205,6 +241,17 @@ impl RootContainer {
             }
             erased
         };
+        let disconnected_hashes = erased
+            .as_ref()
+            .map(|entry| {
+                entry
+                    .election
+                    .candidate_hashes()
+                    .copied()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.rai_by_id.remove(id);
 
         let mut promote = None;
         if let Some(ids) = self.rai_ids_by_root.get_mut(&root) {
@@ -217,28 +264,50 @@ impl RootContainer {
                     .find_map(|remaining| self.rai_entries.remove(remaining));
             }
         }
+        let remove_request_root = self
+            .rai_ids_by_request_root
+            .get_mut(&root.root)
+            .is_some_and(|ids| {
+                ids.remove(id);
+                ids.is_empty()
+            });
+        if remove_request_root {
+            self.rai_ids_by_request_root.remove(&root.root);
+        }
         if let Some(entry) = promote {
             self.insert(entry);
         }
-        self.reconnect_candidate_routes_for_root(&root);
+        for hash in &disconnected_hashes {
+            let remove_bucket = self.rai_ids_by_candidate.get_mut(hash).is_some_and(|ids| {
+                ids.remove(id);
+                ids.is_empty()
+            });
+            if remove_bucket {
+                self.rai_ids_by_candidate.remove(hash);
+            }
+        }
+        self.reconnect_candidate_routes(disconnected_hashes);
         erased
     }
 
     #[cfg(feature = "rai_protocol")]
-    fn reconnect_candidate_routes_for_root(&mut self, root: &QualifiedRoot) {
-        let mut hashes = Vec::new();
-        if let Some(entry) = self.by_root.get(root) {
-            hashes.extend(entry.election.candidate_hashes().copied());
-        }
-        if let Some(ids) = self.rai_ids_by_root.get(root) {
-            for id in ids {
-                if let Some(election) = self.election_for_rai_id(id) {
-                    hashes.extend(election.candidate_hashes().copied());
-                }
-            }
-        }
+    fn reconnect_candidate_routes(&mut self, hashes: impl IntoIterator<Item = BlockHash>) {
         for hash in hashes {
-            self.vote_router.connect(hash, root.clone());
+            let root = self
+                .rai_ids_by_candidate
+                .get(&hash)
+                .and_then(|ids| ids.iter().find_map(|id| self.rai_by_id.get(id)))
+                .or_else(|| {
+                    self.unindexed_roots_by_candidate
+                        .get(&hash)
+                        .and_then(|roots| roots.first())
+                })
+                .cloned();
+            if let Some(root) = root {
+                self.vote_router.connect(hash, root);
+            } else {
+                self.vote_router.disconnect(&hash);
+            }
         }
     }
 
@@ -277,11 +346,25 @@ impl RootContainer {
     #[cfg(feature = "rai_protocol")]
     #[allow(dead_code)] // Kept as the legacy root-qualified compatibility operation.
     pub fn add_rai_hash_candidate(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
-        let Some(entry) = self.by_root.get_mut(root) else {
-            return false;
+        let id = {
+            let Some(entry) = self.by_root.get_mut(root) else {
+                return false;
+            };
+            if !entry.election.add_rai_hash_candidate(hash) {
+                return false;
+            }
+            entry.election.rai_id().clone()
         };
-        if !entry.election.add_rai_hash_candidate(hash) {
-            return false;
+        if self.rai_by_id.contains_key(&id) {
+            self.rai_ids_by_candidate
+                .entry(hash)
+                .or_default()
+                .insert(id);
+        } else {
+            self.unindexed_roots_by_candidate
+                .entry(hash)
+                .or_default()
+                .insert(root.clone());
         }
         self.vote_router.connect(hash, root.clone());
         true
@@ -302,6 +385,10 @@ impl RootContainer {
         if !election.add_rai_hash_candidate(hash) {
             return false;
         }
+        self.rai_ids_by_candidate
+            .entry(hash)
+            .or_default()
+            .insert(id.clone());
         self.vote_router.connect(hash, root);
         true
     }
@@ -312,23 +399,26 @@ impl RootContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    /// Returns only indexed RAI elections at the hash's routed root whose
-    /// stable candidate set contains the hash. `voting_hash` can temporarily
-    /// become zero during timeout voting and is therefore not a membership
-    /// test.
+    /// Returns every indexed RAI election whose stable candidate set contains
+    /// the hash. `voting_hash` can temporarily become zero during timeout
+    /// voting and is therefore not a membership test.
     pub fn rai_elections_for_candidate(
         &self,
         block_hash: &BlockHash,
     ) -> impl Iterator<Item = &Election> {
-        let ids = self
-            .vote_router
-            .qualified_root(block_hash)
-            .and_then(|root| self.rai_ids_by_root.get(root));
-        let block_hash = *block_hash;
+        let ids = self.rai_ids_by_candidate.get(block_hash);
         ids.into_iter()
             .flatten()
             .filter_map(|id| self.election_for_rai_id(id))
-            .filter(move |election| election.contains_candidate(&block_hash))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_elections_for_request_root(&self, root: &Root) -> impl Iterator<Item = &Election> {
+        self.rai_ids_by_request_root
+            .get(root)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.election_for_rai_id(id))
     }
 
     pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {
@@ -423,6 +513,21 @@ impl RootContainer {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
             self.vote_router.disconnect_election(&entry.election);
+            #[cfg(feature = "rai_protocol")]
+            if !self.rai_by_id.contains_key(entry.election.rai_id()) {
+                for hash in entry.election.candidate_hashes() {
+                    let remove_bucket = self
+                        .unindexed_roots_by_candidate
+                        .get_mut(hash)
+                        .is_some_and(|roots| {
+                            roots.remove(root);
+                            roots.is_empty()
+                        });
+                    if remove_bucket {
+                        self.unindexed_roots_by_candidate.remove(hash);
+                    }
+                }
+            }
             let bucket = &mut self.buckets[entry.bucket()];
             bucket.remove(&BucketEntry {
                 root: entry.root.clone(),
@@ -432,6 +537,10 @@ impl RootContainer {
             let bucket_info = &mut self.bucket_infos[entry.bucket()];
             bucket_info.election_count = bucket.len();
             bucket_info.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
+        }
+        #[cfg(feature = "rai_protocol")]
+        if let Some(entry) = &erased {
+            self.reconnect_candidate_routes(entry.election.candidate_hashes().copied());
         }
         erased
     }
@@ -443,6 +552,9 @@ impl RootContainer {
             self.rai_entries.clear();
             self.rai_by_id.clear();
             self.rai_ids_by_root.clear();
+            self.rai_ids_by_request_root.clear();
+            self.rai_ids_by_candidate.clear();
+            self.unindexed_roots_by_candidate.clear();
         }
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
@@ -450,6 +562,7 @@ impl RootContainer {
         for i in &mut self.bucket_infos {
             *i = BucketInfo::new(self.max_elections_per_bucket);
         }
+        self.vote_router = VoteRouter::default();
     }
 
     pub fn len(&self) -> usize {
@@ -553,9 +666,13 @@ impl RootContainer {
 #[cfg(all(test, feature = "rai_protocol"))]
 mod rai_tests {
     use super::*;
-    use crate::consensus::election::{Election, ElectionBehavior, RaiElectionId, RaiSlotId};
+    use crate::consensus::{
+        election::{Election, ElectionBehavior, RaiElectionId, RaiSlotId},
+        rai::{RaiCloseElectionId, RaiCloseKind, rai_close_cut_root},
+    };
+    use rsnano_ledger::RepWeights;
     use rsnano_types::{Amount, Block, PrivateKey, RaiEpoch, SavedBlock, StateBlockArgs};
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     fn slot_entry(block: SavedBlock, epoch: RaiEpoch) -> Entry {
         let root = block.qualified_root();
@@ -587,9 +704,31 @@ mod rai_tests {
         (make_block(1), make_block(2))
     }
 
+    fn close_cut_entry(epoch: RaiEpoch, round: u32, candidate: BlockHash) -> Entry {
+        let id = RaiCloseElectionId {
+            kind: RaiCloseKind::Cut,
+            epoch,
+            round,
+        };
+        let root = rai_close_cut_root(epoch, round);
+        Entry {
+            root: root.clone(),
+            election: Election::new_close(
+                id,
+                root,
+                candidate,
+                Arc::new(RepWeights::default()),
+                Duration::ZERO,
+                Timestamp::new_test_instance(),
+            ),
+            priority: BlockPriority::default(),
+        }
+    }
+
     #[test]
     fn rai_elections_with_the_same_root_are_isolated_by_epoch() {
         let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
         let root = block.qualified_root();
         let old_id = RaiElectionId::Slot(RaiSlotId {
             epoch: RaiEpoch::new(1),
@@ -606,6 +745,13 @@ mod rai_tests {
         assert!(roots.election_for_rai_id(&old_id).is_some());
         assert!(roots.election_for_rai_id(&new_id).is_some());
         assert!(roots.election_for_root(&root).is_none());
+        assert_eq!(
+            roots
+                .rai_elections_for_request_root(&root.root)
+                .map(|election| election.rai_id().clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([old_id.clone(), new_id.clone()])
+        );
 
         let candidate = BlockHash::from(42);
         assert!(roots.add_rai_hash_candidate_for_id(&new_id, candidate));
@@ -626,6 +772,25 @@ mod rai_tests {
         assert!(roots.election_for_rai_id(&old_id).is_none());
         assert!(roots.election_for_rai_id(&new_id).is_some());
         assert_eq!(roots.election_for_root(&root).unwrap().rai_id(), &new_id);
+        assert_eq!(
+            roots
+                .rai_elections_for_request_root(&root.root)
+                .map(|election| election.rai_id().clone())
+                .collect::<Vec<_>>(),
+            vec![new_id.clone()]
+        );
+        assert_eq!(
+            roots.rai_ids_by_candidate.get(&block_hash),
+            Some(&BTreeSet::from([new_id]))
+        );
+
+        roots.clear();
+        assert!(
+            roots
+                .rai_elections_for_request_root(&root.root)
+                .next()
+                .is_none()
+        );
     }
 
     #[test]
@@ -746,6 +911,148 @@ mod rai_tests {
         let elections = roots.rai_elections_for_candidate(&hash).collect::<Vec<_>>();
         assert_eq!(elections.len(), 1);
         assert_eq!(elections[0].rai_id(), &projected_id);
+    }
+
+    #[test]
+    fn erasing_a_cross_root_close_round_restores_the_shared_candidate_route() {
+        let epoch = RaiEpoch::new(3);
+        let candidate = BlockHash::from(42);
+        let first_id = RaiElectionId::CloseCut { epoch, round: 0 };
+        let second_id = RaiElectionId::CloseCut { epoch, round: 1 };
+        let mut roots = RootContainer::default();
+        assert!(roots.insert_rai(close_cut_entry(epoch, 0, candidate)));
+        assert!(roots.insert_rai(close_cut_entry(epoch, 1, candidate)));
+
+        assert!(roots.erase_rai_id(&second_id).is_some());
+
+        let elections = roots
+            .rai_elections_for_candidate(&candidate)
+            .collect::<Vec<_>>();
+        assert_eq!(elections.len(), 1);
+        assert_eq!(elections[0].rai_id(), &first_id);
+    }
+
+    #[test]
+    fn erasing_an_indexed_sibling_restores_an_ordinary_projection_route() {
+        let block = SavedBlock::new_test_instance();
+        let candidate = block.hash();
+        let ordinary_root = block.qualified_root();
+        let epoch = RaiEpoch::new(3);
+        let indexed_id = RaiElectionId::CloseCut { epoch, round: 0 };
+        let indexed_root = rai_close_cut_root(epoch, 0);
+        let mut roots = RootContainer::default();
+
+        roots.insert(slot_entry(block, RaiEpoch::new(1)));
+        assert_eq!(
+            roots.unindexed_roots_by_candidate.get(&candidate),
+            Some(&BTreeSet::from([ordinary_root.clone()]))
+        );
+        assert!(roots.insert_rai(close_cut_entry(epoch, 0, candidate)));
+        assert_eq!(
+            roots.vote_router.qualified_root(&candidate),
+            Some(&indexed_root)
+        );
+
+        assert!(roots.erase_rai_id(&indexed_id).is_some());
+
+        assert_eq!(
+            roots.vote_router.qualified_root(&candidate),
+            Some(&ordinary_root)
+        );
+        assert!(roots.election_for_block(&candidate).is_some());
+        assert!(!roots.rai_ids_by_candidate.contains_key(&candidate));
+        assert_eq!(
+            roots.unindexed_roots_by_candidate.get(&candidate),
+            Some(&BTreeSet::from([ordinary_root]))
+        );
+    }
+
+    #[test]
+    fn direct_erase_removes_unindexed_candidate_ownership_and_route() {
+        let block = SavedBlock::new_test_instance();
+        let candidate = block.hash();
+        let root = block.qualified_root();
+        let mut roots = RootContainer::default();
+        roots.insert(slot_entry(block, RaiEpoch::new(1)));
+
+        assert!(roots.erase(&root).is_some());
+
+        assert!(!roots.unindexed_roots_by_candidate.contains_key(&candidate));
+        assert!(!roots.vote_router.is_active(&candidate));
+    }
+
+    #[test]
+    fn rai_candidate_index_tracks_insert_add_erase_and_clear() {
+        let block = SavedBlock::new_test_instance();
+        let initial = block.hash();
+        let added = BlockHash::from(42);
+        let id = RaiElectionId::Slot(RaiSlotId {
+            epoch: RaiEpoch::new(1),
+            root: block.qualified_root(),
+        });
+        let mut roots = RootContainer::default();
+
+        assert!(roots.insert_rai(slot_entry(block.clone(), RaiEpoch::new(1))));
+        assert_eq!(
+            roots.rai_ids_by_candidate.get(&initial),
+            Some(&BTreeSet::from([id.clone()]))
+        );
+        assert!(roots.add_rai_hash_candidate_for_id(&id, added));
+        assert_eq!(
+            roots.rai_ids_by_candidate.get(&added),
+            Some(&BTreeSet::from([id.clone()]))
+        );
+
+        assert!(roots.erase_rai_id(&id).is_some());
+        assert!(!roots.rai_ids_by_candidate.contains_key(&initial));
+        assert!(!roots.rai_ids_by_candidate.contains_key(&added));
+        assert!(!roots.vote_router.is_active(&initial));
+        assert!(!roots.vote_router.is_active(&added));
+
+        assert!(roots.insert_rai(slot_entry(block, RaiEpoch::new(1))));
+        roots.clear();
+        assert!(roots.rai_ids_by_candidate.is_empty());
+        assert!(roots.unindexed_roots_by_candidate.is_empty());
+        assert!(!roots.vote_router.is_active(&initial));
+        assert!(roots.rai_elections_for_candidate(&initial).next().is_none());
+    }
+
+    #[test]
+    fn restoring_a_shared_candidate_consults_only_its_index_bucket() {
+        let epoch = RaiEpoch::new(3);
+        let shared = BlockHash::from(42);
+        let first_id = RaiElectionId::CloseCut { epoch, round: 0 };
+        let second_id = RaiElectionId::CloseCut { epoch, round: 1 };
+        let mut roots = RootContainer::default();
+        assert!(roots.insert_rai(close_cut_entry(epoch, 0, shared)));
+        assert!(roots.insert_rai(close_cut_entry(epoch, 1, shared)));
+
+        // Populate many unrelated elections. The shared hash's restoration
+        // bucket remains proportional only to the elections sharing it.
+        for round in 2..258 {
+            assert!(roots.insert_rai(close_cut_entry(
+                epoch,
+                round,
+                BlockHash::from(round as u64 + 1000),
+            )));
+        }
+        assert_eq!(
+            roots.rai_ids_by_candidate.get(&shared),
+            Some(&BTreeSet::from([first_id.clone(), second_id.clone()]))
+        );
+        assert_eq!(roots.rai_elections_for_candidate(&shared).count(), 2);
+
+        assert!(roots.erase_rai_id(&second_id).is_some());
+
+        assert_eq!(
+            roots.rai_ids_by_candidate.get(&shared),
+            Some(&BTreeSet::from([first_id.clone()]))
+        );
+        assert_eq!(
+            roots.vote_router.qualified_root(&shared),
+            roots.rai_by_id.get(&first_id)
+        );
+        assert_eq!(roots.rai_elections_for_candidate(&shared).count(), 1);
     }
 }
 

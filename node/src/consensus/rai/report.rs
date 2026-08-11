@@ -165,6 +165,57 @@ impl RaiReportStore {
         self.reports.values().cloned().collect()
     }
 
+    fn for_epoch(&self, epoch: RaiEpoch) -> impl Iterator<Item = &RaiReport> {
+        let first = (epoch, PublicKey::ZERO, u16::MIN);
+        let last = (
+            epoch,
+            PublicKey::from_bytes([u8::MAX; PublicKey::SERIALIZED_SIZE]),
+            u16::MAX,
+        );
+        self.reports.range(first..=last).map(|(_, report)| report)
+    }
+
+    /// Visits reports in canonical store order and clones only matching
+    /// entries which fit `limit`. The predicate still observes every report
+    /// in the epoch after the limit is reached, allowing a caller to preserve
+    /// its deduplication state without cloning payloads it cannot enqueue.
+    pub fn filtered_for_epoch(
+        &self,
+        epoch: RaiEpoch,
+        mut predicate: impl FnMut(&RaiReport) -> bool,
+        limit: usize,
+    ) -> Vec<RaiReport> {
+        let mut result = Vec::new();
+        for report in self.for_epoch(epoch) {
+            if predicate(report) && result.len() < limit {
+                result.push(report.clone());
+            }
+        }
+        result
+    }
+
+    /// Returns the same rotating retry window as the report repair protocol,
+    /// but keeps the epoch-sized report set borrowed and clones only the
+    /// bounded response payload.
+    pub fn response_window(&self, epoch: RaiEpoch, sequence: u64, limit: usize) -> Vec<RaiReport> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let reports = self.for_epoch(epoch).collect::<Vec<_>>();
+        if reports.len() <= limit {
+            return reports.into_iter().cloned().collect();
+        }
+
+        let start = sequence as usize % reports.len();
+        reports
+            .into_iter()
+            .cycle()
+            .skip(start)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     pub fn insert(&mut self, report: RaiReport) -> Result<ReportInsert, ReportError> {
         if report
             .visible_obligations
@@ -216,6 +267,35 @@ impl RaiReportStore {
         self.equivocators.contains(&(epoch, *reporter))
     }
 
+    fn complete_report_chunks_by_reporter<'a>(
+        &'a self,
+        epoch: RaiEpoch,
+        committee: &RepWeights,
+    ) -> Vec<(PublicKey, Vec<&'a RaiReport>)> {
+        let mut grouped = Vec::<(PublicKey, Vec<&RaiReport>)>::new();
+        for report in self.for_epoch(epoch) {
+            if grouped
+                .last()
+                .is_none_or(|(reporter, _)| *reporter != report.reporter)
+            {
+                grouped.push((report.reporter, Vec::new()));
+            }
+            grouped.last_mut().unwrap().1.push(report);
+        }
+        grouped.retain(|(reporter, chunks)| {
+            !self.is_equivocator(epoch, reporter)
+                && !committee.weight(reporter).is_zero()
+                && chunks.first().is_some_and(|first| {
+                    chunks.len() == first.chunk_count as usize
+                        && chunks
+                            .iter()
+                            .enumerate()
+                            .all(|(index, report)| report.chunk_index as usize == index)
+                })
+        });
+        grouped
+    }
+
     pub fn report_weight(
         &self,
         epoch: RaiEpoch,
@@ -235,15 +315,10 @@ impl RaiReportStore {
         RaiReportProof {
             epoch,
             reports: self
-                .reports
-                .iter()
-                .filter(|((e, reporter, _), _)| {
-                    *e == epoch
-                        && !self.is_equivocator(epoch, reporter)
-                        && self.has_complete_report(epoch, reporter)
-                        && !committee.weight(reporter).is_zero()
-                })
-                .map(|(_, report)| report.clone())
+                .complete_report_chunks_by_reporter(epoch, committee)
+                .into_iter()
+                .flat_map(|(_, chunks)| chunks)
+                .cloned()
                 .collect(),
         }
     }
@@ -254,14 +329,10 @@ impl RaiReportStore {
             return false;
         }
         let faulty = rai_fault_allowance(total);
-        self.proof(epoch, committee)
-            .reports
-            .iter()
-            .map(|report| report.reporter)
-            .collect::<BTreeSet<_>>()
-            .iter()
-            .fold(0u128, |sum, reporter| {
-                sum.saturating_add(raw(committee.weight(reporter)))
+        self.complete_report_chunks_by_reporter(epoch, committee)
+            .into_iter()
+            .fold(0u128, |sum, (reporter, _)| {
+                sum.saturating_add(raw(committee.weight(&reporter)))
             })
             >= total.saturating_sub(faulty)
     }
@@ -270,14 +341,10 @@ impl RaiReportStore {
         let total = total_weight(committee);
         total != 0
             && self
-                .proof(epoch, committee)
-                .reports
-                .iter()
-                .map(|report| report.reporter)
-                .collect::<BTreeSet<_>>()
-                .iter()
-                .fold(0u128, |sum, reporter| {
-                    sum.saturating_add(raw(committee.weight(reporter)))
+                .complete_report_chunks_by_reporter(epoch, committee)
+                .into_iter()
+                .fold(0u128, |sum, (reporter, _)| {
+                    sum.saturating_add(raw(committee.weight(&reporter)))
                 })
                 == total
     }
@@ -306,20 +373,22 @@ impl RaiReportStore {
         committee: &RepWeights,
     ) -> BTreeSet<RaiSlotId> {
         let faulty = rai_fault_allowance(total_weight(committee));
-        let mut support = BTreeMap::<RaiSlotId, u128>::new();
-        for report in self.proof(epoch, committee).reports {
-            let weight = raw(committee.weight(&report.reporter));
-            for obligation in report.visible_obligations {
-                support
-                    .entry(obligation)
-                    .and_modify(|total| *total = total.saturating_add(weight))
-                    .or_insert(weight);
+        let mut support = BTreeMap::<&RaiSlotId, u128>::new();
+        for (reporter, chunks) in self.complete_report_chunks_by_reporter(epoch, committee) {
+            let weight = raw(committee.weight(&reporter));
+            for report in chunks {
+                for obligation in &report.visible_obligations {
+                    support
+                        .entry(obligation)
+                        .and_modify(|total| *total = total.saturating_add(weight))
+                        .or_insert(weight);
+                }
             }
         }
         support
             .into_iter()
             .filter(|(_, weight)| *weight > faulty)
-            .map(|(obligation, _)| obligation)
+            .map(|(obligation, _)| obligation.clone())
             .collect()
     }
 }

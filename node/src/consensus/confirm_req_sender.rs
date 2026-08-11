@@ -93,12 +93,18 @@ impl ConfirmReqSender {
         }
     }
 
-    fn should_send_confirm_req(&self, election: &Election) -> bool {
+    pub(crate) fn should_send_confirm_req(&self, election: &Election) -> bool {
         if let Some(last_req) = self.last_requests.get(election.qualified_root()) {
             last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election)
         } else {
             true
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_request_for_test(&mut self, election: &Election) {
+        self.last_requests
+            .insert(election.qualified_root().clone(), self.clock.now());
     }
 
     /// Calculates time delay between broadcasting confirmation requests

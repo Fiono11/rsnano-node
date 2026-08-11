@@ -78,22 +78,6 @@ fn rai_close_repair_response_window<T>(mut chunks: Vec<T>, sequence: u64) -> Vec
     chunks
 }
 
-/// Reports can be close to the 64 KiB wire-frame limit. Returning every
-/// retained chunk to every requesting peer at once overwhelms the bounded
-/// channel queue and repeatedly drops the same tail chunks. A small rotating
-/// window keeps repair traffic bounded while putting every chunk first on a
-/// later retry, which preserves liveness even if only one reply can be queued.
-#[cfg(feature = "rai_protocol")]
-fn rai_report_repair_response_window<T>(mut reports: Vec<T>, sequence: u64) -> Vec<T> {
-    if reports.len() <= MAX_RAI_REPORT_CHUNKS_PER_RESPONSE {
-        return reports;
-    }
-    let start = sequence % reports.len() as u64;
-    reports.rotate_left(start as usize);
-    reports.truncate(MAX_RAI_REPORT_CHUNKS_PER_RESPONSE);
-    reports
-}
-
 #[cfg(feature = "rai_protocol")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RaiVoteRequestKind {
@@ -105,12 +89,55 @@ enum RaiVoteRequestKind {
 #[cfg(feature = "rai_protocol")]
 impl RaiVoteRequestKind {
     fn permits_cached_vote_replay(self) -> bool {
-        self != Self::MarkedSlot
+        self == Self::Legacy
     }
 
     fn permits_vote_generation(self) -> bool {
-        self != Self::MarkedSlot
+        self == Self::Legacy
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_close_kind_for_root(
+    epoch: rsnano_types::RaiEpoch,
+    root: &rsnano_types::Root,
+) -> Option<crate::consensus::rai::RaiCloseKind> {
+    // Retain the bounded root-only compatibility check for old envelopes.
+    // Current exact requests carry the marker and a digest, but the synthetic
+    // root still selects whether that digest denotes a cut or a record.
+    (0..=1024).find_map(|round| {
+        if crate::consensus::rai::rai_close_cut_root(epoch, round).root == *root {
+            Some(crate::consensus::rai::RaiCloseKind::Cut)
+        } else if crate::consensus::rai::rai_close_record_root(epoch, round).root == *root {
+            Some(crate::consensus::rai::RaiCloseKind::Record)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_close_preimage_response(
+    sequence: u64,
+    epoch: u64,
+    hash: rsnano_types::BlockHash,
+    root: rsnano_types::Root,
+    close_version: Option<rsnano_messages::RaiCloseVersionWire>,
+) -> Vec<rsnano_messages::RaiVoteRequest> {
+    let Some(close_version) = close_version else {
+        return Vec::new();
+    };
+    rai_close_repair_response_window(
+        rsnano_messages::RaiVoteRequest {
+            sequence,
+            epoch,
+            hash,
+            root,
+            close_version: Some(close_version),
+        }
+        .into_chunks(),
+        sequence,
+    )
 }
 
 /// New peers reserve sequence high bits as O(1) repair discriminators. The
@@ -134,14 +161,10 @@ fn classify_rai_vote_request(
             .then_some(RaiVoteRequestKind::MarkedSlot);
     }
     if repair_kind == rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG {
-        // Preserve the previous treatment of malformed nonzero close requests
-        // as non-close traffic. Valid close preimage replies carry a nonzero
-        // hash and are consumed before request handling below.
-        return Some(if request.hash.is_zero() {
-            RaiVoteRequestKind::Close
-        } else {
-            RaiVoteRequestKind::Legacy
-        });
+        // Current close requests name the exact nonzero signed candidate whose
+        // preimage is missing. Replies use the same marker and add the
+        // canonical close_version payload.
+        return Some(RaiVoteRequestKind::Close);
     }
     if repair_kind != 0 {
         // Both reserved kind bits set is not a valid request classification.
@@ -151,11 +174,7 @@ fn classify_rai_vote_request(
         return Some(RaiVoteRequestKind::Legacy);
     }
     // Compatibility path only. Current senders always use the sequence flag.
-    let is_close = (0..=1024).any(|round| {
-        crate::consensus::rai::rai_close_cut_root(requested_epoch, round).root == request.root
-            || crate::consensus::rai::rai_close_record_root(requested_epoch, round).root
-                == request.root
-    });
+    let is_close = rai_close_kind_for_root(requested_epoch, &request.root).is_some();
     Some(if is_close {
         RaiVoteRequestKind::Close
     } else {
@@ -552,9 +571,14 @@ impl NetworkMessageProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             Message::RaiReportRequest(request) => {
-                let reports = rai_report_repair_response_window(
-                    self.active_elections.rai_reports_for_epoch(request.epoch),
+                // Reports can be close to the 64 KiB wire-frame limit. Borrow
+                // the epoch-sized store and clone only this rotating response
+                // window so retries remain bounded without monopolizing the
+                // AEC lock or repeatedly copying every retained payload.
+                let reports = self.active_elections.rai_report_response_window(
+                    request.epoch,
                     request.sequence,
+                    MAX_RAI_REPORT_CHUNKS_PER_RESPONSE,
                 );
                 let mut sender = self.message_sender.lock().unwrap();
                 for report in reports {
@@ -681,64 +705,61 @@ impl NetworkMessageProcessor {
                     }
                     return;
                 }
-                // Close votes authenticate only a hash. Send every locally
-                // retained canonical preimage as a one-way repair reply so a
-                // lagging peer can validate and apply the signed vote leaves.
-                // A lagging peer may already be in a successor round which
-                // this responder never entered. The reserved sequence marker
-                // identifies close repair without depending on a locally
-                // retained election id (or hashing every possible round).
-                let is_close_request = request_kind == RaiVoteRequestKind::Close;
-                if !is_close_request {
-                    for block in self.active_elections.rai_blocks_for_request(
+                if request_kind == RaiVoteRequestKind::Close {
+                    // ZERO was the old epoch-wide query. It deliberately has
+                    // no reply now: a custom close request must be justified
+                    // by one retained signed leaf naming an exact digest.
+                    if request.hash.is_zero() {
+                        return;
+                    }
+                    let close_version =
+                        match rai_close_kind_for_root(requested_epoch, &request.root) {
+                            Some(crate::consensus::rai::RaiCloseKind::Cut) => self
+                                .active_elections
+                                .rai_close_cut_version(requested_epoch, &request.hash)
+                                .map(|cut| {
+                                    rsnano_messages::RaiCloseVersionWire::Cut(
+                                        rsnano_messages::RaiCloseCutWire {
+                                            epoch: request.epoch,
+                                            obligations: cut.obligations.into_iter().collect(),
+                                        },
+                                    )
+                                }),
+                            Some(crate::consensus::rai::RaiCloseKind::Record) => self
+                                .active_elections
+                                .rai_close_record_version(requested_epoch, &request.hash)
+                                .map(|record| {
+                                    rsnano_messages::RaiCloseVersionWire::Record(
+                                        rsnano_messages::RaiCloseRecordWire {
+                                            epoch: request.epoch,
+                                            previous: record.previous,
+                                            frontiers: record
+                                                .frontiers
+                                                .into_iter()
+                                                .map(|(account, info)| {
+                                                    (account, info.height, info.frontier)
+                                                })
+                                                .collect(),
+                                        },
+                                    )
+                                }),
+                            None => None,
+                        };
+                    let replies = rai_close_preimage_response(
+                        request.sequence,
+                        request.epoch,
                         request.hash,
                         request.root,
-                        requested_epoch,
-                    ) {
-                        self.message_sender.lock().unwrap().try_send(
-                            channel,
-                            &Message::Publish(rsnano_messages::Publish::new_forward(block)),
-                            rsnano_network::TrafficType::BlockBroadcast,
+                        close_version,
+                    );
+                    if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
+                        eprintln!(
+                            "RAI_MSG pr={pr} event=repair_request epoch={requested_epoch:?} root={} hash={} chunks={}",
+                            request.root,
+                            request.hash,
+                            replies.len()
                         );
                     }
-                }
-                let cut_versions = is_close_request
-                    .then(|| {
-                        self.active_elections
-                            .rai_close_cut_versions(requested_epoch)
-                    })
-                    .unwrap_or_default();
-                let record_versions = is_close_request
-                    .then(|| {
-                        self.active_elections
-                            .rai_close_record_versions(requested_epoch)
-                    })
-                    .unwrap_or_default();
-                if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
-                    eprintln!(
-                        "RAI_MSG pr={pr} event=repair_request epoch={requested_epoch:?} root={} cuts={} records={}",
-                        request.root,
-                        cut_versions.len(),
-                        record_versions.len()
-                    );
-                }
-                for cut in cut_versions {
-                    let replies = rai_close_repair_response_window(
-                        rsnano_messages::RaiVoteRequest {
-                            sequence: request.sequence,
-                            epoch: request.epoch,
-                            hash: cut.hash(),
-                            root: request.root,
-                            close_version: Some(rsnano_messages::RaiCloseVersionWire::Cut(
-                                rsnano_messages::RaiCloseCutWire {
-                                    epoch: request.epoch,
-                                    obligations: cut.obligations.into_iter().collect(),
-                                },
-                            )),
-                        }
-                        .into_chunks(),
-                        request.sequence,
-                    );
                     let mut sender = self.message_sender.lock().unwrap();
                     for reply in replies {
                         if !sender.try_send(
@@ -749,53 +770,31 @@ impl NetworkMessageProcessor {
                             break;
                         }
                     }
+                    // Close votes remain exclusively on the ordinary batched
+                    // ConfirmReq/ConfirmAck path. Never replay or generate a
+                    // ConfirmAck from this custom preimage exchange.
+                    return;
                 }
-                for record in record_versions {
-                    let replies = rai_close_repair_response_window(
-                        rsnano_messages::RaiVoteRequest {
-                            sequence: request.sequence,
-                            epoch: request.epoch,
-                            hash: record.hash(),
-                            root: request.root,
-                            close_version: Some(rsnano_messages::RaiCloseVersionWire::Record(
-                                rsnano_messages::RaiCloseRecordWire {
-                                    epoch: request.epoch,
-                                    previous: record.previous,
-                                    frontiers: record
-                                        .frontiers
-                                        .into_iter()
-                                        .map(|(account, info)| {
-                                            (account, info.height, info.frontier)
-                                        })
-                                        .collect(),
-                                },
-                            )),
-                        }
-                        .into_chunks(),
-                        request.sequence,
+
+                for block in self.active_elections.rai_blocks_for_request(
+                    request.hash,
+                    request.root,
+                    requested_epoch,
+                ) {
+                    self.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &Message::Publish(rsnano_messages::Publish::new_forward(block)),
+                        rsnano_network::TrafficType::BlockBroadcast,
                     );
-                    let mut sender = self.message_sender.lock().unwrap();
-                    for reply in replies {
-                        if !sender.try_send(
-                            channel,
-                            &Message::RaiVoteRequest(reply),
-                            rsnano_network::TrafficType::VoteReply,
-                        ) {
-                            break;
-                        }
-                    }
                 }
-                // Close and compatibility requests return all retained signed
-                // evidence, not merely this node's own vote. Marked slot
-                // repair is payload-only; its votes travel through ConfirmReq.
-                let votes = if !request_kind.permits_cached_vote_replay() {
-                    Vec::new()
-                } else if is_close_request {
-                    self.active_elections
-                        .rai_close_votes_for_epoch(requested_epoch)
-                } else {
+                // Marked slot repair is Publish-only. Compatibility requests
+                // may still use the old replay behavior; current slot votes
+                // travel through ordinary batched ConfirmReq.
+                let votes = if request_kind.permits_cached_vote_replay() {
                     self.active_elections
                         .rai_votes_for_root(&request.root, requested_epoch)
+                } else {
+                    Vec::new()
                 };
                 for vote in votes {
                     self.message_sender.lock().unwrap().try_send(
@@ -996,6 +995,139 @@ mod rai_close_repair_tests {
     }
 
     #[test]
+    fn zero_hash_close_request_has_no_epoch_wide_reply() {
+        let message_sender = crate::transport::MessageSender::new_null();
+        let sent = message_sender.track();
+        let processor = processor_with_rai_state(
+            Arc::new(crate::consensus::AecService::new_null()),
+            message_sender,
+        );
+        let epoch = RaiEpoch::new(7);
+        processor.process(
+            Message::RaiVoteRequest(RaiVoteRequest {
+                sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG | 1,
+                epoch: epoch.number(),
+                hash: BlockHash::ZERO,
+                root: crate::consensus::rai::rai_close_cut_root(epoch, 0).root,
+                close_version: None,
+            }),
+            &Channel::new_test_instance().into(),
+        );
+
+        assert!(sent.output().is_empty());
+    }
+
+    #[test]
+    fn exact_close_request_returns_only_matching_preimage_and_no_votes() {
+        use crate::consensus::rai::{RaiCloseCut, RaiReport};
+
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+        ];
+        let committee = Arc::new(RepWeights::from(
+            keys.each_ref()
+                .map(|key| (key.public_key(), Amount::raw(1))),
+        ));
+        let ledger = Arc::new(Ledger::new_null());
+        let active_elections = Arc::new(crate::consensus::AecService::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_millis(25),
+            committee.clone(),
+            BlockHash::from(7),
+            ledger,
+        ));
+        let epoch = RaiEpoch::ZERO;
+        let now = Timestamp::new_test_instance();
+        active_elections.rai_tick(now, &keys[0], Duration::ZERO);
+        for key in &keys[1..] {
+            active_elections.rai_report_received(RaiReport::new(key, epoch, []));
+        }
+        active_elections.rai_tick(now + Duration::from_millis(1), &keys[0], Duration::ZERO);
+
+        let root = crate::consensus::rai::rai_close_cut_root(epoch, 0);
+        let requested_cut = active_elections
+            .rai_close_cut_versions(epoch)
+            .into_iter()
+            .next()
+            .expect("full report coverage starts the cut election");
+        let requested_hash = requested_cut.hash();
+        let unrelated_cut = RaiCloseCut::new(
+            epoch,
+            [RaiSlotId {
+                epoch,
+                root: QualifiedRoot::new_test_instance(),
+            }],
+        );
+        let unrelated_hash = unrelated_cut.hash();
+        assert_ne!(unrelated_hash, requested_hash);
+        assert!(active_elections.reconcile_rai_close_cut(unrelated_cut, root.root));
+
+        // Keep real signed evidence in the cache. The former close-repair
+        // path would replay it as a ConfirmAck alongside every cut version.
+        let metadata = RaiVoteMetadata {
+            election_id: RaiElectionId::CloseCut { epoch, round: 0 },
+            phase: RaiVotePhase::First,
+            epoch,
+            scope: RaiCommitteeScope::All,
+        };
+        let vote = Arc::new(Vote::new_rai(
+            &keys[0],
+            UnixMillisTimestamp::new(1),
+            0,
+            requested_hash,
+            metadata,
+        ));
+        let vote = FilteredVote::new(
+            ReceivedVote::new(vote, VoteDelivery::Direct, None),
+            BlockHash::ZERO,
+        );
+        assert_eq!(
+            active_elections.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: committee.as_ref(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            })[&requested_hash],
+            Ok(())
+        );
+
+        let message_sender = crate::transport::MessageSender::new_null();
+        let sent = message_sender.track();
+        let processor = processor_with_rai_state(active_elections, message_sender);
+        processor.process(
+            Message::RaiVoteRequest(RaiVoteRequest {
+                sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG | 1,
+                epoch: epoch.number(),
+                hash: requested_hash,
+                root: root.root,
+                close_version: None,
+            }),
+            &Channel::new_test_instance().into(),
+        );
+
+        let responses = sent.output();
+        assert_eq!(responses.len(), 1);
+        assert!(
+            !responses
+                .iter()
+                .any(|response| matches!(&response.message, Message::ConfirmAck(_)))
+        );
+        let Message::RaiVoteRequest(reply) = &responses[0].message else {
+            panic!("exact close repair must return only its preimage envelope");
+        };
+        assert_eq!(reply.hash, requested_hash);
+        assert_ne!(reply.hash, unrelated_hash);
+        assert!(matches!(
+            &reply.close_version,
+            Some(RaiCloseVersionWire::Cut(cut))
+                if cut.obligations == requested_cut.obligations.iter().cloned().collect::<Vec<_>>()
+        ));
+    }
+
+    #[test]
     fn reassembles_out_of_order_cut_chunks_and_ignores_retries() {
         let expected = (0..=rsnano_messages::MAX_RAI_CLOSE_CUT_CHUNK_ENTRIES)
             .map(|i| RaiSlotId {
@@ -1126,17 +1258,31 @@ mod rai_close_repair_tests {
 
     #[test]
     fn report_retry_windows_are_bounded_and_eventually_lead_with_every_chunk() {
+        use crate::consensus::rai::{RaiReport, RaiReportStore};
+
         let report_count = MAX_RAI_REPORT_CHUNKS_PER_RESPONSE * 5 + 1;
+        let epoch = RaiEpoch::new(5);
+        let mut reports = RaiReportStore::default();
+        for key in 1..=report_count as u64 {
+            reports
+                .insert(RaiReport::new(&PrivateKey::from(key), epoch, []))
+                .unwrap();
+        }
+        let expected = reports
+            .filtered_for_epoch(epoch, |_| true, usize::MAX)
+            .into_iter()
+            .map(|report| report.reporter)
+            .collect::<HashSet<_>>();
         let mut first_seen = HashSet::new();
 
         for sequence in 0..report_count as u64 {
             let window =
-                rai_report_repair_response_window((0..report_count).collect::<Vec<_>>(), sequence);
+                reports.response_window(epoch, sequence, MAX_RAI_REPORT_CHUNKS_PER_RESPONSE);
             assert_eq!(window.len(), MAX_RAI_REPORT_CHUNKS_PER_RESPONSE);
-            first_seen.insert(window[0]);
+            first_seen.insert(window[0].reporter);
         }
 
-        assert_eq!(first_seen.len(), report_count);
+        assert_eq!(first_seen, expected);
     }
 
     #[test]
@@ -1153,6 +1299,8 @@ mod rai_close_repair_tests {
             classify_rai_vote_request(&request, epoch),
             Some(RaiVoteRequestKind::Close)
         );
+        assert!(!RaiVoteRequestKind::Close.permits_cached_vote_replay());
+        assert!(!RaiVoteRequestKind::Close.permits_vote_generation());
 
         // A marked slot request is payload repair only.
         request.sequence = rsnano_messages::RAI_SLOT_REPAIR_SEQUENCE_FLAG | 1;
@@ -1167,10 +1315,16 @@ mod rai_close_repair_tests {
         request.hash = BlockHash::from(1);
         assert_eq!(classify_rai_vote_request(&request, epoch), None);
 
-        // Preserve the prior handling of a malformed nonzero close request as
-        // legacy non-close traffic. Close preimage replies are handled before
-        // this classification is used for request behavior.
+        // Current close requests name the exact nonzero missing digest, and
+        // replies use the same envelope plus close_version.
         request.sequence = rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG | 1;
+        assert_eq!(
+            classify_rai_vote_request(&request, epoch),
+            Some(RaiVoteRequestKind::Close)
+        );
+
+        // An unmarked nonzero envelope retains legacy compatibility.
+        request.sequence = 1;
         assert_eq!(
             classify_rai_vote_request(&request, epoch),
             Some(RaiVoteRequestKind::Legacy)
@@ -1199,6 +1353,50 @@ mod rai_close_repair_tests {
         }
 
         assert_eq!(seen.len(), chunk_count);
+    }
+
+    #[test]
+    fn exact_close_preimage_response_has_one_global_chunk_bound() {
+        let sequence = rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG | 3;
+        let epoch = 9;
+        let hash = BlockHash::from(91);
+        let root = crate::consensus::rai::rai_close_record_root(epoch.into(), 2).root;
+        let entry_count = rsnano_messages::MAX_RAI_CLOSE_RECORD_CHUNK_ENTRIES
+            * (MAX_RAI_CLOSE_REPAIR_CHUNKS_PER_RESPONSE + 4)
+            + 1;
+        let frontiers = (0..entry_count)
+            .map(|i| {
+                (
+                    Account::from(i as u64 + 1),
+                    i as u64,
+                    BlockHash::from(i as u64 + 2),
+                )
+            })
+            .collect();
+
+        let replies = rai_close_preimage_response(
+            sequence,
+            epoch,
+            hash,
+            root,
+            Some(RaiCloseVersionWire::Record(
+                rsnano_messages::RaiCloseRecordWire {
+                    epoch,
+                    previous: BlockHash::from(90),
+                    frontiers,
+                },
+            )),
+        );
+
+        assert_eq!(replies.len(), MAX_RAI_CLOSE_REPAIR_CHUNKS_PER_RESPONSE);
+        assert!(replies.iter().all(|reply| {
+            reply.hash == hash
+                && reply.root == root
+                && matches!(
+                    reply.close_version,
+                    Some(RaiCloseVersionWire::RecordChunk(_))
+                )
+        }));
     }
 
     #[test]

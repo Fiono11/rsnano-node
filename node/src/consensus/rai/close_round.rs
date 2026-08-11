@@ -72,14 +72,16 @@ impl RaiCloseRoundState {
         }
         let mut supported = BTreeSet::new();
         let mut terminal_count = 0;
+        let mut has_notarized_result = false;
         for committee in 0..self.evidence.committees.len() {
             match self.evidence.local_result(committee) {
                 Some(RaiLocalResult::Timeout) => return RaiCloseRoundResult::Dead,
-                Some(
-                    RaiLocalResult::Notarized(hash)
-                    | RaiLocalResult::Fast(hash)
-                    | RaiLocalResult::Final(hash),
-                ) => {
+                Some(RaiLocalResult::Notarized(hash)) => {
+                    has_notarized_result = true;
+                    supported.insert(hash);
+                    terminal_count += 1;
+                }
+                Some(RaiLocalResult::Fast(hash) | RaiLocalResult::Final(hash)) => {
                     supported.insert(hash);
                     terminal_count += 1;
                 }
@@ -89,7 +91,12 @@ impl RaiCloseRoundState {
         if supported.len() > 1 {
             RaiCloseRoundResult::Dead
         } else if terminal_count == self.evidence.committees.len() && terminal_count != 0 {
-            RaiCloseRoundResult::LiveCarry(*supported.first().unwrap())
+            let hash = *supported.first().unwrap();
+            if has_notarized_result {
+                RaiCloseRoundResult::LiveCarry(hash)
+            } else {
+                RaiCloseRoundResult::Decided(hash)
+            }
         } else {
             RaiCloseRoundResult::Pending
         }
@@ -252,6 +259,11 @@ impl RaiCloseRoundTracker {
         let Some(state) = self.rounds.get_mut(&round) else {
             return false;
         };
+        if let RaiCloseRoundResult::Decided(expected) = state.derive()
+            && expected != hash
+        {
+            return false;
+        }
         if !state.validated_preimages.contains(&hash) {
             return false;
         }
@@ -293,6 +305,54 @@ mod tests {
                 votes: super::super::RaiCommitteeVoteState::default(),
             };
             state.votes.notar.insert(key, HashSet::from([*result]));
+            committees.push(state);
+        }
+        RaiElectionVoteState {
+            committees,
+            outcome: Default::default(),
+        }
+    }
+
+    fn terminal_evidence(results: &[RaiLocalResult]) -> RaiElectionVoteState {
+        let mut committees = Vec::new();
+        for (index, result) in results.iter().enumerate() {
+            let key = PublicKey::from(index as u64 + 1);
+            let weights = Arc::new(RepWeights::from([(key, Amount::raw(1))]));
+            let mut state = super::super::RaiCommitteeInstance {
+                weights,
+                thresholds: super::super::RaiThresholds {
+                    faulty: Amount::ZERO,
+                    slack: Amount::ZERO,
+                    progression: Amount::raw(1),
+                    notarization: Amount::raw(1),
+                    fast: Amount::raw(1),
+                    finalization: Amount::raw(1),
+                },
+                votes: super::super::RaiCommitteeVoteState::default(),
+            };
+            match result {
+                RaiLocalResult::Notarized(hash) => {
+                    state
+                        .votes
+                        .notar
+                        .insert(key, HashSet::from([BlockHashOrTimeout::Block(*hash)]));
+                }
+                RaiLocalResult::Fast(hash) => {
+                    state
+                        .votes
+                        .first
+                        .insert(key, BlockHashOrTimeout::Block(*hash));
+                }
+                RaiLocalResult::Final(hash) => {
+                    state.votes.final_votes.insert(key, *hash);
+                }
+                RaiLocalResult::Timeout => {
+                    state
+                        .votes
+                        .notar
+                        .insert(key, HashSet::from([BlockHashOrTimeout::Timeout]));
+                }
+            }
             committees.push(state);
         }
         RaiElectionVoteState {
@@ -367,6 +427,97 @@ mod tests {
             }
         );
         assert_eq!(rounds.round(1).unwrap().carried, Some(hash(7)));
+    }
+
+    #[test]
+    fn fast_and_final_certificates_are_inert_until_explicitly_installed() {
+        for result in [
+            RaiLocalResult::Fast(hash(7)),
+            RaiLocalResult::Final(hash(7)),
+        ] {
+            let mut rounds = RaiCloseRoundTracker::new(RaiCloseKind::Record, 4.into());
+            rounds.start_round_zero(hash(7));
+            rounds.store_evidence(0, terminal_evidence(&[result]));
+
+            assert_eq!(
+                rounds.round(0).unwrap().derive(),
+                RaiCloseRoundResult::Decided(hash(7))
+            );
+            assert_eq!(rounds.decision(), None);
+            assert_eq!(rounds.next(hash(99)), RaiCloseRoundAction::Inert);
+
+            assert!(rounds.decide(0, hash(7)));
+            assert_eq!(rounds.decision(), Some((0, hash(7))));
+        }
+    }
+
+    #[test]
+    fn explicit_install_cannot_change_a_derived_decision_hash() {
+        let mut rounds = RaiCloseRoundTracker::new(RaiCloseKind::Record, 4.into());
+        rounds.start_round_zero(hash(7));
+        assert!(rounds.add_validated_preimage(0, hash(99)));
+        rounds.store_evidence(0, terminal_evidence(&[RaiLocalResult::Fast(hash(7))]));
+
+        assert!(!rounds.decide(0, hash(99)));
+        assert_eq!(rounds.decision(), None);
+        assert_eq!(
+            rounds.round(0).unwrap().derive(),
+            RaiCloseRoundResult::Decided(hash(7))
+        );
+        assert!(rounds.decide(0, hash(7)));
+    }
+
+    #[test]
+    fn explicit_install_without_projected_strong_evidence_is_unchanged() {
+        let mut rounds = RaiCloseRoundTracker::new(RaiCloseKind::Record, 4.into());
+        rounds.start_round_zero(hash(7));
+        assert!(rounds.add_validated_preimage(0, hash(99)));
+        assert_eq!(
+            rounds.round(0).unwrap().derive(),
+            RaiCloseRoundResult::Pending
+        );
+
+        assert!(rounds.decide(0, hash(99)));
+        assert_eq!(rounds.decision(), Some((0, hash(99))));
+    }
+
+    #[test]
+    fn compatible_fast_and_final_committees_decide_but_notarization_only_carries() {
+        let mut decided = RaiCloseRoundTracker::new(RaiCloseKind::Cut, 2.into());
+        decided.start_round_zero(hash(7));
+        decided.store_evidence(
+            0,
+            terminal_evidence(&[
+                RaiLocalResult::Fast(hash(7)),
+                RaiLocalResult::Final(hash(7)),
+            ]),
+        );
+        assert_eq!(
+            decided.round(0).unwrap().derive(),
+            RaiCloseRoundResult::Decided(hash(7))
+        );
+        assert_eq!(decided.next(hash(99)), RaiCloseRoundAction::Inert);
+
+        let mut carried = RaiCloseRoundTracker::new(RaiCloseKind::Cut, 2.into());
+        carried.start_round_zero(hash(7));
+        carried.store_evidence(
+            0,
+            terminal_evidence(&[
+                RaiLocalResult::Notarized(hash(7)),
+                RaiLocalResult::Final(hash(7)),
+            ]),
+        );
+        assert_eq!(
+            carried.round(0).unwrap().derive(),
+            RaiCloseRoundResult::LiveCarry(hash(7))
+        );
+        assert_eq!(
+            carried.next(hash(99)),
+            RaiCloseRoundAction::StartCarry {
+                round: 1,
+                hash: hash(7)
+            }
+        );
     }
 
     #[test]

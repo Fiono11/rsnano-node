@@ -399,8 +399,16 @@ impl RaiEpochManager {
         self.close_records.all()
     }
 
+    pub fn close_record(&self, hash: &BlockHash) -> Option<&RaiCloseRecord> {
+        self.close_records.get(hash)
+    }
+
     pub fn close_cut_versions(&self) -> Vec<RaiCloseCut> {
         self.close_cuts.all()
+    }
+
+    pub fn close_cut(&self, hash: &BlockHash) -> Option<&RaiCloseCut> {
+        self.close_cuts.get(hash)
     }
 
     /// Retains a transferred canonical cut preimage for the active close-cut
@@ -497,11 +505,11 @@ impl RaiEpochManager {
         let mut visible = self.reports.visible_from_reports(epoch, &committee);
         visible.extend(vote_visible);
         let cut = RaiCloseCut::new(epoch, visible.clone());
-        tracing::warn!(
+        tracing::debug!(
             hash = ?cut.hash(),
-            cut = ?cut,
+            obligations = cut.obligations.len(),
             round = 0,
-            "RAI_CLOSE_TRACE local close cut hash update"
+            "RAI close-cut candidate updated"
         );
         let hash = self.close_cuts.insert(cut);
         self.visible_obligations.insert(epoch, visible);
@@ -549,11 +557,11 @@ impl RaiEpochManager {
         if unchanged {
             return None;
         }
-        tracing::warn!(
+        tracing::debug!(
             ?hash,
-            cut = ?cut,
+            obligations = cut.obligations.len(),
             round,
-            "RAI_CLOSE_TRACE local close cut hash update"
+            "RAI close-cut candidate updated"
         );
         self.close_cuts.insert(cut);
         self.visible_obligations.insert(epoch, visible);
@@ -691,10 +699,20 @@ impl RaiEpochManager {
         if closing.phase != RaiClosingPhase::ElectingCut || self.cut_hashes.contains_key(&epoch) {
             return None;
         }
-        let fresh = self.visible_obligations.get(&epoch).map(|obligations| {
-            self.close_cuts
-                .insert(RaiCloseCut::new(epoch, obligations.clone()))
-        })?;
+        let source_result = {
+            let rounds = self.cut_rounds.get(&epoch)?;
+            rounds.round(rounds.current_round())?.derive()
+        };
+        let fresh = match source_result {
+            super::RaiCloseRoundResult::Pending | super::RaiCloseRoundResult::Decided(_) => {
+                return None;
+            }
+            super::RaiCloseRoundResult::LiveCarry(hash) => hash,
+            super::RaiCloseRoundResult::Dead => {
+                let obligations = self.visible_obligations.get(&epoch)?.clone();
+                self.close_cuts.insert(RaiCloseCut::new(epoch, obligations))
+            }
+        };
         let action = self.cut_rounds.get_mut(&epoch)?.next(fresh);
         let (round, hash) = match action {
             super::RaiCloseRoundAction::StartFresh { round, hash }
@@ -731,11 +749,11 @@ impl RaiEpochManager {
             .unwrap_or(BlockHash::ZERO);
         let record =
             RaiCloseRecord::new(epoch, previous, self.drain_frontiers.get(&epoch)?.clone());
-        tracing::warn!(
+        tracing::debug!(
             hash = ?record.hash(),
-            record = ?record,
+            frontiers = record.frontiers.len(),
             round = 0,
-            "RAI_CLOSE_TRACE local close record hash update"
+            "RAI close-record candidate updated"
         );
         let hash = self.close_records.insert(record);
         self.close_record_committees.insert(hash, committee);
@@ -982,23 +1000,40 @@ impl RaiEpochManager {
         {
             return None;
         }
-        let previous = epoch
-            .number()
-            .checked_sub(1)
-            .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
-            .unwrap_or(BlockHash::ZERO);
-        // Close-record retries are derived from the immutable close-local
-        // replay captured while draining. Ordinary confirmation-height writes
-        // after that point must not perturb a fresh retry candidate.
-        let frontiers = self.drain_frontiers.get(&epoch)?.clone();
-        let record = RaiCloseRecord::new(epoch, previous, frontiers);
-        tracing::warn!(
-            hash = ?record.hash(),
-            record = ?record,
-            round = self.close_record_round(epoch).unwrap_or(0).saturating_add(1),
-            "RAI_CLOSE_TRACE local close record hash update"
-        );
-        let fresh = self.close_records.insert(record);
+        let source_result = {
+            let rounds = self.record_rounds.get(&epoch)?;
+            rounds.round(rounds.current_round())?.derive()
+        };
+        let fresh = match source_result {
+            super::RaiCloseRoundResult::Pending | super::RaiCloseRoundResult::Decided(_) => {
+                return None;
+            }
+            super::RaiCloseRoundResult::LiveCarry(hash) => hash,
+            super::RaiCloseRoundResult::Dead => {
+                let previous = epoch
+                    .number()
+                    .checked_sub(1)
+                    .and_then(|e| self.close_hashes.get(&RaiEpoch::new(e)).copied())
+                    .unwrap_or(BlockHash::ZERO);
+                // Close-record retries are derived from the immutable close-local
+                // replay captured while draining. Ordinary confirmation-height writes
+                // after that point must not perturb a fresh retry candidate.
+                let frontiers = self.drain_frontiers.get(&epoch)?.clone();
+                let record = RaiCloseRecord::new(epoch, previous, frontiers);
+                let frontier_count = record.frontiers.len();
+                let hash = self.close_records.insert(record);
+                tracing::debug!(
+                    ?hash,
+                    frontiers = frontier_count,
+                    round = self
+                        .close_record_round(epoch)
+                        .unwrap_or(0)
+                        .saturating_add(1),
+                    "RAI close-record candidate updated"
+                );
+                hash
+            }
+        };
         let action = self.record_rounds.get_mut(&epoch)?.next(fresh);
         let (round, hash) = match action {
             super::RaiCloseRoundAction::StartFresh { round, hash }
@@ -1410,6 +1445,18 @@ mod tests {
         let mut evidence = super::super::RaiElectionVoteState::new(vec![private_weights(key, 100)]);
         evidence
             .record_final_vote(key.public_key(), hash, RaiCommitteeScope::All)
+            .unwrap();
+        evidence
+    }
+
+    fn notarized_evidence(key: &PrivateKey, hash: BlockHash) -> super::super::RaiElectionVoteState {
+        let mut evidence = super::super::RaiElectionVoteState::new(vec![private_weights(key, 100)]);
+        evidence
+            .record_notarization_vote(
+                key.public_key(),
+                super::super::BlockHashOrTimeout::Block(hash),
+                RaiCommitteeScope::All,
+            )
             .unwrap();
         evidence
     }
@@ -2016,6 +2063,133 @@ mod tests {
     }
 
     #[test]
+    fn advance_gate_skips_pending_and_decided_cut_candidates() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, selected) = manager.begin_cut_election([]).unwrap();
+        assert_eq!(manager.close_cuts.all().len(), 1);
+
+        manager
+            .visible_obligations
+            .get_mut(&RaiEpoch::ZERO)
+            .unwrap()
+            .insert(slot(QualifiedRoot::new(11.into(), 12.into())));
+        assert!(manager.advance_close_cut_round().is_none());
+        assert_eq!(manager.close_cuts.all().len(), 1);
+
+        assert!(manager.store_close_cut_evidence(
+            RaiEpoch::ZERO,
+            0,
+            final_evidence(&key, selected),
+        ));
+        manager
+            .visible_obligations
+            .get_mut(&RaiEpoch::ZERO)
+            .unwrap()
+            .insert(slot(QualifiedRoot::new(13.into(), 14.into())));
+        assert!(manager.advance_close_cut_round().is_none());
+        assert_eq!(manager.close_cuts.all().len(), 1);
+        assert_eq!(manager.close_cut_round(RaiEpoch::ZERO), Some(0));
+    }
+
+    #[test]
+    fn advance_gate_materializes_dead_cut_candidate() {
+        let key = PrivateKey::from(1);
+        let later = slot(QualifiedRoot::new(11.into(), 12.into()));
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        manager.begin_cut_election([]).unwrap();
+        manager
+            .visible_obligations
+            .get_mut(&RaiEpoch::ZERO)
+            .unwrap()
+            .insert(later.clone());
+        assert!(manager.store_close_cut_evidence(RaiEpoch::ZERO, 0, timeout_evidence(&key),));
+
+        let (_, fresh) = manager.advance_close_cut_round().unwrap();
+        assert_eq!(manager.close_cuts.all().len(), 2);
+        assert_eq!(manager.close_cut_round(RaiEpoch::ZERO), Some(1));
+        assert_eq!(
+            manager.close_cuts.get(&fresh).unwrap().obligations,
+            BTreeSet::from([later])
+        );
+    }
+
+    #[test]
+    fn advance_gate_skips_pending_record_and_carries_live_hash() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+        manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
+        let (_, selected) = manager.begin_close_record(RepWeights::default()).unwrap();
+        assert_eq!(manager.close_records.all().len(), 1);
+
+        manager
+            .drain_frontiers
+            .get_mut(&RaiEpoch::ZERO)
+            .unwrap()
+            .insert(
+                Account::from(1),
+                ConfirmationHeightInfo::new(1, BlockHash::from(10)),
+            );
+        let pending_reads = std::cell::Cell::new(0);
+        let pending_heights = [(
+            Account::from(2),
+            ConfirmationHeightInfo::new(2, BlockHash::from(20)),
+        )]
+        .into_iter()
+        .inspect(|_| pending_reads.set(pending_reads.get() + 1));
+        assert!(
+            manager
+                .advance_close_record_round(pending_heights)
+                .is_none()
+        );
+        assert_eq!(pending_reads.get(), 0);
+        assert_eq!(manager.close_records.all().len(), 1);
+
+        assert!(manager.store_close_record_evidence(
+            RaiEpoch::ZERO,
+            0,
+            notarized_evidence(&key, selected),
+        ));
+        manager
+            .drain_frontiers
+            .get_mut(&RaiEpoch::ZERO)
+            .unwrap()
+            .insert(
+                Account::from(3),
+                ConfirmationHeightInfo::new(3, BlockHash::from(30)),
+            );
+        let carry_reads = std::cell::Cell::new(0);
+        let carry_heights = [(
+            Account::from(4),
+            ConfirmationHeightInfo::new(4, BlockHash::from(40)),
+        )]
+        .into_iter()
+        .inspect(|_| carry_reads.set(carry_reads.get() + 1));
+        let (_, carried) = manager.advance_close_record_round(carry_heights).unwrap();
+        assert_eq!(carry_reads.get(), 0);
+        assert_eq!(carried, selected);
+        assert_eq!(manager.close_record_round(RaiEpoch::ZERO), Some(1));
+        assert_eq!(manager.close_records.all().len(), 1);
+    }
+
+    #[test]
     fn cut_exclusion_releases_only_after_certified_close_installation() {
         let key = PrivateKey::from(1);
         let old = slot(QualifiedRoot::new(11.into(), 12.into()));
@@ -2129,6 +2303,98 @@ mod tests {
         // Releasing epoch zero advances the per-root lock to epoch one; it
         // must not accidentally make every later retry eligible.
         assert!(!manager.slot_election_enabled(later_retry.epoch, &later_retry.root));
+    }
+
+    #[test]
+    fn six_replicas_refresh_a_dead_split_record_round_from_exact_slot_payload() {
+        const REPLICAS: usize = 6;
+        let key = PrivateKey::from(1);
+        let committee = private_weights(&key, 100);
+        let slot = slot(QualifiedRoot::new(11.into(), 12.into()));
+        let selected = BlockHash::from(22);
+        let account = Account::from(33);
+        let selected_frontier = ConfirmationHeightInfo::new(1, selected);
+        let mut replicas = (0..REPLICAS)
+            .map(|_| RaiEpochManager::new(committee.clone(), BlockHash::from(7)))
+            .collect::<Vec<_>>();
+
+        let mut round_zero = Vec::new();
+        for (index, replica) in replicas.iter_mut().enumerate() {
+            assert!(replica.start_closing(Timestamp::new_test_instance()));
+            replica
+                .reports_mut()
+                .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+                .unwrap();
+            let (_, cut) = replica.begin_cut_election([slot.clone()]).unwrap();
+            replica.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+            assert!(replica.initialize_drain_frontiers(RaiEpoch::ZERO, []));
+
+            // Every replica derives the same notarized slot resolution, but
+            // only half initially possess its validated block preimage. This
+            // recreates the observed 3/3 close-record preference split.
+            let segment = (index >= REPLICAS / 2)
+                .then(|| [(account, selected_frontier.clone())])
+                .into_iter()
+                .flatten();
+            assert_eq!(
+                replica.record_notarized_drain(RaiEpoch::ZERO, &slot, selected, segment),
+                Some(RaiDrainOutcome::Selected(selected))
+            );
+            round_zero.push(
+                replica
+                    .begin_close_record(committee.as_ref().clone())
+                    .unwrap()
+                    .1,
+            );
+            assert!(
+                replica.store_close_record_evidence(RaiEpoch::ZERO, 0, timeout_evidence(&key),)
+            );
+        }
+        assert!(
+            round_zero[..REPLICAS / 2]
+                .windows(2)
+                .all(|pair| pair[0] == pair[1])
+        );
+        assert!(
+            round_zero[REPLICAS / 2..]
+                .windows(2)
+                .all(|pair| pair[0] == pair[1])
+        );
+        assert_ne!(round_zero[0], round_zero[REPLICAS / 2]);
+
+        let mut round_one = Vec::new();
+        for replica in &mut replicas {
+            // Publish/reconciliation has no authority by itself: refinement
+            // is accepted only for the exact hash already selected by this
+            // replica's certificate-derived drain outcome.
+            assert_eq!(
+                replica.record_notarized_drain(
+                    RaiEpoch::ZERO,
+                    &slot,
+                    selected,
+                    [(account, selected_frontier.clone())],
+                ),
+                Some(RaiDrainOutcome::Selected(selected))
+            );
+            round_one.push(replica.advance_close_record_round([]).unwrap().1);
+        }
+        assert!(round_one.windows(2).all(|pair| pair[0] == pair[1]));
+        assert_eq!(round_one[0], round_zero[REPLICAS / 2]);
+
+        for replica in &mut replicas {
+            assert!(replica.store_close_record_evidence(
+                RaiEpoch::ZERO,
+                1,
+                final_evidence(&key, round_one[0]),
+            ));
+            let tracker = replica.record_rounds.get_mut(&RaiEpoch::ZERO).unwrap();
+            assert_eq!(
+                tracker.round(1).unwrap().derive(),
+                super::super::RaiCloseRoundResult::Decided(round_one[0])
+            );
+            assert!(tracker.decide(1, round_one[0]));
+            assert_eq!(tracker.decision(), Some((1, round_one[0])));
+        }
     }
 
     #[test]

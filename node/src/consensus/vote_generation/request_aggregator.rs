@@ -347,47 +347,63 @@ impl RequestAggregatorLoop {
         #[cfg(feature = "rai_protocol")]
         let mut seen_rai_slots = HashSet::new();
         #[cfg(feature = "rai_protocol")]
+        let zero_roots = request
+            .roots_hashes
+            .iter()
+            .filter_map(|(hash, root)| hash.is_zero().then_some(*root))
+            .collect::<Vec<_>>();
+        #[cfg(feature = "rai_protocol")]
+        let mut zero_resolutions = if zero_roots.is_empty() {
+            Vec::new()
+        } else {
+            self.active_elections
+                .rai_zero_hash_vote_requests(&zero_roots)
+        }
+        .into_iter();
+        #[cfg(feature = "rai_protocol")]
         let ordinary = request
             .roots_hashes
             .iter()
             .filter_map(|(hash, root)| {
-                if hash.is_zero()
-                    && let Some(metadata) =
-                        self.active_elections.rai_close_vote_context_for_root(root)
-                {
-                    self.vote_generators.reply_cached_rai_election_votes(
-                        root,
-                        &metadata,
-                        &request.channel,
-                    );
-                    if let Some(target) = self
-                        .active_elections
-                        .rai_active_close_vote_target_for_root(root)
-                    {
-                        if target.metadata.phase == rsnano_types::RaiVotePhase::Final {
-                            self.vote_generators
-                                .generate_rai_final_vote(&target, &request.channel);
-                        } else {
-                            self.vote_generators
-                                .generate_rai_notar_vote(&target, &request.channel);
+                if hash.is_zero() {
+                    let resolution = zero_resolutions
+                        .next()
+                        .expect("one batch resolution per zero-hash request");
+                    match resolution {
+                        Some(crate::consensus::RaiZeroHashVoteRequest::Close {
+                            metadata,
+                            target,
+                        }) => {
+                            self.vote_generators.reply_cached_rai_election_votes(
+                                root,
+                                &metadata,
+                                &request.channel,
+                            );
+                            if let Some(target) = target {
+                                if target.metadata.phase == rsnano_types::RaiVotePhase::Final {
+                                    self.vote_generators
+                                        .generate_rai_final_vote(&target, &request.channel);
+                                } else {
+                                    self.vote_generators
+                                        .generate_rai_notar_vote(&target, &request.channel);
+                                }
+                            }
+                            return None;
                         }
-                    }
-                    return None;
-                }
-                if hash.is_zero()
-                    && let Some(metadata) =
-                        self.active_elections.rai_slot_vote_context_for_root(root)
-                {
-                    if seen_rai_slots.insert((*root, metadata.election_id.clone())) {
-                        if let Some(target) = self
-                            .active_elections
-                            .rai_active_slot_vote_target_for_root(root, metadata.epoch)
-                        {
-                            rai_slot_targets.push(target);
+                        Some(crate::consensus::RaiZeroHashVoteRequest::Slot {
+                            metadata,
+                            target,
+                        }) => {
+                            if seen_rai_slots.insert((*root, metadata.election_id.clone())) {
+                                if let Some(target) = target {
+                                    rai_slot_targets.push(target);
+                                }
+                                rai_slot_contexts.push((*root, metadata));
+                            }
+                            return None;
                         }
-                        rai_slot_contexts.push((*root, metadata));
+                        None => {}
                     }
-                    return None;
                 }
                 // Ordinary nonzero requests flow through aggregate/generate.
                 // The generator replays cached signed batches once per request

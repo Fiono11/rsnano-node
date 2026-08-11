@@ -20,7 +20,7 @@ pub const RAI_SLOT_REPAIR_SEQUENCE_FLAG: u64 = 1 << 62;
 pub const RAI_REPAIR_SEQUENCE_COUNTER_MASK: u64 =
     !(RAI_CLOSE_REPAIR_SEQUENCE_FLAG | RAI_SLOT_REPAIR_SEQUENCE_FLAG);
 
-/// Requests repair votes for one RAI election.
+/// Requests a missing RAI payload/preimage for one election.
 ///
 /// `sequence` is sender-local and deliberately participates in the wire
 /// payload so repeated requests cannot be collapsed by duplicate filtering.
@@ -32,8 +32,9 @@ pub struct RaiVoteRequest {
     pub epoch: u64,
     pub hash: BlockHash,
     pub root: Root,
-    /// A canonical close preimage returned by a repair peer. Requests leave
-    /// this empty; replies carry the candidate needed to validate cached votes.
+    /// A canonical close preimage returned by a repair peer. Exact close
+    /// requests name its nonzero digest and leave this empty; replies carry
+    /// only the candidate needed to validate already-retained signed leaves.
     pub close_version: Option<RaiCloseVersionWire>,
 }
 

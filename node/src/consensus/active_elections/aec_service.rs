@@ -53,13 +53,14 @@ pub struct RaiEpochTicker {
     report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
     local_key: Option<rsnano_types::PrivateKey>,
     last_report_request: Option<Timestamp>,
-    last_close_vote_request: Option<Timestamp>,
+    last_close_preimage_request: Option<Timestamp>,
     last_slot_payload_request: Option<Timestamp>,
     slot_payload_request_epoch: Option<rsnano_types::RaiEpoch>,
     slot_payload_request_cursor: usize,
     initialized_drain_frontiers_epoch: Option<rsnano_types::RaiEpoch>,
     request_sequence: u64,
     close_request_sequence: u64,
+    close_preimage_response_sequences: HashMap<(u64, BlockHash, rsnano_types::Root), u64>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -84,13 +85,14 @@ impl RaiEpochTicker {
             report_rebroadcast_queue: Default::default(),
             local_key: None,
             last_report_request: None,
-            last_close_vote_request: None,
+            last_close_preimage_request: None,
             last_slot_payload_request: None,
             slot_payload_request_epoch: None,
             slot_payload_request_cursor: 0,
             initialized_drain_frontiers_epoch: None,
             request_sequence: 0,
             close_request_sequence: 0,
+            close_preimage_response_sequences: Default::default(),
         }
     }
 }
@@ -143,6 +145,15 @@ fn rai_close_repair_phase_active(phase: crate::consensus::rai::RaiClosingPhase) 
     matches!(
         phase,
         crate::consensus::rai::RaiClosingPhase::ElectingCut
+            | crate::consensus::rai::RaiClosingPhase::ElectingRecord
+    )
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_slot_payload_repair_phase_active(phase: crate::consensus::rai::RaiClosingPhase) -> bool {
+    matches!(
+        phase,
+        crate::consensus::rai::RaiClosingPhase::Draining
             | crate::consensus::rai::RaiClosingPhase::ElectingRecord
     )
 }
@@ -231,44 +242,50 @@ impl Tickable for RaiEpochTicker {
                 );
                 self.last_report_request = Some(now);
             }
-            // Repair the active round. After a timeout certificate the root
-            // changes with the round number; continuing to request round zero
-            // strands replicas with incomplete First evidence forever.
-            let close_root = if rai_close_repair_phase_active(closing.phase) {
-                self.aec.rai_current_close_root()
-            } else {
-                None
-            };
+            // Active close votes use the ordinary batched ConfirmReq/
+            // ConfirmAck path. The custom envelope is only for a precise
+            // signed close digest whose canonical preimage is absent here.
             const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_secs(2);
-            if let Some(root) = close_root
+            if rai_close_repair_phase_active(closing.phase)
                 && self
-                    .last_close_vote_request
+                    .last_close_preimage_request
                     .is_none_or(|last| last.elapsed(now) >= CLOSE_REPAIR_INTERVAL)
             {
-                self.close_request_sequence = self.close_request_sequence.wrapping_add(1);
-                self.flooder.flood_prs_and_some_non_prs(
-                    &rsnano_messages::Message::RaiVoteRequest(rsnano_messages::RaiVoteRequest {
-                        // Close repair uses its own consecutive sequence so a
-                        // responder can rotate through bounded preimage chunk
-                        // windows without gaps caused by unrelated requests.
-                        sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG
-                            | self.close_request_sequence
-                                & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
-                        epoch: closing.epoch.number(),
-                        hash: BlockHash::ZERO,
-                        root,
-                        close_version: None,
-                    }),
-                    rsnano_network::TrafficType::ConfirmationRequests,
-                    // Close repair is certificate retrieval, not epidemic
-                    // gossip. Before representative tracking converges, the
-                    // ordinary random fanout can repeatedly miss committee
-                    // signers whose leaves are required for progress.
-                    8.0,
-                );
-                self.last_close_vote_request = Some(now);
+                let requests = self.aec.rai_missing_close_preimage_requests(closing.epoch);
+                self.close_preimage_response_sequences
+                    .retain(|(epoch, _, _), _| *epoch == closing.epoch.number());
+                if !requests.is_empty() {
+                    let index = self.close_request_sequence as usize % requests.len();
+                    let (hash, root) = requests[index];
+                    debug_assert!(!hash.is_zero());
+                    self.close_request_sequence = self.close_request_sequence.wrapping_add(1);
+                    let response_sequence = self
+                        .close_preimage_response_sequences
+                        .entry((closing.epoch.number(), hash, root))
+                        .or_default();
+                    *response_sequence = response_sequence.wrapping_add(1);
+                    self.flooder.flood_prs_and_some_non_prs(
+                        &rsnano_messages::Message::RaiVoteRequest(
+                            rsnano_messages::RaiVoteRequest {
+                                // Consecutive close-only sequences rotate a
+                                // bounded response window across a large exact
+                                // preimage without gaps from unrelated repair.
+                                sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG
+                                    | *response_sequence
+                                        & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
+                                epoch: closing.epoch.number(),
+                                hash,
+                                root,
+                                close_version: None,
+                            },
+                        ),
+                        rsnano_network::TrafficType::ConfirmationRequests,
+                        8.0,
+                    );
+                }
+                self.last_close_preimage_request = Some(now);
             }
-            if closing.phase == crate::consensus::rai::RaiClosingPhase::Draining
+            if rai_slot_payload_repair_phase_active(closing.phase)
                 && self
                     .last_slot_payload_request
                     .is_none_or(|last| last.elapsed(now) >= Duration::from_secs(2))
@@ -311,6 +328,8 @@ impl Tickable for RaiEpochTicker {
             }
         } else {
             rai_drain_frontier_snapshot_needed(&mut self.initialized_drain_frontiers_epoch, None);
+            self.last_close_preimage_request = None;
+            self.close_preimage_response_sequences.clear();
             self.last_slot_payload_request = None;
             self.slot_payload_request_epoch = None;
             self.slot_payload_request_cursor = 0;
@@ -326,14 +345,12 @@ impl Tickable for RaiEpochTicker {
             let epoch = closing
                 .expect("active report phase has a closing epoch")
                 .epoch;
-            self.report_rebroadcast_queue.extend(
-                newly_seen_reports(
+            self.report_rebroadcast_queue
+                .extend(self.aec.rai_new_reports_for_epoch(
+                    epoch,
                     &mut self.known_reports,
-                    self.aec.rai_reports_for_epoch(epoch),
-                )
-                .into_iter()
-                .take(available),
-            );
+                    available,
+                ));
             while !self.report_rebroadcast_queue.is_empty()
                 && self
                     .flooder
@@ -363,21 +380,13 @@ impl Tickable for RaiEpochTicker {
 }
 
 #[cfg(feature = "rai_protocol")]
-fn newly_seen_reports(
-    known: &mut HashSet<RaiReportIdentity>,
-    reports: Vec<crate::consensus::rai::RaiReport>,
-) -> Vec<crate::consensus::rai::RaiReport> {
-    reports
-        .into_iter()
-        .filter(|report| {
-            known.insert((
-                report.epoch.number(),
-                report.reporter,
-                report.chunk_index,
-                report.signature.clone(),
-            ))
-        })
-        .collect()
+fn rai_report_identity(report: &crate::consensus::rai::RaiReport) -> RaiReportIdentity {
+    (
+        report.epoch.number(),
+        report.reporter,
+        report.chunk_index,
+        report.signature.clone(),
+    )
 }
 
 impl AecService {
@@ -476,36 +485,11 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn rai_close_vote_context_for_root(
+    pub(crate) fn rai_zero_hash_vote_requests(
         &self,
-        root: &rsnano_types::Root,
-    ) -> Option<rsnano_types::RaiVoteMetadata> {
-        self.aec
-            .read()
-            .unwrap()
-            .rai_close_vote_context_for_root(root)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn rai_active_close_vote_target_for_root(
-        &self,
-        root: &rsnano_types::Root,
-    ) -> Option<rsnano_ledger::RaiFinalizedVoteTarget> {
-        self.aec
-            .read()
-            .unwrap()
-            .rai_active_close_vote_target_for_root(root)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn rai_slot_vote_context_for_root(
-        &self,
-        root: &rsnano_types::Root,
-    ) -> Option<rsnano_types::RaiVoteMetadata> {
-        self.aec
-            .read()
-            .unwrap()
-            .rai_slot_vote_context_for_root(root)
+        roots: &[rsnano_types::Root],
+    ) -> Vec<Option<super::RaiZeroHashVoteRequest>> {
+        self.read_for_lookup().rai_zero_hash_vote_requests(roots)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -640,6 +624,18 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_close_record_version(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        hash: &BlockHash,
+    ) -> Option<crate::consensus::rai::RaiCloseRecord> {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_close_record_version(epoch, hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_close_record_versions_for_root(
         &self,
         root: &rsnano_types::Root,
@@ -667,6 +663,26 @@ impl AecService {
         epoch: rsnano_types::RaiEpoch,
     ) -> Vec<crate::consensus::rai::RaiCloseCut> {
         self.aec.read().unwrap().rai_close_cut_versions(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_close_cut_version(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        hash: &BlockHash,
+    ) -> Option<crate::consensus::rai::RaiCloseCut> {
+        self.aec.read().unwrap().rai_close_cut_version(epoch, hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_missing_close_preimage_requests(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> Vec<(BlockHash, rsnano_types::Root)> {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_missing_close_preimage_requests(epoch)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -797,14 +813,30 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn rai_reports_for_epoch(
+    fn rai_new_reports_for_epoch(
         &self,
         epoch: rsnano_types::RaiEpoch,
+        known: &mut HashSet<RaiReportIdentity>,
+        limit: usize,
     ) -> Vec<crate::consensus::rai::RaiReport> {
-        self.rai_reports()
-            .into_iter()
-            .filter(|report| report.epoch == epoch)
-            .collect()
+        self.aec.read().unwrap().rai_reports_for_epoch_filtered(
+            epoch,
+            |report| known.insert(rai_report_identity(report)),
+            limit,
+        )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_report_response_window(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        sequence: u64,
+        limit: usize,
+    ) -> Vec<crate::consensus::rai::RaiReport> {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_report_response_window(epoch, sequence, limit)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -1105,6 +1137,24 @@ mod rai_epoch_ticker_tests {
     }
 
     #[test]
+    fn missing_slot_payload_repair_continues_until_the_record_is_decided() {
+        use crate::consensus::rai::RaiClosingPhase;
+
+        assert!(!rai_slot_payload_repair_phase_active(
+            RaiClosingPhase::CollectingReports
+        ));
+        assert!(!rai_slot_payload_repair_phase_active(
+            RaiClosingPhase::ElectingCut
+        ));
+        assert!(rai_slot_payload_repair_phase_active(
+            RaiClosingPhase::Draining
+        ));
+        assert!(rai_slot_payload_repair_phase_active(
+            RaiClosingPhase::ElectingRecord
+        ));
+    }
+
+    #[test]
     fn report_epidemic_runs_only_while_reports_can_change_the_cut() {
         use crate::consensus::rai::{RaiClosingEpoch, RaiClosingPhase};
         use rsnano_types::RaiEpoch;
@@ -1242,18 +1292,122 @@ mod rai_tests {
     }
 
     #[test]
-    fn each_distinct_report_is_relayed_once() {
+    fn zero_hash_batch_resolves_active_slots_and_duplicates_with_one_read_lock() {
+        let service = AecService::new_null();
+        let blocks = [
+            SavedBlock::new_test_instance_with_key(20),
+            SavedBlock::new_test_instance_with_key(21),
+        ];
+        for block in &blocks {
+            service
+                .insert(
+                    AecInsertRequest {
+                        block: block.clone(),
+                        behavior: ElectionBehavior::Priority,
+                        priority: BlockPriority::new_test_instance(),
+                    },
+                    Timestamp::new_test_instance(),
+                )
+                .unwrap();
+        }
+        let roots = vec![
+            blocks[0].root(),
+            blocks[1].root(),
+            blocks[0].root(),
+            BlockHash::from(999).into(),
+        ];
+
+        let locks_before = service.lookup_read_lock_count();
+        let resolutions = service.rai_zero_hash_vote_requests(&roots);
+        assert_eq!(service.lookup_read_lock_count() - locks_before, 1);
+        assert_eq!(resolutions.len(), roots.len());
+        assert_eq!(resolutions[0], resolutions[2]);
+        assert!(resolutions[3].is_none());
+
+        for (resolution, block) in resolutions[..2].iter().zip(&blocks) {
+            let Some(crate::consensus::RaiZeroHashVoteRequest::Slot {
+                metadata,
+                target: Some(target),
+            }) = resolution
+            else {
+                panic!("active slot did not resolve to a vote target");
+            };
+            assert_eq!(metadata.epoch, RaiEpoch::ZERO);
+            assert_eq!(target.hash, block.hash());
+            assert_eq!(target.root, block.root());
+            assert_eq!(target.metadata, *metadata);
+        }
+    }
+
+    #[test]
+    fn unseen_report_snapshot_preserves_order_cap_and_deduplication_state() {
         use crate::consensus::rai::RaiReport;
 
-        let first = RaiReport::new(&PrivateKey::from(1), RaiEpoch::ZERO, []);
-        let second = RaiReport::new(&PrivateKey::from(2), RaiEpoch::ZERO, []);
+        let reports = (1..=3)
+            .map(|key| RaiReport::new(&PrivateKey::from(key), RaiEpoch::ZERO, []))
+            .collect::<Vec<_>>();
+        let service = AecService::new_null();
+        for report in &reports {
+            service.rai_report_received(report.clone());
+        }
+        let mut expected = reports.clone();
+        expected.sort_by_key(|report| (report.reporter, report.chunk_index));
         let mut known = HashSet::new();
 
-        assert_eq!(
-            newly_seen_reports(&mut known, vec![first.clone(), second.clone()]),
-            vec![first.clone(), second.clone()]
+        let bounded = service.rai_new_reports_for_epoch(RaiEpoch::ZERO, &mut known, 1);
+        assert_eq!(bounded, expected[..1]);
+        // Preserve the former queue-cap behavior: identities which did not fit
+        // are still known and are recovered, if needed, by explicit repair.
+        assert_eq!(known.len(), reports.len());
+        assert!(
+            service
+                .rai_new_reports_for_epoch(RaiEpoch::ZERO, &mut known, usize::MAX)
+                .is_empty()
         );
-        assert!(newly_seen_reports(&mut known, vec![first, second]).is_empty());
+    }
+
+    #[test]
+    fn unseen_report_snapshot_is_epoch_scoped_and_observes_a_later_chunk() {
+        use crate::consensus::rai::{MAX_REPORT_CHUNK_OBLIGATIONS, RaiReport};
+
+        let epoch = RaiEpoch::new(7);
+        let key = PrivateKey::from(1);
+        let chunks = RaiReport::new_chunks(
+            &key,
+            epoch,
+            (0..=MAX_REPORT_CHUNK_OBLIGATIONS as u64).map(|value| {
+                crate::consensus::election::RaiSlotId {
+                    epoch,
+                    root: QualifiedRoot::new(value.into(), (value + 1).into()),
+                }
+            }),
+        );
+        assert_eq!(chunks.len(), 2);
+        let other_epoch = RaiReport::new(&PrivateKey::from(2), RaiEpoch::new(8), []);
+        let service = AecService::new_null();
+        service.rai_report_received(chunks[0].clone());
+        service.rai_report_received(other_epoch.clone());
+
+        let mut known = HashSet::new();
+        assert_eq!(
+            service.rai_new_reports_for_epoch(epoch, &mut known, usize::MAX),
+            vec![chunks[0].clone()]
+        );
+        assert!(
+            service
+                .rai_new_reports_for_epoch(epoch, &mut known, usize::MAX)
+                .is_empty()
+        );
+
+        service.rai_report_received(chunks[1].clone());
+        assert_eq!(
+            service.rai_new_reports_for_epoch(epoch, &mut known, usize::MAX),
+            vec![chunks[1].clone()]
+        );
+        assert_eq!(
+            service.rai_new_reports_for_epoch(RaiEpoch::new(8), &mut known, usize::MAX),
+            vec![other_epoch]
+        );
     }
 
     #[test]
