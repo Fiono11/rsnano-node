@@ -256,7 +256,7 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         let transition = Mutex::new(RaiTransitionObservation::default());
-        let mut confirmation_latencies = HashMap::new();
+        let confirmation_latencies = Arc::new(Mutex::new(HashMap::new()));
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
@@ -314,6 +314,12 @@ impl NanoSpamApp {
                     &self.clock,
                     cancel_nanospam.clone(),
                 ));
+                scope.spawn(repair_missing_replica_blocks(
+                    &self.rpc_clients,
+                    &logic,
+                    confirmation_latencies.clone(),
+                    cancel_nanospam.clone(),
+                ));
                 scope.spawn(receive_messages(
                     tcp_readers,
                     protocol,
@@ -349,8 +355,8 @@ impl NanoSpamApp {
         let created_blocks = logic.block_factory.created();
         let requested_blocks = logic.block_factory.max_blocks();
         let publication_times = logic.publication_times().clone();
+        let published_blocks = logic.published_blocks().clone();
         let workload_confirmed = logic.is_finished();
-        let average_pr0_confirmation_time = logic.average_confirmation_time_total();
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
@@ -368,24 +374,33 @@ impl NanoSpamApp {
             workload_confirmed,
             "workload stopped before PR0 confirmed all {created_blocks} blocks"
         );
+        let mut confirmation_latencies = Arc::try_unwrap(confirmation_latencies)
+            .expect("confirmation observer still has owners")
+            .into_inner()
+            .unwrap();
         wait_for_block_confirmations(
             &self.rpc_clients,
             &publication_times,
+            &published_blocks,
             &mut confirmation_latencies,
             &shutdown,
             global_deadline,
         )
         .await?;
         let confirmation_samples = confirmation_latencies.len();
+        let average_confirmation_time = average_duration(confirmation_latencies.values().copied());
         info!(
-            "Average PR0 ledger confirmation time: {}",
-            format_duration(average_pr0_confirmation_time)
+            "Average all-PR ledger confirmation time: {}",
+            format_duration(average_confirmation_time)
         );
         println!("Block confirmation report:");
         println!(
-            "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average PR0 ledger confirmation time {}",
+            "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average all-PR ledger confirmation time {}",
             self.rpc_clients.len(),
-            format_duration(average_pr0_confirmation_time)
+            format_duration(average_confirmation_time)
+        );
+        println!(
+            "  workload confirmation duration {duration_secs:.2} s, confirmation rate {cps} cps"
         );
 
         #[cfg(feature = "rai_protocol")]
@@ -411,11 +426,7 @@ impl NanoSpamApp {
                 record_rai_statuses(&statuses, &transition, &self.last_rai_phase);
                 let observed = transition.into_inner().unwrap();
                 validate_epoch_transition(&statuses, &initial_rai_statuses, &observed)?;
-                print_rai_final_report(
-                    &statuses,
-                    &initial_rai_statuses,
-                    average_pr0_confirmation_time,
-                )?;
+                print_rai_final_report(&statuses, &initial_rai_statuses)?;
             } else {
                 print_finalized_blocks_by_epoch(&statuses);
             }
@@ -504,8 +515,13 @@ fn record_rai_statuses(
         .iter()
         .enumerate()
         .map(|(pr, status)| {
+            let diagnostics = if status.close_diagnostics.is_empty() {
+                String::new()
+            } else {
+                format!(", diagnostics {:?}", status.close_diagnostics)
+            };
             format!(
-                "PR{pr}=open {}, closing {} ({})",
+                "PR{pr}=open {}, closing {} ({}){}",
                 status.open_epoch.inner(),
                 status
                     .closing_epoch
@@ -513,6 +529,7 @@ fn record_rai_statuses(
                     .map(|epoch| epoch.inner().to_string())
                     .unwrap_or_else(|| "none".to_string()),
                 status.closing_phase.as_deref().unwrap_or("closed"),
+                diagnostics,
             )
         })
         .collect::<Vec<_>>()
@@ -688,7 +705,6 @@ fn print_finalized_blocks_by_epoch(statuses: &[rsnano_rpc_messages::RaiStatusRes
 fn print_rai_final_report(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
-    average_pr0_finalization: Option<Duration>,
 ) -> anyhow::Result<()> {
     let status = statuses
         .first()
@@ -700,10 +716,7 @@ fn print_rai_final_report(
 
     let finalized: u64 = counts.values().sum();
     println!("RAI finalization report:");
-    println!(
-        "  {finalized} finalized blocks, average PR0 finalization time {}",
-        format_duration(average_pr0_finalization)
-    );
+    println!("  {finalized} finalized blocks");
     println!("  close protocol timings by epoch:");
     for (epoch, close_hash) in &status.close_hashes {
         let count = counts.get(epoch).copied().unwrap_or(0);
@@ -728,6 +741,7 @@ fn print_rai_final_report(
 async fn wait_for_block_confirmations(
     clients: &[NanoRpcClient],
     publication_times: &HashMap<BlockHash, Instant>,
+    published_blocks: &HashMap<BlockHash, rsnano_types::Block>,
     latencies: &mut HashMap<(usize, BlockHash), Duration>,
     cancel: &CancellationToken,
     deadline: Instant,
@@ -738,8 +752,15 @@ async fn wait_for_block_confirmations(
     }
     let mut last_progress_log = Instant::now() - Duration::from_secs(1);
     loop {
-        observe_block_confirmations_once(clients, publication_times, latencies, cancel, deadline)
-            .await?;
+        observe_block_confirmations_once(
+            clients,
+            publication_times,
+            published_blocks,
+            latencies,
+            cancel,
+            deadline,
+        )
+        .await?;
         if all_pr_confirmations_observed(clients.len(), publication_times.len(), latencies.len()) {
             return Ok(());
         }
@@ -773,9 +794,84 @@ async fn wait_for_block_confirmations(
     }
 }
 
+async fn repair_missing_replica_blocks(
+    clients: &[NanoRpcClient],
+    logic: &Mutex<SpamLogic>,
+    latencies: Arc<Mutex<HashMap<(usize, BlockHash), Duration>>>,
+    cancel: CancellationToken,
+) {
+    let mut confirmed = vec![std::collections::HashSet::new(); clients.len()];
+    // This loop is also the live all-replica latency observer. Poll often
+    // enough that the measurement is useful for sub-200 ms performance gates;
+    // the old post-workload-only observation inflated a 10-second workload's
+    // average latency to roughly five seconds.
+    let mut ticker = tokio::time::interval(Duration::from_millis(25));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        select! {
+            _ = cancel.cancelled() => return,
+            _ = ticker.tick() => {}
+        }
+        let (blocks, publication_times) = {
+            let logic = logic.lock().unwrap();
+            (
+                logic.published_blocks().clone(),
+                logic.publication_times().clone(),
+            )
+        };
+        for (pr, client) in clients.iter().enumerate() {
+            let pending = blocks
+                .keys()
+                .filter(|hash| !confirmed[pr].contains(*hash))
+                .copied()
+                .collect::<Vec<_>>();
+            for batch in pending.chunks(128) {
+                let response = select! {
+                    _ = cancel.cancelled() => return,
+                    result = timeout(
+                        RPC_TIMEOUT,
+                        client.blocks_info(BlocksInfoArgs {
+                            receivable: None,
+                            receive_hash: None,
+                            source: None,
+                            include_not_found: Some(true.into()),
+                            include_linked_account: None,
+                            hashes: batch.to_vec(),
+                        })
+                    ) => match result {
+                        Ok(Ok(response)) => response,
+                        _ => continue,
+                    }
+                };
+                let observed_at = Instant::now();
+                for (hash, info) in &response.blocks {
+                    if info.confirmed.inner() {
+                        confirmed[pr].insert(*hash);
+                        if let Some(published_at) = publication_times.get(hash) {
+                            latencies.lock().unwrap().entry((pr, *hash)).or_insert_with(|| {
+                                observed_at.saturating_duration_since(*published_at)
+                            });
+                        }
+                    }
+                }
+                for hash in response.blocks_not_found.unwrap_or_default() {
+                    if let Some(block) = blocks.get(&hash) {
+                        let _ =
+                            timeout(RPC_TIMEOUT, client.process(JsonBlock::from(block.clone())))
+                                .await;
+                        let _ = timeout(RPC_TIMEOUT, client.block_confirm(hash)).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn observe_block_confirmations_once(
     clients: &[NanoRpcClient],
     publication_times: &HashMap<BlockHash, Instant>,
+    published_blocks: &HashMap<BlockHash, rsnano_types::Block>,
     latencies: &mut HashMap<(usize, BlockHash), Duration>,
     cancel: &CancellationToken,
     deadline: Instant,
@@ -836,6 +932,12 @@ async fn observe_block_confirmations_once(
                 }
             };
             let observed_at = Instant::now();
+            let missing = response.blocks_not_found.unwrap_or_default();
+            let unconfirmed = response
+                .blocks
+                .iter()
+                .filter_map(|(hash, info)| (!info.confirmed.inner()).then_some(*hash))
+                .collect::<Vec<_>>();
             for (hash, info) in response.blocks {
                 if info.confirmed.inner()
                     && let Some(published_at) = publication_times.get(&hash)
@@ -844,6 +946,20 @@ async fn observe_block_confirmations_once(
                         .entry((pr, hash))
                         .or_insert_with(|| observed_at.saturating_duration_since(*published_at));
                 }
+            }
+
+            // PR0 completion stops the high-rate publisher, but it must not
+            // discard payload repair for lagging replicas. Submit missing
+            // bodies directly to the replica which lacks them, then activate
+            // both newly inserted and already-present unconfirmed blocks.
+            for hash in missing {
+                if let Some(block) = published_blocks.get(&hash) {
+                    let _ = client.process(JsonBlock::from(block.clone())).await;
+                }
+                let _ = client.block_confirm(hash).await;
+            }
+            for hash in unconfirmed {
+                let _ = client.block_confirm(hash).await;
             }
         }
     }
@@ -890,6 +1006,15 @@ fn average_close_election_duration<'a>(
     Some(Duration::from_micros(
         (total / statuses.len() as u128) as u64,
     ))
+}
+
+fn average_duration(durations: impl IntoIterator<Item = Duration>) -> Option<Duration> {
+    let (total_seconds, count) = durations
+        .into_iter()
+        .fold((0.0, 0_u64), |(total, count), duration| {
+            (total + duration.as_secs_f64(), count + 1)
+        });
+    (count != 0).then(|| Duration::from_secs_f64(total_seconds / count as f64))
 }
 
 fn format_duration(duration: Option<Duration>) -> String {
@@ -1348,6 +1473,7 @@ mod tests {
                 ("0".into(), 2_000.into()),
                 ("1".into(), 2_000.into()),
             ]),
+            close_diagnostics: BTreeMap::new(),
         }
     }
 
@@ -1488,6 +1614,19 @@ mod tests {
         );
 
         assert_eq!(converged_workload_epoch(&[converged], &[initial], 2,), None);
+    }
+
+    #[test]
+    fn confirmation_average_includes_every_pr_sample() {
+        assert_eq!(
+            average_duration([
+                Duration::from_millis(100),
+                Duration::from_millis(200),
+                Duration::from_millis(300),
+            ]),
+            Some(Duration::from_millis(200))
+        );
+        assert_eq!(average_duration([]), None);
     }
 
     fn observed() -> RaiTransitionObservation {

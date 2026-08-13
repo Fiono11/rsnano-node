@@ -31,9 +31,9 @@ pub(crate) struct SpamLogic {
     published_total: usize,
     pub(crate) confirmed_recent: usize,
     pub(crate) sum_conf_time_recent: Duration,
-    pub(crate) sum_conf_time_total: Duration,
     pub(crate) cps_measure_start: Option<Timestamp>,
     publication_times: HashMap<BlockHash, Instant>,
+    published_blocks: HashMap<BlockHash, Block>,
 }
 
 impl SpamLogic {
@@ -60,9 +60,9 @@ impl SpamLogic {
             published_total: 0,
             confirmed_recent: 0,
             sum_conf_time_recent: Duration::ZERO,
-            sum_conf_time_total: Duration::ZERO,
             cps_measure_start: None,
             publication_times: Default::default(),
+            published_blocks: Default::default(),
         }
     }
 
@@ -98,6 +98,8 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
+        self.published_blocks
+            .insert(next.block.hash(), next.block.clone());
         self.delayed.insert(next.block.clone()); // TODO: handle forks!
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
@@ -133,6 +135,10 @@ impl SpamLogic {
         &self.publication_times
     }
 
+    pub(crate) fn published_blocks(&self) -> &HashMap<BlockHash, Block> {
+        &self.published_blocks
+    }
+
     pub(crate) fn confirmed(
         &mut self,
         block_hash: &BlockHash,
@@ -148,7 +154,6 @@ impl SpamLogic {
                 self.confirmed_recent += 1;
                 self.confirmed_total += 1;
                 self.sum_conf_time_recent += conf_time;
-                self.sum_conf_time_total += conf_time;
             }
             self.block_factory.confirm(block_hash);
         }
@@ -175,10 +180,6 @@ impl SpamLogic {
         } else {
             self.sum_conf_time_recent / self.confirmed_recent as u32
         }
-    }
-
-    pub(crate) fn average_confirmation_time_total(&self) -> Option<Duration> {
-        (self.confirmed_total > 0).then(|| self.sum_conf_time_total / self.confirmed_total as u32)
     }
 
     pub(crate) fn stats(&self, now: Timestamp) -> SpamStats {
@@ -226,6 +227,10 @@ mod tests {
         };
         logic.published(&first.block.hash(), now);
         logic.confirmed(&first.block.hash(), now);
+        assert_eq!(
+            logic.published_blocks().get(&first.block.hash()),
+            Some(&first.block)
+        );
 
         assert!(matches!(
             logic.next_block(false, now),

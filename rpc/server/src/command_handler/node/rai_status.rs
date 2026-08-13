@@ -67,6 +67,7 @@ impl RpcCommandHandler {
                     )
                 })
                 .collect(),
+            close_diagnostics: self.node.aec.rai_close_diagnostics(),
         })
     }
 

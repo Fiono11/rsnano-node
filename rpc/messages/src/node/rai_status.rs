@@ -22,6 +22,8 @@ pub struct RaiStatusResponse {
     pub finalized_by_epoch: BTreeMap<String, RpcU64>,
     pub cut_election_durations_us: BTreeMap<String, RpcU64>,
     pub record_election_durations_us: BTreeMap<String, RpcU64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub close_diagnostics: BTreeMap<String, String>,
 }
 
 #[cfg(test)]
