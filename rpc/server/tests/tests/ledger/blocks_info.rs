@@ -1,4 +1,6 @@
 use rsnano_ledger::DEV_GENESIS_HASH;
+use rsnano_rpc_messages::BlocksInfoArgs;
+use rsnano_types::BlockHash;
 use test_helpers::{System, setup_rpc_client_and_server};
 
 #[test]
@@ -15,6 +17,29 @@ fn blocks_info() {
             .await
             .unwrap()
     });
+}
+
+#[test]
+fn blocks_info_can_return_present_blocks_beside_missing_blocks() {
+    let mut system = System::new();
+    let node = system.make_node();
+    let server = setup_rpc_client_and_server(node.clone(), false);
+    let missing = BlockHash::from(42);
+    let args = BlocksInfoArgs {
+        receivable: None,
+        receive_hash: None,
+        source: None,
+        include_not_found: Some(true.into()),
+        include_linked_account: None,
+        hashes: vec![*DEV_GENESIS_HASH, missing],
+    };
+
+    let response = node
+        .runtime
+        .block_on(async { server.client.blocks_info(args).await.unwrap() });
+
+    assert!(response.blocks.contains_key(&DEV_GENESIS_HASH));
+    assert_eq!(response.blocks_not_found, Some(vec![missing]));
 }
 
 #[cfg(feature = "rai_protocol")]

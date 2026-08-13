@@ -598,8 +598,8 @@ impl NanoRpcClient {
         self.request(&RpcCommand::blocks(blocks)).await
     }
 
-    pub async fn blocks_info(&self, blocks: Vec<BlockHash>) -> Result<BlocksInfoResponse> {
-        self.request(&RpcCommand::blocks_info(blocks)).await
+    pub async fn blocks_info(&self, args: impl Into<BlocksInfoArgs>) -> Result<BlocksInfoResponse> {
+        self.request(&RpcCommand::blocks_info(args.into())).await
     }
 
     pub async fn successors(&self, args: impl Into<ChainArgs>) -> Result<BlockHashesResponse> {
