@@ -1222,6 +1222,31 @@ impl RaiEpochManager {
         true
     }
 
+    /// Applies an ordinary-finalized epoch segment which was omitted from the
+    /// close cut because its exact finality lock replaced the report lock.
+    pub fn record_ordinary_finalized_frontier(
+        &mut self,
+        epoch: RaiEpoch,
+        account: Account,
+        info: ConfirmationHeightInfo,
+    ) -> bool {
+        if self
+            .state
+            .closing
+            .is_none_or(|closing| closing.epoch != epoch)
+        {
+            return false;
+        }
+        let Some(frontiers) = self.drain_frontiers.get_mut(&epoch) else {
+            return false;
+        };
+        let current = frontiers.entry(account).or_default();
+        if info.height > current.height {
+            *current = info;
+        }
+        true
+    }
+
     /// Applies an epoch-local cemented segment after its persistent vote
     /// certificate has been validated.
     pub fn record_drain_evidence(
@@ -1841,6 +1866,35 @@ mod tests {
         assert_eq!(
             drain.finalized.len() + drain.selected.len() + drain.released.len(),
             drain.obligations.len()
+        );
+    }
+
+    #[test]
+    fn ordinary_finality_outside_cut_advances_close_frontier() {
+        let account = Account::from(7);
+        let mut manager = RaiEpochManager::new(Arc::new(RepWeights::default()), BlockHash::ZERO);
+        assert!(manager.start_closing(Timestamp::new_test_instance()));
+        manager.drains.insert(
+            RaiEpoch::ZERO,
+            RaiHappyPathDrain {
+                epoch: RaiEpoch::ZERO,
+                obligations: BTreeSet::new(),
+                finalized: BTreeMap::new(),
+                selected: BTreeMap::new(),
+                released: BTreeMap::new(),
+            },
+        );
+        assert!(manager.initialize_drain_frontiers(RaiEpoch::ZERO, []));
+
+        let finalized = ConfirmationHeightInfo::new(3, BlockHash::from(30));
+        assert!(manager.record_ordinary_finalized_frontier(
+            RaiEpoch::ZERO,
+            account,
+            finalized.clone(),
+        ));
+        assert_eq!(
+            manager.drain_frontiers(RaiEpoch::ZERO).unwrap()[&account],
+            finalized
         );
     }
 

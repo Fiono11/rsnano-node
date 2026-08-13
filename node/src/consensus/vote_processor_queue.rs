@@ -22,6 +22,43 @@ use rsnano_utils::{
 
 use super::{RepTier, RepTiers, RepTiersConsumer, VoteProcessorConfig};
 
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum RaiVoteQueueClass {
+    Close,
+    Ordinary,
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_vote_queue_class(vote: &Vote) -> RaiVoteQueueClass {
+    if vote.rai_entries().any(|(metadata, _)| {
+        matches!(
+            metadata.election_id,
+            rsnano_types::RaiElectionId::CloseCut { .. }
+                | rsnano_types::RaiElectionId::CloseRecord { .. }
+        )
+    }) {
+        RaiVoteQueueClass::Close
+    } else {
+        RaiVoteQueueClass::Ordinary
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+type VoteQueueSource = (RaiVoteQueueClass, RepTier, ChannelId);
+#[cfg(not(feature = "rai_protocol"))]
+type VoteQueueSource = (RepTier, ChannelId);
+
+#[cfg(feature = "rai_protocol")]
+fn vote_queue_tier_channel(source: &VoteQueueSource) -> (RepTier, ChannelId) {
+    (source.1, source.2)
+}
+
+#[cfg(not(feature = "rai_protocol"))]
+fn vote_queue_tier_channel(source: &VoteQueueSource) -> (RepTier, ChannelId) {
+    *source
+}
+
 pub struct VoteProcessorQueue {
     data: Mutex<VoteProcessorQueueData>,
     condition: Condvar,
@@ -37,25 +74,48 @@ impl VoteProcessorQueue {
                 stopped: false,
                 rep_tiers: Default::default(),
                 #[cfg(feature = "rai_protocol")]
-                forwarded_votes: Default::default(),
+                coalesced_votes: Default::default(),
                 queue: FairQueue::new(
-                    move |(tier, channel)| {
+                    move |source| {
+                        let (tier, channel) = vote_queue_tier_channel(source);
                         let max_size = match tier {
                             RepTier::Tier1 | RepTier::Tier2 | RepTier::Tier3 => conf.max_pr_queue,
                             RepTier::None => conf.max_non_pr_queue,
                         };
-                        if *channel == ChannelId::LOOPBACK {
+                        #[cfg(feature = "rai_protocol")]
+                        if source.0 == RaiVoteQueueClass::Close {
+                            // Close certificates contain only a bounded number
+                            // of leaves per committee, but repair can deliver
+                            // several rounds concurrently while ordinary slot
+                            // traffic is saturated. Reserve enough admission
+                            // for distinct certificate evidence.
+                            return max_size.saturating_mul(10);
+                        }
+                        if channel == ChannelId::LOOPBACK {
                             // allow more votes for LOOPBACK, which comes from the vote cache!
                             max_size * 10
                         } else {
                             max_size
                         }
                     },
-                    move |(tier, _)| match tier {
-                        RepTier::Tier3 => conf.pr_priority * conf.pr_priority * conf.pr_priority,
-                        RepTier::Tier2 => conf.pr_priority * conf.pr_priority,
-                        RepTier::Tier1 => conf.pr_priority,
-                        RepTier::None => 1,
+                    move |source| {
+                        let (tier, _) = vote_queue_tier_channel(source);
+                        let rep_priority = match tier {
+                            RepTier::Tier3 => {
+                                conf.pr_priority * conf.pr_priority * conf.pr_priority
+                            }
+                            RepTier::Tier2 => conf.pr_priority * conf.pr_priority,
+                            RepTier::Tier1 => conf.pr_priority,
+                            RepTier::None => 1,
+                        };
+                        #[cfg(feature = "rai_protocol")]
+                        if source.0 == RaiVoteQueueClass::Close {
+                            // Separate admission plus a dominant scheduler
+                            // weight keeps close-control evidence moving while
+                            // slot traffic saturates every representative tier.
+                            return rep_priority.saturating_mul(64);
+                        }
+                        rep_priority
                     },
                 ),
             }),
@@ -96,26 +156,28 @@ impl VoteProcessorQueue {
             let tier = guard.rep_tiers.tier(&vote.voter);
 
             #[cfg(feature = "rai_protocol")]
+            let class = rai_vote_queue_class(&vote);
+
+            #[cfg(feature = "rai_protocol")]
             {
                 // RAI deliberately permits a signed vote to be retried after it
                 // was first seen, because an election may only become
-                // actionable later. However, processing several forwarded
-                // copies of the same vote while one is already waiting adds no
-                // evidence and amplifies scalar-vote gossip. Coalesce only that
-                // transient case; direct and vote-cache deliveries retain their
-                // channel/replay semantics, and the key is removed after the
-                // retained vote has been processed.
+                // actionable later. Processing several copies while one is
+                // already waiting adds no evidence and can crowd certificate
+                // leaves out of the bounded queue. Coalesce forwarded votes and
+                // every close-control vote until the retained copy is processed.
                 let key = forwarded_vote_key(&vote, filter);
-                let duplicate =
-                    source == VoteDelivery::Forwarded && guard.forwarded_votes.contains_key(&key);
+                let coalesce =
+                    source == VoteDelivery::Forwarded || class == RaiVoteQueueClass::Close;
+                let duplicate = coalesce && guard.coalesced_votes.contains_key(&key);
                 if duplicate {
                     (tier, false, true)
                 } else {
                     let added = guard
                         .queue
-                        .push((tier, channel_id), (vote, source, channel, filter));
-                    if added && source == VoteDelivery::Forwarded {
-                        guard.forwarded_votes.insert(key, Some(channel_id));
+                        .push((class, tier, channel_id), (vote, source, channel, filter));
+                    if added && coalesce {
+                        guard.coalesced_votes.insert(key, Some(channel_id));
                     }
                     (tier, added, false)
                 }
@@ -153,7 +215,7 @@ impl VoteProcessorQueue {
         &self,
         max_batch_size: usize,
     ) -> VecDeque<(
-        (RepTier, ChannelId),
+        VoteQueueSource,
         (
             Arc<Vote>,
             VoteDelivery,
@@ -170,10 +232,11 @@ impl VoteProcessorQueue {
             if !guard.queue.is_empty() {
                 let batch = guard.queue.next_batch(max_batch_size);
                 #[cfg(feature = "rai_protocol")]
-                for (_, (vote, source, _, filter)) in &batch {
-                    if *source == VoteDelivery::Forwarded
+                for (queue_source, (vote, source, _, filter)) in &batch {
+                    if (*source == VoteDelivery::Forwarded
+                        || queue_source.0 == RaiVoteQueueClass::Close)
                         && let Some(channel) = guard
-                            .forwarded_votes
+                            .coalesced_votes
                             .get_mut(&forwarded_vote_key(vote, *filter))
                     {
                         // Keep the key while the vote is in flight, but no
@@ -189,11 +252,11 @@ impl VoteProcessorQueue {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn forwarded_vote_processed(&self, vote: &Vote, filter: Option<BlockHash>) {
+    pub(crate) fn coalesced_vote_processed(&self, vote: &Vote, filter: Option<BlockHash>) {
         self.data
             .lock()
             .unwrap()
-            .forwarded_votes
+            .coalesced_votes
             .remove(&forwarded_vote_key(vote, filter));
     }
 
@@ -205,7 +268,7 @@ impl VoteProcessorQueue {
             // Preserve in-flight keys so a concurrent clear cannot admit a
             // second copy before the retained vote finishes processing.
             guard
-                .forwarded_votes
+                .coalesced_votes
                 .retain(|_, queued_channel| queued_channel.is_none());
         }
         self.condition.notify_all();
@@ -228,7 +291,7 @@ impl VoteProcessorQueue {
             .lock()
             .unwrap()
             .queue
-            .compacted_info(|(tier, _)| *tier)
+            .compacted_info(|source| vote_queue_tier_channel(source).0)
     }
 }
 
@@ -257,11 +320,16 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
         if let ChannelEvent::Removed(id) = event {
             let mut guard = self.data.lock().unwrap();
             for tier in RepTier::iter() {
+                #[cfg(feature = "rai_protocol")]
+                for class in [RaiVoteQueueClass::Ordinary, RaiVoteQueueClass::Close] {
+                    guard.queue.remove(&(class, tier, *id));
+                }
+                #[cfg(not(feature = "rai_protocol"))]
                 guard.queue.remove(&(tier, *id));
             }
             #[cfg(feature = "rai_protocol")]
             guard
-                .forwarded_votes
+                .coalesced_votes
                 .retain(|_, queued_channel| *queued_channel != Some(*id));
         }
     }
@@ -270,7 +338,7 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
 struct VoteProcessorQueueData {
     stopped: bool,
     queue: FairQueue<
-        (RepTier, ChannelId),
+        VoteQueueSource,
         (
             Arc<Vote>,
             VoteDelivery,
@@ -282,7 +350,7 @@ struct VoteProcessorQueueData {
     #[cfg(feature = "rai_protocol")]
     /// A value of `Some(channel)` identifies a queued copy. `None` means the
     /// retained copy has been dequeued and is currently being processed.
-    forwarded_votes: HashMap<ForwardedVoteKey, Option<ChannelId>>,
+    coalesced_votes: HashMap<ForwardedVoteKey, Option<ChannelId>>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -300,7 +368,68 @@ fn forwarded_vote_key(vote: &Vote, filter: Option<BlockHash>) -> ForwardedVoteKe
 
 #[cfg(all(test, feature = "rai_protocol"))]
 mod rai_tests {
+    use rsnano_types::{
+        PrivateKey, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiVoteMetadata, RaiVotePhase,
+        UnixMillisTimestamp,
+    };
+
     use super::*;
+
+    fn close_vote(key: &PrivateKey, hash: BlockHash) -> Arc<Vote> {
+        Arc::new(Vote::new_rai(
+            key,
+            UnixMillisTimestamp::new(1),
+            0,
+            hash,
+            RaiVoteMetadata {
+                election_id: RaiElectionId::CloseRecord {
+                    epoch: RaiEpoch::new(0),
+                    round: 0,
+                },
+                phase: RaiVotePhase::First,
+                epoch: RaiEpoch::new(0),
+                scope: RaiCommitteeScope::All,
+            },
+        ))
+    }
+
+    #[test]
+    fn close_votes_have_separate_capacity_and_are_serviced_before_slot_votes() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_non_pr_queue = 1;
+        let queue = VoteProcessorQueue::new(config, Arc::new(Stats::default()));
+        let channel = Arc::new(Channel::new_test_instance_with_id(1));
+        let key = PrivateKey::new();
+        let ordinary = Arc::new(Vote::new(
+            &key,
+            UnixMillisTimestamp::new(1),
+            0,
+            vec![BlockHash::from(1)],
+        ));
+
+        assert!(queue.enqueue(
+            ordinary.clone(),
+            Some(channel.clone()),
+            VoteDelivery::Direct,
+            None,
+        ));
+        assert!(!queue.enqueue(ordinary, Some(channel.clone()), VoteDelivery::Direct, None,));
+        assert!(queue.enqueue(
+            close_vote(&key, BlockHash::from(2)),
+            Some(channel.clone()),
+            VoteDelivery::Direct,
+            None,
+        ));
+        assert!(queue.enqueue(
+            close_vote(&key, BlockHash::from(3)),
+            Some(channel),
+            VoteDelivery::Direct,
+            None,
+        ));
+
+        let batch = queue.wait_for_votes(1);
+        assert_eq!(batch.front().unwrap().0.0, RaiVoteQueueClass::Close);
+    }
 
     #[test]
     fn coalesces_queued_and_in_flight_forwarded_votes() {
@@ -344,7 +473,7 @@ mod rai_tests {
         ));
         assert!(queue.is_empty());
 
-        queue.forwarded_vote_processed(&vote, None);
+        queue.coalesced_vote_processed(&vote, None);
 
         // Once the retained copy leaves the queue, a later repair retry must
         // be admitted and reconsidered against the then-current election state.
@@ -353,12 +482,30 @@ mod rai_tests {
     }
 
     #[test]
-    fn does_not_coalesce_direct_or_replayed_votes() {
+    fn coalesces_direct_close_votes_but_not_direct_ordinary_votes() {
+        let queue = VoteProcessorQueue::new_null();
+        let ordinary = Arc::new(Vote::new_test_instance());
+        let close = close_vote(&PrivateKey::from(1), BlockHash::from(1));
+
+        assert!(queue.enqueue(ordinary.clone(), None, VoteDelivery::Direct, None));
+        assert!(queue.enqueue(ordinary, None, VoteDelivery::Direct, None));
+        assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
+        assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
+        assert_eq!(queue.len(), 3);
+
+        assert_eq!(queue.wait_for_votes(3).len(), 3);
+        assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
+        assert!(queue.is_empty());
+        queue.coalesced_vote_processed(&close, None);
+        assert!(queue.enqueue(close, None, VoteDelivery::Direct, None));
+        assert_eq!(queue.len(), 1);
+    }
+
+    #[test]
+    fn does_not_coalesce_replayed_ordinary_votes() {
         let queue = VoteProcessorQueue::new_null();
         let vote = Arc::new(Vote::new_test_instance());
 
-        assert!(queue.enqueue(vote.clone(), None, VoteDelivery::Direct, None));
-        assert!(queue.enqueue(vote.clone(), None, VoteDelivery::Direct, None));
         assert!(queue.enqueue(
             vote.clone(),
             None,
@@ -367,7 +514,7 @@ mod rai_tests {
         ));
         assert!(queue.enqueue(vote, None, VoteDelivery::Replayed, Some(BlockHash::from(1)),));
 
-        assert_eq!(queue.len(), 4);
+        assert_eq!(queue.len(), 2);
     }
 
     #[test]

@@ -26,6 +26,21 @@ use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
+
+#[cfg(feature = "rai_protocol")]
+fn close_preimage_request_indices(
+    candidate_count: usize,
+    start_sequence: u64,
+    limit: usize,
+) -> Vec<usize> {
+    if candidate_count == 0 || limit == 0 {
+        return Vec::new();
+    }
+    let start = start_sequence as usize % candidate_count;
+    (0..candidate_count.min(limit))
+        .map(|offset| (start + offset) % candidate_count)
+        .collect()
+}
 use crate::consensus::{
     ElectionCandidateSource,
     election::{ConfirmedElection, Election, ElectionBehavior, ElectionState},
@@ -53,6 +68,9 @@ pub struct RaiEpochTicker {
     known_reports: HashSet<RaiReportIdentity>,
     report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
     last_slot_evidence_repair: Option<Timestamp>,
+    slot_evidence_repair_cursor: usize,
+    last_close_evidence_repair: Option<Timestamp>,
+    close_evidence_repair_cursor: usize,
     local_key: Option<rsnano_types::PrivateKey>,
     last_report_request: Option<Timestamp>,
     last_close_preimage_request: Option<Timestamp>,
@@ -87,6 +105,9 @@ impl RaiEpochTicker {
             known_reports: Default::default(),
             report_rebroadcast_queue: Default::default(),
             last_slot_evidence_repair: None,
+            slot_evidence_repair_cursor: 0,
+            last_close_evidence_repair: None,
+            close_evidence_repair_cursor: 0,
             local_key: None,
             last_report_request: None,
             last_close_preimage_request: None,
@@ -114,7 +135,14 @@ const MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK: usize = 64;
 const MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
-const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
+const MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
+
+#[cfg(feature = "rai_protocol")]
+// A lost First/Notar/Final leaf can require several repair passes. Keeping the
+// pass interval aligned with the default close-loop tick prevents one unlucky
+// workload election at an epoch boundary from adding multiple seconds of tail
+// latency while retaining the same bounded per-pass work.
+const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
 
 #[cfg(feature = "rai_protocol")]
 const RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE: f32 = 8.0;
@@ -252,6 +280,7 @@ impl Tickable for RaiEpochTicker {
             self.aec
                 .rai_progress_close(initial_frontiers, &self.ledger, now);
             self.replay_retained_slot_votes(closing);
+            self.replay_retained_close_votes(closing);
             // A report quorum is only enough to propose a cut.  Peers may have
             // reached quorum from different subsets and therefore be voting on
             // different cut hashes.  Keep repairing the report set until the
@@ -291,33 +320,49 @@ impl Tickable for RaiEpochTicker {
                 self.close_preimage_response_sequences
                     .retain(|(epoch, _, _), _| *epoch == closing.epoch.number());
                 if !requests.is_empty() {
-                    let index = self.close_request_sequence as usize % requests.len();
-                    let (hash, root) = requests[index];
-                    debug_assert!(!hash.is_zero());
-                    self.close_request_sequence = self.close_request_sequence.wrapping_add(1);
-                    let response_sequence = self
-                        .close_preimage_response_sequences
-                        .entry((closing.epoch.number(), hash, root))
-                        .or_default();
-                    *response_sequence = response_sequence.wrapping_add(1);
-                    self.flooder.flood_prs_and_some_non_prs(
-                        &rsnano_messages::Message::RaiVoteRequest(
-                            rsnano_messages::RaiVoteRequest {
-                                // Consecutive close-only sequences rotate a
-                                // bounded response window across a large exact
-                                // preimage without gaps from unrelated repair.
-                                sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG
-                                    | *response_sequence
-                                        & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
-                                epoch: closing.epoch.number(),
-                                hash,
-                                root,
-                                close_version: None,
-                            },
-                        ),
-                        rsnano_network::TrafficType::ConfirmationRequests,
-                        8.0,
+                    // A split close round can expose one distinct digest per
+                    // representative.  Request a bounded window, rather than
+                    // only one digest every repair interval, so all signed
+                    // First values become reconstructible before a partial
+                    // chunk assembly expires.  The rotating start preserves
+                    // fairness when more candidates are retained than fit in
+                    // one pass.
+                    const CLOSE_PREIMAGE_REQUESTS_PER_PASS: usize = 4;
+                    let indices = close_preimage_request_indices(
+                        requests.len(),
+                        self.close_request_sequence,
+                        CLOSE_PREIMAGE_REQUESTS_PER_PASS,
                     );
+                    self.close_request_sequence = self
+                        .close_request_sequence
+                        .wrapping_add(indices.len() as u64);
+                    for index in indices {
+                        let (hash, root) = requests[index];
+                        debug_assert!(!hash.is_zero());
+                        let response_sequence = self
+                            .close_preimage_response_sequences
+                            .entry((closing.epoch.number(), hash, root))
+                            .or_default();
+                        *response_sequence = response_sequence.wrapping_add(1);
+                        self.flooder.flood_prs_and_some_non_prs(
+                            &rsnano_messages::Message::RaiVoteRequest(
+                                rsnano_messages::RaiVoteRequest {
+                                    // Consecutive close-only sequences rotate a
+                                    // bounded response window across a large exact
+                                    // preimage without gaps from unrelated repair.
+                                    sequence: rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG
+                                        | *response_sequence
+                                            & rsnano_messages::RAI_REPAIR_SEQUENCE_COUNTER_MASK,
+                                    epoch: closing.epoch.number(),
+                                    hash,
+                                    root,
+                                    close_version: None,
+                                },
+                            ),
+                            rsnano_network::TrafficType::ConfirmationRequests,
+                            8.0,
+                        );
+                    }
                 }
                 self.last_close_preimage_request = Some(now);
             }
@@ -365,6 +410,9 @@ impl Tickable for RaiEpochTicker {
         } else {
             rai_drain_frontier_snapshot_needed(&mut self.initialized_drain_frontiers_epoch, None);
             self.last_slot_evidence_repair = None;
+            self.slot_evidence_repair_cursor = 0;
+            self.last_close_evidence_repair = None;
+            self.close_evidence_repair_cursor = 0;
             self.last_close_preimage_request = None;
             self.close_preimage_response_sequences.clear();
             self.last_slot_payload_request = None;
@@ -418,9 +466,102 @@ impl Tickable for RaiEpochTicker {
 
 #[cfg(feature = "rai_protocol")]
 impl RaiEpochTicker {
+    fn replay_retained_close_votes(&mut self, closing: crate::consensus::rai::RaiClosingEpoch) {
+        if !rai_close_repair_phase_active(closing.phase) {
+            self.last_close_evidence_repair = None;
+            self.close_evidence_repair_cursor = 0;
+            return;
+        }
+        let now = self.clock.now();
+        if self
+            .last_close_evidence_repair
+            .is_some_and(|last| last.elapsed(now) < RAI_SLOT_EVIDENCE_REPAIR_INTERVAL)
+        {
+            return;
+        }
+
+        // Close leaves are durable authenticated objects.  Re-gossip retained
+        // batches while their election is active: a cached ConfirmReq reply is
+        // point-to-point and cannot by itself converge replicas which learned
+        // disjoint First values at the epoch boundary.
+        let requests = self
+            .aec
+            .rai_active_close_vote_requests(closing.epoch, MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK);
+        let mut seen = HashSet::new();
+        let mut votes = self
+            .aec
+            .rai_close_votes_for_epoch(closing.epoch)
+            .into_iter()
+            .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
+            .collect::<Vec<_>>();
+        // The locally generated leaf may have entered LocalVoteHistory while
+        // its one-shot vote-processor enqueue was dropped under saturation.
+        // Include that authoritative signed history in epidemic repair.
+        votes.extend(
+            requests
+                .iter()
+                .flat_map(|(_, root, id)| self.vote_history.rai_votes_for_election(root, id))
+                .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
+                .map(|vote| (*vote).clone()),
+        );
+        if votes.is_empty() {
+            self.close_evidence_repair_cursor = 0;
+        } else {
+            let start = self.close_evidence_repair_cursor % votes.len();
+            let count = votes.len().min(MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK);
+            let mut replayed = 0;
+            for offset in 0..count {
+                let vote = &votes[(start + offset) % votes.len()];
+                if !self.flooder.check_capacity(
+                    rsnano_network::TrafficType::VoteReply,
+                    RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+                ) {
+                    break;
+                }
+                self.flooder.flood_prs_and_some_non_prs(
+                    &rsnano_messages::Message::ConfirmAck(
+                        rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
+                    ),
+                    rsnano_network::TrafficType::VoteReply,
+                    RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+                );
+                replayed += 1;
+            }
+            self.close_evidence_repair_cursor = (start + replayed) % votes.len();
+        }
+
+        // Replaying First leaves can change the active request target to the
+        // timeout value. Solicit the current target after every repair pass so
+        // committee members produce the next phase vote instead of waiting
+        // indefinitely for an unrelated request.
+        if !requests.is_empty()
+            && self.flooder.check_capacity(
+                rsnano_network::TrafficType::ConfirmationRequests,
+                RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+            )
+        {
+            self.flooder.flood_prs_and_some_non_prs(
+                &rsnano_messages::Message::ConfirmReq(rsnano_messages::ConfirmReq::new(
+                    requests
+                        .into_iter()
+                        .map(|(hash, root, _)| (hash, root))
+                        .collect(),
+                )),
+                rsnano_network::TrafficType::ConfirmationRequests,
+                RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+            );
+        }
+        self.last_close_evidence_repair = Some(now);
+    }
+
     fn replay_retained_slot_votes(&mut self, closing: crate::consensus::rai::RaiClosingEpoch) {
-        if closing.phase != crate::consensus::rai::RaiClosingPhase::Draining {
+        if !matches!(
+            closing.phase,
+            crate::consensus::rai::RaiClosingPhase::Draining
+                | crate::consensus::rai::RaiClosingPhase::ElectingRecord
+        ) {
             self.last_slot_evidence_repair = None;
+            self.slot_evidence_repair_cursor = 0;
             return;
         }
         let now = self.clock.now();
@@ -434,6 +575,37 @@ impl RaiEpochTicker {
         let slots = self
             .aec
             .rai_unresolved_drain_slots(closing.epoch, MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK);
+        if closing.phase == crate::consensus::rai::RaiClosingPhase::ElectingRecord {
+            // Ordinary-finalized slots outside the cut are exact fresh-record
+            // locks.  Their durable vote batches must keep converging while a
+            // split record round retries, even though the cut drain itself is
+            // already complete.
+            let votes = self.aec.rai_slot_votes_for_epoch(closing.epoch);
+            if votes.is_empty() {
+                self.slot_evidence_repair_cursor = 0;
+            } else {
+                let start = self.slot_evidence_repair_cursor % votes.len();
+                let mut replayed = 0;
+                for offset in 0..votes.len().min(MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK) {
+                    let vote = &votes[(start + offset) % votes.len()];
+                    if !self.flooder.check_capacity(
+                        rsnano_network::TrafficType::VoteRebroadcast,
+                        RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+                    ) {
+                        break;
+                    }
+                    self.flooder.flood_prs_and_some_non_prs(
+                        &rsnano_messages::Message::ConfirmAck(
+                            rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
+                        ),
+                        rsnano_network::TrafficType::VoteRebroadcast,
+                        RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+                    );
+                    replayed += 1;
+                }
+                self.slot_evidence_repair_cursor = (start + replayed) % votes.len();
+            }
+        }
         if slots.is_empty() {
             self.last_slot_evidence_repair = Some(now);
             return;
@@ -808,6 +980,31 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_slot_votes_for_epoch(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> Vec<rsnano_types::Vote> {
+        self.aec.read().unwrap().rai_slot_votes_for_epoch(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_active_close_vote_requests(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        limit: usize,
+    ) -> Vec<(BlockHash, rsnano_types::Root, rsnano_types::RaiElectionId)> {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_active_close_vote_requests(epoch, limit)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_close_diagnostics(&self) -> std::collections::BTreeMap<String, String> {
+        self.aec.read().unwrap().rai_close_diagnostics()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn reconcile_rai_close_cut(
         &self,
         cut: crate::consensus::rai::RaiCloseCut,
@@ -1165,6 +1362,15 @@ impl AecService {
 #[cfg(all(test, feature = "rai_protocol"))]
 mod rai_epoch_ticker_tests {
     use super::*;
+
+    #[test]
+    fn split_close_preimage_repair_requests_a_bounded_rotating_window() {
+        assert_eq!(close_preimage_request_indices(0, 0, 4), Vec::<usize>::new());
+        assert_eq!(close_preimage_request_indices(3, 0, 4), vec![0, 1, 2]);
+        assert_eq!(close_preimage_request_indices(6, 0, 4), vec![0, 1, 2, 3]);
+        assert_eq!(close_preimage_request_indices(6, 4, 4), vec![4, 5, 0, 1]);
+        assert_eq!(close_preimage_request_indices(6, 8, 4), vec![2, 3, 4, 5]);
+    }
 
     #[test]
     fn payload_repair_selects_a_bounded_window_in_order() {

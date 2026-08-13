@@ -251,7 +251,7 @@ impl Election {
         matches!(
             self.rai_votes.outcome,
             RaiOutcome::Pending | RaiOutcome::Notarized(_)
-        )
+        ) || (self.is_rai_close() && self.rai_votes.outcome == RaiOutcome::TimedOut)
     }
 
     #[cfg(feature = "rai_protocol")]

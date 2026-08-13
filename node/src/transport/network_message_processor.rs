@@ -51,7 +51,11 @@ pub struct NetworkMessageProcessor {
 }
 
 #[cfg(feature = "rai_protocol")]
-const RAI_CLOSE_REPAIR_ASSEMBLY_TTL: Duration = Duration::from_secs(30);
+// A close round may have one replica-relative candidate per committee member.
+// Repair rotates bounded response windows across those candidates.  Keep a
+// partial canonical preimage long enough for every chunk to occupy the head of
+// a peer's bounded write queue even under that worst-case rotation.
+const RAI_CLOSE_REPAIR_ASSEMBLY_TTL: Duration = Duration::from_secs(120);
 #[cfg(feature = "rai_protocol")]
 const MAX_PENDING_RAI_CLOSE_REPAIR_ASSEMBLIES: usize = 16;
 #[cfg(feature = "rai_protocol")]

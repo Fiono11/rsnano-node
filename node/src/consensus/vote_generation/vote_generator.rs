@@ -143,6 +143,11 @@ impl VoteGenerator {
         target: &rsnano_ledger::RaiFinalizedVoteTarget,
         channel: &Arc<Channel>,
     ) -> usize {
+        let broadcast_close_vote = matches!(
+            target.metadata.election_id,
+            rsnano_types::RaiElectionId::CloseCut { .. }
+                | rsnano_types::RaiElectionId::CloseRecord { .. }
+        );
         let generated = std::sync::atomic::AtomicUsize::new(0);
         self.shared_state.vote(
             &[target.hash],
@@ -157,6 +162,14 @@ impl VoteGenerator {
                     &message,
                     TrafficType::VoteReply,
                 );
+                // Close-round liveness depends on every signed leaf being
+                // disseminated as ordinary vote gossip. A point-to-point
+                // solicitation reply alone can leave different replicas with
+                // disjoint First-vote subsets, so none can derive either a
+                // deciding value or the positive split/timeout death proof.
+                if broadcast_close_vote {
+                    self.shared_state.vote_broadcaster.broadcast_rai_close(vote);
+                }
             },
         );
         generated.load(Ordering::Relaxed)
@@ -168,6 +181,11 @@ impl VoteGenerator {
         target: &rsnano_ledger::RaiFinalizedVoteTarget,
         channel: &Arc<Channel>,
     ) -> usize {
+        let broadcast_close_vote = matches!(
+            target.metadata.election_id,
+            rsnano_types::RaiElectionId::CloseCut { .. }
+                | rsnano_types::RaiElectionId::CloseRecord { .. }
+        );
         let generated = std::sync::atomic::AtomicUsize::new(0);
         self.shared_state.vote(
             &[target.hash],
@@ -182,6 +200,9 @@ impl VoteGenerator {
                     &message,
                     TrafficType::VoteReply,
                 );
+                if broadcast_close_vote {
+                    self.shared_state.vote_broadcaster.broadcast_rai_close(vote);
+                }
             },
         );
         generated.load(Ordering::Relaxed)

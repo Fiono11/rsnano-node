@@ -114,7 +114,18 @@ impl<'a> ApplyVoteHelper<'a> {
             .apply_vote();
             result.record_block_result(*block_hash, vote_result);
             let confirmed = election.is_confirmed();
-            if confirmed && let Some(entry) = self.roots.erase_rai_id(election_id) {
+            // A timeout certificate ends this round, but the close protocol
+            // still needs the signed death evidence to remain addressable
+            // during its repair grace. The epoch ticker advances it through
+            // `progress_close_election`; removing it here both discarded that
+            // repair target and let the caller create a successor immediately.
+            let retain_dead_close = election.is_rai_close()
+                && election.rai_votes.outcome
+                    == crate::consensus::rai::RaiOutcome::TimedOut;
+            if confirmed
+                && !retain_dead_close
+                && let Some(entry) = self.roots.erase_rai_id(election_id)
+            {
                 result.confirmed.push(entry);
             }
         }

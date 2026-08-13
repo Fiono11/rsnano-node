@@ -126,9 +126,7 @@ impl VoteProcessor {
                 let filtered_vote = FilteredVote::new(received_vote.clone(), filter_hash);
                 let _ = self.vote_blocking(&filtered_vote);
                 #[cfg(feature = "rai_protocol")]
-                if *source == VoteDelivery::Forwarded {
-                    self.queue.forwarded_vote_processed(vote, *filter);
-                }
+                self.queue.coalesced_vote_processed(vote, *filter);
             }
 
             self.total_processed
