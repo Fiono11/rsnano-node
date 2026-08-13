@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::PeersDto;
@@ -124,7 +124,7 @@ pub(crate) async fn start_nodes(
             cmd.stderr(Stdio::from(trace));
         }
 
-        info!("Starting node: {cmd:?}");
+        debug!("Starting node: {cmd:?}");
         let child = cmd
             .spawn()
             .with_context(|| format!("could not start node PR{i}"))?;
@@ -132,7 +132,7 @@ pub(crate) async fn start_nodes(
     }
 
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
-        info!("Waiting for PR{i} RPC...");
+        debug!("Waiting for PR{i} RPC");
         let started = Instant::now();
         while rpc_client.version().await.is_err() {
             if let Some(status) = node_lifetime.child_status(i)? {

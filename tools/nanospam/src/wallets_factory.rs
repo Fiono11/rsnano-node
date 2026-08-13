@@ -1,8 +1,15 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, bail};
 use futures::future::join_all;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use rsnano_rpc_client::NanoRpcClient;
@@ -63,7 +70,7 @@ pub(crate) async fn create_wallets(
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
-        info!("Creating wallet...");
+        debug!("Creating wallet for PR{i}");
         let resp = rpc_client.wallet_create(None).await.unwrap();
         #[cfg(feature = "rai_protocol")]
         setup_wallets.push(resp.wallet);
@@ -96,7 +103,7 @@ pub(crate) async fn create_wallets(
                 .unwrap();
         }
 
-        info!("Setting default representative...");
+        debug!("Setting default representative for PR{i}");
         rpc_client
             .wallet_representative_set(WalletRepresentativeSetArgs {
                 wallet: resp.wallet,
@@ -131,6 +138,14 @@ pub(crate) async fn create_wallets(
     } else {
         pr_count
     };
+    info!("Funding {funded_account_count} spam accounts...");
+    let funded_accounts = Arc::new(AtomicUsize::new(0));
+    let progress_cancel = CancellationToken::new();
+    let progress_task = tokio::spawn(log_funding_progress(
+        funded_accounts.clone(),
+        funded_account_count,
+        progress_cancel.clone(),
+    ));
     for i in 0..funded_account_count {
         let spam_key = account_map
             .state(&account_map.accounts()[i])
@@ -140,7 +155,7 @@ pub(crate) async fn create_wallets(
         let pr_index = i % pr_count;
         let amount = spam_account_amount(i, funded_account_count, pr_count);
         let representative = pr_key(pr_index).public_key();
-        info!("Funding spam account {i} and delegating it to PR{pr_index}...");
+        debug!("Funding spam account {i} and delegating it to PR{pr_index}");
         let send_hash = genesis_rpc
             .send(SendArgs {
                 wallet: genesis_wallet,
@@ -175,7 +190,11 @@ pub(crate) async fn create_wallets(
 
         account_map.set_account_state(spam_key.account(), amount, receive_hash);
         account_map.set_representative(spam_key.account(), representative);
+        funded_accounts.store(i + 1, Ordering::Relaxed);
     }
+    progress_cancel.cancel();
+    let _ = progress_task.await;
+    info!("Funded all {funded_account_count} spam accounts");
 
     for i in 1..pr_count {
         genesis_rpc
@@ -190,6 +209,26 @@ pub(crate) async fn create_wallets(
     }
 
     Ok(genesis_wallet)
+}
+
+async fn log_funding_progress(
+    funded_accounts: Arc<AtomicUsize>,
+    total: usize,
+    cancel: CancellationToken,
+) {
+    let started = Instant::now();
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return,
+            _ = sleep(Duration::from_secs(1)) => {
+                let funded = funded_accounts.load(Ordering::Relaxed);
+                info!(
+                    "Funded {funded}/{total} spam accounts | setup elapsed: {:.1}s",
+                    started.elapsed().as_secs_f64()
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -274,7 +313,7 @@ async fn wait_until_confirmed(
     hash: BlockHash,
     block: &JsonBlock,
 ) -> anyhow::Result<()> {
-    info!("Waiting for confirmation for {hash} on PR{node_index}");
+    debug!("Waiting for confirmation for {hash} on PR{node_index}");
     let started = Instant::now();
     let mut last_confirm_request = None;
     let mut last_process_request = None;

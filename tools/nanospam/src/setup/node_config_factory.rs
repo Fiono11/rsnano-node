@@ -1,6 +1,6 @@
 use std::{fs::remove_dir_all, path::Path};
 
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::cli_args::CliArgs;
 use rsnano_types::{Block, BlockHash, PrivateKey};
@@ -87,13 +87,12 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
 /// Rewrites configuration without touching the prepared ledgers.
 pub(crate) fn configure_run_nodes(args: &CliArgs, data_dir: &Path) {
     for i in 0..args.prs {
-        info!("********************************************************************************");
-        info!("Setting up node PR{i}...");
+        debug!("Setting up node PR{i}");
 
         let mut node_dir = data_dir.to_path_buf();
         node_dir.push(format!("pr{i}"));
 
-        info!("Creating directory {node_dir:?}");
+        debug!("Creating directory {node_dir:?}");
         std::fs::create_dir_all(&node_dir).unwrap();
 
         let mut ledger_path = node_dir.clone();
@@ -101,7 +100,7 @@ pub(crate) fn configure_run_nodes(args: &CliArgs, data_dir: &Path) {
 
         let mut node_config_path = node_dir.clone();
         node_config_path.push("config-node.toml");
-        info!("Writing node config file: {node_config_path:?}");
+        debug!("Writing node config file: {node_config_path:?}");
         let node_config = NODE_CONFIG
             .replace("PEERING_PORT", &peering_port(i).to_string())
             .replace("WS_PORT", &websocket_port(i).to_string())
@@ -114,7 +113,7 @@ pub(crate) fn configure_run_nodes(args: &CliArgs, data_dir: &Path) {
         let mut rpc_config_path = node_dir.clone();
         rpc_config_path.push("config-rpc.toml");
         if !rpc_config_path.exists() {
-            info!("Creating rpc config file: {rpc_config_path:?}");
+            debug!("Creating rpc config file: {rpc_config_path:?}");
             let rpc_config = RPC_CONFIG.replace("RPC_PORT", &rpc_port(i).to_string());
             std::fs::write(rpc_config_path, rpc_config).unwrap();
         }
