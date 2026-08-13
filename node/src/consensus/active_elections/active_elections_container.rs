@@ -60,6 +60,13 @@ const RAI_DRAIN_CHECKS_PER_TICK: usize = 256;
 #[cfg(feature = "rai_protocol")]
 const RAI_CLOSE_RECORD_REFRESHES_PER_PASS: usize = 256;
 
+/// Evidence repair only performs in-memory membership checks, so it can
+/// cheaply discard a large settled prefix without inheriting the much smaller
+/// ledger-read budget. This reaches a live tail behind a 25K cut in at most
+/// four 500 ms repair passes while keeping each pass strictly bounded.
+#[cfg(feature = "rai_protocol")]
+const RAI_EVIDENCE_REPAIR_SCANS_PER_PASS: usize = 8 * 1024;
+
 /// Persistent close-drain worklist. While certificates are incomplete it
 /// rotates only unresolved slots. Once every slot has a certificate outcome,
 /// it performs exactly one fresh, bounded durable-upgrade sweep before the
@@ -69,6 +76,7 @@ const RAI_CLOSE_RECORD_REFRESHES_PER_PASS: usize = 256;
 struct RaiDrainCheckSchedule {
     epoch: rsnano_types::RaiEpoch,
     pending: std::collections::VecDeque<crate::consensus::election::RaiSlotId>,
+    evidence_repair_pending: std::collections::VecDeque<crate::consensus::election::RaiSlotId>,
     durable_upgrade: bool,
 }
 
@@ -78,9 +86,13 @@ impl RaiDrainCheckSchedule {
         epoch: rsnano_types::RaiEpoch,
         unresolved: impl IntoIterator<Item = crate::consensus::election::RaiSlotId>,
     ) -> Self {
+        let pending = unresolved
+            .into_iter()
+            .collect::<std::collections::VecDeque<_>>();
         Self {
             epoch,
-            pending: unresolved.into_iter().collect(),
+            evidence_repair_pending: pending.clone(),
+            pending,
             durable_upgrade: false,
         }
     }
@@ -99,11 +111,35 @@ impl RaiDrainCheckSchedule {
         self.pending.push_back(slot);
     }
 
+    fn take_evidence_repair_window(
+        &mut self,
+        limit: usize,
+        mut is_unresolved: impl FnMut(&crate::consensus::election::RaiSlotId) -> bool,
+    ) -> Vec<crate::consensus::election::RaiSlotId> {
+        if self.durable_upgrade {
+            return Vec::new();
+        }
+        let scan_count = RAI_EVIDENCE_REPAIR_SCANS_PER_PASS.min(self.evidence_repair_pending.len());
+        let mut result = Vec::with_capacity(limit.min(scan_count));
+        for _ in 0..scan_count {
+            let slot = self.evidence_repair_pending.pop_front().unwrap();
+            if is_unresolved(&slot) {
+                result.push(slot.clone());
+                self.evidence_repair_pending.push_back(slot);
+                if result.len() == limit {
+                    break;
+                }
+            }
+        }
+        result
+    }
+
     fn begin_durable_upgrade(
         &mut self,
         candidates: impl IntoIterator<Item = crate::consensus::election::RaiSlotId>,
     ) {
         self.pending = candidates.into_iter().collect();
+        self.evidence_repair_pending.clear();
         self.durable_upgrade = true;
     }
 
@@ -1531,6 +1567,33 @@ impl ActiveElectionsContainer {
     ) -> &std::collections::BTreeMap<rsnano_types::RaiEpoch, crate::consensus::rai::RaiHappyPathDrain>
     {
         self.rai_epoch_manager.happy_path_drains()
+    }
+
+    /// Returns a bounded, fair window of slots which still need certificate
+    /// evidence during the resolving pass. Evidence repair has its own queue
+    /// so its stride cannot alias with the 256-slot ledger-check rotation.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_unresolved_drain_slots(
+        &mut self,
+        epoch: rsnano_types::RaiEpoch,
+        limit: usize,
+    ) -> Vec<crate::consensus::election::RaiSlotId> {
+        let Some(drain) = self.rai_epoch_manager.happy_path_drain(epoch) else {
+            return Vec::new();
+        };
+        let Some(schedule) = self
+            .rai_drain_check_schedule
+            .as_mut()
+            .filter(|schedule| schedule.is_for_epoch(epoch))
+        else {
+            return Vec::new();
+        };
+        schedule.take_evidence_repair_window(limit, |slot| {
+            drain.obligations.contains(slot)
+                && !drain.finalized.contains_key(slot)
+                && !drain.selected.contains_key(slot)
+                && !drain.released.contains_key(slot)
+        })
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -4347,6 +4410,114 @@ mod tests {
         assert!(!schedule.ready_for_close());
         assert_eq!(schedule.take_window(2), vec![third]);
         assert!(schedule.ready_for_close());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn unresolved_drain_repair_window_is_bounded_and_excludes_settled_slots() {
+        use rsnano_types::{Amount, BlockHash, PrivateKey, RaiEpoch};
+
+        let key = PrivateKey::from(1);
+        let committee =
+            std::sync::Arc::new(RepWeights::from([(key.public_key(), Amount::raw(100))]));
+        let mut container = ActiveElectionsContainer::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            committee,
+            BlockHash::from(7),
+        );
+        let now = Timestamp::new_test_instance();
+        let slots = (1..=3).map(drain_slot).collect::<Vec<_>>();
+        assert!(container.rai_epoch_manager.start_closing(now));
+        container
+            .rai_epoch_manager
+            .reports_mut()
+            .insert(crate::consensus::rai::RaiReport::new(
+                &key,
+                RaiEpoch::ZERO,
+                slots.clone(),
+            ))
+            .unwrap();
+        let (_, cut_hash) = container.rai_epoch_manager.begin_cut_election([]).unwrap();
+        container
+            .rai_epoch_manager
+            .install_cut(RaiEpoch::ZERO, 0, cut_hash)
+            .unwrap();
+        assert!(
+            container
+                .rai_epoch_manager
+                .initialize_drain_frontiers(RaiEpoch::ZERO, [])
+        );
+        container.rai_drain_check_schedule = Some(RaiDrainCheckSchedule::resolving(
+            RaiEpoch::ZERO,
+            slots.clone(),
+        ));
+
+        assert_eq!(
+            container.rai_unresolved_drain_slots(RaiEpoch::ZERO, 2),
+            slots[..2]
+        );
+        assert_eq!(
+            container.rai_epoch_manager.record_notarized_drain(
+                RaiEpoch::ZERO,
+                &slots[0],
+                BlockHash::from(99),
+                [],
+            ),
+            Some(crate::consensus::rai::RaiDrainOutcome::Selected(
+                BlockHash::from(99)
+            ))
+        );
+        assert_eq!(
+            container.rai_unresolved_drain_slots(RaiEpoch::ZERO, 2),
+            vec![slots[2].clone(), slots[1].clone()]
+        );
+
+        container
+            .rai_drain_check_schedule
+            .as_mut()
+            .unwrap()
+            .begin_durable_upgrade(slots);
+        assert!(
+            container
+                .rai_unresolved_drain_slots(RaiEpoch::ZERO, 2)
+                .is_empty()
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn evidence_repair_rotation_is_independent_and_fair() {
+        let slots = (1..=512).map(drain_slot).collect::<Vec<_>>();
+        let mut schedule =
+            RaiDrainCheckSchedule::resolving(rsnano_types::RaiEpoch::ZERO, slots.clone());
+        let mut repaired = std::collections::HashSet::new();
+
+        for _ in 0..32 {
+            // Model the production ledger-check stride which previously made
+            // a first-16 repair sample alias forever for a 512-slot queue.
+            for slot in schedule.take_window(RAI_DRAIN_CHECKS_PER_TICK) {
+                schedule.requeue_unresolved(slot);
+            }
+            repaired.extend(schedule.take_evidence_repair_window(16, |_| true));
+        }
+
+        assert_eq!(repaired.len(), slots.len());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn evidence_repair_reaches_a_live_tail_behind_a_large_settled_prefix() {
+        let slots = (1..=25_001).map(drain_slot).collect::<Vec<_>>();
+        let tail = slots.last().unwrap().clone();
+        let mut schedule = RaiDrainCheckSchedule::resolving(rsnano_types::RaiEpoch::ZERO, slots);
+
+        let mut found = Vec::new();
+        for _ in 0..4 {
+            found.extend(schedule.take_evidence_repair_window(16, |slot| *slot == tail));
+        }
+
+        assert_eq!(found, vec![tail]);
     }
 
     #[cfg(feature = "rai_protocol")]

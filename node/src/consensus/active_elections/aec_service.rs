@@ -49,8 +49,10 @@ pub struct RaiEpochTicker {
     ledger: std::sync::Arc<rsnano_ledger::Ledger>,
     epoch_duration: Duration,
     flooder: crate::transport::MessageFlooder,
+    vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     known_reports: HashSet<RaiReportIdentity>,
     report_rebroadcast_queue: VecDeque<crate::consensus::rai::RaiReport>,
+    last_slot_evidence_repair: Option<Timestamp>,
     local_key: Option<rsnano_types::PrivateKey>,
     last_report_request: Option<Timestamp>,
     last_close_preimage_request: Option<Timestamp>,
@@ -72,7 +74,7 @@ impl RaiEpochTicker {
         ledger: std::sync::Arc<rsnano_ledger::Ledger>,
         epoch_duration: Duration,
         flooder: crate::transport::MessageFlooder,
-        _vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
+        vote_history: std::sync::Arc<crate::consensus::LocalVoteHistory>,
     ) -> Self {
         Self {
             aec,
@@ -81,8 +83,10 @@ impl RaiEpochTicker {
             ledger,
             epoch_duration,
             flooder,
+            vote_history,
             known_reports: Default::default(),
             report_rebroadcast_queue: Default::default(),
+            last_slot_evidence_repair: None,
             local_key: None,
             last_report_request: None,
             last_close_preimage_request: None,
@@ -103,6 +107,25 @@ impl RaiEpochTicker {
 // starving an obligation which remains unresolved.
 const MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK: usize = 64;
 
+/// A large close cut can contain tens of thousands of slots, while only a
+/// small tail normally needs evidence repair. Keep both replay and request
+/// work proportional to that unresolved tail.
+#[cfg(feature = "rai_protocol")]
+const MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
+
+#[cfg(feature = "rai_protocol")]
+const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
+
+#[cfg(feature = "rai_protocol")]
+const RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE: f32 = 8.0;
+
+// Capacity checks are intentionally made at the ordinary fanout. The repair
+// flood itself is wider, but Network::fanout is not capped by the number of
+// channels; using the repair scale for this gate would disable repair forever
+// on a healthy six-replica mesh with only five peer channels.
+#[cfg(feature = "rai_protocol")]
+const RAI_SLOT_EVIDENCE_CAPACITY_SCALE: f32 = 1.0;
+
 #[cfg(feature = "rai_protocol")]
 fn rai_slot_payload_repair_window<T: Clone>(requests: &[T], cursor: &mut usize) -> Vec<T> {
     if requests.is_empty() {
@@ -117,6 +140,18 @@ fn rai_slot_payload_repair_window<T: Clone>(requests: &[T], cursor: &mut usize) 
         .collect();
     *cursor = (start + count) % requests.len();
     result
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_replay_slot_vote_window<T>(votes: &[T], mut try_replay: impl FnMut(&T) -> bool) -> usize {
+    let mut replayed = 0;
+    for vote in votes {
+        if replayed >= MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK || !try_replay(vote) {
+            break;
+        }
+        replayed += 1;
+    }
+    replayed
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -216,6 +251,7 @@ impl Tickable for RaiEpochTicker {
             .then(|| self.ledger.rai_preceding_frontiers(closing.epoch));
             self.aec
                 .rai_progress_close(initial_frontiers, &self.ledger, now);
+            self.replay_retained_slot_votes(closing);
             // A report quorum is only enough to propose a cut.  Peers may have
             // reached quorum from different subsets and therefore be voting on
             // different cut hashes.  Keep repairing the report set until the
@@ -328,6 +364,7 @@ impl Tickable for RaiEpochTicker {
             }
         } else {
             rai_drain_frontier_snapshot_needed(&mut self.initialized_drain_frontiers_epoch, None);
+            self.last_slot_evidence_repair = None;
             self.last_close_preimage_request = None;
             self.close_preimage_response_sequences.clear();
             self.last_slot_payload_request = None;
@@ -376,6 +413,83 @@ impl Tickable for RaiEpochTicker {
             // not be sent before the cut was decided.
             self.report_rebroadcast_queue.clear();
         }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RaiEpochTicker {
+    fn replay_retained_slot_votes(&mut self, closing: crate::consensus::rai::RaiClosingEpoch) {
+        if closing.phase != crate::consensus::rai::RaiClosingPhase::Draining {
+            self.last_slot_evidence_repair = None;
+            return;
+        }
+        let now = self.clock.now();
+        if self
+            .last_slot_evidence_repair
+            .is_some_and(|last| last.elapsed(now) < RAI_SLOT_EVIDENCE_REPAIR_INTERVAL)
+        {
+            return;
+        }
+
+        let slots = self
+            .aec
+            .rai_unresolved_drain_slots(closing.epoch, MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK);
+        if slots.is_empty() {
+            self.last_slot_evidence_repair = Some(now);
+            return;
+        }
+
+        // A vectorized transport may cover several unresolved slots. Replay
+        // it once, keeping First-before-Final order from LocalVoteHistory.
+        let mut seen = HashSet::new();
+        let votes = slots
+            .iter()
+            .flat_map(|slot| {
+                self.vote_history.rai_votes_for_election(
+                    &slot.root.root,
+                    &rsnano_types::RaiElectionId::Slot(slot.clone()),
+                )
+            })
+            .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
+            .collect::<Vec<_>>();
+        rai_replay_slot_vote_window(&votes, |vote| {
+            if !self.flooder.check_capacity(
+                rsnano_network::TrafficType::VoteRebroadcast,
+                RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+            ) {
+                return false;
+            }
+            self.flooder.flood_prs_and_some_non_prs(
+                &rsnano_messages::Message::ConfirmAck(
+                    rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
+                ),
+                rsnano_network::TrafficType::VoteRebroadcast,
+                RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+            );
+            true
+        });
+
+        // Resolved peers no longer list this slot locally, but they may retain
+        // the precise First leaf a lagging replica needs. A bounded ZERO-root
+        // ConfirmReq asks those peers to replay the exact epoch-qualified
+        // history (and, if still active, their current phase) back to us.
+        if self.flooder.check_capacity(
+            rsnano_network::TrafficType::ConfirmationRequests,
+            RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+        ) {
+            let request = rsnano_messages::ConfirmReq::new(
+                slots
+                    .iter()
+                    .map(|slot| (BlockHash::ZERO, slot.root.root))
+                    .collect(),
+            );
+            self.flooder.flood_prs_and_some_non_prs(
+                &rsnano_messages::Message::ConfirmReq(request),
+                rsnano_network::TrafficType::ConfirmationRequests,
+                RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+            );
+        }
+        self.last_slot_evidence_repair = Some(now);
     }
 }
 
@@ -895,6 +1009,18 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_unresolved_drain_slots(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        limit: usize,
+    ) -> Vec<crate::consensus::election::RaiSlotId> {
+        self.aec
+            .write()
+            .unwrap()
+            .rai_unresolved_drain_slots(epoch, limit)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_progress_close(
         &self,
         frontiers: Option<crate::consensus::rai::RaiFrontierMap>,
@@ -1074,6 +1200,53 @@ mod rai_epoch_ticker_tests {
 
         assert_eq!(seen.len(), requests.len());
         assert!(requests.iter().all(|request| seen.contains(request)));
+    }
+
+    #[test]
+    fn retained_slot_vote_replay_is_bounded() {
+        let votes = (0..20).collect::<Vec<_>>();
+        let mut sent = Vec::new();
+
+        let replayed = rai_replay_slot_vote_window(&votes, |vote| {
+            sent.push(*vote);
+            true
+        });
+
+        assert_eq!(replayed, MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK);
+        assert_eq!(sent, (0..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn retained_slot_vote_replay_does_not_skip_on_backpressure() {
+        let votes = (0..20).collect::<Vec<_>>();
+        let mut sent = Vec::new();
+        let mut capacity = 3;
+
+        let replayed = rai_replay_slot_vote_window(&votes, |vote| {
+            if capacity == 0 {
+                return false;
+            }
+            capacity -= 1;
+            sent.push(*vote);
+            true
+        });
+
+        assert_eq!(replayed, 3);
+        assert_eq!(sent, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn slot_evidence_repair_capacity_gate_accepts_a_small_healthy_topology() {
+        let flooder = crate::transport::MessageFlooder::new_null();
+
+        assert!(flooder.check_capacity(
+            rsnano_network::TrafficType::VoteRebroadcast,
+            RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+        ));
+        assert!(!flooder.check_capacity(
+            rsnano_network::TrafficType::VoteRebroadcast,
+            RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+        ));
     }
 
     #[test]

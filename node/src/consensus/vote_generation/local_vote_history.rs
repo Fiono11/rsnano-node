@@ -345,6 +345,24 @@ impl LocalVoteHistory {
         self.rai_votes_from_root(root, |entry| entry.metadata.election_id == *election_id)
     }
 
+    /// Returns retained slot transports for a request root without requiring
+    /// live AEC metadata. This is a replay-only recovery path for a peer which
+    /// has already pruned a closed epoch while another peer is still draining;
+    /// the signed leaves retain their exact epoch/election qualification.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_slot_votes_for_root(
+        &self,
+        root: &Root,
+        excluded_election: Option<&rsnano_types::RaiElectionId>,
+    ) -> Vec<Arc<Vote>> {
+        self.rai_votes_from_root(root, |entry| {
+            matches!(
+                entry.metadata.election_id,
+                rsnano_types::RaiElectionId::Slot(_)
+            ) && excluded_election.is_none_or(|excluded| entry.metadata.election_id != *excluded)
+        })
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn rai_close_votes(&self) -> Vec<Arc<Vote>> {
         self.rai_votes_matching(|entry| {
@@ -580,6 +598,67 @@ mod tests {
         let replay = history.rai_votes();
         assert_eq!(replay.len(), 1);
         assert!(Arc::ptr_eq(&replay[0], &vote));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn slot_votes_can_be_replayed_by_root_without_live_aec_context() {
+        use rsnano_types::{
+            QualifiedRoot, RaiElectionId, RaiEpoch, RaiSlotId, RaiVoteMetadata, RaiVotePhase,
+        };
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::new();
+        let root = Root::from(21);
+        let hash = BlockHash::from(22);
+        let metadata = RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(3),
+                root: QualifiedRoot::new(root, BlockHash::from(20)),
+            }),
+            epoch: RaiEpoch::new(3),
+            phase: RaiVotePhase::First,
+            ..Default::default()
+        };
+        let vote = Arc::new(Vote::new_rai(
+            &key,
+            UnixMillisTimestamp::new(16),
+            0,
+            hash,
+            metadata.clone(),
+        ));
+        history.add_rai(&root, &hash, &metadata, &vote);
+
+        let replay = history.rai_slot_votes_for_root(&root, None);
+        assert_eq!(replay.len(), 1);
+        assert!(Arc::ptr_eq(&replay[0], &vote));
+        assert!(
+            history
+                .rai_slot_votes_for_root(&Root::from(99), None)
+                .is_empty()
+        );
+
+        let newer_metadata = RaiVoteMetadata {
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(4),
+                root: QualifiedRoot::new(root, BlockHash::from(20)),
+            }),
+            epoch: RaiEpoch::new(4),
+            phase: RaiVotePhase::First,
+            ..Default::default()
+        };
+        let newer_vote = Arc::new(Vote::new_rai(
+            &key,
+            UnixMillisTimestamp::new(32),
+            0,
+            BlockHash::from(23),
+            newer_metadata.clone(),
+        ));
+        history.add_rai(&root, &BlockHash::from(23), &newer_metadata, &newer_vote);
+
+        let archived = history.rai_slot_votes_for_root(&root, Some(&newer_metadata.election_id));
+        assert_eq!(archived.len(), 1);
+        assert!(Arc::ptr_eq(&archived[0], &vote));
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -347,6 +347,8 @@ impl RequestAggregatorLoop {
         #[cfg(feature = "rai_protocol")]
         let mut seen_rai_slots = HashSet::new();
         #[cfg(feature = "rai_protocol")]
+        let mut rai_replay_only_roots = Vec::new();
+        #[cfg(feature = "rai_protocol")]
         let zero_roots = request
             .roots_hashes
             .iter()
@@ -394,6 +396,7 @@ impl RequestAggregatorLoop {
                             metadata,
                             target,
                         }) => {
+                            rai_replay_only_roots.push((*root, Some(metadata.election_id.clone())));
                             if seen_rai_slots.insert((*root, metadata.election_id.clone())) {
                                 if let Some(target) = target {
                                     rai_slot_targets.push(target);
@@ -402,7 +405,15 @@ impl RequestAggregatorLoop {
                             }
                             return None;
                         }
-                        None => {}
+                        None => {
+                            // A peer which already installed the close record
+                            // prunes its AEC slot context before every lagging
+                            // peer necessarily finishes draining. Retained
+                            // signed leaves are still safe to replay by root;
+                            // never generate a fresh vote without context.
+                            rai_replay_only_roots.push((*root, None));
+                            return None;
+                        }
                     }
                 }
                 // Ordinary nonzero requests flow through aggregate/generate.
@@ -420,6 +431,9 @@ impl RequestAggregatorLoop {
                 &rai_slot_targets,
                 &request.channel,
             );
+        #[cfg(feature = "rai_protocol")]
+        self.vote_generators
+            .reply_cached_rai_slot_votes_for_roots(&rai_replay_only_roots, &request.channel);
         #[cfg(feature = "rai_protocol")]
         let ordinary_request = AggregatorRequest {
             channel: request.channel.clone(),

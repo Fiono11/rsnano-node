@@ -102,6 +102,16 @@ impl VoteGenerators {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_slot_votes_for_roots(
+        &self,
+        roots: &[(Root, Option<rsnano_types::RaiElectionId>)],
+        channel: &Arc<Channel>,
+    ) -> usize {
+        self.non_final_vote_generator
+            .reply_cached_rai_slot_votes_for_roots(roots, channel)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn reply_cached_and_generate_rai_slot_votes(
         &self,
         contexts: &[(Root, rsnano_types::RaiVoteMetadata)],

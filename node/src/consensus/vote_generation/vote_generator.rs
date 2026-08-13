@@ -209,6 +209,48 @@ impl VoteGenerator {
         votes.len()
     }
 
+    /// Replays retained, already-signed slot evidence when the AEC context has
+    /// been pruned after close. No vote generation is permitted on this path.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reply_cached_rai_slot_votes_for_roots(
+        &self,
+        roots: &[(Root, Option<rsnano_types::RaiElectionId>)],
+        channel: &Arc<Channel>,
+    ) -> usize {
+        // This contextless fallback is reachable from the public ConfirmReq
+        // surface. Bound both distinct root lookups and returned transports;
+        // the lagging peer's periodic 16-root requests provide retry/fairness.
+        const MAX_REPLAY_ONLY_ROOTS: usize = 16;
+        const MAX_REPLAY_ONLY_TRANSPORTS: usize = 64;
+        let mut seen_roots = HashSet::new();
+        let mut sent = HashSet::new();
+        for (root, excluded_election) in roots
+            .iter()
+            .filter(|item| seen_roots.insert((*item).clone()))
+            .take(MAX_REPLAY_ONLY_ROOTS)
+        {
+            for vote in self
+                .shared_state
+                .history
+                .rai_slot_votes_for_root(root, excluded_election.as_ref())
+            {
+                if !sent.insert((vote.voter, vote.signature.clone())) {
+                    continue;
+                }
+                let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                if !self.shared_state.message_sender.lock().unwrap().try_send(
+                    channel,
+                    &confirm,
+                    TrafficType::VoteReply,
+                ) || sent.len() >= MAX_REPLAY_ONLY_TRANSPORTS
+                {
+                    return sent.len();
+                }
+            }
+        }
+        sent.len()
+    }
+
     /// Replies to one batched timeout repair request. A retained signed vote
     /// can cover several requested elections, so replay each transport once,
     /// then sign all still-missing current leaves together.
