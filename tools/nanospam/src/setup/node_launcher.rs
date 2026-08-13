@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{info, warn};
 
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::PeersDto;
@@ -20,6 +20,7 @@ use crate::{
 
 const RPC_START_TIMEOUT: Duration = Duration::from_secs(30);
 const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const PREVIOUS_RPC_CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) async fn start_nodes(
     args: &CliArgs,
@@ -27,6 +28,53 @@ pub(crate) async fn start_nodes(
     rpc_clients: &[NanoRpcClient],
     node_lifetime: &mut NodeLifetime,
 ) -> anyhow::Result<()> {
+    let mut active_nodes = Vec::new();
+    for (i, rpc_client) in rpc_clients.iter().enumerate() {
+        if rpc_client.version().await.is_ok() {
+            active_nodes.push(i);
+        }
+    }
+
+    if !active_nodes.is_empty() {
+        warn!(
+            "Detected {num_active} existing RPC endpoints on fixed test ports: {active_nodes:?}",
+            num_active = active_nodes.len()
+        );
+
+        for &i in &active_nodes {
+            if let Err(error) = rpc_clients[i].stop().await {
+                warn!("Could not stop existing PR{i}: {error:#}");
+            }
+        }
+
+        let cleanup_start = Instant::now();
+        loop {
+            let mut still_active = Vec::new();
+            for &i in &active_nodes {
+                if rpc_clients[i].version().await.is_ok() {
+                    still_active.push(i);
+                }
+            }
+
+            if still_active.is_empty() {
+                break;
+            }
+
+            if cleanup_start.elapsed() >= PREVIOUS_RPC_CLEANUP_TIMEOUT {
+                bail!(
+                    "PR{first} RPC is already responding before startup; another nanospamnetwork is likely using the fixed test ports",
+                    first = still_active[0]
+                );
+            }
+
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        info!(
+            "Recovered fixed test ports from existing nodes; continuing with fresh nanospam startup"
+        );
+    }
+
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         if rpc_client.version().await.is_ok() {
             bail!(
@@ -103,7 +151,7 @@ pub(crate) async fn start_nodes(
         for (i, rpc_client) in rpc_clients.iter().enumerate() {
             for k in 0..args.prs {
                 if k != i {
-                    rpc_client.keepalive("::1", peering_port(k)).await?;
+                    rpc_client.keepalive("127.0.0.1", peering_port(k)).await?;
                 }
             }
         }

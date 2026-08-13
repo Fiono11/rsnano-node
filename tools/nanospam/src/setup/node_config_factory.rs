@@ -55,7 +55,7 @@ RAI_CONFIG
 
 [node.websocket]
     enable = true
-    address = "::"
+    address = "127.0.0.1"
     port = WS_PORT
 
 [rpc]
@@ -63,7 +63,7 @@ RAI_CONFIG
 "#;
 
 pub(crate) const RPC_CONFIG: &str = r#"
-address = "::"
+address = "127.0.0.1"
 enable_control = true
 port = RPC_PORT
 "#;
@@ -159,7 +159,7 @@ fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
             continue;
         }
 
-        result.push_str(&format!("\"[::1]:{}\",", peering_port(i)));
+        result.push_str(&format!("\"127.0.0.1:{}\",", peering_port(i)));
     }
     result.push(']');
     result
@@ -266,5 +266,31 @@ mod tests {
             assert!(config.contains(&pr_key(i).account().encode_account()));
         }
         assert_eq!(config.matches('"').count() / 2, 6);
+    }
+
+    #[test]
+    fn config_uses_ipv4_loopback_addresses() {
+        let args = CommandLine::parse_from([
+            "nanospam",
+            "setup",
+            "--data-dir",
+            "/tmp/rai",
+            "--prs",
+            "3",
+            "--accounts",
+            "3",
+        ])
+        .into_args();
+
+        let peers = preconfigured_peers(args.prs, 1);
+        let config = NODE_CONFIG
+            .replace("PEERING_PORT", &peering_port(0).to_string())
+            .replace("WS_PORT", &websocket_port(0).to_string())
+            .replace("PRECONF_PEERS", &peers);
+        assert!(config.contains("address = \"127.0.0.1\""));
+        assert!(!config.contains("[::1]"));
+        assert!(config.contains("preconfigured_peers = [\"127.0.0.1:"));
+        assert!(peers.contains("127.0.0.1:"));
+        assert!(!peers.contains("[::1]"));
     }
 }
