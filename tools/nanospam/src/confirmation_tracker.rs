@@ -2,13 +2,19 @@ use std::{sync::Mutex, time::Duration};
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_rpc_client::NanoRpcClient;
-use tokio::{select, time::interval};
+use rsnano_rpc_messages::BlocksInfoArgs;
+use tokio::{
+    select,
+    time::{MissedTickBehavior, interval, timeout},
+};
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use crate::domain::spam_logic::SpamLogic;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_millis(250);
 const RPC_BATCH_SIZE: usize = 128;
+const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Reconciles websocket confirmation tracking with the node's durable ledger.
 /// Websocket delivery is intentionally the low-latency path, but it is not a
@@ -19,9 +25,12 @@ pub(crate) async fn reconcile_confirmations(
     logic: &Mutex<SpamLogic>,
     clock: &SteadyClock,
     cancel_token: CancellationToken,
-    expected_cemented: Option<u64>,
 ) {
     let mut ticker = interval(RECONCILE_INTERVAL);
+    // A full outstanding-hash sweep may take longer than the interval. Do not
+    // replay every missed tick in a burst and turn reconciliation into a
+    // continuous RPC load precisely while the node is catching up.
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker.tick().await;
 
     loop {
@@ -39,24 +48,30 @@ pub(crate) async fn reconcile_confirmations(
             return;
         }
 
-        if let Some(expected) = expected_cemented
-            && let Ok(count) = rpc_client.block_count().await
-            && count.count.inner() == count.cemented.inner()
-            && count.cemented.inner() >= expected
-        {
-            logic.lock().unwrap().mark_workload_cemented(clock.now());
-            // Wake the publisher if it is waiting on an empty channel. Sender
-            // clones are retained by the optional high-priority and delayed
-            // republish paths, so channel closure is not a reliable workload
-            // completion signal.
-            cancel_token.cancel();
-            return;
-        }
-
         let outstanding = logic.lock().unwrap().delayed.hashes();
         for hashes in outstanding.chunks(RPC_BATCH_SIZE) {
-            let Ok(response) = rpc_client.blocks_info(hashes.to_vec()).await else {
-                continue;
+            let args = BlocksInfoArgs {
+                receivable: None,
+                receive_hash: None,
+                source: None,
+                include_not_found: Some(true.into()),
+                include_linked_account: None,
+                hashes: hashes.to_vec(),
+            };
+            let request = select! {
+                _ = cancel_token.cancelled() => return,
+                result = timeout(RPC_TIMEOUT, rpc_client.blocks_info(args)) => result,
+            };
+            let response = match request {
+                Ok(Ok(response)) => response,
+                Ok(Err(error)) => {
+                    warn!("RPC error while checking delayed blocks: {error}");
+                    continue;
+                }
+                Err(error) => {
+                    warn!("RPC status poll for delayed blocks timed out: {error}");
+                    continue;
+                }
             };
             let confirmed = response
                 .blocks

@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_websocket_client::{
-    NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
+    ConfirmationSubArgs, NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
 };
 use rsnano_websocket_messages::MessageEnvelope;
 
@@ -19,12 +19,18 @@ pub(crate) struct ConfirmationReceiver {
 impl ConfirmationReceiver {
     pub async fn connect() -> anyhow::Result<Self> {
         let mut ws_client = NanoWebSocketClientFactory::default()
-            .connect(&format!("ws://[::1]:{}", websocket_port(0)))
+            .connect(&format!("ws://127.0.0.1:{}", websocket_port(0)))
             .await?;
 
         ws_client
             .subscribe(SubscribeArgs {
-                topic: TopicSub::Confirmation(Default::default()),
+                topic: TopicSub::Confirmation(ConfirmationSubArgs {
+                    // Nanospam only consumes the hash. Omitting the full block
+                    // keeps the bounded websocket queue from becoming a
+                    // confirmation bottleneck at high CPS.
+                    include_block: false,
+                    ..Default::default()
+                }),
                 ack: true,
                 id: None,
             })

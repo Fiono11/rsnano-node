@@ -156,13 +156,6 @@ impl SpamLogic {
         self.high_prio_tracker.confirmed(block_hash, timestamp)
     }
 
-    pub(crate) fn mark_workload_cemented(&mut self, timestamp: Timestamp) {
-        for hash in self.delayed.hashes() {
-            self.confirmed(&hash, timestamp);
-        }
-        self.confirmed_total = self.spec.max_blocks;
-    }
-
     pub(crate) fn reset_cps_counter(&mut self, now: Timestamp) {
         self.confirmed_recent = 0;
         self.sum_conf_time_recent = Duration::ZERO;
@@ -182,6 +175,10 @@ impl SpamLogic {
         } else {
             self.sum_conf_time_recent / self.confirmed_recent as u32
         }
+    }
+
+    pub(crate) fn average_confirmation_time_total(&self) -> Option<Duration> {
+        (self.confirmed_total > 0).then(|| self.sum_conf_time_total / self.confirmed_total as u32)
     }
 
     pub(crate) fn stats(&self, now: Timestamp) -> SpamStats {
@@ -205,26 +202,6 @@ pub(crate) struct SpamStats {
 mod tests {
     use super::*;
     use rsnano_types::Amount;
-
-    #[test]
-    fn durable_workload_completion_releases_runner() {
-        let mut logic = SpamLogic::new(
-            AccountMap::default(),
-            SpamSpec {
-                spam_strategy: SpamStrategy::SendReceive,
-                max_blocks: 1_000,
-                rate: RateSpec::new(10),
-                fork_probability: 0.0,
-                track_confirmations: true,
-            },
-            Vec::new(),
-        );
-
-        logic.mark_workload_cemented(Timestamp::new_test_instance());
-
-        assert!(logic.is_finished());
-        assert_eq!(logic.confirmed_total, 1_000);
-    }
 
     #[test]
     fn rate_limited_final_block_is_emitted_after_factory_reaches_max() {

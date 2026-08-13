@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    net::{Ipv6Addr, SocketAddrV6},
+    net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
     thread::yield_now,
     time::{Duration, Instant},
@@ -20,13 +20,14 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use rsnano_messages::{Message, MessageSerializer, Publish};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
+use rsnano_rpc_messages::BlocksInfoArgs;
 use rsnano_types::{
     Account, BlockHash, JsonBlock, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId,
 };
@@ -50,6 +51,7 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
+const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 // Close elections use eventual repair and have no 24-second protocol bound.
 // Leave enough room for several report/cut/drain/record repair rounds while
 // retaining the global watchdog as the outer harness deadline.
@@ -82,6 +84,7 @@ impl NanoSpamApp {
     pub async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let last_phase = self.last_rai_phase.clone();
         let global_timeout = Duration::from_secs(self.args.global_timeout_secs);
+        let global_deadline = Instant::now() + global_timeout;
         // `run_inner` contains a synchronous scoped workload. A Tokio timer
         // alone cannot be polled while that scope is blocking this executor
         // thread, so a small OS-thread watchdog must also cancel its workers.
@@ -91,7 +94,12 @@ impl NanoSpamApp {
             std::thread::sleep(global_timeout);
             watchdog_shutdown.cancel();
         });
-        match timeout(global_timeout, self.run_inner(timed_shutdown)).await {
+        match timeout(
+            global_timeout,
+            self.run_inner(timed_shutdown, global_deadline),
+        )
+        .await
+        {
             Ok(result) => result.map_err(|error| {
                 anyhow!(
                     "{error:#}; last known RAI phase: {}",
@@ -105,7 +113,11 @@ impl NanoSpamApp {
         }
     }
 
-    async fn run_inner(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
+    async fn run_inner(
+        mut self,
+        shutdown: CancellationToken,
+        global_deadline: Instant,
+    ) -> anyhow::Result<()> {
         self.tracing_init.init();
 
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
@@ -135,7 +147,7 @@ impl NanoSpamApp {
 
         for i in 0..self.args.prs {
             let rpc_client =
-                NanoRpcClient::new(format!("http://[::1]:{}", rpc_port(i)).parse().unwrap());
+                NanoRpcClient::new(format!("http://127.0.0.1:{}", rpc_port(i)).parse().unwrap());
             self.rpc_clients.push(rpc_client);
         }
 
@@ -218,7 +230,7 @@ impl NanoSpamApp {
         let mut tcp_readers = Vec::new();
 
         for node_index in 0..self.args.prs {
-            let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
+            let peer_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, peering_port(node_index)));
             info!(?peer_addr, "Connecting to node PR{node_index}...");
             let mut node_writers = Vec::with_capacity(CONNECTIONS_PER_NODE);
             let mut node_readers = Vec::with_capacity(CONNECTIONS_PER_NODE);
@@ -244,16 +256,10 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         let transition = Mutex::new(RaiTransitionObservation::default());
-        let confirmation_latencies = Mutex::new(HashMap::new());
+        let mut confirmation_latencies = HashMap::new();
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
-        let initial_cemented = genesis_rpc.block_count().await?.cemented.inner();
-        let expected_cemented = self
-            .args
-            .blocks
-            .map(|blocks| initial_cemented + blocks as u64);
-
         #[cfg(feature = "rai_protocol")]
         let initial_rai_statuses = if self.args.rai_epoch_duration_ms.is_some() {
             let statuses = fetch_rai_statuses(&self.rpc_clients).await?;
@@ -274,6 +280,7 @@ impl NanoSpamApp {
         *self.last_rai_phase.lock().unwrap() =
             "running workload; waiting for epoch 0 to begin closing".to_string();
 
+        let total_timeout = Duration::from_secs(self.args.global_timeout_secs);
         let started = Instant::now();
         std::thread::scope(|s| {
             s.spawn(|| {
@@ -285,12 +292,6 @@ impl NanoSpamApp {
 
             tokio_scoped::scope(|scope| {
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
-                scope.spawn(observe_block_confirmations(
-                    &self.rpc_clients,
-                    &logic,
-                    &confirmation_latencies,
-                    cancel_nanospam.clone(),
-                ));
 
                 #[cfg(feature = "rai_protocol")]
                 if self.args.rai_epoch_duration_ms.is_some() {
@@ -312,7 +313,6 @@ impl NanoSpamApp {
                     &logic,
                     &self.clock,
                     cancel_nanospam.clone(),
-                    expected_cemented,
                 ));
                 scope.spawn(receive_messages(
                     tcp_readers,
@@ -325,7 +325,7 @@ impl NanoSpamApp {
                     protocol,
                     genesis_rpc,
                     &logic,
-                    cancel_nanospam,
+                    cancel_nanospam.clone(),
                     self.args.drop_probability(),
                     &self.clock,
                 ));
@@ -340,33 +340,52 @@ impl NanoSpamApp {
                 }
             });
         });
+        ensure!(
+            !shutdown.is_cancelled(),
+            "nanospam exceeded the {total_timeout:?} global timeout while publishing or confirming the workload"
+        );
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
+        let requested_blocks = logic.block_factory.max_blocks();
+        let publication_times = logic.publication_times().clone();
+        let workload_confirmed = logic.is_finished();
+        let average_pr0_confirmation_time = logic.average_confirmation_time_total();
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
-        let publication_times = logic.publication_times().clone();
         drop(logic);
+        ensure!(
+            created_blocks == requested_blocks,
+            "workload stopped after creating {created_blocks} of {requested_blocks} requested blocks"
+        );
+        ensure!(
+            publication_times.len() == created_blocks,
+            "workload stopped after publishing {} of {created_blocks} created blocks",
+            publication_times.len()
+        );
+        ensure!(
+            workload_confirmed,
+            "workload stopped before PR0 confirmed all {created_blocks} blocks"
+        );
         wait_for_block_confirmations(
             &self.rpc_clients,
             &publication_times,
-            &confirmation_latencies,
-            Duration::from_secs(self.args.global_timeout_secs),
+            &mut confirmation_latencies,
+            &shutdown,
+            global_deadline,
         )
         .await?;
-        let confirmation_latencies = confirmation_latencies.into_inner().unwrap();
         let confirmation_samples = confirmation_latencies.len();
-        let average_confirmation_time = average_latency_samples(&confirmation_latencies);
         info!(
-            "Average ledger confirmation time: {}",
-            format_duration(average_confirmation_time)
+            "Average PR0 ledger confirmation time: {}",
+            format_duration(average_pr0_confirmation_time)
         );
         println!("Block confirmation report:");
         println!(
-            "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average ledger finalization time {}",
+            "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average PR0 ledger confirmation time {}",
             self.rpc_clients.len(),
-            format_duration(average_confirmation_time)
+            format_duration(average_pr0_confirmation_time)
         );
 
         #[cfg(feature = "rai_protocol")]
@@ -378,7 +397,12 @@ impl NanoSpamApp {
                     created_blocks as u64,
                     &transition,
                     &self.last_rai_phase,
-                    RAI_CLOSE_TIMEOUT,
+                    RAI_CLOSE_TIMEOUT.min(
+                        global_deadline
+                            .checked_duration_since(Instant::now())
+                            .unwrap_or(Duration::ZERO)
+                            .max(Duration::from_millis(1)),
+                    ),
                 )
                 .await?;
             }
@@ -390,7 +414,7 @@ impl NanoSpamApp {
                 print_rai_final_report(
                     &statuses,
                     &initial_rai_statuses,
-                    average_confirmation_time,
+                    average_pr0_confirmation_time,
                 )?;
             } else {
                 print_finalized_blocks_by_epoch(&statuses);
@@ -458,7 +482,11 @@ async fn observe_rai_transition(
             _ = tokio::time::sleep(Duration::from_millis(100)) => {}
         }
 
-        let Ok(statuses) = fetch_rai_statuses(clients).await else {
+        let statuses = select! {
+            _ = cancel.cancelled() => break,
+            statuses = fetch_rai_statuses(clients) => statuses,
+        };
+        let Ok(statuses) = statuses else {
             continue;
         };
         record_rai_statuses(&statuses, observation, &last_phase);
@@ -660,7 +688,7 @@ fn print_finalized_blocks_by_epoch(statuses: &[rsnano_rpc_messages::RaiStatusRes
 fn print_rai_final_report(
     statuses: &[rsnano_rpc_messages::RaiStatusResponse],
     initial_statuses: &[rsnano_rpc_messages::RaiStatusResponse],
-    average_finalization: Option<Duration>,
+    average_pr0_finalization: Option<Duration>,
 ) -> anyhow::Result<()> {
     let status = statuses
         .first()
@@ -673,8 +701,8 @@ fn print_rai_final_report(
     let finalized: u64 = counts.values().sum();
     println!("RAI finalization report:");
     println!(
-        "  {finalized} finalized blocks, average finalization time {}",
-        format_duration(average_finalization)
+        "  {finalized} finalized blocks, average PR0 finalization time {}",
+        format_duration(average_pr0_finalization)
     );
     println!("  close protocol timings by epoch:");
     for (epoch, close_hash) in &status.close_hashes {
@@ -697,81 +725,150 @@ fn print_rai_final_report(
     Ok(())
 }
 
-fn average_latency_samples(latencies: &HashMap<(usize, BlockHash), Duration>) -> Option<Duration> {
-    if latencies.is_empty() {
-        return None;
-    }
-    Some(latencies.values().copied().sum::<Duration>() / latencies.len() as u32)
-}
-
 async fn wait_for_block_confirmations(
     clients: &[NanoRpcClient],
     publication_times: &HashMap<BlockHash, Instant>,
-    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
-    timeout_after: Duration,
+    latencies: &mut HashMap<(usize, BlockHash), Duration>,
+    cancel: &CancellationToken,
+    deadline: Instant,
 ) -> anyhow::Result<()> {
     let expected = clients.len() * publication_times.len();
-    let deadline = Instant::now() + timeout_after;
+    if expected == 0 {
+        return Ok(());
+    }
+    let mut last_progress_log = Instant::now() - Duration::from_secs(1);
     loop {
-        observe_block_confirmations_once(clients, publication_times, latencies).await;
-        if latencies.lock().unwrap().len() == expected {
+        observe_block_confirmations_once(clients, publication_times, latencies, cancel, deadline)
+            .await?;
+        if all_pr_confirmations_observed(clients.len(), publication_times.len(), latencies.len()) {
             return Ok(());
         }
+
+        if last_progress_log.elapsed() >= Duration::from_secs(1) {
+            info!(
+                "Observed {}/{} all-block/all-PR ledger confirmations; per PR: {:?}",
+                latencies.len(),
+                expected,
+                confirmation_counts_by_pr(clients.len(), latencies)
+            );
+            last_progress_log = Instant::now();
+        }
+
         if Instant::now() >= deadline {
             anyhow::bail!(
-                "only observed {}/{} all-block/all-PR ledger confirmations within {timeout_after:?}",
-                latencies.lock().unwrap().len(),
-                expected
+                "only observed {}/{} all-block/all-PR ledger confirmations before the global deadline; per PR: {:?}",
+                latencies.len(),
+                expected,
+                confirmation_counts_by_pr(clients.len(), latencies)
             );
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-async fn observe_block_confirmations(
-    clients: &[NanoRpcClient],
-    logic: &Mutex<SpamLogic>,
-    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
-    cancel: CancellationToken,
-) {
-    loop {
         select! {
-            _ = cancel.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(25)) => {}
+            _ = cancel.cancelled() => anyhow::bail!(
+                "confirmation validation was cancelled at {}/{} all-block/all-PR samples",
+                latencies.len(),
+                expected
+            ),
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
-        let publication_times = logic.lock().unwrap().publication_times().clone();
-        observe_block_confirmations_once(clients, &publication_times, latencies).await;
     }
 }
 
 async fn observe_block_confirmations_once(
     clients: &[NanoRpcClient],
     publication_times: &HashMap<BlockHash, Instant>,
-    latencies: &Mutex<HashMap<(usize, BlockHash), Duration>>,
-) {
+    latencies: &mut HashMap<(usize, BlockHash), Duration>,
+    cancel: &CancellationToken,
+    deadline: Instant,
+) -> anyhow::Result<()> {
     for (pr, client) in clients.iter().enumerate() {
         let pending = publication_times
             .keys()
-            .filter(|hash| !latencies.lock().unwrap().contains_key(&(pr, **hash)))
+            .filter(|hash| !latencies.contains_key(&(pr, **hash)))
             .copied()
             .collect::<Vec<_>>();
         for batch in pending.chunks(128) {
-            let Ok(response) = client.blocks_info(batch.to_vec()).await else {
-                continue;
+            if cancel.is_cancelled() || Instant::now() >= deadline {
+                anyhow::bail!(
+                    "global deadline reached while validating confirmations ({}/{} samples)",
+                    latencies.len(),
+                    clients.len() * publication_times.len()
+                );
+            }
+            let args = BlocksInfoArgs {
+                receivable: None,
+                receive_hash: None,
+                source: None,
+                include_not_found: Some(true.into()),
+                include_linked_account: None,
+                hashes: batch.to_vec(),
+            };
+            let request_timeout = RPC_TIMEOUT.min(
+                deadline
+                    .checked_duration_since(Instant::now())
+                    .unwrap_or(Duration::ZERO),
+            );
+            let request = select! {
+                _ = cancel.cancelled() => anyhow::bail!(
+                    "confirmation validation was cancelled while querying PR{pr}"
+                ),
+                result = timeout(request_timeout, client.blocks_info(args)) => result,
+            };
+            let response = match request {
+                Ok(Ok(response)) => response,
+                Ok(Err(error)) => {
+                    warn!(
+                        "RPC error while checking ledger confirmation state for {pr} batch {}: {error}",
+                        batch.len()
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    if Instant::now() >= deadline {
+                        anyhow::bail!(
+                            "global deadline reached while querying confirmation state from PR{pr}"
+                        );
+                    }
+                    warn!(
+                        "RPC timeout while checking ledger confirmation state for {pr} batch {}: {error}",
+                        batch.len()
+                    );
+                    continue;
+                }
             };
             let observed_at = Instant::now();
-            let mut recorded = latencies.lock().unwrap();
             for (hash, info) in response.blocks {
                 if info.confirmed.inner()
                     && let Some(published_at) = publication_times.get(&hash)
                 {
-                    recorded
+                    latencies
                         .entry((pr, hash))
                         .or_insert_with(|| observed_at.saturating_duration_since(*published_at));
                 }
             }
         }
     }
+    Ok(())
+}
+
+fn all_pr_confirmations_observed(
+    pr_count: usize,
+    block_count: usize,
+    observed_samples: usize,
+) -> bool {
+    observed_samples == pr_count * block_count
+}
+
+fn confirmation_counts_by_pr(
+    pr_count: usize,
+    latencies: &HashMap<(usize, BlockHash), Duration>,
+) -> Vec<usize> {
+    let mut counts = vec![0; pr_count];
+    for (pr, _) in latencies.keys() {
+        if let Some(count) = counts.get_mut(*pr) {
+            *count += 1;
+        }
+    }
+    counts
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -807,12 +904,11 @@ async fn fetch_rai_statuses(
 ) -> anyhow::Result<Vec<rsnano_rpc_messages::RaiStatusResponse>> {
     let mut statuses = Vec::with_capacity(clients.len());
     for (pr, client) in clients.iter().enumerate() {
-        statuses.push(
-            client
-                .rai_status()
-                .await
-                .map_err(|error| anyhow!("could not query RAI status from PR{pr}: {error}"))?,
-        );
+        let response = timeout(RPC_TIMEOUT, client.rai_status())
+            .await
+            .map_err(|error| anyhow!("RAI status query timed out for PR{pr}: {error}"))?
+            .map_err(|error| anyhow!("could not query RAI status from PR{pr}: {error}"))?;
+        statuses.push(response);
     }
     Ok(statuses)
 }
@@ -1034,7 +1130,10 @@ async fn publish_blocks(
                 };
 
                 s.spawn(async {
-                    let _ = stream[writer_index].write_all(buf).await;
+                    select! {
+                        _ = cancel_token.cancelled() => {}
+                        _ = stream[writer_index].write_all(buf) => {}
+                    }
                 });
 
                 counter += 1;
@@ -1047,17 +1146,24 @@ async fn publish_blocks(
         // activate the side delivered to PR0 once its publish is processed.
         if let Some(fork_hash) = fork_hash {
             if let Some(fork) = fork_block {
-                let _ = genesis_rpc.process(JsonBlock::from(fork)).await;
+                select! {
+                    _ = cancel_token.cancelled() => return,
+                    _ = genesis_rpc.process(JsonBlock::from(fork)) => {}
+                }
             }
             for _ in 0..100 {
-                if genesis_rpc
-                    .block_confirm(fork_hash)
-                    .await
-                    .is_ok_and(|response| bool::from(response.started))
-                {
+                let started = select! {
+                    _ = cancel_token.cancelled() => return,
+                    response = genesis_rpc.block_confirm(fork_hash) => response
+                        .is_ok_and(|response| bool::from(response.started)),
+                };
+                if started {
                     break;
                 }
-                sleep(Duration::from_millis(50)).await;
+                select! {
+                    _ = cancel_token.cancelled() => return,
+                    _ = sleep(Duration::from_millis(50)) => {}
+                }
             }
         }
 
@@ -1065,10 +1171,10 @@ async fn publish_blocks(
             tracing::info!("High prio block published: {hash}");
         }
         if logic.lock().unwrap().is_finished() {
+            cancel_token.cancel();
             break;
         }
     }
-    cancel_token.cancel();
 }
 
 fn connection_index(block: &rsnano_types::Block) -> usize {
@@ -1199,21 +1305,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn finalization_average_uses_every_block_on_every_pr() {
-        let hash_1 = BlockHash::from(1);
-        let hash_2 = BlockHash::from(2);
-        let latencies = HashMap::from([
-            ((0, hash_1), Duration::from_millis(100)),
-            ((1, hash_1), Duration::from_millis(300)),
-            ((0, hash_2), Duration::from_millis(500)),
-            ((1, hash_2), Duration::from_millis(200)),
-        ]);
-
-        assert_eq!(
-            average_latency_samples(&latencies),
-            Some(Duration::from_millis(275))
-        );
-        assert_eq!(average_latency_samples(&HashMap::new()), None);
+    fn confirmation_completion_requires_every_block_on_every_pr() {
+        assert!(!all_pr_confirmations_observed(6, 36_000, 36_000));
+        assert!(!all_pr_confirmations_observed(6, 36_000, 215_999));
+        assert!(all_pr_confirmations_observed(6, 36_000, 216_000));
     }
 
     #[test]
