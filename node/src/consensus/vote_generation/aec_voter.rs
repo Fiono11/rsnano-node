@@ -46,18 +46,20 @@ impl AecVoter {
         }
     }
 
-    fn flush(&self, queue: &mut Vec<VoteTarget>) {
+    fn flush(&mut self, queue: &mut Vec<VoteTarget>, now: rsnano_nullable_clock::Timestamp) {
         // TODO: enqueue with one call
         for target in queue.drain(..) {
-            self.vote_generators.generate_vote_with_context(
+            if self.vote_generators.generate_vote_with_context(
                 &target.root.root,
                 &target.winner,
                 target.vote_type,
                 #[cfg(feature = "rai_protocol")]
-                target.metadata,
+                target.metadata.clone(),
                 #[cfg(feature = "rai_protocol")]
                 target.is_rai_close,
-            );
+            ) {
+                self.scheduler.mark_voted(&target, now);
+            }
         }
     }
 }
@@ -110,16 +112,15 @@ impl Tickable for AecVoter {
                 }
             }
 
-            self.scheduler.mark_voted(&target, now);
             vote_queue.push(target);
 
             if cancel_token.is_cancelled() {
-                self.flush(&mut vote_queue);
+                self.flush(&mut vote_queue, now);
                 return;
             }
         }
 
         self.scheduler.cleanup(now);
-        self.flush(&mut vote_queue);
+        self.flush(&mut vote_queue, now);
     }
 }

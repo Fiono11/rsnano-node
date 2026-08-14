@@ -86,6 +86,13 @@ impl<T: Send + 'static> ProcessingQueue<T> {
 
     /// Queues item for batch processing
     pub fn add(&self, item: T) {
+        let _ = self.try_add(item);
+    }
+
+    /// Queues an item for batch processing and reports whether it was admitted.
+    /// Callers which maintain their own retry/scheduling state must use this
+    /// result instead of treating a full-queue drop as completed work.
+    pub fn try_add(&self, item: T) -> bool {
         let mut queue = self.shared_state.queue.lock().unwrap();
         if queue.len() < self.max_queue_size {
             queue.push_back(item);
@@ -93,9 +100,11 @@ impl<T: Send + 'static> ProcessingQueue<T> {
             self.shared_state.condition.notify_one();
             self.stats
                 .inc_dir(self.stat_type, DetailType::Queue, Direction::In);
+            true
         } else {
             self.stats
                 .inc_dir(self.stat_type, DetailType::Overfill, Direction::In);
+            false
         }
     }
 
@@ -217,9 +226,10 @@ mod tests {
     fn max_queue_size() {
         let fixture = create_fixture();
         fixture.queue.stop();
-        for _ in 0..2 * MAX_TEST_QUEUE_LEN {
-            fixture.queue.add(1);
+        for _ in 0..MAX_TEST_QUEUE_LEN {
+            assert!(fixture.queue.try_add(1));
         }
+        assert!(!fixture.queue.try_add(1));
         assert_eq!(fixture.queue.len(), MAX_TEST_QUEUE_LEN)
     }
 

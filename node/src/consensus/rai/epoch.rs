@@ -456,12 +456,21 @@ impl RaiEpochManager {
         if record.previous != expected_previous {
             return None;
         }
+        let repaired_frontiers = record.frontiers.clone();
         let hash = self.close_records.insert(record);
         // A peer may enter the record election before this replica completes
-        // its local drain.  Retain the hash-checked preimage without replacing
-        // the local fresh frontier.  Once our record round exists, admit it as
-        // an alternative validated candidate and replay the already retained
-        // signed votes against it.
+        // its local drain. Merge the hash-checked frontier into the monotonic
+        // close-local snapshot before a retry is opened. Replicas then rebuild
+        // the successor from the union of repaired state instead of repeatedly
+        // proposing their replica-relative snapshots.
+        if let Some(frontiers) = self.drain_frontiers.get_mut(&closing.epoch) {
+            for (account, info) in repaired_frontiers {
+                let current = frontiers.entry(account).or_default();
+                if info.height > current.height {
+                    *current = info;
+                }
+            }
+        }
         if let Some(rounds) = self.record_rounds.get_mut(&closing.epoch) {
             rounds.round(round)?;
             rounds.add_validated_preimage(round, hash);
@@ -2241,6 +2250,36 @@ mod tests {
         assert_eq!(carried, selected);
         assert_eq!(manager.close_record_round(RaiEpoch::ZERO), Some(1));
         assert_eq!(manager.close_records.all().len(), 1);
+    }
+
+    #[test]
+    fn dead_record_retry_rebuilds_from_repaired_frontiers() {
+        let key = PrivateKey::from(1);
+        let mut manager = RaiEpochManager::new(private_weights(&key, 100), BlockHash::from(7));
+        manager.start_closing(Timestamp::new_test_instance());
+        manager
+            .reports_mut()
+            .insert(RaiReport::new(&key, RaiEpoch::ZERO, []))
+            .unwrap();
+        let (_, cut) = manager.begin_cut_election([]).unwrap();
+        manager.install_cut(RaiEpoch::ZERO, 0, cut).unwrap();
+        manager.initialize_drain_frontiers(RaiEpoch::ZERO, []);
+        let (_, local) = manager.begin_close_record(RepWeights::default()).unwrap();
+        let remote_record = RaiCloseRecord::new(
+            RaiEpoch::ZERO,
+            BlockHash::ZERO,
+            [(
+                Account::from(9),
+                ConfirmationHeightInfo::new(1, BlockHash::from(99)),
+            )],
+        );
+        let remote = remote_record.hash();
+        assert!(manager.reconcile_close_record(remote_record, 0).is_some());
+        assert!(manager.store_close_record_evidence(RaiEpoch::ZERO, 0, timeout_evidence(&key),));
+
+        let (_, retry) = manager.advance_close_record_round([]).unwrap();
+        assert_ne!(local, remote);
+        assert_eq!(retry, remote);
     }
 
     #[test]

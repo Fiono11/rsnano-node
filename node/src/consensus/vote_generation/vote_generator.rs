@@ -18,9 +18,12 @@ use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 #[cfg(feature = "rai_protocol")]
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
 #[cfg(feature = "rai_protocol")]
-use rsnano_types::{PublicKey, RaiCommitteeScope, RaiElectionId, RaiVoteMetadata, RaiVotePhase};
+use rsnano_types::{
+    Account, PublicKey, RaiCommitteeScope, RaiElectionId, RaiTimeoutSlot, RaiVoteMetadata,
+    RaiVotePhase,
+};
+use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -431,15 +434,15 @@ impl VoteGenerator {
         hash: &BlockHash,
         #[cfg(feature = "rai_protocol")] metadata: RaiVoteMetadata,
         #[cfg(feature = "rai_protocol")] is_rai_close: bool,
-    ) {
-        self.vote_generation_queue.add(VoteCandidate {
+    ) -> bool {
+        self.vote_generation_queue.try_add(VoteCandidate {
             root: *root,
             hash: *hash,
             #[cfg(feature = "rai_protocol")]
             metadata,
             #[cfg(feature = "rai_protocol")]
             is_rai_close,
-        });
+        })
     }
 
     /// Queue blocks for vote generation, returning the number of successful candidates.
@@ -654,6 +657,25 @@ fn rai_signing_metadata(
 
 #[cfg(feature = "rai_protocol")]
 type RaiSigningEntry = (Root, BlockHash, RaiVoteMetadata);
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RaiWireBatchKind {
+    BlockSlot,
+    TimeoutSlot,
+    Close,
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_wire_batch_kind(entry: &RaiSigningEntry) -> RaiWireBatchKind {
+    match entry.2.election_id {
+        RaiElectionId::Slot(_) if entry.1.is_zero() => RaiWireBatchKind::TimeoutSlot,
+        RaiElectionId::Slot(_) => RaiWireBatchKind::BlockSlot,
+        RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. } => {
+            RaiWireBatchKind::Close
+        }
+    }
+}
 
 #[cfg(feature = "rai_protocol")]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -889,10 +911,18 @@ fn rai_signing_batches(
         regenerate_finalized,
     );
     let mut batches = Vec::new();
-    let mut batch = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+    let mut batch: Vec<RaiSigningEntry> = Vec::with_capacity(VoteGenerator::MAX_HASHES);
     for group in groups {
         debug_assert!(group.len() <= VoteGenerator::MAX_HASHES);
-        if batch.len() + group.len() > VoteGenerator::MAX_HASHES {
+        let changes_wire_kind = batch
+            .first()
+            .zip(group.first())
+            .is_some_and(|(current, next)| {
+                rai_wire_batch_kind(current) != rai_wire_batch_kind(next)
+            });
+        if !batch.is_empty()
+            && (batch.len() + group.len() > VoteGenerator::MAX_HASHES || changes_wire_kind)
+        {
             batches.push(std::mem::take(&mut batch));
             batch.reserve(VoteGenerator::MAX_HASHES);
         }
@@ -1127,14 +1157,48 @@ impl SharedState {
                 );
 
                 for signed_entries in signed_batches {
-                    let vote = Arc::new(Vote::new_rai_batch(
-                        &rep_key,
-                        timestamp,
-                        duration,
+                    let is_slot_timeout = signed_entries.iter().all(|(_, hash, metadata)| {
+                        hash.is_zero() && matches!(metadata.election_id, RaiElectionId::Slot(_))
+                    });
+                    let timeout_entries = is_slot_timeout.then(|| {
                         signed_entries
                             .iter()
-                            .map(|(_, hash, metadata)| (metadata.clone(), *hash)),
-                    ));
+                            .map(|(_, _, metadata)| {
+                                let RaiElectionId::Slot(slot) = &metadata.election_id else {
+                                    return None;
+                                };
+                                let locator = if slot.root.previous.is_zero() {
+                                    RaiTimeoutSlot {
+                                        account: Account::from(slot.root.root),
+                                        height: 1,
+                                    }
+                                } else {
+                                    let predecessor =
+                                        self.ledger.any().get_block(&slot.root.previous)?;
+                                    RaiTimeoutSlot {
+                                        account: predecessor.account(),
+                                        height: predecessor.height().saturating_add(1),
+                                    }
+                                };
+                                Some((metadata.clone(), locator))
+                            })
+                            .collect::<Option<Vec<_>>>()
+                    });
+                    let vote = Arc::new(if is_slot_timeout {
+                        let Some(Some(timeout_entries)) = timeout_entries else {
+                            continue;
+                        };
+                        Vote::new_rai_timeout_batch(&rep_key, timestamp, duration, timeout_entries)
+                    } else {
+                        Vote::new_rai_batch(
+                            &rep_key,
+                            timestamp,
+                            duration,
+                            signed_entries
+                                .iter()
+                                .map(|(_, hash, metadata)| (metadata.clone(), *hash)),
+                        )
+                    });
                     votes.push((vote, signed_entries));
                 }
             }
@@ -1510,6 +1574,48 @@ mod rai_signing_tests {
     }
 
     #[test]
+    fn batch_separates_compact_slot_and_close_wire_formats() {
+        let history = LocalVoteHistory::with_max_cache(32);
+        let signer = PrivateKey::new();
+        let roots = [Root::from(1), Root::from(2)];
+        let hashes = [BlockHash::from(11), BlockHash::from(12)];
+        let slot = metadata(roots[0], RaiVotePhase::First);
+        let close = RaiVoteMetadata {
+            election_id: RaiElectionId::CloseRecord {
+                epoch: RaiEpoch::ZERO,
+                round: 0,
+            },
+            phase: RaiVotePhase::First,
+            epoch: RaiEpoch::ZERO,
+            scope: RaiCommitteeScope::All,
+        };
+
+        let batches = rai_signing_batches(
+            &history,
+            &roots,
+            &hashes,
+            &[slot, close],
+            &signer.public_key(),
+            false,
+            false,
+        );
+
+        assert_eq!(batches.len(), 2);
+        for batch in batches {
+            let vote = Vote::new_rai_batch(
+                &signer,
+                UnixMillisTimestamp::new(16),
+                0,
+                batch
+                    .iter()
+                    .map(|(_, hash, metadata)| (metadata.clone(), *hash)),
+            );
+            let mut bytes = Vec::new();
+            vote.serialize(&mut bytes).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_omits_only_the_leaf_with_conflicting_final_support() {
         let history = LocalVoteHistory::with_max_cache(32);
         let signer = PrivateKey::new();
@@ -1798,7 +1904,7 @@ mod rai_signing_tests {
         let timeout_metadata = |root, phase| RaiVoteMetadata {
             election_id: RaiElectionId::Slot(RaiSlotId {
                 epoch,
-                root: QualifiedRoot::new(root, BlockHash::from(99)),
+                root: QualifiedRoot::new(root, BlockHash::ZERO),
             }),
             phase,
             epoch,
@@ -1895,6 +2001,14 @@ mod rai_signing_tests {
             .unwrap();
         assert_eq!(generated.rai_entry_count(), roots.len());
         assert!(generated.hashes.iter().all(BlockHash::is_zero));
+        assert!(generated.is_rai_timeout_slot_batch());
+        assert!(roots.iter().enumerate().all(|(index, root)| {
+            generated.rai_timeout_slot(index)
+                == Some(RaiTimeoutSlot {
+                    account: Account::from(*root),
+                    height: 1,
+                })
+        }));
         assert!(
             generated.metadata.iter().all(|metadata| {
                 metadata.phase == RaiVotePhase::Notar && metadata.epoch == epoch

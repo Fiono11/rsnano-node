@@ -27,7 +27,11 @@ pub struct ConfirmAck {
 
 impl ConfirmAck {
     pub const HASHES_MAX: usize = 255;
+    #[cfg(feature = "rai_protocol")]
+    pub const RAI_COMPACT_SLOT_FLAG: usize = 1;
     pub const REBROADCASTED_FLAG: usize = 2;
+    #[cfg(feature = "rai_protocol")]
+    pub const RAI_TIMEOUT_SLOT_FLAG: usize = 3;
 
     pub fn new_with_own_vote(vote: Vote) -> Self {
         assert!(vote.hashes.len() <= Self::HASHES_MAX);
@@ -61,6 +65,14 @@ impl ConfirmAck {
 
     pub fn serialized_size(extensions: BitArray<u16>) -> usize {
         let count = ConfirmReq::count(extensions);
+        #[cfg(feature = "rai_protocol")]
+        if extensions[Self::RAI_COMPACT_SLOT_FLAG] {
+            return Vote::serialized_size_rai_slot(count as usize);
+        }
+        #[cfg(feature = "rai_protocol")]
+        if extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
+            return Vote::serialized_size_rai_timeout_slot(count as usize);
+        }
         Vote::serialized_size(count as usize)
     }
 
@@ -69,6 +81,18 @@ impl ConfirmAck {
         extensions: BitArray<u16>,
         digest: u128,
     ) -> Result<Self, DeserializationError> {
+        #[cfg(feature = "rai_protocol")]
+        let vote =
+            if extensions[Self::RAI_COMPACT_SLOT_FLAG] && extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
+                return Err(DeserializationError::InvalidData);
+            } else if extensions[Self::RAI_COMPACT_SLOT_FLAG] {
+                Vote::deserialize_rai_slot(bytes)?
+            } else if extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
+                Vote::deserialize_rai_timeout_slot(bytes)?
+            } else {
+                Vote::deserialize(bytes)?
+            };
+        #[cfg(not(feature = "rai_protocol"))]
         let vote = Vote::deserialize(bytes)?;
         if vote.hashes.len() != ConfirmReq::count(extensions) as usize {
             return Err(DeserializationError::InvalidData);
@@ -97,6 +121,13 @@ impl MessageVariant for ConfirmAck {
     fn header_extensions(&self, _payload_len: u16) -> BitArray<u16> {
         let mut extensions = BitArray::default();
         extensions |= ConfirmReq::count_bits(self.vote.hashes.len() as u8);
+        #[cfg(feature = "rai_protocol")]
+        extensions.set(Self::RAI_COMPACT_SLOT_FLAG, self.vote.is_rai_slot_batch());
+        #[cfg(feature = "rai_protocol")]
+        extensions.set(
+            Self::RAI_TIMEOUT_SLOT_FLAG,
+            self.vote.is_rai_timeout_slot_batch(),
+        );
         extensions.set(Self::REBROADCASTED_FLAG, self.is_rebroadcasted);
         extensions
     }
@@ -180,7 +211,7 @@ mod tests {
         let vote = Vote::new_test_instance();
         vote.serialize(&mut bytes).unwrap();
 
-        let mut extensions = ConfirmReq::count_bits(vote.hashes.len() as u8);
+        let mut extensions = ConfirmAck::new_with_own_vote(vote.clone()).header_extensions(0);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, true);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
@@ -193,7 +224,7 @@ mod tests {
         let vote = Vote::new_test_instance();
         vote.serialize(&mut bytes).unwrap();
 
-        let mut extensions = ConfirmReq::count_bits(vote.hashes.len() as u8);
+        let mut extensions = ConfirmAck::new_with_own_vote(vote.clone()).header_extensions(0);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, false);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
@@ -224,7 +255,10 @@ mod tests {
         };
 
         let metadata = RaiVoteMetadata {
-            election_id: RaiElectionId::Slot(RaiSlotId::default()),
+            election_id: RaiElectionId::Slot(RaiSlotId {
+                epoch: RaiEpoch::new(7),
+                ..Default::default()
+            }),
             phase: RaiVotePhase::First,
             epoch: RaiEpoch::new(7),
             scope: RaiCommitteeScope::All,
@@ -242,6 +276,42 @@ mod tests {
         let extensions = ack.header_extensions(0);
 
         assert_eq!(ConfirmReq::count(extensions), 2);
+        assert_deserializable(&Message::ConfirmAck(ack));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_timeout_batch_round_trips_account_height_locator() {
+        use rsnano_types::{
+            Account, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiSlotId, RaiTimeoutSlot,
+            RaiVoteMetadata, RaiVotePhase,
+        };
+
+        let vote = Vote::new_rai_timeout_batch(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::ZERO,
+            0,
+            [(
+                RaiVoteMetadata {
+                    election_id: RaiElectionId::Slot(RaiSlotId {
+                        epoch: RaiEpoch::new(7),
+                        ..Default::default()
+                    }),
+                    phase: RaiVotePhase::Notar,
+                    epoch: RaiEpoch::new(7),
+                    scope: RaiCommitteeScope::All,
+                },
+                RaiTimeoutSlot {
+                    account: Account::from(9),
+                    height: 11,
+                },
+            )],
+        );
+        let ack = ConfirmAck::new_with_own_vote(vote);
+        let extensions = ack.header_extensions(0);
+
+        assert!(extensions[ConfirmAck::RAI_TIMEOUT_SLOT_FLAG]);
+        assert!(!extensions[ConfirmAck::RAI_COMPACT_SLOT_FLAG]);
         assert_deserializable(&Message::ConfirmAck(ack));
     }
 }

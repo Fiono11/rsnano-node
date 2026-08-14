@@ -59,6 +59,8 @@ pub struct Election {
     rai_selected_hash: Option<BlockHash>,
     #[cfg(feature = "rai_protocol")]
     rai_timeout_expired: bool,
+    #[cfg(feature = "rai_protocol")]
+    rai_slot_height: u64,
     votes: HashMap<PublicKey, VoteSummary>,
     winner_tally: Amount,
     winner_final_tally: Amount,
@@ -125,6 +127,7 @@ impl Election {
         epoch: RaiEpoch,
     ) -> Self {
         let root = block.qualified_root();
+        let height = block.height();
         Self {
             qualified_root: root.clone(),
             votes: HashMap::new(),
@@ -135,6 +138,7 @@ impl Election {
             rai_hash_candidates: HashSet::new(),
             rai_selected_hash: None,
             rai_timeout_expired: false,
+            rai_slot_height: height,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -171,6 +175,7 @@ impl Election {
             rai_hash_candidates: HashSet::from([candidate]),
             rai_selected_hash: Some(candidate),
             rai_timeout_expired: false,
+            rai_slot_height: 0,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -372,6 +377,11 @@ impl Election {
 
     pub fn account(&self) -> Account {
         self.account
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_slot_height(&self) -> u64 {
+        self.rai_slot_height
     }
 
     pub fn state(&self) -> ElectionState {

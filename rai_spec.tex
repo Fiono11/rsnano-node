@@ -197,7 +197,7 @@
 \email{}
 
 \begin{abstract}
-RAI applies one election mechanism to account-qualified segment, close-cut, and close-record elections. A slot election certifies the tip of a contiguous owner-authorized account-chain segment and atomically finalizes every block in that segment. Logical votes may be carried in vectorized signed vote batches, while close-cut report coverage is obtained from one deterministic reporting committee and ordinary finality continues to require both election committees. This specification defines the block-lattice ledger, send and receive transitions, representative delegation, stake-weighted committees, epoch closing, safety, and liveness.
+RAI applies one election mechanism to account-qualified block, close-cut, and close-record elections. A slot election certifies exactly one owner-authorized account-chain block. Logical votes may be carried in vectorized signed vote batches, while close-cut report coverage is obtained from one deterministic reporting committee and ordinary finality continues to require both election committees. This specification defines the block-lattice ledger, send and receive transitions, representative delegation, stake-weighted committees, epoch closing, safety, and liveness.
 \end{abstract}
 
 \keywords{block lattice, replication, consensus, stake-weighted elections, finality, Byzantine fault tolerance}
@@ -207,10 +207,9 @@ RAI applies one election mechanism to account-qualified segment, close-cut, and 
 
 \section{Overview}
 
-RAI uses three election types.  A slot election \(\Slot(a,s,e)\) selects the tip of a contiguous
-account-chain segment beginning at the account's next unfinalized slot \((a,s)\) in epoch \(e\).
-The tip hash transitively commits to every intermediate block in that segment.  A close-cut election
-\(\CloseCut(e,r)\) certifies a canonical set of visible segment obligations that epoch \(e\) must
+RAI uses three election types.  A slot election \(\Slot(a,s,e)\) selects exactly the block at the
+account's next unfinalized slot \((a,s)\) in epoch \(e\).  A close-cut election
+\(\CloseCut(e,r)\) certifies a canonical set of visible block obligations that epoch \(e\) must
 drain.  A close-record election \(\CloseRecord(e,r)\) certifies the canonical finalized account
 frontiers through epoch \(e\), chained to the preceding close-record hash.
 
@@ -262,13 +261,12 @@ An account slot is a pair \(\lambda=(a,s)\), where \(a\in\mathsf{Accounts}\) and
 \)
 \end{adjustbox}
 \end{center}
-A slot-election non-timeout value is a segment-tip block id \(b=\hash(B_t)\), where
-\(\slotOf(B_t)=(a,t)\) for some \(t\ge s\).  The candidate segment is the unique contiguous parent-chain
-suffix \(B_s,\ldots,B_t\) beginning immediately after the certified finalized frontier of account
-\(a\).  The election is enabled only when \(s=\NextSlot(a)\), so no separately enabled election can
-overlap an unresolved segment.  Because each block commits to its predecessor, the voted tip hash,
-election id, and certified base commit transitively to the complete segment.  A one-block segment
-\(t=s\) is the scalar special case.
+A slot-election non-timeout value is the block id \(b=\hash(B_s)\), where
+\(\slotOf(B_s)=(a,s)\).  The election is enabled only when \(s=\NextSlot(a)\), and its candidate set
+contains only conflicting blocks for that exact account slot.  Every former segment definition in this
+specification is restricted to the singleton \(\SegmentBlocks(\Slot(a,s,e),b)=(B_s)\); equivalently,
+the former segment-tip parameter satisfies \(t=s\).  Thus an election never confirms, transports, or
+locks an ancestor or descendant on behalf of another slot election.
 
 Every account \(a\) has an owner verification key \(\ownerKey[a]\), with corresponding owner signing
 key \(sk_a\), fixed by genesis or by an authenticated account-creation rule.  Every non-genesis block
@@ -548,6 +546,16 @@ object is
 \sigma_i=\operatorname{Sign}_{P_i}
  \bigl(\hash(\mathsf{RAI/VoteBatch/v3}\parallel r_M)\bigr).
 \]
+For a non-timeout slot vote, the canonical wire leaf is exactly
+\(\tau\parallel e\parallel\chi\parallel b\): one phase byte, an eight-byte epoch, one scope byte,
+and the 32-byte block hash.  The qualified root is not transmitted or signed; after validating and
+storing \(B_s\), a receiver derives it as \(\mathsf{qualifiedRoot}(B_s)\) and uses
+\(\Slot(a,s,e)\) as its local election/cache key.  A compact vote received before its block is retained
+under \((e,b)\) and resolved when that block arrives.  A slot-timeout leaf instead carries
+\(\tau\parallel e\parallel\chi\parallel a\parallel s\), where the account and account height identify
+the slot independently of candidate arrival order.  A receiver maps \((a,s,e)\) to its local qualified-root
+election before applying or caching the timeout.  Close-control leaves use a distinct versioned control
+encoding because their kind and round cannot be derived from a block.
 A sender may transmit the complete batch or one leaf with a Merkle inclusion proof against \(r_M\).
 A receiver validates the batch signature, canonical root, election identifier, governing context,
 admissibility, committee derivation, scope canonicality, signer membership, and all ordinary
@@ -666,12 +674,11 @@ is epoch \(e-1\), which is already closed by the precondition of \(\StartClosing
 \(\committee[e]\) is derived only when epoch \(e\) later finishes closing.
 
 \paragraph{Performance profile.}
-If a segment contains \(k\) blocks, one election round amortizes committee voting over those \(k\)
-blocks.  If one signed batch contains \(m\) logical vote leaves, signature generation and fixed vote
+Each slot election confirms one block, matching the ordinary block-election granularity.  If one signed
+batch contains \(m\) logical vote leaves, signature generation and fixed vote
 headers are amortized over those \(m\) elections.  Validation and ledger application remain linear in
-the number of blocks and operations, while independent account segments can be validated and certified
-in parallel.  Cross-account dependency finality is deliberately excluded from this fast path: a receive
-can consume only a send finalized before the segment base.
+the number of blocks and operations, while independent account blocks can be validated and certified
+in parallel.
 
 \section{Voting Guards and Release}
 
@@ -1465,16 +1472,15 @@ decides.  Decided cut and frontier versions, or delta paths from retained checkp
 from correct archival replicas so that joining replicas can reconstruct the complete close history.
 
 There is no distinguished validator proposer and no explicit proposal object in the election core.
-For a slot election, the account owner creates and authorizes a contiguous candidate segment ending at \(B_t\);
-the owner or any relay may gossip its blocks.  When a correct replica receives a bare block \(B_t\), together
-with every missing predecessor needed to reconstruct the contiguous candidate suffix for account \(a\), it sets
+For a slot election, the account owner creates and authorizes one candidate block \(B_s\);
+the owner or any relay may gossip it.  When a correct replica receives a bare block \(B_s\), it sets
 \[
 s\gets\NextSlot(a),\qquad e\gets e_{\mathrm{open}},\qquad q\gets\Slot(a,s,e),
-\qquad b\gets\hash(B_t).
+\qquad b\gets\hash(B_s).
 \]
-The replica validates every block and the certified base under \(q\).  If the candidate is valid and no local
-slot-election state for \(q\) exists, the replica originates \(q\), stores every validated suffix block
-\(B_r\) as \(\blockMap[q,\hash(B_r)]\gets B_r\), and processes \(b\) through the generic slot-election
+The replica validates the block and its predecessor under \(q\).  If the candidate is valid and no local
+slot-election state for \(q\) exists, the replica originates \(q\), stores the validated block
+\(B_s\) as \(\blockMap[q,b]\gets B_s\), and processes \(b\) through the generic slot-election
 loop for \(q\).  If local state for \(q\) already exists, it stores the candidate under that existing election
 and processes it through the same loop.  A bare block is one received without an authenticated election
 identifier; authenticated vote and report evidence and certified close-cut reconstruction retain their explicit

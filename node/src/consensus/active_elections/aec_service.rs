@@ -310,7 +310,7 @@ impl Tickable for RaiEpochTicker {
             // Active close votes use the ordinary batched ConfirmReq/
             // ConfirmAck path. The custom envelope is only for a precise
             // signed close digest whose canonical preimage is absent here.
-            const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_secs(2);
+            const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
             if rai_close_repair_phase_active(closing.phase)
                 && self
                     .last_close_preimage_request
@@ -487,6 +487,10 @@ impl RaiEpochTicker {
         let requests = self
             .aec
             .rai_active_close_vote_requests(closing.epoch, MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK);
+        let active_ids = requests
+            .iter()
+            .map(|(_, _, id)| id.clone())
+            .collect::<HashSet<_>>();
         let mut seen = HashSet::new();
         let mut votes = self
             .aec
@@ -504,14 +508,19 @@ impl RaiEpochTicker {
                 .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
                 .map(|vote| (*vote).clone()),
         );
-        if votes.is_empty() {
+        let (active_votes, archived_votes): (Vec<_>, Vec<_>) =
+            votes.into_iter().partition(|vote| {
+                vote.rai_entries()
+                    .any(|(metadata, _)| active_ids.contains(&metadata.election_id))
+            });
+        if active_votes.is_empty() && archived_votes.is_empty() {
             self.close_evidence_repair_cursor = 0;
         } else {
-            let start = self.close_evidence_repair_cursor % votes.len();
-            let count = votes.len().min(MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK);
             let mut replayed = 0;
-            for offset in 0..count {
-                let vote = &votes[(start + offset) % votes.len()];
+            for vote in active_votes
+                .iter()
+                .take(MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK)
+            {
                 if !self.flooder.check_capacity(
                     rsnano_network::TrafficType::VoteReply,
                     RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
@@ -527,7 +536,30 @@ impl RaiEpochTicker {
                 );
                 replayed += 1;
             }
-            self.close_evidence_repair_cursor = (start + replayed) % votes.len();
+            if !archived_votes.is_empty() && replayed < MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK {
+                let start = self.close_evidence_repair_cursor % archived_votes.len();
+                let remaining = MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK - replayed;
+                let mut archived_replayed = 0;
+                for offset in 0..archived_votes.len().min(remaining) {
+                    let vote = &archived_votes[(start + offset) % archived_votes.len()];
+                    if !self.flooder.check_capacity(
+                        rsnano_network::TrafficType::VoteReply,
+                        RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
+                    ) {
+                        break;
+                    }
+                    self.flooder.flood_prs_and_some_non_prs(
+                        &rsnano_messages::Message::ConfirmAck(
+                            rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
+                        ),
+                        rsnano_network::TrafficType::VoteReply,
+                        RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+                    );
+                    archived_replayed += 1;
+                }
+                self.close_evidence_repair_cursor =
+                    (start + archived_replayed) % archived_votes.len();
+            }
         }
 
         // Replaying First leaves can change the active request target to the

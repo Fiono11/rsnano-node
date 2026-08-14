@@ -60,6 +60,13 @@ const RAI_DRAIN_CHECKS_PER_TICK: usize = 256;
 #[cfg(feature = "rai_protocol")]
 const RAI_CLOSE_RECORD_REFRESHES_PER_PASS: usize = 256;
 
+/// A dead close round must remain addressable long enough for its signed
+/// candidate leaves to drive several preimage-repair passes. Without this
+/// gate, a 100 ms epoch tick can create successor rounds as fast as the repair
+/// loop discovers the data which caused the split.
+#[cfg(feature = "rai_protocol")]
+const RAI_CLOSE_DATA_REPAIR_GRACE: Duration = Duration::from_millis(300);
+
 /// Evidence repair only performs in-memory membership checks, so it can
 /// cheaply discard a large settled prefix without inheriting the much smaller
 /// ledger-read budget. This reaches a live tail behind a 25K cut in at most
@@ -269,6 +276,17 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     rai_pending_votes:
         HashMap<crate::consensus::election::RaiElectionId, Vec<Arc<rsnano_types::Vote>>>,
+    /// Compact slot votes intentionally omit the qualified root. If their
+    /// block has not arrived yet, retain the signed transport by epoch/hash
+    /// and resolve its election identity when Publish supplies the block.
+    #[cfg(feature = "rai_protocol")]
+    rai_pending_compact_slot_votes:
+        HashMap<(rsnano_types::RaiEpoch, BlockHash), Vec<Arc<rsnano_types::Vote>>>,
+    #[cfg(feature = "rai_protocol")]
+    rai_pending_timeout_slot_votes: HashMap<
+        (rsnano_types::RaiEpoch, rsnano_types::RaiTimeoutSlot),
+        Vec<Arc<rsnano_types::Vote>>,
+    >,
     /// Exact close candidate lookup for serving vote repair after an election
     /// has been removed. Slot-vote traffic can be much larger and must not be
     /// searched for every requested hash.
@@ -483,6 +501,40 @@ impl ActiveElectionsContainer {
             if !contexts.contains(metadata) {
                 contexts.push(metadata.clone());
             }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_resolve_pending_timeout_votes(
+        &mut self,
+        election_id: &crate::consensus::election::RaiElectionId,
+    ) {
+        let crate::consensus::election::RaiElectionId::Slot(slot) = election_id else {
+            return;
+        };
+        let Some(election) = self.roots.election_for_rai_id(election_id) else {
+            return;
+        };
+        let locator = rsnano_types::RaiTimeoutSlot {
+            account: election.account(),
+            height: election.rai_slot_height(),
+        };
+        let Some(votes) = self
+            .rai_pending_timeout_slot_votes
+            .remove(&(slot.epoch, locator))
+        else {
+            return;
+        };
+        for vote in votes {
+            let mut resolved = (*vote).clone();
+            for index in 0..resolved.metadata.len() {
+                if resolved.rai_timeout_slot(index) == Some(locator)
+                    && resolved.metadata[index].epoch == slot.epoch
+                {
+                    resolved.metadata[index].election_id = election_id.clone();
+                }
+            }
+            self.rai_retain_pending_vote(election_id.clone(), Arc::new(resolved));
         }
     }
 
@@ -1768,19 +1820,14 @@ impl ActiveElectionsContainer {
         } else {
             Some(hash)
         };
-        let Some(mut current) = selected else {
+        let Some(hash) = selected else {
             return Vec::new();
         };
-        let mut segment = Vec::new();
-        while let Some(block) = self.rai_blocks.get(&current).cloned() {
-            current = block.previous();
-            segment.push(block);
-            if current.is_zero() || segment.len() >= 16 * 1024 {
-                break;
-            }
-        }
-        segment.reverse();
-        segment
+        // Slot elections are deliberately one-block elections. Ancestors are
+        // repaired and confirmed by their own qualified-root elections, just
+        // as in the non-RAI path; a tip request must never implicitly turn
+        // into segment transport or confirmation.
+        self.rai_blocks.get(&hash).cloned().into_iter().collect()
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -2140,7 +2187,7 @@ impl ActiveElectionsContainer {
             .filter(|election| {
                 election.is_rai_close()
                     && election.rai_epoch() == epoch
-                    && !election.rai_is_terminal()
+                    && election.rai_requires_retention()
             })
             .take(limit)
             .map(|election| {
@@ -2370,6 +2417,36 @@ impl ActiveElectionsContainer {
             let _ = evidence.record_vote(vote.voter, value, metadata.phase, metadata.scope);
         }
         Some(evidence)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn rai_close_round_has_missing_preimages(
+        &self,
+        id: &crate::consensus::election::RaiElectionId,
+    ) -> bool {
+        let validated = match id {
+            crate::consensus::election::RaiElectionId::CloseCut { epoch, round } => self
+                .rai_epoch_manager
+                .close_cut_tracker(*epoch)
+                .and_then(|tracker| tracker.round(*round))
+                .map(|state| &state.validated_preimages),
+            crate::consensus::election::RaiElectionId::CloseRecord { epoch, round } => self
+                .rai_epoch_manager
+                .close_record_tracker(*epoch)
+                .and_then(|tracker| tracker.round(*round))
+                .map(|state| &state.validated_preimages),
+            crate::consensus::election::RaiElectionId::Slot(_) => None,
+        };
+        let Some(validated) = validated else {
+            return false;
+        };
+        self.rai_pending_votes.get(id).is_some_and(|votes| {
+            votes.iter().any(|vote| {
+                vote.rai_entries().any(|(metadata, hash)| {
+                    metadata.election_id == *id && !hash.is_zero() && !validated.contains(hash)
+                })
+            })
+        })
     }
 
     /// Materializes ordinary-finalized slots from the durable vote store even
@@ -2648,13 +2725,9 @@ impl ActiveElectionsContainer {
             }
             return;
         }
-        // A matching close notarization creates a live carry immediately.
-        // The source election stays active below, so its local Final vote and
-        // any delayed deciding certificate can still be emitted and applied.
-        self.rai_close_notarized_at.remove(id);
-        // A certified timeout/conflict is a death proof and immediately
-        // unlocks fresh voting. Its authenticated leaves remain in the
-        // persistent store for replay after the successor starts.
+        let local_result = evidence.local_result(0);
+        // Store the terminal evidence before waiting so the repair loop can
+        // replay the exact signed leaves which explain this transition.
         match kind {
             RaiCloseKind::Cut => {
                 self.rai_epoch_manager
@@ -2663,6 +2736,26 @@ impl ActiveElectionsContainer {
             RaiCloseKind::Record => {
                 self.rai_epoch_manager
                     .store_close_record_evidence(epoch, round, evidence);
+            }
+        }
+
+        match local_result {
+            Some(crate::consensus::rai::RaiLocalResult::Notarized(_)) => {
+                let observed_at = *self.rai_close_notarized_at.entry(id.clone()).or_insert(now);
+                if observed_at.elapsed(now) < self.base_latency {
+                    return;
+                }
+            }
+            Some(crate::consensus::rai::RaiLocalResult::Timeout) => {
+                let observed_at = *self.rai_close_notarized_at.entry(id.clone()).or_insert(now);
+                if observed_at.elapsed(now) < RAI_CLOSE_DATA_REPAIR_GRACE
+                    || self.rai_close_round_has_missing_preimages(id)
+                {
+                    return;
+                }
+            }
+            _ => {
+                self.rai_close_notarized_at.remove(id);
             }
         }
 
@@ -2838,6 +2931,10 @@ impl ActiveElectionsContainer {
             #[cfg(feature = "rai_protocol")]
             rai_pending_votes: Default::default(),
             #[cfg(feature = "rai_protocol")]
+            rai_pending_compact_slot_votes: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_timeout_slot_votes: Default::default(),
+            #[cfg(feature = "rai_protocol")]
             rai_pending_close_contexts_by_hash: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_ledger: None,
@@ -2864,6 +2961,48 @@ impl ActiveElectionsContainer {
             .entry(root.clone())
             .or_default()
             .insert(hash);
+
+        // Resolve vote-before-block compact leaves without inventing a root
+        // on the wire. The block's qualified root is the sole authoritative
+        // mapping from hash to the ordinary election/cache key.
+        let compact_keys = self
+            .rai_pending_compact_slot_votes
+            .keys()
+            .filter(|(_, pending_hash)| *pending_hash == hash)
+            .cloned()
+            .collect::<Vec<_>>();
+        for (epoch, pending_hash) in compact_keys {
+            let votes = self
+                .rai_pending_compact_slot_votes
+                .remove(&(epoch, pending_hash))
+                .unwrap_or_default();
+            let slot = crate::consensus::election::RaiSlotId {
+                epoch,
+                root: root.clone(),
+            };
+            for vote in votes {
+                let mut resolved = (*vote).clone();
+                for (metadata, candidate) in
+                    resolved.metadata.iter_mut().zip(resolved.hashes.iter())
+                {
+                    if *candidate == hash
+                        && matches!(
+                            &metadata.election_id,
+                            crate::consensus::election::RaiElectionId::Slot(id)
+                                if id.epoch == epoch && id.root == QualifiedRoot::ZERO
+                        )
+                    {
+                        metadata.election_id =
+                            crate::consensus::election::RaiElectionId::Slot(slot.clone());
+                    }
+                }
+                self.rai_retain_pending_vote(
+                    crate::consensus::election::RaiElectionId::Slot(slot.clone()),
+                    Arc::new(resolved),
+                );
+            }
+            let _ = self.admit_candidate(slot, hash);
+        }
         // The terminal marker commonly predates both close-drain selection
         // and the late Publish. Use its reverse hash index to wake only slots
         // whose authenticated drain resolution selected this exact payload;
@@ -2925,11 +3064,11 @@ impl ActiveElectionsContainer {
         use super::CandidateError;
         use crate::consensus::election::RaiElectionId;
 
-        let Some(tip) = self.rai_blocks.get(&candidate).cloned() else {
+        let Some(block) = self.rai_blocks.get(&candidate).cloned() else {
             self.rai_mark_payload_incomplete(slot, candidate);
             return Err(CandidateError::UnknownBlock);
         };
-        if tip.qualified_root() != slot.root {
+        if block.qualified_root() != slot.root {
             return Err(CandidateError::InvalidSegment);
         }
         let election_id = RaiElectionId::Slot(slot.clone());
@@ -2958,10 +3097,9 @@ impl ActiveElectionsContainer {
             .or_default()
             .insert(candidate);
 
-        // A block at this qualified root is the one-block segment beginning at
-        // the slot's certified base. Longer tips are admitted only after every
-        // parent has independently passed block processing and is present.
-        let result = entry.try_add_fork(&tip, Amount::ZERO);
+        // Exactly one block belongs to this election. Its predecessor, when
+        // any, is handled by a distinct qualified-root election.
+        let result = entry.try_add_fork(&block, Amount::ZERO);
         match result {
             AddForkResult::Added | AddForkResult::Duplicate => {
                 self.roots.vote_router.connect(candidate, slot.root);
@@ -3234,6 +3372,7 @@ impl ActiveElectionsContainer {
                     .add_rai_hash_candidate_for_id(&election_id, *hash);
             }
         }
+        self.rai_resolve_pending_timeout_votes(&election_id);
         self.apply_pending_rai_votes(&election_id, now);
         *self.count_by_behavior_mut(ElectionBehavior::Manual) += 1;
         self.stats.started(ElectionBehavior::Manual);
@@ -3330,6 +3469,7 @@ impl ActiveElectionsContainer {
         }) {
             return Err(AecInsertError::Duplicate);
         }
+        self.rai_resolve_pending_timeout_votes(&election_id);
         self.apply_pending_rai_votes(&election_id, now);
         *self.count_by_behavior_mut(ElectionBehavior::Manual) += 1;
         self.stats.started(ElectionBehavior::Manual);
@@ -3441,6 +3581,7 @@ impl ActiveElectionsContainer {
                 election,
                 priority: request.priority,
             });
+            self.rai_resolve_pending_timeout_votes(&election_id);
             self.apply_pending_rai_votes(&election_id, now);
         }
 
@@ -3873,7 +4014,7 @@ impl ActiveElectionsContainer {
         let election = self
             .roots
             .rai_elections_for_request_root(root)
-            .find(|election| election.is_rai_close() && !election.rai_is_terminal())?;
+            .find(|election| election.is_rai_close() && election.rai_requires_retention())?;
         let metadata = election.rai_vote_metadata();
         Some(rsnano_ledger::RaiFinalizedVoteTarget {
             election_id: metadata.election_id.clone(),
@@ -3899,12 +4040,14 @@ impl ActiveElectionsContainer {
         {
             let metadata = election.rai_vote_metadata();
             let target =
-                (!election.rai_is_terminal()).then(|| rsnano_ledger::RaiFinalizedVoteTarget {
-                    election_id: metadata.election_id.clone(),
-                    hash: election.rai_request_hash(),
-                    root: *root,
-                    metadata: metadata.clone(),
-                });
+                election
+                    .rai_requires_retention()
+                    .then(|| rsnano_ledger::RaiFinalizedVoteTarget {
+                        election_id: metadata.election_id.clone(),
+                        hash: election.rai_request_hash(),
+                        root: *root,
+                        metadata: metadata.clone(),
+                    });
             return Some(RaiZeroHashVoteRequest::Close { metadata, target });
         }
         if let Some(election) = self
@@ -4209,7 +4352,108 @@ impl ActiveElectionsContainer {
             let mut invalid_results = HashMap::new();
             let mut represented_ids = std::collections::HashSet::new();
 
-            for (metadata, hash) in args.vote.filtered_rai_entries() {
+            // ConfirmAck's compact slot representation carries no qualified
+            // root. Resolve it from an already validated block before using
+            // the same election and retained-vote maps as ordinary votes.
+            let mut resolved_transport = (*args.vote.vote.vote).clone();
+            let mut transport_changed = false;
+            let timeout_resolutions = (0..resolved_transport.hashes.len())
+                .map(|index| {
+                    let locator = resolved_transport.rai_timeout_slot(index)?;
+                    let epoch = resolved_transport.metadata[index].epoch;
+                    self.roots
+                        .iter_rai()
+                        .find(|entry| {
+                            entry.election.rai_epoch() == epoch
+                                && entry.election.account() == locator.account
+                                && entry.election.rai_slot_height() == locator.height
+                        })
+                        .map(|entry| entry.election.rai_id().clone())
+                })
+                .collect::<Vec<_>>();
+            for (index, (metadata, hash)) in resolved_transport
+                .metadata
+                .iter_mut()
+                .zip(resolved_transport.hashes.iter())
+                .enumerate()
+            {
+                let crate::consensus::election::RaiElectionId::Slot(slot) = &metadata.election_id
+                else {
+                    continue;
+                };
+                if let Some(resolved_id) = &timeout_resolutions[index]
+                    && slot.root == QualifiedRoot::ZERO
+                    && args.vote.vote.vote.rai_timeout_slot(index).is_some()
+                {
+                    metadata.election_id = resolved_id.clone();
+                    transport_changed = true;
+                    continue;
+                }
+                if !args.vote.vote.vote.is_compact_rai_slot()
+                    || slot.root != QualifiedRoot::ZERO
+                    || hash.is_zero()
+                {
+                    continue;
+                }
+                if let Some(block) = self.rai_blocks.get(hash) {
+                    metadata.election_id = crate::consensus::election::RaiElectionId::Slot(
+                        crate::consensus::election::RaiSlotId {
+                            epoch: slot.epoch,
+                            root: block.qualified_root(),
+                        },
+                    );
+                    transport_changed = true;
+                }
+            }
+            let resolved_transport = if transport_changed {
+                Arc::new(resolved_transport)
+            } else {
+                args.vote.vote.vote.clone()
+            };
+
+            for (index, (metadata, hash)) in resolved_transport
+                .rai_entries()
+                .enumerate()
+                .filter(|(_, (_, hash))| args.vote.filter.is_zero() || **hash == args.vote.filter)
+            {
+                if let Some(locator) = resolved_transport.rai_timeout_slot(index)
+                    && matches!(
+                        &metadata.election_id,
+                        crate::consensus::election::RaiElectionId::Slot(slot)
+                            if slot.root == QualifiedRoot::ZERO
+                    )
+                {
+                    let pending = self
+                        .rai_pending_timeout_slot_votes
+                        .entry((metadata.epoch, locator))
+                        .or_default();
+                    if !pending.iter().any(|existing| {
+                        existing.voter == args.vote.voter
+                            && existing.signature == args.vote.signature
+                    }) {
+                        pending.push(args.vote.vote.vote.clone());
+                    }
+                    invalid_results.insert(*hash, Err(VoteError::Indeterminate));
+                    continue;
+                }
+                if let crate::consensus::election::RaiElectionId::Slot(slot) = &metadata.election_id
+                    && resolved_transport.is_compact_rai_slot()
+                    && slot.root == QualifiedRoot::ZERO
+                    && !hash.is_zero()
+                {
+                    let pending = self
+                        .rai_pending_compact_slot_votes
+                        .entry((slot.epoch, *hash))
+                        .or_default();
+                    if !pending.iter().any(|existing| {
+                        existing.voter == args.vote.voter
+                            && existing.signature == args.vote.signature
+                    }) {
+                        pending.push(args.vote.vote.vote.clone());
+                    }
+                    invalid_results.insert(*hash, Err(VoteError::Indeterminate));
+                    continue;
+                }
                 // Contextless ConfirmReq replies are signed only to prove
                 // which representative owns the direct channel used by
                 // RepCrawler. Reject each discovery leaf before candidate
@@ -4262,7 +4506,7 @@ impl ActiveElectionsContainer {
                 // transport identity and already binds every metadata/hash
                 // leaf. The helper also indexes close leaves once, without
                 // mixing the much larger slot-vote store into hash lookup.
-                self.rai_retain_pending_vote(election_id, args.vote.vote.vote.clone());
+                self.rai_retain_pending_vote(election_id, resolved_transport.clone());
             }
             if let Ok(pr) = std::env::var("RSNANO_RAI_TRACE_PR") {
                 eprintln!(
@@ -4521,6 +4765,10 @@ impl ActiveElectionsContainer {
             crate::consensus::election::RaiElectionId::CloseCut { .. }
             | crate::consensus::election::RaiElectionId::CloseRecord { .. } => true,
         });
+        self.rai_pending_compact_slot_votes
+            .retain(|(epoch, _), _| *epoch > closed_epoch);
+        self.rai_pending_timeout_slot_votes
+            .retain(|(epoch, _), _| *epoch > closed_epoch);
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
@@ -5060,6 +5308,40 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
+    fn slot_payload_request_returns_only_the_requested_block() {
+        use rsnano_types::{Amount, PrivateKey, RaiEpoch, StateBlockArgs};
+
+        let key = PrivateKey::from(1);
+        let first = Block::from(StateBlockArgs {
+            key: &key,
+            previous: BlockHash::from_bytes(*key.account().as_bytes()),
+            representative: 789.into(),
+            balance: Amount::raw(2),
+            link: 111.into(),
+            work: 69420.into(),
+        });
+        let second = Block::from(StateBlockArgs {
+            key: &key,
+            previous: first.hash(),
+            representative: 789.into(),
+            balance: Amount::raw(1),
+            link: 112.into(),
+            work: 69420.into(),
+        });
+        let second_hash = second.hash();
+        let second_root = second.qualified_root().root;
+        let mut container = ActiveElectionsContainer::default();
+        container.published_block_available(first);
+        container.published_block_available(second.clone());
+
+        let response = container.rai_blocks_for_request(second_hash, second_root, RaiEpoch::ZERO);
+
+        assert_eq!(response.len(), 1);
+        assert_eq!(response[0].hash(), second_hash);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
     fn confirmed_slot_retains_terminal_marker_and_vote_evidence() {
         use crate::consensus::{FilteredVote, ReceivedVote};
         use rsnano_types::{
@@ -5328,24 +5610,27 @@ mod tests {
             root: initial.qualified_root(),
         };
         let id = RaiElectionId::Slot(slot.clone());
-        let vote: FilteredVote = ReceivedVote::new(
-            Vote::new_rai(
-                &key,
-                UnixMillisTimestamp::new(1),
-                0,
-                fork_hash,
-                RaiVoteMetadata {
-                    election_id: id.clone(),
-                    phase: RaiVotePhase::First,
-                    epoch: RaiEpoch::ZERO,
-                    scope: RaiCommitteeScope::All,
-                },
-            )
-            .into(),
-            VoteDelivery::Direct,
-            None,
-        )
-        .into();
+        let signed = Vote::new_rai(
+            &key,
+            UnixMillisTimestamp::new(1),
+            0,
+            fork_hash,
+            RaiVoteMetadata {
+                election_id: id.clone(),
+                phase: RaiVotePhase::First,
+                epoch: RaiEpoch::ZERO,
+                scope: RaiCommitteeScope::All,
+            },
+        );
+        let mut wire = Vec::new();
+        signed.serialize(&mut wire).unwrap();
+        let compact = Vote::deserialize_rai_slot(&mut wire.as_slice()).unwrap();
+        assert!(matches!(
+            &compact.metadata[0].election_id,
+            RaiElectionId::Slot(decoded) if decoded.root == QualifiedRoot::ZERO
+        ));
+        let vote: FilteredVote =
+            ReceivedVote::new(compact.into(), VoteDelivery::Direct, None).into();
         let now = Timestamp::new_test_instance();
 
         assert_eq!(
@@ -5357,17 +5642,19 @@ mod tests {
             })[&fork_hash],
             Err(VoteError::Indeterminate)
         );
-        assert!(container.rai_payload_incomplete[&slot].contains(&fork_hash));
-        assert!(container.rai_payload_incomplete_by_hash[&fork_hash].contains(&slot));
+        assert!(
+            container
+                .rai_pending_compact_slot_votes
+                .contains_key(&(RaiEpoch::ZERO, fork_hash))
+        );
 
         // There is still no election, so Publish cannot admit the candidate;
         // it nevertheless resolves payload absence immediately.
         container.published_block_available(fork.clone().into());
-        assert!(!container.rai_payload_incomplete.contains_key(&slot));
         assert!(
             !container
-                .rai_payload_incomplete_by_hash
-                .contains_key(&fork_hash)
+                .rai_pending_compact_slot_votes
+                .contains_key(&(RaiEpoch::ZERO, fork_hash))
         );
         assert!(container.roots.election_for_rai_id(&id).is_none());
 
@@ -5385,6 +5672,92 @@ mod tests {
         assert!(election.contains_candidate(&fork_hash));
         assert!(container.slot_contains_candidate(&slot, &fork_hash));
         assert!(container.rai_pending_votes.contains_key(&id));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn timeout_account_height_resolves_to_local_slot_election() {
+        use crate::consensus::{FilteredVote, ReceivedVote};
+        use rsnano_types::{
+            Amount, PrivateKey, RaiCommitteeScope, RaiElectionId, RaiEpoch, RaiTimeoutSlot,
+            RaiVoteMetadata, RaiVotePhase, UnixMillisTimestamp, Vote, VoteDelivery,
+        };
+
+        let key = PrivateKey::from(1);
+        let committee = Arc::new(RepWeights::from([(key.public_key(), Amount::raw(100))]));
+        let mut container = ActiveElectionsContainer::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            committee,
+            BlockHash::from(7),
+        );
+        let block = SavedBlock::new_test_instance();
+        let account = block.account();
+        let height = block.height();
+        let root = block.qualified_root();
+        let now = Timestamp::new_test_instance();
+        let slot = crate::consensus::election::RaiSlotId {
+            epoch: RaiEpoch::ZERO,
+            root,
+        };
+        let id = RaiElectionId::Slot(slot.clone());
+        let signed = Vote::new_rai_timeout_batch(
+            &key,
+            UnixMillisTimestamp::new(1),
+            0,
+            [(
+                RaiVoteMetadata {
+                    election_id: id.clone(),
+                    phase: RaiVotePhase::First,
+                    epoch: RaiEpoch::ZERO,
+                    scope: RaiCommitteeScope::All,
+                },
+                RaiTimeoutSlot { account, height },
+            )],
+        );
+        let mut wire = Vec::new();
+        signed.serialize(&mut wire).unwrap();
+        let decoded = Vote::deserialize_rai_timeout_slot(&wire).unwrap();
+        let vote: FilteredVote =
+            ReceivedVote::new(decoded.into(), VoteDelivery::Direct, None).into();
+
+        assert_eq!(
+            container.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            })[&BlockHash::ZERO],
+            Err(VoteError::Indeterminate)
+        );
+        assert!(
+            container
+                .rai_pending_timeout_slot_votes
+                .contains_key(&(RaiEpoch::ZERO, RaiTimeoutSlot { account, height }))
+        );
+
+        container
+            .insert(
+                AecInsertRequest {
+                    block,
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                },
+                now,
+            )
+            .unwrap();
+        assert!(
+            !container
+                .rai_pending_timeout_slot_votes
+                .contains_key(&(RaiEpoch::ZERO, RaiTimeoutSlot { account, height }))
+        );
+        assert!(container.rai_pending_votes.contains_key(&id));
+        assert!(container.rai_pending_votes[&id].iter().any(|vote| {
+            vote.metadata
+                .iter()
+                .any(|metadata| metadata.election_id == id)
+                && vote.rai_timeout_slot(0) == Some(RaiTimeoutSlot { account, height })
+        }));
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -7147,6 +7520,123 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
+    fn timed_out_close_round_waits_for_data_repair_before_advancing() {
+        use crate::consensus::{
+            RaiCloseElectionSpec,
+            rai::{BlockHashOrTimeout, RaiCloseElectionId, RaiCloseKind, RaiElectionVoteState},
+        };
+        use rsnano_types::{Amount, PrivateKey, RaiCommitteeScope, RaiVotePhase};
+
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+            PrivateKey::from(4),
+            PrivateKey::from(5),
+            PrivateKey::from(6),
+        ];
+        let committee = std::sync::Arc::new(RepWeights::from(
+            keys.each_ref()
+                .map(|key| (key.public_key(), Amount::raw(1))),
+        ));
+        let mut container = ActiveElectionsContainer::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            committee.clone(),
+            BlockHash::from(7),
+        );
+        let now = Timestamp::new_test_instance();
+        assert!(container.rai_epoch_manager.start_closing(now));
+        for key in &keys {
+            container
+                .rai_epoch_manager
+                .reports_mut()
+                .insert(crate::consensus::rai::RaiReport::new(key, 0.into(), []))
+                .unwrap();
+        }
+        let (root, candidate) = container.rai_epoch_manager.begin_cut_election([]).unwrap();
+        let id = crate::consensus::election::RaiElectionId::CloseCut {
+            epoch: 0.into(),
+            round: 0,
+        };
+        container
+            .insert_close_cut(
+                RaiCloseElectionSpec {
+                    id: RaiCloseElectionId {
+                        kind: RaiCloseKind::Cut,
+                        epoch: 0.into(),
+                        round: 0,
+                    },
+                    root,
+                    candidate,
+                    committee: committee.clone(),
+                },
+                now,
+            )
+            .unwrap();
+
+        let mut evidence = RaiElectionVoteState::new(vec![committee]);
+        for key in &keys[..2] {
+            evidence
+                .record_first_vote(
+                    key.public_key(),
+                    BlockHashOrTimeout::Block(candidate),
+                    RaiCommitteeScope::All,
+                )
+                .unwrap();
+        }
+        for key in &keys[2..4] {
+            evidence
+                .record_first_vote(
+                    key.public_key(),
+                    BlockHashOrTimeout::Block(BlockHash::from(99)),
+                    RaiCommitteeScope::All,
+                )
+                .unwrap();
+        }
+        evidence
+            .record_first_vote(
+                keys[4].public_key(),
+                BlockHashOrTimeout::Block(BlockHash::from(100)),
+                RaiCommitteeScope::All,
+            )
+            .unwrap();
+        for key in &keys[..4] {
+            evidence
+                .record_vote(
+                    key.public_key(),
+                    BlockHashOrTimeout::Timeout,
+                    RaiVotePhase::Notar,
+                    RaiCommitteeScope::All,
+                )
+                .unwrap();
+        }
+        container
+            .roots
+            .election_for_rai_id_mut(&id)
+            .unwrap()
+            .rai_votes = evidence;
+
+        container.progress_close_election(&id, now);
+        container.progress_close_election(&id, now + Duration::from_millis(250));
+        assert_eq!(
+            container.rai_epoch_manager.close_cut_round(0.into()),
+            Some(0)
+        );
+        assert!(
+            container.roots.election_for_rai_id(&id).is_some(),
+            "the dead source round remains available for data and vote repair"
+        );
+
+        container.progress_close_election(&id, now + Duration::from_millis(350));
+        assert_eq!(
+            container.rai_epoch_manager.close_cut_round(0.into()),
+            Some(1)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
     fn reconciled_close_cut_replays_cached_final_certificate() {
         use crate::consensus::{
             RaiCloseElectionSpec,
@@ -7704,6 +8194,23 @@ mod tests {
         assert_eq!(
             requests[0].2,
             crate::consensus::election::RaiElectionId::CloseRecord { epoch, round }
+        );
+
+        // A close timeout is terminal for the election, but not for the
+        // logical round. Keep soliciting the timeout target until every
+        // replica can advance from the retained certificate evidence.
+        container
+            .roots
+            .election_for_rai_id_mut(&requests[0].2)
+            .unwrap()
+            .rai_votes
+            .outcome = crate::consensus::rai::RaiOutcome::TimedOut;
+        let requests = container.rai_active_close_vote_requests(epoch, 16);
+        assert_eq!(requests.len(), 1);
+        assert!(
+            container
+                .rai_active_close_vote_target_for_root(&root.root)
+                .is_some()
         );
     }
 

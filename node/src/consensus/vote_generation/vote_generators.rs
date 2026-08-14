@@ -244,7 +244,7 @@ impl VoteGenerators {
         vote_type: VoteType,
         #[cfg(feature = "rai_protocol")] metadata: rsnano_types::RaiVoteMetadata,
         #[cfg(feature = "rai_protocol")] is_rai_close: bool,
-    ) {
+    ) -> bool {
         match vote_type {
             VoteType::NonFinal => {
                 self.stats
@@ -256,7 +256,7 @@ impl VoteGenerators {
                     metadata,
                     #[cfg(feature = "rai_protocol")]
                     is_rai_close,
-                );
+                )
             }
             VoteType::Final => {
                 self.stats
@@ -268,7 +268,7 @@ impl VoteGenerators {
                     metadata,
                     #[cfg(feature = "rai_protocol")]
                     is_rai_close,
-                );
+                )
             }
         }
     }
