@@ -128,30 +128,34 @@ impl RaiEpochTicker {
 // starving an obligation which remains unresolved.
 const MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK: usize = 64;
 
-/// A large close cut can contain tens of thousands of slots, while only a
-/// small tail normally needs evidence repair. Keep both replay and request
-/// work proportional to that unresolved tail.
+/// A saturated close cut can leave thousands of slots needing evidence
+/// repair. Use one protocol-sized vectorized request per lifecycle tick so a
+/// five-second epoch can make a complete pass over that tail. Bounding this by
+/// vote count is still important because one retained vote can itself carry a
+/// full vectorized batch.
 #[cfg(feature = "rai_protocol")]
-// A retained vote can be a vectorized payload covering hundreds of slots, so
-// bounding by vote count alone still permits a large synchronized burst from
-// every committee member. Keep each pass small and let the rotating cursor
-// cover the remaining history on later passes.
-const MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
+const MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK: usize = rsnano_messages::ConfirmReq::HASHES_MAX;
+
+/// Vote transports can each contain a full vectorized batch. Keep their
+/// epidemic replay budget independent from the much larger root-request
+/// window so repair traffic cannot consume the workload's entire CPU/network
+/// budget.
+#[cfg(feature = "rai_protocol")]
+const MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
 const MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
-// Every committee member performs wide-fanout replay for unresolved drain
-// slots. At the 100ms lifecycle cadence, six replicas can amplify duplicate
-// evidence enough to starve the drain they are repairing. This still provides
-// ten repair opportunities per accelerated 5s epoch.
+// A request covers a full 255-root protocol vector. Five-hundred millisecond
+// spacing still scans a 7.2K-slot saturated epoch in about 15 seconds without
+// creating a positive feedback loop of duplicate replies while draining.
 const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "rai_protocol")]
 // Close-control elections have only a handful of vote batches and need prompt
 // solicitation even while ordinary workload traffic is saturated.
-const RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
+const RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(250);
 
 #[cfg(feature = "rai_protocol")]
 const RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE: f32 = 8.0;
@@ -183,7 +187,7 @@ fn rai_slot_payload_repair_window<T: Clone>(requests: &[T], cursor: &mut usize) 
 fn rai_replay_slot_vote_window<T>(votes: &[T], mut try_replay: impl FnMut(&T) -> bool) -> usize {
     let mut replayed = 0;
     for vote in votes {
-        if replayed >= MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK || !try_replay(vote) {
+        if replayed >= MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK || !try_replay(vote) {
             break;
         }
         replayed += 1;
@@ -319,7 +323,7 @@ impl Tickable for RaiEpochTicker {
             // Active close votes use the ordinary batched ConfirmReq/
             // ConfirmAck path. The custom envelope is only for a precise
             // signed close digest whose canonical preimage is absent here.
-            const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
+            const CLOSE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
             if rai_close_repair_phase_active(closing.phase)
                 && self
                     .last_close_preimage_request
@@ -619,7 +623,7 @@ impl RaiEpochTicker {
             } else {
                 let start = self.slot_evidence_repair_cursor % votes.len();
                 let mut replayed = 0;
-                for offset in 0..votes.len().min(MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK) {
+                for offset in 0..votes.len().min(MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK) {
                     let vote = &votes[(start + offset) % votes.len()];
                     if !self.flooder.check_capacity(
                         rsnano_network::TrafficType::VoteRebroadcast,
@@ -1451,7 +1455,7 @@ mod rai_epoch_ticker_tests {
 
     #[test]
     fn retained_slot_vote_replay_is_bounded() {
-        let votes = (0..MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK + 4).collect::<Vec<_>>();
+        let votes = (0..MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK + 4).collect::<Vec<_>>();
         let mut sent = Vec::new();
 
         let replayed = rai_replay_slot_vote_window(&votes, |vote| {
@@ -1459,10 +1463,10 @@ mod rai_epoch_ticker_tests {
             true
         });
 
-        assert_eq!(replayed, MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK);
+        assert_eq!(replayed, MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK);
         assert_eq!(
             sent,
-            (0..MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK).collect::<Vec<_>>()
+            (0..MAX_RAI_SLOT_VOTE_REPLAYS_PER_TICK).collect::<Vec<_>>()
         );
     }
 

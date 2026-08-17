@@ -67,6 +67,13 @@ const RAI_CLOSE_RECORD_REFRESHES_PER_PASS: usize = 256;
 #[cfg(feature = "rai_protocol")]
 const RAI_CLOSE_DATA_REPAIR_GRACE: Duration = Duration::from_millis(300);
 
+/// Missing losing-candidate preimages are useful for reconstructing the split,
+/// but they must not turn a signed timeout certificate into a permanent
+/// liveness dependency. Give the repair exchange several lifecycle passes,
+/// then let the timeout certificate advance the logical close round.
+#[cfg(feature = "rai_protocol")]
+const RAI_CLOSE_PREIMAGE_REPAIR_LIMIT: Duration = Duration::from_secs(2);
+
 /// Evidence repair only performs in-memory membership checks, so it can
 /// cheaply discard a large settled prefix without inheriting the much smaller
 /// ledger-read budget. This reaches a live tail behind a 25K cut in at most
@@ -2768,9 +2775,12 @@ impl ActiveElectionsContainer {
             }
             Some(crate::consensus::rai::RaiLocalResult::Timeout) => {
                 let observed_at = *self.rai_close_notarized_at.entry(id.clone()).or_insert(now);
-                if observed_at.elapsed(now) < RAI_CLOSE_DATA_REPAIR_GRACE
-                    || self.rai_close_round_has_missing_preimages(id)
-                {
+                let repair_window = if self.rai_close_round_has_missing_preimages(id) {
+                    RAI_CLOSE_PREIMAGE_REPAIR_LIMIT
+                } else {
+                    RAI_CLOSE_DATA_REPAIR_GRACE
+                };
+                if observed_at.elapsed(now) < repair_window {
                     return;
                 }
             }
