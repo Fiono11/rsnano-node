@@ -136,6 +136,7 @@ impl EventHandler<LedgerPipelineEvent> for BoundedBacklog {
                         .lock()
                         .remove_batch(confirmed.iter().map(|i| i.0.hash()));
                 }
+                LedgerEvent::BlocksFinalized(_) => {}
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.logic.lock().remove_batch(rolled_back.hashes());
                 }

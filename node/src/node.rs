@@ -1741,6 +1741,7 @@ pub enum NodeEvent {
     ElectionStarted(BlockHash),
     ElectionStopped(BlockHash),
     BlockConfirmed(SavedBlock, ConfirmedElection),
+    BlocksFinalized(Vec<SavedBlock>),
     VoteProcessed(Arc<Vote>, Result<(), VoteError>),
     BlocksProcessed(Vec<ProcessResult>),
 }

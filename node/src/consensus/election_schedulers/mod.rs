@@ -257,6 +257,7 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                         }
                     }
                 }
+                LedgerEvent::BlocksFinalized(_) => {}
                 _ => {}
             }
         }

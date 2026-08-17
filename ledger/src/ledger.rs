@@ -904,7 +904,7 @@ impl Ledger {
 
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
         let txn = self.store.begin_write();
-        let (txn, blocks) = self.confirm_max(
+        let (txn, blocks, _) = self.confirm_max(
             txn,
             hash,
             1024 * 128,
@@ -923,7 +923,7 @@ impl Ledger {
         target_hash: BlockHash,
         max_blocks: usize,
         #[cfg(feature = "rai_protocol")] finalization_epoch: Option<rsnano_types::RaiEpoch>,
-    ) -> (WriteTransaction, Vec<SavedBlock>) {
+    ) -> (WriteTransaction, Vec<SavedBlock>, Vec<SavedBlock>) {
         BlockCementer::new(&self.store, &self.constants, &self.stats).confirm(
             txn,
             target_hash,
@@ -1045,6 +1045,7 @@ impl Ledger {
         O: CementingObserver,
     {
         let mut confirmed = Vec::new();
+        let mut finalized = Vec::new();
         let mut blocks_confirmed = 0;
         let mut roots_processed = 0;
         {
@@ -1077,6 +1078,11 @@ impl Ledger {
                                 &mut confirmed,
                             )));
                         }
+                        if !finalized.is_empty() {
+                            self.notify(LedgerEvent::BlocksFinalized(std::mem::take(
+                                &mut finalized,
+                            )));
+                        }
                         txn = self.store.env.begin_write();
                     }
 
@@ -1090,7 +1096,7 @@ impl Ledger {
                         break;
                     }
 
-                    let (t, added) = self.confirm_max(
+                    let (t, added, newly_finalized) = self.confirm_max(
                         txn,
                         *confirmation_root,
                         max_blocks,
@@ -1098,6 +1104,12 @@ impl Ledger {
                         finalization_epoch,
                     );
                     txn = t;
+
+                    finalized.extend(
+                        newly_finalized
+                            .into_iter()
+                            .map(|block| (block, *confirmation_root)),
+                    );
 
                     if !added.is_empty() {
                         // Confirming this block may implicitly confirm more
@@ -1155,6 +1167,9 @@ impl Ledger {
 
         if !confirmed.is_empty() {
             self.notify(LedgerEvent::BlocksConfirmed(confirmed));
+        }
+        if !finalized.is_empty() {
+            self.notify(LedgerEvent::BlocksFinalized(finalized));
         }
     }
 
@@ -1608,6 +1623,65 @@ mod tests {
                 .rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1,)
                 .is_empty()
         );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn first_rai_finalizer_notifies_for_an_already_cemented_block_once() {
+        use crate::LedgerInserter;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, _hash: &BlockHash) {
+                panic!("cementation failed")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_l = events.clone();
+        *ledger.publish.write().unwrap() = Some(Box::new(move |event| {
+            if let LedgerEvent::BlocksFinalized(blocks) = event {
+                events_l
+                    .lock()
+                    .unwrap()
+                    .extend(blocks.into_iter().map(|(block, _)| block.hash()));
+            }
+        }));
+
+        let key = rsnano_types::PrivateKey::from(42);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        let block = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+
+        // Ordinary cementation emits BlocksConfirmed, not BlocksFinalized.
+        ledger.confirm_batch_rai([(&block.hash(), None)], &stopped, 1024, &mut observer);
+        assert!(events.lock().unwrap().is_empty());
+
+        // Whichever RAI path assigns the first durable epoch emits once.
+        ledger.confirm_batch_rai(
+            [(&block.hash(), Some(rsnano_types::RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        assert_eq!(*events.lock().unwrap(), vec![block.hash()]);
+
+        // A late slot/close retry observes the existing assignment and is silent.
+        ledger.confirm_batch_rai(
+            [(&block.hash(), Some(rsnano_types::RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut observer,
+        );
+        assert_eq!(*events.lock().unwrap(), vec![block.hash()]);
     }
 
     #[cfg(feature = "rai_protocol")]

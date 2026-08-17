@@ -498,6 +498,7 @@ impl EventHandlerMut<LedgerPipelineEvent> for LocalBlockBroadcasterPlugin {
                     self.local_block_broadcaster
                         .confirmed(confirmed.iter().map(|i| &i.1));
                 }
+                LedgerEvent::BlocksFinalized(_) => {}
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.local_block_broadcaster
                         .rolled_back(rolled_back.hashes());

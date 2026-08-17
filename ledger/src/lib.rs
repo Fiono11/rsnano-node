@@ -41,6 +41,10 @@ pub enum LedgerEvent {
     /// The confirmed block + it's confirmation root
     BlocksProcessed(Vec<ProcessResult>),
     BlocksConfirmed(Vec<(SavedBlock, BlockHash)>),
+    /// Blocks receiving their first durable RAI-finalization assignment after
+    /// they were already cemented. Newly cemented blocks continue to arrive in
+    /// `BlocksConfirmed`, so consumers can merge both streams without duplicates.
+    BlocksFinalized(Vec<(SavedBlock, BlockHash)>),
     BlocksRolledBack(RollbackResults),
 }
 

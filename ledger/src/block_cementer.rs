@@ -35,8 +35,10 @@ impl<'a> BlockCementer<'a> {
         target_hash: BlockHash,
         max_blocks: usize,
         #[cfg(feature = "rai_protocol")] finalization_epoch: Option<RaiEpoch>,
-    ) -> (WriteTransaction, Vec<SavedBlock>) {
+    ) -> (WriteTransaction, Vec<SavedBlock>, Vec<SavedBlock>) {
         let mut result = Vec::new();
+        #[allow(unused_mut)]
+        let mut newly_finalized = Vec::new();
         #[cfg(feature = "rai_protocol")]
         let finalization_account = finalization_epoch.and_then(|_| {
             self.store
@@ -137,6 +139,11 @@ impl<'a> BlockCementer<'a> {
                         .is_none_or(|base| block.height() > base.height)
                 {
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
+                    let was_finalized = self
+                        .store
+                        .rai_finalization
+                        .epoch(&txn, &block.hash())
+                        .is_some();
                     // Cementation requests can overlap an epoch boundary.
                     // Finality is immutable, while its epoch attribution
                     // converges to the earliest valid certificate: later
@@ -149,6 +156,15 @@ impl<'a> BlockCementer<'a> {
                         &block.account(),
                         &conf_height,
                     );
+                    // A close record can be the first RAI finalizer of a block
+                    // which ordinary confirmation already cemented. There is
+                    // no BlocksConfirmed event in that case, so surface the
+                    // first durable finalization assignment separately. Slot
+                    // and close paths race through the same store entry; only
+                    // the first assignment emits.
+                    if was_confirmed && !was_finalized {
+                        newly_finalized.push(block.clone());
+                    }
                 }
             } else {
                 // Unconfirmed dependencies were added
@@ -169,7 +185,7 @@ impl<'a> BlockCementer<'a> {
                 break;
             }
         }
-        (txn, result)
+        (txn, result, newly_finalized)
     }
 
     fn is_confirmed(&self, tx: &WriteTransaction, hash: &BlockHash) -> bool {

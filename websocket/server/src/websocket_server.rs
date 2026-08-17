@@ -2,7 +2,9 @@ use super::WebsocketListener;
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
-    CompositeNodeEventHandler, Node, NodeEvent, NodeEventHandler, config::WebsocketConfig,
+    CompositeNodeEventHandler, Node, NodeEvent, NodeEventHandler,
+    config::WebsocketConfig,
+    consensus::election::{ConfirmationType, ConfirmedElection},
 };
 use rsnano_types::{Account, BlockHash, Vote, VoteError};
 use rsnano_websocket_messages::{MessageEnvelope, Topic, new_block_arrived_message};
@@ -196,6 +198,25 @@ impl NodeEventHandler for NodeEventProcessor {
                     .unwrap_or_default();
 
                 self.server.broadcast_confirmation(block, &amount, election);
+            }
+            NodeEvent::BlocksFinalized(blocks) => {
+                if self.server.any_subscriber(Topic::Confirmation) {
+                    for block in blocks {
+                        let amount = self
+                            .ledger
+                            .any()
+                            .block_amount_for(block)
+                            .unwrap_or_default();
+                        self.server.broadcast_confirmation(
+                            block,
+                            &amount,
+                            &ConfirmedElection::new(
+                                block.clone(),
+                                ConfirmationType::InactiveConfirmationHeight,
+                            ),
+                        );
+                    }
+                }
             }
             NodeEvent::VoteProcessed(vote, vote_code) => {
                 if self.server.any_subscriber(Topic::Vote) {

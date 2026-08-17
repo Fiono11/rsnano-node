@@ -77,6 +77,7 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
             LedgerPipelineEvent::Ledger(e) => match e {
                 LedgerEvent::BlocksProcessed(_) => &self.stats.dur_blocks_processed,
                 LedgerEvent::BlocksConfirmed(_) => &self.stats.dur_blocks_confirmed,
+                LedgerEvent::BlocksFinalized(_) => &self.stats.dur_blocks_confirmed,
                 LedgerEvent::BlocksRolledBack(_) => &self.stats.dur_blocks_rolled_back,
             },
             LedgerPipelineEvent::ConfirmingSet(e) => match e {
@@ -119,6 +120,21 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         dep_conf_start.elapsed().as_millis() as u64,
                         Ordering::Relaxed,
                     );
+                }
+                LedgerEvent::BlocksFinalized(finalized) => {
+                    // Close-record cementation can add the first durable RAI
+                    // finalization tag to an already-confirmed block. Consensus
+                    // has no more work to do for it: re-entering AEC here would
+                    // force thousands of elections during a close. Publish one
+                    // batched node event instead; websocket expansion happens
+                    // only on nodes which actually have a subscriber.
+                    if let Some(sender) = &self.node_event_sender {
+                        sender
+                            .send(NodeEvent::BlocksFinalized(
+                                finalized.into_iter().map(|(block, _)| block).collect(),
+                            ))
+                            .unwrap();
+                    }
                 }
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     self.stats
