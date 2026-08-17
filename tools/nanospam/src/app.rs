@@ -36,7 +36,6 @@ use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 use crate::{
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
-    confirmation_tracker::reconcile_confirmations,
     domain::{BlockResult, Forks, spam_logic::SpamLogic},
     frontiers_sync::sync_frontiers,
     handshake::perform_handshake,
@@ -53,6 +52,8 @@ const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
 const PUBLISH_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
+const LIVE_REPLICA_OBSERVATION_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_LIVE_REPLICA_OBSERVATIONS_PER_PR: usize = 256;
 // Close elections use eventual repair and have no 24-second protocol bound.
 // Leave enough room for several report/cut/drain/record repair rounds while
 // retaining the global watchdog as the outer harness deadline.
@@ -315,12 +316,6 @@ impl NanoSpamApp {
                 }
 
                 scope.spawn(conf_receiver.run(cancel_nanospam.clone(), tx_ws_msg, &self.clock));
-                scope.spawn(reconcile_confirmations(
-                    genesis_rpc,
-                    &logic,
-                    &self.clock,
-                    cancel_nanospam.clone(),
-                ));
                 scope.spawn(repair_missing_replica_blocks(
                     &self.rpc_clients,
                     &logic,
@@ -361,6 +356,8 @@ impl NanoSpamApp {
         let published_blocks = logic.published_blocks().clone();
         let workload_confirmed = logic.is_finished();
         let confirmed_blocks = logic.confirmed_total;
+        let websocket_confirmation_samples = logic.websocket_confirmation_samples();
+        let average_websocket_confirmation_time = logic.average_websocket_confirmation_time();
         let delayed_blocks = logic.delayed.hashes().len();
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
@@ -405,6 +402,10 @@ impl NanoSpamApp {
             format_duration(average_confirmation_time)
         );
         println!("Block confirmation report:");
+        println!(
+            "  PR0 websocket average confirmation time {} ({websocket_confirmation_samples} samples)",
+            format_duration(average_websocket_confirmation_time)
+        );
         println!(
             "  {created_blocks} blocks confirmed on {} PRs ({confirmation_samples} samples), average all-PR ledger confirmation time {}",
             self.rpc_clients.len(),
@@ -812,11 +813,13 @@ async fn repair_missing_replica_blocks(
     cancel: CancellationToken,
 ) {
     let mut confirmed = vec![std::collections::HashSet::new(); clients.len()];
-    // This loop is also the live all-replica latency observer. Poll often
-    // enough that the measurement is useful for sub-200 ms performance gates;
-    // the old post-workload-only observation inflated a 10-second workload's
-    // average latency to roughly five seconds.
-    let mut ticker = tokio::time::interval(Duration::from_millis(25));
+    // This loop is also the live all-replica latency observer. A sweep checks
+    // every outstanding block on every PR, so immediately starting another
+    // sweep turns the observer into a continuous RPC workload at high CPS and
+    // can starve the consensus workload it is measuring. Leave a bounded gap
+    // between sweeps; the exhaustive post-workload observer below still
+    // verifies and repairs every block on every replica.
+    let mut ticker = tokio::time::interval(LIVE_REPLICA_OBSERVATION_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
@@ -841,6 +844,10 @@ async fn repair_missing_replica_blocks(
                 .keys()
                 .filter(|hash| !confirmed[pr].contains(*hash))
                 .copied()
+                // Keep the live observer from becoming an unbounded second
+                // publisher as the workload grows. The exhaustive observer
+                // after publication still validates and repairs every block.
+                .take(MAX_LIVE_REPLICA_OBSERVATIONS_PER_PR)
                 .collect::<Vec<_>>();
             for batch in pending.chunks(128) {
                 let response = select! {
@@ -1320,6 +1327,11 @@ async fn publish_blocks(
             break;
         }
     }
+    // The final websocket confirmation can arrive after the publisher has
+    // dequeued its last block. In that case the republisher observes
+    // `is_finished`, drops the final sender, and `recv` returns `None` above.
+    // Wake every other scoped task just as the legacy publisher did.
+    cancel_token.cancel();
 }
 
 fn connection_index(block: &rsnano_types::Block) -> usize {
@@ -1403,7 +1415,10 @@ fn track_confirmations(
             let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
             let block_hash = BlockHash::decode_hex(data.hash).unwrap();
 
-            let high_prio_conf_time = logic.lock().unwrap().confirmed(&block_hash, timestamp);
+            let high_prio_conf_time = logic
+                .lock()
+                .unwrap()
+                .confirmed_from_websocket(&block_hash, timestamp);
 
             if let Some(time) = high_prio_conf_time {
                 tracing::info!(

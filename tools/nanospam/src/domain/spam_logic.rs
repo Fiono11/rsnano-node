@@ -31,6 +31,8 @@ pub(crate) struct SpamLogic {
     published_total: usize,
     pub(crate) confirmed_recent: usize,
     pub(crate) sum_conf_time_recent: Duration,
+    websocket_conf_time_total: Duration,
+    websocket_confirmed_total: usize,
     pub(crate) cps_measure_start: Option<Timestamp>,
     publication_times: HashMap<BlockHash, Instant>,
     published_blocks: HashMap<BlockHash, Block>,
@@ -60,6 +62,8 @@ impl SpamLogic {
             published_total: 0,
             confirmed_recent: 0,
             sum_conf_time_recent: Duration::ZERO,
+            websocket_conf_time_total: Duration::ZERO,
+            websocket_confirmed_total: 0,
             cps_measure_start: None,
             publication_times: Default::default(),
             published_blocks: Default::default(),
@@ -139,11 +143,12 @@ impl SpamLogic {
         &self.published_blocks
     }
 
-    pub(crate) fn confirmed(
+    fn confirm(
         &mut self,
         block_hash: &BlockHash,
         timestamp: Timestamp,
-    ) -> Option<Duration> {
+    ) -> (Option<Duration>, Option<Duration>) {
+        let mut confirmation_time = None;
         if self.spec.track_confirmations {
             let conf_time = self.delayed.confirmed(block_hash, timestamp);
 
@@ -154,11 +159,38 @@ impl SpamLogic {
                 self.confirmed_recent += 1;
                 self.confirmed_total += 1;
                 self.sum_conf_time_recent += conf_time;
+                confirmation_time = Some(conf_time);
             }
             self.block_factory.confirm(block_hash);
         }
 
-        self.high_prio_tracker.confirmed(block_hash, timestamp)
+        (
+            self.high_prio_tracker.confirmed(block_hash, timestamp),
+            confirmation_time,
+        )
+    }
+
+    pub(crate) fn confirmed_from_websocket(
+        &mut self,
+        block_hash: &BlockHash,
+        timestamp: Timestamp,
+    ) -> Option<Duration> {
+        let (high_prio_conf_time, confirmation_time) = self.confirm(block_hash, timestamp);
+        if let Some(confirmation_time) = confirmation_time {
+            self.websocket_conf_time_total += confirmation_time;
+            self.websocket_confirmed_total += 1;
+        }
+
+        high_prio_conf_time
+    }
+
+    pub(crate) fn average_websocket_confirmation_time(&self) -> Option<Duration> {
+        (self.websocket_confirmed_total > 0)
+            .then(|| self.websocket_conf_time_total / self.websocket_confirmed_total as u32)
+    }
+
+    pub(crate) fn websocket_confirmation_samples(&self) -> usize {
+        self.websocket_confirmed_total
     }
 
     pub(crate) fn reset_cps_counter(&mut self, now: Timestamp) {
@@ -226,7 +258,7 @@ mod tests {
             panic!("first block should be emitted")
         };
         logic.published(&first.block.hash(), now);
-        logic.confirmed(&first.block.hash(), now);
+        logic.confirmed_from_websocket(&first.block.hash(), now);
         assert_eq!(
             logic.published_blocks().get(&first.block.hash()),
             Some(&first.block)
@@ -246,6 +278,44 @@ mod tests {
             logic
                 .next_block(false, now + Duration::from_secs(1))
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn websocket_confirmation_average_excludes_other_confirmation_paths() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(3);
+        let initial = account_map.initial_key().account();
+        account_map.set_account_state(initial, Amount::nano(1), BlockHash::from(1));
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(2),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+            Vec::new(),
+        );
+        let now = Timestamp::new_test_instance();
+
+        let BlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
+            panic!("first block should be emitted")
+        };
+        logic.published(&first.block.hash(), now);
+        logic.confirmed_from_websocket(&first.block.hash(), now + Duration::from_millis(200));
+
+        let BlockResult::Block(second) = logic.next_block(false, now).unwrap() else {
+            panic!("second block should be emitted")
+        };
+        logic.published(&second.block.hash(), now);
+        logic.confirm(&second.block.hash(), now + Duration::from_secs(5));
+
+        assert_eq!(logic.websocket_confirmation_samples(), 1);
+        assert_eq!(
+            logic.average_websocket_confirmation_time(),
+            Some(Duration::from_millis(200))
         );
     }
 }
