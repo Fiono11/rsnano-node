@@ -472,9 +472,25 @@ impl NetworkMessageProcessor {
                 // Don't load nodes with disabled voting
                 // TODO: This check should be cached somewhere
                 if self.wallet_reps.lock().unwrap().voting_enabled() {
+                    #[cfg(feature = "rai_protocol")]
+                    let roots_hashes: Vec<_> = req
+                        .roots_hashes
+                        .into_iter()
+                        .filter(|(hash, root)| {
+                            !hash.is_zero()
+                                || !self
+                                    .request_aggregator
+                                    .handle_rai_close_control_request(root, channel)
+                        })
+                        .collect();
+                    #[cfg(not(feature = "rai_protocol"))]
+                    let roots_hashes = req.roots_hashes;
+                    if roots_hashes.is_empty() {
+                        return;
+                    }
                     let aggregator_req = AggregatorRequest {
                         channel: channel.clone(),
-                        roots_hashes: req.roots_hashes,
+                        roots_hashes,
                     };
                     self.request_aggregator.request(aggregator_req);
                 }

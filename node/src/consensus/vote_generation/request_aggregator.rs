@@ -226,6 +226,39 @@ impl RequestAggregator {
             .generate_rai_notar_vote(&target, channel)
     }
 
+    /// Serve active or retained close-control evidence without entering the
+    /// ordinary request queue. A lagging replica can request an older close
+    /// root after its peers have already advanced and pruned the election, so
+    /// the archived signed leaves need the same priority as a fresh leaf.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn handle_rai_close_control_request(
+        &self,
+        root: &Root,
+        channel: &Arc<Channel>,
+    ) -> bool {
+        let Some(crate::consensus::RaiZeroHashVoteRequest::Close { metadata, target }) = self
+            .active_elections
+            .rai_zero_hash_vote_requests(std::slice::from_ref(root))
+            .into_iter()
+            .next()
+            .flatten()
+        else {
+            return false;
+        };
+        self.vote_generators
+            .reply_cached_rai_election_votes(root, &metadata, channel);
+        if let Some(target) = target {
+            if target.metadata.phase == rsnano_types::RaiVotePhase::Final {
+                self.vote_generators
+                    .generate_rai_final_vote(&target, channel);
+            } else {
+                self.vote_generators
+                    .generate_rai_notar_vote(&target, channel);
+            }
+        }
+        true
+    }
+
     pub fn stop(&self) {
         self.state.lock().unwrap().stopped = true;
         self.condition.notify_all();
