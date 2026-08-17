@@ -51,6 +51,7 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
+const PUBLISH_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 // Close elections use eventual repair and have no 24-second protocol bound.
 // Leave enough room for several report/cut/drain/record repair rounds while
@@ -346,10 +347,6 @@ impl NanoSpamApp {
                 }
             });
         });
-        ensure!(
-            !shutdown.is_cancelled(),
-            "nanospam exceeded the {total_timeout:?} global timeout while publishing or confirming the workload"
-        );
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
@@ -357,10 +354,18 @@ impl NanoSpamApp {
         let publication_times = logic.publication_times().clone();
         let published_blocks = logic.published_blocks().clone();
         let workload_confirmed = logic.is_finished();
+        let confirmed_blocks = logic.confirmed_total;
+        let delayed_blocks = logic.delayed.hashes().len();
         let cps = (created_blocks as f64 / duration_secs) as i32;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
         drop(logic);
+        ensure!(
+            !shutdown.is_cancelled(),
+            "nanospam exceeded the {total_timeout:?} global timeout while publishing or confirming the workload: created {created_blocks}/{requested_blocks}, published {}, PR0 confirmed {confirmed_blocks}, delayed {delayed_blocks}, all-PR samples {}",
+            publication_times.len(),
+            confirmation_latencies.lock().unwrap().len(),
+        );
         ensure!(
             created_blocks == requested_blocks,
             "workload stopped after creating {created_blocks} of {requested_blocks} requested blocks"
@@ -821,7 +826,12 @@ async fn repair_missing_replica_blocks(
             )
         };
         for (pr, client) in clients.iter().enumerate() {
-            let pending = blocks
+            // `published_blocks` is populated when a block enters the bounded
+            // publisher queue. Only publication_times proves that the
+            // publisher has dequeued it. Repairing an earlier queued block can
+            // confirm and remove its DelayedBlocks entry before published()
+            // records the first-send timestamp, leaving an unaccounted tail.
+            let pending = publication_times
                 .keys()
                 .filter(|hash| !confirmed[pr].contains(*hash))
                 .copied()
@@ -1257,7 +1267,7 @@ async fn publish_blocks(
                 s.spawn(async {
                     select! {
                         _ = cancel_token.cancelled() => {}
-                        _ = stream[writer_index].write_all(buf) => {}
+                        _ = timeout(PUBLISH_WRITE_TIMEOUT, stream[writer_index].write_all(buf)) => {}
                     }
                 });
 
