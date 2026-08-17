@@ -51,6 +51,7 @@ fn rollback_pending_info() {
 }
 
 #[test]
+#[cfg(not(feature = "rai_protocol"))]
 fn rollback_vote_weight() {
     let fixture = create_fixture();
 
@@ -66,6 +67,7 @@ struct Fixture {
     ledger: Ledger,
     open: SavedBlock,
     receive: SavedBlock,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     amount_opened: Amount,
     amount_received: Amount,
 }

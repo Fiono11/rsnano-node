@@ -1,11 +1,14 @@
 use rsnano_types::{Account, Amount, PendingKey, PrivateKey, SavedBlock};
 
+#[cfg(not(feature = "rai_protocol"))]
+use crate::ledger_constants::DEV_GENESIS_PUB_KEY;
 use crate::{
     AnySet, ConfirmedSet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, Ledger, LedgerInserter, LedgerSet,
-    ledger_constants::{DEV_GENESIS_PUB_KEY, LEDGER_CONSTANTS_STUB},
+    ledger_constants::LEDGER_CONSTANTS_STUB,
 };
 
 #[test]
+#[cfg(not(feature = "rai_protocol"))]
 fn update_vote_weight() {
     let fixture = roll_back_send();
     assert_eq!(fixture.ledger.weight(&DEV_GENESIS_PUB_KEY), Amount::MAX);

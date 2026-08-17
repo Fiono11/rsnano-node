@@ -161,7 +161,11 @@ impl RepresentativeTracker {
 
     /// Request a list of the top known principal representatives in descending order of weight
     pub fn peered_principal_reps(&self) -> Vec<PeeredRepInfo> {
+        #[cfg(feature = "rai_protocol")]
+        return self.peered_representatives_filter(Amount::ZERO);
+        #[cfg(not(feature = "rai_protocol"))]
         let min_weight = self.quorum_snapshot().minimum_principal_weight;
+        #[cfg(not(feature = "rai_protocol"))]
         self.peered_representatives_filter(min_weight)
     }
 
@@ -182,7 +186,7 @@ impl RepresentativeTracker {
                             .cloned()
                             .unwrap_or_default();
 
-                        if weight > min_weight {
+                        if cfg!(feature = "rai_protocol") || weight > min_weight {
                             Some(PeeredRepInfo {
                                 rep_key: rep.public_key,
                                 channel_id: id,
@@ -217,12 +221,13 @@ impl RepresentativeTracker {
             let weights = self.rep_weights.read();
             let weight = weights.weight(&rep);
             let mut state = self.state.lock().unwrap();
-            if weight < self.representative_weight_minimum {
+            if !cfg!(feature = "rai_protocol") && weight < self.representative_weight_minimum {
                 return;
             }
 
             result = state.registry.register(rep, channel_id, now);
 
+            #[cfg(not(feature = "rai_protocol"))]
             recalculate(&weights, &mut state);
         }
 
@@ -250,12 +255,14 @@ impl RepresentativeTracker {
         let now = self.clock.now();
         let trimmed;
         {
+            #[cfg(not(feature = "rai_protocol"))]
             let weights = self.rep_weights.read();
             let mut state = self.state.lock().unwrap();
             trimmed = state
                 .registry
                 .trim(now.checked_sub(Duration::from_mins(10)).unwrap_or_default());
 
+            #[cfg(not(feature = "rai_protocol"))]
             recalculate(&weights, &mut state);
         }
 
@@ -269,9 +276,11 @@ impl RepresentativeTracker {
     }
 
     pub fn remove_peer(&self, channel_id: ChannelId) -> Vec<PublicKey> {
+        #[cfg(not(feature = "rai_protocol"))]
         let weights = self.rep_weights.read();
         let mut state = self.state.lock().unwrap();
         let removed = state.registry.disconnected(channel_id);
+        #[cfg(not(feature = "rai_protocol"))]
         recalculate(&weights, &mut state);
         removed
     }
@@ -455,6 +464,7 @@ impl ConsensusParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "rai_protocol"))]
     use std::time::Duration;
 
     #[test]
@@ -480,6 +490,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn observe_vote() {
         let rep = PublicKey::from(1);
         let weight = Amount::nano(100_000);
@@ -493,6 +504,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn observe_direct_vote() {
         let rep = PublicKey::from(1);
         let weight = Amount::nano(100_000);
@@ -535,6 +547,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn rai_tracks_peered_representatives_without_live_weight() {
+        let rep = PublicKey::from(1);
+        let tracker = make_tracker();
+        let channel = ChannelId::from(42);
+
+        tracker.set_channel(rep, channel);
+
+        let peered = tracker.peered_principal_reps();
+        assert_eq!(peered.len(), 1);
+        assert_eq!(peered[0].rep_key, rep);
+        assert_eq!(peered[0].channel_id, channel);
+        assert_eq!(peered[0].weight, Amount::ZERO);
+    }
+
+    #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn quorum_delta() {
         let rep = PublicKey::from(42);
         let weight = Amount::nano(100_000_000);
@@ -549,6 +578,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn discard_old_votes() {
         let rep_a = PublicKey::from(1);
         let rep_b = PublicKey::from(2);
@@ -585,6 +615,7 @@ mod tests {
      */
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn can_be_nulled() {
         let tracker = RepresentativeTracker::new_null();
         let snap = tracker.quorum_snapshot();
@@ -601,6 +632,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn can_be_nulled_with_configurable_peered_weight() {
         let weight = Amount::nano(99_000_000);
         let tracker = RepresentativeTracker::new_null_with_peered_weight(weight);

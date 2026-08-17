@@ -552,7 +552,12 @@ impl ActiveElectionsContainer {
         // callback succeeds. Advance a large frontier map in bounded passes so
         // ledger work does not monopolize the global AEC write lock for the
         // entire close record.
-        const CLOSE_CEMENT_ROOTS_PER_PASS: usize = 128;
+        // Keep accelerated 5s epochs sustainable for the 16K-account stress
+        // workload. At 128 roots per 100ms lifecycle tick, one close record
+        // needs about 12.8s to commit and the ElectingRecord backlog grows
+        // without bound. The transaction limit below still slices this window
+        // into small ledger writes.
+        const CLOSE_CEMENT_ROOTS_PER_PASS: usize = 512;
         const CLOSE_CEMENT_BLOCKS_PER_TXN: usize = 256;
         let pending =
             ledger.rai_uncommitted_close_frontiers(epoch, frontiers, CLOSE_CEMENT_ROOTS_PER_PASS);
@@ -1669,6 +1674,21 @@ impl ActiveElectionsContainer {
         self.rai_epoch_manager
             .committee_at(-1)
             .expect("the genesis committee is always defined")
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_current_voting_weight(&self, representative: PublicKey) -> Amount {
+        let epoch = self.rai_epoch_manager.current_epoch();
+        let mut weight = Amount::ZERO;
+        if let Some(committees) = self.rai_epoch_manager.slot_committees(epoch) {
+            for committee in committees {
+                weight = std::cmp::max(weight, committee.weight(&representative));
+            }
+        }
+        if let Some(committee) = self.rai_epoch_manager.close_committee(epoch) {
+            weight = std::cmp::max(weight, committee.weight(&representative));
+        }
+        weight
     }
 
     #[cfg(feature = "rai_protocol")]

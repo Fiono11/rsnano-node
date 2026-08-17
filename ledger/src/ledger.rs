@@ -37,10 +37,12 @@ use crate::{RepWeights, RepresentativeBlockFinder};
 
 #[cfg(feature = "rai_protocol")]
 use crate::AnySet;
+#[cfg(not(feature = "rai_protocol"))]
+use crate::RepWeightsUpdater;
 use crate::{
     BlockRollbackPerformer, BlockSource, BootstrapWeights, BorrowingAnySet, BorrowingConfirmedSet,
     LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
-    OwningUnconfirmedSet, ProcessResult, RepWeightCache, RepWeightsUpdater, RollbackError,
+    OwningUnconfirmedSet, ProcessResult, RepWeightCache, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -116,6 +118,7 @@ impl BlockError {
 
 pub struct Ledger {
     pub store: LmdbStore,
+    #[cfg(not(feature = "rai_protocol"))]
     pub rep_weights_updater: RepWeightsUpdater,
     pub rep_weights: Arc<RepWeightCache>,
     pub constants: LedgerConstants,
@@ -407,10 +410,12 @@ impl Ledger {
         let mut store = LmdbStore::new(env)?;
         store.cache = rep_weights.ledger_cache.clone();
 
+        #[cfg(not(feature = "rai_protocol"))]
         let rep_weights_updater = RepWeightsUpdater::new(store.rep_weight.clone(), &rep_weights);
 
         let mut ledger = Self {
             rep_weights,
+            #[cfg(not(feature = "rai_protocol"))]
             rep_weights_updater,
             store,
             constants,
@@ -439,8 +444,11 @@ impl Ledger {
             }
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         info!("Generating representative weights cache...");
+        #[cfg(not(feature = "rai_protocol"))]
         let mut total_committed_rep_weight = Amount::ZERO;
+        #[cfg(not(feature = "rai_protocol"))]
         {
             let txn = self.store.begin_read();
             let rep_weights = self.rep_weights.inner();
@@ -452,6 +460,7 @@ impl Ledger {
                     .expect("total rep weight should never overflow");
             }
         }
+        #[cfg(not(feature = "rai_protocol"))]
         info!("Representative weights cache generated");
 
         info!("Generating block and account count cache...");
@@ -516,6 +525,7 @@ impl Ledger {
 
             let total_account_balances = *total_account_balances.lock().unwrap();
 
+            #[cfg(not(feature = "rai_protocol"))]
             assert_eq!(
                 total_committed_rep_weight, total_account_balances,
                 "the representative weights are inconsistent with the current account states!"

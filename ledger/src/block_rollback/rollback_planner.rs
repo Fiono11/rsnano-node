@@ -21,7 +21,9 @@ pub(crate) struct RollbackInstructions {
     pub set_account_info: AccountInfo,
     pub old_account_info: AccountInfo,
     pub clear_successor: Option<BlockHash>,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     pub new_balance: Amount,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     pub new_representative: Option<PublicKey>,
 }
 

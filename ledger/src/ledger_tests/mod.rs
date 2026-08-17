@@ -8,17 +8,20 @@ use rsnano_types::{
     SavedBlock, TestBlockBuilder, UnixMillisTimestamp,
 };
 
+#[cfg(not(feature = "rai_protocol"))]
+use crate::ledger_constants::DEV_GENESIS_PUB_KEY;
 use crate::{
     AnySet, DEV_GENESIS_HASH, Ledger, LedgerInserter, LedgerSet,
-    ledger_constants::{DEV_GENESIS_BLOCK, DEV_GENESIS_PUB_KEY},
-    test_helpers::SavedBlockLatticeBuilder,
+    ledger_constants::DEV_GENESIS_BLOCK, test_helpers::SavedBlockLatticeBuilder,
 };
 
 mod empty_ledger;
 mod receivable_iteration;
+#[cfg(not(feature = "rai_protocol"))]
 mod rollback_legacy_change;
 mod rollback_legacy_receive;
 mod rollback_legacy_send;
+#[cfg(not(feature = "rai_protocol"))]
 mod rollback_state;
 
 #[test]
@@ -61,6 +64,7 @@ fn latest_root() {
 }
 
 #[test]
+#[cfg(not(feature = "rai_protocol"))]
 fn send_open_receive_vote_weight() {
     let ledger = Ledger::new_null();
     let inserter = LedgerInserter::new(&ledger);
@@ -79,6 +83,7 @@ fn send_open_receive_vote_weight() {
 }
 
 #[test]
+#[cfg(not(feature = "rai_protocol"))]
 fn send_open_receive_rollback() {
     let ledger = Ledger::new_null();
     let inserter = LedgerInserter::new(&ledger);

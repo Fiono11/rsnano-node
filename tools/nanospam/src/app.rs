@@ -192,7 +192,7 @@ impl NanoSpamApp {
             )
             .await?
         } else {
-            WalletId::ZERO
+            (WalletId::ZERO, Vec::new())
         };
 
         if self.args.sync() {
@@ -213,8 +213,14 @@ impl NanoSpamApp {
 
         if self.args.set_up_new_nodes() {
             high_prio_check
-                .create_prio_accounts(genesis_wallet_id, &self.rpc_clients)
+                .create_prio_accounts(genesis_wallet_id.0, &self.rpc_clients)
                 .await?;
+            crate::wallets_factory::remove_temporary_setup_voters(
+                &self.rpc_clients,
+                genesis_wallet_id.0,
+                &genesis_wallet_id.1,
+            )
+            .await;
         }
 
         if self.args.setup_only() {
@@ -859,9 +865,13 @@ async fn repair_missing_replica_blocks(
                     if info.confirmed.inner() {
                         confirmed[pr].insert(*hash);
                         if let Some(published_at) = publication_times.get(hash) {
-                            latencies.lock().unwrap().entry((pr, *hash)).or_insert_with(|| {
-                                observed_at.saturating_duration_since(*published_at)
-                            });
+                            latencies
+                                .lock()
+                                .unwrap()
+                                .entry((pr, *hash))
+                                .or_insert_with(|| {
+                                    observed_at.saturating_duration_since(*published_at)
+                                });
                         }
                     }
                 }

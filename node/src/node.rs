@@ -36,20 +36,24 @@ use rsnano_types::{
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
-    BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry, EventProcessor,
+    BackpressureHandlerRegistry, EventHandlerRegistry, EventProcessor,
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     sync::backpressure_channel,
     thread_factory::ThreadFactory,
     thread_pool::ThreadPool,
-    ticker::{Tickable, TickerPool, TimerThread},
+    ticker::{TickerPool, TimerThread},
 };
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_utils::{CancellationToken, ticker::Tickable};
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::ActiveElectionsConfig;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    NodeCallbacks, OnlineWeightSampler,
+    NodeCallbacks,
     aec_fact_processor::AecFactProcessor,
     block_processing::{
         BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
@@ -66,13 +70,12 @@ use crate::{
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsConfig, AecFact, AecForkInserter, AecService, AecTicker, AecVoter,
-        BootstrapElectionActivator, BootstrapStaleElections, ConfirmReqSender,
-        ConfirmationSolicitorPlugin, CpsLimiter, CurrentRepTiers, DependentElectionsConfirmer,
-        ForkCache, ForkCacheUpdater, LocalVoteHistory, LocalVotesRemover, RepTiersCalculator,
-        RequestAggregator, VoteApplier, VoteBroadcaster, VoteGenerators, VoteProcessor,
-        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster,
-        WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
+        AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
+        BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
+        CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        LocalVoteHistory, LocalVotesRemover, RequestAggregator, VoteApplier, VoteBroadcaster,
+        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue, VoteRebroadcastQueue,
+        VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster, election::ConfirmedElection,
         election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
         vote_cache::VoteCache,
     },
@@ -80,7 +83,7 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineWeightCalculation, RepCrawler, RepCrawlerExt, RepresentativeTracker},
+    representatives::{RepCrawler, RepCrawlerExt, RepresentativeTracker},
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
         rsnano_version_string,
@@ -99,6 +102,10 @@ use crate::{
         work::WalletWorkProvider,
     },
     work::WorkFactory,
+};
+#[cfg(not(feature = "rai_protocol"))]
+use crate::{
+    OnlineWeightSampler, consensus::RepTiersCalculator, representatives::OnlineWeightCalculation,
 };
 
 #[allow(dead_code)]
@@ -432,13 +439,17 @@ impl Node {
                 .finish(),
         );
 
+        #[cfg(not(feature = "rai_protocol"))]
         let online_weight_sampler =
             OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
 
+        #[cfg(not(feature = "rai_protocol"))]
         let mut online_weight_calculation =
             OnlineWeightCalculation::new(online_weight_sampler, rep_tracker.clone());
         // Make sure that online weight is properly calculated from the beginning;
+        #[cfg(not(feature = "rai_protocol"))]
         online_weight_calculation.tick(&CancellationToken::new());
+        #[cfg(not(feature = "rai_protocol"))]
         ticker_pool.insert(
             online_weight_calculation,
             RepresentativeTracker::default_interval_for(current_network),
@@ -515,6 +526,7 @@ impl Node {
             config.vote_cache.clone(),
             vote_processor_queue.clone(),
         ));
+        #[cfg(not(feature = "rai_protocol"))]
         aec_event_handlers.add(vote_cache.clone());
 
         let fork_cache = Arc::new(RwLock::new(ForkCache::with(
@@ -670,6 +682,15 @@ impl Node {
             network_params.ledger.genesis_block.hash(),
             ledger.clone(),
         ));
+        #[cfg(feature = "rai_protocol")]
+        {
+            let active_elections = active_elections.clone();
+            let mut reps = wallet_reps.lock().unwrap();
+            reps.set_committee_weight_provider(Arc::new(move |representative| {
+                active_elections.rai_current_voting_weight(representative)
+            }));
+            reps.compute_reps();
+        }
         active_elections.set_observer(aec_tx.clone());
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
@@ -1166,11 +1187,16 @@ impl Node {
         );
 
         let rep_tiers = Arc::new(CurrentRepTiers::new());
+        #[cfg(not(feature = "rai_protocol"))]
         let mut rep_tiers_calculator =
             RepTiersCalculator::new(rep_weights.clone(), rep_tracker.clone(), stats.clone());
+        #[cfg(not(feature = "rai_protocol"))]
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
+        #[cfg(not(feature = "rai_protocol"))]
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());
+        #[cfg(not(feature = "rai_protocol"))]
         rep_tiers_calculator.add_tiers_consumer(rep_tiers.clone());
+        #[cfg(not(feature = "rai_protocol"))]
         ticker_pool.insert(
             rep_tiers_calculator,
             if is_dev_network {
@@ -1615,6 +1641,7 @@ impl Node {
         if self.config.enable_vote_processor {
             self.vote_processor.start();
         }
+        #[cfg(not(feature = "rai_protocol"))]
         self.vote_cache.start();
         self.block_processor
             .start(self.config.block_processor_threads);
@@ -1683,6 +1710,7 @@ impl Node {
         self.rep_crawler.stop();
         self.block_processor.stop();
         self.request_aggregator.stop();
+        #[cfg(not(feature = "rai_protocol"))]
         self.vote_cache.stop();
         self.vote_processor.stop();
         self.election_schedulers.stop();
@@ -1760,7 +1788,9 @@ mod tests {
         let node = Node::new_null();
 
         assert_ticker::<PeerCacheUpdater>(&node, Duration::from_secs(15));
+        #[cfg(not(feature = "rai_protocol"))]
         assert_ticker::<OnlineWeightCalculation>(&node, Duration::from_secs(10));
+        #[cfg(not(feature = "rai_protocol"))]
         assert_ticker::<RepTiersCalculator>(&node, Duration::from_secs(10));
         assert_ticker::<PeerCacheConnector>(&node, node.config.network.cached_peer_reachout);
         assert_ticker::<NodeMonitor>(&node, node.config.monitor.interval);

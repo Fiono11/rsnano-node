@@ -1,7 +1,9 @@
 use std::sync::atomic::Ordering;
 
 use rsnano_nullable_lmdb::WriteTransaction;
-use rsnano_types::{BlockSubType, PublicKey};
+use rsnano_types::BlockSubType;
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::PublicKey;
 use rsnano_utils::stats::{DetailType, StatType};
 
 use super::rollback_planner::RollbackInstructions;
@@ -31,6 +33,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
         self.update_pending_table();
         self.update_account_table();
         self.update_block_table();
+        #[cfg(not(feature = "rai_protocol"))]
         self.roll_back_representative_cache();
         self.ledger
             .store
@@ -73,6 +76,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn roll_back_representative_cache(&mut self) {
         if let Some(previous_rep) = &self.instructions.new_representative {
             self.roll_back_change_in_representative_cache(previous_rep);
@@ -81,6 +85,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn roll_back_change_in_representative_cache(&mut self, previous_representative: &PublicKey) {
         self.ledger.rep_weights_updater.sub_and_add(
             self.txn,
@@ -91,6 +96,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
         );
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn roll_back_receive_in_representative_cache(&mut self) {
         self.ledger.rep_weights_updater.sub(
             self.txn,

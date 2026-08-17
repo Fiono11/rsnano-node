@@ -14,10 +14,15 @@ pub struct WalletRepresentatives {
     half_principal: bool,
     /// Representatives with at least the configured minimum voting weight
     rep_keys: Vec<PublicKey>,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     vote_minimum: Amount,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     rep_tracker: Arc<RepresentativeTracker>,
+    #[cfg(feature = "rai_protocol")]
+    committee_weight: Option<Arc<dyn Fn(PublicKey) -> Amount + Send + Sync>>,
 }
 
 impl WalletRepresentatives {
@@ -36,6 +41,8 @@ impl WalletRepresentatives {
             rep_weights,
             wallets,
             rep_tracker,
+            #[cfg(feature = "rai_protocol")]
+            committee_weight: None,
         }
     }
 
@@ -100,15 +107,34 @@ impl WalletRepresentatives {
         self.rep_keys.clear();
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_committee_weight_provider(
+        &mut self,
+        provider: Arc<dyn Fn(PublicKey) -> Amount + Send + Sync>,
+    ) {
+        self.committee_weight = Some(provider);
+    }
+
     pub fn compute_reps(&mut self) {
+        #[cfg(not(feature = "rai_protocol"))]
         let half_principal_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight / 2;
         let wallet_keys = self.wallets.get_all_pub_keys();
         self.clear();
         for pub_key in wallet_keys {
+            #[cfg(feature = "rai_protocol")]
+            if self
+                .committee_weight
+                .as_ref()
+                .is_some_and(|weight| !weight(pub_key).is_zero())
+            {
+                self.insert(pub_key);
+            }
+            #[cfg(not(feature = "rai_protocol"))]
             self.check_rep(pub_key, half_principal_weight);
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn check_rep(&mut self, pub_key: PublicKey, half_principal_weight: Amount) -> bool {
         let weight = self.rep_weights.weight(&pub_key);
 

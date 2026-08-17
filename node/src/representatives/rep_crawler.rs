@@ -14,7 +14,9 @@ use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, Root, Vote, VoteDelivery};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::Account;
+use rsnano_types::{BlockHash, Root, Vote, VoteDelivery};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -37,6 +39,7 @@ pub struct RepCrawler {
     rep_crawler_impl: Mutex<RepCrawlerImpl>,
     rep_tracker: Arc<RepresentativeTracker>,
     stats: Arc<Stats>,
+    #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
     config: NodeConfig,
     network_params: NetworkParams,
     network: Arc<RwLock<Network>>,
@@ -314,6 +317,7 @@ impl RepCrawler {
 
         // normally the rep_crawler only tracks principal reps but it can be made to track
         // reps with less weight by setting rep_crawler_weight_minimum to a low value
+        #[cfg(not(feature = "rai_protocol"))]
         let minimum = std::cmp::min(
             self.rep_tracker.quorum_snapshot().minimum_principal_weight,
             self.config.rep_crawler_weight_minimum,
@@ -324,7 +328,9 @@ impl RepCrawler {
             let Some(channel) = vote.channel_id else {
                 continue;
             };
+            #[cfg(not(feature = "rai_protocol"))]
             let rep_weight = self.ledger.weight(&vote.voter);
+            #[cfg(not(feature = "rai_protocol"))]
             if rep_weight < minimum {
                 debug!(
                     "Ignoring vote from account: {} with too little voting weight: {}",

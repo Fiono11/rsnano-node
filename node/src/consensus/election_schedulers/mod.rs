@@ -144,6 +144,7 @@ impl ElectionSchedulers {
     }
 
     pub fn start(&self) {
+        #[cfg(not(feature = "rai_protocol"))]
         if self.config.enable_hinted_scheduler {
             self.hinted.start();
         }
@@ -171,6 +172,7 @@ impl ElectionSchedulers {
     }
 
     pub fn stop(&self) {
+        #[cfg(not(feature = "rai_protocol"))]
         self.hinted.stop();
         self.manual.stop();
         self.optimistic.stop();

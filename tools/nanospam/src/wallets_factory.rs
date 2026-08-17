@@ -21,10 +21,12 @@ use crate::{
     setup::{genesis_key, pr_key},
 };
 
-// Keep a small setup reserve on genesis for the optional priority accounts.
+// Keep genesis above the node's 1,000 Nano voting threshold while funding the
+// 20 optional priority accounts (30 Nano total). RAI epoch zero only accepts
+// genesis votes, so dropping below that threshold would strand setup elections.
 // Genesis delegates to PR0, so PR0's spam account receives a correspondingly
 // smaller amount and the final representative weights remain balanced.
-const SETUP_RESERVE: Amount = Amount::nano(100);
+const SETUP_RESERVE: Amount = Amount::nano(2_000);
 
 fn representative_target(pr_index: usize, pr_count: usize) -> Amount {
     let share = Amount::MAX / pr_count as u128;
@@ -63,16 +65,14 @@ pub(crate) async fn create_wallets(
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
     fund_all_accounts: bool,
-) -> anyhow::Result<WalletId> {
+) -> anyhow::Result<(WalletId, Vec<WalletId>)> {
     let mut genesis_wallet = WalletId::ZERO;
-    #[cfg(feature = "rai_protocol")]
     let mut setup_wallets = Vec::with_capacity(rpc_clients.len());
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         debug!("Creating wallet for PR{i}");
         let resp = rpc_client.wallet_create(None).await.unwrap();
-        #[cfg(feature = "rai_protocol")]
         setup_wallets.push(resp.wallet);
         if i == 0 {
             genesis_wallet = resp.wallet;
@@ -129,10 +129,6 @@ pub(crate) async fn create_wallets(
             .await
             .unwrap();
     }
-    if pr_count > 1 {
-        sleep(Duration::from_secs(11)).await;
-    }
-
     let funded_account_count = if fund_all_accounts {
         account_map.accounts().len()
     } else {
@@ -196,19 +192,33 @@ pub(crate) async fn create_wallets(
     let _ = progress_task.await;
     info!("Funded all {funded_account_count} spam accounts");
 
-    for i in 1..pr_count {
-        genesis_rpc
+    // The destination keys had no voting weight when they were added above.
+    // Wait for the periodic local-representative computation after stake has
+    // actually been redistributed, before priority-account setup needs that
+    // locally signable quorum.
+    if pr_count > 1 {
+        sleep(Duration::from_secs(11)).await;
+    }
+
+    Ok((genesis_wallet, setup_wallets))
+}
+
+pub(crate) async fn remove_temporary_setup_voters(
+    rpc_clients: &[NanoRpcClient],
+    genesis_wallet: WalletId,
+    setup_wallets: &[WalletId],
+) {
+    for i in 1..rpc_clients.len() {
+        rpc_clients[0]
             .account_remove(genesis_wallet, pr_key(i).account())
             .await
             .unwrap();
         #[cfg(feature = "rai_protocol")]
         rpc_clients[i]
-            .account_remove(setup_wallets[i], genesis_key.account())
+            .account_remove(setup_wallets[i], genesis_key().account())
             .await
             .unwrap();
     }
-
-    Ok(genesis_wallet)
 }
 
 async fn log_funding_progress(
@@ -294,12 +304,9 @@ pub(crate) async fn wait_until_confirmed_on_all(
         .await
         .with_context(|| format!("source node lost setup block {hash}"))?
         .contents;
-    let results = join_all(
-        rpc_clients
-            .iter()
-            .enumerate()
-            .map(|(index, rpc_client)| wait_until_confirmed(rpc_client, index, hash, &block)),
-    )
+    let results = join_all(rpc_clients.iter().enumerate().map(|(index, rpc_client)| {
+        wait_until_confirmed(rpc_clients, rpc_client, index, hash, &block)
+    }))
     .await;
     for result in results {
         result?;
@@ -308,6 +315,7 @@ pub(crate) async fn wait_until_confirmed_on_all(
 }
 
 async fn wait_until_confirmed(
+    all_rpc_clients: &[NanoRpcClient],
     rpc_client: &NanoRpcClient,
     node_index: usize,
     hash: BlockHash,
@@ -332,9 +340,16 @@ async fn wait_until_confirmed(
                     .is_none_or(|last: Instant| last.elapsed() >= Duration::from_secs(1))
                 {
                     // A block can arrive after its original election has already
-                    // finished on another PR. Start a local election so this
-                    // node does not wait forever with an uncemented block.
-                    let _ = rpc_client.block_confirm(hash).await;
+                    // finished on another PR. Restart the election across the
+                    // committee so the lagging node receives fresh votes; a
+                    // local-only election can remain stranded after every peer
+                    // has already cemented the block and dropped its election.
+                    join_all(
+                        all_rpc_clients
+                            .iter()
+                            .map(|client| client.block_confirm(hash)),
+                    )
+                    .await;
                     last_confirm_request = Some(Instant::now());
                 }
             }

@@ -60,6 +60,7 @@ impl<'a> BlockInserter<'a> {
         self.update_account();
         self.delete_old_pending_info();
         self.insert_new_pending_info();
+        #[cfg(not(feature = "rai_protocol"))]
         self.update_rep_weights();
         self.ledger
             .store
@@ -110,6 +111,7 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn update_rep_weights(&mut self) {
         if !self.instructions.old_account_info.head.is_zero() {
             // Move existing rep weight and add in amount delta
@@ -134,9 +136,12 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
+    #[cfg(not(feature = "rai_protocol"))]
+    use rsnano_types::PublicKey;
+    use rsnano_types::{BlockHash, Epoch, TestBlockBuilder, UnixTimestamp};
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn insert_open_state_block() {
         let (mut block, instructions) = open_state_block_instructions();
         let ledger = Ledger::new_null();
@@ -157,6 +162,30 @@ mod tests {
         );
         assert_eq!(ledger.store.cache.block_count.load(Ordering::Relaxed), 2);
         assert_eq!(result.deleted_pending, Vec::new());
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn rai_insert_does_not_maintain_live_rep_weights() {
+        let (mut block, instructions) = open_state_block_instructions();
+        let ledger = Ledger::new_null();
+
+        insert(&ledger, &mut block, &instructions);
+
+        assert_eq!(
+            ledger
+                .rep_weights
+                .weight(&instructions.set_account_info.representative),
+            rsnano_types::Amount::ZERO
+        );
+        let txn = ledger.store.begin_read();
+        assert_eq!(
+            ledger
+                .store
+                .rep_weight
+                .get(&txn, &instructions.set_account_info.representative),
+            None
+        );
     }
 
     #[test]
@@ -205,6 +234,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn update_representative() {
         let old_representative = PublicKey::from(1111);
         let new_representative = PublicKey::from(2222);
@@ -312,7 +342,9 @@ mod tests {
     }
 
     struct InsertResult {
+        #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
         saved_blocks: Vec<SavedBlock>,
+        #[cfg_attr(feature = "rai_protocol", allow(dead_code))]
         saved_accounts: Vec<(Account, AccountInfo)>,
         saved_pending: Vec<(PendingKey, PendingInfo)>,
         saved_successors: Vec<(BlockHash, BlockHash)>,

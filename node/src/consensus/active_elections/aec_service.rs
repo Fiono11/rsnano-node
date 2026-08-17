@@ -132,17 +132,26 @@ const MAX_RAI_SLOT_PAYLOAD_REQUESTS_PER_TICK: usize = 64;
 /// small tail normally needs evidence repair. Keep both replay and request
 /// work proportional to that unresolved tail.
 #[cfg(feature = "rai_protocol")]
+// A retained vote can be a vectorized payload covering hundreds of slots, so
+// bounding by vote count alone still permits a large synchronized burst from
+// every committee member. Keep each pass small and let the rotating cursor
+// cover the remaining history on later passes.
 const MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
 const MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
-// A lost First/Notar/Final leaf can require several repair passes. Keeping the
-// pass interval aligned with the default close-loop tick prevents one unlucky
-// workload election at an epoch boundary from adding multiple seconds of tail
-// latency while retaining the same bounded per-pass work.
-const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
+// Every committee member performs wide-fanout replay for unresolved drain
+// slots. At the 100ms lifecycle cadence, six replicas can amplify duplicate
+// evidence enough to starve the drain they are repairing. This still provides
+// ten repair opportunities per accelerated 5s epoch.
+const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
+
+#[cfg(feature = "rai_protocol")]
+// Close-control elections have only a handful of vote batches and need prompt
+// solicitation even while ordinary workload traffic is saturated.
+const RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(100);
 
 #[cfg(feature = "rai_protocol")]
 const RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE: f32 = 8.0;
@@ -475,7 +484,7 @@ impl RaiEpochTicker {
         let now = self.clock.now();
         if self
             .last_close_evidence_repair
-            .is_some_and(|last| last.elapsed(now) < RAI_SLOT_EVIDENCE_REPAIR_INTERVAL)
+            .is_some_and(|last| last.elapsed(now) < RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL)
         {
             return;
         }
@@ -521,12 +530,10 @@ impl RaiEpochTicker {
                 .iter()
                 .take(MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK)
             {
-                if !self.flooder.check_capacity(
-                    rsnano_network::TrafficType::VoteReply,
-                    RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
-                ) {
-                    break;
-                }
+                // Close-control evidence is a small bounded set and must be
+                // attempted even when ordinary workload votes saturate the
+                // coarse network-wide capacity probe. Per-channel queues still
+                // apply backpressure to the actual send.
                 self.flooder.flood_prs_and_some_non_prs(
                     &rsnano_messages::Message::ConfirmAck(
                         rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
@@ -542,12 +549,6 @@ impl RaiEpochTicker {
                 let mut archived_replayed = 0;
                 for offset in 0..archived_votes.len().min(remaining) {
                     let vote = &archived_votes[(start + offset) % archived_votes.len()];
-                    if !self.flooder.check_capacity(
-                        rsnano_network::TrafficType::VoteReply,
-                        RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
-                    ) {
-                        break;
-                    }
                     self.flooder.flood_prs_and_some_non_prs(
                         &rsnano_messages::Message::ConfirmAck(
                             rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
@@ -566,12 +567,12 @@ impl RaiEpochTicker {
         // timeout value. Solicit the current target after every repair pass so
         // committee members produce the next phase vote instead of waiting
         // indefinitely for an unrelated request.
-        if !requests.is_empty()
-            && self.flooder.check_capacity(
-                rsnano_network::TrafficType::ConfirmationRequests,
-                RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
-            )
-        {
+        if !requests.is_empty() {
+            // Close-control requests must get an admission attempt even when
+            // ordinary workload traffic makes the coarse network-wide
+            // capacity probe fail. The message sender still applies bounded
+            // per-channel backpressure; suppressing the attempt here lets all
+            // replicas sit forever at zero First votes under saturation.
             self.flooder.flood_prs_and_some_non_prs(
                 &rsnano_messages::Message::ConfirmReq(rsnano_messages::ConfirmReq::new(
                     requests
@@ -1379,6 +1380,14 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn rai_current_voting_weight(&self, representative: PublicKey) -> Amount {
+        self.aec
+            .read()
+            .unwrap()
+            .rai_current_voting_weight(representative)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn rai_close_election_durations(
         &self,
     ) -> (
@@ -1442,7 +1451,7 @@ mod rai_epoch_ticker_tests {
 
     #[test]
     fn retained_slot_vote_replay_is_bounded() {
-        let votes = (0..20).collect::<Vec<_>>();
+        let votes = (0..MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK + 4).collect::<Vec<_>>();
         let mut sent = Vec::new();
 
         let replayed = rai_replay_slot_vote_window(&votes, |vote| {
@@ -1451,7 +1460,10 @@ mod rai_epoch_ticker_tests {
         });
 
         assert_eq!(replayed, MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK);
-        assert_eq!(sent, (0..16).collect::<Vec<_>>());
+        assert_eq!(
+            sent,
+            (0..MAX_RAI_SLOT_EVIDENCE_REPAIRS_PER_TICK).collect::<Vec<_>>()
+        );
     }
 
     #[test]

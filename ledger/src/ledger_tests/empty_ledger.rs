@@ -79,6 +79,7 @@ fn genesis_representative() {
 }
 
 #[test]
+#[cfg(not(feature = "rai_protocol"))]
 fn genesis_vote_weight() {
     let ledger = Ledger::new_null();
     assert_eq!(
