@@ -2839,11 +2839,6 @@ impl ActiveElectionsContainer {
             }
             crate::consensus::election::RaiElectionId::Slot(_) => return,
         };
-        let Some(entry) = self.roots.erase_rai_id(id) else {
-            return;
-        };
-        self.rai_close_notarized_at.remove(id);
-        self.record_rai_close_election_duration(id, now);
         match kind {
             crate::consensus::rai::RaiCloseKind::Cut => {
                 self.rai_epoch_manager
@@ -2853,7 +2848,13 @@ impl ActiveElectionsContainer {
                     .decide_close_cut(epoch, round, hash)
                     .is_ok()
                 {
+                    let Some(entry) = self.roots.erase_rai_id(id) else {
+                        return;
+                    };
+                    self.rai_close_notarized_at.remove(id);
+                    self.record_rai_close_election_duration(id, now);
                     self.cleanup_rai_close_rounds(kind, epoch);
+                    self.cleanup_election(entry);
                 }
             }
             crate::consensus::rai::RaiCloseKind::Record => {
@@ -2863,6 +2864,11 @@ impl ActiveElectionsContainer {
                     .install_close_record_with_commit(epoch, round, hash, None)
                     .is_ok()
                 {
+                    let Some(entry) = self.roots.erase_rai_id(id) else {
+                        return;
+                    };
+                    self.rai_close_notarized_at.remove(id);
+                    self.record_rai_close_election_duration(id, now);
                     self.cleanup_rai_close_rounds(kind, epoch);
                     let removed = self.roots.drain_filter(|entry| {
                         let crate::consensus::election::RaiElectionId::Slot(slot) =
@@ -2876,10 +2882,10 @@ impl ActiveElectionsContainer {
                         self.cleanup_election(released);
                     }
                     self.prune_rai_evidence_through(epoch);
+                    self.cleanup_election(entry);
                 }
             }
         }
-        self.cleanup_election(entry);
     }
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
