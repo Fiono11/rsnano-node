@@ -29,16 +29,40 @@ impl ConfirmationSolicitorPlugin {
 }
 
 #[cfg(feature = "rai_protocol")]
+const MAX_RAI_SOLICITATIONS_PER_PASS: usize = rsnano_messages::ConfirmReq::HASHES_MAX;
+
+#[cfg(feature = "rai_protocol")]
 fn rai_due_elections<'a>(
     sender: &ConfirmReqSender,
     elections: &mut dyn Iterator<Item = &'a super::election::Election>,
 ) -> Vec<super::election::Election> {
-    elections
-        .filter(|election| {
-            election.state() == ElectionState::Active && sender.should_send_confirm_req(election)
-        })
-        .cloned()
-        .collect()
+    let mut close = Vec::new();
+    let mut slots = Vec::new();
+    for election in elections {
+        if election.state() != ElectionState::Active
+            || !sender.should_send_confirm_req(election)
+        {
+            continue;
+        }
+        if election.is_rai_close() {
+            // Close elections gate every later epoch and must not sit behind
+            // an always-full slot prefix. There are only a bounded number of
+            // live close rounds, so retain all of them before filling the
+            // ordinary legacy request window.
+            close.push(election.clone());
+        } else if close.len() + slots.len() < MAX_RAI_SOLICITATIONS_PER_PASS {
+            // Legacy active elections are bounded by the AEC container size.
+            // RAI drain elections may temporarily exceed that bound, so keep
+            // the slot portion of one pass within one ConfirmReq packet.
+            slots.push(election.clone());
+        }
+    }
+    close.extend(
+        slots
+            .into_iter()
+            .take(MAX_RAI_SOLICITATIONS_PER_PASS.saturating_sub(close.len())),
+    );
+    close
 }
 
 impl AecTickerPlugin for ConfirmationSolicitorPlugin {
@@ -121,5 +145,74 @@ mod tests {
         clock.advance(Duration::from_millis(1));
         let mut elections = std::iter::once(&election);
         assert_eq!(rai_due_elections(&sender, &mut elections).len(), 1);
+    }
+
+    #[test]
+    fn solicitation_pass_is_bounded_for_rai_drain_bursts() {
+        let base_latency = Duration::from_millis(25);
+        let clock = Arc::new(SteadyClock::new_null());
+        let sender = ConfirmReqSender::new(Arc::new(Stats::default()), clock);
+        let mut elections = (0..MAX_RAI_SOLICITATIONS_PER_PASS + 10)
+            .map(|_| {
+                let block = SavedBlock::new_test_instance();
+                let mut election = Election::new_slot(
+                    block,
+                    ElectionBehavior::Priority,
+                    base_latency,
+                    Timestamp::new_test_instance(),
+                    RaiEpoch::ZERO,
+                );
+                election.transition_active();
+                election
+            })
+            .collect::<Vec<_>>();
+
+        let mut iter = elections.iter_mut().map(|election| &*election);
+        assert_eq!(
+            rai_due_elections(&sender, &mut iter).len(),
+            MAX_RAI_SOLICITATIONS_PER_PASS
+        );
+    }
+
+    #[test]
+    fn close_election_is_not_starved_behind_a_full_slot_window() {
+        use crate::consensus::rai::{RaiCloseElectionId, RaiCloseKind};
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::{BlockHash, QualifiedRoot};
+
+        let base_latency = Duration::from_millis(25);
+        let clock = Arc::new(SteadyClock::new_null());
+        let sender = ConfirmReqSender::new(Arc::new(Stats::default()), clock);
+        let mut elections = (0..MAX_RAI_SOLICITATIONS_PER_PASS + 10)
+            .map(|_| {
+                let mut election = Election::new_slot(
+                    SavedBlock::new_test_instance(),
+                    ElectionBehavior::Priority,
+                    base_latency,
+                    Timestamp::new_test_instance(),
+                    RaiEpoch::ZERO,
+                );
+                election.transition_active();
+                election
+            })
+            .collect::<Vec<_>>();
+        let mut close = Election::new_close(
+            RaiCloseElectionId {
+                kind: RaiCloseKind::Cut,
+                epoch: RaiEpoch::ZERO,
+                round: 0,
+            },
+            QualifiedRoot::new_test_instance(),
+            BlockHash::from(7),
+            Arc::new(RepWeights::default()),
+            base_latency,
+            Timestamp::new_test_instance(),
+        );
+        close.transition_active();
+        elections.push(close);
+
+        let selected = rai_due_elections(&sender, &mut elections.iter());
+        assert_eq!(selected.len(), MAX_RAI_SOLICITATIONS_PER_PASS);
+        assert!(selected.iter().any(Election::is_rai_close));
     }
 }
