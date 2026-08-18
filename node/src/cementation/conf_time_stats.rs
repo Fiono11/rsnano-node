@@ -19,17 +19,24 @@ const DEFAULT_SAMPLE_SIZE: usize = 1000;
 /// Tracks duration for p90 p95 and p99 of the last 1000 confirmations
 pub(crate) struct ConfTimeStats {
     durations: BoundedVecDeque<u64>,
+    count: u64,
+    total_milliseconds: u64,
 }
 
 impl ConfTimeStats {
     pub fn new(sample_size: usize) -> Self {
         Self {
             durations: BoundedVecDeque::new(sample_size),
+            count: 0,
+            total_milliseconds: 0,
         }
     }
 
     pub fn add(&mut self, duration: Duration) {
-        self.durations.push_back(duration.as_millis() as u64);
+        let milliseconds = duration.as_millis() as u64;
+        self.durations.push_back(milliseconds);
+        self.count = self.count.saturating_add(1);
+        self.total_milliseconds = self.total_milliseconds.saturating_add(milliseconds);
     }
 }
 
@@ -56,6 +63,11 @@ impl StatsSource for ConfTimeStats {
         result.insert(STATS_KEY, "p90", percentile(90));
         result.insert(STATS_KEY, "p95", percentile(95));
         result.insert(STATS_KEY, "p99", percentile(99));
+        // Unlike the bounded percentile window, these two values cover the
+        // complete lifetime of the node. Benchmark clients can take a
+        // before/after delta and fetch an exact average with one RPC per PR.
+        result.insert(STATS_KEY, "count", self.count);
+        result.insert(STATS_KEY, "total_milliseconds", self.total_milliseconds);
     }
 }
 

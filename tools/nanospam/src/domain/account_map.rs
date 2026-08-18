@@ -1,4 +1,4 @@
-use rand::{rng, seq::IndexedRandom};
+use rand::{RngExt, rng, seq::IndexedRandom};
 use rsnano_types::{Account, Amount, BlockHash, PrivateKey, PublicKey};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -120,6 +120,31 @@ impl AccountMap {
 
     pub fn random_account(&self) -> Option<Account> {
         self.all_accounts.choose(&mut rand::rng()).cloned()
+    }
+
+    /// Selects an account from one representative shard with a bounded scan.
+    ///
+    /// Starting at a random offset retains the ordinary workload's random
+    /// destination selection without retrying until a matching account happens
+    /// to be found. In particular, a shard containing only the sender returns
+    /// that account immediately instead of looping forever.
+    pub fn random_account_for_representative(&self, representative: PublicKey) -> Option<Account> {
+        if self.all_accounts.is_empty() {
+            return None;
+        }
+
+        let start = rand::rng().random_range(0..self.all_accounts.len());
+        self.all_accounts
+            .iter()
+            .cycle()
+            .skip(start)
+            .take(self.all_accounts.len())
+            .find(|account| {
+                self.account_states
+                    .get(account)
+                    .is_some_and(|state| state.representative == representative)
+            })
+            .copied()
     }
 
     pub fn process_send(
@@ -328,6 +353,24 @@ mod tests {
         );
         assert_eq!(map.random_account(), Some(key.account()));
         assert!(map.random_account_that_can_send().is_none());
+    }
+
+    #[test]
+    fn representative_shard_with_one_account_returns_without_retrying() {
+        let mut map = AccountMap::default();
+        let key = PrivateKey::from(1);
+        let representative = PublicKey::from(900);
+        map.add_unopened(key.clone());
+        map.set_representative(key.account(), representative);
+
+        assert_eq!(
+            map.random_account_for_representative(representative),
+            Some(key.account())
+        );
+        assert_eq!(
+            map.random_account_for_representative(PublicKey::from(901)),
+            None
+        );
     }
 
     #[test]

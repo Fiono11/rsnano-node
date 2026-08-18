@@ -63,11 +63,26 @@ impl BlockFactory {
     }
 
     pub(crate) fn new_with_live_representatives(
-        account_map: AccountMap,
+        mut account_map: AccountMap,
         max_blocks: usize,
         strategy: SpamStrategy,
         live_representatives: Vec<PublicKey>,
     ) -> Self {
+        // Ordinary send/receive traffic is partitioned into stable
+        // representative shards. Assign unopened accounts up front using the
+        // historical address-byte mapping; their eventual open block will keep
+        // this assignment. Already-open accounts retain their ledger
+        // representative, and special workload strategies are left unchanged.
+        if strategy == SpamStrategy::SendReceive && !live_representatives.is_empty() {
+            let accounts = account_map.accounts().clone();
+            for account in accounts {
+                let state = account_map.state(&account).unwrap();
+                if state.confirmed_frontier.is_zero() {
+                    let index = usize::from(account.as_bytes()[0]) % live_representatives.len();
+                    account_map.set_representative(account, live_representatives[index]);
+                }
+            }
+        }
         let one_shot_accounts = if matches!(
             strategy,
             SpamStrategy::OneChangePerAccount | SpamStrategy::OneSendPerAccount
@@ -152,17 +167,10 @@ fn create_send_or_receive_block(
     if let Some((receiver, send_hash, amount_sent)) = account_map.next_receivable() {
         let state = account_map.state(&receiver).unwrap();
         assert!(state.confirmed());
-        // Opening an unfunded spam account must not delegate received stake
-        // to that random account key. Under RAI that key would enter the
-        // certified committee two epochs later without any node able to sign
-        // its report, permanently preventing W-F report quorum.
-        let representative =
-            if state.confirmed_frontier.is_zero() && !live_representatives.is_empty() {
-                let index = usize::from(receiver.as_bytes()[0]) % live_representatives.len();
-                live_representatives[index]
-            } else {
-                state.representative
-            };
+        // Unopened accounts were assigned to a live-representative shard when
+        // the ordinary workload was created. Receiving must preserve that
+        // assignment so the sender's delegated weight stays inside its shard.
+        let representative = state.representative;
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
@@ -198,7 +206,25 @@ fn create_send_or_receive_block(
         result
     } else if let Some(state) = account_map.random_account_that_can_send() {
         assert!(state.confirmed());
-        let destination = account_map.random_account().unwrap();
+        let destination = if live_representatives.is_empty() {
+            // Preserve the legacy workload when no live PR list is configured.
+            account_map.random_account().unwrap()
+        } else {
+            let destination_representative = if live_representatives.contains(&state.representative)
+            {
+                state.representative
+            } else {
+                // Compatibility for a pre-existing database whose funded
+                // sender predates live-PR setup. Current RAI setup always puts
+                // funded senders in the configured list.
+                let index =
+                    usize::from(state.key.account().as_bytes()[0]) % live_representatives.len();
+                live_representatives[index]
+            };
+            account_map
+                .random_account_for_representative(destination_representative)
+                .expect("every configured representative shard must have an assigned account")
+        };
         let new_balance: Amount = rand::rng().random_range(..state.balance.number()).into();
         let amount_sent = state.balance - new_balance;
 
@@ -366,6 +392,19 @@ mod tests {
 
     const MAX_BLOCKS: usize = 4;
 
+    fn delegated_weights(account_map: &AccountMap, representatives: &[PublicKey]) -> Vec<Amount> {
+        representatives
+            .iter()
+            .map(|representative| {
+                account_map
+                    .account_states
+                    .values()
+                    .filter(|state| state.representative == *representative)
+                    .fold(Amount::ZERO, |sum, state| sum + state.balance)
+            })
+            .collect()
+    }
+
     #[test]
     fn initial_send_to_random_account() {
         let mut account_map = test_account_map();
@@ -425,6 +464,161 @@ mod tests {
                 .unwrap()
                 .representative,
             representative
+        );
+    }
+
+    #[test]
+    fn ordinary_sends_never_cross_live_representative_shards() {
+        let representatives = (900..906).map(PublicKey::from).collect::<Vec<_>>();
+        let mut account_map = AccountMap::default();
+        for i in 1..=120 {
+            let key = PrivateKey::from(i);
+            let account = key.account();
+            account_map.add_unopened(key);
+            if i <= 6 {
+                account_map.set_account_state(account, Amount::raw(1_000), BlockHash::from(i));
+                account_map.set_representative(account, representatives[i as usize - 1]);
+            }
+        }
+        let mut factory = BlockFactory::new_with_live_representatives(
+            account_map,
+            2_000,
+            SpamStrategy::SendReceive,
+            representatives,
+        );
+
+        while let Some(BlockResult::Block(forks)) = factory.create_next(false) {
+            let block = &forks.block;
+            // A send has an account destination as its link. Receives link to
+            // a block hash, so identify sends from their pending receivable.
+            let destination = block.destination_or_link();
+            if factory.account_map.get_receivable(&destination).is_some() {
+                let source_rep = block.representative_field().unwrap();
+                let destination_rep = factory
+                    .account_map
+                    .state(&destination)
+                    .unwrap()
+                    .representative;
+                assert_eq!(destination_rep, source_rep);
+            }
+            factory.confirm(&block.hash());
+        }
+    }
+
+    #[test]
+    fn ordinary_transfers_conserve_each_live_representatives_weight() {
+        const BLOCKS: usize = 12_000;
+        let representatives = (1_000..1_006).map(PublicKey::from).collect::<Vec<_>>();
+        let mut account_map = AccountMap::default();
+        let mut initially_unopened = std::collections::BTreeSet::new();
+        for i in 1..=240 {
+            let key = PrivateKey::from(i);
+            let account = key.account();
+            account_map.add_unopened(key);
+            if i <= 6 {
+                account_map.set_account_state(account, Amount::raw(10_000), BlockHash::from(i));
+                account_map.set_representative(account, representatives[i as usize - 1]);
+            } else {
+                initially_unopened.insert(account);
+            }
+        }
+        let mut factory = BlockFactory::new_with_live_representatives(
+            account_map,
+            BLOCKS,
+            SpamStrategy::SendReceive,
+            representatives.clone(),
+        );
+        let initial_weights = delegated_weights(&factory.account_map, &representatives);
+        assert_eq!(initial_weights, vec![Amount::raw(10_000); 6]);
+        let mut opened_receiver = false;
+
+        while let Some(BlockResult::Block(forks)) = factory.create_next(false) {
+            let block = forks.block;
+            let account = block.account_field().unwrap();
+            factory.confirm(&block.hash());
+
+            if initially_unopened.contains(&account)
+                && !factory
+                    .account_map
+                    .state(&account)
+                    .unwrap()
+                    .balance
+                    .is_zero()
+            {
+                opened_receiver = true;
+            }
+            for state in factory.account_map.account_states.values() {
+                if !state.balance.is_zero() {
+                    assert!(representatives.contains(&state.representative));
+                }
+            }
+            // Ordinary generation completes each confirmed send with its
+            // receive before selecting another sender.
+            if factory.account_map.next_receivable().is_none() {
+                assert_eq!(
+                    delegated_weights(&factory.account_map, &representatives),
+                    initial_weights
+                );
+            }
+        }
+
+        assert!(opened_receiver);
+        assert_eq!(
+            delegated_weights(&factory.account_map, &representatives),
+            initial_weights
+        );
+    }
+
+    #[test]
+    fn moving_all_sender_weight_stays_in_its_representative_shard() {
+        let representatives = (2_000..2_006).map(PublicKey::from).collect::<Vec<_>>();
+        let mut account_map = AccountMap::default();
+        for i in 1..=12 {
+            let key = PrivateKey::from(i);
+            let account = key.account();
+            account_map.add_unopened(key);
+            if i <= 6 {
+                account_map.set_account_state(account, Amount::raw(1), BlockHash::from(i));
+                account_map.set_representative(account, representatives[i as usize - 1]);
+            }
+        }
+        let mut factory = BlockFactory::new_with_live_representatives(
+            account_map,
+            2,
+            SpamStrategy::SendReceive,
+            representatives.clone(),
+        );
+        let initial = delegated_weights(&factory.account_map, &representatives);
+
+        let send = factory.create_next(false).unwrap().unwrap();
+        assert_eq!(send.balance_field(), Some(Amount::ZERO));
+        factory.confirm(&send.hash());
+        let receive = factory.create_next(false).unwrap().unwrap();
+        factory.confirm(&receive.hash());
+
+        assert_eq!(
+            delegated_weights(&factory.account_map, &representatives),
+            initial
+        );
+        assert!(representatives.contains(&receive.representative_field().unwrap()));
+    }
+
+    #[test]
+    fn no_live_representatives_preserves_legacy_receiver_assignment() {
+        let mut factory = BlockFactory::new(test_account_map(), 2, SpamStrategy::SendReceive);
+        let send = factory.create_next(false).unwrap().unwrap();
+        let destination = send.destination_or_link();
+        let original_representative = factory
+            .account_map
+            .state(&destination)
+            .unwrap()
+            .representative;
+        factory.confirm(&send.hash());
+        let receive = factory.create_next(false).unwrap().unwrap();
+
+        assert_eq!(
+            receive.representative_field(),
+            Some(original_representative)
         );
     }
 

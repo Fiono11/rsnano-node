@@ -5,10 +5,7 @@ use crate::domain::{
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Block, BlockHash, PublicKey};
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
@@ -34,8 +31,6 @@ pub(crate) struct SpamLogic {
     websocket_conf_time_total: Duration,
     websocket_confirmed_total: usize,
     pub(crate) cps_measure_start: Option<Timestamp>,
-    publication_times: HashMap<BlockHash, Instant>,
-    published_blocks: HashMap<BlockHash, Block>,
 }
 
 impl SpamLogic {
@@ -54,7 +49,12 @@ impl SpamLogic {
                 live_representatives,
             ),
             current_bps: spec.rate.initial_bps,
-            bps_limiter: TokenBucketLogic::new(spec.rate.initial_bps),
+            // A benchmark rate is a pacing target, not permission to inject a
+            // full second of traffic at once. The generic token bucket starts
+            // full, so `new(1450)` produced an immediate 1450-block burst and
+            // then refilled at 1450/s. Keep a one-block burst while preserving
+            // the requested long-term refill rate.
+            bps_limiter: TokenBucketLogic::with_refill_rate(1, spec.rate.initial_bps),
             next_block: None,
             bps_start: None,
             spec,
@@ -65,8 +65,6 @@ impl SpamLogic {
             websocket_conf_time_total: Duration::ZERO,
             websocket_confirmed_total: 0,
             cps_measure_start: None,
-            publication_times: Default::default(),
-            published_blocks: Default::default(),
         }
     }
 
@@ -102,8 +100,6 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
-        self.published_blocks
-            .insert(next.block.hash(), next.block.clone());
         self.delayed.insert(next.block.clone()); // TODO: handle forks!
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
@@ -122,9 +118,6 @@ impl SpamLogic {
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
         if self.delayed.published(hash, now) {
             self.published_total += 1;
-            self.publication_times
-                .entry(*hash)
-                .or_insert_with(Instant::now);
         }
 
         if !self.spec.track_confirmations {
@@ -135,12 +128,8 @@ impl SpamLogic {
         self.high_prio_tracker.published(hash, now)
     }
 
-    pub(crate) fn publication_times(&self) -> &HashMap<BlockHash, Instant> {
-        &self.publication_times
-    }
-
-    pub(crate) fn published_blocks(&self) -> &HashMap<BlockHash, Block> {
-        &self.published_blocks
+    pub(crate) fn published_total(&self) -> usize {
+        self.published_total
     }
 
     fn confirm(
@@ -237,6 +226,35 @@ mod tests {
     use rsnano_types::Amount;
 
     #[test]
+    fn configured_rate_does_not_create_an_initial_full_second_burst() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(2);
+        let initial = account_map.initial_key().account();
+        account_map.set_account_state(initial, Amount::nano(1), BlockHash::from(1));
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(1_450),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+            Vec::new(),
+        );
+        let now = Timestamp::new_test_instance();
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Block(_))
+        ));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Waiting)
+        ));
+    }
+
+    #[test]
     fn rate_limited_final_block_is_emitted_after_factory_reaches_max() {
         let mut account_map = AccountMap::default();
         account_map.fill(2);
@@ -259,11 +277,6 @@ mod tests {
         };
         logic.published(&first.block.hash(), now);
         logic.confirmed_from_websocket(&first.block.hash(), now);
-        assert_eq!(
-            logic.published_blocks().get(&first.block.hash()),
-            Some(&first.block)
-        );
-
         assert!(matches!(
             logic.next_block(false, now),
             Some(BlockResult::Waiting)
@@ -306,11 +319,15 @@ mod tests {
         logic.published(&first.block.hash(), now);
         logic.confirmed_from_websocket(&first.block.hash(), now + Duration::from_millis(200));
 
-        let BlockResult::Block(second) = logic.next_block(false, now).unwrap() else {
+        let second_publish = now + Duration::from_millis(500);
+        let BlockResult::Block(second) = logic.next_block(false, second_publish).unwrap() else {
             panic!("second block should be emitted")
         };
-        logic.published(&second.block.hash(), now);
-        logic.confirm(&second.block.hash(), now + Duration::from_secs(5));
+        logic.published(&second.block.hash(), second_publish);
+        logic.confirm(
+            &second.block.hash(),
+            second_publish + Duration::from_secs(5),
+        );
 
         assert_eq!(logic.websocket_confirmation_samples(), 1);
         assert_eq!(
