@@ -157,12 +157,11 @@ fn classify_rai_vote_request(
             | rsnano_messages::RAI_SLOT_REPAIR_SEQUENCE_FLAG);
     if repair_kind == rsnano_messages::RAI_SLOT_REPAIR_SEQUENCE_FLAG {
         // A marked slot envelope is payload repair only. Cached and fresh
-        // vote evidence belongs on the ordinary batched ConfirmReq path. A
-        // nonzero slot value likewise belongs in ConfirmReq.
-        return request
-            .hash
-            .is_zero()
-            .then_some(RaiVoteRequestKind::MarkedSlot);
+        // vote evidence belongs on the ordinary batched ConfirmReq path. ZERO
+        // requests the certificate-selected slot payload; a nonzero value is
+        // an exact transitive dependency request discovered while installing
+        // that certified frontier.
+        return Some(RaiVoteRequestKind::MarkedSlot);
     }
     if repair_kind == rsnano_messages::RAI_CLOSE_REPAIR_SEQUENCE_FLAG {
         // Current close requests name the exact nonzero signed candidate whose
@@ -785,7 +784,7 @@ impl NetworkMessageProcessor {
                         if !sender.try_send(
                             channel,
                             &Message::RaiVoteRequest(reply),
-                            rsnano_network::TrafficType::VoteReply,
+                            rsnano_network::TrafficType::RaiCloseControl,
                         ) {
                             break;
                         }
@@ -801,10 +800,14 @@ impl NetworkMessageProcessor {
                     request.root,
                     requested_epoch,
                 ) {
+                    // Keep a requested repair payload on the same bounded
+                    // ordinary request lane as its solicitation. The bulk
+                    // BlockBroadcast lane can be saturated by the workload
+                    // precisely when a draining replica needs this reply.
                     self.message_sender.lock().unwrap().try_send(
                         channel,
                         &Message::Publish(rsnano_messages::Publish::new_forward(block)),
-                        rsnano_network::TrafficType::BlockBroadcast,
+                        rsnano_network::TrafficType::ConfirmationRequests,
                     );
                 }
                 // Marked slot repair is Publish-only. Compatibility requests
@@ -1002,11 +1005,29 @@ mod rai_close_repair_tests {
             }),
             &Channel::new_test_instance().into(),
         );
+        processor.process(
+            Message::RaiVoteRequest(RaiVoteRequest {
+                sequence: rsnano_messages::RAI_SLOT_REPAIR_SEQUENCE_FLAG | 2,
+                epoch: RaiEpoch::ZERO.number(),
+                hash,
+                root: Root::ZERO,
+                close_version: None,
+            }),
+            &Channel::new_test_instance().into(),
+        );
 
         let responses = sent.output();
-        assert!(responses.iter().any(|response| {
-            matches!(&response.message, Message::Publish(publish) if publish.block.hash() == hash)
-        }));
+        assert_eq!(
+            responses
+                .iter()
+                .filter(|response| {
+                    matches!(&response.message, Message::Publish(publish) if publish.block.hash() == hash)
+                        && response.traffic_type
+                            == rsnano_network::TrafficType::ConfirmationRequests
+                })
+                .count(),
+            2,
+        );
         assert!(
             !responses
                 .iter()

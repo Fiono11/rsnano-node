@@ -58,8 +58,6 @@ pub struct Election {
     #[cfg(feature = "rai_protocol")]
     rai_selected_hash: Option<BlockHash>,
     #[cfg(feature = "rai_protocol")]
-    rai_timeout_expired: bool,
-    #[cfg(feature = "rai_protocol")]
     rai_slot_height: u64,
     votes: HashMap<PublicKey, VoteSummary>,
     winner_tally: Amount,
@@ -137,7 +135,6 @@ impl Election {
             )]),
             rai_hash_candidates: HashSet::new(),
             rai_selected_hash: None,
-            rai_timeout_expired: false,
             rai_slot_height: height,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
@@ -174,7 +171,6 @@ impl Election {
             candidate_blocks: HashMap::new(),
             rai_hash_candidates: HashSet::from([candidate]),
             rai_selected_hash: Some(candidate),
-            rai_timeout_expired: false,
             rai_slot_height: 0,
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
@@ -318,13 +314,6 @@ impl Election {
                 .all(|(index, committee)| {
                     self.rai_votes.first_tally(index, value) >= committee.thresholds.progression
                 })
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    fn rai_should_first_timeout(&self) -> bool {
-        self.rai_kind() == RaiElectionKind::Slot
-            && self.rai_timeout_expired
-            && !self.rai_candidate_progressed()
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -495,12 +484,6 @@ impl Election {
         // first repair request is sent.
         #[cfg(feature = "rai_protocol")]
         if self.rai_requires_retention() {
-            if self.rai_votes.outcome == RaiOutcome::Pending
-                && self.rai_kind() == RaiElectionKind::Slot
-                && self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration
-            {
-                self.rai_timeout_expired = true;
-            }
             self.state = ElectionState::Active;
             return;
         }
@@ -587,7 +570,7 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn voting_hash(&self) -> BlockHash {
-        if self.rai_timeout_notar_ready() || self.rai_should_first_timeout() {
+        if self.rai_timeout_notar_ready() {
             return BlockHash::ZERO;
         }
         match self.rai_kind() {
@@ -1258,11 +1241,10 @@ mod rai_identity_tests {
         assert_eq!(election.state(), ElectionState::Passive);
         election.transition_time(start);
         assert_eq!(election.state(), ElectionState::Active);
-        assert!(!election.rai_timeout_expired);
     }
 
     #[test]
-    fn expired_slot_targets_a_timeout_first_vote() {
+    fn expired_slot_keeps_targeting_the_block_first_vote() {
         use rsnano_types::{Amount, PrivateKey, RaiVotePhase};
 
         let key = PrivateKey::from(1);
@@ -1276,10 +1258,11 @@ mod rai_identity_tests {
             RaiEpoch::ZERO,
         )
         .with_rai_committees(vec![committee]);
+        let candidate = election.winner().hash();
 
         election.transition_time(start + Duration::from_secs(6));
 
-        assert_eq!(election.voting_hash(), BlockHash::ZERO);
+        assert_eq!(election.voting_hash(), candidate);
         assert_eq!(election.rai_vote_metadata().phase, RaiVotePhase::First);
         assert_eq!(election.rai_votes.outcome, RaiOutcome::Pending);
     }

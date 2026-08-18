@@ -52,7 +52,7 @@ impl VoteBroadcaster {
     /// round while the workload is still producing slot votes.
     #[cfg(feature = "rai_protocol")]
     pub fn broadcast_rai_close(&self, vote: Arc<Vote>) {
-        self.broadcast_with(vote, TrafficType::VoteReply, 8.0);
+        self.broadcast_with(vote, TrafficType::RaiCloseControl, 8.0);
     }
 
     fn broadcast_with(&self, vote: Arc<Vote>, traffic_type: TrafficType, scale: f32) {
@@ -104,7 +104,7 @@ mod tests {
 
         let output = tracker.output();
         assert_eq!(output.len(), 1);
-        assert_eq!(output[0].traffic_type, TrafficType::VoteReply);
+        assert_eq!(output[0].traffic_type, TrafficType::RaiCloseControl);
         assert_eq!(output[0].scale, 8.0);
         assert!(output[0].all_prs);
     }

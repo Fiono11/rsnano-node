@@ -120,8 +120,7 @@ impl<'a> ApplyVoteHelper<'a> {
             // `progress_close_election`; removing it here both discarded that
             // repair target and let the caller create a successor immediately.
             let retain_dead_close = election.is_rai_close()
-                && election.rai_votes.outcome
-                    == crate::consensus::rai::RaiOutcome::TimedOut;
+                && election.rai_votes.outcome == crate::consensus::rai::RaiOutcome::TimedOut;
             if confirmed
                 && !retain_dead_close
                 && let Some(entry) = self.roots.erase_rai_id(election_id)

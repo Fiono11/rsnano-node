@@ -71,6 +71,10 @@ pub struct RaiEpochTicker {
     slot_evidence_repair_cursor: usize,
     last_close_evidence_repair: Option<Timestamp>,
     close_evidence_repair_cursor: usize,
+    last_closed_close_evidence_repair: Option<Timestamp>,
+    closed_close_evidence_repair_cursor: usize,
+    closed_close_evidence_repair_epoch: Option<rsnano_types::RaiEpoch>,
+    closed_close_evidence_repair_started_at: Option<Timestamp>,
     local_key: Option<rsnano_types::PrivateKey>,
     last_report_request: Option<Timestamp>,
     last_close_preimage_request: Option<Timestamp>,
@@ -108,6 +112,10 @@ impl RaiEpochTicker {
             slot_evidence_repair_cursor: 0,
             last_close_evidence_repair: None,
             close_evidence_repair_cursor: 0,
+            last_closed_close_evidence_repair: None,
+            closed_close_evidence_repair_cursor: 0,
+            closed_close_evidence_repair_epoch: None,
+            closed_close_evidence_repair_started_at: None,
             local_key: None,
             last_report_request: None,
             last_close_preimage_request: None,
@@ -148,14 +156,19 @@ const MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK: usize = 16;
 
 #[cfg(feature = "rai_protocol")]
 // A request covers a full 255-root protocol vector. Five-hundred millisecond
-// spacing still scans a 7.2K-slot saturated epoch in about 15 seconds without
-// creating a positive feedback loop of duplicate replies while draining.
+// spacing bounds reply/signature CPU as well as network traffic; a 100ms
+// cadence was measured to interfere with initial First-vote processing under
+// sustained load. The independent repair queue prevents ordinary transport
+// saturation without turning repair into an unbounded feedback loop.
 const RAI_SLOT_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "rai_protocol")]
 // Close-control elections have only a handful of vote batches and need prompt
 // solicitation even while ordinary workload traffic is saturated.
 const RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL: Duration = Duration::from_millis(250);
+
+#[cfg(feature = "rai_protocol")]
+const RAI_CLOSED_CLOSE_EVIDENCE_REPAIR_GRACE: Duration = Duration::from_secs(2);
 
 #[cfg(feature = "rai_protocol")]
 const RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE: f32 = 8.0;
@@ -283,7 +296,11 @@ impl Tickable for RaiEpochTicker {
         };
         let now = self.clock.now();
         self.aec.rai_tick(now, local_key, self.epoch_duration);
-        let closing = self.aec.rai_epoch_status().0.closing;
+        let epoch_state = self.aec.rai_epoch_status().0;
+        let closing = epoch_state.closing;
+        if let Some(closed_through) = epoch_state.closed_through {
+            self.replay_retained_closed_close_votes(closed_through);
+        }
         if let Some(closing) = closing {
             let initial_frontiers = rai_drain_frontier_snapshot_needed(
                 &mut self.initialized_drain_frontiers_epoch,
@@ -315,7 +332,7 @@ impl Tickable for RaiEpochTicker {
                             sequence: self.request_sequence,
                         },
                     ),
-                    rsnano_network::TrafficType::ConfirmationRequests,
+                    rsnano_network::TrafficType::RaiCloseControl,
                     1.0,
                 );
                 self.last_report_request = Some(now);
@@ -372,7 +389,7 @@ impl Tickable for RaiEpochTicker {
                                     close_version: None,
                                 },
                             ),
-                            rsnano_network::TrafficType::ConfirmationRequests,
+                            rsnano_network::TrafficType::RaiCloseControl,
                             8.0,
                         );
                     }
@@ -397,10 +414,26 @@ impl Tickable for RaiEpochTicker {
                     let any = self.ledger.any();
                     genuinely_missing_slot_payload_requests(&any, candidates)
                 };
+                let mut requests = requests;
+                if closing.phase == crate::consensus::rai::RaiClosingPhase::ElectingRecord
+                    && let Some(record) = self.aec.rai_decided_close_record(closing.epoch)
+                {
+                    // The record tip may be present while an earlier account
+                    // predecessor or receive source was dropped under load.
+                    // Ask for exact missing dependencies; each bounded pass
+                    // reveals the next gap after the prior payload arrives.
+                    requests.extend(
+                        self.ledger
+                            .rai_missing_close_dependencies(closing.epoch, &record.frontiers, 64)
+                            .into_iter()
+                            .map(|hash| (hash, rsnano_types::Root::ZERO)),
+                    );
+                    requests.sort_unstable();
+                    requests.dedup();
+                }
                 for (hash, root) in
                     rai_slot_payload_repair_window(&requests, &mut self.slot_payload_request_cursor)
                 {
-                    debug_assert!(hash.is_zero());
                     self.request_sequence = self.request_sequence.wrapping_add(1);
                     self.flooder.flood_prs_and_some_non_prs(
                         &rsnano_messages::Message::RaiVoteRequest(
@@ -479,6 +512,68 @@ impl Tickable for RaiEpochTicker {
 
 #[cfg(feature = "rai_protocol")]
 impl RaiEpochTicker {
+    /// Keep the latest installed close certificate epidemic for one more
+    /// epoch. A replica which receives only the progression threshold of
+    /// `First` leaves enters the notar phase, while a peer with every `First`
+    /// leaf can fast-confirm and immediately remove its close election. If
+    /// all fast peers stop repair at removal, the laggard can never learn the
+    /// missing leaf and the committee splits across epoch boundaries.
+    fn replay_retained_closed_close_votes(&mut self, epoch: rsnano_types::RaiEpoch) {
+        let now = self.clock.now();
+        if self.closed_close_evidence_repair_epoch != Some(epoch) {
+            self.closed_close_evidence_repair_epoch = Some(epoch);
+            self.closed_close_evidence_repair_started_at = Some(now);
+            self.last_closed_close_evidence_repair = None;
+            self.closed_close_evidence_repair_cursor = 0;
+        }
+        if self
+            .closed_close_evidence_repair_started_at
+            .is_some_and(|started| started.elapsed(now) >= RAI_CLOSED_CLOSE_EVIDENCE_REPAIR_GRACE)
+        {
+            return;
+        }
+        if self
+            .last_closed_close_evidence_repair
+            .is_some_and(|last| last.elapsed(now) < RAI_CLOSE_EVIDENCE_REPAIR_INTERVAL)
+        {
+            return;
+        }
+
+        let Some(local_signer) = self.local_key.as_ref().map(|key| key.public_key()) else {
+            return;
+        };
+        let mut seen = HashSet::new();
+        let votes = self
+            .aec
+            .rai_close_votes_for_epoch(epoch)
+            .into_iter()
+            // Every completed representative keeps advertising its own
+            // leaves. Replaying all learned transports multiplies the same
+            // vectorized batches at every PR and can itself starve workload
+            // traffic.
+            .filter(|vote| vote.voter == local_signer)
+            .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
+            .collect::<Vec<_>>();
+        if votes.is_empty() {
+            self.closed_close_evidence_repair_cursor = 0;
+        } else {
+            let start = self.closed_close_evidence_repair_cursor % votes.len();
+            let count = votes.len().min(MAX_RAI_CLOSE_EVIDENCE_REPAIRS_PER_TICK);
+            for offset in 0..count {
+                let vote = &votes[(start + offset) % votes.len()];
+                self.flooder.flood_prs_and_some_non_prs(
+                    &rsnano_messages::Message::ConfirmAck(
+                        rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
+                    ),
+                    rsnano_network::TrafficType::RaiCloseControl,
+                    RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+                );
+            }
+            self.closed_close_evidence_repair_cursor = (start + count) % votes.len();
+        }
+        self.last_closed_close_evidence_repair = Some(now);
+    }
+
     fn replay_retained_close_votes(&mut self, closing: crate::consensus::rai::RaiClosingEpoch) {
         if !rai_close_repair_phase_active(closing.phase) {
             self.last_close_evidence_repair = None;
@@ -542,7 +637,7 @@ impl RaiEpochTicker {
                     &rsnano_messages::Message::ConfirmAck(
                         rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
                     ),
-                    rsnano_network::TrafficType::VoteReply,
+                    rsnano_network::TrafficType::RaiCloseControl,
                     RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
                 );
                 replayed += 1;
@@ -557,7 +652,7 @@ impl RaiEpochTicker {
                         &rsnano_messages::Message::ConfirmAck(
                             rsnano_messages::ConfirmAck::new_with_own_vote(vote.clone()),
                         ),
-                        rsnano_network::TrafficType::VoteReply,
+                        rsnano_network::TrafficType::RaiCloseControl,
                         RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
                     );
                     archived_replayed += 1;
@@ -584,7 +679,7 @@ impl RaiEpochTicker {
                         .map(|(hash, root, _)| (hash, root))
                         .collect(),
                 )),
-                rsnano_network::TrafficType::ConfirmationRequests,
+                rsnano_network::TrafficType::RaiCloseControl,
                 RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
             );
         }
@@ -662,17 +757,11 @@ impl RaiEpochTicker {
             .filter(|vote| seen.insert((vote.voter, vote.signature.clone())))
             .collect::<Vec<_>>();
         rai_replay_slot_vote_window(&votes, |vote| {
-            if !self.flooder.check_capacity(
-                rsnano_network::TrafficType::VoteRebroadcast,
-                RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
-            ) {
-                return false;
-            }
             self.flooder.flood_prs_and_some_non_prs(
                 &rsnano_messages::Message::ConfirmAck(
                     rsnano_messages::ConfirmAck::new_with_own_vote((**vote).clone()),
                 ),
-                rsnano_network::TrafficType::VoteRebroadcast,
+                rsnano_network::TrafficType::RaiRepairControl,
                 RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
             );
             true
@@ -682,22 +771,17 @@ impl RaiEpochTicker {
         // the precise First leaf a lagging replica needs. A bounded ZERO-root
         // ConfirmReq asks those peers to replay the exact epoch-qualified
         // history (and, if still active, their current phase) back to us.
-        if self.flooder.check_capacity(
-            rsnano_network::TrafficType::ConfirmationRequests,
-            RAI_SLOT_EVIDENCE_CAPACITY_SCALE,
-        ) {
-            let request = rsnano_messages::ConfirmReq::new(
-                slots
-                    .iter()
-                    .map(|slot| (BlockHash::ZERO, slot.root.root))
-                    .collect(),
-            );
-            self.flooder.flood_prs_and_some_non_prs(
-                &rsnano_messages::Message::ConfirmReq(request),
-                rsnano_network::TrafficType::ConfirmationRequests,
-                RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
-            );
-        }
+        let request = rsnano_messages::ConfirmReq::new(
+            slots
+                .iter()
+                .map(|slot| (BlockHash::ZERO, slot.root.root))
+                .collect(),
+        );
+        self.flooder.flood_prs_and_some_non_prs(
+            &rsnano_messages::Message::ConfirmReq(request),
+            rsnano_network::TrafficType::RaiRepairControl,
+            RAI_SLOT_EVIDENCE_REPAIR_FANOUT_SCALE,
+        );
         self.last_slot_evidence_repair = Some(now);
     }
 }
@@ -944,6 +1028,14 @@ impl AecService {
         epoch: rsnano_types::RaiEpoch,
     ) -> Vec<crate::consensus::rai::RaiCloseRecord> {
         self.aec.read().unwrap().rai_close_record_versions(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_decided_close_record(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+    ) -> Option<crate::consensus::rai::RaiCloseRecord> {
+        self.aec.read().unwrap().rai_decided_close_record(epoch)
     }
 
     #[cfg(feature = "rai_protocol")]

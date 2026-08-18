@@ -126,3 +126,39 @@ impl Drop for WriteQueue {
 pub struct Entry {
     pub buffer: Arc<Vec<u8>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rai_close_control_has_capacity_when_ordinary_consensus_queues_are_full() {
+        let queue = WriteQueue::new(2, Arc::new(ChannelStats::default()));
+
+        for traffic_type in [TrafficType::VoteReply, TrafficType::ConfirmationRequests] {
+            assert!(queue.try_insert(Arc::new(vec![1]), traffic_type));
+            assert!(queue.try_insert(Arc::new(vec![1]), traffic_type));
+            assert!(!queue.try_insert(Arc::new(vec![1]), traffic_type));
+        }
+
+        assert_eq!(queue.free_capacity(TrafficType::RaiRepairControl), 2);
+        assert!(queue.try_insert(Arc::new(vec![0xA0]), TrafficType::RaiRepairControl,));
+        assert_eq!(queue.free_capacity(TrafficType::RaiCloseControl), 2);
+        assert!(queue.try_insert(Arc::new(vec![0xA1]), TrafficType::RaiCloseControl,));
+
+        let mut repair_control_dequeued = false;
+        let mut close_control_dequeued = false;
+        for _ in 0..6 {
+            match queue.pop().await.unwrap().buffer.as_slice() {
+                [0xA0] => repair_control_dequeued = true,
+                [0xA1] => close_control_dequeued = true,
+                _ => {}
+            }
+            if repair_control_dequeued && close_control_dequeued {
+                break;
+            }
+        }
+        assert!(repair_control_dequeued);
+        assert!(close_control_dequeued);
+    }
+}

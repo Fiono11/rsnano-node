@@ -331,6 +331,100 @@ impl Ledger {
             .collect()
     }
 
+    /// Bounded details for close frontiers which still need durable epoch
+    /// attribution. This is intentionally a diagnostics-only snapshot: it
+    /// uses one read transaction and never changes confirmation state.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_uncommitted_close_frontier_details(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
+        max_results: usize,
+    ) -> Vec<(
+        Account,
+        ConfirmationHeightInfo,
+        Option<ConfirmationHeightInfo>,
+        bool,
+        Option<rsnano_types::RaiEpoch>,
+    )> {
+        assert!(max_results > 0);
+        let txn = self.store.begin_read();
+        frontiers
+            .iter()
+            .filter(|(account, frontier)| {
+                !self
+                    .store
+                    .rai_finalization
+                    .frontier_before(&txn, epoch, account)
+                    .as_ref()
+                    .is_some_and(|base| frontier.height <= base.height)
+                    && self.store.rai_finalization.epoch(&txn, &frontier.frontier) != Some(epoch)
+            })
+            .take(max_results)
+            .map(|(account, frontier)| {
+                (
+                    *account,
+                    frontier.clone(),
+                    self.store.confirmation_height.get(&txn, account),
+                    self.store.block.exists(&txn, &frontier.frontier),
+                    self.store.rai_finalization.epoch(&txn, &frontier.frontier),
+                )
+            })
+            .collect()
+    }
+
+    /// Finds absent transitive dependencies of certified close frontiers.
+    /// Existing blocks are walked under one snapshot; missing hashes are
+    /// returned for bounded peer repair. A newly delivered dependency makes
+    /// the next pass discover the following gap without transporting an
+    /// unverified segment implicitly.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_missing_close_dependencies(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
+        max_results: usize,
+    ) -> Vec<BlockHash> {
+        assert!(max_results > 0);
+        const MAX_VISITED: usize = 16 * 1024;
+        let txn = self.store.begin_read();
+        let mut stack = frontiers
+            .iter()
+            .filter(|(account, frontier)| {
+                !self
+                    .store
+                    .rai_finalization
+                    .frontier_before(&txn, epoch, account)
+                    .as_ref()
+                    .is_some_and(|base| frontier.height <= base.height)
+                    && self.store.rai_finalization.epoch(&txn, &frontier.frontier) != Some(epoch)
+            })
+            .map(|(_, frontier)| frontier.frontier)
+            .collect::<Vec<_>>();
+        let mut visited = std::collections::HashSet::new();
+        let mut missing = std::collections::BTreeSet::new();
+        while let Some(hash) = stack.pop() {
+            if hash.is_zero() || !visited.insert(hash) || visited.len() > MAX_VISITED {
+                continue;
+            }
+            let Some(block) = self.store.block.get(&txn, &hash) else {
+                missing.insert(hash);
+                if missing.len() >= max_results {
+                    break;
+                }
+                continue;
+            };
+            let dependencies =
+                block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
+            for dependency in dependencies.iter() {
+                if !dependency.is_zero() {
+                    stack.push(*dependency);
+                }
+            }
+        }
+        missing.into_iter().take(max_results).collect()
+    }
+
     /// Representative weights at the cemented frontiers. Unconfirmed balance
     /// and delegation changes are deliberately excluded.
     #[cfg(feature = "rai_protocol")]

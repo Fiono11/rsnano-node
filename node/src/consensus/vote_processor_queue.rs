@@ -162,13 +162,13 @@ impl VoteProcessorQueue {
             {
                 // RAI deliberately permits a signed vote to be retried after it
                 // was first seen, because an election may only become
-                // actionable later. Processing several copies while one is
-                // already waiting adds no evidence and can crowd certificate
-                // leaves out of the bounded queue. Coalesce forwarded votes and
-                // every close-control vote until the retained copy is processed.
+                // actionable later. Processing several identical direct or
+                // forwarded copies while one is already waiting adds no
+                // evidence and lets bounded repair crowd distinct certificate
+                // leaves out of the queue. Coalesce only until the retained
+                // copy is processed; a later retry is admitted again.
                 let key = forwarded_vote_key(&vote, filter);
-                let coalesce =
-                    source == VoteDelivery::Forwarded || class == RaiVoteQueueClass::Close;
+                let coalesce = source != VoteDelivery::Replayed;
                 let duplicate = coalesce && guard.coalesced_votes.contains_key(&key);
                 if duplicate {
                     (tier, false, true)
@@ -232,12 +232,10 @@ impl VoteProcessorQueue {
             if !guard.queue.is_empty() {
                 let batch = guard.queue.next_batch(max_batch_size);
                 #[cfg(feature = "rai_protocol")]
-                for (queue_source, (vote, source, _, filter)) in &batch {
-                    if (*source == VoteDelivery::Forwarded
-                        || queue_source.0 == RaiVoteQueueClass::Close)
-                        && let Some(channel) = guard
-                            .coalesced_votes
-                            .get_mut(&forwarded_vote_key(vote, *filter))
+                for (_, (vote, _, _, filter)) in &batch {
+                    if let Some(channel) = guard
+                        .coalesced_votes
+                        .get_mut(&forwarded_vote_key(vote, *filter))
                     {
                         // Keep the key while the vote is in flight, but no
                         // longer associate it with a removable channel queue.
@@ -413,7 +411,9 @@ mod rai_tests {
             VoteDelivery::Direct,
             None,
         ));
-        assert!(!queue.enqueue(ordinary, Some(channel.clone()), VoteDelivery::Direct, None,));
+        // The identical direct copy is accepted by coalescing, without using
+        // another ordinary queue slot.
+        assert!(queue.enqueue(ordinary, Some(channel.clone()), VoteDelivery::Direct, None,));
         assert!(queue.enqueue(
             close_vote(&key, BlockHash::from(2)),
             Some(channel.clone()),
@@ -482,23 +482,27 @@ mod rai_tests {
     }
 
     #[test]
-    fn coalesces_direct_close_votes_but_not_direct_ordinary_votes() {
+    fn coalesces_identical_direct_rai_votes_until_processing_finishes() {
         let queue = VoteProcessorQueue::new_null();
         let ordinary = Arc::new(Vote::new_test_instance());
         let close = close_vote(&PrivateKey::from(1), BlockHash::from(1));
 
         assert!(queue.enqueue(ordinary.clone(), None, VoteDelivery::Direct, None));
-        assert!(queue.enqueue(ordinary, None, VoteDelivery::Direct, None));
+        assert!(queue.enqueue(ordinary.clone(), None, VoteDelivery::Direct, None));
         assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
         assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
-        assert_eq!(queue.len(), 3);
+        assert_eq!(queue.len(), 2);
 
-        assert_eq!(queue.wait_for_votes(3).len(), 3);
+        assert_eq!(queue.wait_for_votes(3).len(), 2);
+        assert!(queue.enqueue(ordinary.clone(), None, VoteDelivery::Direct, None));
+        assert!(queue.is_empty());
         assert!(queue.enqueue(close.clone(), None, VoteDelivery::Direct, None));
         assert!(queue.is_empty());
+        queue.coalesced_vote_processed(&ordinary, None);
         queue.coalesced_vote_processed(&close, None);
+        assert!(queue.enqueue(ordinary, None, VoteDelivery::Direct, None));
         assert!(queue.enqueue(close, None, VoteDelivery::Direct, None));
-        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.len(), 2);
     }
 
     #[test]

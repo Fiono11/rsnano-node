@@ -163,7 +163,11 @@ impl VoteGenerator {
                 self.shared_state.message_sender.lock().unwrap().try_send(
                     channel,
                     &message,
-                    TrafficType::VoteReply,
+                    if broadcast_close_vote {
+                        TrafficType::RaiCloseControl
+                    } else {
+                        TrafficType::VoteReply
+                    },
                 );
                 // Close-round liveness depends on every signed leaf being
                 // disseminated as ordinary vote gossip. A point-to-point
@@ -201,7 +205,11 @@ impl VoteGenerator {
                 self.shared_state.message_sender.lock().unwrap().try_send(
                     channel,
                     &message,
-                    TrafficType::VoteReply,
+                    if broadcast_close_vote {
+                        TrafficType::RaiCloseControl
+                    } else {
+                        TrafficType::VoteReply
+                    },
                 );
                 if broadcast_close_vote {
                     self.shared_state.vote_broadcaster.broadcast_rai_close(vote);
@@ -265,7 +273,7 @@ impl VoteGenerator {
                 if !self.shared_state.message_sender.lock().unwrap().try_send(
                     channel,
                     &confirm,
-                    TrafficType::VoteReply,
+                    TrafficType::RaiRepairControl,
                 ) || sent.len() >= MAX_REPLAY_ONLY_TRANSPORTS
                 {
                     return sent.len();
@@ -303,7 +311,7 @@ impl VoteGenerator {
                 self.shared_state.message_sender.lock().unwrap().try_send(
                     channel,
                     &confirm,
-                    TrafficType::VoteReply,
+                    TrafficType::RaiRepairControl,
                 );
             }
         }
@@ -324,7 +332,7 @@ impl VoteGenerator {
                     self.shared_state.message_sender.lock().unwrap().try_send(
                         channel,
                         &confirm,
-                        TrafficType::VoteReply,
+                        TrafficType::RaiRepairControl,
                     );
                 });
         }
@@ -1979,7 +1987,7 @@ mod rai_signing_tests {
         assert_eq!(sent.len(), 2);
         assert!(
             sent.iter()
-                .all(|event| event.traffic_type == TrafficType::VoteReply)
+                .all(|event| event.traffic_type == TrafficType::RaiRepairControl)
         );
         let votes = sent
             .iter()

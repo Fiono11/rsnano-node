@@ -39,9 +39,7 @@ fn rai_due_elections<'a>(
     let mut close = Vec::new();
     let mut slots = Vec::new();
     for election in elections {
-        if election.state() != ElectionState::Active
-            || !sender.should_send_confirm_req(election)
-        {
+        if election.state() != ElectionState::Active || !sender.should_send_confirm_req(election) {
             continue;
         }
         if election.is_rai_close() {

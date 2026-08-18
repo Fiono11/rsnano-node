@@ -91,6 +91,14 @@ pub enum TrafficType {
     BlockBroadcastInitial,
     BlockBroadcastRpc,
     ConfirmationRequests,
+    /// Bounded reserved queue for repairing ordinary RAI slot certificates
+    /// during close drain. Repair must not depend on spare capacity in the
+    /// queues whose earlier saturation caused the missing certificate leaf.
+    RaiRepairControl,
+    /// Bounded reserved queue for RAI epoch close requests and authenticated
+    /// close evidence. Ordinary vote/request saturation must not prevent the
+    /// committee from completing the epoch transition.
+    RaiCloseControl,
     Keepalive,
     Vote,
     VoteRebroadcast,
@@ -183,6 +191,8 @@ impl From<TrafficType> for DetailType {
             TrafficType::BlockBroadcastInitial => DetailType::BlockBroadcastInitial,
             TrafficType::BlockBroadcastRpc => DetailType::BlockBroadcastRpc,
             TrafficType::ConfirmationRequests => DetailType::ConfirmationRequests,
+            TrafficType::RaiRepairControl => DetailType::ConfirmationRequests,
+            TrafficType::RaiCloseControl => DetailType::ConfirmationRequests,
             TrafficType::Keepalive => DetailType::Keepalive,
             TrafficType::Vote => DetailType::Vote,
             TrafficType::VoteRebroadcast => DetailType::VoteRebroadcast,
