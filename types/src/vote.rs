@@ -336,7 +336,7 @@ impl Vote {
                     entry.metadata.election_id,
                     RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. }
                 )
-                && matches!(entry.target, RaiVoteTarget::Hash(hash) if !hash.is_zero())
+                && matches!(entry.target, RaiVoteTarget::Hash(_))
         });
         if all_close {
             Some(RaiBatchKind::Close)
@@ -1389,6 +1389,32 @@ mod tests {
             RaiElectionId::Slot(slot) if slot.root == QualifiedRoot::ZERO
         ));
         decoded.validate().unwrap();
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_close_timeout_vote_accepts_zero_hash() {
+        let epoch = RaiEpoch::new(7);
+        let metadata = RaiVoteMetadata {
+            election_id: RaiElectionId::CloseCut { epoch, round: 2 },
+            phase: RaiVotePhase::Notar,
+            epoch,
+            scope: RaiCommitteeScope::All,
+        };
+        let vote = Vote::new_canonical_rai_batch(
+            &PrivateKey::from(42),
+            UnixMillisTimestamp::new(0x12340),
+            3,
+            [(metadata.clone(), BlockHash::ZERO)],
+        );
+
+        assert_eq!(vote.rai_batch_kind(), Some(RaiBatchKind::Close));
+        assert_eq!(vote.rai_metadata(0), Some(&metadata));
+        assert_eq!(
+            vote.hashes().copied().collect::<Vec<_>>(),
+            [BlockHash::ZERO]
+        );
+        vote.validate().unwrap();
     }
 
     #[cfg(feature = "rai_protocol")]
