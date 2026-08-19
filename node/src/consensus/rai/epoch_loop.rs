@@ -340,10 +340,7 @@ impl<D: RaiEpochLoopDriver> RaiEpochLoop<D> {
                     let outcome = self
                         .epoch_manager
                         .happy_path_drain(epoch)
-                        .and_then(|drain| {
-                            let mut probe = drain.clone();
-                            probe.record_persistent_evidence(&slot, &evidence)
-                        });
+                        .and_then(|drain| drain.persistent_evidence_outcome(&slot, &evidence));
                     if let Some(outcome) = outcome {
                         let segment = match outcome {
                             super::RaiDrainOutcome::Finalized(winner)
