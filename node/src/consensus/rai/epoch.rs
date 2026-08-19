@@ -1360,9 +1360,18 @@ impl RaiEpochManager {
                 phase: closing.phase,
                 cut_rounds: self.cut_rounds.get(&closing.epoch).map(|r| r.snapshot()),
                 record_rounds: self.record_rounds.get(&closing.epoch).map(|r| r.snapshot()),
-                close_cuts: self.close_cuts.clone(),
-                close_records: self.close_records.clone(),
-                close_record_committees: self.close_record_committees.clone(),
+                close_cuts: self.close_cuts.for_epoch(closing.epoch),
+                close_records: self.close_records.for_epoch(closing.epoch),
+                close_record_committees: self
+                    .close_record_committees
+                    .iter()
+                    .filter(|(hash, _)| {
+                        self.close_records
+                            .get(hash)
+                            .is_some_and(|record| record.epoch == closing.epoch)
+                    })
+                    .map(|(hash, committee)| (*hash, committee.clone()))
+                    .collect(),
                 visible_obligations: self.visible_obligations.get(&closing.epoch).cloned(),
             })
         })

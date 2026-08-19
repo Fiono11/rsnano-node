@@ -158,6 +158,10 @@ impl std::error::Error for ReportError {}
 pub struct RaiReportStore {
     reports: BTreeMap<(RaiEpoch, PublicKey, u16), RaiReport>,
     equivocators: BTreeSet<(RaiEpoch, PublicKey)>,
+    /// Reporters whose complete, contiguous chunk set is already present.
+    /// This turns quorum polling into a committee-sized walk and avoids
+    /// regrouping every report on each protocol tick.
+    complete_reporters: BTreeSet<(RaiEpoch, PublicKey)>,
 }
 
 impl RaiReportStore {
@@ -173,6 +177,31 @@ impl RaiReportStore {
             u16::MAX,
         );
         self.reports.range(first..=last).map(|(_, report)| report)
+    }
+
+    fn for_reporter(
+        &self,
+        epoch: RaiEpoch,
+        reporter: PublicKey,
+    ) -> impl Iterator<Item = &RaiReport> {
+        self.reports
+            .range((epoch, reporter, u16::MIN)..=(epoch, reporter, u16::MAX))
+            .map(|(_, report)| report)
+    }
+
+    fn complete_reporters_for_epoch(
+        &self,
+        epoch: RaiEpoch,
+    ) -> impl Iterator<Item = PublicKey> + '_ {
+        self.complete_reporters
+            .range(
+                (epoch, PublicKey::ZERO)
+                    ..=(
+                        epoch,
+                        PublicKey::from_bytes([u8::MAX; PublicKey::SERIALIZED_SIZE]),
+                    ),
+            )
+            .map(|(_, reporter)| *reporter)
     }
 
     /// Visits reports in canonical store order and clones only matching
@@ -234,13 +263,13 @@ impl RaiReportStore {
         if self.equivocators.contains(&reporter_key) {
             return Ok(ReportInsert::Equivocation);
         }
-        if self.reports.iter().any(|((epoch, reporter, _), existing)| {
-            *epoch == report.epoch
-                && *reporter == report.reporter
-                && existing.chunk_count != report.chunk_count
-        }) {
+        if self
+            .for_reporter(report.epoch, report.reporter)
+            .any(|existing| existing.chunk_count != report.chunk_count)
+        {
             self.reports
                 .retain(|(epoch, reporter, _), _| (*epoch, *reporter) != reporter_key);
+            self.complete_reporters.remove(&reporter_key);
             self.equivocators.insert(reporter_key);
             return Ok(ReportInsert::Equivocation);
         }
@@ -248,6 +277,9 @@ impl RaiReportStore {
         match self.reports.get(&key) {
             None => {
                 self.reports.insert(key, report);
+                if self.reporter_chunks_are_complete(reporter_key.0, reporter_key.1) {
+                    self.complete_reporters.insert(reporter_key);
+                }
                 Ok(ReportInsert::Added)
             }
             Some(old) if old.visible_obligations == report.visible_obligations => {
@@ -257,6 +289,7 @@ impl RaiReportStore {
                 self.reports.remove(&key);
                 self.reports
                     .retain(|(epoch, reporter, _), _| (*epoch, *reporter) != reporter_key);
+                self.complete_reporters.remove(&reporter_key);
                 self.equivocators.insert(reporter_key);
                 Ok(ReportInsert::Equivocation)
             }
@@ -272,28 +305,10 @@ impl RaiReportStore {
         epoch: RaiEpoch,
         committee: &RepWeights,
     ) -> Vec<(PublicKey, Vec<&'a RaiReport>)> {
-        let mut grouped = Vec::<(PublicKey, Vec<&RaiReport>)>::new();
-        for report in self.for_epoch(epoch) {
-            if grouped
-                .last()
-                .is_none_or(|(reporter, _)| *reporter != report.reporter)
-            {
-                grouped.push((report.reporter, Vec::new()));
-            }
-            grouped.last_mut().unwrap().1.push(report);
-        }
-        grouped.retain(|(reporter, chunks)| {
-            !self.is_equivocator(epoch, reporter)
-                && !committee.weight(reporter).is_zero()
-                && chunks.first().is_some_and(|first| {
-                    chunks.len() == first.chunk_count as usize
-                        && chunks
-                            .iter()
-                            .enumerate()
-                            .all(|(index, report)| report.chunk_index as usize == index)
-                })
-        });
-        grouped
+        self.complete_reporters_for_epoch(epoch)
+            .filter(|reporter| !committee.weight(reporter).is_zero())
+            .map(|reporter| (reporter, self.for_reporter(epoch, reporter).collect()))
+            .collect()
     }
 
     pub fn report_weight(
@@ -329,9 +344,8 @@ impl RaiReportStore {
             return false;
         }
         let faulty = rai_fault_allowance(total);
-        self.complete_report_chunks_by_reporter(epoch, committee)
-            .into_iter()
-            .fold(0u128, |sum, (reporter, _)| {
+        self.complete_reporters_for_epoch(epoch)
+            .fold(0u128, |sum, reporter| {
                 sum.saturating_add(raw(committee.weight(&reporter)))
             })
             >= total.saturating_sub(faulty)
@@ -341,28 +355,35 @@ impl RaiReportStore {
         let total = total_weight(committee);
         total != 0
             && self
-                .complete_report_chunks_by_reporter(epoch, committee)
-                .into_iter()
-                .fold(0u128, |sum, (reporter, _)| {
+                .complete_reporters_for_epoch(epoch)
+                .fold(0u128, |sum, reporter| {
                     sum.saturating_add(raw(committee.weight(&reporter)))
                 })
                 == total
     }
 
     fn has_complete_report(&self, epoch: RaiEpoch, reporter: &PublicKey) -> bool {
-        let chunks = self
-            .reports
-            .iter()
-            .filter(|((e, r, _), _)| *e == epoch && r == reporter)
-            .map(|(_, report)| report)
-            .collect::<Vec<_>>();
-        chunks.first().is_some_and(|first| {
-            chunks.len() == first.chunk_count as usize
-                && chunks
-                    .iter()
-                    .enumerate()
-                    .all(|(index, report)| report.chunk_index as usize == index)
-        })
+        self.complete_reporters.contains(&(epoch, *reporter))
+    }
+
+    fn reporter_chunks_are_complete(&self, epoch: RaiEpoch, reporter: PublicKey) -> bool {
+        let mut chunks = self.for_reporter(epoch, reporter);
+        let Some(first) = chunks.next() else {
+            return false;
+        };
+        if first.chunk_index != 0 {
+            return false;
+        }
+        let expected_count = first.chunk_count as usize;
+        expected_count != 0
+            && std::iter::once(first)
+                .chain(chunks)
+                .enumerate()
+                .take(expected_count + 1)
+                .fold((true, 0usize), |(valid, count), (index, report)| {
+                    (valid && report.chunk_index as usize == index, count + 1)
+                })
+                == (true, expected_count)
     }
 
     /// An obligation is report-visible when its support from valid,
@@ -467,6 +488,17 @@ impl RaiCloseCutStore {
         let hash = cut.hash();
         self.cuts.entry(hash).or_insert(cut);
         hash
+    }
+
+    pub fn for_epoch(&self, epoch: RaiEpoch) -> Self {
+        Self {
+            cuts: self
+                .cuts
+                .iter()
+                .filter(|(_, cut)| cut.epoch == epoch)
+                .map(|(hash, cut)| (*hash, cut.clone()))
+                .collect(),
+        }
     }
     pub fn get(&self, hash: &BlockHash) -> Option<&RaiCloseCut> {
         self.cuts.get(hash)

@@ -75,6 +75,16 @@ impl RaiCloseRecordStore {
     pub fn all(&self) -> Vec<RaiCloseRecord> {
         self.0.values().cloned().collect()
     }
+
+    pub fn for_epoch(&self, epoch: RaiEpoch) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|(_, record)| record.epoch == epoch)
+                .map(|(hash, record)| (*hash, record.clone()))
+                .collect(),
+        )
+    }
 }
 
 #[cfg(test)]
