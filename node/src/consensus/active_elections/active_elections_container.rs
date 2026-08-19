@@ -347,6 +347,18 @@ pub(crate) struct ActiveElectionsContainer {
     /// container unit tests omit it and use the in-memory state machine only.
     #[cfg(feature = "rai_protocol")]
     rai_ledger: Option<Arc<Ledger>>,
+    /// Last committed account in each close record. Close retries resume here
+    /// rather than walking the already durable prefix under the AEC writer.
+    #[cfg(feature = "rai_protocol")]
+    rai_close_commit_cursors:
+        std::collections::BTreeMap<rsnano_types::RaiEpoch, rsnano_types::Account>,
+    #[cfg(feature = "rai_protocol")]
+    rai_pending_close_commits: std::collections::BTreeMap<
+        rsnano_types::RaiEpoch,
+        (BlockHash, Arc<crate::consensus::rai::RaiFrontierMap>),
+    >,
+    #[cfg(feature = "rai_protocol")]
+    rai_completed_close_commits: std::collections::BTreeSet<(rsnano_types::RaiEpoch, BlockHash)>,
     #[cfg(feature = "rai_protocol")]
     rai_cut_election_durations: std::collections::BTreeMap<rsnano_types::RaiEpoch, Duration>,
     #[cfg(feature = "rai_protocol")]
@@ -609,10 +621,11 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    fn commit_rai_close_frontiers(
+    pub(super) fn commit_rai_close_frontiers(
         ledger: Option<&Ledger>,
         epoch: rsnano_types::RaiEpoch,
         frontiers: &crate::consensus::rai::RaiFrontierMap,
+        cursors: &mut std::collections::BTreeMap<rsnano_types::RaiEpoch, rsnano_types::Account>,
     ) -> bool {
         let Some(ledger) = ledger else {
             debug_assert!(cfg!(test), "live RAI close installation requires a ledger");
@@ -640,26 +653,61 @@ impl ActiveElectionsContainer {
         {
             return false;
         }
-        let pending =
-            ledger.rai_uncommitted_close_frontiers(epoch, frontiers, CLOSE_CEMENT_ROOTS_PER_PASS);
+        let pending = ledger.rai_uncommitted_close_frontiers_after(
+            epoch,
+            frontiers,
+            cursors.get(&epoch).copied(),
+            CLOSE_CEMENT_ROOTS_PER_PASS,
+        );
         if pending.is_empty() {
+            cursors.remove(&epoch);
             return true;
         }
 
         let stopped = AtomicBool::new(false);
         let mut observer = RaiCloseCementingObserver::default();
         ledger.confirm_batch_rai(
-            pending.iter().map(|frontier| (frontier, Some(epoch))),
+            pending.iter().map(|(_, frontier)| (frontier, Some(epoch))),
             &stopped,
             CLOSE_CEMENT_BLOCKS_PER_TXN,
             &mut observer,
         );
         if observer.failed {
+            // A failed root can become commit-ready later; restart so it is
+            // not permanently skipped by the monotonic cursor.
+            cursors.remove(&epoch);
             return false;
         }
-        ledger
-            .rai_uncommitted_close_frontiers(epoch, frontiers, 1)
-            .is_empty()
+        let mut last_committed = cursors.get(&epoch).copied();
+        for (account, hash) in &pending {
+            let frontier = &frontiers[account];
+            debug_assert_eq!(frontier.frontier, *hash);
+            if !ledger.rai_close_frontier_is_committed(epoch, account, frontier) {
+                match last_committed {
+                    Some(account) => {
+                        cursors.insert(epoch, account);
+                    }
+                    None => {
+                        cursors.remove(&epoch);
+                    }
+                }
+                return false;
+            }
+            last_committed = Some(*account);
+        }
+        cursors.insert(epoch, last_committed.unwrap());
+        let complete = ledger
+            .rai_uncommitted_close_frontiers_after(
+                epoch,
+                frontiers,
+                cursors.get(&epoch).copied(),
+                1,
+            )
+            .is_empty();
+        if complete {
+            cursors.remove(&epoch);
+        }
+        complete
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -683,17 +731,81 @@ impl ActiveElectionsContainer {
                 .clone(),
         };
         let ledger = self.rai_ledger.clone();
-        self.rai_epoch_manager
-            .install_certified_close_record_after(
-                epoch,
-                round,
-                hash,
-                weights,
-                move |epoch, frontiers| {
-                    Self::commit_rai_close_frontiers(ledger.as_deref(), epoch, frontiers)
-                },
-            )
-            .cloned()
+        let ledger_commit_complete =
+            ledger.is_none() || self.rai_completed_close_commits.contains(&(epoch, hash));
+        let mut pending_frontiers = None;
+        let result = self
+            .rai_epoch_manager
+            .install_certified_close_record_after(epoch, round, hash, weights, |_, frontiers| {
+                if ledger_commit_complete {
+                    true
+                } else {
+                    pending_frontiers = Some(Arc::new(frontiers.clone()));
+                    false
+                }
+            })
+            .cloned();
+        if let Some(frontiers) = pending_frontiers {
+            self.rai_pending_close_commits
+                .entry(epoch)
+                .or_insert((hash, frontiers));
+        }
+        if result.is_ok() {
+            self.rai_pending_close_commits.remove(&epoch);
+            self.rai_close_commit_cursors.remove(&epoch);
+            self.rai_completed_close_commits.remove(&(epoch, hash));
+        }
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn rai_pending_close_commit(
+        &self,
+    ) -> Option<(
+        rsnano_types::RaiEpoch,
+        BlockHash,
+        Arc<crate::consensus::rai::RaiFrontierMap>,
+        Option<rsnano_types::Account>,
+    )> {
+        self.rai_pending_close_commits
+            .iter()
+            .next()
+            .map(|(epoch, (hash, frontiers))| {
+                (
+                    *epoch,
+                    *hash,
+                    frontiers.clone(),
+                    self.rai_close_commit_cursors.get(epoch).copied(),
+                )
+            })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn rai_close_commit_pass_finished(
+        &mut self,
+        epoch: rsnano_types::RaiEpoch,
+        hash: BlockHash,
+        complete: bool,
+        cursor: Option<rsnano_types::Account>,
+    ) {
+        if self
+            .rai_pending_close_commits
+            .get(&epoch)
+            .is_none_or(|(pending_hash, _)| *pending_hash != hash)
+        {
+            return;
+        }
+        match cursor {
+            Some(account) => {
+                self.rai_close_commit_cursors.insert(epoch, account);
+            }
+            None => {
+                self.rai_close_commit_cursors.remove(&epoch);
+            }
+        }
+        if complete {
+            self.rai_completed_close_commits.insert((epoch, hash));
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -3371,6 +3483,12 @@ impl ActiveElectionsContainer {
             rai_pending_close_contexts_by_hash: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_ledger: None,
+            #[cfg(feature = "rai_protocol")]
+            rai_close_commit_cursors: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_pending_close_commits: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_completed_close_commits: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_cut_election_durations: Default::default(),
             #[cfg(feature = "rai_protocol")]

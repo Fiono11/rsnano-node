@@ -296,6 +296,7 @@ impl Tickable for RaiEpochTicker {
         };
         let now = self.clock.now();
         self.aec.rai_tick(now, local_key, self.epoch_duration);
+        self.aec.rai_commit_pending_close(&self.ledger);
         let epoch_state = self.aec.rai_epoch_status().0;
         let closing = epoch_state.closing;
         if let Some(closed_through) = epoch_state.closed_through {
@@ -1221,6 +1222,31 @@ impl AecService {
             .write()
             .unwrap()
             .rai_tick(now, local_key, epoch_duration)
+    }
+
+    /// Runs one bounded close-ledger pass after releasing the AEC lock.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_commit_pending_close(&self, ledger: &rsnano_ledger::Ledger) {
+        let job = self.aec.read().unwrap().rai_pending_close_commit();
+        let Some((epoch, hash, frontiers, cursor)) = job else {
+            return;
+        };
+        let mut cursors = std::collections::BTreeMap::new();
+        if let Some(cursor) = cursor {
+            cursors.insert(epoch, cursor);
+        }
+        let complete = ActiveElectionsContainer::commit_rai_close_frontiers(
+            Some(ledger),
+            epoch,
+            &frontiers,
+            &mut cursors,
+        );
+        self.aec.write().unwrap().rai_close_commit_pass_finished(
+            epoch,
+            hash,
+            complete,
+            cursors.get(&epoch).copied(),
+        );
     }
 
     #[cfg(feature = "rai_protocol")]

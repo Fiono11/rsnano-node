@@ -313,10 +313,34 @@ impl Ledger {
         frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
         max_results: usize,
     ) -> Vec<BlockHash> {
+        self.rai_uncommitted_close_frontiers_after(epoch, frontiers, None, max_results)
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect()
+    }
+
+    /// Resumable variant used by close installation. The account is returned
+    /// with each hash so a caller can continue after the last inspected item
+    /// instead of rescanning an already committed prefix on every pass.
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_uncommitted_close_frontiers_after(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
+        after: Option<Account>,
+        max_results: usize,
+    ) -> Vec<(Account, BlockHash)> {
         assert!(max_results > 0);
         let txn = self.store.begin_read();
-        frontiers
-            .iter()
+        let entries: Box<dyn Iterator<Item = (&Account, &ConfirmationHeightInfo)> + '_> =
+            match after {
+                Some(account) => Box::new(frontiers.range((
+                    std::ops::Bound::Excluded(account),
+                    std::ops::Bound::Unbounded,
+                ))),
+                None => Box::new(frontiers.iter()),
+            };
+        entries
             .filter(|(account, frontier)| {
                 !self
                     .store
@@ -326,9 +350,25 @@ impl Ledger {
                     .is_some_and(|base| frontier.height <= base.height)
                     && self.store.rai_finalization.epoch(&txn, &frontier.frontier) != Some(epoch)
             })
-            .map(|(_, frontier)| frontier.frontier)
+            .map(|(account, frontier)| (*account, frontier.frontier))
             .take(max_results)
             .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_close_frontier_is_committed(
+        &self,
+        epoch: rsnano_types::RaiEpoch,
+        account: &Account,
+        frontier: &ConfirmationHeightInfo,
+    ) -> bool {
+        let txn = self.store.begin_read();
+        self.store
+            .rai_finalization
+            .frontier_before(&txn, epoch, account)
+            .as_ref()
+            .is_some_and(|base| frontier.height <= base.height)
+            || self.store.rai_finalization.epoch(&txn, &frontier.frontier) == Some(epoch)
     }
 
     /// Bounded details for close frontiers which still need durable epoch
@@ -431,21 +471,8 @@ impl Ledger {
     pub fn rai_confirmed_rep_weights(&self) -> RepWeights {
         let txn = self.store.begin_read();
         let mut weights = RepWeights::default();
-        for (_, info) in self.store.confirmation_height.iter(&txn) {
-            let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
-                continue;
-            };
-            let rep_hash =
-                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
-            let Some(rep) = self
-                .store
-                .block
-                .get(&txn, &rep_hash)
-                .and_then(|block| block.representative_field())
-            else {
-                continue;
-            };
-            weights.put(rep, weights.weight(&rep).wrapping_add(frontier.balance()));
+        for (representative, weight) in self.store.rai_finalization.confirmed_rep_weights(&txn) {
+            weights.put(representative, weight);
         }
         weights
     }
@@ -458,6 +485,18 @@ impl Ledger {
         frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
     ) -> RepWeights {
         let txn = self.store.begin_read();
+        if frontiers.len() as u64 == self.store.confirmation_height.count(&txn)
+            && frontiers.iter().all(|(account, frontier)| {
+                self.store.confirmation_height.get(&txn, account).as_ref() == Some(frontier)
+            })
+        {
+            let mut weights = RepWeights::default();
+            for (representative, weight) in self.store.rai_finalization.confirmed_rep_weights(&txn)
+            {
+                weights.put(representative, weight);
+            }
+            return weights;
+        }
         let mut weights = RepWeights::default();
         for info in frontiers.values() {
             let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
@@ -476,6 +515,49 @@ impl Ledger {
             weights.put(rep, weights.weight(&rep).wrapping_add(frontier.balance()));
         }
         weights
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn ensure_rai_confirmed_rep_weights(&self) {
+        let read = self.store.begin_read();
+        if self.store.rai_finalization.confirmed_account_count(&read)
+            == self.store.confirmation_height.count(&read)
+        {
+            return;
+        }
+        let frontiers = self
+            .store
+            .confirmation_height
+            .iter(&read)
+            .collect::<Vec<_>>();
+        drop(read);
+
+        let mut txn = self.store.begin_write();
+        self.store
+            .rai_finalization
+            .clear_confirmed_rep_weights(&mut txn);
+        for (account, info) in frontiers {
+            let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
+                continue;
+            };
+            let rep_hash =
+                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
+            let representative = self
+                .store
+                .block
+                .get(&txn, &rep_hash)
+                .and_then(|block| block.representative_field())
+                .expect("confirmed frontier must have a representative");
+            self.store
+                .rai_finalization
+                .put_confirmed_account_contribution(
+                    &mut txn,
+                    &account,
+                    representative,
+                    frontier.balance(),
+                );
+        }
+        txn.commit();
     }
     pub fn new_null() -> Self {
         Self::new(
@@ -537,6 +619,9 @@ impl Ledger {
                 txn.commit();
             }
         }
+
+        #[cfg(feature = "rai_protocol")]
+        self.ensure_rai_confirmed_rep_weights();
 
         #[cfg(not(feature = "rai_protocol"))]
         info!("Generating representative weights cache...");
@@ -1640,6 +1725,64 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
+    fn confirmed_representative_weights_advance_atomically_with_cementation() {
+        use crate::LedgerInserter;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, hash: &BlockHash) {
+                panic!("cementation failed for {hash}")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let genesis_rep = ledger.constants.genesis_account.into();
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&genesis_rep),
+            Amount::MAX
+        );
+
+        let key = rsnano_types::PrivateKey::from(42);
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(key.account(), 1);
+        // Insertion alone must not affect the confirmed view.
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&genesis_rep),
+            Amount::MAX
+        );
+
+        let stopped = AtomicBool::new(false);
+        let mut observer = Observer;
+        ledger.confirm_batch_rai([(&send.hash(), None)], &stopped, 1024, &mut observer);
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&genesis_rep),
+            Amount::MAX - Amount::raw(1)
+        );
+
+        let open = LedgerInserter::new(&ledger)
+            .account(&key)
+            .receive(send.hash());
+        ledger.confirm_batch_rai([(&open.hash(), None)], &stopped, 1024, &mut observer);
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&key.public_key()),
+            Amount::raw(1)
+        );
+
+        let replacement = rsnano_types::PrivateKey::from(43).public_key();
+        let change = LedgerInserter::new(&ledger)
+            .account(&key)
+            .change(replacement);
+        ledger.confirm_batch_rai([(&change.hash(), None)], &stopped, 1024, &mut observer);
+        let weights = ledger.rai_confirmed_rep_weights();
+        assert_eq!(weights.weight(&key.public_key()), Amount::ZERO);
+        assert_eq!(weights.weight(&replacement), Amount::raw(1));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
     fn rai_close_frontiers_can_be_committed_in_bounded_passes() {
         use crate::LedgerInserter;
         use std::collections::BTreeMap;
@@ -1691,6 +1834,11 @@ mod tests {
         let first_pass =
             ledger.rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1);
         assert_eq!(first_pass.len(), 1);
+        let first_account = frontiers
+            .iter()
+            .find(|(_, info)| info.frontier == first_pass[0])
+            .map(|(account, _)| *account)
+            .unwrap();
         ledger.confirm_batch_rai(
             first_pass
                 .iter()
@@ -1699,8 +1847,16 @@ mod tests {
             1024,
             &mut observer,
         );
-        let second_pass =
-            ledger.rai_uncommitted_close_frontiers(rsnano_types::RaiEpoch::ZERO, &frontiers, 1);
+        let second_pass = ledger
+            .rai_uncommitted_close_frontiers_after(
+                rsnano_types::RaiEpoch::ZERO,
+                &frontiers,
+                Some(first_account),
+                1,
+            )
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect::<Vec<_>>();
         assert_eq!(second_pass.len(), 1);
         assert_ne!(first_pass, second_pass);
         ledger.confirm_batch_rai(

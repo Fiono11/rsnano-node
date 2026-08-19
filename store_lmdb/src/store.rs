@@ -59,6 +59,12 @@ impl LmdbStore {
     }
 
     pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
+        #[cfg(feature = "rai_protocol")]
+        let rai_finalization = {
+            let store = LmdbRaiFinalizationStore::new(&env)?;
+            store.ensure_account_epoch_index(&env);
+            store
+        };
         Ok(Self {
             cache: Arc::new(LedgerCache::new()),
             block: LmdbBlockStore::new(&env)?,
@@ -72,7 +78,7 @@ impl LmdbStore {
             successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
             #[cfg(feature = "rai_protocol")]
-            rai_finalization: LmdbRaiFinalizationStore::new(&env)?,
+            rai_finalization,
             #[cfg(feature = "ledger_snapshots")]
             forks: LmdbForksStore::new(&env)?,
             env,

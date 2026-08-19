@@ -8,6 +8,8 @@ use rsnano_types::{BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use crate::LedgerConstants;
+#[cfg(feature = "rai_protocol")]
+use crate::RepresentativeBlockFinder;
 
 /// Cements Blocks in the ledger
 pub(crate) struct BlockCementer<'a> {
@@ -117,6 +119,25 @@ impl<'a> BlockCementer<'a> {
                     self.store
                         .confirmation_height
                         .put(&mut txn, &block.account(), &conf_height);
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        let rep_hash =
+                            RepresentativeBlockFinder::new(&txn, self.store).find_rep_block(hash);
+                        let representative = self
+                            .store
+                            .block
+                            .get(&txn, &rep_hash)
+                            .and_then(|block| block.representative_field())
+                            .expect("confirmed block must have a representative");
+                        self.store
+                            .rai_finalization
+                            .put_confirmed_account_contribution(
+                                &mut txn,
+                                &block.account(),
+                                representative,
+                                block.balance(),
+                            );
+                    }
                     self.store
                         .cache
                         .confirmed_count
