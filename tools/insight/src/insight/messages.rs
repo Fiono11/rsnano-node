@@ -231,7 +231,7 @@ fn message_summary_label(message: &RecordedMessage) -> String {
             format!(
                 "{:?} ({}){}{}",
                 message.message.message_type(),
-                ack.vote().hashes.len(),
+                ack.vote().len(),
                 final_vote,
                 rebroadcast
             )

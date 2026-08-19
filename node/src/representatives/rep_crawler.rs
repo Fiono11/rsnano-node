@@ -130,7 +130,7 @@ impl RepCrawler {
         queries.modify_for_channel(channel, |query| {
             // TODO: This linear search could be slow, especially with large votes.
             let target_hash = query.hash;
-            let found = vote.hashes.contains(&target_hash);
+            let found = vote.hashes().any(|hash| *hash == target_hash);
             if found {
                 debug!(
                     "Processing response for block: {} from: {}",

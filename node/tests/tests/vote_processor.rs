@@ -152,7 +152,7 @@ fn empty_hashes() {
 
     assert_eq!(vote.voter, key.public_key());
     assert_eq!(vote.timestamp(), VoteTimestamp::TIMESTAMP_MIN);
-    assert_eq!(vote.hashes.len(), 0);
+    assert_eq!(vote.len(), 0);
 }
 
 #[test]

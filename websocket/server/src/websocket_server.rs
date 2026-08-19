@@ -150,7 +150,7 @@ pub fn vote_received(vote: &Vote, result: Result<(), VoteError>) -> MessageEnvel
             sequence: vote.timestamp().to_string(),
             timestamp: vote.timestamp().to_string(),
             duration: vote.duration_bits().to_string(),
-            blocks: vote.hashes.iter().map(|h| h.to_string()).collect(),
+            blocks: vote.hashes().map(|h| h.to_string()).collect(),
             vote_type: match result {
                 Ok(()) => "vote",
                 Err(e) => e.as_str(),

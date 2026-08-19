@@ -54,11 +54,11 @@ impl VotedBlockMap {
     ) -> u64 {
         let mut inserted = 0;
         // Results map should be empty or have the same hashes as the vote
-        debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
+        debug_assert!(results.is_empty() || vote.hashes().all(|h| results.contains_key(h)));
 
         // If results map is empty, insert all hashes (meant for testing)
         if results.is_empty() {
-            for hash in &vote.hashes {
+            for hash in vote.hashes() {
                 self.insert_vote(vote.clone(), hash, rep_weight, now);
                 inserted += 1;
             }

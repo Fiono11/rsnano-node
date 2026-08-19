@@ -41,7 +41,7 @@ impl FilteredVote {
     }
 
     pub fn filtered_blocks(&self) -> impl Iterator<Item = &BlockHash> {
-        self.vote.hashes.iter().filter(|&h| {
+        self.vote.hashes().filter(|&h| {
             if self.filter.is_zero() {
                 true
             } else {

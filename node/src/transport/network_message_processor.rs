@@ -496,7 +496,7 @@ impl NetworkMessageProcessor {
             }
             Message::ConfirmAck(ack) => {
                 #[cfg(feature = "rai_protocol")]
-                if ack.vote().metadata.iter().any(|metadata| {
+                if ack.vote().rai_metadata_iter().any(|metadata| {
                     matches!(
                         &metadata.election_id,
                         rsnano_types::RaiElectionId::CloseCut { .. }
@@ -536,10 +536,10 @@ impl NetworkMessageProcessor {
                     eprintln!(
                         "RAI_MSG pr={pr} event=recv_vote enqueued={added} channel={} metadata={:?} voter={} vote_hash={} hashes={:?}",
                         channel.channel_id(),
-                        vote.metadata,
+                        vote.rai_metadata_iter().collect::<Vec<_>>(),
                         vote.voter,
                         vote.hash(),
-                        vote.hashes
+                        vote.hashes().collect::<Vec<_>>()
                     );
                 }
 

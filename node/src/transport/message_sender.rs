@@ -76,10 +76,10 @@ impl MessageSender {
             eprintln!(
                 "RAI_MSG pr={pr} event=send_vote queued={sent} channel={} metadata={:?} voter={} vote_hash={} hashes={:?}",
                 channel.channel_id(),
-                vote.metadata,
+                vote.rai_metadata_iter().collect::<Vec<_>>(),
                 vote.voter,
                 vote.hash(),
-                vote.hashes
+                vote.hashes().collect::<Vec<_>>()
             );
         }
 

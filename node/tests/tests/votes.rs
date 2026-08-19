@@ -125,7 +125,7 @@ fn vote_generator_cache() {
     let votes = node.history.votes(&epoch1.root(), &epoch1.hash(), false);
     assert!(!votes.is_empty());
 
-    let hashes = &votes[0].hashes;
+    let hashes = votes[0].hashes().copied().collect::<Vec<_>>();
     assert!(hashes.contains(&epoch1.hash()));
 }
 

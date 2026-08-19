@@ -100,9 +100,7 @@ impl RebroadcastProcessor {
     fn update_stats(&self, vote: &Vote, tier: RepTier) {
         self.stats.rebroadcast.fetch_add(1, Relaxed);
 
-        self.stats
-            .rebroadcast_hashes
-            .fetch_add(vote.hashes.len(), Relaxed);
+        self.stats.rebroadcast_hashes.fetch_add(vote.len(), Relaxed);
 
         self.stats.tiers[tier as usize].fetch_add(1, Relaxed);
     }

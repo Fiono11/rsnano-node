@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(history.total_vote_hashes(), 1, "total hashes");
         assert!(history.contains_representative(&vote.voter), "contains rep");
         assert!(
-            history.contains_block(&vote.voter, &vote.hashes[0]),
+            history.contains_block(&vote.voter, vote.hashes().next().unwrap()),
             "contains block"
         );
     }
@@ -313,7 +313,7 @@ mod tests {
         // Both vote should be kept in recent hashes index
         assert_eq!(history.total_history(), 1);
         assert_eq!(history.total_vote_hashes(), 2);
-        assert!(history.contains_block(&vote.voter, &vote.hashes[0]));
+        assert!(history.contains_block(&vote.voter, vote.hashes().next().unwrap()));
         assert!(history.contains_vote(&vote.hash()));
         assert!(history.contains_vote(&final_vote.hash()));
     }

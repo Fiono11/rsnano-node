@@ -60,8 +60,7 @@ impl RepresentativeEntry {
         now: Timestamp,
     ) -> Result<(), RebroadcastError> {
         let should_rebroadcast = vote
-            .hashes
-            .iter()
+            .hashes()
             .any(|hash| self.should_rebroadcast_hash(hash, vote, now));
 
         if should_rebroadcast {
@@ -81,7 +80,7 @@ impl RepresentativeEntry {
     }
 
     fn insert_block_hashes(&mut self, vote: &Vote, now: Timestamp) {
-        for hash in &vote.hashes {
+        for hash in vote.hashes() {
             self.history.insert(
                 *hash,
                 RebroadcastEntry {

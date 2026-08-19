@@ -1,5 +1,7 @@
 use super::{ConfirmReq, MessageVariant};
 use bitvec::prelude::BitArray;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiBatchKind;
 use rsnano_types::{DeserializationError, Vote};
 use std::fmt::{Debug, Display};
 /*
@@ -34,7 +36,7 @@ impl ConfirmAck {
     pub const RAI_TIMEOUT_SLOT_FLAG: usize = 3;
 
     pub fn new_with_own_vote(vote: Vote) -> Self {
-        assert!(vote.hashes.len() <= Self::HASHES_MAX);
+        assert!(vote.len() <= Self::HASHES_MAX);
         Self {
             vote,
             is_rebroadcasted: false,
@@ -43,7 +45,7 @@ impl ConfirmAck {
     }
 
     pub fn new_with_rebroadcasted_vote(vote: Vote) -> Self {
-        assert!(vote.hashes.len() <= Self::HASHES_MAX);
+        assert!(vote.len() <= Self::HASHES_MAX);
         Self {
             vote,
             is_rebroadcasted: true,
@@ -66,6 +68,10 @@ impl ConfirmAck {
     pub fn serialized_size(extensions: BitArray<u16>) -> usize {
         let count = ConfirmReq::count(extensions);
         #[cfg(feature = "rai_protocol")]
+        if extensions[Self::RAI_COMPACT_SLOT_FLAG] && extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
+            return Vote::serialized_size_rai_shared(count as usize, RaiBatchKind::Slot);
+        }
+        #[cfg(feature = "rai_protocol")]
         if extensions[Self::RAI_COMPACT_SLOT_FLAG] {
             return Vote::serialized_size_rai_slot(count as usize);
         }
@@ -84,7 +90,7 @@ impl ConfirmAck {
         #[cfg(feature = "rai_protocol")]
         let vote =
             if extensions[Self::RAI_COMPACT_SLOT_FLAG] && extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
-                return Err(DeserializationError::InvalidData);
+                Vote::deserialize_rai_shared(bytes, RaiBatchKind::Slot)?
             } else if extensions[Self::RAI_COMPACT_SLOT_FLAG] {
                 Vote::deserialize_rai_slot(bytes)?
             } else if extensions[Self::RAI_TIMEOUT_SLOT_FLAG] {
@@ -94,7 +100,7 @@ impl ConfirmAck {
             };
         #[cfg(not(feature = "rai_protocol"))]
         let vote = Vote::deserialize(bytes)?;
-        if vote.hashes.len() != ConfirmReq::count(extensions) as usize {
+        if vote.len() != ConfirmReq::count(extensions) as usize {
             return Err(DeserializationError::InvalidData);
         }
 
@@ -113,6 +119,10 @@ impl ConfirmAck {
     where
         T: std::io::Write,
     {
+        #[cfg(feature = "rai_protocol")]
+        if self.vote.uses_rai_shared_context() {
+            return self.vote.serialize_rai_shared(writer);
+        }
         self.vote.serialize(writer)
     }
 }
@@ -120,13 +130,13 @@ impl ConfirmAck {
 impl MessageVariant for ConfirmAck {
     fn header_extensions(&self, _payload_len: u16) -> BitArray<u16> {
         let mut extensions = BitArray::default();
-        extensions |= ConfirmReq::count_bits(self.vote.hashes.len() as u8);
+        extensions |= ConfirmReq::count_bits(self.vote.len() as u8);
         #[cfg(feature = "rai_protocol")]
         extensions.set(Self::RAI_COMPACT_SLOT_FLAG, self.vote.is_rai_slot_batch());
         #[cfg(feature = "rai_protocol")]
         extensions.set(
             Self::RAI_TIMEOUT_SLOT_FLAG,
-            self.vote.is_rai_timeout_slot_batch(),
+            self.vote.is_rai_timeout_slot_batch() || self.vote.uses_rai_shared_context(),
         );
         extensions.set(Self::REBROADCASTED_FLAG, self.is_rebroadcasted);
         extensions
@@ -209,9 +219,10 @@ mod tests {
     fn deserialize_set_rebroadcasted_flag() {
         let mut bytes = Vec::new();
         let vote = Vote::new_test_instance();
-        vote.serialize(&mut bytes).unwrap();
+        let original = ConfirmAck::new_with_own_vote(vote.clone());
+        original.serialize(&mut bytes).unwrap();
 
-        let mut extensions = ConfirmAck::new_with_own_vote(vote.clone()).header_extensions(0);
+        let mut extensions = original.header_extensions(0);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, true);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
@@ -222,9 +233,10 @@ mod tests {
     fn deserialize_unset_rebroadcasted_flag() {
         let mut bytes = Vec::new();
         let vote = Vote::new_test_instance();
-        vote.serialize(&mut bytes).unwrap();
+        let original = ConfirmAck::new_with_own_vote(vote.clone());
+        original.serialize(&mut bytes).unwrap();
 
-        let mut extensions = ConfirmAck::new_with_own_vote(vote.clone()).header_extensions(0);
+        let mut extensions = original.header_extensions(0);
         extensions.set(ConfirmAck::REBROADCASTED_FLAG, false);
 
         let ack = ConfirmAck::deserialize(&bytes, extensions, 0).unwrap();
@@ -276,6 +288,13 @@ mod tests {
         let extensions = ack.header_extensions(0);
 
         assert_eq!(ConfirmReq::count(extensions), 2);
+        assert!(extensions[ConfirmAck::RAI_COMPACT_SLOT_FLAG]);
+        assert!(extensions[ConfirmAck::RAI_TIMEOUT_SLOT_FLAG]);
+        assert_eq!(
+            ConfirmAck::serialized_size(extensions),
+            Vote::serialized_size_rai_shared(2, RaiBatchKind::Slot)
+        );
+        assert!(ConfirmAck::serialized_size(extensions) < Vote::serialized_size_rai_slot(2));
         assert_deserializable(&Message::ConfirmAck(ack));
     }
 

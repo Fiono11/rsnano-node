@@ -526,7 +526,12 @@ mod rai_tests {
         let queue = VoteProcessorQueue::new_null();
         let vote = Arc::new(Vote::new_test_instance());
         let mut altered_vote = vote.as_ref().clone();
-        altered_vote.hashes[0] = BlockHash::from(999);
+        altered_vote
+            .rai_entries_mut()
+            .next()
+            .unwrap()
+            .1
+            .clone_from(&rsnano_types::RaiVoteTarget::Hash(BlockHash::from(999)));
 
         assert!(queue.enqueue(vote, None, VoteDelivery::Forwarded, None));
         assert!(queue.enqueue(Arc::new(altered_vote), None, VoteDelivery::Forwarded, None,));

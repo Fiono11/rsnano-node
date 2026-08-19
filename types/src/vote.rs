@@ -44,6 +44,37 @@ pub struct RaiTimeoutSlot {
 
 #[cfg(feature = "rai_protocol")]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RaiVoteTarget {
+    Hash(BlockHash),
+    Timeout(RaiTimeoutSlot),
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RaiVoteEntry {
+    pub metadata: RaiVoteMetadata,
+    pub target: RaiVoteTarget,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaiBatchKind {
+    Slot,
+    TimeoutSlot,
+    Close,
+    Full,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RaiSharedContext {
+    phase: RaiVotePhase,
+    epoch: RaiEpoch,
+    scope: RaiCommitteeScope,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RaiElectionId {
     Slot(RaiSlotId),
     CloseCut { epoch: RaiEpoch, round: u32 },
@@ -120,18 +151,6 @@ impl RaiVoteMetadata {
     /// never admissible as slot or close-election evidence.
     pub fn is_discovery(&self) -> bool {
         self.election_id == RaiElectionId::default()
-    }
-
-    fn digest_bytes_for(&self, compact_slot: bool) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(Self::SERIALIZED_SIZE);
-        if compact_slot {
-            self.serialize_slot(&mut bytes)
-                .expect("serializing compact slot metadata cannot fail");
-        } else {
-            self.serialize(&mut bytes)
-                .expect("serializing close metadata cannot fail");
-        }
-        bytes
     }
 
     fn serialize_slot<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
@@ -253,14 +272,16 @@ pub struct Vote {
     timestamp: VoteTimestamp,
 
     #[cfg(feature = "rai_protocol")]
-    pub metadata: Vec<RaiVoteMetadata>,
+    entries: Vec<RaiVoteEntry>,
     /// True only when this transport was decoded from the compact-slot wire
     /// representation. This disambiguates its omitted root from the legacy
     /// contextless discovery sentinel, which also uses a zero root.
     #[cfg(feature = "rai_protocol")]
     compact_rai_slot: bool,
     #[cfg(feature = "rai_protocol")]
-    timeout_slots: Vec<Option<RaiTimeoutSlot>>,
+    batch_kind: Option<RaiBatchKind>,
+    #[cfg(feature = "rai_protocol")]
+    shared_context: Option<RaiSharedContext>,
 
     // Account that's voting
     pub voter: PublicKey,
@@ -269,6 +290,7 @@ pub struct Vote {
     pub signature: Signature,
 
     // The hashes for which this vote directly covers
+    #[cfg(not(feature = "rai_protocol"))]
     pub hashes: Vec<BlockHash>,
 }
 
@@ -279,17 +301,139 @@ static RAI_HASH_PREFIX: &[u8] = b"RAI/VoteBatch/v3";
 
 impl Vote {
     pub const MAX_HASHES: usize = 255;
+
+    pub fn len(&self) -> usize {
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.entries.len()
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.hashes.len()
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    #[cfg(feature = "rai_protocol")]
+    const RAI_SHARED_WIRE_VERSION: u8 = 1;
+    #[cfg(feature = "rai_protocol")]
+    const RAI_SHARED_HEADER_SIZE: usize = 1 + 1 + 1 + 8 + 1;
+
+    #[cfg(feature = "rai_protocol")]
+    fn classify_entries(entries: &[RaiVoteEntry]) -> Option<RaiBatchKind> {
+        if entries.is_empty() {
+            return None;
+        }
+        let all_slots = entries.iter().all(|entry| {
+            entry.metadata.epoch == entry.metadata.election_id.epoch()
+                && matches!(entry.metadata.election_id, RaiElectionId::Slot(_))
+        });
+        let all_close = entries.iter().all(|entry| {
+            entry.metadata.epoch == entry.metadata.election_id.epoch()
+                && matches!(
+                    entry.metadata.election_id,
+                    RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. }
+                )
+                && matches!(entry.target, RaiVoteTarget::Hash(hash) if !hash.is_zero())
+        });
+        if all_close {
+            Some(RaiBatchKind::Close)
+        } else if all_slots
+            && entries
+                .iter()
+                .all(|entry| matches!(entry.target, RaiVoteTarget::Hash(hash) if !hash.is_zero()))
+        {
+            Some(RaiBatchKind::Slot)
+        } else if all_slots
+            && entries
+                .iter()
+                .all(|entry| matches!(entry.target, RaiVoteTarget::Hash(_)))
+        {
+            Some(RaiBatchKind::Full)
+        } else if all_slots
+            && entries.iter().all(
+                |entry| matches!(entry.target, RaiVoteTarget::Timeout(slot) if slot.height != 0),
+            )
+        {
+            Some(RaiBatchKind::TimeoutSlot)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn compare_entries(
+        kind: RaiBatchKind,
+        left: &RaiVoteEntry,
+        right: &RaiVoteEntry,
+    ) -> std::cmp::Ordering {
+        let metadata_order = if matches!(kind, RaiBatchKind::Slot | RaiBatchKind::TimeoutSlot) {
+            (
+                left.metadata.phase,
+                left.metadata.epoch,
+                left.metadata.scope,
+            )
+                .cmp(&(
+                    right.metadata.phase,
+                    right.metadata.epoch,
+                    right.metadata.scope,
+                ))
+        } else {
+            left.metadata.cmp(&right.metadata)
+        };
+        metadata_order.then_with(|| left.target.cmp(&right.target))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn shared_context(entries: &[RaiVoteEntry]) -> Option<RaiSharedContext> {
+        let first = entries.first()?;
+        let context = RaiSharedContext {
+            phase: first.metadata.phase,
+            epoch: first.metadata.epoch,
+            scope: first.metadata.scope,
+        };
+        entries
+            .iter()
+            .all(|entry| {
+                entry.metadata.phase == context.phase
+                    && entry.metadata.epoch == context.epoch
+                    && entry.metadata.scope == context.scope
+            })
+            .then_some(context)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn metadata_digest_bytes(metadata: &RaiVoteMetadata, compact: bool) -> ([u8; 79], usize) {
+        let mut bytes = [0; 79];
+        let size = if compact {
+            metadata
+                .serialize_slot(&mut &mut bytes[..RaiVoteMetadata::SLOT_SERIALIZED_SIZE])
+                .expect("fixed metadata buffer");
+            RaiVoteMetadata::SLOT_SERIALIZED_SIZE
+        } else {
+            metadata
+                .serialize(&mut &mut bytes[..RaiVoteMetadata::SERIALIZED_SIZE])
+                .expect("fixed metadata buffer");
+            RaiVoteMetadata::SERIALIZED_SIZE
+        };
+        (bytes, size)
+    }
     pub fn null() -> Self {
         Self {
             timestamp: 0.into(),
             #[cfg(feature = "rai_protocol")]
-            metadata: Vec::new(),
+            entries: Vec::new(),
             #[cfg(feature = "rai_protocol")]
             compact_rai_slot: false,
             #[cfg(feature = "rai_protocol")]
-            timeout_slots: Vec::new(),
+            batch_kind: None,
+            #[cfg(feature = "rai_protocol")]
+            shared_context: None,
             voter: PublicKey::ZERO,
             signature: Signature::new(),
+            #[cfg(not(feature = "rai_protocol"))]
             hashes: Vec::new(),
         }
     }
@@ -362,33 +506,67 @@ impl Vote {
         duration: u8,
         entries: impl IntoIterator<Item = (RaiVoteMetadata, BlockHash)>,
     ) -> Self {
-        let mut entries: Vec<_> = entries.into_iter().collect();
-        let compact_slot = !entries.is_empty()
-            && entries.iter().all(|(metadata, hash)| {
-                matches!(metadata.election_id, RaiElectionId::Slot(_)) && !hash.is_zero()
-            });
-        entries.sort_unstable_by(|(left_meta, left_hash), (right_meta, right_hash)| {
-            left_meta
-                .digest_bytes_for(compact_slot)
-                .cmp(&right_meta.digest_bytes_for(compact_slot))
-                .then_with(|| left_hash.cmp(right_hash))
-        });
-        entries.dedup_by(|(right_meta, right_hash), (left_meta, left_hash)| {
-            left_meta.digest_bytes_for(compact_slot) == right_meta.digest_bytes_for(compact_slot)
-                && left_hash == right_hash
-        });
+        let mut entries = entries
+            .into_iter()
+            .map(|(metadata, hash)| RaiVoteEntry {
+                metadata,
+                target: RaiVoteTarget::Hash(hash),
+            })
+            .collect::<Vec<_>>();
+        let kind = Self::classify_entries(&entries);
+        if let Some(kind) = kind {
+            entries.sort_unstable_by(|left, right| Self::compare_entries(kind, left, right));
+            entries.dedup_by(|right, left| Self::compare_entries(kind, left, right).is_eq());
+        } else {
+            assert!(entries.is_empty(), "mixed or invalid RAI vote batch");
+        }
         assert!(entries.len() <= Self::MAX_HASHES);
-        let (metadata, hashes): (Vec<RaiVoteMetadata>, Vec<BlockHash>) =
-            entries.into_iter().unzip();
-        let entry_count = hashes.len();
+        let shared_context = Self::shared_context(&entries);
         let mut result = Self {
             voter: priv_key.public_key(),
             timestamp: VoteTimestamp::new(timestamp, duration),
             signature: Signature::new(),
-            hashes,
-            metadata,
+            entries,
             compact_rai_slot: false,
-            timeout_slots: vec![None; entry_count],
+            batch_kind: kind,
+            shared_context,
+        };
+        result.signature = priv_key.sign(result.hash().as_bytes());
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    /// Signs entries which the caller already placed in canonical order.
+    /// This is intended for generators that can maintain ordering while
+    /// assembling a batch and avoids an O(n log n) sort on the signing path.
+    pub fn new_canonical_rai_batch(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        entries: impl IntoIterator<Item = (RaiVoteMetadata, BlockHash)>,
+    ) -> Self {
+        let entries = entries
+            .into_iter()
+            .map(|(metadata, hash)| RaiVoteEntry {
+                metadata,
+                target: RaiVoteTarget::Hash(hash),
+            })
+            .collect::<Vec<_>>();
+        let kind = Self::classify_entries(&entries).expect("mixed or invalid RAI vote batch");
+        assert!(entries.len() <= Self::MAX_HASHES);
+        assert!(
+            (1..entries.len())
+                .all(|i| Self::compare_entries(kind, &entries[i - 1], &entries[i]).is_lt())
+        );
+        let shared_context = Self::shared_context(&entries);
+        let mut result = Self {
+            voter: priv_key.public_key(),
+            timestamp: VoteTimestamp::new(timestamp, duration),
+            signature: Signature::new(),
+            entries,
+            compact_rai_slot: false,
+            batch_kind: Some(kind),
+            shared_context,
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
@@ -399,17 +577,42 @@ impl Vote {
     pub fn rai_entries(
         &self,
     ) -> impl ExactSizeIterator<Item = (&RaiVoteMetadata, &BlockHash)> + '_ {
-        self.metadata.iter().zip(&self.hashes)
+        self.entries.iter().map(|entry| {
+            let hash = match &entry.target {
+                RaiVoteTarget::Hash(hash) => hash,
+                RaiVoteTarget::Timeout(_) => &BlockHash::ZERO,
+            };
+            (&entry.metadata, hash)
+        })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_entries_mut(
+        &mut self,
+    ) -> impl ExactSizeIterator<Item = (&mut RaiVoteMetadata, &mut RaiVoteTarget)> + '_ {
+        self.entries
+            .iter_mut()
+            .map(|entry| (&mut entry.metadata, &mut entry.target))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_metadata_iter(&self) -> impl ExactSizeIterator<Item = &RaiVoteMetadata> + '_ {
+        self.entries.iter().map(|entry| &entry.metadata)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_metadata(&self, index: usize) -> Option<&RaiVoteMetadata> {
-        self.metadata.get(index)
+        self.entries.get(index).map(|entry| &entry.metadata)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_timeout_slot(&self, index: usize) -> Option<RaiTimeoutSlot> {
-        self.timeout_slots.get(index).copied().flatten()
+        self.entries
+            .get(index)
+            .and_then(|entry| match entry.target {
+                RaiVoteTarget::Timeout(slot) => Some(slot),
+                RaiVoteTarget::Hash(_) => None,
+            })
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -419,32 +622,60 @@ impl Vote {
         duration: u8,
         entries: impl IntoIterator<Item = (RaiVoteMetadata, RaiTimeoutSlot)>,
     ) -> Self {
-        let mut entries = entries.into_iter().collect::<Vec<_>>();
-        entries.sort_unstable_by(|(left_meta, left_slot), (right_meta, right_slot)| {
-            left_meta
-                .digest_bytes_for(true)
-                .cmp(&right_meta.digest_bytes_for(true))
-                .then_with(|| left_slot.cmp(right_slot))
-        });
-        entries.dedup_by(|(right_meta, right_slot), (left_meta, left_slot)| {
-            left_meta.digest_bytes_for(true) == right_meta.digest_bytes_for(true)
-                && left_slot == right_slot
-        });
+        let mut entries = entries
+            .into_iter()
+            .map(|(metadata, slot)| RaiVoteEntry {
+                metadata,
+                target: RaiVoteTarget::Timeout(slot),
+            })
+            .collect::<Vec<_>>();
+        let kind = Self::classify_entries(&entries).expect("invalid RAI timeout batch");
+        entries.sort_unstable_by(|left, right| Self::compare_entries(kind, left, right));
+        entries.dedup_by(|right, left| Self::compare_entries(kind, left, right).is_eq());
         assert!(entries.len() <= Self::MAX_HASHES);
-        assert!(entries.iter().all(|(metadata, slot)| {
-            matches!(metadata.election_id, RaiElectionId::Slot(_)) && slot.height != 0
-        }));
+        let shared_context = Self::shared_context(&entries);
         let mut result = Self {
             voter: priv_key.public_key(),
             timestamp: VoteTimestamp::new(timestamp, duration),
             signature: Signature::new(),
-            hashes: vec![BlockHash::ZERO; entries.len()],
-            metadata: entries
-                .iter()
-                .map(|(metadata, _)| metadata.clone())
-                .collect(),
+            entries,
             compact_rai_slot: false,
-            timeout_slots: entries.into_iter().map(|(_, slot)| Some(slot)).collect(),
+            batch_kind: Some(kind),
+            shared_context,
+        };
+        result.signature = priv_key.sign(result.hash().as_bytes());
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_canonical_rai_timeout_batch(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        entries: impl IntoIterator<Item = (RaiVoteMetadata, RaiTimeoutSlot)>,
+    ) -> Self {
+        let entries = entries
+            .into_iter()
+            .map(|(metadata, slot)| RaiVoteEntry {
+                metadata,
+                target: RaiVoteTarget::Timeout(slot),
+            })
+            .collect::<Vec<_>>();
+        let kind = Self::classify_entries(&entries).expect("invalid RAI timeout batch");
+        assert!(entries.len() <= Self::MAX_HASHES);
+        assert!(
+            (1..entries.len())
+                .all(|i| Self::compare_entries(kind, &entries[i - 1], &entries[i]).is_lt())
+        );
+        let shared_context = Self::shared_context(&entries);
+        let mut result = Self {
+            voter: priv_key.public_key(),
+            timestamp: VoteTimestamp::new(timestamp, duration),
+            signature: Signature::new(),
+            entries,
+            compact_rai_slot: false,
+            batch_kind: Some(kind),
+            shared_context,
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
@@ -457,29 +688,40 @@ impl Vote {
 
     #[cfg(feature = "rai_protocol")]
     pub fn rai_entry_count(&self) -> usize {
-        self.hashes.len()
+        self.entries.len()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn hashes(&self) -> impl ExactSizeIterator<Item = &BlockHash> {
+        self.entries.iter().map(|entry| match &entry.target {
+            RaiVoteTarget::Hash(hash) => hash,
+            RaiVoteTarget::Timeout(_) => &BlockHash::ZERO,
+        })
+    }
+
+    #[cfg(not(feature = "rai_protocol"))]
+    pub fn hashes(&self) -> impl ExactSizeIterator<Item = &BlockHash> {
+        self.hashes.iter()
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn is_rai_slot_batch(&self) -> bool {
-        !self.metadata.is_empty()
-            && self
-                .metadata
-                .iter()
-                .all(|m| matches!(m.election_id, RaiElectionId::Slot(_)))
-            && self.hashes.iter().all(|hash| !hash.is_zero())
+        self.batch_kind == Some(RaiBatchKind::Slot)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn is_rai_timeout_slot_batch(&self) -> bool {
-        !self.metadata.is_empty()
-            && self.metadata.len() == self.timeout_slots.len()
-            && self
-                .metadata
-                .iter()
-                .all(|metadata| matches!(metadata.election_id, RaiElectionId::Slot(_)))
-            && self.hashes.iter().all(BlockHash::is_zero)
-            && self.timeout_slots.iter().all(Option::is_some)
+        self.batch_kind == Some(RaiBatchKind::TimeoutSlot)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn uses_rai_shared_context(&self) -> bool {
+        self.shared_context.is_some() && self.batch_kind == Some(RaiBatchKind::Slot)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_batch_kind(&self) -> Option<RaiBatchKind> {
+        self.batch_kind
     }
 
     pub fn new_test_instance() -> Self {
@@ -515,17 +757,23 @@ impl Vote {
         {
             let mut root_builder = Blake2HashBuilder::new()
                 .update(self.timestamp.to_le_bytes())
-                .update([self.hashes.len() as u8]);
-            for (index, (metadata, hash)) in self.rai_entries().enumerate() {
-                root_builder = root_builder.update(metadata.digest_bytes_for(
-                    self.is_rai_slot_batch() || self.is_rai_timeout_slot_batch(),
-                ));
-                if let Some(timeout) = self.rai_timeout_slot(index) {
-                    root_builder = root_builder
-                        .update(timeout.account.as_bytes())
-                        .update(timeout.height.to_le_bytes());
-                } else {
-                    root_builder = root_builder.update(hash.as_bytes());
+                .update([self.entries.len() as u8]);
+            let compact = matches!(
+                self.batch_kind,
+                Some(RaiBatchKind::Slot | RaiBatchKind::TimeoutSlot)
+            );
+            for entry in &self.entries {
+                let (bytes, size) = Self::metadata_digest_bytes(&entry.metadata, compact);
+                root_builder = root_builder.update(&bytes[..size]);
+                match &entry.target {
+                    RaiVoteTarget::Timeout(timeout) => {
+                        root_builder = root_builder
+                            .update(timeout.account.as_bytes())
+                            .update(timeout.height.to_le_bytes());
+                    }
+                    RaiVoteTarget::Hash(hash) => {
+                        root_builder = root_builder.update(hash.as_bytes());
+                    }
                 }
             }
             let root = root_builder.build();
@@ -570,6 +818,124 @@ impl Vote {
         Self::deserialize_with_rai_mode(bytes, 2)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn deserialize_rai_shared(
+        mut bytes: &[u8],
+        expected_kind: RaiBatchKind,
+    ) -> Result<Self, DeserializationError> {
+        let voter = PublicKey::deserialize(&mut bytes)?;
+        let signature = Signature::deserialize(&mut bytes)?;
+        let mut timestamp_bytes = [0; 8];
+        bytes.read_exact(&mut timestamp_bytes)?;
+        let timestamp = VoteTimestamp::from_le_bytes(timestamp_bytes);
+        if crate::read_u8(&mut bytes)? != Self::RAI_SHARED_WIRE_VERSION {
+            return Err(DeserializationError::InvalidData);
+        }
+        let kind = match crate::read_u8(&mut bytes)? {
+            0 => RaiBatchKind::Slot,
+            1 => RaiBatchKind::TimeoutSlot,
+            2 => RaiBatchKind::Close,
+            _ => return Err(DeserializationError::InvalidData),
+        };
+        if kind != expected_kind {
+            return Err(DeserializationError::InvalidData);
+        }
+        let phase = match crate::read_u8(&mut bytes)? {
+            0 => RaiVotePhase::First,
+            1 => RaiVotePhase::Notar,
+            2 => RaiVotePhase::Final,
+            _ => return Err(DeserializationError::InvalidData),
+        };
+        let mut epoch_bytes = [0; 8];
+        bytes.read_exact(&mut epoch_bytes)?;
+        let epoch = RaiEpoch::new(u64::from_le_bytes(epoch_bytes));
+        let scope = match crate::read_u8(&mut bytes)? {
+            0 => RaiCommitteeScope::All,
+            1 => RaiCommitteeScope::Older,
+            2 => RaiCommitteeScope::Newer,
+            _ => return Err(DeserializationError::InvalidData),
+        };
+        let entry_size = match kind {
+            RaiBatchKind::Slot => 32,
+            RaiBatchKind::TimeoutSlot => 40,
+            RaiBatchKind::Close => 37,
+            RaiBatchKind::Full => return Err(DeserializationError::InvalidData),
+        };
+        if bytes.is_empty()
+            || bytes.len() % entry_size != 0
+            || bytes.len() / entry_size > Self::MAX_HASHES
+        {
+            return Err(DeserializationError::InvalidData);
+        }
+        let mut entries = Vec::with_capacity(bytes.len() / entry_size);
+        while !bytes.is_empty() {
+            let (election_id, target) = match kind {
+                RaiBatchKind::Slot => (
+                    RaiElectionId::Slot(RaiSlotId {
+                        epoch,
+                        root: QualifiedRoot::ZERO,
+                    }),
+                    RaiVoteTarget::Hash(BlockHash::deserialize(&mut bytes)?),
+                ),
+                RaiBatchKind::TimeoutSlot => {
+                    let account = Account::deserialize(&mut bytes)?;
+                    let mut height = [0; 8];
+                    bytes.read_exact(&mut height)?;
+                    let height = u64::from_le_bytes(height);
+                    if height == 0 {
+                        return Err(DeserializationError::InvalidData);
+                    }
+                    (
+                        RaiElectionId::Slot(RaiSlotId {
+                            epoch,
+                            root: QualifiedRoot::ZERO,
+                        }),
+                        RaiVoteTarget::Timeout(RaiTimeoutSlot { account, height }),
+                    )
+                }
+                RaiBatchKind::Close => {
+                    let close_kind = crate::read_u8(&mut bytes)?;
+                    let mut round = [0; 4];
+                    bytes.read_exact(&mut round)?;
+                    let round = u32::from_le_bytes(round);
+                    let election_id = match close_kind {
+                        0 => RaiElectionId::CloseCut { epoch, round },
+                        1 => RaiElectionId::CloseRecord { epoch, round },
+                        _ => return Err(DeserializationError::InvalidData),
+                    };
+                    (
+                        election_id,
+                        RaiVoteTarget::Hash(BlockHash::deserialize(&mut bytes)?),
+                    )
+                }
+                RaiBatchKind::Full => return Err(DeserializationError::InvalidData),
+            };
+            entries.push(RaiVoteEntry {
+                metadata: RaiVoteMetadata {
+                    election_id,
+                    phase,
+                    epoch,
+                    scope,
+                },
+                target,
+            });
+        }
+        let shared_context = Self::shared_context(&entries);
+        let vote = Self {
+            timestamp,
+            entries,
+            voter,
+            signature,
+            compact_rai_slot: matches!(kind, RaiBatchKind::Slot),
+            batch_kind: Some(kind),
+            shared_context,
+        };
+        if !vote.rai_batch_is_canonical() {
+            return Err(DeserializationError::InvalidData);
+        }
+        Ok(vote)
+    }
+
     fn deserialize_with_rai_slot(
         bytes: &[u8],
         #[cfg(feature = "rai_protocol")] compact_slot: bool,
@@ -607,16 +973,14 @@ impl Vote {
                 return Err(DeserializationError::InvalidData);
             }
             let count = bytes.len() / entry_size;
-            let mut metadata = Vec::with_capacity(count);
-            let mut hashes = Vec::with_capacity(count);
-            let mut timeout_slots = Vec::with_capacity(count);
+            let mut entries = Vec::with_capacity(count);
             while !bytes.is_empty() {
-                metadata.push(if compact_slot || timeout_slot {
+                let metadata = if compact_slot || timeout_slot {
                     RaiVoteMetadata::deserialize_slot(&mut bytes)?
                 } else {
                     RaiVoteMetadata::deserialize(&mut bytes)?
-                });
-                if timeout_slot {
+                };
+                let target = if timeout_slot {
                     let account = Account::deserialize(&mut bytes)?;
                     let mut height = [0; 8];
                     bytes.read_exact(&mut height)?;
@@ -624,21 +988,22 @@ impl Vote {
                     if height == 0 {
                         return Err(DeserializationError::InvalidData);
                     }
-                    hashes.push(BlockHash::ZERO);
-                    timeout_slots.push(Some(RaiTimeoutSlot { account, height }));
+                    RaiVoteTarget::Timeout(RaiTimeoutSlot { account, height })
                 } else {
-                    hashes.push(BlockHash::deserialize(&mut bytes)?);
-                    timeout_slots.push(None);
-                }
+                    RaiVoteTarget::Hash(BlockHash::deserialize(&mut bytes)?)
+                };
+                entries.push(RaiVoteEntry { metadata, target });
             }
+            let batch_kind = Self::classify_entries(&entries);
+            let shared_context = Self::shared_context(&entries);
             let vote = Self {
                 timestamp,
-                metadata,
+                entries,
                 voter,
                 signature,
-                hashes,
                 compact_rai_slot: compact_slot,
-                timeout_slots,
+                batch_kind,
+                shared_context,
             };
             if !vote.rai_batch_is_canonical() {
                 return Err(DeserializationError::InvalidData);
@@ -671,36 +1036,16 @@ impl Vote {
 
     #[cfg(feature = "rai_protocol")]
     fn rai_batch_is_canonical(&self) -> bool {
-        let slot_batch = self
-            .metadata
-            .iter()
-            .all(|metadata| matches!(metadata.election_id, RaiElectionId::Slot(_)));
-        let close_batch = self.metadata.iter().all(|metadata| {
-            matches!(
-                metadata.election_id,
-                RaiElectionId::CloseCut { .. } | RaiElectionId::CloseRecord { .. }
-            )
-        });
-        self.metadata.len() == self.hashes.len()
-            && self.hashes.len() <= Self::MAX_HASHES
-            && self.timeout_slots.len() == self.hashes.len()
-            && (self.metadata.is_empty() || slot_batch || close_batch)
-            && self
-                .metadata
-                .iter()
-                .all(|metadata| metadata.epoch == metadata.election_id.epoch())
-            && (1..self.hashes.len())
-                .all(|i| self.rai_wire_sort_key(i - 1) < self.rai_wire_sort_key(i))
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    fn rai_wire_sort_key(&self, index: usize) -> (Vec<u8>, Option<RaiTimeoutSlot>, BlockHash) {
-        (
-            self.metadata[index]
-                .digest_bytes_for(self.is_rai_slot_batch() || self.is_rai_timeout_slot_batch()),
-            self.timeout_slots[index],
-            self.hashes[index],
-        )
+        self.entries.len() <= Self::MAX_HASHES
+            && Self::classify_entries(&self.entries) == self.batch_kind
+            && (1..self.entries.len()).all(|i| {
+                Self::compare_entries(
+                    self.batch_kind.unwrap(),
+                    &self.entries[i - 1],
+                    &self.entries[i],
+                )
+                .is_lt()
+            })
     }
 
     pub const fn serialized_size(count: usize) -> usize {
@@ -728,6 +1073,84 @@ impl Vote {
             + (RaiVoteMetadata::TIMEOUT_SLOT_SERIALIZED_SIZE * count)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub const fn serialized_size_rai_shared(count: usize, kind: RaiBatchKind) -> usize {
+        let base = Account::SERIALIZED_SIZE
+            + Signature::SERIALIZED_SIZE
+            + std::mem::size_of::<u64>()
+            + Self::RAI_SHARED_HEADER_SIZE;
+        base + count
+            * match kind {
+                RaiBatchKind::Slot => 32,
+                RaiBatchKind::TimeoutSlot => 40,
+                RaiBatchKind::Close => 37,
+                RaiBatchKind::Full => 0,
+            }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn serialize_rai_shared<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        if !self.rai_batch_is_canonical() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "non-canonical RAI vote batch",
+            ));
+        }
+        let context = self.shared_context.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "RAI batch has no shared context",
+            )
+        })?;
+        let kind = self.batch_kind.expect("validated batch kind");
+        self.voter.serialize(writer)?;
+        self.signature.serialize(writer)?;
+        writer.write_all(&self.timestamp.to_le_bytes())?;
+        writer.write_all(&[
+            Self::RAI_SHARED_WIRE_VERSION,
+            match kind {
+                RaiBatchKind::Slot => 0,
+                RaiBatchKind::TimeoutSlot => 1,
+                RaiBatchKind::Close => 2,
+                RaiBatchKind::Full => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "full RAI batches do not use shared context encoding",
+                    ));
+                }
+            },
+            context.phase as u8,
+        ])?;
+        writer.write_all(&context.epoch.number().to_le_bytes())?;
+        writer.write_all(&[context.scope as u8])?;
+        for entry in &self.entries {
+            match (&entry.metadata.election_id, &entry.target) {
+                (RaiElectionId::Slot(_), RaiVoteTarget::Hash(hash)) => hash.serialize(writer)?,
+                (RaiElectionId::Slot(_), RaiVoteTarget::Timeout(slot)) => {
+                    slot.account.serialize(writer)?;
+                    writer.write_all(&slot.height.to_le_bytes())?;
+                }
+                (RaiElectionId::CloseCut { round, .. }, RaiVoteTarget::Hash(hash)) => {
+                    writer.write_all(&[0])?;
+                    writer.write_all(&round.to_le_bytes())?;
+                    hash.serialize(writer)?;
+                }
+                (RaiElectionId::CloseRecord { round, .. }, RaiVoteTarget::Hash(hash)) => {
+                    writer.write_all(&[1])?;
+                    writer.write_all(&round.to_le_bytes())?;
+                    hash.serialize(writer)?;
+                }
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "RAI batch kind/target mismatch",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
     where
         T: std::io::Write,
@@ -743,17 +1166,21 @@ impl Vote {
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
         #[cfg(feature = "rai_protocol")]
-        for (index, (metadata, hash)) in self.rai_entries().enumerate() {
-            if self.is_rai_slot_batch() || self.is_rai_timeout_slot_batch() {
-                metadata.serialize_slot(writer)?;
+        for entry in &self.entries {
+            if matches!(
+                self.batch_kind,
+                Some(RaiBatchKind::Slot | RaiBatchKind::TimeoutSlot)
+            ) {
+                entry.metadata.serialize_slot(writer)?;
             } else {
-                metadata.serialize(writer)?;
+                entry.metadata.serialize(writer)?;
             }
-            if let Some(timeout) = self.rai_timeout_slot(index) {
-                timeout.account.serialize(writer)?;
-                writer.write_all(&timeout.height.to_le_bytes())?;
-            } else {
-                hash.serialize(writer)?;
+            match &entry.target {
+                RaiVoteTarget::Timeout(timeout) => {
+                    timeout.account.serialize(writer)?;
+                    writer.write_all(&timeout.height.to_le_bytes())?;
+                }
+                RaiVoteTarget::Hash(hash) => hash.serialize(writer)?,
             }
         }
         #[cfg(not(feature = "rai_protocol"))]
@@ -770,7 +1197,7 @@ impl PartialEq for Vote {
             && {
                 #[cfg(feature = "rai_protocol")]
                 {
-                    self.metadata == other.metadata && self.timeout_slots == other.timeout_slots
+                    self.entries == other.entries && self.batch_kind == other.batch_kind
                 }
                 #[cfg(not(feature = "rai_protocol"))]
                 {
@@ -779,7 +1206,16 @@ impl PartialEq for Vote {
             }
             && self.voter == other.voter
             && self.signature == other.signature
-            && self.hashes == other.hashes
+            && {
+                #[cfg(feature = "rai_protocol")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    self.hashes == other.hashes
+                }
+            }
     }
 }
 
@@ -907,9 +1343,14 @@ mod tests {
         let round_trip = Vote::deserialize(&bytes).unwrap();
         assert_eq!(round_trip.voter, vote.voter);
         assert_eq!(round_trip.signature, vote.signature);
-        assert_eq!(round_trip.hashes, vote.hashes);
-        assert_eq!(round_trip.metadata.len(), vote.metadata.len());
-        for (decoded, original) in round_trip.metadata.iter().zip(&vote.metadata) {
+        assert_eq!(
+            round_trip.hashes().collect::<Vec<_>>(),
+            vote.hashes().collect::<Vec<_>>()
+        );
+        assert_eq!(round_trip.entries.len(), vote.entries.len());
+        for (decoded, original) in round_trip.entries.iter().zip(&vote.entries) {
+            let decoded = &decoded.metadata;
+            let original = &original.metadata;
             assert_eq!(decoded.phase, original.phase);
             assert_eq!(decoded.epoch, original.epoch);
             assert_eq!(decoded.scope, original.scope);
@@ -938,10 +1379,13 @@ mod tests {
 
         assert_eq!(bytes.len(), Vote::serialized_size_rai_timeout_slot(1));
         let decoded = Vote::deserialize_rai_timeout_slot(&bytes).unwrap();
-        assert_eq!(decoded.hashes, [BlockHash::ZERO]);
+        assert_eq!(
+            decoded.hashes().copied().collect::<Vec<_>>(),
+            [BlockHash::ZERO]
+        );
         assert_eq!(decoded.rai_timeout_slot(0), Some(locator));
         assert!(matches!(
-            &decoded.metadata[0].election_id,
+            &decoded.entries[0].metadata.election_id,
             RaiElectionId::Slot(slot) if slot.root == QualifiedRoot::ZERO
         ));
         decoded.validate().unwrap();
@@ -1022,17 +1466,17 @@ mod tests {
         let first = Vote::new(&key, UnixMillisTimestamp::new(16), 0, vec![hash]);
         let final_vote = Vote::new_final(&key, vec![hash]);
 
-        assert_eq!(first.metadata[0].phase, RaiVotePhase::First);
-        assert_eq!(final_vote.metadata[0].phase, RaiVotePhase::Final);
-        assert_eq!(final_vote.metadata[0].epoch, RaiEpoch::ZERO);
-        assert_eq!(final_vote.metadata[0].scope, RaiCommitteeScope::All);
+        assert_eq!(first.entries[0].metadata.phase, RaiVotePhase::First);
+        assert_eq!(final_vote.entries[0].metadata.phase, RaiVotePhase::Final);
+        assert_eq!(final_vote.entries[0].metadata.epoch, RaiEpoch::ZERO);
+        assert_eq!(final_vote.entries[0].metadata.scope, RaiCommitteeScope::All);
     }
 
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn rai_signature_binds_phase() {
         let mut vote = rai_vote();
-        vote.metadata[0].phase = RaiVotePhase::Final;
+        vote.entries[0].metadata.phase = RaiVotePhase::Final;
         assert!(vote.validate().is_err());
     }
 
@@ -1040,7 +1484,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_election_epoch() {
         let mut vote = rai_vote();
-        let RaiElectionId::Slot(id) = &mut vote.metadata[0].election_id else {
+        let RaiElectionId::Slot(id) = &mut vote.entries[0].metadata.election_id else {
             panic!("test vote must target a slot election");
         };
         id.epoch = RaiEpoch::new(id.epoch.number() + 1);
@@ -1052,7 +1496,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_epoch() {
         let mut vote = rai_vote();
-        vote.metadata[0].epoch = RaiEpoch::new(8);
+        vote.entries[0].metadata.epoch = RaiEpoch::new(8);
         assert!(vote.validate().is_err());
     }
 
@@ -1060,7 +1504,7 @@ mod tests {
     #[test]
     fn rai_signature_binds_committee_scope() {
         let mut vote = rai_vote();
-        vote.metadata[0].scope = RaiCommitteeScope::Newer;
+        vote.entries[0].metadata.scope = RaiCommitteeScope::Newer;
         assert!(vote.validate().is_err());
     }
 
@@ -1069,7 +1513,7 @@ mod tests {
     fn rai_signature_binds_every_candidate_hash() {
         for index in 0..2 {
             let mut vote = rai_vote();
-            vote.hashes[index] = BlockHash::from(100 + index as u64);
+            vote.entries[index].target = RaiVoteTarget::Hash(BlockHash::from(100 + index as u64));
             assert!(vote.validate().is_err());
         }
     }
@@ -1080,7 +1524,7 @@ mod tests {
         for index in 0..2 {
             let mut vote = rai_vote();
             let old_hash = vote.hash();
-            vote.metadata[index].epoch = RaiEpoch::new(100 + index as u64);
+            vote.entries[index].metadata.epoch = RaiEpoch::new(100 + index as u64);
             assert_ne!(vote.hash(), old_hash);
             assert!(vote.validate().is_err());
         }
@@ -1134,9 +1578,9 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn rai_serialize_and_validate_reject_misaligned_entries() {
+    fn rai_serialize_and_validate_reject_inconsistent_cached_kind() {
         let mut vote = rai_vote();
-        vote.metadata.pop();
+        vote.batch_kind = Some(RaiBatchKind::Close);
 
         assert!(vote.serialize(&mut Vec::new()).is_err());
         assert!(vote.validate().is_err());
@@ -1158,7 +1602,7 @@ mod tests {
         vote.voter.serialize(&mut expected).unwrap();
         vote.signature.serialize(&mut expected).unwrap();
         expected.extend_from_slice(&vote.timestamp.to_le_bytes());
-        for hash in &vote.hashes {
+        for hash in vote.hashes() {
             hash.serialize(&mut expected).unwrap();
         }
 

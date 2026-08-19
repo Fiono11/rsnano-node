@@ -593,11 +593,15 @@ impl ActiveElectionsContainer {
         };
         for vote in votes {
             let mut resolved = (*vote).clone();
-            for index in 0..resolved.metadata.len() {
+            for index in 0..resolved.len() {
                 if resolved.rai_timeout_slot(index) == Some(locator)
-                    && resolved.metadata[index].epoch == slot.epoch
+                    && resolved.rai_metadata(index).unwrap().epoch == slot.epoch
                 {
-                    resolved.metadata[index].election_id = election_id.clone();
+                    let target = resolved.rai_timeout_slot(index);
+                    if target == Some(locator) {
+                        resolved.rai_entries_mut().nth(index).unwrap().0.election_id =
+                            election_id.clone();
+                    }
                 }
             }
             self.rai_retain_pending_vote(election_id.clone(), Arc::new(resolved));
@@ -3411,10 +3415,8 @@ impl ActiveElectionsContainer {
             };
             for vote in votes {
                 let mut resolved = (*vote).clone();
-                for (metadata, candidate) in
-                    resolved.metadata.iter_mut().zip(resolved.hashes.iter())
-                {
-                    if *candidate == hash
+                for (metadata, target) in resolved.rai_entries_mut() {
+                    if matches!(target, rsnano_types::RaiVoteTarget::Hash(candidate) if *candidate == hash)
                         && matches!(
                             &metadata.election_id,
                             crate::consensus::election::RaiElectionId::Slot(id)
@@ -4831,10 +4833,10 @@ impl ActiveElectionsContainer {
             // the same election and retained-vote maps as ordinary votes.
             let mut resolved_transport = (*args.vote.vote.vote).clone();
             let mut transport_changed = false;
-            let timeout_resolutions = (0..resolved_transport.hashes.len())
+            let timeout_resolutions = (0..resolved_transport.len())
                 .map(|index| {
                     let locator = resolved_transport.rai_timeout_slot(index)?;
-                    let epoch = resolved_transport.metadata[index].epoch;
+                    let epoch = resolved_transport.rai_metadata(index).unwrap().epoch;
                     self.roots
                         .iter_rai()
                         .find(|entry| {
@@ -4845,12 +4847,11 @@ impl ActiveElectionsContainer {
                         .map(|entry| entry.election.rai_id().clone())
                 })
                 .collect::<Vec<_>>();
-            for (index, (metadata, hash)) in resolved_transport
-                .metadata
-                .iter_mut()
-                .zip(resolved_transport.hashes.iter())
-                .enumerate()
-            {
+            for (index, (metadata, target)) in resolved_transport.rai_entries_mut().enumerate() {
+                let hash = match target {
+                    rsnano_types::RaiVoteTarget::Hash(hash) => hash,
+                    rsnano_types::RaiVoteTarget::Timeout(_) => &BlockHash::ZERO,
+                };
                 let crate::consensus::election::RaiElectionId::Slot(slot) = &metadata.election_id
                 else {
                     continue;
@@ -4988,7 +4989,7 @@ impl ActiveElectionsContainer {
                     valid_entries,
                     args.vote.voter,
                     args.vote.vote.hash(),
-                    args.vote.vote.hashes
+                    args.vote.vote.hashes().collect::<Vec<_>>()
                 );
             }
             (valid_entries, invalid_results)
@@ -6112,7 +6113,7 @@ mod tests {
         signed.serialize(&mut wire).unwrap();
         let compact = Vote::deserialize_rai_slot(&mut wire.as_slice()).unwrap();
         assert!(matches!(
-            &compact.metadata[0].election_id,
+            &compact.rai_metadata(0).unwrap().election_id,
             RaiElectionId::Slot(decoded) if decoded.root == QualifiedRoot::ZERO
         ));
         let vote: FilteredVote =
@@ -6239,8 +6240,7 @@ mod tests {
         );
         assert!(container.rai_pending_votes.contains_key(&id));
         assert!(container.rai_pending_votes[&id].iter().any(|vote| {
-            vote.metadata
-                .iter()
+            vote.rai_metadata_iter()
                 .any(|metadata| metadata.election_id == id)
                 && vote.rai_timeout_slot(0) == Some(RaiTimeoutSlot { account, height })
         }));

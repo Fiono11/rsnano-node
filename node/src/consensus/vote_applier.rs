@@ -83,12 +83,13 @@ impl VoteApplier {
 
         #[cfg(feature = "rai_protocol")]
         let has_election = if vote.filter.is_zero() {
-            self.active_elections.any_active_hash(&vote.hashes)
+            self.active_elections
+                .any_active_hash(&vote.hashes().copied().collect::<Vec<_>>())
         } else {
             // A nonzero filter only selects a leaf when that hash is actually
             // present in the signed vote. Keep that filtering behavior while
             // performing at most one AEC read-lock acquisition.
-            vote.hashes.contains(&vote.filter)
+            vote.hashes().any(|hash| *hash == vote.filter)
                 && self
                     .active_elections
                     .any_active_hash(std::slice::from_ref(&vote.filter))

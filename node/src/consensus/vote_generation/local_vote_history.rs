@@ -65,8 +65,7 @@ impl LocalVoteHistory {
         #[cfg(feature = "rai_protocol")]
         {
             let metadata = vote
-                .hashes
-                .iter()
+                .hashes()
                 .position(|candidate| candidate == hash)
                 .and_then(|index| vote.rai_metadata(index))
                 .cloned()

@@ -147,7 +147,7 @@ fn vote_by_hash_bundle() {
         match rx.try_recv() {
             Ok(e) => {
                 if let AecFact::VoteProcessed(vote, _, _) = e {
-                    max_hashes = max(max_hashes, vote.hashes.len());
+                    max_hashes = max(max_hashes, vote.len());
 
                     if max_hashes >= 3 {
                         break;

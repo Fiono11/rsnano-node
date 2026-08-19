@@ -77,7 +77,8 @@ use thiserror::Error;
 pub use timestamp::{UnixMillisTimestamp, UnixTimestamp, milliseconds_since_epoch};
 #[cfg(feature = "rai_protocol")]
 pub use vote::{
-    RaiCommitteeScope, RaiElectionId, RaiSlotId, RaiTimeoutSlot, RaiVoteMetadata, RaiVotePhase,
+    RaiBatchKind, RaiCommitteeScope, RaiElectionId, RaiSlotId, RaiTimeoutSlot, RaiVoteEntry,
+    RaiVoteMetadata, RaiVotePhase, RaiVoteTarget,
 };
 pub use vote::{TestVoteBuilder, Vote, VoteDelivery, VoteError};
 pub use vote_timestamp::VoteTimestamp;
