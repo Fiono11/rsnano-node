@@ -377,9 +377,6 @@ impl VoteGenerator {
             spacing: Mutex::new(RaiVoteSpacing::new(voting_delay)),
             #[cfg(not(feature = "rai_protocol"))]
             spacing: Mutex::new(VoteSpacing::new(voting_delay)),
-            #[cfg(feature = "rai_protocol")]
-            vote_generator_delay: vote_generator_delay.min(Duration::from_millis(5)),
-            #[cfg(not(feature = "rai_protocol"))]
             vote_generator_delay,
             clock,
             #[cfg(feature = "rai_protocol")]
