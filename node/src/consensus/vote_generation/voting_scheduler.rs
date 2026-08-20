@@ -16,12 +16,32 @@ pub(crate) struct VoteTarget {
     pub vote_type: VoteType,
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
         root: e.qualified_root().clone(),
         winner: e.winner().hash(),
         vote_type: e.vote_type(),
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
+    let mut targets = vec![VoteTarget {
+        root: e.qualified_root().clone(),
+        winner: e.winner().hash(),
+        vote_type: VoteType::First,
+    }];
+    if let Some(vote_type) = e.vote_type()
+        && vote_type != VoteType::First
+    {
+        targets.push(VoteTarget {
+            root: e.qualified_root().clone(),
+            winner: e.winner().hash(),
+            vote_type,
+        });
+    }
+    targets
 }
 
 pub(crate) struct VotingScheduler {
@@ -33,6 +53,10 @@ pub(crate) struct VotingScheduler {
 struct VoteRecord {
     last_non_final: Option<Timestamp>,
     last_final: Option<Timestamp>,
+    #[cfg(feature = "rai_protocol")]
+    last_first: Option<Timestamp>,
+    #[cfg(feature = "rai_protocol")]
+    last_timeout: Option<Timestamp>,
     last_voted_winner: BlockHash,
     last_voted: Timestamp,
 }
@@ -60,6 +84,10 @@ impl VotingScheduler {
         let last = match target.vote_type {
             VoteType::NonFinal => record.last_non_final,
             VoteType::Final => record.last_final,
+            #[cfg(feature = "rai_protocol")]
+            VoteType::First => record.last_first,
+            #[cfg(feature = "rai_protocol")]
+            VoteType::Timeout => record.last_timeout,
         };
 
         match last {
@@ -75,6 +103,10 @@ impl VotingScheduler {
             .or_insert(VoteRecord {
                 last_non_final: None,
                 last_final: None,
+                #[cfg(feature = "rai_protocol")]
+                last_first: None,
+                #[cfg(feature = "rai_protocol")]
+                last_timeout: None,
                 last_voted_winner: BlockHash::ZERO,
                 last_voted: now,
             });
@@ -84,6 +116,10 @@ impl VotingScheduler {
         match target.vote_type {
             VoteType::NonFinal => record.last_non_final = Some(now),
             VoteType::Final => record.last_final = Some(now),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::First => record.last_first = Some(now),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::Timeout => record.last_timeout = Some(now),
         }
         record.last_voted_winner = target.winner;
         record.last_voted = now;

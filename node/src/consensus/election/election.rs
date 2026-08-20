@@ -9,18 +9,14 @@ use strum_macros::{EnumCount, EnumIter};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, SavedBlock,
-    UnixMillisTimestamp, Vote, VoteError,
+    UnixMillisTimestamp, Vote, VoteError, VoteTimestamp,
 };
 use rsnano_utils::stats::DetailType;
 
 use super::{ConfirmationType, ConfirmedElection, ElectionState, block_tallies::BlockTallies};
 use rustc_hash::FxHashMap;
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
-pub enum VoteType {
-    NonFinal,
-    Final,
-}
+pub use rsnano_types::VoteType;
 
 #[derive(Clone)]
 pub struct Election {
@@ -36,6 +32,12 @@ pub struct Election {
     /// All tallies (non-final or final)
     tallies: BlockTallies,
     final_tallies: BlockTallies,
+    #[cfg(feature = "rai_protocol")]
+    first_tallies: BlockTallies,
+    #[cfg(feature = "rai_protocol")]
+    second_look: bool,
+    #[cfg(feature = "rai_protocol")]
+    timeout_predicate: bool,
 
     behavior: ElectionBehavior,
     has_quorum: bool,
@@ -66,6 +68,12 @@ impl Election {
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
+            #[cfg(feature = "rai_protocol")]
+            first_tallies: BlockTallies::new(),
+            #[cfg(feature = "rai_protocol")]
+            second_look: false,
+            #[cfg(feature = "rai_protocol")]
+            timeout_predicate: false,
             winner_tally: Amount::ZERO,
             winner_final_tally: Amount::ZERO,
             behavior,
@@ -88,6 +96,13 @@ impl Election {
 
     pub fn qualified_root(&self) -> &QualifiedRoot {
         &self.qualified_root
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn set_qualified_root(&mut self, root: QualifiedRoot) {
+        debug_assert!(root.epoch > 0);
+        debug_assert_eq!(root.slot(), self.qualified_root.slot());
+        self.qualified_root = root;
     }
 
     pub fn behavior(&self) -> ElectionBehavior {
@@ -158,10 +173,44 @@ impl Election {
         vote_received: Timestamp,
     ) {
         debug_assert!(self.candidate_blocks.contains_key(&hash));
-        self.votes.insert(
-            voter,
-            VoteSummary::new(voter, hash, vote_created, vote_received),
-        );
+        let mut summary = VoteSummary::new(voter, hash, vote_created, vote_received);
+        #[cfg(feature = "rai_protocol")]
+        summary
+            .apply_phase(
+                VoteTimestamp::new(
+                    vote_created,
+                    if vote_created == UnixMillisTimestamp::MAX {
+                        Vote::DURATION_MAX
+                    } else {
+                        0
+                    },
+                )
+                .rai_vote_type(),
+                hash,
+                vote_created,
+                vote_received,
+            )
+            .expect("new vote summary accepts its first phase");
+        self.votes.insert(voter, summary);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rai_vote(
+        &mut self,
+        vote: &Vote,
+        hash: BlockHash,
+        vote_received: Timestamp,
+    ) -> Result<(), VoteError> {
+        debug_assert!(self.candidate_blocks.contains_key(&hash));
+        let vote_type = vote.vote_type();
+        if let Some(summary) = self.votes.get_mut(&vote.voter) {
+            summary.apply_phase(vote_type, hash, vote.timestamp(), vote_received)
+        } else {
+            let mut summary = VoteSummary::new(vote.voter, hash, vote.timestamp(), vote_received);
+            summary.apply_phase(vote_type, hash, vote.timestamp(), vote_received)?;
+            self.votes.insert(vote.voter, summary);
+            Ok(())
+        }
     }
 
     pub fn winner_tally(&self) -> Amount {
@@ -209,11 +258,27 @@ impl Election {
         self.is_confirmed() || self.has_quorum()
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn vote_type(&self) -> VoteType {
         if self.is_final() {
             VoteType::Final
         } else {
             VoteType::NonFinal
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn vote_type(&self) -> Option<VoteType> {
+        if self.votes.is_empty() {
+            Some(VoteType::First)
+        } else if self.has_quorum {
+            Some(VoteType::Final)
+        } else if self.timeout_predicate {
+            Some(VoteType::Timeout)
+        } else if self.second_look {
+            Some(VoteType::NonFinal)
+        } else {
+            None
         }
     }
 
@@ -350,6 +415,70 @@ impl Election {
             .calculate(self.votes.values().filter(|v| v.is_final_vote()));
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn update_rai_tallies(
+        &mut self,
+        rep_weights: &FxHashMap<PublicKey, Amount>,
+        quorum: &crate::representatives::QuorumSnapshot,
+    ) {
+        if self.state.has_ended() {
+            return;
+        }
+        self.update_vote_weights(rep_weights);
+        self.first_tallies.clear();
+        self.tallies.clear();
+        self.final_tallies.clear();
+        for vote in self.votes.values() {
+            if let Some(hash) = vote.first {
+                self.first_tallies.add(hash, vote.weight);
+            }
+            if let Some(hash) = vote.non_final.or(vote.first).or(vote.final_vote) {
+                self.tallies.add(hash, vote.weight);
+            }
+            if let Some(hash) = vote.final_vote {
+                self.final_tallies.add(hash, vote.weight);
+            }
+        }
+        self.first_tallies.sort();
+        self.tallies.sort();
+        self.final_tallies.sort();
+        let old_winner = self.winner.hash();
+        let new_winner = self.tallies.winner().map(|(h, _)| *h).unwrap_or(old_winner);
+        if new_winner != old_winner {
+            self.change_winner_to(&new_winner);
+        }
+        self.update_winner_tally();
+        let w = quorum.total_weight;
+        let f = quorum.faulty_weight;
+        let p = quorum.slack_weight;
+        if w > f * 3 + p * 2 {
+            let certificate = w - f - p;
+            self.second_look = self.first_tallies.get(&self.winner.hash()) > f + p;
+            let timeout_weight: Amount = self
+                .votes
+                .values()
+                .filter(|vote| vote.timeout)
+                .map(|vote| vote.weight)
+                .sum();
+            let all_vote_weight: Amount = self.votes.values().map(|vote| vote.weight).sum();
+            let max_candidate_weight = self
+                .tallies
+                .winner()
+                .map(|(_, weight)| *weight)
+                .unwrap_or_default();
+            self.timeout_predicate = all_vote_weight - max_candidate_weight > f + p;
+            self.has_quorum |= self.winner_tally >= certificate;
+            if self.winner_final_tally >= certificate
+                || self.first_tallies.get(&self.winner.hash()) >= w - p
+            {
+                self.state = ElectionState::Confirmed;
+            }
+            if timeout_weight >= certificate {
+                self.state = ElectionState::ExpiredUnconfirmed;
+            }
+        }
+    }
+
     fn check_new_winner(&self, quorum_delta: Amount) -> Option<BlockHash> {
         if self.tallies.sum() < quorum_delta {
             // The winner can only be changed after a super majority of votes has been observed!
@@ -438,6 +567,16 @@ pub struct VoteSummary {
     pub vote_received: Timestamp, // TODO use Instant
     pub hash: BlockHash,
     pub weight: Amount,
+    #[cfg(feature = "rai_protocol")]
+    pub latest_type: Option<VoteType>,
+    #[cfg(feature = "rai_protocol")]
+    pub first: Option<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    pub non_final: Option<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    pub timeout: bool,
+    #[cfg(feature = "rai_protocol")]
+    pub final_vote: Option<BlockHash>,
 }
 
 impl VoteSummary {
@@ -453,11 +592,70 @@ impl VoteSummary {
             vote_created,
             hash,
             weight: Amount::ZERO,
+            #[cfg(feature = "rai_protocol")]
+            latest_type: None,
+            #[cfg(feature = "rai_protocol")]
+            first: None,
+            #[cfg(feature = "rai_protocol")]
+            non_final: None,
+            #[cfg(feature = "rai_protocol")]
+            timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            final_vote: None,
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_phase(
+        &mut self,
+        vote_type: VoteType,
+        hash: BlockHash,
+        created: UnixMillisTimestamp,
+        received: Timestamp,
+    ) -> Result<(), VoteError> {
+        let existing = match vote_type {
+            VoteType::First => self.first,
+            VoteType::NonFinal => self.non_final,
+            VoteType::Final => self.final_vote,
+            VoteType::Timeout if self.timeout => return Err(VoteError::Replay),
+            VoteType::Timeout => None,
+        };
+        if let Some(existing) = existing {
+            return if existing == hash {
+                Err(VoteError::Replay)
+            } else {
+                Err(VoteError::Invalid)
+            };
+        }
+        if self.timeout {
+            return Err(VoteError::Invalid);
+        }
+        let supported = self.first.or(self.non_final).or(self.final_vote);
+        if vote_type != VoteType::Timeout && supported.is_some_and(|h| h != hash) {
+            return Err(VoteError::Invalid);
+        }
+        match vote_type {
+            VoteType::First => self.first = Some(hash),
+            VoteType::NonFinal => self.non_final = Some(hash),
+            VoteType::Final => self.final_vote = Some(hash),
+            VoteType::Timeout => self.timeout = true,
+        }
+        self.latest_type = Some(vote_type);
+        self.hash = hash;
+        self.vote_created = created;
+        self.vote_received = received;
+        Ok(())
+    }
+
     pub fn is_final_vote(&self) -> bool {
-        self.vote_created == UnixMillisTimestamp::MAX
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.final_vote.is_some()
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.vote_created == UnixMillisTimestamp::MAX
+        }
     }
 
     pub fn ensure_no_replay(

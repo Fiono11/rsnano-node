@@ -31,6 +31,10 @@ pub struct VoteGenerationEvent {
 pub struct VoteGenerators {
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
+    #[cfg(feature = "rai_protocol")]
+    first_vote_generator: VoteGenerator,
+    #[cfg(feature = "rai_protocol")]
+    timeout_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
     voting_delay: Duration,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -69,6 +73,37 @@ impl VoteGenerators {
             config.vote_generator_delay,
             vote_broadcaster.clone(),
             clock.clone(),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::NonFinal,
+        );
+
+        #[cfg(feature = "rai_protocol")]
+        let first_vote_generator = VoteGenerator::new(
+            ledger.clone(),
+            wallet_reps.clone(),
+            history.clone(),
+            false,
+            stats.clone(),
+            message_sender.clone(),
+            voting_delay,
+            config.vote_generator_delay,
+            vote_broadcaster.clone(),
+            clock.clone(),
+            VoteType::First,
+        );
+        #[cfg(feature = "rai_protocol")]
+        let timeout_vote_generator = VoteGenerator::new(
+            ledger.clone(),
+            wallet_reps.clone(),
+            history.clone(),
+            false,
+            stats.clone(),
+            message_sender.clone(),
+            voting_delay,
+            config.vote_generator_delay,
+            vote_broadcaster.clone(),
+            clock.clone(),
+            VoteType::Timeout,
         );
 
         let final_vote_generator = VoteGenerator::new(
@@ -77,11 +112,13 @@ impl VoteGenerators {
             history,
             true, //final
             stats.clone(),
-            message_sender.clone(),
+            message_sender,
             voting_delay,
             config.vote_generator_delay,
             vote_broadcaster,
             clock,
+            #[cfg(feature = "rai_protocol")]
+            VoteType::Final,
         );
 
         Self {
@@ -91,6 +128,10 @@ impl VoteGenerators {
             voting_delay,
             wallet_reps,
             stats,
+            #[cfg(feature = "rai_protocol")]
+            first_vote_generator,
+            #[cfg(feature = "rai_protocol")]
+            timeout_vote_generator,
         }
     }
 
@@ -124,11 +165,19 @@ impl VoteGenerators {
     pub fn start(&self) {
         self.non_final_vote_generator.start();
         self.final_vote_generator.start();
+        #[cfg(feature = "rai_protocol")]
+        self.first_vote_generator.start();
+        #[cfg(feature = "rai_protocol")]
+        self.timeout_vote_generator.start();
     }
 
     pub fn stop(&self) {
         self.non_final_vote_generator.stop();
         self.final_vote_generator.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.first_vote_generator.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.timeout_vote_generator.stop();
     }
 
     pub fn track(&self) -> Arc<OutputTrackerMt<VoteGenerationEvent>> {
@@ -147,6 +196,10 @@ impl VoteGenerators {
                     .inc(StatType::Election, DetailType::GenerateVoteFinal);
                 self.final_vote_generator.add(root, hash);
             }
+            #[cfg(feature = "rai_protocol")]
+            VoteType::First => self.first_vote_generator.add(root, hash),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::Timeout => self.timeout_vote_generator.add(root, hash),
         }
     }
 
@@ -167,6 +220,10 @@ impl VoteGenerators {
         match vote_type {
             VoteType::NonFinal => self.non_final_vote_generator.generate(blocks, channel),
             VoteType::Final => self.final_vote_generator.generate(blocks, channel),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::First => self.first_vote_generator.generate(blocks, channel),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::Timeout => self.timeout_vote_generator.generate(blocks, channel),
         }
     }
 
@@ -176,10 +233,21 @@ impl VoteGenerators {
 }
 
 impl ContainerInfoProvider for VoteGenerators {
+    #[cfg(not(feature = "rai_protocol"))]
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("non_final", self.non_final_vote_generator.container_info())
             .node("final", self.final_vote_generator.container_info())
+            .finish()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .node("non_final", self.non_final_vote_generator.container_info())
+            .node("final", self.final_vote_generator.container_info())
+            .node("first", self.first_vote_generator.container_info())
+            .node("timeout", self.timeout_vote_generator.container_info())
             .finish()
     }
 }

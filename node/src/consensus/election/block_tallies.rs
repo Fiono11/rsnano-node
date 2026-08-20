@@ -61,6 +61,28 @@ impl BlockTallies {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn add(&mut self, hash: BlockHash, weight: Amount) {
+        if let Some((_, tally)) = self.tallies[..self.len]
+            .iter_mut()
+            .find(|(h, _)| *h == hash)
+        {
+            *tally += weight;
+        } else {
+            self.insert_unsorted(hash, weight);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn sort(&mut self) {
+        self.sort_by_descending_tally();
+    }
+
     pub fn check_quorum(&self, quorum_delta: Amount) -> bool {
         let mut it = self.tallies();
         let first = it.next().unwrap_or_default();

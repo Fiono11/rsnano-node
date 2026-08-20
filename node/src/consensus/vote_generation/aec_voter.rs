@@ -12,9 +12,11 @@ use super::{
     CpsLimiter, VoteGenerators,
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
-use crate::consensus::{
-    AecService, election::VoteType, vote_generation::voting_scheduler::vote_target,
-};
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::vote_generation::voting_scheduler::vote_target;
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::vote_generation::voting_scheduler::vote_targets;
+use crate::consensus::{AecService, election::VoteType};
 
 /// Creates votes for blocks within the AEC
 pub(crate) struct AecVoter {
@@ -70,16 +72,17 @@ impl Tickable for AecVoter {
 
         // Collect all vote targets in a single lock acquisition, iterating all
         // elections in round-robin order across buckets
+        #[cfg(not(feature = "rai_protocol"))]
         let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
-            iter.filter_map(|e| {
-                let target = vote_target(e);
-                if scheduler.can_vote(&target, now) {
-                    Some(target)
-                } else {
-                    None
-                }
-            })
-            .collect()
+            iter.map(vote_target)
+                .filter(|target| scheduler.can_vote(target, now))
+                .collect()
+        });
+        #[cfg(feature = "rai_protocol")]
+        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
+            iter.flat_map(vote_targets)
+                .filter(|target| scheduler.can_vote(target, now))
+                .collect()
         });
 
         let mut vote_queue = Vec::new();

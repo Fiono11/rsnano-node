@@ -70,8 +70,14 @@ impl NanoSpamApp {
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
-        let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
-        data_dir.push("NanoSpam");
+        let data_dir = if let Some(path) = &self.args.data_dir {
+            path.clone()
+        } else {
+            let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
+            path.push("NanoSpam");
+            path
+        };
+        std::fs::create_dir_all(&data_dir)?;
 
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
@@ -109,9 +115,9 @@ impl NanoSpamApp {
         let (tx_blocks, rx_blocks) = mpsc::channel::<Forks>(MAX_BUFFERED_BLOCKS);
         let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &logic);
 
-        if self.args.set_up_new_nodes() {
+        if self.args.set_up_new_nodes() && self.args.high_prio_check() {
             high_prio_check
-                .create_prio_accounts(genesis_wallet_id)
+                .create_prio_accounts(genesis_wallet_id, &self.rpc_clients)
                 .await?;
         }
 
@@ -163,10 +169,17 @@ impl NanoSpamApp {
                 cancel_block_creation2.cancel();
             });
 
-            s.spawn(|| track_confirmations(rx_ws_msg, &logic));
+            let confirmation_cancel = cancel_nanospam.clone();
+            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel));
 
             tokio_scoped::scope(|scope| {
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+                scope.spawn(reconcile_confirmations(
+                    genesis_rpc,
+                    &logic,
+                    &self.clock,
+                    cancel_nanospam.clone(),
+                ));
 
                 if self.args.high_prio_check() {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
@@ -354,13 +367,22 @@ async fn receive_messages(
 fn track_confirmations(
     rx_ws_msg: std::sync::mpsc::Receiver<(MessageEnvelope, Timestamp)>,
     logic: &Mutex<SpamLogic>,
+    cancel_token: CancellationToken,
 ) {
     while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
         if msg.topic == Some(Topic::Confirmation) {
             let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
             let block_hash = BlockHash::decode_hex(data.hash).unwrap();
 
-            let high_prio_conf_time = logic.lock().unwrap().confirmed(&block_hash, timestamp);
+            let (high_prio_conf_time, finished) = {
+                let mut logic = logic.lock().unwrap();
+                let conf_time = logic.confirmed(&block_hash, timestamp);
+                (conf_time, logic.is_finished())
+            };
+
+            if finished {
+                cancel_token.cancel();
+            }
 
             if let Some(time) = high_prio_conf_time {
                 tracing::info!(
@@ -397,5 +419,38 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+async fn reconcile_confirmations(
+    rpc: &NanoRpcClient,
+    logic: &Mutex<SpamLogic>,
+    clock: &SteadyClock,
+    cancel_token: CancellationToken,
+) {
+    while !cancel_token.is_cancelled() {
+        let hashes = logic.lock().unwrap().unconfirmed_hashes();
+        if hashes.is_empty() && logic.lock().unwrap().is_finished() {
+            cancel_token.cancel();
+            return;
+        }
+        for hash in hashes {
+            if rpc
+                .block_info(hash)
+                .await
+                .is_ok_and(|info| info.confirmed.inner())
+            {
+                let finished = {
+                    let mut logic = logic.lock().unwrap();
+                    logic.confirmed(&hash, clock.now());
+                    logic.is_finished()
+                };
+                if finished {
+                    cancel_token.cancel();
+                    return;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

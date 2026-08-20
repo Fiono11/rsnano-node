@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{cmp::max, collections::HashMap, time::Duration};
 
 use strum::EnumCount;
@@ -45,6 +47,29 @@ pub(crate) struct ActiveElectionsContainer {
     max_elections: usize,
     max_elections_per_bucket: usize,
     stats: AecStats,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch: RaiEpoch,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+pub struct RaiEpoch {
+    current: AtomicU64,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RaiEpoch {
+    pub fn new() -> Self {
+        Self {
+            current: AtomicU64::new(1),
+        }
+    }
+    pub fn current(&self) -> u64 {
+        self.current.load(Ordering::Acquire)
+    }
+    pub fn advance(&self) -> u64 {
+        self.current.fetch_add(1, Ordering::AcqRel) + 1
+    }
 }
 
 impl ActiveElectionsContainer {
@@ -60,6 +85,8 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch: RaiEpoch::new(),
         }
     }
 
@@ -112,7 +139,10 @@ impl ActiveElectionsContainer {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
 
-        if self.try_upgrade_priority_election(&request)? {
+        let root = request.block.qualified_root();
+        #[cfg(feature = "rai_protocol")]
+        let root = root.with_epoch(self.rai_epoch.current());
+        if self.try_upgrade_priority_election(&request, root)? {
             return Ok(());
         }
 
@@ -143,8 +173,10 @@ impl ActiveElectionsContainer {
     fn try_upgrade_priority_election(
         &mut self,
         request: &AecInsertRequest,
+        root: QualifiedRoot,
     ) -> Result<bool, AecInsertError> {
-        let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(request);
+        let (upgraded, previous_behavior) =
+            self.roots.try_upgrade_to_priority_election(request, root);
 
         if upgraded {
             *self.count_by_behavior_mut(previous_behavior.unwrap()) -= 1;
@@ -159,8 +191,12 @@ impl ActiveElectionsContainer {
 
     fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
         let root = request.block.qualified_root();
+        #[cfg(feature = "rai_protocol")]
+        let root = root.with_epoch(self.rai_epoch.current());
         let hash = request.block.hash();
-        let election = Election::new(request.block, request.behavior, self.base_latency, now);
+        let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
+        #[cfg(feature = "rai_protocol")]
+        election.set_qualified_root(root.clone());
 
         self.roots.insert(Entry {
             root: root.clone(),
@@ -174,7 +210,10 @@ impl ActiveElectionsContainer {
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
-        let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
+        let root = fork.qualified_root();
+        #[cfg(feature = "rai_protocol")]
+        let root = root.with_epoch(self.rai_epoch.current());
+        let Some(entry) = self.roots.get_mut(&root) else {
             return false;
         };
 
@@ -198,9 +237,7 @@ impl ActiveElectionsContainer {
         };
 
         if added {
-            self.roots
-                .vote_router
-                .connect(fork.hash(), fork.qualified_root());
+            self.roots.vote_router.connect(fork.hash(), root);
             self.stats.conflicts += 1;
         }
 
@@ -261,11 +298,25 @@ impl ActiveElectionsContainer {
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
-        self.roots.election_for_block(block_hash)
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.roots.election_for_block(block_hash)
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.roots
+                .election_for_block(block_hash, self.rai_epoch.current())
+        }
     }
 
     pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        #[cfg(not(feature = "rai_protocol"))]
+        let election = self.roots.election_for_block_mut(block_hash);
+        #[cfg(feature = "rai_protocol")]
+        let election = self
+            .roots
+            .election_for_block_mut(block_hash, self.rai_epoch.current());
+        let Some(election) = election else {
             return false;
         };
         election.transition_active();
@@ -456,7 +507,13 @@ impl ActiveElectionsContainer {
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        #[cfg(not(feature = "rai_protocol"))]
+        let election = self.roots.election_for_block_mut(block_hash);
+        #[cfg(feature = "rai_protocol")]
+        let election = self
+            .roots
+            .election_for_block_mut(block_hash, self.rai_epoch.current());
+        let Some(election) = election else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {

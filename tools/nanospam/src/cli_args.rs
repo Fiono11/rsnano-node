@@ -1,11 +1,16 @@
 use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
+use std::path::PathBuf;
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Directory for generated node data (defaults to ~/NanoSpam)
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,

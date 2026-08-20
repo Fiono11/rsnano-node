@@ -44,6 +44,16 @@ pub enum VoteError {
     Ignored,
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
+pub enum VoteType {
+    NonFinal,
+    Final,
+    #[cfg(feature = "rai_protocol")]
+    First,
+    #[cfg(feature = "rai_protocol")]
+    Timeout,
+}
+
 impl VoteError {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -69,6 +79,9 @@ pub struct Vote {
 
     // The hashes for which this vote directly covers
     pub hashes: Vec<BlockHash>,
+
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
 }
 
 static HASH_PREFIX: &str = "vote ";
@@ -81,12 +94,34 @@ impl Vote {
             voter: PublicKey::ZERO,
             signature: Signature::new(),
             hashes: Vec::new(),
+            #[cfg(feature = "rai_protocol")]
+            epoch: 1,
         }
     }
 
     pub fn new_final(key: &PrivateKey, hashes: Vec<BlockHash>) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
         Self::new(key, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_rai(
+        key: &PrivateKey,
+        epoch: u64,
+        vote_type: VoteType,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        assert!(epoch > 0, "RAI network epochs start at one");
+        let (timestamp, duration) = match vote_type {
+            VoteType::Timeout => (UnixMillisTimestamp::ZERO, 0),
+            VoteType::First => (UnixMillisTimestamp::ZERO, 1),
+            VoteType::NonFinal => (UnixMillisTimestamp::now(), 9),
+            VoteType::Final => (Self::TIMESTAMP_MAX, Self::DURATION_MAX),
+        };
+        let mut vote = Self::new(key, timestamp, duration, hashes);
+        vote.epoch = epoch;
+        vote.signature = key.sign(vote.hash().as_bytes());
+        vote
     }
 
     pub fn new(
@@ -101,6 +136,8 @@ impl Vote {
             timestamp: VoteTimestamp::new(timestamp, duration),
             signature: Signature::new(),
             hashes,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 1,
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
@@ -126,6 +163,26 @@ impl Vote {
         self.timestamp.is_final()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_first(&self) -> bool {
+        self.timestamp.rai_vote_type() == VoteType::First
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_timeout(&self) -> bool {
+        self.timestamp.rai_vote_type() == VoteType::Timeout
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub const fn vote_type(&self) -> VoteType {
+        self.timestamp.rai_vote_type()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
     pub fn duration_bits(&self) -> u8 {
         self.timestamp.duration_bits()
     }
@@ -141,7 +198,12 @@ impl Vote {
             builder = builder.update(hash.as_bytes())
         }
 
-        builder.update(self.timestamp.to_ne_bytes()).build()
+        builder = builder.update(self.timestamp.to_ne_bytes());
+        #[cfg(feature = "rai_protocol")]
+        {
+            builder = builder.update(self.epoch.to_le_bytes());
+        }
+        builder.build()
     }
 
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
@@ -150,6 +212,15 @@ impl Vote {
         let mut buffer = [0; 8];
         bytes.read_exact(&mut buffer)?;
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
+        #[cfg(feature = "rai_protocol")]
+        let epoch = {
+            bytes.read_exact(&mut buffer)?;
+            let epoch = u64::from_le_bytes(buffer);
+            if epoch == 0 {
+                return Err(DeserializationError::InvalidData);
+            }
+            epoch
+        };
         let mut hashes = Vec::new();
         while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
             hashes.push(BlockHash::deserialize(&mut bytes)?);
@@ -159,6 +230,8 @@ impl Vote {
             voter,
             signature,
             hashes,
+            #[cfg(feature = "rai_protocol")]
+            epoch,
         })
     }
 
@@ -170,6 +243,7 @@ impl Vote {
         Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
+        + if cfg!(feature = "rai_protocol") { std::mem::size_of::<u64>() } else { 0 }
         + (BlockHash::SERIALIZED_SIZE * count)
     }
 
@@ -180,6 +254,8 @@ impl Vote {
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         for hash in &self.hashes {
             hash.serialize(writer)?;
         }
@@ -193,6 +269,16 @@ impl PartialEq for Vote {
             && self.voter == other.voter
             && self.signature == other.signature
             && self.hashes == other.hashes
+            && {
+                #[cfg(feature = "rai_protocol")]
+                {
+                    self.epoch == other.epoch
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    true
+                }
+            }
     }
 }
 
@@ -204,6 +290,8 @@ pub struct TestVoteBuilder {
     duration: u8,
     is_final: bool,
     hashes: Vec<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    epoch: u64,
 }
 
 impl TestVoteBuilder {
@@ -214,6 +302,8 @@ impl TestVoteBuilder {
             duration: 2,
             is_final: false,
             hashes: vec![BlockHash::from(5)],
+            #[cfg(feature = "rai_protocol")]
+            epoch: 1,
         }
     }
 
@@ -237,11 +327,76 @@ impl TestVoteBuilder {
         self
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch(mut self, epoch: u64) -> Self {
+        self.epoch = epoch;
+        self
+    }
+
     pub fn finish(self) -> Vote {
         if self.is_final {
-            Vote::new_final(&self.key, self.hashes)
+            let mut vote = Vote::new_final(&self.key, self.hashes);
+            #[cfg(feature = "rai_protocol")]
+            if self.epoch != vote.epoch {
+                vote.epoch = self.epoch;
+                vote.signature = self.key.sign(vote.hash().as_bytes());
+            }
+            vote
         } else {
-            Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
+            let mut vote = Vote::new(&self.key, self.timestamp, self.duration, self.hashes);
+            #[cfg(feature = "rai_protocol")]
+            if self.epoch != vote.epoch {
+                vote.epoch = self.epoch;
+                vote.signature = self.key.sign(vote.hash().as_bytes());
+            }
+            vote
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+
+    #[test]
+    fn encodes_all_vote_phases() {
+        let key = PrivateKey::from(7);
+        assert_eq!(
+            Vote::new(&key, UnixMillisTimestamp::ZERO, 0, vec![]).vote_type(),
+            VoteType::Timeout
+        );
+        assert_eq!(
+            Vote::new(&key, UnixMillisTimestamp::ZERO, 1, vec![]).vote_type(),
+            VoteType::First
+        );
+        assert_eq!(
+            Vote::new(&key, UnixMillisTimestamp::new(16), 0, vec![]).vote_type(),
+            VoteType::NonFinal
+        );
+        assert_eq!(Vote::new_final(&key, vec![]).vote_type(), VoteType::Final);
+    }
+
+    #[test]
+    fn epoch_is_serialized_and_signed() {
+        let vote = Vote::build_test_instance().epoch(9).finish();
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        let decoded = Vote::deserialize(&bytes).unwrap();
+        assert_eq!(decoded, vote);
+        assert_eq!(decoded.epoch(), 9);
+
+        let mut changed = decoded;
+        changed.epoch = 10;
+        assert!(changed.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_epoch_zero_from_network() {
+        let vote = Vote::new_test_instance();
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        bytes[Account::SERIALIZED_SIZE + Signature::SERIALIZED_SIZE + 8..][..8]
+            .copy_from_slice(&0u64.to_le_bytes());
+        assert!(Vote::deserialize(&bytes).is_err());
     }
 }

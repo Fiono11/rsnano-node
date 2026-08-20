@@ -116,14 +116,40 @@ impl RootContainer {
         self.get_mut(root).map(|i| &mut i.election)
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
         let root = self.vote_router.qualified_root(block_hash)?;
         self.election_for_root(root)
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {
         let root = self.vote_router.qualified_root(block_hash)?.clone();
         self.get_mut(&root).map(|i| &mut i.election)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_block(&self, block_hash: &BlockHash, epoch: u64) -> Option<&Election> {
+        self.by_root.values().find_map(|entry| {
+            let election = &entry.election;
+            ((election.qualified_root().epoch == epoch || election.qualified_root().epoch == 0)
+                && election.contains_block(block_hash))
+            .then_some(election)
+        })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_block_mut(
+        &mut self,
+        block_hash: &BlockHash,
+        epoch: u64,
+    ) -> Option<&mut Election> {
+        self.by_root.values_mut().find_map(|entry| {
+            let election = &mut entry.election;
+            ((election.qualified_root().epoch == epoch || election.qualified_root().epoch == 0)
+                && election.contains_block(block_hash))
+            .then_some(election)
+        })
     }
 
     pub fn bucket_infos(&self) -> &[BucketInfo] {
@@ -133,9 +159,8 @@ impl RootContainer {
     pub fn try_upgrade_to_priority_election(
         &mut self,
         request: &AecInsertRequest,
+        root: QualifiedRoot,
     ) -> (bool, Option<ElectionBehavior>) {
-        let root = request.block.qualified_root();
-
         let Some(entry) = self.get_mut(&root) else {
             return (false, None);
         };

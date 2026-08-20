@@ -28,7 +28,13 @@ impl<'a> ApplyVoteHelper<'a> {
                 continue;
             }
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
+            #[cfg(not(feature = "rai_protocol"))]
+            let election = self.roots.election_for_block_mut(block_hash);
+            #[cfg(feature = "rai_protocol")]
+            let election = self
+                .roots
+                .election_for_block_mut(block_hash, self.args.vote.epoch());
+            if let Some(election) = election {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -85,15 +91,25 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
 
         if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
+            #[cfg(not(feature = "rai_protocol"))]
             last_vote.ensure_no_replay(self.args.vote, self.block_hash)?;
+            #[cfg(feature = "rai_protocol")]
+            {
+                let mut check = last_vote.clone();
+                check.apply_phase(
+                    self.args.vote.vote_type(),
+                    *self.block_hash,
+                    self.args.vote.timestamp(),
+                    self.args.now,
+                )?;
+            }
 
             if self.should_cool_down(last_vote, rep_weight) {
                 return Err(VoteError::Ignored);
             }
         }
 
-        self.add_vote();
-        Ok(())
+        self.add_vote()
     }
 
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
@@ -110,24 +126,33 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
-    fn add_vote(&mut self) {
+    fn add_vote(&mut self) -> Result<(), VoteError> {
+        #[cfg(not(feature = "rai_protocol"))]
         self.election.add_vote(
             self.args.vote.voter,
             *self.block_hash,
             self.args.vote.timestamp(),
             self.args.now,
         );
+        #[cfg(feature = "rai_protocol")]
+        self.election
+            .apply_rai_vote(self.args.vote, *self.block_hash, self.args.now)?;
         self.vote_counter.count(self.args.vote.delivery);
         self.confirm_if_quorum();
+        Ok(())
     }
 
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
 
+        #[cfg(not(feature = "rai_protocol"))]
         self.election.update_tallies(
             self.args.rep_weights,
             self.args.quorum_snapshot.quorum_delta,
         );
+        #[cfg(feature = "rai_protocol")]
+        self.election
+            .update_rai_tallies(self.args.rep_weights, self.args.quorum_snapshot);
 
         self.notify_winner_changed(old_winner);
 
@@ -235,6 +260,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn cool_down_live_vote() {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::from_millis(500));
@@ -245,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn dont_cool_down_when_enough_space_between_votes() {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::from_secs(15));
@@ -255,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn dont_cool_down_when_vote_comes_from_cache() {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::ZERO);

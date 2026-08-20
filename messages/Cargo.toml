@@ -6,6 +6,7 @@ edition = "2024"
 
 [features]
 ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
+rai_protocol = ["rsnano_types/rai_protocol"]
 banano = [
 	"rsnano_types/banano",
 ]

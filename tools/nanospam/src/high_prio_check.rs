@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 
-use anyhow::anyhow;
 use tokio::{select, sync::mpsc::Sender, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -13,6 +12,7 @@ use rsnano_types::{
 };
 
 use crate::domain::{Forks, spam_logic::SpamLogic};
+use crate::{setup::genesis_key, wallets_factory::wait_until_confirmed_on_all};
 
 const PRIO_ACCOUNTS: usize = 20;
 const INITIAL_ACCOUNT_BALANCE: Amount = Amount::millinano(1500); // bucket 16
@@ -36,16 +36,13 @@ impl<'a> HighPrioCheck<'a> {
         }
     }
 
-    pub(crate) async fn create_prio_accounts(&mut self, wallet_id: WalletId) -> anyhow::Result<()> {
+    pub(crate) async fn create_prio_accounts(
+        &mut self,
+        wallet_id: WalletId,
+        rpc_clients: &[NanoRpcClient],
+    ) -> anyhow::Result<()> {
         info!("Creating high priority accounts...");
-        let account = self
-            .rpc_client
-            .account_list(wallet_id)
-            .await?
-            .accounts
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow!("Wallet is empty"))?;
+        let account = genesis_key().account();
 
         let keys: Vec<_> = self
             .accounts
@@ -65,11 +62,12 @@ impl<'a> HighPrioCheck<'a> {
                     id: None,
                 })
                 .await?;
+            wait_until_confirmed_on_all(rpc_clients, send_block.block).await?;
 
             let receive_block: Block = StateBlockArgs {
                 key: &key,
                 previous: BlockHash::ZERO,
-                representative: key.public_key(),
+                representative: genesis_key().public_key(),
                 balance: INITIAL_ACCOUNT_BALANCE,
                 link: send_block.block.into(),
                 work: 0.into(),
@@ -80,19 +78,12 @@ impl<'a> HighPrioCheck<'a> {
             self.rpc_client
                 .process(JsonBlock::from(receive_block))
                 .await?;
+            wait_until_confirmed_on_all(rpc_clients, receive_hash).await?;
 
             self.accounts
                 .insert(key.account(), (key.clone(), receive_hash, 1));
         }
 
-        info!("Waiting for confirmations...");
-        loop {
-            let count = self.rpc_client.block_count().await?;
-            if count.count.inner() == count.cemented.inner() {
-                break;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
         Ok(())
     }
 

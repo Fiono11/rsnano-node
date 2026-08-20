@@ -15,7 +15,10 @@ pub struct LocalVoteHistory {
 #[derive(Default)]
 struct LocalVoteHistoryData {
     history: BTreeMap<usize, LocalVote>,
+    #[cfg(not(feature = "rai_protocol"))]
     history_by_root: HashMap<Root, HashSet<usize>>,
+    #[cfg(feature = "rai_protocol")]
+    history_by_root: HashMap<(Root, u64), HashSet<usize>>,
 }
 
 impl LocalVoteHistoryData {
@@ -26,6 +29,8 @@ impl LocalVoteHistoryData {
 
 struct LocalVote {
     root: Root,
+    #[cfg(feature = "rai_protocol")]
+    epoch: u64,
     hash: BlockHash,
     vote: Arc<Vote>,
 }
@@ -58,15 +63,24 @@ impl LocalVoteHistory {
         let mut remove_root = false;
         let mut ids_to_delete = Vec::new();
         // Erase any vote that is not for this hash, or duplicate by account, and if new timestamp is higher
-        if let Some(ids) = data.history_by_root.get_mut(root) {
+        #[cfg(not(feature = "rai_protocol"))]
+        let history_key = *root;
+        #[cfg(feature = "rai_protocol")]
+        let history_key = (*root, vote.epoch());
+        if let Some(ids) = data.history_by_root.get_mut(&history_key) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
-                if &current.hash != hash
+                #[cfg(not(feature = "rai_protocol"))]
+                let superseded = &current.hash != hash
                     || (vote.voter == current.vote.voter
-                        && current.vote.timestamp() <= vote.timestamp())
-                {
+                        && current.vote.timestamp() <= vote.timestamp());
+                #[cfg(feature = "rai_protocol")]
+                let superseded = vote.voter == current.vote.voter
+                    && vote.vote_type() == current.vote.vote_type();
+                if superseded {
                     ids_to_delete.push(i);
-                } else if vote.voter == current.vote.voter
+                } else if cfg!(not(feature = "rai_protocol"))
+                    && vote.voter == current.vote.voter
                     && current.vote.timestamp() > vote.timestamp()
                 {
                     add_vote = false;
@@ -81,7 +95,7 @@ impl LocalVoteHistory {
         }
 
         if remove_root && !add_vote {
-            data.history_by_root.remove(root);
+            data.history_by_root.remove(&history_key);
         }
 
         // Do not add new vote to cache if representative account is same and timestamp is lower
@@ -96,12 +110,14 @@ impl LocalVoteHistory {
                 id,
                 LocalVote {
                     root: root.to_owned(),
+                    #[cfg(feature = "rai_protocol")]
+                    epoch: vote.epoch(),
                     hash: hash.to_owned(),
                     vote: vote.clone(),
                 },
             );
             data.history_by_root
-                .entry(root.to_owned())
+                .entry(history_key)
                 .or_default()
                 .insert(id);
         }
@@ -110,7 +126,15 @@ impl LocalVoteHistory {
     pub fn erase_batch(&self, roots: impl IntoIterator<Item = Root>) {
         let mut guard = self.data.lock().unwrap();
         for root in roots {
-            if let Some(removed) = guard.history_by_root.remove(&root) {
+            #[cfg(not(feature = "rai_protocol"))]
+            let removed_sets: Vec<_> = guard.history_by_root.remove(&root).into_iter().collect();
+            #[cfg(feature = "rai_protocol")]
+            let removed_sets: Vec<_> = guard
+                .history_by_root
+                .extract_if(|(r, _), _| *r == root)
+                .map(|(_, ids)| ids)
+                .collect();
+            for removed in removed_sets {
                 for &id in &removed {
                     guard.history.remove(&id);
                 }
@@ -120,7 +144,15 @@ impl LocalVoteHistory {
 
     pub fn erase(&self, root: &Root) {
         let mut data_lk = self.data.lock().unwrap();
-        if let Some(removed) = data_lk.history_by_root.remove(root) {
+        #[cfg(not(feature = "rai_protocol"))]
+        let removed_sets: Vec<_> = data_lk.history_by_root.remove(root).into_iter().collect();
+        #[cfg(feature = "rai_protocol")]
+        let removed_sets: Vec<_> = data_lk
+            .history_by_root
+            .extract_if(|(r, _), _| r == root)
+            .map(|(_, ids)| ids)
+            .collect();
+        for removed in removed_sets {
             for &id in &removed {
                 data_lk.history.remove(&id);
             }
@@ -130,7 +162,15 @@ impl LocalVoteHistory {
     pub fn votes(&self, root: &Root, hash: &BlockHash, is_final: bool) -> Vec<Arc<Vote>> {
         let data_lk = self.data.lock().unwrap();
         let mut result = Vec::new();
-        if let Some(ids) = data_lk.history_by_root.get(root) {
+        #[cfg(not(feature = "rai_protocol"))]
+        let id_sets: Vec<_> = data_lk.history_by_root.get(root).into_iter().collect();
+        #[cfg(feature = "rai_protocol")]
+        let id_sets: Vec<_> = data_lk
+            .history_by_root
+            .iter()
+            .filter_map(|((r, _), ids)| (r == root).then_some(ids))
+            .collect();
+        for ids in id_sets {
             for &id in ids.iter() {
                 let entry = &data_lk.history[&id];
                 if &entry.hash == hash && (!is_final || entry.vote.is_final()) {
@@ -141,9 +181,37 @@ impl LocalVoteHistory {
         result
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn votes_for_epoch(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: &BlockHash,
+        vote_type: Option<rsnano_types::VoteType>,
+    ) -> Vec<Arc<Vote>> {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| {
+                let entry = &data.history[id];
+                (&entry.hash == hash && vote_type.is_none_or(|kind| entry.vote.vote_type() == kind))
+                    .then(|| entry.vote.clone())
+            })
+            .collect()
+    }
+
     pub fn exists(&self, root: &Root) -> bool {
         let data_lk = self.data.lock().unwrap();
-        data_lk.history_by_root.contains_key(root)
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            data_lk.history_by_root.contains_key(root)
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            data_lk.history_by_root.keys().any(|(r, _)| r == root)
+        }
     }
 
     pub fn size(&self) -> usize {
@@ -167,13 +235,20 @@ fn clean(data: &mut LocalVoteHistoryData, max_cache: usize) {
     while data.history.len() > max_cache {
         let (id, root) = {
             let (id, vote) = data.history.iter().next().unwrap();
-            (*id, vote.root)
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                (*id, vote.root)
+            }
+            #[cfg(feature = "rai_protocol")]
+            {
+                (*id, (vote.root, vote.epoch))
+            }
         };
         data.history.remove(&id);
         let mut root_empty = false;
-        if let Some(root) = data.history_by_root.get_mut(&root) {
-            root.remove(&id);
-            root_empty = root.is_empty();
+        if let Some(ids) = data.history_by_root.get_mut(&root) {
+            ids.remove(&id);
+            root_empty = ids.is_empty();
         }
 
         if root_empty {
@@ -258,6 +333,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn basic2() {
         let history = LocalVoteHistory::with_max_cache(256);
         let root = Root::from(1);

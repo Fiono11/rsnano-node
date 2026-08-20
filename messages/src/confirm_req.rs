@@ -25,6 +25,8 @@ use std::fmt::{Debug, Display, Write};
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConfirmReq {
     pub roots_hashes: Vec<(BlockHash, Root)>,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
 }
 
 impl ConfirmReq {
@@ -45,7 +47,18 @@ impl ConfirmReq {
         if roots_hashes.len() > u8::MAX as usize {
             panic!("roots_hashes too big");
         }
-        Self { roots_hashes }
+        Self {
+            roots_hashes,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 1,
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn with_epoch(mut self, epoch: u64) -> Self {
+        assert!(epoch > 0, "RAI network epochs start at one");
+        self.epoch = epoch;
+        self
     }
 
     pub fn new_test_instance() -> Self {
@@ -133,6 +146,11 @@ impl ConfirmReq {
                 let count = Self::count(extensions);
                 if block_type_id == BlockTypeId::NotABlock {
                     count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
+                        + if cfg!(feature = "rai_protocol") {
+                            std::mem::size_of::<u64>()
+                        } else {
+                            0
+                        }
                 } else {
                     0
                 }
@@ -144,6 +162,8 @@ impl ConfirmReq {
     where
         T: std::io::Write,
     {
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         for (hash, root) in &self.roots_hashes {
             writer.write_all(hash.as_bytes())?;
             writer.write_all(root.as_bytes())?;
@@ -155,8 +175,24 @@ impl ConfirmReq {
         bytes: &[u8],
         extensions: BitArray<u16>,
     ) -> Result<Self, DeserializationError> {
-        let roots = Self::deserialize_roots(bytes, extensions)?;
-        Ok(Self::new(roots))
+        #[cfg(feature = "rai_protocol")]
+        {
+            use std::io::Read;
+            let mut bytes = bytes;
+            let mut epoch_bytes = [0; 8];
+            bytes.read_exact(&mut epoch_bytes)?;
+            let epoch = u64::from_le_bytes(epoch_bytes);
+            if epoch == 0 {
+                return Err(DeserializationError::InvalidData);
+            }
+            let roots = Self::deserialize_roots(bytes, extensions)?;
+            return Ok(Self::new(roots).with_epoch(epoch));
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let roots = Self::deserialize_roots(bytes, extensions)?;
+            Ok(Self::new(roots))
+        }
     }
 
     fn deserialize_roots(
@@ -218,6 +254,8 @@ impl serde::Serialize for ConfirmReq {
         let mut state = serializer.serialize_struct("ConfirmReq", 6)?;
         state.serialize_field("confirm_type", "roots_hashes")?;
         state.serialize_field("roots_hashes", &SerializableRootsHashes(&self.roots_hashes))?;
+        #[cfg(feature = "rai_protocol")]
+        state.serialize_field("epoch", &self.epoch)?;
         state.end()
     }
 }

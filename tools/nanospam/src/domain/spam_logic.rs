@@ -51,8 +51,10 @@ impl SpamLogic {
     }
 
     pub(crate) fn is_finished(&self) -> bool {
-        self.block_factory.max_blocks() > 0
-            && self.confirmed_total >= self.block_factory.max_blocks()
+        let max_blocks = self.block_factory.max_blocks();
+        max_blocks > 0
+            && (self.confirmed_total >= max_blocks
+                || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
     }
 
     pub(crate) fn fork_propability(&self) -> f64 {
@@ -99,7 +101,20 @@ impl SpamLogic {
     }
 
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
-        self.delayed.published(hash, now);
+        let confirmed_before_publish = self.delayed.published(hash, now);
+
+        if self.spec.track_confirmations
+            && let Some(conf_time) = confirmed_before_publish
+        {
+            if self.cps_measure_start.is_none() {
+                self.cps_measure_start = Some(now);
+            }
+            self.confirmed_recent += 1;
+            self.confirmed_total += 1;
+            self.sum_conf_time_recent += conf_time;
+            self.sum_conf_time_total += conf_time;
+            self.block_factory.confirm(hash);
+        }
 
         if !self.spec.track_confirmations {
             self.delayed.confirmed(hash, now);
@@ -151,6 +166,10 @@ impl SpamLogic {
         } else {
             self.sum_conf_time_recent / self.confirmed_recent as u32
         }
+    }
+
+    pub(crate) fn unconfirmed_hashes(&self) -> Vec<BlockHash> {
+        self.delayed.hashes()
     }
 
     pub(crate) fn stats(&self, now: Timestamp) -> SpamStats {

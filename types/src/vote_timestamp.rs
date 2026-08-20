@@ -11,6 +11,10 @@ pub struct VoteTimestamp(u64);
 
 impl VoteTimestamp {
     pub const FINAL: VoteTimestamp = VoteTimestamp(u64::MAX);
+    #[cfg(feature = "rai_protocol")]
+    pub const RAI_TIMEOUT: VoteTimestamp = VoteTimestamp(0);
+    #[cfg(feature = "rai_protocol")]
+    pub const RAI_FIRST: VoteTimestamp = VoteTimestamp(1);
     pub const DURATION_MAX: u8 = 0x0F;
     pub const TIMESTAMP_MIN: UnixMillisTimestamp = UnixMillisTimestamp::new(0x0000_0000_0000_0010);
     const TIMESTAMP_MAX: UnixMillisTimestamp = UnixMillisTimestamp::new(0xFFFF_FFFF_FFFF_FFF0);
@@ -42,6 +46,16 @@ impl VoteTimestamp {
 
     pub fn is_final(&self) -> bool {
         *self == Self::FINAL
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub const fn rai_vote_type(&self) -> crate::VoteType {
+        match self.0 {
+            0 => crate::VoteType::Timeout,
+            1 => crate::VoteType::First,
+            u64::MAX => crate::VoteType::Final,
+            _ => crate::VoteType::NonFinal,
+        }
     }
 
     pub fn duration(&self) -> Duration {

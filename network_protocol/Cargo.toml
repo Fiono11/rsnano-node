@@ -5,6 +5,11 @@ edition = "2024"
 
 [features]
 ledger_snapshots = ["rsnano_messages/ledger_snapshots"]
+rai_protocol = [
+    "rsnano_types/rai_protocol",
+    "rsnano_messages/rai_protocol",
+    "rsnano_network/rai_protocol",
+]
 
 [dependencies]
 rsnano_types = { path = "../types" }

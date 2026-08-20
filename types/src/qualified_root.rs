@@ -10,6 +10,15 @@ use std::{
 pub struct QualifiedRoot {
     pub root: Root,
     pub previous: BlockHash,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+pub struct SlotRoot {
+    pub root: Root,
+    pub previous: BlockHash,
 }
 
 impl QualifiedRoot {
@@ -17,7 +26,26 @@ impl QualifiedRoot {
     pub const SERIALIZED_SIZE: usize = Root::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE;
 
     pub const fn new(root: Root, previous: BlockHash) -> Self {
-        Self { root, previous }
+        Self {
+            root,
+            previous,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub const fn slot(&self) -> SlotRoot {
+        SlotRoot {
+            root: self.root,
+            previous: self.previous,
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub const fn with_epoch(mut self, epoch: u64) -> Self {
+        self.epoch = epoch;
+        self
     }
 
     pub fn to_bytes(&self) -> [u8; Self::SERIALIZED_SIZE] {
@@ -41,7 +69,7 @@ impl QualifiedRoot {
     {
         let root = Root::deserialize(reader)?;
         let previous = BlockHash::deserialize(reader)?;
-        Ok(QualifiedRoot { root, previous })
+        Ok(QualifiedRoot::new(root, previous))
     }
 
     pub fn new_test_instance() -> Self {
@@ -63,7 +91,7 @@ impl QualifiedRoot {
         let mut slice = bytes.as_slice();
         let root = Root::deserialize(&mut slice).ok()?;
         let previous = BlockHash::deserialize(&mut slice).ok()?;
-        Some(Self { root, previous })
+        Some(Self::new(root, previous))
     }
 }
 
@@ -72,7 +100,14 @@ impl From<U512> for QualifiedRoot {
         let bytes = value.to_big_endian();
         let root = Root::from_slice(&bytes[..32]).unwrap();
         let previous = BlockHash::from_slice(&bytes[32..]).unwrap();
-        QualifiedRoot { root, previous }
+        QualifiedRoot::new(root, previous)
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl SlotRoot {
+    pub const fn with_epoch(self, epoch: u64) -> QualifiedRoot {
+        QualifiedRoot::new(self.root, self.previous).with_epoch(epoch)
     }
 }
 
@@ -144,5 +179,16 @@ mod tests {
         let expected = QualifiedRoot::new(Root::from(0xaabbcc), BlockHash::from(0x112233));
         let result: QualifiedRoot = serde_json::from_str(input).unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn epoch_scopes_elections_but_not_slots() {
+        let root = QualifiedRoot::new(Root::from(1), BlockHash::from(2));
+        assert_eq!(root.epoch, 0);
+        let first = root.clone().with_epoch(1);
+        let second = root.with_epoch(2);
+        assert_ne!(first, second);
+        assert_eq!(first.slot(), second.slot());
     }
 }

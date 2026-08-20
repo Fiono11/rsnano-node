@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 ledger_snapshots = []
+rai_protocol = ["rsnano_types/rai_protocol"]
 
 [dev-dependencies]
 mock_instant = "0"

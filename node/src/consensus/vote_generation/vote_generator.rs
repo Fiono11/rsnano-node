@@ -13,7 +13,11 @@ use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::UnixMillisTimestamp;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::VoteType;
+use rsnano_types::{BlockHash, Root, SavedBlock, Vote};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -54,6 +58,7 @@ impl VoteGenerator {
         vote_generator_delay: Duration,
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
+        #[cfg(feature = "rai_protocol")] vote_type: VoteType,
     ) -> Self {
         let shared_state = Arc::new(SharedState {
             ledger: Arc::clone(&ledger),
@@ -73,6 +78,8 @@ impl VoteGenerator {
             spacing: Mutex::new(VoteSpacing::new(voting_delay)),
             vote_generator_delay,
             clock,
+            #[cfg(feature = "rai_protocol")]
+            vote_type,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -231,6 +238,8 @@ struct SharedState {
     spacing: Mutex<VoteSpacing>,
     vote_generator_delay: Duration,
     clock: Arc<SteadyClock>,
+    #[cfg(feature = "rai_protocol")]
+    vote_type: VoteType,
 }
 
 impl SharedState {
@@ -321,32 +330,69 @@ impl SharedState {
             .rep_priv_keys(&mut rep_keys);
 
         let mut votes = Vec::new();
+        #[cfg(feature = "rai_protocol")]
+        let mut replay_votes: Vec<Arc<Vote>> = Vec::new();
         for rep_key in rep_keys.drain(..) {
-            let timestamp = if self.is_final {
-                Vote::TIMESTAMP_MAX
-            } else {
-                UnixMillisTimestamp::now()
-            };
-            let duration = if self.is_final {
-                Vote::DURATION_MAX
-            } else {
-                0x9 /*8192ms*/
-            };
-            votes.push(Arc::new(Vote::new(
-                &rep_key,
-                timestamp,
-                duration,
-                hashes.to_vec(),
-            )));
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                let timestamp = if self.is_final {
+                    Vote::TIMESTAMP_MAX
+                } else {
+                    UnixMillisTimestamp::now()
+                };
+                let duration = if self.is_final {
+                    Vote::DURATION_MAX
+                } else {
+                    0x9 /*8192ms*/
+                };
+                votes.push((
+                    Arc::new(Vote::new(&rep_key, timestamp, duration, hashes.to_vec())),
+                    roots.to_vec(),
+                ));
+            }
+            #[cfg(feature = "rai_protocol")]
+            {
+                let mut pending_hashes = Vec::new();
+                let mut pending_roots = Vec::new();
+                for (root, hash) in roots.iter().zip(hashes) {
+                    let existing = self
+                        .history
+                        .votes_for_epoch(root, 1, hash, Some(self.vote_type))
+                        .into_iter()
+                        .find(|vote| vote.voter == rep_key.public_key());
+                    if let Some(existing) = existing {
+                        if !replay_votes
+                            .iter()
+                            .any(|vote| vote.signature == existing.signature)
+                        {
+                            replay_votes.push(existing);
+                        }
+                    } else {
+                        pending_roots.push(*root);
+                        pending_hashes.push(*hash);
+                    }
+                }
+                if !pending_hashes.is_empty() {
+                    votes.push((
+                        Arc::new(Vote::new_rai(&rep_key, 1, self.vote_type, pending_hashes)),
+                        pending_roots,
+                    ));
+                }
+            }
         }
 
-        for vote in votes {
+        #[cfg(feature = "rai_protocol")]
+        for vote in replay_votes {
+            action(vote);
+        }
+
+        for (vote, vote_roots) in votes {
             {
                 let now = self.clock.now();
                 let mut spacing = self.spacing.lock().unwrap();
-                for i in 0..hashes.len() {
-                    self.history.add(&roots[i], &hashes[i], &vote);
-                    spacing.flag(&roots[i], &hashes[i], now);
+                for (root, hash) in vote_roots.iter().zip(&vote.hashes) {
+                    self.history.add(root, hash, &vote);
+                    spacing.flag(root, hash, now);
                 }
             }
             action(vote);

@@ -3,6 +3,18 @@ use rand::RngExt;
 use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 
 use crate::domain::AccountMap;
+#[cfg(feature = "rai_protocol")]
+use crate::setup::pr_key;
+
+#[cfg(not(feature = "rai_protocol"))]
+fn spam_representative(key: &rsnano_types::PrivateKey) -> PublicKey {
+    key.public_key()
+}
+
+#[cfg(feature = "rai_protocol")]
+fn spam_representative(_key: &rsnano_types::PrivateKey) -> PublicKey {
+    pr_key(0).public_key()
+}
 
 pub(crate) struct BlockFactory {
     max_blocks: usize,
@@ -107,7 +119,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative: spam_representative(&state.key),
             balance: state.balance + amount_sent,
             link: send_hash.into(),
             work: 0.into(),
@@ -145,7 +157,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         let send: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative: spam_representative(&state.key),
             balance: new_balance,
             link: destination.into(),
             work: 0.into(),

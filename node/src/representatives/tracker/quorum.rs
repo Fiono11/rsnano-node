@@ -6,6 +6,12 @@ use std::cmp::max;
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
+/// Equal fault and participation-slack budgets for n = 3f + 2p + 1, p = f.
+#[cfg(feature = "rai_protocol")]
+pub(crate) fn rai_fault_slack_budget(weight: Amount) -> Amount {
+    Amount::raw(weight.number().saturating_sub(1) / 5)
+}
+
 pub(crate) fn calculate_quorum<'a>(
     reps: impl IntoIterator<Item = &'a RegisteredRep>,
     trended_weight: Amount,
@@ -39,6 +45,12 @@ pub(crate) fn calculate_quorum<'a>(
         online_weight_minimum,
         quorum_percent: ONLINE_WEIGHT_QUORUM,
         minimum_principal_weight,
+        #[cfg(feature = "rai_protocol")]
+        total_weight: weight,
+        #[cfg(feature = "rai_protocol")]
+        faulty_weight: rai_fault_slack_budget(weight),
+        #[cfg(feature = "rai_protocol")]
+        slack_weight: rai_fault_slack_budget(weight),
     }
 }
 
@@ -215,6 +227,19 @@ mod tests {
         // Must not panic, and must stay within (0, weight).
         assert!(quorum.quorum_delta.number() > 0);
         assert!(quorum.quorum_delta.number() < Amount::MAX.number());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn rai_budgets_satisfy_3f_plus_2p_plus_1() {
+        let quorum = calculate_quorum(&[], Amount::raw(101), Amount::ZERO, &RepWeights::default());
+
+        assert_eq!(quorum.faulty_weight, Amount::raw(20));
+        assert_eq!(quorum.slack_weight, Amount::raw(20));
+        assert_eq!(
+            quorum.faulty_weight * 3 + quorum.slack_weight * 2 + Amount::raw(1),
+            quorum.total_weight
+        );
     }
 
     /* Test helpers */

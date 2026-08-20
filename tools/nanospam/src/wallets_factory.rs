@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use tokio::time::sleep;
-use tracing::{debug, info};
+#[cfg(not(feature = "rai_protocol"))]
+use tracing::debug;
+use tracing::info;
 
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::{ReceiveArgs, SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
@@ -20,11 +22,15 @@ pub(crate) async fn create_wallets(
     account_map: &mut AccountMap,
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
+    #[cfg(feature = "rai_protocol")]
+    let mut setup_wallets = Vec::with_capacity(rpc_clients.len());
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
+        #[cfg(feature = "rai_protocol")]
+        setup_wallets.push(resp.wallet);
         if i == 0 {
             genesis_wallet = resp.wallet;
         }
@@ -37,6 +43,33 @@ pub(crate) async fn create_wallets(
             })
             .await
             .unwrap();
+
+        // RAI starts in a fixed epoch-zero committee containing the genesis
+        // representative. Keep that signer locally available while setup
+        // redistributes stake and peers are still learning the new committee.
+        #[cfg(feature = "rai_protocol")]
+        if i > 0 {
+            rpc_client
+                .wallet_add(WalletAddArgs {
+                    wallet: resp.wallet,
+                    key: genesis_key.raw_key(),
+                    work: None,
+                })
+                .await
+                .unwrap();
+
+            // PR0 creates the redistribution chain. Let it sign for each new
+            // representative until the periodic local-representative refresh
+            // observes the transferred voting weight.
+            genesis_rpc
+                .wallet_add(WalletAddArgs {
+                    wallet: genesis_wallet,
+                    key: pr_key.raw_key(),
+                    work: None,
+                })
+                .await
+                .unwrap();
+        }
 
         info!("Setting default representative...");
         rpc_client
@@ -68,7 +101,12 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap()
                 .block;
+            #[cfg(not(feature = "rai_protocol"))]
             wait_until_confirmed(rpc_client, send_hash).await;
+            #[cfg(feature = "rai_protocol")]
+            wait_until_confirmed_on_all(rpc_clients, send_hash)
+                .await
+                .unwrap();
 
             info!("Receiving...");
             // trigger wallet receive to speed things up
@@ -85,7 +123,13 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap()
                 .frontier;
+            #[cfg(not(feature = "rai_protocol"))]
             wait_until_confirmed(rpc_client, recv_hash).await;
+            #[cfg(feature = "rai_protocol")]
+            wait_until_confirmed_on_all(rpc_clients, recv_hash)
+                .await
+                .unwrap();
+
             info!("DONE");
             info!(
                 "********************************************************************************"
@@ -108,12 +152,24 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap()
         .block;
+    #[cfg(not(feature = "rai_protocol"))]
     wait_until_confirmed(genesis_rpc, genesis_send).await;
+    #[cfg(feature = "rai_protocol")]
+    wait_until_confirmed_on_all(rpc_clients, genesis_send)
+        .await
+        .unwrap();
     info!("Receiving initial spam amount...");
+    #[cfg(not(feature = "rai_protocol"))]
+    let initial_representative = initial_key.public_key();
+    // The spam account is not a voting wallet. Delegating its balance to itself
+    // removes that weight from the live RAI committee and makes the protocol's
+    // W-F-P certificate threshold unreachable after setup.
+    #[cfg(feature = "rai_protocol")]
+    let initial_representative = pr_key(0).public_key();
     let genesis_receive: Block = StateBlockArgs {
         key: &initial_key,
         previous: BlockHash::ZERO,
-        representative: initial_key.public_key(),
+        representative: initial_representative,
         balance: INITIAL_AMOUNT,
         link: genesis_send.into(),
         work: 0.into(),
@@ -125,7 +181,12 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap();
 
+    #[cfg(not(feature = "rai_protocol"))]
     wait_until_confirmed(genesis_rpc, recv.hash).await;
+    #[cfg(feature = "rai_protocol")]
+    wait_until_confirmed_on_all(rpc_clients, recv.hash)
+        .await
+        .unwrap();
 
     account_map.set_account_state(
         initial_key.account(),
@@ -133,9 +194,22 @@ pub(crate) async fn create_wallets(
         genesis_receive.hash(),
     );
 
+    #[cfg(feature = "rai_protocol")]
+    for i in 1..pr_count {
+        genesis_rpc
+            .account_remove(genesis_wallet, pr_key(i).account())
+            .await
+            .unwrap();
+        rpc_clients[i]
+            .account_remove(setup_wallets[i], genesis_key.account())
+            .await
+            .unwrap();
+    }
+
     genesis_wallet
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
     info!("Waiting for confirmation for {hash}");
     loop {
@@ -148,6 +222,58 @@ async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
             Err(e) => {
                 debug!("Got error: {e:?}")
             }
+        }
+
+        sleep(Duration::from_millis(100)).await;
+    }
+}
+
+pub(crate) async fn wait_until_confirmed_on_all(
+    rpc_clients: &[NanoRpcClient],
+    hash: BlockHash,
+) -> anyhow::Result<()> {
+    let block = loop {
+        let mut found = None;
+        for client in rpc_clients {
+            if let Ok(info) = client.block_info(hash).await {
+                found = Some(info.contents);
+                break;
+            }
+        }
+        if let Some(block) = found {
+            break block;
+        }
+        sleep(Duration::from_millis(100)).await;
+    };
+    let mut last_confirm_request = None;
+    loop {
+        let mut all_confirmed = true;
+        for client in rpc_clients {
+            match client.block_info(hash).await {
+                Ok(info) if info.confirmed.inner() => {}
+                Ok(_) => all_confirmed = false,
+                Err(_) => {
+                    // Setup traffic can arrive after the originating election
+                    // has ended. Repair the missing block before requesting a
+                    // fresh committee-wide election.
+                    let _ = client.process(block.clone()).await;
+                    all_confirmed = false;
+                }
+            }
+        }
+        if all_confirmed {
+            return Ok(());
+        }
+
+        if last_confirm_request
+            .is_none_or(|last: std::time::Instant| last.elapsed() >= Duration::from_secs(1))
+        {
+            // Restart the election on the whole committee. A lagging replica may
+            // receive a setup block after peers have already dropped its election.
+            for client in rpc_clients {
+                let _ = client.block_confirm(hash).await;
+            }
+            last_confirm_request = Some(std::time::Instant::now());
         }
 
         sleep(Duration::from_millis(100)).await;

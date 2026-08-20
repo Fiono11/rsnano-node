@@ -47,11 +47,13 @@ impl DelayedBlocks {
         }
     }
 
-    pub fn published(&mut self, hash: &BlockHash, timestamp: Timestamp) {
+    pub fn published(&mut self, hash: &BlockHash, timestamp: Timestamp) -> Option<Duration> {
+        let mut confirmed_before_publish = false;
         if let Some(info) = self.blocks.get_mut(hash) {
             if info.first_publish.is_none() {
                 info.first_publish = Some(timestamp);
             }
+            confirmed_before_publish = info.confirmed_at.is_some();
             let old_sent = info.last_publish;
             info.last_publish = Some(timestamp);
 
@@ -60,9 +62,22 @@ impl DelayedBlocks {
             }
             self.by_time.entry(timestamp).or_default().push(*hash);
         }
+        if confirmed_before_publish {
+            self.blocks.remove(hash);
+            self.remove_from_time_index(hash, timestamp);
+            Some(Duration::ZERO)
+        } else {
+            None
+        }
     }
 
     pub fn confirmed(&mut self, hash: &BlockHash, timestamp: Timestamp) -> Option<Duration> {
+        if let Some(info) = self.blocks.get_mut(hash)
+            && info.first_publish.is_none()
+        {
+            info.confirmed_at = Some(timestamp);
+            return None;
+        }
         if let Some(info) = self.blocks.remove(hash) {
             if let Some(sent) = info.last_publish {
                 self.remove_from_time_index(hash, sent);
@@ -78,6 +93,10 @@ impl DelayedBlocks {
         self.blocks.len()
     }
 
+    pub fn hashes(&self) -> Vec<BlockHash> {
+        self.blocks.keys().copied().collect()
+    }
+
     fn remove_from_time_index(&mut self, hash: &BlockHash, sent: Timestamp) {
         let mut hashes = self.by_time.remove(&sent).unwrap();
         hashes.retain(|h| h != hash);
@@ -91,6 +110,7 @@ struct PublishInfo {
     block: Block,
     first_publish: Option<Timestamp>,
     last_publish: Option<Timestamp>,
+    confirmed_at: Option<Timestamp>,
 }
 
 impl PublishInfo {
@@ -99,6 +119,7 @@ impl PublishInfo {
             block,
             first_publish: None,
             last_publish: None,
+            confirmed_at: None,
         }
     }
 }

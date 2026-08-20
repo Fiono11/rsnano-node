@@ -371,6 +371,12 @@ impl RepresentativeTrackerState {
                 online_weight_minimum,
                 quorum_percent: ONLINE_WEIGHT_QUORUM,
                 minimum_principal_weight: online_weight_minimum / 1000,
+                #[cfg(feature = "rai_protocol")]
+                total_weight: online_weight_minimum,
+                #[cfg(feature = "rai_protocol")]
+                faulty_weight: quorum::rai_fault_slack_budget(online_weight_minimum),
+                #[cfg(feature = "rai_protocol")]
+                slack_weight: quorum::rai_fault_slack_budget(online_weight_minimum),
             },
         }
     }
@@ -393,6 +399,12 @@ pub struct QuorumSnapshot {
     pub online_weight_minimum: Amount,
     pub quorum_percent: u8,
     pub minimum_principal_weight: Amount,
+    #[cfg(feature = "rai_protocol")]
+    pub total_weight: Amount,
+    #[cfg(feature = "rai_protocol")]
+    pub faulty_weight: Amount,
+    #[cfg(feature = "rai_protocol")]
+    pub slack_weight: Amount,
 }
 
 impl QuorumSnapshot {
@@ -405,6 +417,12 @@ impl QuorumSnapshot {
             online_weight_minimum: Amount::nano(60_000_000),
             quorum_percent: ONLINE_WEIGHT_QUORUM,
             minimum_principal_weight: Amount::nano(100_000),
+            #[cfg(feature = "rai_protocol")]
+            total_weight: Amount::nano(100_000_000),
+            #[cfg(feature = "rai_protocol")]
+            faulty_weight: quorum::rai_fault_slack_budget(Amount::nano(100_000_000)),
+            #[cfg(feature = "rai_protocol")]
+            slack_weight: quorum::rai_fault_slack_budget(Amount::nano(100_000_000)),
         }
     }
 
