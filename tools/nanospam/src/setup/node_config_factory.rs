@@ -127,7 +127,10 @@ fn rai_config(args: &CliArgs) -> String {
         // before restarting the prepared ledgers and enables timed boundaries.
         return "[node.rai]\n    enable_epoch_ticker = false".to_string();
     }
-    let mut config = String::from("[node.rai]\n    enable_epoch_ticker = true");
+    let mut config = format!(
+        "[node.rai]\n    enable_epoch_ticker = {}",
+        !args.single_rai_epoch
+    );
     if let Some(duration) = args.rai_epoch_duration_ms {
         config.push_str(&format!("\n    epoch_duration = {duration}"));
     }
@@ -243,6 +246,26 @@ mod tests {
             rai_config(&args),
             "[node.rai]\n    enable_epoch_ticker = false"
         );
+    }
+
+    #[test]
+    fn single_rai_epoch_disables_epoch_boundaries_during_run() {
+        let args = CommandLine::parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "1",
+            "--single-rai-epoch",
+        ])
+        .into_args();
+
+        let config = rai_config(&args);
+        assert!(config.contains("enable_epoch_ticker = false"));
+        assert!(config.contains("genesis_committee = ["));
+        assert!(!config.contains("epoch_duration ="));
+        assert!(!config.contains("tick_interval ="));
     }
 
     #[test]

@@ -249,10 +249,11 @@ impl Election {
     /// terminal RAI result and must not be removed by ordinary AEC cleanup.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn rai_requires_retention(&self) -> bool {
-        matches!(
-            self.rai_votes.outcome,
-            RaiOutcome::Pending | RaiOutcome::Notarized(_)
-        ) || (self.is_rai_close() && self.rai_votes.outcome == RaiOutcome::TimedOut)
+        self.is_rai_close()
+            && matches!(
+                self.rai_votes.outcome,
+                RaiOutcome::Pending | RaiOutcome::Notarized(_) | RaiOutcome::TimedOut
+            )
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -486,6 +487,19 @@ impl Election {
         if self.rai_requires_retention() {
             self.state = ElectionState::Active;
             return;
+        }
+        #[cfg(feature = "rai_protocol")]
+        if self.rai_kind() == RaiElectionKind::Slot
+            && matches!(
+                self.rai_votes.outcome,
+                RaiOutcome::Pending | RaiOutcome::Notarized(_)
+            )
+            && self.state == ElectionState::Passive
+        {
+            // Preserve RAI's immediate voting start without coupling it to
+            // non-evictable lifetime. Ordinary slots still obey the legacy
+            // TTL and AEC capacity paths below.
+            self.state = ElectionState::Active;
         }
 
         match self.state {
@@ -1091,7 +1105,8 @@ mod rai_identity_tests {
         .with_rai_committees(vec![committee]);
 
         // Four of six first votes cross notarization, but not the fast
-        // threshold. The result remains provisional and retained.
+        // threshold. The result remains provisional, but an ordinary slot can
+        // be evicted because its signed evidence is archived for reactivation.
         for key in keys.iter().take(4) {
             election
                 .rai_votes
@@ -1116,7 +1131,7 @@ mod rai_identity_tests {
 
         assert_eq!(election.rai_votes.outcome, RaiOutcome::Notarized(hash));
         assert!(!election.state().has_ended());
-        assert!(election.rai_requires_retention());
+        assert!(!election.rai_requires_retention());
         assert!(
             election
                 .into_confirmed_election(

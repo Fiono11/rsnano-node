@@ -78,19 +78,11 @@ pub(crate) async fn create_wallets(
             genesis_wallet = resp.wallet;
         }
         let pr_key = pr_key(i);
-        rpc_client
-            .wallet_add(WalletAddArgs {
-                wallet: resp.wallet,
-                key: pr_key.raw_key(),
-                work: None,
-            })
-            .await
-            .unwrap();
 
         // RAI setup runs in epoch zero, whose fixed committee contains only
-        // the genesis representative. Give every setup node that key so a
-        // missed PR0 vote cannot strand a locally restarted election. Remove
-        // these temporary copies before preserving the prepared wallets.
+        // the genesis representative. Add that key before a zero-weight PR
+        // key can be observed and cached by the epoch ticker. These temporary
+        // copies are removed before preserving the prepared wallets.
         #[cfg(feature = "rai_protocol")]
         if i != 0 {
             rpc_client
@@ -102,6 +94,15 @@ pub(crate) async fn create_wallets(
                 .await
                 .unwrap();
         }
+
+        rpc_client
+            .wallet_add(WalletAddArgs {
+                wallet: resp.wallet,
+                key: pr_key.raw_key(),
+                work: None,
+            })
+            .await
+            .unwrap();
 
         debug!("Setting default representative for PR{i}");
         rpc_client

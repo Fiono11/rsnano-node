@@ -428,7 +428,7 @@ impl Ledger {
         assert!(max_results > 0);
         const MAX_VISITED: usize = 16 * 1024;
         let txn = self.store.begin_read();
-        let mut stack = frontiers
+        let frontier_hashes = frontiers
             .iter()
             .filter(|(account, frontier)| {
                 !self
@@ -443,10 +443,41 @@ impl Ledger {
             .collect::<Vec<_>>();
         let mut visited = std::collections::HashSet::new();
         let mut missing = std::collections::BTreeSet::new();
-        while let Some(hash) = stack.pop() {
-            if hash.is_zero() || !visited.insert(hash) || visited.len() > MAX_VISITED {
+        let mut dependencies = VecDeque::new();
+
+        // Frontier roots must not consume the transitive walk budget. Close
+        // records can contain more roots than MAX_VISITED, and repeatedly
+        // skipping the same account-order prefix would otherwise hide a
+        // missing frontier forever.
+        for hash in frontier_hashes {
+            if hash.is_zero() || !visited.insert(hash) {
                 continue;
             }
+            let Some(block) = self.store.block.get(&txn, &hash) else {
+                missing.insert(hash);
+                if missing.len() >= max_results {
+                    return missing.into_iter().collect();
+                }
+                continue;
+            };
+            let block_dependencies =
+                block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
+            for dependency in block_dependencies.iter() {
+                if !dependency.is_zero() {
+                    dependencies.push_back(*dependency);
+                }
+            }
+        }
+
+        let mut dependency_visits = 0;
+        while let Some(hash) = dependencies.pop_front() {
+            if hash.is_zero() || !visited.insert(hash) {
+                continue;
+            }
+            if dependency_visits >= MAX_VISITED {
+                break;
+            }
+            dependency_visits += 1;
             let Some(block) = self.store.block.get(&txn, &hash) else {
                 missing.insert(hash);
                 if missing.len() >= max_results {
@@ -454,11 +485,12 @@ impl Ledger {
                 }
                 continue;
             };
-            let dependencies =
-                block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
-            for dependency in dependencies.iter() {
+            for dependency in block
+                .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
+                .iter()
+            {
                 if !dependency.is_zero() {
-                    stack.push(*dependency);
+                    dependencies.push_back(*dependency);
                 }
             }
         }
@@ -485,31 +517,20 @@ impl Ledger {
         frontiers: &std::collections::BTreeMap<Account, ConfirmationHeightInfo>,
     ) -> RepWeights {
         let txn = self.store.begin_read();
-        if frontiers.len() as u64 == self.store.confirmation_height.count(&txn)
-            && frontiers.iter().all(|(account, frontier)| {
-                self.store.confirmation_height.get(&txn, account).as_ref() == Some(frontier)
-            })
-        {
-            let mut weights = RepWeights::default();
-            for (representative, weight) in self.store.rai_finalization.confirmed_rep_weights(&txn)
-            {
-                weights.put(representative, weight);
-            }
-            return weights;
-        }
         let mut weights = RepWeights::default();
         for info in frontiers.values() {
             let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
                 continue;
             };
-            let rep_hash =
-                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
-            let Some(rep) = self
-                .store
-                .block
-                .get(&txn, &rep_hash)
-                .and_then(|block| block.representative_field())
-            else {
+            let rep = frontier.representative_field().or_else(|| {
+                let rep_hash =
+                    RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
+                self.store
+                    .block
+                    .get(&txn, &rep_hash)
+                    .and_then(|block| block.representative_field())
+            });
+            let Some(rep) = rep else {
                 continue;
             };
             weights.put(rep, weights.weight(&rep).wrapping_add(frontier.balance()));
@@ -517,14 +538,25 @@ impl Ledger {
         weights
     }
 
+    pub fn new_null() -> Self {
+        Self::new(
+            LmdbEnvironment::new_null(),
+            LedgerConstants::unit_test(),
+            Arc::new(RepWeightCache::default()),
+            Arc::new(Stats::default()),
+            1,
+            false,
+        )
+        .unwrap()
+    }
+
     #[cfg(feature = "rai_protocol")]
     fn ensure_rai_confirmed_rep_weights(&self) {
+        // Epoch-certified cementation does not update this startup-only index
+        // on the hot path. Account counts alone cannot detect a balance or
+        // representative change, so reconstruct the prepared committee from
+        // the exact cemented frontiers on every start.
         let read = self.store.begin_read();
-        if self.store.rai_finalization.confirmed_account_count(&read)
-            == self.store.confirmation_height.count(&read)
-        {
-            return;
-        }
         let frontiers = self
             .store
             .confirmation_height
@@ -540,14 +572,16 @@ impl Ledger {
             let Some(frontier) = self.store.block.get(&txn, &info.frontier) else {
                 continue;
             };
-            let rep_hash =
-                RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
-            let representative = self
-                .store
-                .block
-                .get(&txn, &rep_hash)
-                .and_then(|block| block.representative_field())
-                .expect("confirmed frontier must have a representative");
+            let representative = frontier.representative_field().or_else(|| {
+                let rep_hash =
+                    RepresentativeBlockFinder::new(&txn, &self.store).find_rep_block(info.frontier);
+                self.store
+                    .block
+                    .get(&txn, &rep_hash)
+                    .and_then(|block| block.representative_field())
+            });
+            let representative =
+                representative.expect("confirmed frontier must have a representative");
             self.store
                 .rai_finalization
                 .put_confirmed_account_contribution(
@@ -558,17 +592,6 @@ impl Ledger {
                 );
         }
         txn.commit();
-    }
-    pub fn new_null() -> Self {
-        Self::new(
-            LmdbEnvironment::new_null(),
-            LedgerConstants::unit_test(),
-            Arc::new(RepWeightCache::default()),
-            Arc::new(Stats::default()),
-            1,
-            false,
-        )
-        .unwrap()
     }
 
     pub fn new_null_builder() -> NullLedgerBuilder {
@@ -1314,7 +1337,18 @@ impl Ledger {
                             if let Some(conf_info) =
                                 self.store.confirmation_height.get(&txn, &block.account())
                             {
-                                block.height() <= conf_info.height
+                                let confirmed = block.height() <= conf_info.height;
+                                #[cfg(feature = "rai_protocol")]
+                                let finalized_through_requested_epoch = finalization_epoch
+                                    .is_none_or(|requested| {
+                                        self.store
+                                            .rai_finalization
+                                            .epoch(&txn, confirmation_root)
+                                            .is_some_and(|existing| existing <= requested)
+                                    });
+                                #[cfg(not(feature = "rai_protocol"))]
+                                let finalized_through_requested_epoch = true;
+                                confirmed && finalized_through_requested_epoch
                             } else {
                                 false
                             }
@@ -1783,6 +1817,122 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
+    fn confirmed_representative_weights_rebuild_when_account_count_is_unchanged() {
+        use crate::LedgerInserter;
+        use rsnano_types::RaiEpoch;
+
+        #[derive(Default)]
+        struct Observer;
+        impl CementingObserver for Observer {
+            fn already_confirmed(&mut self, _hash: &BlockHash) {}
+            fn cementing_failed(&mut self, hash: &BlockHash) {
+                panic!("cementation failed for {hash}")
+            }
+        }
+
+        let ledger = Ledger::new_null();
+        let genesis_rep = ledger.constants.genesis_account.into();
+        let send = LedgerInserter::new(&ledger)
+            .genesis()
+            .send(Account::from(42), 1);
+        let stopped = AtomicBool::new(false);
+        ledger.confirm_batch_rai(
+            [(&send.hash(), Some(RaiEpoch::ZERO))],
+            &stopped,
+            1024,
+            &mut Observer,
+        );
+
+        let read = ledger.store.begin_read();
+        assert_eq!(
+            ledger.store.rai_finalization.confirmed_account_count(&read),
+            ledger.store.confirmation_height.count(&read)
+        );
+        drop(read);
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&genesis_rep),
+            Amount::MAX
+        );
+
+        ledger.ensure_rai_confirmed_rep_weights();
+
+        assert_eq!(
+            ledger.rai_confirmed_rep_weights().weight(&genesis_rep),
+            Amount::MAX - Amount::raw(1)
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn certified_frontier_weights_do_not_depend_on_the_live_cache() {
+        let ledger = Ledger::new_null();
+        let read = ledger.store.begin_read();
+        let frontiers = ledger
+            .store
+            .confirmation_height
+            .iter(&read)
+            .collect::<std::collections::BTreeMap<_, _>>();
+        drop(read);
+
+        let wrong_rep = rsnano_types::PublicKey::from(42);
+        let mut txn = ledger.store.begin_write();
+        ledger
+            .store
+            .rai_finalization
+            .put_confirmed_account_contribution(
+                &mut txn,
+                &ledger.constants.genesis_account,
+                wrong_rep,
+                Amount::MAX,
+            );
+        txn.commit();
+
+        let weights = ledger.rai_rep_weights_at_frontiers(&frontiers);
+        assert_eq!(
+            weights.weight(&ledger.constants.genesis_account.into()),
+            Amount::MAX
+        );
+        assert_eq!(weights.weight(&wrong_rep), Amount::ZERO);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn missing_close_frontier_is_not_hidden_by_the_dependency_visit_limit() {
+        const DEPENDENCY_VISIT_LIMIT: usize = 16 * 1024;
+
+        // Each stored frontier has no dependencies, so the walk consumes its
+        // entire visit budget before reaching the missing lowest-account
+        // frontier when roots are popped in reverse account order.
+        let blocks = (0..DEPENDENCY_VISIT_LIMIT)
+            .map(|i| {
+                rsnano_types::TestBlockBuilder::legacy_send()
+                    .previous(BlockHash::ZERO)
+                    .destination(Account::from(i as u64 + 2))
+                    .build_saved()
+            })
+            .collect::<Vec<_>>();
+        let ledger = Ledger::new_null_builder().blocks(&blocks).finish();
+        let missing = BlockHash::from(1);
+        let mut frontiers = blocks
+            .iter()
+            .enumerate()
+            .map(|(i, block)| {
+                (
+                    Account::from(i as u64 + 2),
+                    ConfirmationHeightInfo::new(1, block.hash()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        frontiers.insert(Account::from(1), ConfirmationHeightInfo::new(1, missing));
+
+        assert_eq!(
+            ledger.rai_missing_close_dependencies(rsnano_types::RaiEpoch::ZERO, &frontiers, 1,),
+            vec![missing]
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
     fn rai_close_frontiers_can_be_committed_in_bounded_passes() {
         use crate::LedgerInserter;
         use std::collections::BTreeMap;
@@ -2091,7 +2241,7 @@ mod tests {
         ledger.confirm_batch_rai(
             [(&close_frontier.hash(), Some(epoch))],
             &stopped,
-            1024,
+            1,
             &mut observer,
         );
 

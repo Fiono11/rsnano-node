@@ -1,7 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
-    thread::yield_now,
     time::{Duration, Instant},
 };
 
@@ -9,10 +8,11 @@ use std::{
 use std::collections::BTreeMap;
 
 use anyhow::{Context, anyhow, ensure};
+use futures::future::join_all;
 use num_format::{Locale, ToFormattedString};
 use rand::{RngExt, rng};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf},
     select,
     sync::mpsc,
     task::JoinSet,
@@ -35,7 +35,10 @@ use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 use crate::{
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
-    domain::{BlockResult, Forks, spam_logic::SpamLogic},
+    domain::{
+        Forks,
+        spam_logic::{NextBlockResult, SpamLogic},
+    },
     frontiers_sync::sync_frontiers,
     handshake::perform_handshake,
     high_prio_check::HighPrioCheck,
@@ -49,6 +52,10 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
+const MIN_NO_READY_ACCOUNT_BACKOFF: Duration = Duration::from_micros(100);
+const MAX_NO_READY_ACCOUNT_BACKOFF: Duration = Duration::from_millis(2);
+const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_millis(2);
+const PUBLISH_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 // Close elections use eventual repair and have no 24-second protocol bound.
 // Leave enough room for several report/cut/drain/record repair rounds while
@@ -244,7 +251,7 @@ impl NanoSpamApp {
                 let node_id_key: PrivateKey = RawKey::from(42 + i as u64).into();
                 perform_handshake(protocol, genesis_hash, node_id_key, &mut tcp_stream).await?;
                 let (tcp_read, tcp_write) = tokio::io::split(tcp_stream);
-                node_writers.push(tcp_write);
+                node_writers.push(Some(tcp_write));
                 node_readers.push(tcp_read);
             }
             tcp_writers.push(node_writers);
@@ -260,6 +267,7 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         let transition = Mutex::new(RaiTransitionObservation::default());
+        let publisher_failure = Mutex::new(None::<String>);
         let initial_confirmation_stats = fetch_confirmation_stats(&self.rpc_clients).await?;
 
         info!("Connecting to websocket...");
@@ -323,6 +331,7 @@ impl NanoSpamApp {
                     protocol,
                     genesis_rpc,
                     &logic,
+                    &publisher_failure,
                     cancel_nanospam.clone(),
                     self.args.drop_probability(),
                     &self.clock,
@@ -338,7 +347,6 @@ impl NanoSpamApp {
                 }
             });
         });
-        let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
         let requested_blocks = logic.block_factory.max_blocks();
@@ -348,10 +356,13 @@ impl NanoSpamApp {
         let websocket_confirmation_samples = logic.websocket_confirmation_samples();
         let average_websocket_confirmation_time = logic.average_websocket_confirmation_time();
         let delayed_blocks = logic.delayed.hashes().len();
-        let cps = (created_blocks as f64 / duration_secs) as i32;
-        info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
-        info!("Confirmation rate: {cps} cps");
+        let publisher_failure = publisher_failure.into_inner().unwrap();
         drop(logic);
+        ensure!(
+            publisher_failure.is_none(),
+            "nanospam publisher failed: {}; created {created_blocks}/{requested_blocks}, published {published_blocks}, PR0 confirmed {confirmed_blocks}, delayed {delayed_blocks}",
+            publisher_failure.as_deref().unwrap_or("unknown error"),
+        );
         ensure!(
             !shutdown.is_cancelled(),
             "nanospam exceeded the {total_timeout:?} global timeout while publishing or confirming the workload: created {created_blocks}/{requested_blocks}, published {}, PR0 confirmed {confirmed_blocks}, delayed {delayed_blocks}",
@@ -370,6 +381,19 @@ impl NanoSpamApp {
             workload_confirmed,
             "workload stopped before PR0 confirmed all {created_blocks} blocks"
         );
+        let final_confirmation_stats = wait_for_all_pr_confirmations(
+            &self.rpc_clients,
+            &initial_confirmation_stats,
+            created_blocks,
+            global_deadline
+                .checked_sub(Duration::from_secs(2))
+                .unwrap_or(global_deadline),
+        )
+        .await?;
+        let duration_secs = started.elapsed().as_secs_f64();
+        let cps = (created_blocks as f64 / duration_secs) as i32;
+        info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
+        info!("Confirmation rate: {cps} cps");
         println!("Block confirmation report:");
         println!(
             "  PR0 websocket average confirmation time {} ({websocket_confirmation_samples} samples)",
@@ -408,7 +432,6 @@ impl NanoSpamApp {
             }
         }
 
-        let final_confirmation_stats = fetch_confirmation_stats(&self.rpc_clients).await?;
         print_confirmation_stats(
             &initial_confirmation_stats,
             &final_confirmation_stats,
@@ -775,6 +798,41 @@ async fn fetch_confirmation_stats(
     Ok(result)
 }
 
+async fn wait_for_all_pr_confirmations(
+    clients: &[NanoRpcClient],
+    initial: &[ConfirmationStats],
+    expected_blocks: usize,
+    deadline: Instant,
+) -> anyhow::Result<Vec<ConfirmationStats>> {
+    const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+    ensure!(
+        initial.len() == clients.len(),
+        "PR stats count changed before confirmation wait"
+    );
+    let expected = expected_blocks as u64;
+    loop {
+        let current = fetch_confirmation_stats(clients).await?;
+        let confirmed = initial
+            .iter()
+            .zip(&current)
+            .map(|(before, after)| after.count.saturating_sub(before.count))
+            .collect::<Vec<_>>();
+        if confirmed.iter().all(|count| *count >= expected) {
+            return Ok(current);
+        }
+
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .unwrap_or(Duration::ZERO);
+        ensure!(
+            !remaining.is_zero(),
+            "timed out waiting for every PR to confirm {expected_blocks} blocks; observed counts: {confirmed:?}"
+        );
+        sleep(POLL_INTERVAL.min(remaining)).await;
+    }
+}
+
 fn print_confirmation_stats(
     initial: &[ConfirmationStats],
     final_stats: &[ConfirmationStats],
@@ -972,6 +1030,7 @@ fn enqueue_blocks(
     clock: &SteadyClock,
     cancel_token: &CancellationToken,
 ) {
+    let mut no_ready_backoff = NoReadyAccountBackoff::default();
     loop {
         if cancel_token.is_cancelled() {
             break;
@@ -986,24 +1045,31 @@ fn enqueue_blocks(
         };
 
         match result {
-            Some(BlockResult::Block(forks)) => {
-                let mut pending = forks;
-                loop {
-                    if cancel_token.is_cancelled() {
-                        return;
-                    }
-                    match tx_blocks.try_send(pending) {
-                        Ok(()) => break,
-                        Err(mpsc::error::TrySendError::Full(forks)) => {
-                            pending = forks;
-                            yield_now();
-                        }
-                        Err(mpsc::error::TrySendError::Closed(_)) => return,
-                    }
+            Some(NextBlockResult::Block(forks)) => {
+                no_ready_backoff.reset();
+                // This producer already runs on a dedicated OS thread. Block
+                // it when the async publisher is behind instead of spinning
+                // on a full channel and competing with the nodes for a core.
+                // Cancellation makes the publisher drop the receiver, which
+                // wakes this send with an error.
+                if tx_blocks.blocking_send(forks).is_err() {
+                    return;
                 }
             }
-            Some(BlockResult::Waiting) => {
-                yield_now();
+            Some(NextBlockResult::RateLimited(retry_after)) => {
+                no_ready_backoff.reset();
+                let wait = bounded_rate_limit_wait(retry_after);
+                debug_assert!(!wait.is_zero());
+                std::thread::sleep(wait);
+                continue;
+            }
+            Some(NextBlockResult::NoReadyAccount) => {
+                // A confirmation must make another account eligible before
+                // useful work can resume. Back off this dedicated producer so
+                // it does not compete with the nodes which provide that
+                // confirmation. Keep the cap small enough that a newly ready
+                // account is picked up promptly.
+                std::thread::sleep(no_ready_backoff.next_delay());
                 continue;
             }
             None => {
@@ -1013,18 +1079,51 @@ fn enqueue_blocks(
     }
 }
 
+fn bounded_rate_limit_wait(retry_after: Duration) -> Duration {
+    retry_after.min(MAX_RATE_LIMIT_WAIT)
+}
+
+struct NoReadyAccountBackoff {
+    next: Duration,
+}
+
+impl NoReadyAccountBackoff {
+    fn next_delay(&mut self) -> Duration {
+        let delay = self.next;
+        self.next = self
+            .next
+            .saturating_mul(2)
+            .min(MAX_NO_READY_ACCOUNT_BACKOFF);
+        delay
+    }
+
+    fn reset(&mut self) {
+        self.next = MIN_NO_READY_ACCOUNT_BACKOFF;
+    }
+}
+
+impl Default for NoReadyAccountBackoff {
+    fn default() -> Self {
+        Self {
+            next: MIN_NO_READY_ACCOUNT_BACKOFF,
+        }
+    }
+}
+
 async fn publish_blocks(
     mut rx_blocks: mpsc::Receiver<Forks>,
-    mut tcp_streams: Vec<Vec<WriteHalf<TcpStream>>>,
+    mut tcp_streams: Vec<Vec<Option<WriteHalf<TcpStream>>>>,
     protocol: ProtocolInfo,
     genesis_rpc: &NanoRpcClient,
     logic: &Mutex<SpamLogic>,
+    publisher_failure: &Mutex<Option<String>>,
     cancel_token: CancellationToken,
     drop_probability: f64,
     clock: &SteadyClock,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
+    let mut direct_publish_unavailable = vec![false; tcp_streams.len()];
     loop {
         let forks = select! {
             _ = cancel_token.cancelled() => break,
@@ -1048,38 +1147,71 @@ async fn publish_blocks(
         }
 
         let mut counter = 0;
-        tokio_scoped::scope(|s| {
-            for stream in &mut tcp_streams {
-                if rng().random_bool(drop_probability) {
-                    // drop this transmission
-                    continue;
-                }
-
-                let buf = if let Some(fbuf) = fork_buffer
-                    && counter % 2 == 0
-                {
-                    // send fork to every second node
-                    fbuf
-                } else {
-                    buffer
-                };
-
-                s.spawn(async {
-                    select! {
-                        _ = cancel_token.cancelled() => {}
-                        result = stream[writer_index].write_all(buf) => {
-                            result.expect("failed to publish a block frame");
-                        }
-                    }
-                });
-
-                counter += 1;
+        let mut writes = Vec::with_capacity(tcp_streams.len());
+        for (node_index, streams) in tcp_streams.iter_mut().enumerate() {
+            if rng().random_bool(drop_probability) {
+                // drop this transmission
+                continue;
             }
-        });
 
-        // Match the legacy contract: a block is published, and its latency
-        // clock starts, only after every selected PR socket accepted the full
-        // frame. A write failure aborts instead of silently losing a block.
+            let buf = if let Some(fbuf) = fork_buffer
+                && counter % 2 == 0
+            {
+                // send fork to every second node
+                fbuf
+            } else {
+                buffer
+            };
+
+            writes.push(write_publish_frame(
+                streams,
+                writer_index,
+                buf,
+                node_index,
+                &cancel_token,
+                PUBLISH_WRITE_TIMEOUT,
+            ));
+            counter += 1;
+        }
+        let write_results = join_all(writes).await;
+        if write_results
+            .iter()
+            .any(|result| *result == PublishWriteResult::Cancelled)
+        {
+            return;
+        }
+        if direct_publication_failed(&write_results, drop_probability) {
+            *publisher_failure.lock().unwrap() = Some(format!(
+                "no PR accepted a complete publish frame for block {hash}"
+            ));
+            cancel_token.cancel();
+            return;
+        }
+        for result in write_results {
+            match result {
+                PublishWriteResult::Published { node_index } => {
+                    direct_publish_unavailable[node_index] = false;
+                }
+                PublishWriteResult::Unavailable { node_index } => {
+                    // Other PRs still receive the originator publish and relay
+                    // it through the live network. Warn only on the state
+                    // transition so a retired PR cannot create a log storm.
+                    if !direct_publish_unavailable[node_index] {
+                        tracing::warn!(
+                            node_index,
+                            block_hash = %hash,
+                            "all direct nanospam publish connections to PR are unavailable; relying on peer relay"
+                        );
+                        direct_publish_unavailable[node_index] = true;
+                    }
+                }
+                PublishWriteResult::Cancelled => return,
+            }
+        }
+
+        // Start the latency clock only after the bounded direct-publish
+        // attempts finish. A PR whose direct streams are unavailable can
+        // still receive the originator publish from another PR's relay.
         let was_high_prio = {
             let mut l = logic.lock().unwrap();
             l.published(&hash, clock.now())
@@ -1125,6 +1257,84 @@ async fn publish_blocks(
     // `is_finished`, drops the final sender, and `recv` returns `None` above.
     // Wake every other scoped task just as the legacy publisher did.
     cancel_token.cancel();
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PublishWriteResult {
+    Published { node_index: usize },
+    Cancelled,
+    Unavailable { node_index: usize },
+}
+
+fn direct_publication_failed(results: &[PublishWriteResult], drop_probability: f64) -> bool {
+    // When packet loss is explicitly requested, an empty/all-lost attempt is
+    // part of the workload and the delayed republisher gets another chance.
+    // Without simulated loss, at least one PR must have accepted the frame.
+    drop_probability == 0.0
+        && !results.is_empty()
+        && !results
+            .iter()
+            .any(|result| matches!(result, PublishWriteResult::Published { .. }))
+}
+
+/// Writes one complete protocol frame to a PR without allowing that PR to
+/// block the workload indefinitely. `write_all` is not cancellation safe: a
+/// timeout can leave an unknown prefix of the frame on the socket. Therefore
+/// a failed or timed-out stream is permanently retired before the complete
+/// frame is retried on another connection.
+async fn write_publish_frame<W: AsyncWrite + Unpin>(
+    streams: &mut [Option<W>],
+    preferred_index: usize,
+    buffer: &[u8],
+    node_index: usize,
+    cancel_token: &CancellationToken,
+    write_timeout: Duration,
+) -> PublishWriteResult {
+    for offset in 0..streams.len() {
+        let stream_index = (preferred_index + offset) % streams.len();
+        let Some(stream) = streams[stream_index].as_mut() else {
+            continue;
+        };
+
+        let result = select! {
+            _ = cancel_token.cancelled() => return PublishWriteResult::Cancelled,
+            result = timeout(write_timeout, stream.write_all(buffer)) => result,
+        };
+        match result {
+            Ok(Ok(())) => return PublishWriteResult::Published { node_index },
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    node_index,
+                    stream_index,
+                    %error,
+                    "retiring failed nanospam publish connection"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    node_index,
+                    stream_index,
+                    ?write_timeout,
+                    "retiring backpressured nanospam publish connection"
+                );
+            }
+        }
+        // `tokio::io::split` keeps the underlying stream alive in its
+        // ReadHalf. Explicitly shut down the write direction so the peer sees
+        // EOF and discards a possible partial protocol frame before we forget
+        // this WriteHalf.
+        if timeout(write_timeout, stream.shutdown()).await.is_err() {
+            tracing::warn!(
+                node_index,
+                stream_index,
+                ?write_timeout,
+                "timed out shutting down tainted nanospam publish connection"
+            );
+        }
+        streams[stream_index] = None;
+    }
+
+    PublishWriteResult::Unavailable { node_index }
 }
 
 fn connection_index(block: &rsnano_types::Block) -> usize {
@@ -1257,6 +1467,135 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+#[cfg(test)]
+mod producer_tests {
+    use super::*;
+
+    #[test]
+    fn no_ready_account_backoff_is_bounded_and_resettable() {
+        let mut backoff = NoReadyAccountBackoff::default();
+
+        assert_eq!(backoff.next_delay(), Duration::from_micros(100));
+        assert_eq!(backoff.next_delay(), Duration::from_micros(200));
+        assert_eq!(backoff.next_delay(), Duration::from_micros(400));
+        assert_eq!(backoff.next_delay(), Duration::from_micros(800));
+        assert_eq!(backoff.next_delay(), Duration::from_micros(1_600));
+        assert_eq!(backoff.next_delay(), MAX_NO_READY_ACCOUNT_BACKOFF);
+        assert_eq!(backoff.next_delay(), MAX_NO_READY_ACCOUNT_BACKOFF);
+
+        backoff.reset();
+        assert_eq!(backoff.next_delay(), MIN_NO_READY_ACCOUNT_BACKOFF);
+    }
+
+    #[test]
+    fn rate_limit_wait_preserves_short_deadlines_and_caps_long_ones() {
+        assert_eq!(
+            bounded_rate_limit_wait(Duration::from_micros(690)),
+            Duration::from_micros(690)
+        );
+        assert_eq!(
+            bounded_rate_limit_wait(Duration::from_secs(1)),
+            MAX_RATE_LIMIT_WAIT
+        );
+    }
+}
+
+#[cfg(test)]
+mod publisher_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, duplex};
+
+    #[tokio::test]
+    async fn timed_out_partial_frame_is_retired_and_retried_in_full() {
+        // The first duplex can buffer only one byte. With no reader running,
+        // write_all writes a prefix and then times out. Reusing it would make
+        // the next protocol frame start after that corrupt prefix.
+        let (blocked_writer, mut blocked_reader) = duplex(1);
+        let (fallback_writer, mut fallback_reader) = duplex(64);
+        let mut streams = vec![Some(blocked_writer), Some(fallback_writer)];
+        let frame = b"complete frame";
+
+        let result = write_publish_frame(
+            &mut streams,
+            0,
+            frame,
+            3,
+            &CancellationToken::new(),
+            Duration::from_millis(10),
+        )
+        .await;
+
+        assert_eq!(result, PublishWriteResult::Published { node_index: 3 });
+        assert!(streams[0].is_none(), "partial stream must be retired");
+        assert!(streams[1].is_some(), "fallback stream remains usable");
+
+        let mut received = vec![0; frame.len()];
+        fallback_reader.read_exact(&mut received).await.unwrap();
+        assert_eq!(received, frame);
+
+        let mut partial = Vec::new();
+        timeout(
+            Duration::from_millis(50),
+            blocked_reader.read_to_end(&mut partial),
+        )
+        .await
+        .expect("retired stream did not send EOF")
+        .unwrap();
+        assert_eq!(partial, frame[..1]);
+    }
+
+    #[tokio::test]
+    async fn cancellation_does_not_retire_a_healthy_stream() {
+        let (mut writer, _reader) = duplex(1);
+        writer.write_all(b"x").await.unwrap();
+        let mut streams = vec![Some(writer)];
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = write_publish_frame(
+            &mut streams,
+            0,
+            b"frame",
+            0,
+            &cancel,
+            Duration::from_secs(1),
+        )
+        .await;
+
+        assert_eq!(result, PublishWriteResult::Cancelled);
+        assert!(streams[0].is_some());
+    }
+
+    #[tokio::test]
+    async fn reports_unavailable_when_every_stream_was_retired() {
+        let mut streams: Vec<Option<tokio::io::DuplexStream>> = vec![None, None];
+
+        let result = write_publish_frame(
+            &mut streams,
+            1,
+            b"frame",
+            5,
+            &CancellationToken::new(),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        assert_eq!(result, PublishWriteResult::Unavailable { node_index: 5 });
+    }
+
+    #[test]
+    fn zero_success_is_fatal_unless_simulated_loss_was_requested() {
+        let unavailable = [PublishWriteResult::Unavailable { node_index: 0 }];
+        assert!(direct_publication_failed(&unavailable, 0.0));
+        assert!(!direct_publication_failed(&unavailable, 0.5));
+        assert!(!direct_publication_failed(&[], 0.0));
+        assert!(!direct_publication_failed(
+            &[PublishWriteResult::Published { node_index: 0 }],
+            0.0,
+        ));
     }
 }
 

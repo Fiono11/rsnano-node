@@ -15,6 +15,7 @@ type VoteTargetId = crate::consensus::election::RaiElectionId;
 #[cfg(not(feature = "rai_protocol"))]
 type VoteTargetId = QualifiedRoot;
 
+#[derive(Clone)]
 pub(crate) struct VoteTarget {
     id: VoteTargetId,
     pub root: QualifiedRoot,
@@ -24,10 +25,6 @@ pub(crate) struct VoteTarget {
     pub metadata: rsnano_types::RaiVoteMetadata,
     #[cfg(feature = "rai_protocol")]
     pub is_rai_close: bool,
-    #[cfg(feature = "rai_protocol")]
-    pub is_rai_timeout: bool,
-    #[cfg(feature = "rai_protocol")]
-    pub rai_slot_notar_grace: Duration,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
@@ -55,10 +52,6 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
         metadata: e.rai_vote_metadata(),
         #[cfg(feature = "rai_protocol")]
         is_rai_close: e.is_rai_close(),
-        #[cfg(feature = "rai_protocol")]
-        is_rai_timeout: winner.is_zero(),
-        #[cfg(feature = "rai_protocol")]
-        rai_slot_notar_grace: e.base_latency() / 2,
     }
 }
 
@@ -99,16 +92,10 @@ impl VotingScheduler {
 
         #[cfg(feature = "rai_protocol")]
         if record.last_rai_phase != target.metadata.phase {
-            // First votes count toward notarization. Give an ordinary slot time to
-            // collect a terminal First certificate before issuing the optional
-            // Notar second-look vote.
-            if !target.is_rai_close
-                && !target.is_rai_timeout
-                && record.last_rai_phase == rsnano_types::RaiVotePhase::First
-                && target.metadata.phase == rsnano_types::RaiVotePhase::Notar
-            {
-                return now >= record.last_voted + target.rai_slot_notar_grace;
-            }
+            // Election phase selection already enforces the protocol guards:
+            // non-timeout second-look votes require First weight > F + P,
+            // while timeout Notar votes require timeoutReady. A phase change
+            // therefore becomes eligible immediately; no clock gate applies.
             return true;
         }
 
@@ -121,6 +108,24 @@ impl VotingScheduler {
             None => true,
             Some(ts) => now >= ts + self.interval,
         }
+    }
+
+    /// Cheaply excludes targets which cannot become due during RAI vote
+    /// preparation. Preparation can only downgrade a requested Notar vote to
+    /// First when a local representative has not signed First yet. Check both
+    /// possible phases before consulting wallet and vote-history state.
+    #[cfg(feature = "rai_protocol")]
+    pub fn may_vote_after_rai_preparation(&self, target: &VoteTarget, now: Timestamp) -> bool {
+        if self.can_vote(target, now) {
+            return true;
+        }
+        if target.metadata.phase != rsnano_types::RaiVotePhase::Notar {
+            return false;
+        }
+
+        let mut first = target.clone();
+        first.metadata.phase = rsnano_types::RaiVotePhase::First;
+        self.can_vote(&first, now)
     }
 
     pub fn mark_voted(&mut self, target: &VoteTarget, now: Timestamp) {
@@ -224,15 +229,14 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn slot_notar_vote_waits_for_grace_period() {
+    fn quorum_enabled_slot_notar_vote_is_immediate() {
         let mut s = scheduler();
         let first = target(VoteType::NonFinal);
         s.mark_voted(&first, t(0));
         let mut notar = target(VoteType::NonFinal);
         notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
 
-        assert!(!s.can_vote(&notar, t_millis(499)));
-        assert!(s.can_vote(&notar, t_millis(500)));
+        assert!(s.can_vote(&notar, t(0)));
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -241,7 +245,6 @@ mod tests {
         let mut s = scheduler();
         let mut timeout_first = target(VoteType::NonFinal);
         timeout_first.winner = BlockHash::ZERO;
-        timeout_first.is_rai_timeout = true;
         s.mark_voted(&timeout_first, t(0));
         let mut timeout_notar = timeout_first;
         timeout_notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
@@ -253,8 +256,7 @@ mod tests {
     #[test]
     fn close_notar_vote_is_immediate() {
         let mut s = scheduler();
-        let mut first = target(VoteType::NonFinal);
-        first.is_rai_close = true;
+        let first = target(VoteType::NonFinal);
         s.mark_voted(&first, t(0));
         let mut notar = first;
         notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
@@ -272,6 +274,18 @@ mod tests {
         final_vote.metadata.phase = rsnano_types::RaiVotePhase::Final;
 
         assert!(s.can_vote(&final_vote, t(0)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn preparation_prefilter_preserves_a_possible_first_downgrade() {
+        let mut s = scheduler();
+        let mut notar = target(VoteType::NonFinal);
+        notar.metadata.phase = rsnano_types::RaiVotePhase::Notar;
+        s.mark_voted(&notar, t(0));
+
+        assert!(!s.can_vote(&notar, t(0)));
+        assert!(s.may_vote_after_rai_preparation(&notar, t(0)));
     }
 
     #[test]
@@ -308,7 +322,6 @@ mod tests {
         let target = vote_target(&election);
 
         assert_eq!(target.metadata.epoch, RaiEpoch::new(3));
-        assert_eq!(target.rai_slot_notar_grace, Duration::from_millis(500));
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -400,10 +413,6 @@ mod tests {
             metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             is_rai_close: false,
-            #[cfg(feature = "rai_protocol")]
-            is_rai_timeout: false,
-            #[cfg(feature = "rai_protocol")]
-            rai_slot_notar_grace: Duration::from_millis(500),
         }
     }
 
@@ -425,19 +434,10 @@ mod tests {
             metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             is_rai_close: false,
-            #[cfg(feature = "rai_protocol")]
-            is_rai_timeout: false,
-            #[cfg(feature = "rai_protocol")]
-            rai_slot_notar_grace: Duration::from_millis(500),
         }
     }
 
     fn t(secs: u64) -> Timestamp {
         Timestamp::new_test_instance() + Duration::from_secs(secs)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    fn t_millis(millis: u64) -> Timestamp {
-        Timestamp::new_test_instance() + Duration::from_millis(millis)
     }
 }

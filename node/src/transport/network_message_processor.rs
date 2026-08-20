@@ -1352,9 +1352,13 @@ mod rai_close_repair_tests {
         assert!(!RaiVoteRequestKind::MarkedSlot.permits_cached_vote_replay());
         assert!(!RaiVoteRequestKind::MarkedSlot.permits_vote_generation());
 
-        // Nonzero slot values must use ordinary batched ConfirmReq.
+        // A nonzero marked slot value requests an exact transitive dependency
+        // without replaying or generating vote evidence.
         request.hash = BlockHash::from(1);
-        assert_eq!(classify_rai_vote_request(&request, epoch), None);
+        assert_eq!(
+            classify_rai_vote_request(&request, epoch),
+            Some(RaiVoteRequestKind::MarkedSlot)
+        );
 
         // Current close requests name the exact nonzero missing digest, and
         // replies use the same envelope plus close_version.

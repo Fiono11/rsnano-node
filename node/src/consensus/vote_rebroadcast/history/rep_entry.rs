@@ -1,6 +1,8 @@
 use std::{cmp::min, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::RaiVotePhase;
 use rsnano_types::{Amount, BlockHash, PublicKey, UnixMillisTimestamp, Vote};
 
 use super::{BoundedHashMap, RebroadcastError};
@@ -87,6 +89,12 @@ impl RepresentativeEntry {
                     block_hash: *hash,
                     vote_timestamp: vote.timestamp(),
                     timestamp: now,
+                    #[cfg(feature = "rai_protocol")]
+                    rai_phase: vote
+                        .rai_entries()
+                        .filter(|(_, entry_hash)| *entry_hash == hash)
+                        .map(|(metadata, _)| metadata.phase)
+                        .max(),
                 },
             );
         }
@@ -98,11 +106,18 @@ pub(crate) struct RebroadcastEntry {
     pub block_hash: BlockHash,
     pub vote_timestamp: UnixMillisTimestamp,
     pub timestamp: Timestamp,
+    #[cfg(feature = "rai_protocol")]
+    pub rai_phase: Option<RaiVotePhase>,
 }
 
 impl RebroadcastEntry {
     fn should_rebroadcast(&self, new_vote: &Vote, min_gap: Duration, now: Timestamp) -> bool {
         if self.switched_to_final_vote(new_vote) {
+            return true;
+        }
+
+        #[cfg(feature = "rai_protocol")]
+        if self.advanced_rai_phase(new_vote) {
             return true;
         }
 
@@ -115,6 +130,17 @@ impl RebroadcastEntry {
 
     fn switched_to_final_vote(&self, new_vote: &Vote) -> bool {
         new_vote.is_final() && new_vote.timestamp() > self.vote_timestamp
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn advanced_rai_phase(&self, new_vote: &Vote) -> bool {
+        let Some(previous) = self.rai_phase else {
+            return false;
+        };
+        new_vote
+            .rai_entries()
+            .filter(|(_, hash)| **hash == self.block_hash)
+            .any(|(metadata, _)| metadata.phase > previous)
     }
 
     fn gap(&self, new_vote: &Vote, now: Timestamp) -> Duration {

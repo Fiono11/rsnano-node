@@ -318,6 +318,23 @@ mod tests {
         assert!(history.contains_vote(&final_vote.hash()));
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn later_rai_phase_overrides_timing_restrictions() {
+        let mut history = RebroadcastHistory::default();
+        let first = Vote::build_test_instance().finish();
+        history.check_and_record(&first, TEST_WEIGHT, NOW).unwrap();
+
+        let notar = Vote::build_test_instance()
+            .rai_metadata(rsnano_types::RaiVoteMetadata {
+                phase: rsnano_types::RaiVotePhase::Notar,
+                ..Default::default()
+            })
+            .finish();
+
+        assert_eq!(history.check_and_record(&notar, TEST_WEIGHT, NOW), Ok(()));
+    }
+
     #[test]
     fn representative_limit() {
         let mut history = RebroadcastHistory::new(RebroadcastHistoryConfig {

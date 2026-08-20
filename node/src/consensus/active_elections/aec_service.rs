@@ -287,7 +287,9 @@ impl Tickable for RaiEpochTicker {
         if self.local_key.is_none() {
             let mut keys = Vec::new();
             self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
-            self.local_key = keys.into_iter().next();
+            self.local_key = rai_select_local_committee_key(keys, |representative| {
+                self.aec.rai_current_voting_weight(representative)
+            });
         }
         let Some(local_key) = self.local_key.as_ref() else {
             // Reports are committee votes and must be signed by a voting
@@ -509,6 +511,17 @@ impl Tickable for RaiEpochTicker {
             self.report_rebroadcast_queue.clear();
         }
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_select_local_committee_key(
+    keys: Vec<rsnano_types::PrivateKey>,
+    weight: impl Fn(rsnano_types::PublicKey) -> rsnano_types::Amount,
+) -> Option<rsnano_types::PrivateKey> {
+    keys.into_iter()
+        .map(|key| (weight(key.public_key()), key))
+        .max_by_key(|(voting_weight, _)| *voting_weight)
+        .map(|(_, key)| key)
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -853,6 +866,11 @@ impl AecService {
     #[cfg(all(test, feature = "rai_protocol"))]
     fn lookup_read_lock_count(&self) -> usize {
         self.lookup_read_locks.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn write_lock_available_for_test(&self) -> bool {
+        self.aec.try_write().is_ok()
     }
 
     // --- Read forwarding ---
@@ -1527,6 +1545,37 @@ mod rai_epoch_ticker_tests {
     use super::*;
 
     #[test]
+    fn local_committee_key_selects_the_eligible_key_with_most_weight() {
+        let ineligible = rsnano_types::PrivateKey::from(1);
+        let lighter = rsnano_types::PrivateKey::from(2);
+        let heavier = rsnano_types::PrivateKey::from(3);
+        let lighter_public = lighter.public_key();
+        let heavier_public = heavier.public_key();
+
+        let selected =
+            rai_select_local_committee_key(vec![ineligible, lighter, heavier], |representative| {
+                if representative == heavier_public {
+                    Amount::raw(2)
+                } else if representative == lighter_public {
+                    Amount::raw(1)
+                } else {
+                    Amount::ZERO
+                }
+            });
+
+        assert_eq!(selected.unwrap().public_key(), heavier_public);
+    }
+
+    #[test]
+    fn local_committee_key_falls_back_to_a_wallet_key_without_voting_weight() {
+        let key = rsnano_types::PrivateKey::from(1);
+        let public_key = key.public_key();
+        let selected = rai_select_local_committee_key(vec![key], |_| Amount::ZERO).unwrap();
+
+        assert_eq!(selected.public_key(), public_key);
+    }
+
+    #[test]
     fn split_close_preimage_repair_requests_a_bounded_rotating_window() {
         assert_eq!(close_preimage_request_indices(0, 0, 4), Vec::<usize>::new());
         assert_eq!(close_preimage_request_indices(3, 0, 4), vec![0, 1, 2]);
@@ -2021,6 +2070,91 @@ mod rai_tests {
             RaiClosingPhase::ElectingCut
         );
         assert!(service.is_active_root(&rai_close_cut_root(RaiEpoch::ZERO, 0)));
+    }
+
+    #[test]
+    fn cached_close_record_still_validates_the_request_root() {
+        use crate::{
+            consensus::{
+                FilteredVote, ReceivedVote,
+                rai::{RaiCloseRecord, RaiClosingPhase, RaiReport, rai_close_record_root},
+            },
+            representatives::QuorumSnapshot,
+        };
+        use rsnano_types::{
+            RaiCommitteeScope, RaiVoteMetadata, RaiVotePhase, Root, UnixMillisTimestamp, Vote,
+            VoteDelivery,
+        };
+
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::raw(1));
+        let service = AecService::new_with_rai_committee(
+            ActiveElectionsConfig::default(),
+            Duration::from_millis(25),
+            Arc::new(weights),
+            BlockHash::ZERO,
+            Arc::new(rsnano_ledger::Ledger::new_null()),
+        );
+        let epoch_duration = Duration::from_secs(30);
+        let deadline = service.clock.now() + epoch_duration;
+
+        service.rai_tick(deadline, &key, epoch_duration);
+        service.rai_report_received(RaiReport::new(&key, RaiEpoch::ZERO, []));
+        service.rai_tick(deadline + Duration::from_millis(1), &key, epoch_duration);
+        assert_eq!(
+            service.rai_epoch_status().0.closing.unwrap().phase,
+            RaiClosingPhase::ElectingCut
+        );
+
+        let cut = service
+            .rai_close_cut_versions(RaiEpoch::ZERO)
+            .into_iter()
+            .next()
+            .unwrap();
+        let cut_hash = cut.hash();
+        let vote: FilteredVote = ReceivedVote::new(
+            Vote::new_rai(
+                &key,
+                UnixMillisTimestamp::new(1),
+                0,
+                cut_hash,
+                RaiVoteMetadata {
+                    election_id: crate::consensus::election::RaiElectionId::CloseCut {
+                        epoch: RaiEpoch::ZERO,
+                        round: 0,
+                    },
+                    phase: RaiVotePhase::Final,
+                    epoch: RaiEpoch::ZERO,
+                    scope: RaiCommitteeScope::All,
+                },
+            )
+            .into(),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        assert_eq!(
+            service.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now: deadline + Duration::from_millis(2),
+            })[&cut_hash],
+            Ok(())
+        );
+
+        assert_eq!(
+            service.rai_epoch_status().0.closing.unwrap().phase,
+            RaiClosingPhase::Draining
+        );
+        let record = RaiCloseRecord::new(RaiEpoch::ZERO, BlockHash::ZERO, []);
+        assert!(service.reconcile_rai_close_record(
+            record.clone(),
+            rai_close_record_root(RaiEpoch::ZERO, 0).root,
+        ));
+
+        assert!(!service.reconcile_rai_close_record(record, Root::from(999)));
     }
 }
 

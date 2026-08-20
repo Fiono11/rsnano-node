@@ -188,6 +188,12 @@ fn rai_rep_has_requested_evidence(
                         .notar
                         .get(representative)
                         .is_some_and(|values| values.contains(&value))
+                    || match value {
+                        BlockHashOrTimeout::Block(hash) => {
+                            committee.votes.final_votes.get(representative) == Some(&hash)
+                        }
+                        BlockHashOrTimeout::Timeout => false,
+                    }
             }
             RaiVotePhase::Final => match value {
                 BlockHashOrTimeout::Block(hash) => {
@@ -211,7 +217,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     #[test]
-    fn final_without_first_is_solicited_until_delayed_first_completes_notar_support() {
+    fn final_satisfies_a_notar_solicitation_without_implying_first() {
         let keys = (1..=6).map(PrivateKey::from).collect::<Vec<_>>();
         let committee = Arc::new(RepWeights::from([
             (keys[0].public_key(), Amount::raw(1)),
@@ -233,9 +239,9 @@ mod tests {
         .with_rai_committees(vec![committee]);
         let rep_weights = RepWeights::default();
 
-        // Final does not imply any First/Notar support in RAI. Three other
-        // First votes make Notar the current phase, but remain one short of a
-        // notarization certificate.
+        // A Final plus three compatible non-final votes reaches the
+        // notarization threshold without inventing a First vote for the final
+        // signer.
         election
             .rai_votes
             .record_final_vote(keys[0].public_key(), hash, RaiCommitteeScope::All)
@@ -252,28 +258,14 @@ mod tests {
         }
         election.update_tallies(&rep_weights, Amount::ZERO);
 
-        assert_eq!(election.rai_vote_metadata().phase, RaiVotePhase::Notar);
-        assert!(!rai_rep_has_requested_evidence(
-            &election,
-            &keys[0].public_key(),
-            election.voting_hash(),
-        ));
-
-        // The compatible First leaf can arrive after Final. It supplies the
-        // fourth notarization weight, after which this signer's existing Final
-        // is exactly the evidence required by the next phase.
-        election
-            .rai_votes
-            .record_first_vote(
-                keys[0].public_key(),
-                BlockHashOrTimeout::Block(hash),
-                RaiCommitteeScope::All,
-            )
-            .unwrap();
-        election.update_tallies(&rep_weights, Amount::ZERO);
-
         assert_eq!(election.rai_votes.outcome, RaiOutcome::Notarized(hash));
         assert_eq!(election.rai_vote_metadata().phase, RaiVotePhase::Final);
+        assert_eq!(
+            election
+                .rai_votes
+                .first_tally(0, BlockHashOrTimeout::Block(hash)),
+            Amount::raw(3)
+        );
         assert!(rai_rep_has_requested_evidence(
             &election,
             &keys[0].public_key(),

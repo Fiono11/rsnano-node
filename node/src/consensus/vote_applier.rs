@@ -29,7 +29,6 @@ pub(crate) struct VoteApplier {
     event_senders: RwLock<Vec<Sender<AecFact>>>,
     rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
-    #[cfg(not(feature = "rai_protocol"))]
     rep_weights: Arc<RepWeightCache>,
 }
 
@@ -38,15 +37,14 @@ impl VoteApplier {
         active_elections: Arc<AecService>,
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
-        _rep_weights: Arc<RepWeightCache>,
+        rep_weights: Arc<RepWeightCache>,
     ) -> Self {
         Self {
             active_elections,
             event_senders: RwLock::new(Vec::new()),
             rep_tracker,
             clock,
-            #[cfg(not(feature = "rai_protocol"))]
-            rep_weights: _rep_weights,
+            rep_weights,
         }
     }
 
@@ -65,10 +63,7 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        #[cfg(not(feature = "rai_protocol"))]
         let voter_weight = self.rep_weights.weight(&vote.voter);
-        #[cfg(feature = "rai_protocol")]
-        let voter_weight = Amount::ZERO;
 
         #[cfg(not(feature = "rai_protocol"))]
         let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;

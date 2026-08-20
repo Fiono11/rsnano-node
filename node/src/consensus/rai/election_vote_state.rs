@@ -281,6 +281,10 @@ impl RaiElectionVoteState {
                     .notar
                     .get(signer)
                     .is_some_and(|values| values.contains(&value))
+                || match value {
+                    BlockHashOrTimeout::Block(hash) => votes.final_votes.get(signer) == Some(&hash),
+                    BlockHashOrTimeout::Timeout => false,
+                }
         })
     }
 
@@ -538,6 +542,28 @@ mod tests {
         assert_eq!(
             final_state.local_result(0),
             Some(RaiLocalResult::Final(hash(1)))
+        );
+    }
+
+    #[test]
+    fn final_is_implicit_notar_support_but_not_first_support() {
+        let members = &[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)];
+        let mut state = state(members, &[]);
+        state
+            .record_final_vote(rep(1), hash(1), RaiCommitteeScope::All)
+            .unwrap();
+        for signer in 2..=4 {
+            state
+                .record_first_vote(rep(signer), block(1), RaiCommitteeScope::All)
+                .unwrap();
+        }
+
+        assert_eq!(state.first_tally(0, block(1)), Amount::raw(3));
+        assert_eq!(state.notarization_tally(0, block(1)), Amount::raw(4));
+        assert_eq!(state.final_tally(0, hash(1)), Amount::raw(1));
+        assert_eq!(
+            state.local_result(0),
+            Some(RaiLocalResult::Notarized(hash(1)))
         );
     }
 

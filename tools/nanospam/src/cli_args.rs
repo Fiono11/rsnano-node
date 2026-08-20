@@ -83,6 +83,10 @@ struct RunArgs {
     #[arg(long)]
     blocks: usize,
 
+    /// Keep RAI epoch 0 open and disable the epoch close protocol
+    #[arg(long, default_value_t = false)]
+    single_rai_epoch: bool,
+
     /// Don't wait for a block to get confirmed before publishing the next block
     #[arg(long, default_value_t = false)]
     unconfirmed: bool,
@@ -133,6 +137,7 @@ pub(crate) struct CliArgs {
     pub prs: usize,
     pub rate: Option<String>,
     pub blocks: Option<usize>,
+    pub single_rai_epoch: bool,
     pub unconfirmed: bool,
     pub change: bool,
     pub one_block_per_account: bool,
@@ -160,6 +165,7 @@ impl CommandLine {
                 let mut result = CliArgs::from_network(Mode::Run, args.network);
                 result.rate = args.rate;
                 result.blocks = Some(args.blocks);
+                result.single_rai_epoch = args.single_rai_epoch;
                 result.unconfirmed = args.unconfirmed;
                 result.change = args.change;
                 result.one_block_per_account = args.one_block_per_account;
@@ -183,6 +189,7 @@ impl CliArgs {
             prs: args.prs,
             rate: None,
             blocks: None,
+            single_rai_epoch: false,
             unconfirmed: false,
             change: false,
             one_block_per_account: false,
@@ -204,6 +211,13 @@ impl CliArgs {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if self.single_rai_epoch
+            && (self.rai_epoch_duration_ms.is_some() || self.rai_tick_interval_ms.is_some())
+        {
+            anyhow::bail!(
+                "--single-rai-epoch cannot be combined with --rai-epoch-duration-ms or --rai-tick-interval-ms"
+            );
+        }
         let epoch_duration = self
             .rai_epoch_duration_ms
             .unwrap_or(DEFAULT_RAI_EPOCH_DURATION_MS);
@@ -343,6 +357,43 @@ mod tests {
         assert_eq!(args.rai_epoch_duration_ms, Some(5000));
         assert!(args.spam_spec().unwrap().track_confirmations);
         args.validate().unwrap();
+    }
+
+    #[test]
+    fn parses_single_rai_epoch() {
+        let args = CommandLine::try_parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "200",
+            "--single-rai-epoch",
+        ])
+        .unwrap()
+        .into_args();
+
+        assert!(args.single_rai_epoch);
+        args.validate().unwrap();
+    }
+
+    #[test]
+    fn single_rai_epoch_rejects_timing_options() {
+        let args = CommandLine::try_parse_from([
+            "nanospam",
+            "run",
+            "--data-dir",
+            "/tmp/rai",
+            "--blocks",
+            "1",
+            "--single-rai-epoch",
+            "--rai-epoch-duration-ms",
+            "5000",
+        ])
+        .unwrap()
+        .into_args();
+
+        assert!(args.validate().is_err());
     }
 
     #[test]

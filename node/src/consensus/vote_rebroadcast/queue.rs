@@ -91,7 +91,19 @@ impl VoteRebroadcastQueue {
     ) {
         let should_rebroadcast = results.iter().any(|(_, res)| match res {
             Ok(()) => true,
-            Err(VoteError::Late) => vote.is_final(),
+            Err(VoteError::Late) => {
+                vote.is_final() || {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        vote.rai_metadata_iter()
+                            .any(|metadata| metadata.phase > rsnano_types::RaiVotePhase::First)
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        false
+                    }
+                }
+            }
             _ => false,
         });
 
@@ -420,6 +432,23 @@ mod tests {
         results.insert(BlockHash::from(5), Ok(()));
 
         queue.try_enqueue(&test_vote(), &results);
+
+        assert_eq!(queue.len(), 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn enqueue_late_rai_phase_evidence() {
+        let queue = VoteRebroadcastQueue::build().finish();
+        set_rep_tiers(&queue);
+        let metadata = rsnano_types::RaiVoteMetadata {
+            phase: rsnano_types::RaiVotePhase::Notar,
+            ..Default::default()
+        };
+        let vote = Arc::new(Vote::build_test_instance().rai_metadata(metadata).finish());
+        let results = HashMap::from([(BlockHash::from(5), Err(VoteError::Late))]);
+
+        queue.try_enqueue(&vote, &results);
 
         assert_eq!(queue.len(), 1);
     }

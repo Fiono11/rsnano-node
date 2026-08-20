@@ -56,7 +56,6 @@ impl<'a> BlockCementer<'a> {
                     .frontier_before(&txn, epoch, account)
             })
         });
-
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
         while let Some(&hash) = stack.back() {
@@ -77,12 +76,6 @@ impl<'a> BlockCementer<'a> {
                                 .get(&txn, dependent)
                                 .is_some_and(|predecessor| predecessor.height() > base.height)
                         })
-                        // Epochs overlap while the predecessor close drains.
-                        // Walk through an already tagged later-epoch suffix so
-                        // an earlier certificate can repair every block, not
-                        // only the requested frontier. Once repaired to this
-                        // epoch it becomes the stopping prefix when the parent
-                        // is revisited.
                         && self
                             .store
                             .rai_finalization
@@ -119,16 +112,24 @@ impl<'a> BlockCementer<'a> {
                     self.store
                         .confirmation_height
                         .put(&mut txn, &block.account(), &conf_height);
+                    // The persisted weight snapshot seeds the immutable RAI
+                    // genesis committee prepared before epoch ticking starts.
+                    // Once cementation carries an epoch certificate, close
+                    // committees are derived from their exact frontier maps;
+                    // rewriting this index for every workload block only adds
+                    // LMDB contention to the hot path.
                     #[cfg(feature = "rai_protocol")]
-                    {
-                        let rep_hash =
-                            RepresentativeBlockFinder::new(&txn, self.store).find_rep_block(hash);
-                        let representative = self
-                            .store
-                            .block
-                            .get(&txn, &rep_hash)
-                            .and_then(|block| block.representative_field())
-                            .expect("confirmed block must have a representative");
+                    if finalization_epoch.is_none() {
+                        let representative = block.representative_field().or_else(|| {
+                            let rep_hash = RepresentativeBlockFinder::new(&txn, self.store)
+                                .find_rep_block(hash);
+                            self.store
+                                .block
+                                .get(&txn, &rep_hash)
+                                .and_then(|block| block.representative_field())
+                        });
+                        let representative =
+                            representative.expect("confirmed block must have a representative");
                         self.store
                             .rai_finalization
                             .put_confirmed_account_contribution(

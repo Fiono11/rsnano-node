@@ -2,7 +2,6 @@ use crate::domain::{
     AccountMap, BlockFactory, BlockResult, DelayedBlocks, Forks, RateSpec, SpamStrategy,
     high_prio_tracker::HighPrioTracker,
 };
-use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Block, BlockHash, PublicKey};
 use std::time::Duration;
@@ -15,12 +14,109 @@ pub(crate) struct SpamSpec {
     pub(crate) track_confirmations: bool,
 }
 
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum NextBlockResult {
+    Block(Forks),
+    RateLimited(Duration),
+    NoReadyAccount,
+}
+
+/// Token-bucket pacing for the benchmark producer. Unlike the generic network
+/// limiter, this reports the exact time at which one more token can exist, so
+/// the dedicated producer thread can park instead of spinning between blocks.
+struct SpamRateLimiter {
+    last_refill: Option<Timestamp>,
+    current_size: usize,
+    max_token_count: usize,
+    refill_rate: usize,
+    unlimited: bool,
+}
+
+impl SpamRateLimiter {
+    fn new(refill_rate: usize) -> Self {
+        if refill_rate == 0 {
+            Self {
+                last_refill: None,
+                current_size: 0,
+                max_token_count: 0,
+                refill_rate: 0,
+                unlimited: true,
+            }
+        } else {
+            Self {
+                last_refill: None,
+                current_size: 1,
+                max_token_count: 1,
+                refill_rate,
+                unlimited: false,
+            }
+        }
+    }
+
+    fn try_consume(&mut self, now: Timestamp) -> Result<(), Duration> {
+        if self.unlimited {
+            return Ok(());
+        }
+
+        self.refill(now);
+        if self.current_size > 0 {
+            self.current_size -= 1;
+            Ok(())
+        } else {
+            Err(self.retry_after(now))
+        }
+    }
+
+    fn set_limit(&mut self, new_limit: usize) {
+        if new_limit == 0 {
+            self.unlimited = true;
+            return;
+        }
+        self.unlimited = false;
+        self.max_token_count = new_limit;
+        self.refill_rate = new_limit;
+    }
+
+    fn refill(&mut self, now: Timestamp) {
+        let Some(last_refill) = self.last_refill else {
+            self.last_refill = Some(now);
+            return;
+        };
+        let tokens_to_add = last_refill
+            .elapsed(now)
+            .as_nanos()
+            .saturating_mul(self.refill_rate as u128)
+            / 1_000_000_000;
+        let tokens_to_add = usize::try_from(tokens_to_add).unwrap_or(usize::MAX);
+        if tokens_to_add > 0 {
+            self.current_size = self
+                .current_size
+                .saturating_add(tokens_to_add)
+                .min(self.max_token_count);
+            // Match token-bucket semantics by discarding a fractional token
+            // whenever at least one complete token was added.
+            self.last_refill = Some(now);
+        }
+    }
+
+    fn retry_after(&self, now: Timestamp) -> Duration {
+        let nanos_per_token =
+            (1_000_000_000_u128 + self.refill_rate as u128 - 1) / self.refill_rate as u128;
+        let elapsed = self
+            .last_refill
+            .map(|last_refill| last_refill.elapsed(now).as_nanos())
+            .unwrap_or_default();
+        let remaining = nanos_per_token.saturating_sub(elapsed).max(1);
+        Duration::from_nanos(u64::try_from(remaining).unwrap_or(u64::MAX))
+    }
+}
+
 pub(crate) struct SpamLogic {
     pub(crate) delayed: DelayedBlocks,
     pub(crate) high_prio_tracker: HighPrioTracker,
     pub(crate) block_factory: BlockFactory,
     pub(crate) current_bps: usize,
-    bps_limiter: TokenBucketLogic,
+    bps_limiter: SpamRateLimiter,
     next_block: Option<Forks>,
     bps_start: Option<Timestamp>,
     spec: SpamSpec,
@@ -49,12 +145,7 @@ impl SpamLogic {
                 live_representatives,
             ),
             current_bps: spec.rate.initial_bps,
-            // A benchmark rate is a pacing target, not permission to inject a
-            // full second of traffic at once. The generic token bucket starts
-            // full, so `new(1450)` produced an immediate 1450-block burst and
-            // then refilled at 1450/s. Keep a one-block burst while preserving
-            // the requested long-term refill rate.
-            bps_limiter: TokenBucketLogic::with_refill_rate(1, spec.rate.initial_bps),
+            bps_limiter: SpamRateLimiter::new(spec.rate.initial_bps),
             next_block: None,
             bps_start: None,
             spec,
@@ -77,7 +168,7 @@ impl SpamLogic {
         self.spec.fork_probability
     }
 
-    pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
+    pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<NextBlockResult> {
         if self.bps_start.is_none() {
             self.bps_start = Some(now);
         }
@@ -90,13 +181,13 @@ impl SpamLogic {
                 Some(BlockResult::Block(b)) => {
                     self.next_block = Some(b);
                 }
-                Some(BlockResult::Waiting) => return Some(BlockResult::Waiting),
+                Some(BlockResult::Waiting) => return Some(NextBlockResult::NoReadyAccount),
                 None => unreachable!(),
             }
         }
 
-        if !self.bps_limiter.try_consume(1, now) {
-            return Some(BlockResult::Waiting);
+        if let Err(retry_after) = self.bps_limiter.try_consume(now) {
+            return Some(NextBlockResult::RateLimited(retry_after));
         }
 
         let next = self.next_block.take().unwrap();
@@ -108,7 +199,7 @@ impl SpamLogic {
             self.bps_start = Some(now);
         }
 
-        Some(BlockResult::Block(next))
+        Some(NextBlockResult::Block(next))
     }
 
     pub(crate) fn next_delayed(&mut self, now: Timestamp) -> Option<Block> {
@@ -226,9 +317,136 @@ mod tests {
     use rsnano_types::Amount;
 
     #[test]
-    fn configured_rate_does_not_create_an_initial_full_second_burst() {
+    fn distinguishes_rate_limiting_from_account_readiness() {
         let mut account_map = AccountMap::default();
         account_map.fill(2);
+        for (index, account) in account_map.accounts().clone().into_iter().enumerate() {
+            account_map.set_account_state(
+                account,
+                Amount::nano(1),
+                BlockHash::from(index as u64 + 1),
+            );
+        }
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(1_450),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+            Vec::new(),
+        );
+        let now = Timestamp::new_test_instance();
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::Block(_))
+        ));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::RateLimited(_))
+        ));
+
+        // The rate-limited block is retained inside SpamLogic, so account
+        // readiness is not consulted again until that block is emitted.
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::RateLimited(_))
+        ));
+    }
+
+    #[test]
+    fn rate_limit_reports_the_exact_remaining_token_interval() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(2);
+        for (index, account) in account_map.accounts().clone().into_iter().enumerate() {
+            account_map.set_account_state(
+                account,
+                Amount::nano(1),
+                BlockHash::from(index as u64 + 1),
+            );
+        }
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(1_000),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+            Vec::new(),
+        );
+        let now = Timestamp::new_test_instance();
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::Block(_))
+        ));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::RateLimited(wait))
+                if wait == Duration::from_millis(1)
+        ));
+        assert!(matches!(
+            logic.next_block(false, now + Duration::from_micros(600)),
+            Some(NextBlockResult::RateLimited(wait))
+                if wait == Duration::from_micros(400)
+        ));
+        assert!(matches!(
+            logic.next_block(false, now + Duration::from_millis(1)),
+            Some(NextBlockResult::Block(_))
+        ));
+    }
+
+    #[test]
+    fn rate_limit_retains_catch_up_tokens_after_a_scheduling_gap() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(12);
+        for (index, account) in account_map.accounts().clone().into_iter().enumerate() {
+            account_map.set_account_state(
+                account,
+                Amount::nano(1),
+                BlockHash::from(index as u64 + 1),
+            );
+        }
+        let mut logic = SpamLogic::new(
+            account_map,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 12,
+                rate: RateSpec::new(1_000),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+            Vec::new(),
+        );
+        let now = Timestamp::new_test_instance();
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(NextBlockResult::Block(_))
+        ));
+        let after_gap = now + Duration::from_millis(10);
+        for _ in 0..10 {
+            assert!(matches!(
+                logic.next_block(false, after_gap),
+                Some(NextBlockResult::Block(_))
+            ));
+        }
+        assert!(matches!(
+            logic.next_block(false, after_gap),
+            Some(NextBlockResult::RateLimited(wait))
+                if wait == Duration::from_millis(1)
+        ));
+    }
+
+    #[test]
+    fn reports_when_no_account_is_ready() {
+        let mut account_map = AccountMap::default();
+        account_map.fill(1);
         let initial = account_map.initial_key().account();
         account_map.set_account_state(initial, Amount::nano(1), BlockHash::from(1));
         let mut logic = SpamLogic::new(
@@ -246,11 +464,11 @@ mod tests {
 
         assert!(matches!(
             logic.next_block(false, now),
-            Some(BlockResult::Block(_))
+            Some(NextBlockResult::Block(_))
         ));
         assert!(matches!(
             logic.next_block(false, now),
-            Some(BlockResult::Waiting)
+            Some(NextBlockResult::NoReadyAccount)
         ));
     }
 
@@ -272,20 +490,20 @@ mod tests {
             Vec::new(),
         );
         let now = Timestamp::new_test_instance();
-        let BlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
+        let NextBlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
             panic!("first block should be emitted")
         };
         logic.published(&first.block.hash(), now);
         logic.confirmed_from_websocket(&first.block.hash(), now);
         assert!(matches!(
             logic.next_block(false, now),
-            Some(BlockResult::Waiting)
+            Some(NextBlockResult::RateLimited(_))
         ));
         assert_eq!(logic.block_factory.created(), 2);
 
         assert!(matches!(
             logic.next_block(false, now + Duration::from_secs(1)),
-            Some(BlockResult::Block(_))
+            Some(NextBlockResult::Block(_))
         ));
         assert!(
             logic
@@ -313,14 +531,15 @@ mod tests {
         );
         let now = Timestamp::new_test_instance();
 
-        let BlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
+        let NextBlockResult::Block(first) = logic.next_block(false, now).unwrap() else {
             panic!("first block should be emitted")
         };
         logic.published(&first.block.hash(), now);
         logic.confirmed_from_websocket(&first.block.hash(), now + Duration::from_millis(200));
 
         let second_publish = now + Duration::from_millis(500);
-        let BlockResult::Block(second) = logic.next_block(false, second_publish).unwrap() else {
+        let NextBlockResult::Block(second) = logic.next_block(false, second_publish).unwrap()
+        else {
             panic!("second block should be emitted")
         };
         logic.published(&second.block.hash(), second_publish);

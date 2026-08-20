@@ -229,7 +229,7 @@ impl VoteGenerator {
         let votes = self
             .shared_state
             .history
-            .rai_votes_for_election(root, &metadata.election_id);
+            .rai_latest_votes_for_election(root, &metadata.election_id);
         for vote in &votes {
             let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((**vote).clone()));
             self.shared_state.message_sender.lock().unwrap().try_send(
@@ -264,7 +264,7 @@ impl VoteGenerator {
             for vote in self
                 .shared_state
                 .history
-                .rai_slot_votes_for_root(root, excluded_election.as_ref())
+                .rai_latest_slot_votes_for_root(root, excluded_election.as_ref())
             {
                 if !sent.insert((vote.voter, vote.signature.clone())) {
                     continue;
@@ -463,7 +463,74 @@ impl VoteGenerator {
         #[cfg(feature = "rai_protocol")]
         let mut cached = 0;
         #[cfg(feature = "rai_protocol")]
-        let mut sent_cached = HashSet::new();
+        let local_rep_keys = self
+            .shared_state
+            .rai_rep_keys()
+            .into_iter()
+            .map(|key| (key.public_key(), key))
+            .collect::<HashMap<_, _>>();
+        #[cfg(feature = "rai_protocol")]
+        let cached_candidates = {
+            let mut logical = HashSet::new();
+            let mut groups = HashMap::<
+                (
+                    PublicKey,
+                    RaiVotePhase,
+                    rsnano_types::RaiEpoch,
+                    RaiCommitteeScope,
+                ),
+                Vec<(RaiVoteMetadata, BlockHash)>,
+            >::new();
+            let mut cached_candidates = HashSet::new();
+            for block in blocks {
+                let root = block.root();
+                let hash = block.hash();
+                for (voter, metadata, hash) in self
+                    .shared_state
+                    .history
+                    .rai_latest_entries_for_candidate(&root, &hash, None)
+                {
+                    if !logical.insert((voter, metadata.election_id.clone(), metadata.scope)) {
+                        continue;
+                    }
+                    cached_candidates.insert((root, hash));
+                    groups
+                        .entry((voter, metadata.phase, metadata.epoch, metadata.scope))
+                        .or_default()
+                        .push((metadata, hash));
+                }
+            }
+            for ((voter, phase, _, _), entries) in groups {
+                let Some(rep_key) = local_rep_keys.get(&voter) else {
+                    continue;
+                };
+                for chunk in entries.chunks(Self::MAX_HASHES) {
+                    let is_final = phase == RaiVotePhase::Final;
+                    let vote = Vote::new_rai_batch(
+                        rep_key,
+                        if is_final {
+                            Vote::TIMESTAMP_MAX
+                        } else {
+                            UnixMillisTimestamp::now()
+                        },
+                        if is_final { Vote::DURATION_MAX } else { 0x9 },
+                        chunk.iter().cloned(),
+                    );
+                    let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
+                    self.shared_state.message_sender.lock().unwrap().try_send(
+                        channel,
+                        &confirm,
+                        TrafficType::Vote,
+                    );
+                    self.stats.inc_dir(
+                        StatType::Requests,
+                        DetailType::RequestsGeneratedVotes,
+                        Direction::In,
+                    );
+                }
+            }
+            cached_candidates
+        };
         let req_candidates = {
             let any = self.ledger.any();
 
@@ -492,49 +559,7 @@ impl VoteGenerator {
                     #[cfg(feature = "rai_protocol")]
                     {
                         let context = &contexts[_index].0;
-                        // ConfirmReq carries only the legacy (hash, root)
-                        // pair, so the requester may be repairing any RAI
-                        // epoch-qualified election for that pair. Replay all
-                        // retained signed contexts even when this replica has
-                        // a different local election active at the same root.
-                        // Fresh signing below remains restricted to the local
-                        // active context supplied by the AEC.
-                        let votes = self.shared_state.history.rai_votes_for_candidate(
-                            &i.root(),
-                            &i.hash(),
-                            None,
-                        );
-                        if !votes.is_empty() {
-                            for vote in votes {
-                                // Every signer is distinct certificate
-                                // evidence, while the same signed transport
-                                // may be indexed under every requested leaf.
-                                // Signature identity avoids recomputing its
-                                // full B-leaf hash B times.
-                                if !sent_cached.insert((vote.voter, vote.signature.clone())) {
-                                    continue;
-                                }
-                                if std::env::var_os("RSNANO_RAI_TRACE_PR").is_some() {
-                                    eprintln!(
-                                        "RAI_SOLICIT_TRACE send_cached_vote channel={:?} vote={:?}",
-                                        channel.channel_id(),
-                                        vote
-                                    );
-                                }
-                                let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(
-                                    (*vote).clone(),
-                                ));
-                                self.shared_state.message_sender.lock().unwrap().try_send(
-                                    channel,
-                                    &confirm,
-                                    TrafficType::Vote,
-                                );
-                                self.stats.inc_dir(
-                                    StatType::Requests,
-                                    DetailType::RequestsGeneratedVotes,
-                                    Direction::In,
-                                );
-                            }
+                        if cached_candidates.contains(&(i.root(), i.hash())) {
                             // A cached RAI vote is evidence, but it does not
                             // necessarily cover the election's current phase.
                             // When the election is still live, keep the
@@ -1794,9 +1819,7 @@ mod rai_signing_tests {
     }
 
     #[test]
-    fn cached_large_batch_is_replied_once_per_request() {
-        // Keep this large enough to exercise the shared-transport path: the
-        // reply count must stay constant as the number of indexed leaves grows.
+    fn cached_large_batch_is_replied_as_request_shaped_leaves() {
         let blocks = (10..74)
             .map(SavedBlock::new_test_instance_with_key)
             .collect::<Vec<_>>();
@@ -1818,6 +1841,26 @@ mod rai_signing_tests {
         for (block, (metadata, _)) in blocks.iter().zip(&contexts) {
             history.add_rai(&block.root(), &block.hash(), metadata, &vote);
         }
+        let final_contexts = contexts
+            .iter()
+            .map(|(metadata, _)| {
+                let mut metadata = metadata.clone();
+                metadata.phase = RaiVotePhase::Final;
+                metadata
+            })
+            .collect::<Vec<_>>();
+        let final_vote = Arc::new(Vote::new_rai_batch(
+            &signer,
+            Vote::TIMESTAMP_MAX,
+            Vote::DURATION_MAX,
+            blocks
+                .iter()
+                .zip(&final_contexts)
+                .map(|(block, metadata)| (metadata.clone(), block.hash())),
+        ));
+        for (block, metadata) in blocks.iter().zip(&final_contexts) {
+            history.add_rai(&block.root(), &block.hash(), metadata, &final_vote);
+        }
 
         let message_sender = MessageSender::new_null();
         let sent = message_sender.track();
@@ -1834,18 +1877,48 @@ mod rai_signing_tests {
             Arc::new(VoteBroadcaster::new_null()),
             Arc::new(SteadyClock::new_null()),
         );
+        generator
+            .shared_state
+            .rai_rep_keys
+            .lock()
+            .unwrap()
+            .push(signer);
         let channel = Arc::new(Channel::new_test_instance());
 
-        generator.generate(&blocks, &channel, &contexts);
+        let requested_blocks = &blocks[..2];
+        let requested_contexts = &contexts[..2];
+        generator.generate(requested_blocks, &channel, requested_contexts);
 
         let sent = sent.output();
         assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].traffic_type, TrafficType::Vote);
-        let Message::ConfirmAck(confirm_ack) = &sent[0].message else {
-            panic!("expected cached ConfirmAck");
-        };
-        assert_eq!(confirm_ack.vote().hash(), vote.hash());
-        assert_eq!(confirm_ack.vote().rai_entry_count(), blocks.len());
+        assert!(
+            sent.iter()
+                .all(|event| event.traffic_type == TrafficType::Vote)
+        );
+        assert!(sent.iter().all(|event| {
+            matches!(&event.message, Message::ConfirmAck(confirm_ack) if confirm_ack.vote().rai_entry_count() == requested_blocks.len())
+        }));
+        assert_eq!(
+            sent.iter()
+                .map(|event| match &event.message {
+                    Message::ConfirmAck(confirm_ack) => {
+                        confirm_ack.vote().rai_metadata(0).unwrap().phase
+                    }
+                    _ => unreachable!(),
+                })
+                .collect::<HashSet<_>>(),
+            HashSet::from([RaiVotePhase::Final])
+        );
+        assert_eq!(
+            sent.iter()
+                .flat_map(|event| match &event.message {
+                    Message::ConfirmAck(confirm_ack) =>
+                        confirm_ack.vote().hashes().copied().collect::<Vec<_>>(),
+                    _ => unreachable!(),
+                })
+                .collect::<HashSet<_>>(),
+            requested_blocks.iter().map(|block| block.hash()).collect()
+        );
     }
 
     #[test]
@@ -1936,8 +2009,8 @@ mod rai_signing_tests {
         let channel = Arc::new(Channel::new_test_instance());
 
         // The responder's local AEC context is epoch 1. Because legacy
-        // ConfirmReq did not carry that context, both epoch-0 certificate
-        // transports must still be returned to a peer draining the old cut.
+        // ConfirmReq did not carry that context, the latest epoch-0 vote must
+        // still be returned to a peer draining the old cut.
         // Only the fresh response is allowed to use the local epoch-1 context.
         assert_eq!(
             generator.generate(&[block], &channel, &[(successor.clone(), false)]),
@@ -1954,7 +2027,7 @@ mod rai_signing_tests {
         generator.shared_state.reply(fresh_request);
 
         let sent = sent.output();
-        assert_eq!(sent.len(), 3);
+        assert_eq!(sent.len(), 2);
         let replayed = sent
             .iter()
             .map(|event| match &event.message {
@@ -1970,7 +2043,7 @@ mod rai_signing_tests {
                 .filter(|metadata| metadata.epoch == RaiEpoch::ZERO)
                 .map(|metadata| metadata.phase)
                 .collect::<HashSet<_>>(),
-            HashSet::from([RaiVotePhase::First, RaiVotePhase::Notar])
+            HashSet::from([RaiVotePhase::Notar])
         );
         assert_eq!(
             replayed
