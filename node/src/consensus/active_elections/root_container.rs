@@ -130,12 +130,11 @@ impl RootContainer {
 
     #[cfg(feature = "rai_protocol")]
     pub fn election_for_block(&self, block_hash: &BlockHash, epoch: u64) -> Option<&Election> {
-        self.by_root.values().find_map(|entry| {
-            let election = &entry.election;
-            ((election.qualified_root().epoch == epoch || election.qualified_root().epoch == 0)
-                && election.contains_block(block_hash))
-            .then_some(election)
-        })
+        let root = self.vote_router.qualified_root(block_hash)?;
+        if root.epoch != epoch && root.epoch != 0 {
+            return None;
+        }
+        self.by_root.get(root).map(|entry| &entry.election)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -144,12 +143,11 @@ impl RootContainer {
         block_hash: &BlockHash,
         epoch: u64,
     ) -> Option<&mut Election> {
-        self.by_root.values_mut().find_map(|entry| {
-            let election = &mut entry.election;
-            ((election.qualified_root().epoch == epoch || election.qualified_root().epoch == 0)
-                && election.contains_block(block_hash))
-            .then_some(election)
-        })
+        let root = self.vote_router.qualified_root(block_hash)?;
+        if root.epoch != epoch && root.epoch != 0 {
+            return None;
+        }
+        self.by_root.get_mut(root).map(|entry| &mut entry.election)
     }
 
     pub fn bucket_infos(&self) -> &[BucketInfo] {

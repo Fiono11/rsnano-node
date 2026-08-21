@@ -32,7 +32,6 @@ impl VoteRouter {
         self.elections.remove(hash);
     }
 
-    #[cfg(not(feature = "rai_protocol"))]
     pub fn qualified_root(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
         self.elections.get(hash)
     }
