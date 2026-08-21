@@ -15,9 +15,9 @@ use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 #[cfg(not(feature = "rai_protocol"))]
 use rsnano_types::UnixMillisTimestamp;
-#[cfg(feature = "rai_protocol")]
-use rsnano_types::VoteType;
 use rsnano_types::{BlockHash, Root, SavedBlock, Vote};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{Signature, VoteType};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -80,6 +80,8 @@ impl VoteGenerator {
             clock,
             #[cfg(feature = "rai_protocol")]
             vote_type,
+            #[cfg(feature = "rai_protocol")]
+            reply_replay_filter: Mutex::new(ReplayFilter::new(Duration::from_millis(500))),
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -240,6 +242,43 @@ struct SharedState {
     clock: Arc<SteadyClock>,
     #[cfg(feature = "rai_protocol")]
     vote_type: VoteType,
+    #[cfg(feature = "rai_protocol")]
+    reply_replay_filter: Mutex<ReplayFilter>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VoteOrigin {
+    Signed,
+    #[cfg(feature = "rai_protocol")]
+    Replay,
+}
+
+#[cfg(feature = "rai_protocol")]
+struct ReplayFilter {
+    entries: std::collections::HashMap<(ChannelId, Signature), Instant>,
+    interval: Duration,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl ReplayFilter {
+    fn new(interval: Duration) -> Self {
+        Self {
+            entries: Default::default(),
+            interval,
+        }
+    }
+
+    fn should_send(&mut self, channel: ChannelId, signature: &Signature, now: Instant) -> bool {
+        self.entries
+            .retain(|_, last_sent| now < *last_sent + self.interval);
+        let key = (channel, signature.clone());
+        if self.entries.contains_key(&key) {
+            false
+        } else {
+            self.entries.insert(key, now);
+            true
+        }
+    }
 }
 
 impl SharedState {
@@ -296,9 +335,34 @@ impl SharedState {
 
         if !hashes.is_empty() {
             drop(queues);
-            self.vote(&hashes, &roots, |generated_vote| {
+            // Re-sign exactly the targets selected for this scheduler pass. A cached RAI vote
+            // can contain up to 255 hashes; replaying that whole batch because one election was
+            // reactivated amplifies recovery traffic and evicts unrelated active elections.
+            self.vote(&hashes, &roots, false, |generated_vote, _origin| {
                 self.stats
                     .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
+                #[cfg(feature = "rai_protocol")]
+                {
+                    self.stats.inc(
+                        self.stat_type(),
+                        match self.vote_type {
+                            VoteType::First => DetailType::GeneratorBroadcastFirst,
+                            VoteType::NonFinal => DetailType::GeneratorBroadcastNonFinal,
+                            VoteType::Final => DetailType::GeneratorBroadcastFinal,
+                            VoteType::Timeout => DetailType::GeneratorBroadcastTimeout,
+                        },
+                    );
+                    self.stats.add(
+                        self.stat_type(),
+                        match self.vote_type {
+                            VoteType::First => DetailType::GeneratorBroadcastFirstHashes,
+                            VoteType::NonFinal => DetailType::GeneratorBroadcastNonFinalHashes,
+                            VoteType::Final => DetailType::GeneratorBroadcastFinalHashes,
+                            VoteType::Timeout => DetailType::GeneratorBroadcastTimeoutHashes,
+                        },
+                        generated_vote.hashes.len() as u64,
+                    );
+                }
                 let sample = if self.is_final {
                     Sample::VoteGeneratorFinalHashes
                 } else {
@@ -317,9 +381,9 @@ impl SharedState {
         queues
     }
 
-    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], action: F)
+    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], _replay_cached: bool, action: F)
     where
-        F: Fn(Arc<Vote>),
+        F: Fn(Arc<Vote>, VoteOrigin),
     {
         debug_assert_eq!(hashes.len(), roots.len());
         let mut rep_keys = Vec::new();
@@ -355,12 +419,41 @@ impl SharedState {
                 let mut pending_hashes = Vec::new();
                 let mut pending_roots = Vec::new();
                 for (root, hash) in roots.iter().zip(hashes) {
-                    let existing = self
-                        .history
-                        .votes_for_epoch(root, 1, hash, Some(self.vote_type))
-                        .into_iter()
-                        .find(|vote| vote.voter == rep_key.public_key());
-                    if let Some(existing) = existing {
+                    if self.vote_type == VoteType::NonFinal
+                        && self
+                            .history
+                            .has_notarized(root, 1, hash, rep_key.public_key())
+                    {
+                        self.stats.inc(
+                            self.stat_type(),
+                            DetailType::GeneratorHistorySuppressedNotarized,
+                        );
+                        continue;
+                    }
+                    if self.vote_type == VoteType::Final
+                        && !self.history.has_no_conflicting_notarization(
+                            root,
+                            1,
+                            hash,
+                            rep_key.public_key(),
+                        )
+                    {
+                        self.stats.inc(
+                            self.stat_type(),
+                            DetailType::GeneratorHistorySuppressedConflict,
+                        );
+                        continue;
+                    }
+                    let existing = self.history.vote_for_epoch(
+                        root,
+                        1,
+                        hash,
+                        self.vote_type,
+                        rep_key.public_key(),
+                    );
+                    if let Some(existing) = existing
+                        && _replay_cached
+                    {
                         if !replay_votes
                             .iter()
                             .any(|vote| vote.signature == existing.signature)
@@ -368,6 +461,11 @@ impl SharedState {
                             replay_votes.push(existing);
                         }
                     } else {
+                        // A confirm_req reply must cover only the requested hashes. Replaying a
+                        // cached batched RAI vote here amplifies one requested hash into as many
+                        // as 255 unrelated hashes at every receiving node. Signing the requested
+                        // subset is safe (the phase and hash are unchanged) and keeps reply work
+                        // proportional to the request.
                         pending_roots.push(*root);
                         pending_hashes.push(*hash);
                     }
@@ -383,10 +481,24 @@ impl SharedState {
 
         #[cfg(feature = "rai_protocol")]
         for vote in replay_votes {
-            action(vote);
+            self.stats
+                .inc(self.stat_type(), DetailType::GeneratorReplayVotes);
+            self.stats.add(
+                self.stat_type(),
+                DetailType::GeneratorReplayHashes,
+                vote.hashes.len() as u64,
+            );
+            action(vote, VoteOrigin::Replay);
         }
 
         for (vote, vote_roots) in votes {
+            self.stats
+                .inc(self.stat_type(), DetailType::GeneratorSignedVotes);
+            self.stats.add(
+                self.stat_type(),
+                DetailType::GeneratorSignedHashes,
+                vote.hashes.len() as u64,
+            );
             {
                 let now = self.clock.now();
                 let mut spacing = self.spacing.lock().unwrap();
@@ -395,7 +507,7 @@ impl SharedState {
                     spacing.flag(root, hash, now);
                 }
             }
-            action(vote);
+            action(vote, VoteOrigin::Signed);
         }
     }
 
@@ -428,7 +540,19 @@ impl SharedState {
                     Direction::In,
                     hashes.len() as u64,
                 );
-                self.vote(&hashes, &roots, |vote| {
+                self.vote(&hashes, &roots, false, |vote, _origin| {
+                    #[cfg(feature = "rai_protocol")]
+                    if _origin == VoteOrigin::Replay
+                        && !self.reply_replay_filter.lock().unwrap().should_send(
+                            request.channel.channel_id(),
+                            &vote.signature,
+                            Instant::now(),
+                        )
+                    {
+                        self.stats
+                            .inc(self.stat_type(), DetailType::GeneratorReplaySuppressed);
+                        return;
+                    }
                     let confirm =
                         Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
                     self.message_sender.lock().unwrap().try_send(
@@ -487,5 +611,48 @@ impl Queues {
         }
 
         !self.candidates.is_empty() && Instant::now() >= self.next_broadcast
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suppresses_recent_replay_to_same_channel() {
+        let now = Instant::now();
+        let mut filter = ReplayFilter::new(Duration::from_millis(500));
+        let signature = Signature::from_bytes([1; 64]);
+
+        assert!(filter.should_send(ChannelId::from(1), &signature, now));
+        assert!(!filter.should_send(
+            ChannelId::from(1),
+            &signature,
+            now + Duration::from_millis(499)
+        ));
+    }
+
+    #[test]
+    fn permits_replay_to_different_channel() {
+        let now = Instant::now();
+        let mut filter = ReplayFilter::new(Duration::from_millis(500));
+        let signature = Signature::from_bytes([1; 64]);
+
+        assert!(filter.should_send(ChannelId::from(1), &signature, now));
+        assert!(filter.should_send(ChannelId::from(2), &signature, now));
+    }
+
+    #[test]
+    fn permits_retry_after_interval() {
+        let now = Instant::now();
+        let mut filter = ReplayFilter::new(Duration::from_millis(500));
+        let signature = Signature::from_bytes([1; 64]);
+
+        assert!(filter.should_send(ChannelId::from(1), &signature, now));
+        assert!(filter.should_send(
+            ChannelId::from(1),
+            &signature,
+            now + Duration::from_millis(500)
+        ));
     }
 }

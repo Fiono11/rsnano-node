@@ -197,9 +197,17 @@ impl VoteGenerators {
                 self.final_vote_generator.add(root, hash);
             }
             #[cfg(feature = "rai_protocol")]
-            VoteType::First => self.first_vote_generator.add(root, hash),
+            VoteType::First => {
+                self.stats
+                    .inc(StatType::Election, DetailType::GenerateVoteFirst);
+                self.first_vote_generator.add(root, hash)
+            }
             #[cfg(feature = "rai_protocol")]
-            VoteType::Timeout => self.timeout_vote_generator.add(root, hash),
+            VoteType::Timeout => {
+                self.stats
+                    .inc(StatType::Election, DetailType::GenerateVoteTimeout);
+                self.timeout_vote_generator.add(root, hash)
+            }
         }
     }
 

@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_types::{BlockHash, NetworkType, Root, Vote};
+use rsnano_types::{BlockHash, NetworkType, PublicKey, Root, Vote};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub struct LocalVoteHistory {
@@ -76,7 +76,9 @@ impl LocalVoteHistory {
                         && current.vote.timestamp() <= vote.timestamp());
                 #[cfg(feature = "rai_protocol")]
                 let superseded = vote.voter == current.vote.voter
-                    && vote.vote_type() == current.vote.vote_type();
+                    && vote.vote_type() == current.vote.vote_type()
+                    && (vote.vote_type() != rsnano_types::VoteType::NonFinal
+                        || current.hash == *hash);
                 if superseded {
                     ids_to_delete.push(i);
                 } else if cfg!(not(feature = "rai_protocol"))
@@ -200,6 +202,80 @@ impl LocalVoteHistory {
                     .then(|| entry.vote.clone())
             })
             .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn vote_for_epoch(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: &BlockHash,
+        vote_type: rsnano_types::VoteType,
+        voter: PublicKey,
+    ) -> Option<Arc<Vote>> {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))?
+            .iter()
+            .filter_map(|id| data.history.get(id))
+            .find(|entry| {
+                entry.hash == *hash
+                    && entry.vote.vote_type() == vote_type
+                    && entry.vote.voter == voter
+            })
+            .map(|entry| entry.vote.clone())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_notarized(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: &BlockHash,
+        voter: PublicKey,
+    ) -> bool {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id))
+            .any(|entry| {
+                entry.hash == *hash
+                    && entry.vote.voter == voter
+                    && matches!(
+                        entry.vote.vote_type(),
+                        rsnano_types::VoteType::First | rsnano_types::VoteType::NonFinal
+                    )
+            })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_no_conflicting_notarization(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: &BlockHash,
+        voter: PublicKey,
+    ) -> bool {
+        let data = self.data.lock().unwrap();
+        let notarized = data
+            .history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| {
+                let entry = &data.history[id];
+                let vote = &entry.vote;
+                (vote.voter == voter
+                    && matches!(
+                        vote.vote_type(),
+                        rsnano_types::VoteType::First | rsnano_types::VoteType::NonFinal
+                    ))
+                .then_some(entry.hash)
+            })
+            .collect::<Vec<_>>();
+        notarized.iter().all(|notarized| notarized == hash)
     }
 
     pub fn exists(&self, root: &Root) -> bool {
@@ -352,5 +428,73 @@ mod tests {
         let votes = history.votes(&root, &BlockHash::from(3), false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn retains_multiple_second_look_notarizations() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash_a = BlockHash::from(2);
+        let hash_b = BlockHash::from(3);
+        let key = PrivateKey::from(1);
+        let first = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::First,
+            vec![hash_a],
+        ));
+        let second_a = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::NonFinal,
+            vec![hash_a],
+        ));
+        let second_b = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::NonFinal,
+            vec![hash_b],
+        ));
+
+        history.add(&root, &hash_a, &first);
+        history.add(&root, &hash_a, &second_a);
+        history.add(&root, &hash_b, &second_b);
+
+        assert_eq!(history.size(), 3);
+        assert!(!history.has_no_conflicting_notarization(&root, 1, &hash_a, key.public_key()));
+        assert!(!history.has_no_conflicting_notarization(&root, 1, &hash_b, key.public_key()));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn first_vote_suppresses_redundant_second_look() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let key = PrivateKey::from(1);
+        let first = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::First,
+            vec![hash],
+        ));
+        history.add(&root, &hash, &first);
+
+        assert!(history.has_notarized(&root, 1, &hash, key.public_key()));
+        assert!(history.has_no_conflicting_notarization(&root, 1, &hash, key.public_key()));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn missing_local_first_vote_is_not_a_conflict() {
+        let history = LocalVoteHistory::with_max_cache(256);
+
+        assert!(history.has_no_conflicting_notarization(
+            &Root::from(1),
+            1,
+            &BlockHash::from(2),
+            PrivateKey::from(1).public_key()
+        ));
     }
 }

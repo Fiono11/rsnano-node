@@ -32,8 +32,15 @@ pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
         winner: e.winner().hash(),
         vote_type: VoteType::First,
     }];
+    for winner in e.second_look_targets() {
+        targets.push(VoteTarget {
+            root: e.qualified_root().clone(),
+            winner,
+            vote_type: VoteType::NonFinal,
+        });
+    }
     if let Some(vote_type) = e.vote_type()
-        && vote_type != VoteType::First
+        && matches!(vote_type, VoteType::Final | VoteType::Timeout)
     {
         targets.push(VoteTarget {
             root: e.qualified_root().clone(),

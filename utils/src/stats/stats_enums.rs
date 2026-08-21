@@ -162,6 +162,8 @@ pub enum DetailType {
     // election specific
     GenerateVoteNormal,
     GenerateVoteFinal,
+    GenerateVoteFirst,
+    GenerateVoteTimeout,
     ConfirmationRequest,
 
     // election types
@@ -251,6 +253,21 @@ pub enum DetailType {
 
     // vote generator
     GeneratorBroadcasts,
+    GeneratorBroadcastFirst,
+    GeneratorBroadcastNonFinal,
+    GeneratorBroadcastFinal,
+    GeneratorBroadcastTimeout,
+    GeneratorBroadcastFirstHashes,
+    GeneratorBroadcastNonFinalHashes,
+    GeneratorBroadcastFinalHashes,
+    GeneratorBroadcastTimeoutHashes,
+    GeneratorSignedVotes,
+    GeneratorSignedHashes,
+    GeneratorReplayVotes,
+    GeneratorReplayHashes,
+    GeneratorReplaySuppressed,
+    GeneratorHistorySuppressedNotarized,
+    GeneratorHistorySuppressedConflict,
     GeneratorReplies,
     GeneratorRepliesDiscarded,
     GeneratorSpacing,

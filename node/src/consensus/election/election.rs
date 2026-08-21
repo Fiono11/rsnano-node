@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     time::{Duration, SystemTime},
 };
@@ -35,7 +35,7 @@ pub struct Election {
     #[cfg(feature = "rai_protocol")]
     first_tallies: BlockTallies,
     #[cfg(feature = "rai_protocol")]
-    second_look: bool,
+    second_look: HashSet<BlockHash>,
     #[cfg(feature = "rai_protocol")]
     timeout_predicate: bool,
 
@@ -71,7 +71,7 @@ impl Election {
             #[cfg(feature = "rai_protocol")]
             first_tallies: BlockTallies::new(),
             #[cfg(feature = "rai_protocol")]
-            second_look: false,
+            second_look: HashSet::new(),
             #[cfg(feature = "rai_protocol")]
             timeout_predicate: false,
             winner_tally: Amount::ZERO,
@@ -275,11 +275,16 @@ impl Election {
             Some(VoteType::Final)
         } else if self.timeout_predicate {
             Some(VoteType::Timeout)
-        } else if self.second_look {
+        } else if !self.second_look.is_empty() {
             Some(VoteType::NonFinal)
         } else {
             None
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn second_look_targets(&self) -> impl Iterator<Item = BlockHash> + '_ {
+        self.second_look.iter().copied()
     }
 
     pub fn cancel(&mut self) {
@@ -432,8 +437,8 @@ impl Election {
             if let Some(hash) = vote.first {
                 self.first_tallies.add(hash, vote.weight);
             }
-            if let Some(hash) = vote.non_final.or(vote.first).or(vote.final_vote) {
-                self.tallies.add(hash, vote.weight);
+            for hash in &vote.notarized {
+                self.tallies.add(*hash, vote.weight);
             }
             if let Some(hash) = vote.final_vote {
                 self.final_tallies.add(hash, vote.weight);
@@ -453,16 +458,33 @@ impl Election {
         let p = quorum.slack_weight;
         if w > f * 3 + p * 2 {
             let certificate = w - f - p;
-            self.second_look = self.first_tallies.get(&self.winner.hash()) > f + p;
+            self.second_look.clear();
+            let mut second_look_candidates = Vec::new();
+            for (hash, weight) in self.first_tallies.iter() {
+                if *weight > f + p {
+                    second_look_candidates.push(*hash);
+                }
+            }
+            // A First vote already notarizes its hash. With only one viable candidate there
+            // is nothing to reconsider, so emitting a NonFinal vote would be redundant. A
+            // second look is needed only when First votes identify multiple viable candidates.
+            if second_look_candidates.len() > 1 {
+                self.second_look.extend(second_look_candidates);
+            }
             let timeout_weight: Amount = self
                 .votes
                 .values()
                 .filter(|vote| vote.timeout)
                 .map(|vote| vote.weight)
                 .sum();
-            let all_vote_weight: Amount = self.votes.values().map(|vote| vote.weight).sum();
+            let all_vote_weight: Amount = self
+                .votes
+                .values()
+                .filter(|vote| vote.first.is_some())
+                .map(|vote| vote.weight)
+                .sum();
             let max_candidate_weight = self
-                .tallies
+                .first_tallies
                 .winner()
                 .map(|(_, weight)| *weight)
                 .unwrap_or_default();
@@ -572,7 +594,7 @@ pub struct VoteSummary {
     #[cfg(feature = "rai_protocol")]
     pub first: Option<BlockHash>,
     #[cfg(feature = "rai_protocol")]
-    pub non_final: Option<BlockHash>,
+    pub notarized: HashSet<BlockHash>,
     #[cfg(feature = "rai_protocol")]
     pub timeout: bool,
     #[cfg(feature = "rai_protocol")]
@@ -597,7 +619,7 @@ impl VoteSummary {
             #[cfg(feature = "rai_protocol")]
             first: None,
             #[cfg(feature = "rai_protocol")]
-            non_final: None,
+            notarized: HashSet::new(),
             #[cfg(feature = "rai_protocol")]
             timeout: false,
             #[cfg(feature = "rai_protocol")]
@@ -615,7 +637,8 @@ impl VoteSummary {
     ) -> Result<(), VoteError> {
         let existing = match vote_type {
             VoteType::First => self.first,
-            VoteType::NonFinal => self.non_final,
+            VoteType::NonFinal if self.notarized.contains(&hash) => Some(hash),
+            VoteType::NonFinal => None,
             VoteType::Final => self.final_vote,
             VoteType::Timeout if self.timeout => return Err(VoteError::Replay),
             VoteType::Timeout => None,
@@ -627,17 +650,26 @@ impl VoteSummary {
                 Err(VoteError::Invalid)
             };
         }
-        if self.timeout {
-            return Err(VoteError::Invalid);
-        }
-        let supported = self.first.or(self.non_final).or(self.final_vote);
-        if vote_type != VoteType::Timeout && supported.is_some_and(|h| h != hash) {
+        if vote_type == VoteType::Final && self.notarized.iter().any(|notarized| *notarized != hash)
+        {
             return Err(VoteError::Invalid);
         }
         match vote_type {
-            VoteType::First => self.first = Some(hash),
-            VoteType::NonFinal => self.non_final = Some(hash),
-            VoteType::Final => self.final_vote = Some(hash),
+            VoteType::First => {
+                self.first = Some(hash);
+                self.notarized.insert(hash);
+            }
+            VoteType::NonFinal => {
+                self.notarized.insert(hash);
+            }
+            VoteType::Final => {
+                // A final vote carries the same support as a non-final vote plus finality.
+                // This is also required when rebuilding an evicted election from the latest
+                // cached vote: legacy Final votes contribute to both tallies, so RAI Final
+                // votes must reconstruct the notarization tally as well.
+                self.notarized.insert(hash);
+                self.final_vote = Some(hash);
+            }
             VoteType::Timeout => self.timeout = true,
         }
         self.latest_type = Some(vote_type);
@@ -731,4 +763,131 @@ pub enum AddForkResult {
     TallyTooLow,
     Duplicate,
     ElectionEnded,
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_voting_tests {
+    use super::*;
+    use crate::representatives::QuorumSnapshot;
+    use rsnano_ledger::RepWeights;
+    use rsnano_types::PrivateKey;
+
+    fn summary() -> VoteSummary {
+        VoteSummary::new(
+            PublicKey::from(1),
+            BlockHash::ZERO,
+            UnixMillisTimestamp::ZERO,
+            Timestamp::new_test_instance(),
+        )
+    }
+
+    #[test]
+    fn first_vote_also_notarizes_its_hash() {
+        let mut vote = summary();
+        let hash = BlockHash::from(1);
+        vote.apply_phase(
+            VoteType::First,
+            hash,
+            UnixMillisTimestamp::ZERO,
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(vote.first, Some(hash));
+        assert_eq!(vote.notarized, HashSet::from([hash]));
+    }
+
+    #[test]
+    fn second_look_can_notarize_a_different_hash() {
+        let mut vote = summary();
+        let first = BlockHash::from(1);
+        let second = BlockHash::from(2);
+        vote.apply_phase(
+            VoteType::First,
+            first,
+            0.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        vote.apply_phase(
+            VoteType::NonFinal,
+            second,
+            1.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(vote.notarized, HashSet::from([first, second]));
+    }
+
+    #[test]
+    fn cannot_final_vote_after_notarizing_conflicting_hashes() {
+        let mut vote = summary();
+        let first = BlockHash::from(1);
+        let second = BlockHash::from(2);
+        vote.apply_phase(
+            VoteType::First,
+            first,
+            0.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        vote.apply_phase(
+            VoteType::NonFinal,
+            second,
+            1.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            vote.apply_phase(
+                VoteType::Final,
+                first,
+                2.into(),
+                Timestamp::new_test_instance()
+            ),
+            Err(VoteError::Invalid)
+        );
+    }
+
+    #[test]
+    fn final_vote_reconstructs_both_notarized_and_final_support() {
+        let mut vote = summary();
+        let hash = BlockHash::from(1);
+
+        vote.apply_phase(
+            VoteType::Final,
+            hash,
+            UnixMillisTimestamp::MAX,
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(vote.notarized, HashSet::from([hash]));
+        assert_eq!(vote.final_vote, Some(hash));
+    }
+
+    #[test]
+    fn single_first_candidate_does_not_request_redundant_non_final_vote() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let rep = PrivateKey::from(1);
+        election
+            .apply_rai_vote(
+                &Vote::new_rai(&rep, 1, VoteType::First, vec![hash]),
+                hash,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let quorum = QuorumSnapshot::new_test_instance();
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), quorum.total_weight / 2);
+        election.update_rai_tallies(&weights, &quorum);
+
+        assert!(election.second_look.is_empty());
+        assert_ne!(election.vote_type(), Some(VoteType::NonFinal));
+    }
 }
