@@ -103,8 +103,16 @@ impl BlockFactory {
         self.max_blocks > 0 && self.created >= self.max_blocks
     }
 
-    pub fn confirm(&mut self, hash: &BlockHash) {
-        self.account_map.confirm(hash);
+    pub fn terminate(&mut self, hash: &BlockHash) {
+        self.account_map.terminate(hash);
+    }
+
+    pub fn finalize(&mut self, hash: &BlockHash) -> Vec<BlockHash> {
+        self.account_map.finalize(hash)
+    }
+
+    pub fn rollback(&mut self, hash: &BlockHash) {
+        self.account_map.rollback(hash);
     }
 
     pub fn created(&self) -> usize {
@@ -245,7 +253,7 @@ mod tests {
             BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
         // genesis send
         let send = block_factory.create_next(false).unwrap().unwrap();
-        block_factory.confirm(&send.hash());
+        block_factory.terminate(&send.hash());
         let account = send.destination_or_link();
 
         let receive = block_factory.create_next(false).unwrap().unwrap();
@@ -272,7 +280,7 @@ mod tests {
         let mut start = Instant::now();
         let mut created_batch = 0;
         while let Some(BlockResult::Block(forks)) = block_factory.create_next(false) {
-            block_factory.confirm(&forks.block.hash());
+            block_factory.terminate(&forks.block.hash());
             created_batch += 1;
             if created_batch == 50_000 {
                 println!(

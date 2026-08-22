@@ -11,6 +11,8 @@ const DELAY_LIMIT: Duration = Duration::from_secs(10);
 pub(crate) struct DelayedBlocks {
     /// block + publish timestamp
     blocks: FxHashMap<BlockHash, PublishInfo>,
+    /// fork hash => primary block hash
+    forks: FxHashMap<BlockHash, BlockHash>,
     by_time: BTreeMap<Timestamp, Vec<BlockHash>>,
 }
 
@@ -39,11 +41,19 @@ impl DelayedBlocks {
     }
 
     pub fn insert(&mut self, block: Block) {
+        self.insert_fork(block, None);
+    }
+
+    pub fn insert_fork(&mut self, block: Block, fork: Option<BlockHash>) {
         let hash = block.hash();
         if let Some(info) = self.blocks.insert(hash, PublishInfo::new(block))
             && let Some(old_sent) = info.last_publish
         {
             self.remove_from_time_index(&hash, old_sent);
+        }
+        self.forks.retain(|_, primary| *primary != hash);
+        if let Some(fork) = fork {
+            self.forks.insert(fork, hash);
         }
     }
 
@@ -65,6 +75,7 @@ impl DelayedBlocks {
         if confirmed_before_publish {
             self.blocks.remove(hash);
             self.remove_from_time_index(hash, timestamp);
+            self.forks.retain(|_, primary| primary != hash);
             Some(Duration::ZERO)
         } else {
             None
@@ -72,16 +83,18 @@ impl DelayedBlocks {
     }
 
     pub fn confirmed(&mut self, hash: &BlockHash, timestamp: Timestamp) -> Option<Duration> {
-        if let Some(info) = self.blocks.get_mut(hash)
+        let primary = self.forks.get(hash).copied().unwrap_or(*hash);
+        if let Some(info) = self.blocks.get_mut(&primary)
             && info.first_publish.is_none()
         {
             info.confirmed_at = Some(timestamp);
             return None;
         }
-        if let Some(info) = self.blocks.remove(hash) {
+        if let Some(info) = self.blocks.remove(&primary) {
             if let Some(sent) = info.last_publish {
-                self.remove_from_time_index(hash, sent);
+                self.remove_from_time_index(&primary, sent);
             }
+            self.forks.retain(|_, candidate| *candidate != primary);
             info.first_publish.map(|i| i.elapsed(timestamp))
         } else {
             None
@@ -94,7 +107,38 @@ impl DelayedBlocks {
     }
 
     pub fn hashes(&self) -> Vec<BlockHash> {
-        self.blocks.keys().copied().collect()
+        self.blocks
+            .keys()
+            .chain(self.forks.keys())
+            .copied()
+            .collect()
+    }
+
+    pub fn primary_hash(&self, hash: &BlockHash) -> Option<BlockHash> {
+        let primary = self.forks.get(hash).copied().unwrap_or(*hash);
+        self.blocks.contains_key(&primary).then_some(primary)
+    }
+
+    pub fn elapsed_since_first_publish(
+        &self,
+        hash: &BlockHash,
+        now: Timestamp,
+    ) -> Option<Duration> {
+        let primary = self.forks.get(hash).copied().unwrap_or(*hash);
+        self.blocks
+            .get(&primary)
+            .and_then(|info| info.first_publish)
+            .map(|sent| sent.elapsed(now))
+    }
+
+    pub fn discard(&mut self, hash: &BlockHash) {
+        let primary = self.forks.get(hash).copied().unwrap_or(*hash);
+        if let Some(info) = self.blocks.remove(&primary)
+            && let Some(sent) = info.last_publish
+        {
+            self.remove_from_time_index(&primary, sent);
+        }
+        self.forks.retain(|_, candidate| *candidate != primary);
     }
 
     fn remove_from_time_index(&mut self, hash: &BlockHash, sent: Timestamp) {
@@ -234,5 +278,40 @@ mod tests {
             delayed.next(now + DELAY_LIMIT).unwrap().hash(),
             block_b.hash()
         );
+    }
+
+    #[test]
+    fn confirming_fork_removes_primary_block() {
+        let mut delayed = DelayedBlocks::new();
+        let published_at = Timestamp::new_test_instance();
+        let block = Block::new_test_instance_with_key(1);
+        let fork = Block::new_test_instance_with_key(2);
+
+        delayed.insert_fork(block.clone(), Some(fork.hash()));
+        delayed.published(&block.hash(), published_at);
+
+        assert!(delayed.hashes().contains(&block.hash()));
+        assert!(delayed.hashes().contains(&fork.hash()));
+
+        assert_eq!(
+            delayed.confirmed(&fork.hash(), published_at + Duration::from_secs(1)),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(delayed.len(), 0);
+        assert!(delayed.next(published_at + DELAY_LIMIT).is_none());
+    }
+
+    #[test]
+    fn fork_confirmed_before_primary_publish_is_counted_on_publish() {
+        let mut delayed = DelayedBlocks::new();
+        let now = Timestamp::new_test_instance();
+        let block = Block::new_test_instance_with_key(1);
+        let fork = Block::new_test_instance_with_key(2);
+
+        delayed.insert_fork(block.clone(), Some(fork.hash()));
+        assert_eq!(delayed.confirmed(&fork.hash(), now), None);
+        assert_eq!(delayed.published(&block.hash(), now), Some(Duration::ZERO));
+        assert_eq!(delayed.len(), 0);
+        assert!(delayed.forks.is_empty());
     }
 }

@@ -5,7 +5,7 @@ use crate::domain::{
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Block, BlockHash};
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
@@ -28,6 +28,9 @@ pub(crate) struct SpamLogic {
     pub(crate) confirmed_recent: usize,
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
+    pub(crate) terminated_total: usize,
+    pub(crate) sum_termination_time_total: Duration,
+    terminated: HashSet<BlockHash>,
     pub(crate) cps_measure_start: Option<Timestamp>,
 }
 
@@ -46,6 +49,9 @@ impl SpamLogic {
             confirmed_recent: 0,
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
+            terminated_total: 0,
+            sum_termination_time_total: Duration::ZERO,
+            terminated: HashSet::new(),
             cps_measure_start: None,
         }
     }
@@ -55,6 +61,33 @@ impl SpamLogic {
         max_blocks > 0
             && (self.confirmed_total >= max_blocks
                 || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
+    }
+
+    pub(crate) fn terminated(&mut self, hash: &BlockHash, timeout: bool, now: Timestamp) -> bool {
+        let Some(primary) = self.delayed.primary_hash(hash) else {
+            return false;
+        };
+        if !self.record_termination(primary, now) {
+            return false;
+        }
+        if timeout {
+            self.block_factory.rollback(&primary);
+            self.delayed.discard(&primary);
+        } else {
+            self.block_factory.terminate(hash);
+        }
+        true
+    }
+
+    fn record_termination(&mut self, primary: BlockHash, now: Timestamp) -> bool {
+        if !self.terminated.insert(primary) {
+            return false;
+        }
+        self.terminated_total += 1;
+        if let Some(elapsed) = self.delayed.elapsed_since_first_publish(&primary, now) {
+            self.sum_termination_time_total += elapsed;
+        }
+        true
     }
 
     pub(crate) fn fork_propability(&self) -> f64 {
@@ -85,7 +118,10 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
-        self.delayed.insert(next.block.clone()); // TODO: handle forks!
+        self.delayed.insert_fork(
+            next.block.clone(),
+            next.fork.as_ref().map(|fork| fork.hash()),
+        );
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
             self.current_bps += self.spec.rate.increment;
@@ -113,12 +149,12 @@ impl SpamLogic {
             self.confirmed_total += 1;
             self.sum_conf_time_recent += conf_time;
             self.sum_conf_time_total += conf_time;
-            self.block_factory.confirm(hash);
+            self.block_factory.terminate(hash);
         }
 
         if !self.spec.track_confirmations {
             self.delayed.confirmed(hash, now);
-            self.block_factory.confirm(hash);
+            self.block_factory.terminate(hash);
             self.confirmed_total += 1;
         }
         self.high_prio_tracker.published(hash, now)
@@ -130,9 +166,16 @@ impl SpamLogic {
         timestamp: Timestamp,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
-            let conf_time = self.delayed.confirmed(block_hash, timestamp);
-
-            if let Some(conf_time) = conf_time {
+            let finalized = self.block_factory.finalize(block_hash);
+            for finalized_hash in finalized {
+                if let Some(primary) = self.delayed.primary_hash(&finalized_hash) {
+                    // A finalization certificate also proves notarization. Record the implied
+                    // termination if its websocket notification has not arrived yet.
+                    self.record_termination(primary, timestamp);
+                }
+                let Some(conf_time) = self.delayed.confirmed(&finalized_hash, timestamp) else {
+                    continue;
+                };
                 if self.cps_measure_start.is_none() {
                     self.cps_measure_start = Some(timestamp);
                 }
@@ -141,7 +184,6 @@ impl SpamLogic {
                 self.sum_conf_time_recent += conf_time;
                 self.sum_conf_time_total += conf_time;
             }
-            self.block_factory.confirm(block_hash);
         }
 
         self.high_prio_tracker.confirmed(block_hash, timestamp)

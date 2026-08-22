@@ -52,7 +52,7 @@ impl AecVoter {
         // TODO: enqueue with one call
         for target in queue.drain(..) {
             self.vote_generators
-                .generate_vote(&target.root.root, &target.winner, target.vote_type);
+                .generate_vote(&target.root, &target.winner, target.vote_type);
         }
     }
 }

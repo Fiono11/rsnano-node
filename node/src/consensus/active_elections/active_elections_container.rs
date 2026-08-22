@@ -458,20 +458,30 @@ impl ActiveElectionsContainer {
             return source;
         }
 
-        let Some(corresponding) = self.roots.get_mut(&confirmed_block.qualified_root()) else {
+        #[cfg(not(feature = "rai_protocol"))]
+        let corresponding = self.roots.get_mut(&confirmed_block.qualified_root());
+        #[cfg(feature = "rai_protocol")]
+        let corresponding = self
+            .roots
+            .election_for_block_any_epoch_mut(&confirmed_block.hash())
+            .map(|election| election);
+
+        let Some(corresponding_election) = corresponding else {
             return ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::InactiveConfirmationHeight,
             );
         };
 
-        if corresponding.election.winner().hash() == confirmed_block.hash() {
-            corresponding.election.force_confirm();
-            corresponding
-                .election
+        #[cfg(not(feature = "rai_protocol"))]
+        let corresponding_election = &mut corresponding_election.election;
+
+        if corresponding_election.winner().hash() == confirmed_block.hash() {
+            corresponding_election.force_confirm();
+            corresponding_election
                 .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
         } else {
-            corresponding.election.cancel();
+            corresponding_election.cancel();
             ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::ActiveConfirmationHeight,

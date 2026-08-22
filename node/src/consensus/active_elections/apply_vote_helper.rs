@@ -113,17 +113,29 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
-        if self.args.vote.delivery == VoteDelivery::Replayed {
-            // Only cooldown live votes
+        #[cfg(feature = "rai_protocol")]
+        {
+            // apply_phase has already rejected replays and invalid phase transitions. RAI
+            // phases are independent protocol messages and must not be delayed by Nano's
+            // legacy replacement-vote cooldown.
+            let _ = (last_vote, rep_weight);
             return false;
         }
 
-        if last_vote.has_switched_to_final_vote(self.args.vote) {
-            return false;
-        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            if self.args.vote.delivery == VoteDelivery::Replayed {
+                // Only cooldown live votes
+                return false;
+            }
 
-        let cooldown = self.args.quorum_snapshot.cooldown_time(rep_weight);
-        last_vote.vote_received.elapsed(self.args.now) < cooldown
+            if last_vote.has_switched_to_final_vote(self.args.vote) {
+                return false;
+            }
+
+            let cooldown = self.args.quorum_snapshot.cooldown_time(rep_weight);
+            last_vote.vote_received.elapsed(self.args.now) < cooldown
+        }
     }
 
     fn add_vote(&mut self) -> Result<(), VoteError> {
@@ -144,6 +156,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
+        #[cfg(feature = "rai_protocol")]
+        let was_terminated = self.election.is_terminated();
 
         #[cfg(not(feature = "rai_protocol"))]
         self.election.update_tallies(
@@ -155,6 +169,19 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             .update_rai_tallies(self.args.rep_weights, self.args.quorum_snapshot);
 
         self.notify_winner_changed(old_winner);
+
+        #[cfg(feature = "rai_protocol")]
+        if !was_terminated && self.election.is_terminated() {
+            let hashes = if self.election.terminated_by_timeout() {
+                self.election.candidate_blocks().keys().copied().collect()
+            } else {
+                vec![self.election.winner().hash()]
+            };
+            self.notify(AecFact::ElectionTerminated(
+                hashes,
+                self.election.terminated_by_timeout(),
+            ));
+        }
 
         if self.election.is_final() && self.election.is_confirmed() {
             self.election_got_confirmed();
@@ -339,8 +366,11 @@ mod tests {
         fixture.apply_vote(vote).unwrap();
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
-        assert_eq!(fixture.events.len(), 1);
-        let AecFact::WinnerChanged(old_winner, new_winner) = &fixture.events[0] else {
+        let Some(AecFact::WinnerChanged(old_winner, new_winner)) = fixture
+            .events
+            .iter()
+            .find(|event| matches!(event, AecFact::WinnerChanged(_, _)))
+        else {
             panic!("not a winner changed event");
         };
         assert_eq!(old_winner, &block.hash());
@@ -356,9 +386,12 @@ mod tests {
 
         fixture.apply_final_vote_from(VoteDelivery::Direct).unwrap();
 
-        assert_eq!(fixture.events.len(), 1);
-
-        assert!(matches!(fixture.events[0], AecFact::ElectionConfirmed(_)));
+        assert!(
+            fixture
+                .events
+                .iter()
+                .any(|event| matches!(event, AecFact::ElectionConfirmed(_)))
+        );
     }
 
     // Test helpers:

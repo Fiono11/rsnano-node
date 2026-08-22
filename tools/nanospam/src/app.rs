@@ -173,6 +173,14 @@ impl NanoSpamApp {
             s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel));
 
             tokio_scoped::scope(|scope| {
+                if self.args.timeout > 0 {
+                    let timeout_cancel = cancel_nanospam.clone();
+                    let wait = Duration::from_secs(self.args.timeout);
+                    scope.spawn(async move {
+                        tokio::time::sleep(wait).await;
+                        timeout_cancel.cancel();
+                    });
+                }
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
                 scope.spawn(reconcile_confirmations(
                     genesis_rpc,
@@ -196,8 +204,9 @@ impl NanoSpamApp {
                     tcp_writers,
                     protocol,
                     &logic,
-                    cancel_nanospam,
+                    cancel_nanospam.clone(),
                     self.args.drop_probability(),
+                    self.args.fork_recipients,
                     &self.clock,
                 ));
 
@@ -206,6 +215,7 @@ impl NanoSpamApp {
                         tx_forks_clone,
                         &logic,
                         &self.clock,
+                        cancel_nanospam.clone(),
                     ));
                 }
             });
@@ -213,11 +223,32 @@ impl NanoSpamApp {
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
-        let cps = (created_blocks as f64 / duration_secs) as i32;
-        info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
-        info!("Confirmation rate: {cps} cps");
-        let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
-        info!("Average conf time: {conf_time} ms");
+        let finalized_blocks = logic.confirmed_total;
+        let terminated_elections = logic.terminated_total;
+        let termination_rate = (created_blocks as f64 / duration_secs) as i32;
+        let finalization_rate = (finalized_blocks as f64 / duration_secs) as i32;
+        info!(
+            "Terminated {terminated_elections} of {created_blocks} elections in {duration_secs:.2}s"
+        );
+        info!("Election termination rate: {termination_rate} elections/s");
+        info!("Finalized {finalized_blocks} of {created_blocks} elections");
+        info!("Finalization rate: {finalization_rate} elections/s");
+        if finalized_blocks > 0 {
+            let finalization_time =
+                logic.sum_conf_time_total.as_millis() / finalized_blocks as u128;
+            info!("Average finalization time: {finalization_time} ms");
+        }
+        if terminated_elections > 0 {
+            let termination_time =
+                logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
+            info!("Average election termination time: {termination_time} ms");
+        }
+        if self.args.timeout > 0 && terminated_elections < created_blocks {
+            return Err(anyhow!(
+                "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
+                self.args.timeout
+            ));
+        }
 
         Ok(())
     }
@@ -255,12 +286,20 @@ async fn publish_blocks(
     logic: &Mutex<SpamLogic>,
     cancel_token: CancellationToken,
     drop_probability: f64,
+    fork_recipients: usize,
     clock: &SteadyClock,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
     let mut writer_index = 0;
-    while let Some(forks) = rx_blocks.recv().await {
+    loop {
+        let forks = select! {
+            _ = cancel_token.cancelled() => break,
+            value = rx_blocks.recv() => match value {
+                Some(value) => value,
+                None => break,
+            }
+        };
         let block = forks.block.clone();
         let hash = block.hash();
         let publish = Message::Publish(Publish::new_from_originator(block));
@@ -280,14 +319,12 @@ async fn publish_blocks(
                     continue;
                 }
 
-                let buf = if let Some(fbuf) = fork_buffer
-                    && counter % 2 == 0
-                {
-                    // send fork to every second node
-                    fbuf
-                } else {
-                    buffer
-                };
+                let send_fork = fork_recipients > 0 && counter < fork_recipients
+                    || fork_recipients == 0 && counter % 2 == 0;
+                let buf = fork_buffer
+                    .as_ref()
+                    .filter(|_| send_fork)
+                    .unwrap_or(&buffer);
 
                 s.spawn(async {
                     stream[writer_index].write_all(buf).await.unwrap();
@@ -318,15 +355,18 @@ async fn publish_blocks(
             tracing::info!("High prio block published: {hash}");
         }
     }
-    cancel_token.cancel();
+    if !cancel_token.is_cancelled() {
+        cancel_token.cancel();
+    }
 }
 
 async fn republish_delayed_blocks(
     tx_forks: mpsc::Sender<Forks>,
     logic: &Mutex<SpamLogic>,
     clock: &SteadyClock,
+    cancel_token: CancellationToken,
 ) {
-    loop {
+    while !cancel_token.is_cancelled() {
         while let Some(block) = {
             let now = clock.now();
             let mut l = logic.lock().unwrap();
@@ -335,10 +375,15 @@ async fn republish_delayed_blocks(
             }
             l.next_delayed(now)
         } {
-            tx_forks.send(Forks::new(block)).await.unwrap();
+            if tx_forks.send(Forks::new(block)).await.is_err() {
+                return;
+            }
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        select! {
+            _ = cancel_token.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
     }
 }
 
@@ -388,6 +433,23 @@ fn track_confirmations(
                 tracing::info!(
                     "High prio block confirmed: {block_hash}. Conf time: {} ms",
                     time.as_millis()
+                );
+            }
+        } else if msg.topic == Some(Topic::ElectionTerminated)
+            && let Some(message) = msg.message
+            && let Some(hash) = message.get("hash").and_then(|value| value.as_str())
+            && let Some(hash) = BlockHash::decode_hex(hash)
+        {
+            let timeout = message
+                .get("timeout")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let mut logic = logic.lock().unwrap();
+            if logic.terminated(&hash, timeout, timestamp) {
+                info!(
+                    "Terminated {} of {} elections",
+                    logic.terminated_total,
+                    logic.block_factory.created()
                 );
             }
         }

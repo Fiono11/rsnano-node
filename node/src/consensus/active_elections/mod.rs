@@ -43,6 +43,8 @@ impl Default for ActiveElectionsConfig {
 pub enum AecFact {
     ElectionStarted(BlockHash, QualifiedRoot),
     ElectionConfirmed(ConfirmedElection),
+    #[cfg(feature = "rai_protocol")]
+    ElectionTerminated(Vec<BlockHash>, bool),
 
     /// Ended ether confirmed or unconfirmed
     ElectionEnded(Election),

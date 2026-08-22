@@ -39,13 +39,18 @@ pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
             vote_type: VoteType::NonFinal,
         });
     }
-    if let Some(vote_type) = e.vote_type()
-        && matches!(vote_type, VoteType::Final | VoteType::Timeout)
-    {
+    if e.has_quorum() {
         targets.push(VoteTarget {
             root: e.qualified_root().clone(),
             winner: e.winner().hash(),
-            vote_type,
+            vote_type: VoteType::Final,
+        });
+    }
+    if e.should_vote_timeout() {
+        targets.push(VoteTarget {
+            root: e.qualified_root().clone(),
+            winner: e.winner().hash(),
+            vote_type: VoteType::Timeout,
         });
     }
     targets
@@ -169,8 +174,10 @@ impl ContainerInfoProvider for VotingScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::representatives::QuorumSnapshot;
+    use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
-    use rsnano_types::QualifiedRoot;
+    use rsnano_types::{PrivateKey, QualifiedRoot, SavedBlock, Vote};
     use std::time::Duration;
 
     #[test]
@@ -222,6 +229,41 @@ mod tests {
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         s.cleanup(t(5));
         assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn timeout_does_not_replace_an_eligible_final_vote() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), certificate);
+        election
+            .apply_rai_vote(
+                &Vote::new_rai(&rep, 1, VoteType::First, vec![hash]),
+                hash,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        election
+            .transition_time(election.start() + Duration::from_mins(5) + Duration::from_millis(1));
+
+        let targets = vote_targets(&election);
+        assert!(
+            targets
+                .iter()
+                .any(|target| target.vote_type == VoteType::Final)
+        );
+        assert!(
+            targets
+                .iter()
+                .any(|target| target.vote_type == VoteType::Timeout)
+        );
     }
 
     /*

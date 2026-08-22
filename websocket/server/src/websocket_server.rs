@@ -134,6 +134,22 @@ fn stopped_election(hash: &BlockHash) -> MessageEnvelope {
     )
 }
 
+fn election_terminated(hash: &BlockHash, timeout: bool) -> MessageEnvelope {
+    MessageEnvelope::new(
+        Topic::ElectionTerminated,
+        ElectionTerminated {
+            hash: hash.to_string(),
+            timeout,
+        },
+    )
+}
+
+#[derive(Serialize)]
+struct ElectionTerminated {
+    hash: String,
+    timeout: bool,
+}
+
 #[derive(Serialize)]
 struct StoppedElection {
     hash: String,
@@ -186,6 +202,11 @@ impl NodeEventHandler for NodeEventProcessor {
             NodeEvent::ElectionStopped(hash) => {
                 if self.server.any_subscriber(Topic::StoppedElection) {
                     self.server.broadcast(&stopped_election(hash));
+                }
+            }
+            NodeEvent::ElectionTerminated(hash, timeout) => {
+                if self.server.any_subscriber(Topic::ElectionTerminated) {
+                    self.server.broadcast(&election_terminated(hash, *timeout));
                 }
             }
             NodeEvent::BlockConfirmed(block, election) => {

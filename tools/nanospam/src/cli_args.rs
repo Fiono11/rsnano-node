@@ -78,6 +78,14 @@ pub(crate) struct CliArgs {
     /// Percentage of blocks that should have forks
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
+
+    /// Number of nodes that receive the fork (0 sends it to every second node)
+    #[arg(long, default_value_t = 0)]
+    pub fork_recipients: usize,
+
+    /// Seconds to collect termination and finalization certificates after publishing
+    #[arg(long, default_value_t = 0)]
+    pub timeout: u64,
 }
 
 impl CliArgs {

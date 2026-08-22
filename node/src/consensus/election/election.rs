@@ -38,6 +38,12 @@ pub struct Election {
     second_look: HashSet<BlockHash>,
     #[cfg(feature = "rai_protocol")]
     timeout_predicate: bool,
+    #[cfg(feature = "rai_protocol")]
+    expired: bool,
+    #[cfg(feature = "rai_protocol")]
+    terminated: bool,
+    #[cfg(feature = "rai_protocol")]
+    terminated_by_timeout: bool,
 
     behavior: ElectionBehavior,
     has_quorum: bool,
@@ -74,6 +80,12 @@ impl Election {
             second_look: HashSet::new(),
             #[cfg(feature = "rai_protocol")]
             timeout_predicate: false,
+            #[cfg(feature = "rai_protocol")]
+            expired: false,
+            #[cfg(feature = "rai_protocol")]
+            terminated: false,
+            #[cfg(feature = "rai_protocol")]
+            terminated_by_timeout: false,
             winner_tally: Amount::ZERO,
             winner_final_tally: Amount::ZERO,
             behavior,
@@ -241,7 +253,14 @@ impl Election {
         }
 
         if !self.state.has_ended() && self.behavior.time_to_live() < duration {
-            self.state = ElectionState::ExpiredUnconfirmed;
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                self.state = ElectionState::ExpiredUnconfirmed;
+            }
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.expired = true;
+            }
         }
     }
 
@@ -251,6 +270,16 @@ impl Election {
 
     pub fn has_quorum(&self) -> bool {
         self.has_quorum
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_terminated(&self) -> bool {
+        self.terminated
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn terminated_by_timeout(&self) -> bool {
+        self.terminated_by_timeout
     }
 
     /// Returns true if final votes should be generated
@@ -271,10 +300,10 @@ impl Election {
     pub fn vote_type(&self) -> Option<VoteType> {
         if self.votes.is_empty() {
             Some(VoteType::First)
-        } else if self.has_quorum {
-            Some(VoteType::Final)
         } else if self.timeout_predicate {
             Some(VoteType::Timeout)
+        } else if self.has_quorum {
+            Some(VoteType::Final)
         } else if !self.second_look.is_empty() {
             Some(VoteType::NonFinal)
         } else {
@@ -285,6 +314,11 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn second_look_targets(&self) -> impl Iterator<Item = BlockHash> + '_ {
         self.second_look.iter().copied()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn should_vote_timeout(&self) -> bool {
+        self.expired || self.timeout_predicate
     }
 
     pub fn cancel(&mut self) {
@@ -459,17 +493,10 @@ impl Election {
         if w > f * 3 + p * 2 {
             let certificate = w - f - p;
             self.second_look.clear();
-            let mut second_look_candidates = Vec::new();
             for (hash, weight) in self.first_tallies.iter() {
                 if *weight > f + p {
-                    second_look_candidates.push(*hash);
+                    self.second_look.insert(*hash);
                 }
-            }
-            // A First vote already notarizes its hash. With only one viable candidate there
-            // is nothing to reconsider, so emitting a NonFinal vote would be redundant. A
-            // second look is needed only when First votes identify multiple viable candidates.
-            if second_look_candidates.len() > 1 {
-                self.second_look.extend(second_look_candidates);
             }
             let timeout_weight: Amount = self
                 .votes
@@ -490,13 +517,18 @@ impl Election {
                 .unwrap_or_default();
             self.timeout_predicate = all_vote_weight - max_candidate_weight > f + p;
             self.has_quorum |= self.winner_tally >= certificate;
+            if !self.terminated {
+                self.terminated_by_timeout = !self.has_quorum && timeout_weight >= certificate;
+                self.terminated = self.has_quorum || timeout_weight >= certificate;
+            }
             if self.winner_final_tally >= certificate
                 || self.first_tallies.get(&self.winner.hash()) >= w - p
             {
                 self.state = ElectionState::Confirmed;
             }
             if timeout_weight >= certificate {
-                self.state = ElectionState::ExpiredUnconfirmed;
+                // A timeout certificate terminates the protocol instance, but it does not
+                // close it: a later finalization certificate may still confirm a candidate.
             }
         }
     }
@@ -869,7 +901,7 @@ mod rai_voting_tests {
     }
 
     #[test]
-    fn single_first_candidate_does_not_request_redundant_non_final_vote() {
+    fn single_viable_first_candidate_requests_second_look() {
         let block = SavedBlock::new_test_instance();
         let hash = block.hash();
         let mut election = Election::new_test_instance_with(block);
@@ -887,7 +919,64 @@ mod rai_voting_tests {
         weights.put(rep.public_key(), quorum.total_weight / 2);
         election.update_rai_tallies(&weights, &quorum);
 
-        assert!(election.second_look.is_empty());
-        assert_ne!(election.vote_type(), Some(VoteType::NonFinal));
+        assert_eq!(election.second_look, HashSet::from([hash]));
+        assert_eq!(election.vote_type(), Some(VoteType::NonFinal));
+    }
+
+    #[test]
+    fn timeout_takes_precedence_over_final_after_conflicting_notarization() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let rep = PrivateKey::from(1);
+        election
+            .apply_rai_vote(
+                &Vote::new_rai(&rep, 1, VoteType::First, vec![hash]),
+                hash,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        election.has_quorum = true;
+        election.timeout_predicate = true;
+
+        assert_eq!(election.vote_type(), Some(VoteType::Timeout));
+    }
+
+    #[test]
+    fn timeout_certificate_terminates_election_unconfirmed() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), certificate);
+
+        election
+            .apply_rai_vote(
+                &Vote::new_rai(&rep, 1, VoteType::Timeout, vec![hash]),
+                hash,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+
+        assert!(election.is_terminated());
+        assert!(!election.is_confirmed());
+        assert!(!election.state().has_ended());
+    }
+
+    #[test]
+    fn expiry_requests_timeout_without_ending_election() {
+        let block = SavedBlock::new_test_instance();
+        let mut election = Election::new_test_instance_with(block);
+        let expired_at = election.start() + Duration::from_mins(5) + Duration::from_millis(1);
+
+        assert!(!election.should_vote_timeout());
+        election.transition_time(expired_at);
+
+        assert!(election.should_vote_timeout());
+        assert!(!election.state().has_ended());
     }
 }

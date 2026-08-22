@@ -150,6 +150,15 @@ impl RootContainer {
         self.by_root.get_mut(root).map(|entry| &mut entry.election)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn election_for_block_any_epoch_mut(
+        &mut self,
+        block_hash: &BlockHash,
+    ) -> Option<&mut Election> {
+        let root = self.vote_router.qualified_root(block_hash)?.clone();
+        self.by_root.get_mut(&root).map(|entry| &mut entry.election)
+    }
+
     pub fn bucket_infos(&self) -> &[BucketInfo] {
         &self.bucket_infos
     }

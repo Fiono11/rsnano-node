@@ -202,6 +202,8 @@ impl EventHandler<ChannelEvent> for RequestAggregator {
 pub struct AggregatorRequest {
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
 }
 
 pub(crate) struct RequestAggregatorState {
@@ -275,6 +277,8 @@ impl RequestAggregatorLoop {
                 &remaining.remaining_normal,
                 &request.channel,
                 VoteType::NonFinal,
+                #[cfg(feature = "rai_protocol")]
+                request.epoch,
             );
             self.stats.add_dir(
                 StatType::Requests,
@@ -293,6 +297,8 @@ impl RequestAggregatorLoop {
                 &remaining.remaining_final,
                 &request.channel,
                 VoteType::Final,
+                #[cfg(feature = "rai_protocol")]
+                request.epoch,
             );
             self.stats.add_dir(
                 StatType::Requests,

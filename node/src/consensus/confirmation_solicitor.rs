@@ -7,12 +7,17 @@ use rsnano_types::{BlockHash, Root};
 use super::election::Election;
 use crate::{representatives::PeeredRepInfo, transport::MessageFlooder};
 
+#[cfg(not(feature = "rai_protocol"))]
+type RequestKey = ChannelId;
+#[cfg(feature = "rai_protocol")]
+type RequestKey = (ChannelId, u64);
+
 /// This struct accepts elections that need further votes before they can be confirmed and bundles them in to confirm_req packets
 pub struct ConfirmationSolicitor {
     /// Maximum amount of requests to be sent per election, bypassed if an existing vote is for a different hash
     max_election_requests: usize,
     representatives: Vec<PeeredRepInfo>,
-    requests: HashMap<ChannelId, (Arc<Channel>, Vec<(BlockHash, Root)>)>,
+    requests: HashMap<RequestKey, RequestQueue>,
     prepared: bool,
     message_flooder: MessageFlooder,
 }
@@ -64,12 +69,22 @@ impl ConfirmationSolicitor {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 
                     if !should_drop {
-                        let (_, request_queue) = self
-                            .requests
-                            .entry(rep_channel.channel_id())
-                            .or_insert_with(|| (rep_channel, Vec::new()));
+                        #[cfg(not(feature = "rai_protocol"))]
+                        let request_key = rep_channel.channel_id();
+                        #[cfg(feature = "rai_protocol")]
+                        let request_key =
+                            (rep_channel.channel_id(), election.qualified_root().epoch);
+                        let queue =
+                            self.requests
+                                .entry(request_key)
+                                .or_insert_with(|| RequestQueue {
+                                    channel: rep_channel,
+                                    requests: Vec::new(),
+                                    #[cfg(feature = "rai_protocol")]
+                                    epoch: election.qualified_root().epoch,
+                                });
 
-                        request_queue.push((winner.hash(), winner.root()));
+                        queue.requests.push((winner.hash(), winner.root()));
 
                         if !different_hash {
                             rep_request_count += 1;
@@ -96,23 +111,42 @@ impl ConfirmationSolicitor {
     /// Dispatch bundled requests to each channel
     pub fn flush(&mut self) {
         debug_assert!(self.prepared);
-        for (channel, requests) in self.requests.values() {
+        for queue in self.requests.values() {
             let mut roots_hashes = Vec::new();
-            for root_hash in requests {
+            for root_hash in &queue.requests {
                 roots_hashes.push(*root_hash);
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
-                    let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
-                    self.message_flooder
-                        .try_send(channel, &req, TrafficType::ConfirmationRequests);
+                    let request = ConfirmReq::new(roots_hashes);
+                    #[cfg(feature = "rai_protocol")]
+                    let request = request.with_epoch(queue.epoch);
+                    let req = Message::ConfirmReq(request);
+                    self.message_flooder.try_send(
+                        &queue.channel,
+                        &req,
+                        TrafficType::ConfirmationRequests,
+                    );
                     roots_hashes = Vec::new();
                 }
             }
             if !roots_hashes.is_empty() {
-                let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
-                self.message_flooder
-                    .try_send(channel, &req, TrafficType::ConfirmationRequests);
+                let request = ConfirmReq::new(roots_hashes);
+                #[cfg(feature = "rai_protocol")]
+                let request = request.with_epoch(queue.epoch);
+                let req = Message::ConfirmReq(request);
+                self.message_flooder.try_send(
+                    &queue.channel,
+                    &req,
+                    TrafficType::ConfirmationRequests,
+                );
             }
         }
         self.prepared = false;
     }
+}
+
+struct RequestQueue {
+    channel: Arc<Channel>,
+    requests: Vec<(BlockHash, Root)>,
+    #[cfg(feature = "rai_protocol")]
+    epoch: u64,
 }

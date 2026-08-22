@@ -57,6 +57,7 @@ impl LocalVoteHistory {
     pub fn add(&self, root: &Root, hash: &BlockHash, vote: &Arc<Vote>) {
         let mut data_lk = self.data.lock().unwrap();
         let data: &mut LocalVoteHistoryData = &mut data_lk;
+        #[cfg(not(feature = "rai_protocol"))]
         clean(data, self.max_cache);
 
         let mut add_vote = true;
@@ -227,6 +228,43 @@ impl LocalVoteHistory {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn has_vote_type(
+        &self,
+        root: &Root,
+        epoch: u64,
+        vote_type: rsnano_types::VoteType,
+        voter: PublicKey,
+    ) -> bool {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id))
+            .any(|entry| entry.vote.voter == voter && entry.vote.vote_type() == vote_type)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn non_timeout_notarization_count(
+        &self,
+        root: &Root,
+        epoch: u64,
+        voter: PublicKey,
+    ) -> usize {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id))
+            .filter(|entry| {
+                entry.vote.voter == voter
+                    && entry.vote.vote_type() == rsnano_types::VoteType::NonFinal
+            })
+            .count()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn has_notarized(
         &self,
         root: &Root,
@@ -248,6 +286,36 @@ impl LocalVoteHistory {
                         rsnano_types::VoteType::First | rsnano_types::VoteType::NonFinal
                     )
             })
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn can_second_look(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: &BlockHash,
+        voter: PublicKey,
+    ) -> bool {
+        let data = self.data.lock().unwrap();
+        let votes = data
+            .history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id))
+            .filter(|entry| entry.vote.voter == voter)
+            .collect::<Vec<_>>();
+        let first_is_different = votes.iter().any(|entry| {
+            entry.vote.vote_type() == rsnano_types::VoteType::First && entry.hash != *hash
+        });
+        let already_notarized = votes.iter().any(|entry| {
+            entry.hash == *hash
+                && matches!(
+                    entry.vote.vote_type(),
+                    rsnano_types::VoteType::First | rsnano_types::VoteType::NonFinal
+                )
+        });
+        first_is_different && !already_notarized
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -483,6 +551,39 @@ mod tests {
 
         assert!(history.has_notarized(&root, 1, &hash, key.public_key()));
         assert!(history.has_no_conflicting_notarization(&root, 1, &hash, key.public_key()));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn second_look_requires_a_different_first_vote() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash_a = BlockHash::from(2);
+        let hash_b = BlockHash::from(3);
+        let key = PrivateKey::from(1);
+
+        assert!(!history.can_second_look(&root, 1, &hash_b, key.public_key()));
+
+        let first = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::First,
+            vec![hash_a],
+        ));
+        history.add(&root, &hash_a, &first);
+
+        assert!(!history.can_second_look(&root, 1, &hash_a, key.public_key()));
+        assert!(history.can_second_look(&root, 1, &hash_b, key.public_key()));
+
+        let second = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::NonFinal,
+            vec![hash_b],
+        ));
+        history.add(&root, &hash_b, &second);
+
+        assert!(!history.can_second_look(&root, 1, &hash_b, key.public_key()));
     }
 
     #[test]

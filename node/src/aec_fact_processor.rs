@@ -82,6 +82,15 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                         .try_broadcast_winner(&election.winner, &election.votes);
                 }
             }
+            #[cfg(feature = "rai_protocol")]
+            AecFact::ElectionTerminated(hashes, timeout) => {
+                if let Some(tx) = &self.node_observer {
+                    for hash in hashes {
+                        tx.send(NodeEvent::ElectionTerminated(hash, timeout))
+                            .unwrap();
+                    }
+                }
+            }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
@@ -113,6 +122,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::WinnerChanged(previous_winner, new_winner) => {
                 debug!(from = ?previous_winner, to = ?new_winner.hash(), "Winning fork changed");
+                #[cfg(not(feature = "rai_protocol"))]
                 self.local_votes_remover
                     .remove_local_votes(&previous_winner, &new_winner.qualified_root());
 

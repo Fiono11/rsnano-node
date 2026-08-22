@@ -1646,6 +1646,7 @@ impl Node {
 pub enum NodeEvent {
     ElectionStarted(BlockHash),
     ElectionStopped(BlockHash),
+    ElectionTerminated(BlockHash, bool),
     BlockConfirmed(SavedBlock, ConfirmedElection),
     VoteProcessed(Arc<Vote>, Result<(), VoteError>),
     BlocksProcessed(Vec<ProcessResult>),

@@ -236,6 +236,7 @@ pub enum TopicSub {
     StartedElection,
     /// Stopped election message (dropped elections due to bounding or block lost the elections)
     StoppedElection,
+    ElectionTerminated,
     /// A vote message
     Vote,
     /// Work generation message
@@ -254,6 +255,7 @@ impl From<&TopicSub> for Topic {
             TopicSub::Confirmation(_) => Topic::Confirmation,
             TopicSub::StartedElection => Topic::StartedElection,
             TopicSub::StoppedElection => Topic::StoppedElection,
+            TopicSub::ElectionTerminated => Topic::ElectionTerminated,
             TopicSub::Vote => Topic::Vote,
             TopicSub::Work => Topic::Work,
             TopicSub::Bootstrap => Topic::Bootstrap,

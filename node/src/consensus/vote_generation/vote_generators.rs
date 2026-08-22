@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, NetworkType, Root, SavedBlock};
+use rsnano_types::{BlockHash, NetworkType, QualifiedRoot, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -184,7 +184,7 @@ impl VoteGenerators {
         self.vote_listener.track()
     }
 
-    pub fn generate_vote(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
+    pub fn generate_vote(&self, root: &QualifiedRoot, hash: &BlockHash, vote_type: VoteType) {
         match vote_type {
             VoteType::NonFinal => {
                 self.stats
@@ -216,6 +216,7 @@ impl VoteGenerators {
         blocks: &[SavedBlock],
         channel: &Arc<Channel>,
         vote_type: VoteType,
+        #[cfg(feature = "rai_protocol")] epoch: u64,
     ) -> usize {
         if self.vote_listener.is_tracked() {
             self.vote_listener.emit(VoteGenerationEvent {
@@ -226,12 +227,22 @@ impl VoteGenerators {
         }
 
         match vote_type {
-            VoteType::NonFinal => self.non_final_vote_generator.generate(blocks, channel),
-            VoteType::Final => self.final_vote_generator.generate(blocks, channel),
+            VoteType::NonFinal => self.non_final_vote_generator.generate(
+                blocks,
+                channel,
+                #[cfg(feature = "rai_protocol")]
+                epoch,
+            ),
+            VoteType::Final => self.final_vote_generator.generate(
+                blocks,
+                channel,
+                #[cfg(feature = "rai_protocol")]
+                epoch,
+            ),
             #[cfg(feature = "rai_protocol")]
-            VoteType::First => self.first_vote_generator.generate(blocks, channel),
+            VoteType::First => self.first_vote_generator.generate(blocks, channel, epoch),
             #[cfg(feature = "rai_protocol")]
-            VoteType::Timeout => self.timeout_vote_generator.generate(blocks, channel),
+            VoteType::Timeout => self.timeout_vote_generator.generate(blocks, channel, epoch),
         }
     }
 
