@@ -239,8 +239,19 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                     // Activate accounts with fresh blocks
                     for result in results {
                         if result.status.is_ok() {
-                            let account = result.saved_block.as_ref().unwrap().account();
-                            self.enqueue_activation(account);
+                            let block = result.saved_block.as_ref().unwrap();
+
+                            // RAI slots may extend notarized blocks before their
+                            // ancestors are finalized.  The priority scheduler is
+                            // deliberately confirmation-height based, so it cannot
+                            // discover those overlapping slots.  Activate the
+                            // processed block itself; finalizing a descendant will
+                            // subsequently cement the selected ancestor chain.
+                            #[cfg(feature = "rai_protocol")]
+                            self.add_manual(block.clone());
+
+                            #[cfg(not(feature = "rai_protocol"))]
+                            self.enqueue_activation(block.account());
                         }
                     }
                 }

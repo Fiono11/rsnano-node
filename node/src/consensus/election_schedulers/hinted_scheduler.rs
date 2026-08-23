@@ -187,7 +187,7 @@ impl HintedScheduler {
                     continue; // Move on to the next item in the stack
                 }
 
-                if check_dependents {
+                if check_dependents && cfg!(not(feature = "rai_protocol")) {
                     // Perform a depth-first search of the dependency graph
                     if !any.dependencies_confirmed(&block) {
                         self.stats

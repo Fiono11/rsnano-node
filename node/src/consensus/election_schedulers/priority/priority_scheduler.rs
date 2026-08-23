@@ -129,6 +129,7 @@ impl PriorityScheduler {
             return;
         };
 
+        #[cfg(not(feature = "rai_protocol"))]
         if !any.dependencies_confirmed(&block) {
             self.stats
                 .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);

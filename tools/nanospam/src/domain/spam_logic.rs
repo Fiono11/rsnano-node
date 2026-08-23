@@ -58,9 +58,19 @@ impl SpamLogic {
 
     pub(crate) fn is_finished(&self) -> bool {
         let max_blocks = self.block_factory.max_blocks();
-        max_blocks > 0
-            && (self.confirmed_total >= max_blocks
-                || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
+        #[cfg(feature = "rai_protocol")]
+        {
+            // Termination/notarization releases dependent block generation, but it is not
+            // finality. Keep the run alive until every requested block has actually been
+            // finalized (or the outer timeout cancels it).
+            max_blocks > 0 && self.confirmed_total >= max_blocks
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            max_blocks > 0
+                && (self.confirmed_total >= max_blocks
+                    || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
+        }
     }
 
     pub(crate) fn terminated(&mut self, hash: &BlockHash, timeout: bool, now: Timestamp) -> bool {
@@ -95,7 +105,10 @@ impl SpamLogic {
     }
 
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
-        if self.block_factory.max_blocks_reached() {
+        // A block may already have been built before the rate limiter admitted it. Drain that
+        // pending block even though building it incremented the factory's created count to the
+        // configured maximum.
+        if self.next_block.is_none() && self.block_factory.max_blocks_reached() {
             return None;
         }
 

@@ -671,10 +671,28 @@ impl SharedState {
 
     fn process_batch(&self, batch: VecDeque<VoteCandidate>) {
         let candidates = batch.into_iter().collect::<Vec<_>>();
+        #[cfg(not(feature = "rai_protocol"))]
         let verified = self.ledger.verify_votes(
             candidates.iter().map(|c| (c.root, c.hash)).collect(),
             self.is_final,
         );
+        // RAI permits extending a notarized selected chain and a final certificate finalizes
+        // its unfinalized selected ancestors. Nano's vote verifier requires cemented
+        // dependencies for both of its modes, so it is not the admissibility rule for any RAI
+        // phase. At this layer require the exact candidate block to be locally available; RAI
+        // phase history and conflict checks below remain the signing-safety gate.
+        #[cfg(feature = "rai_protocol")]
+        let verified: VecDeque<_> = {
+            let any = self.ledger.any();
+            candidates
+                .iter()
+                .filter(|candidate| {
+                    any.get_block(&candidate.hash)
+                        .is_some_and(|block| block.root() == candidate.root)
+                })
+                .map(|candidate| (candidate.root, candidate.hash))
+                .collect()
+        };
         let verified = verified
             .into_iter()
             .filter_map(|(root, hash)| {
