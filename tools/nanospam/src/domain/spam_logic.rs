@@ -4,7 +4,7 @@ use crate::domain::{
 };
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Block, BlockHash};
+use rsnano_types::{Amount, Block, BlockHash};
 use std::{collections::HashSet, time::Duration};
 
 pub(crate) struct SpamSpec {
@@ -29,6 +29,10 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) terminated_total: usize,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fast_finalized_total: usize,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) final_finalized_total: usize,
     pub(crate) sum_termination_time_total: Duration,
     terminated: HashSet<BlockHash>,
     pub(crate) cps_measure_start: Option<Timestamp>,
@@ -50,6 +54,10 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             terminated_total: 0,
+            #[cfg(feature = "rai_protocol")]
+            fast_finalized_total: 0,
+            #[cfg(feature = "rai_protocol")]
+            final_finalized_total: 0,
             sum_termination_time_total: Duration::ZERO,
             terminated: HashSet::new(),
             cps_measure_start: None,
@@ -200,6 +208,17 @@ impl SpamLogic {
         }
 
         self.high_prio_tracker.confirmed(block_hash, timestamp)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn record_finalization_type(&mut self, final_tally: Amount) {
+        let faulty_weight = Amount::raw((Amount::MAX.number() - 1) / 5);
+        let final_certificate_threshold = Amount::MAX - faulty_weight * 2;
+        if final_tally >= final_certificate_threshold {
+            self.final_finalized_total += 1;
+        } else {
+            self.fast_finalized_total += 1;
+        }
     }
 
     pub(crate) fn reset_cps_counter(&mut self, now: Timestamp) {

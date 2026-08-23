@@ -232,6 +232,11 @@ impl NanoSpamApp {
         );
         info!("Election termination rate: {termination_rate} elections/s");
         info!("Finalized {finalized_blocks} of {created_blocks} elections");
+        #[cfg(feature = "rai_protocol")]
+        info!(
+            "Fast finalizations: {} | Final-vote finalizations: {}",
+            logic.fast_finalized_total, logic.final_finalized_total
+        );
         info!("Finalization rate: {finalization_rate} elections/s");
         if finalized_blocks > 0 {
             let finalization_time =
@@ -421,6 +426,14 @@ fn track_confirmations(
 
             let (high_prio_conf_time, finished) = {
                 let mut logic = logic.lock().unwrap();
+                #[cfg(feature = "rai_protocol")]
+                if logic.delayed.primary_hash(&block_hash).is_some()
+                    && let Some(election_info) = &data.election_info
+                {
+                    let final_tally = rsnano_types::Amount::decode_dec(&election_info.final_tally)
+                        .expect("invalid final tally in confirmation message");
+                    logic.record_finalization_type(final_tally);
+                }
                 let conf_time = logic.confirmed(&block_hash, timestamp);
                 (conf_time, logic.is_finished())
             };
