@@ -74,6 +74,10 @@ impl<'a> RollbackInstructionsExecutor<'a> {
     }
 
     fn roll_back_representative_cache(&mut self) {
+        if self.ledger.fixed_rep_weights {
+            return;
+        }
+
         if let Some(previous_rep) = &self.instructions.new_representative {
             self.roll_back_change_in_representative_cache(previous_rep);
         } else {

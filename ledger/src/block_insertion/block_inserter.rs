@@ -111,6 +111,12 @@ impl<'a> BlockInserter<'a> {
     }
 
     fn update_rep_weights(&mut self) {
+        // A configured RAI committee is immutable for the duration of the run.
+        // Account blocks still update ledger balances and representative fields.
+        if self.ledger.fixed_rep_weights {
+            return;
+        }
+
         if !self.instructions.old_account_info.head.is_zero() {
             // Move existing rep weight and add in amount delta
             self.ledger.rep_weights_updater.sub_and_add(

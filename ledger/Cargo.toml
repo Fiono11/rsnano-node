@@ -6,6 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+rai_protocol = []
 ledger_snapshots = ["rsnano_store_lmdb/ledger_snapshots"]
 banano = [
 	"rsnano_types/banano", 

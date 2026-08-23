@@ -105,6 +105,9 @@ pub struct Ledger {
     store_version: u32,
     pub(crate) publish: RwLock<Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>>,
     can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
+    /// True when voting power comes from an immutable externally configured
+    /// committee rather than from account representative fields.
+    pub(crate) fixed_rep_weights: bool,
 }
 
 pub struct NullLedgerBuilder {
@@ -298,6 +301,7 @@ impl Ledger {
             store_version: 0,
             publish: RwLock::new(None),
             can_roll_back: RwLock::new(Box::new(|_| true)),
+            fixed_rep_weights: false,
         };
 
         ledger.initialize(thread_count, consistency_check)?;
@@ -320,15 +324,44 @@ impl Ledger {
 
         info!("Generating representative weights cache...");
         let mut total_committed_rep_weight = Amount::ZERO;
+        #[cfg(feature = "rai_protocol")]
+        let fixed_committee = fixed_rai_committee()?;
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.fixed_rep_weights = fixed_committee.is_some();
+        }
         {
             let txn = self.store.begin_read();
             let rep_weights = self.rep_weights.inner();
             let mut write_guard = rep_weights.write().unwrap();
             for (rep, weight) in self.store.rep_weight.iter(&txn) {
+                #[cfg(not(feature = "rai_protocol"))]
                 write_guard.put(rep, weight);
+                #[cfg(feature = "rai_protocol")]
+                if fixed_committee.is_none() {
+                    write_guard.put(rep, weight);
+                }
                 total_committed_rep_weight = total_committed_rep_weight
                     .checked_add(weight)
                     .expect("total rep weight should never overflow");
+            }
+
+            #[cfg(feature = "rai_protocol")]
+            if let Some(committee) = &fixed_committee {
+                let base_weight = Amount::MAX / committee.len() as u128;
+                let remainder = Amount::MAX - base_weight * committee.len() as u128;
+                for (index, representative) in committee.iter().enumerate() {
+                    let weight = if index == 0 {
+                        base_weight + remainder
+                    } else {
+                        base_weight
+                    };
+                    write_guard.put(*representative, weight);
+                }
+                info!(
+                    representatives = committee.len(),
+                    "Loaded fixed RAI voting committee"
+                );
             }
         }
         info!("Representative weights cache generated");
@@ -1034,6 +1067,32 @@ impl Ledger {
             (callback)(ev);
         }
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn fixed_rai_committee() -> anyhow::Result<Option<Vec<PublicKey>>> {
+    let Ok(value) = std::env::var("NANO_RAI_FIXED_COMMITTEE") else {
+        return Ok(None);
+    };
+    let committee: Vec<_> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            PublicKey::decode_hex(value)
+                .ok_or_else(|| anyhow::anyhow!("invalid public key in NANO_RAI_FIXED_COMMITTEE"))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    if committee.is_empty() {
+        anyhow::bail!("NANO_RAI_FIXED_COMMITTEE must contain at least one public key");
+    }
+    let mut unique = committee.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() != committee.len() {
+        anyhow::bail!("NANO_RAI_FIXED_COMMITTEE contains duplicate public keys");
+    }
+    Ok(Some(committee))
 }
 
 impl Drop for Ledger {
