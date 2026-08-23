@@ -24,6 +24,10 @@ pub enum Message {
     SnapshotProposal(Proposal),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotProposalVote(ProposalVote),
+    #[cfg(feature = "rai_protocol")]
+    CloseReport(CloseReport),
+    #[cfg(feature = "rai_protocol")]
+    CloseVote(CloseVote),
 }
 
 pub trait MessageVariant {
@@ -101,6 +105,10 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ProposalVote) => {
                 Self::InvalidMessageType
             }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CloseReport) => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CloseVote) => Self::InvalidMessageType,
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
@@ -148,6 +156,10 @@ impl Message {
             Message::SnapshotProposal(_) => MessageType::Proposal,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(_) => MessageType::ProposalVote,
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseReport(_) => MessageType::CloseReport,
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseVote(_) => MessageType::CloseVote,
         }
     }
 
@@ -170,6 +182,10 @@ impl Message {
             Message::SnapshotProposal(x) => Some(x),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseReport(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseVote(x) => Some(x),
             _ => None,
         }
     }
@@ -204,6 +220,10 @@ impl Message {
             Message::SnapshotProposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseReport(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseVote(m) => m.serialize(writer),
         }
     }
 
@@ -252,6 +272,10 @@ impl Message {
             MessageType::ProposalVote => {
                 Message::SnapshotProposalVote(ProposalVote::deserialize(payload)?)
             }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseReport => Message::CloseReport(CloseReport::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseVote => Message::CloseVote(CloseVote::deserialize(payload)?),
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);
             }

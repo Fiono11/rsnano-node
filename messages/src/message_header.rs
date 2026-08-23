@@ -37,6 +37,10 @@ pub enum MessageType {
     Proposal = 0x11,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote = 0x12,
+    #[cfg(feature = "rai_protocol")]
+    CloseReport = 0x13,
+    #[cfg(feature = "rai_protocol")]
+    CloseVote = 0x14,
 }
 
 impl MessageType {
@@ -63,15 +67,23 @@ impl MessageType {
             MessageType::Proposal => "proposal",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => "proposal_vote",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseReport => "close_report",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseVote => "close_vote",
         }
     }
 
     pub const fn max_id() -> usize {
-        #[cfg(feature = "ledger_snapshots")]
+        #[cfg(feature = "rai_protocol")]
+        {
+            Self::CloseVote as usize
+        }
+        #[cfg(all(feature = "ledger_snapshots", not(feature = "rai_protocol")))]
         {
             Self::ProposalVote as usize
         }
-        #[cfg(not(feature = "ledger_snapshots"))]
+        #[cfg(all(not(feature = "ledger_snapshots"), not(feature = "rai_protocol")))]
         {
             Self::AscPullAck as usize
         }
@@ -197,6 +209,10 @@ impl MessageHeader {
             MessageType::Proposal => Proposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseReport => CloseReport::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseVote => CloseVote::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -262,6 +278,10 @@ impl From<MessageType> for DetailType {
             MessageType::Proposal => DetailType::Proposal,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => DetailType::ProposalVote,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseReport => DetailType::CloseReport,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseVote => DetailType::CloseVote,
         }
     }
 }

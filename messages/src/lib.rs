@@ -73,6 +73,15 @@ mod proposal_vote;
 #[cfg(feature = "ledger_snapshots")]
 pub use proposal_vote::*;
 
+#[cfg(feature = "rai_protocol")]
+mod close_report;
+#[cfg(feature = "rai_protocol")]
+pub use close_report::*;
+#[cfg(feature = "rai_protocol")]
+mod close_vote;
+#[cfg(feature = "rai_protocol")]
+pub use close_vote::*;
+
 pub trait MessageVisitor {
     fn received(&mut self, message: &Message);
 }
