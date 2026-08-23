@@ -46,6 +46,8 @@ use rsnano_utils::{
 };
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::CloseTransitionPlugin;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
@@ -828,7 +830,30 @@ impl Node {
         // Start bootstrap from genesis account
         bootstrapper.enqueue(network_params.ledger.genesis_account);
 
+        #[cfg(feature = "rai_protocol")]
+        let (close_report_tx, close_report_rx) = mpsc::channel();
+        #[cfg(feature = "rai_protocol")]
+        let (close_vote_tx, close_vote_rx) = mpsc::channel();
+
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
+
+        #[cfg(feature = "rai_protocol")]
+        if let Ok(seconds) = std::env::var("NANO_RAI_EPOCH_DURATION_SECONDS")
+            && let Ok(seconds) = seconds.parse::<u64>()
+            && seconds > 0
+        {
+            aec_ticker.add_plugin(CloseTransitionPlugin::new(
+                Duration::from_secs(seconds),
+                steady_clock.clone(),
+                wallet_reps.clone(),
+                rep_weights.clone(),
+                rep_tracker.clone(),
+                close_report_rx,
+                close_vote_rx,
+                message_flooder.clone(),
+            ));
+            info!(seconds, "enabled in-memory RAI close transition skeleton");
+        }
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
             message_flooder: message_flooder.clone(),
@@ -948,6 +973,12 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
+            #[cfg(feature = "rai_protocol")]
+            close_report_tx,
+            #[cfg(feature = "rai_protocol")]
+            close_vote_tx,
+            #[cfg(feature = "rai_protocol")]
+            message_flooder.clone(),
         ));
 
         let network_threads = Arc::new(Mutex::new(NetworkThreads::new(

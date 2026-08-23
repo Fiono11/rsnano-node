@@ -80,6 +80,21 @@ impl AecService {
         self.aec.read().unwrap().is_active_hash(block_hash)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slots(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.aec.read().unwrap().epoch_slots(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn finalized_epoch_slots(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.aec.read().unwrap().finalized_epoch_slots(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn advance_epoch(&self) -> u64 {
+        self.aec.read().unwrap().advance_epoch()
+    }
+
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
         self.aec.read().unwrap().was_recently_confirmed(block_hash)
     }
@@ -151,6 +166,11 @@ impl AecService {
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
         self.aec.write().unwrap().erase(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn exclude_by_cut(&self, root: &QualifiedRoot) -> bool {
+        self.aec.write().unwrap().exclude_by_cut(root)
     }
 
     pub fn confirm_dependent_elections(

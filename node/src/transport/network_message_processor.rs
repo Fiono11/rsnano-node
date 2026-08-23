@@ -1,13 +1,18 @@
+#[cfg(feature = "rai_protocol")]
+use std::sync::mpsc::Sender;
 use std::{
+    collections::HashSet,
     net::SocketAddrV6,
     sync::{Arc, Mutex, RwLock},
 };
 
 use tracing::trace;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_messages::{CloseReport, CloseVote};
 use rsnano_messages::{Message, NetworkFilter};
-use rsnano_network::{Channel, Network};
-use rsnano_types::VoteDelivery;
+use rsnano_network::{Channel, Network, TrafficType};
+use rsnano_types::{Blake2Hash, VoteDelivery};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
@@ -37,6 +42,14 @@ pub struct NetworkMessageProcessor {
     work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
+    #[cfg(feature = "rai_protocol")]
+    close_report_tx: Sender<CloseReport>,
+    #[cfg(feature = "rai_protocol")]
+    close_vote_tx: Sender<CloseVote>,
+    #[cfg(feature = "rai_protocol")]
+    close_report_seen: Mutex<HashSet<Blake2Hash>>,
+    #[cfg(feature = "rai_protocol")]
+    message_flooder: Mutex<crate::transport::MessageFlooder>,
 }
 
 impl NetworkMessageProcessor {
@@ -53,6 +66,9 @@ impl NetworkMessageProcessor {
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
+        #[cfg(feature = "rai_protocol")] close_report_tx: Sender<CloseReport>,
+        #[cfg(feature = "rai_protocol")] close_vote_tx: Sender<CloseVote>,
+        #[cfg(feature = "rai_protocol")] message_flooder: crate::transport::MessageFlooder,
     ) -> Self {
         Self {
             stats,
@@ -68,6 +84,14 @@ impl NetworkMessageProcessor {
             work_thresholds,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
+            #[cfg(feature = "rai_protocol")]
+            close_report_tx,
+            #[cfg(feature = "rai_protocol")]
+            close_vote_tx,
+            #[cfg(feature = "rai_protocol")]
+            close_report_seen: Mutex::new(HashSet::new()),
+            #[cfg(feature = "rai_protocol")]
+            message_flooder: Mutex::new(message_flooder),
         }
     }
 
@@ -216,6 +240,35 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(proposal_vote) => {
                 self.ledger_snapshots.handle_vote(proposal_vote);
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseReport(report) => {
+                if report.validate() && self.close_report_seen.lock().unwrap().insert(report.hash())
+                {
+                    let _ = self.close_report_tx.send(report.clone());
+                    self.message_flooder
+                        .lock()
+                        .unwrap()
+                        .flood_prs_and_some_non_prs(
+                            &Message::CloseReport(report),
+                            TrafficType::Generic,
+                            1.0,
+                        );
+                }
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseVote(vote) => {
+                if vote.validate() && self.close_report_seen.lock().unwrap().insert(vote.hash()) {
+                    let _ = self.close_vote_tx.send(vote.clone());
+                    self.message_flooder
+                        .lock()
+                        .unwrap()
+                        .flood_prs_and_some_non_prs(
+                            &Message::CloseVote(vote),
+                            TrafficType::Generic,
+                            1.0,
+                        );
+                }
             }
         }
     }

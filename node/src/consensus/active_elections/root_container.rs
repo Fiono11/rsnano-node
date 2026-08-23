@@ -273,6 +273,15 @@ impl RootContainer {
         self.by_root.values_mut()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slots(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.by_root
+            .values()
+            .filter(|entry| entry.root.epoch == epoch)
+            .map(|entry| (entry.root.clone(), entry.election.winner().hash()))
+            .collect()
+    }
+
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
         self.buckets[bucket_id].len()
     }

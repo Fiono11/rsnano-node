@@ -49,6 +49,8 @@ pub(crate) struct ActiveElectionsContainer {
     stats: AecStats,
     #[cfg(feature = "rai_protocol")]
     rai_epoch: RaiEpoch,
+    #[cfg(feature = "rai_protocol")]
+    rai_finalized: HashMap<QualifiedRoot, BlockHash>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -87,6 +89,8 @@ impl ActiveElectionsContainer {
             stats: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_epoch: RaiEpoch::new(),
+            #[cfg(feature = "rai_protocol")]
+            rai_finalized: HashMap::new(),
         }
     }
 
@@ -274,6 +278,30 @@ impl ActiveElectionsContainer {
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
         self.roots.vote_router.is_active(block_hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slots(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.roots.epoch_slots(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn finalized_epoch_slots(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.rai_finalized
+            .iter()
+            .filter(|(root, _)| root.epoch == epoch)
+            .map(|(root, hash)| (root.clone(), *hash))
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn advance_epoch(&self) -> u64 {
+        self.rai_epoch.advance()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn exclude_by_cut(&mut self, root: &QualifiedRoot) -> bool {
+        self.erase(root)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -511,6 +539,9 @@ impl ActiveElectionsContainer {
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
+            #[cfg(feature = "rai_protocol")]
+            self.rai_finalized
+                .insert(entry.root.clone(), entry.election.winner().hash());
             self.cleanup_election(entry);
         }
         result.per_block

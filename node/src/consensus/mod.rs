@@ -5,6 +5,8 @@ mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
 mod bounded_hash_map;
+#[cfg(feature = "rai_protocol")]
+mod close;
 mod confirm_req_sender;
 mod confirmation_solicitor;
 mod confirmation_solicitor_plugin;
@@ -32,6 +34,8 @@ pub(crate) use aec_ticker::*;
 pub(crate) use bootstrap_election_activator::*;
 pub(crate) use bootstrap_stale_elections::*;
 pub(crate) use bootstrap_weights::*;
+#[cfg(feature = "rai_protocol")]
+pub use close::*;
 pub(crate) use confirm_req_sender::*;
 pub use confirmation_solicitor::ConfirmationSolicitor;
 pub(crate) use confirmation_solicitor_plugin::*;
