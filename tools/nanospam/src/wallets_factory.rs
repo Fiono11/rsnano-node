@@ -159,13 +159,7 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap();
     info!("Receiving initial spam amount...");
-    #[cfg(not(feature = "rai_protocol"))]
     let initial_representative = initial_key.public_key();
-    // The spam account is not a voting wallet. Delegating its balance to itself
-    // removes that weight from the live RAI committee and makes the protocol's
-    // W-F-P certificate threshold unreachable after setup.
-    #[cfg(feature = "rai_protocol")]
-    let initial_representative = pr_key(0).public_key();
     let genesis_receive: Block = StateBlockArgs {
         key: &initial_key,
         previous: BlockHash::ZERO,

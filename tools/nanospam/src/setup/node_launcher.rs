@@ -10,7 +10,7 @@ use rsnano_rpc_client::NanoRpcClient;
 
 use crate::{
     cli_args::CliArgs,
-    setup::{GENESIS_BLOCK, GENESIS_PRV, peering_port},
+    setup::{GENESIS_BLOCK, GENESIS_PRV, peering_port, pr_key},
 };
 
 pub(crate) async fn start_nodes(
@@ -19,6 +19,10 @@ pub(crate) async fn start_nodes(
     rpc_clients: &[NanoRpcClient],
 ) -> Vec<std::process::Child> {
     let mut children = Vec::new();
+    let fixed_committee = (0..args.prs)
+        .map(|i| pr_key(i).public_key().encode_hex())
+        .collect::<Vec<_>>()
+        .join(",");
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         let mut node_dir = data_dir.clone();
         node_dir.push(format!("pr{i}"));
@@ -27,6 +31,7 @@ pub(crate) async fn start_nodes(
             let mut cmd = Command::new("nano_node");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+                .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
                 .env("NANO_TEST_EPOCH_1", "0")
                 .env("NANO_TEST_EPOCH_2", "0")
                 .env("NANO_TEST_EPOCH_2_RECV", "0")
@@ -42,6 +47,7 @@ pub(crate) async fn start_nodes(
             let mut cmd = Command::new("rsnano");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+                .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")

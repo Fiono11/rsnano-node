@@ -3,17 +3,9 @@ use rand::RngExt;
 use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 
 use crate::domain::AccountMap;
-#[cfg(feature = "rai_protocol")]
-use crate::setup::pr_key;
 
-#[cfg(not(feature = "rai_protocol"))]
 fn spam_representative(key: &rsnano_types::PrivateKey) -> PublicKey {
     key.public_key()
-}
-
-#[cfg(feature = "rai_protocol")]
-fn spam_representative(_key: &rsnano_types::PrivateKey) -> PublicKey {
-    pr_key(0).public_key()
 }
 
 pub(crate) struct BlockFactory {
@@ -238,6 +230,10 @@ mod tests {
         let destination = block.destination_or_link();
 
         assert_eq!(account, initial_test_key().account());
+        assert_eq!(
+            block.representative_field().unwrap(),
+            initial_test_key().public_key()
+        );
         assert!(block_factory.account_map.contains(&destination));
         assert!(
             block_factory
@@ -259,6 +255,15 @@ mod tests {
         let receive = block_factory.create_next(false).unwrap().unwrap();
         assert_eq!(receive.account_field().unwrap(), account);
         assert_eq!(receive.link_field().unwrap(), send.hash().into());
+        assert_eq!(
+            receive.representative_field().unwrap(),
+            block_factory
+                .account_map
+                .state(&account)
+                .unwrap()
+                .key
+                .public_key()
+        );
     }
 
     #[test]
