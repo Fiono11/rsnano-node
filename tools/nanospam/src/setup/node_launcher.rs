@@ -55,6 +55,15 @@ pub(crate) async fn start_nodes(
                 .arg("node")
                 .arg("run")
                 .stdout(Stdio::null());
+            #[cfg(feature = "rai_protocol")]
+            if args.epoch_duration > 0 {
+                cmd.env(
+                    "NANO_RAI_EPOCH_DURATION_SECONDS",
+                    args.epoch_duration.to_string(),
+                )
+                .env("NANO_RAI_EPOCH_START_DELAY_SECONDS", "30")
+                .stdout(Stdio::inherit());
+            }
             cmd
         };
 

@@ -86,6 +86,11 @@ pub(crate) struct CliArgs {
     /// Seconds to collect termination and finalization certificates after publishing
     #[arg(long, default_value_t = 0)]
     pub timeout: u64,
+
+    /// Close a RAI epoch after this many seconds (0 disables the close skeleton)
+    #[cfg(feature = "rai_protocol")]
+    #[arg(long, default_value_t = 0)]
+    pub epoch_duration: u64,
 }
 
 impl CliArgs {
@@ -130,5 +135,16 @@ impl CliArgs {
     fn rate_spec(&self) -> Result<RateSpec, anyhow::Error> {
         let rate: RateSpec = self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?;
         Ok(rate)
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_epoch_duration_for_close_skeleton() {
+        let args = CliArgs::try_parse_from(["nanospam", "--epoch-duration", "7"]).unwrap();
+        assert_eq!(args.epoch_duration, 7);
     }
 }
