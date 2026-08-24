@@ -236,6 +236,7 @@ pub struct BlockConfirmed {
 
 #[derive(Serialize, Deserialize)]
 pub struct ElectionInfo {
+    #[serde(default)]
     pub epoch: String,
     pub duration: String,
     pub time: String,
@@ -255,4 +256,25 @@ pub struct JsonVoteSummary {
     pub timestamp: String,
     pub hash: String,
     pub weight: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ElectionInfo;
+
+    #[test]
+    fn deserialize_election_info_without_epoch() {
+        let info: ElectionInfo = serde_json::from_value(serde_json::json!({
+            "duration": "1",
+            "time": "2",
+            "tally": "3",
+            "final": "4",
+            "blocks": "5",
+            "voters": "6",
+            "request_count": "7"
+        }))
+        .unwrap();
+
+        assert!(info.epoch.is_empty());
+    }
 }
