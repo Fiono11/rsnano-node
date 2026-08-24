@@ -81,6 +81,10 @@ pub use close_report::*;
 mod close_vote;
 #[cfg(feature = "rai_protocol")]
 pub use close_vote::*;
+#[cfg(feature = "rai_protocol")]
+mod close_payload;
+#[cfg(feature = "rai_protocol")]
+pub use close_payload::*;
 
 pub trait MessageVisitor {
     fn received(&mut self, message: &Message);

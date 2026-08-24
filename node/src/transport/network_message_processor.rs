@@ -9,9 +9,9 @@ use std::{
 use tracing::trace;
 
 #[cfg(feature = "rai_protocol")]
-use rsnano_messages::{CloseReport, CloseVote};
+use rsnano_messages::{ClosePayload, CloseReport, CloseVote};
 use rsnano_messages::{Message, NetworkFilter};
-use rsnano_network::{Channel, Network, TrafficType};
+use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_types::{Blake2Hash, VoteDelivery};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
@@ -47,6 +47,8 @@ pub struct NetworkMessageProcessor {
     #[cfg(feature = "rai_protocol")]
     close_vote_tx: Sender<CloseVote>,
     #[cfg(feature = "rai_protocol")]
+    close_payload_tx: Sender<(ClosePayload, ChannelId)>,
+    #[cfg(feature = "rai_protocol")]
     close_report_seen: Mutex<HashSet<Blake2Hash>>,
     #[cfg(feature = "rai_protocol")]
     message_flooder: Mutex<crate::transport::MessageFlooder>,
@@ -68,6 +70,7 @@ impl NetworkMessageProcessor {
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
         #[cfg(feature = "rai_protocol")] close_report_tx: Sender<CloseReport>,
         #[cfg(feature = "rai_protocol")] close_vote_tx: Sender<CloseVote>,
+        #[cfg(feature = "rai_protocol")] close_payload_tx: Sender<(ClosePayload, ChannelId)>,
         #[cfg(feature = "rai_protocol")] message_flooder: crate::transport::MessageFlooder,
     ) -> Self {
         Self {
@@ -88,6 +91,8 @@ impl NetworkMessageProcessor {
             close_report_tx,
             #[cfg(feature = "rai_protocol")]
             close_vote_tx,
+            #[cfg(feature = "rai_protocol")]
+            close_payload_tx,
             #[cfg(feature = "rai_protocol")]
             close_report_seen: Mutex::new(HashSet::new()),
             #[cfg(feature = "rai_protocol")]
@@ -269,6 +274,10 @@ impl NetworkMessageProcessor {
                             1.0,
                         );
                 }
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::ClosePayload(payload) => {
+                let _ = self.close_payload_tx.send((payload, channel.channel_id()));
             }
         }
     }

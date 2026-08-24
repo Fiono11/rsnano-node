@@ -115,6 +115,10 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     let dep_conf_start = Instant::now();
                     self.dependent_elections_confirmer
                         .confirm_dependent_elections(&confirmed);
+                    #[cfg(feature = "rai_protocol")]
+                    for (block, _) in &confirmed {
+                        self.active_elections.apply_cemented_outcome(block);
+                    }
                     self.stats.dur_dependent_elections.fetch_add(
                         dep_conf_start.elapsed().as_millis() as u64,
                         Ordering::Relaxed,
@@ -132,7 +136,10 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                             for block in &result.rolled_back {
                                 // Stop all rolled back elections except initial
                                 if block.qualified_root() != result.target_root {
+                                    #[cfg(not(feature = "rai_protocol"))]
                                     self.active_elections.erase(&block.qualified_root());
+                                    #[cfg(feature = "rai_protocol")]
+                                    self.active_elections.apply_rolled_back_block(&block.hash());
                                 }
                             }
                         }

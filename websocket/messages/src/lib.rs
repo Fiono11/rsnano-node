@@ -236,6 +236,7 @@ pub struct BlockConfirmed {
 
 #[derive(Serialize, Deserialize)]
 pub struct ElectionInfo {
+    pub epoch: String,
     pub duration: String,
     pub time: String,
     pub tally: String,

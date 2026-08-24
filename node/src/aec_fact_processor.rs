@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex, mpsc::SyncSender};
 use tracing::debug;
 
 use rsnano_ledger::BlockSource;
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::Ledger;
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
@@ -38,6 +40,8 @@ pub(crate) struct AecFactProcessor {
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
     pub(crate) active_elections: Arc<AecService>,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) ledger: Arc<Ledger>,
     pub(crate) clock: Arc<SteadyClock>,
     pub(crate) local_votes_remover: LocalVotesRemover,
     pub(crate) stats: Arc<Stats>,
@@ -83,7 +87,11 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             #[cfg(feature = "rai_protocol")]
-            AecFact::ElectionTerminated(hashes, timeout) => {
+            AecFact::ElectionTerminated(root, hashes, timeout) => {
+                if timeout {
+                    self.ledger.roll_back_batch(&hashes, usize::MAX);
+                    self.active_elections.apply_rolled_back_outcome(&root);
+                }
                 if let Some(tx) = &self.node_observer {
                     for hash in hashes {
                         tx.send(NodeEvent::ElectionTerminated(hash, timeout))
@@ -136,6 +144,9 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::VoteProcessed(vote, _weight, results) => {
                 self.vote_rebroadcast_queue
                     .try_enqueue(&vote.vote, &results);
+
+                #[cfg(feature = "rai_protocol")]
+                self.election_schedulers.notify();
 
                 let result = aggregate_vote_results(&results);
 

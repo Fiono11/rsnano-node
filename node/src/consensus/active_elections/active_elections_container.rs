@@ -295,13 +295,28 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn begin_epoch_one(&mut self) {
+        debug_assert_eq!(self.rai_epoch.current(), 1);
+        self.rai_finalized.clear();
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn advance_epoch(&self) -> u64 {
         self.rai_epoch.advance()
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn exclude_by_cut(&mut self, root: &QualifiedRoot) -> bool {
-        self.erase(root)
+        if let Some(entry) = self.roots.get(root) {
+            self.notify(AecFact::ElectionTerminated(
+                root.clone(),
+                entry.election.candidate_blocks().keys().copied().collect(),
+                true,
+            ));
+            true
+        } else {
+            false
+        }
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -386,8 +401,18 @@ impl ActiveElectionsContainer {
                 }
 
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
-                    self.erase_lowest_prio_election(candidate.bucket_id);
-                    self.stats.replaced += 1;
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        // RAI elections may only leave the AEC with terminal certificate
+                        // evidence (or an explicit certified-cut exclusion). Apply
+                        // backpressure instead of replacing a live election.
+                        return;
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        self.erase_lowest_prio_election(candidate.bucket_id);
+                        self.stats.replaced += 1;
+                    }
                 }
 
                 // TODO: Don't hard code priority election!
@@ -424,19 +449,69 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase_ended_elections(&mut self) {
+        #[cfg(feature = "rai_protocol")]
+        return;
+
+        #[cfg(not(feature = "rai_protocol"))]
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
 
+        #[cfg(not(feature = "rai_protocol"))]
         for entry in removed {
             self.cleanup_election(entry);
         }
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        {
+            // RAI elections may only be removed by one of the certified terminal
+            // paths below. Generic cleanup must not discard unresolved evidence.
+            let _ = root;
+            return false;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        self.erase_certified(root)
+    }
+
+    fn erase_certified(&mut self, root: &QualifiedRoot) -> bool {
         let Some(entry) = self.roots.erase(root) else {
             return false;
         };
         self.cleanup_election(entry);
         true
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_cemented_outcome(&mut self, block: &SavedBlock) -> bool {
+        let Some(root) = self
+            .roots
+            .vote_router
+            .qualified_root(&block.hash())
+            .cloned()
+        else {
+            return false;
+        };
+        let Some(entry) = self.roots.get(&root) else {
+            return false;
+        };
+        if !entry.election.is_confirmed() || entry.election.winner().hash() != block.hash() {
+            return false;
+        }
+        self.rai_finalized.insert(root.clone(), block.hash());
+        self.erase_certified(&root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rolled_back_outcome(&mut self, root: &QualifiedRoot) -> bool {
+        self.erase_certified(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rolled_back_block(&mut self, hash: &BlockHash) -> bool {
+        let Some(root) = self.roots.vote_router.qualified_root(hash).cloned() else {
+            return false;
+        };
+        self.erase_certified(&root)
     }
 
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
@@ -702,7 +777,7 @@ mod tests {
         let block_hash = block.hash();
 
         let request = AecInsertRequest {
-            block,
+            block: block.clone(),
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
         };
@@ -725,7 +800,31 @@ mod tests {
 
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
 
+        #[cfg(not(feature = "rai_protocol"))]
         assert!(container.election_for_block(&block_hash).is_none());
+        #[cfg(feature = "rai_protocol")]
+        {
+            assert!(container.election_for_block(&block_hash).is_some());
+            assert!(container.apply_cemented_outcome(&block));
+            assert!(container.election_for_block(&block_hash).is_none());
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn generic_erase_cannot_remove_an_unresolved_election() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root().with_epoch(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert!(!container.erase(&root));
+        assert!(container.is_active_root(&root));
     }
 
     #[test]

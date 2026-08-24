@@ -41,6 +41,8 @@ pub enum MessageType {
     CloseReport = 0x13,
     #[cfg(feature = "rai_protocol")]
     CloseVote = 0x14,
+    #[cfg(feature = "rai_protocol")]
+    ClosePayload = 0x15,
 }
 
 impl MessageType {
@@ -71,13 +73,15 @@ impl MessageType {
             MessageType::CloseReport => "close_report",
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseVote => "close_vote",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ClosePayload => "close_payload",
         }
     }
 
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::CloseVote as usize
+            Self::ClosePayload as usize
         }
         #[cfg(all(feature = "ledger_snapshots", not(feature = "rai_protocol")))]
         {
@@ -213,6 +217,8 @@ impl MessageHeader {
             MessageType::CloseReport => CloseReport::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseVote => CloseVote::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ClosePayload => ClosePayload::serialized_size(self.extensions),
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -282,6 +288,8 @@ impl From<MessageType> for DetailType {
             MessageType::CloseReport => DetailType::CloseReport,
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseVote => DetailType::CloseVote,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ClosePayload => DetailType::CloseVote,
         }
     }
 }

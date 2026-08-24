@@ -48,6 +48,7 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
+                #[cfg(not(feature = "rai_protocol"))]
                 if election.is_confirmed() {
                     let root = election.qualified_root().clone();
                     if let Some(entry) = self.roots.erase(&root) {
@@ -178,6 +179,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 vec![self.election.winner().hash()]
             };
             self.notify(AecFact::ElectionTerminated(
+                self.election.qualified_root().clone(),
                 hashes,
                 self.election.terminated_by_timeout(),
             ));

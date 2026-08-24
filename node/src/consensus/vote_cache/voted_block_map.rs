@@ -92,6 +92,7 @@ impl VotedBlockMap {
             self.insert_block(block);
 
             // Remove the oldest entry if we have reached the capacity limit
+            #[cfg(not(feature = "rai_protocol"))]
             if self.len() > self.config.max_size {
                 self.pop_front();
             }
@@ -138,7 +139,7 @@ impl VotedBlockMap {
 
     pub fn collect_votes<'a>(&self, result: &mut Vec<Arc<Vote>>, hash: &BlockHash) {
         if let Some(block) = self.by_hash.get(hash) {
-            result.extend(block.iter_votes().cloned());
+            result.extend(block.iter_replay_votes().cloned());
         }
     }
 
@@ -193,6 +194,7 @@ impl VotedBlockMap {
         now: Timestamp,
     ) {
         let min_tally = min_tally.into();
+        #[cfg(not(feature = "rai_protocol"))]
         if let Some(last) = self.last_cleanup {
             if last.elapsed(now) >= self.config.age_cutoff / 2 {
                 self.cleanup(now);
@@ -201,6 +203,8 @@ impl VotedBlockMap {
         } else {
             self.last_cleanup = Some(now);
         }
+        #[cfg(feature = "rai_protocol")]
+        let _ = now;
 
         for entry in self.iter_by_tally_desc() {
             let tally = entry.non_final_tally();
@@ -405,8 +409,13 @@ mod tests {
 
         let mut votes = Vec::new();
         cache.collect_votes(&mut votes, &hash);
-        assert_eq!(votes.len(), 1);
-        assert!(votes[0].is_final());
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            assert_eq!(votes.len(), 1);
+            assert!(votes[0].is_final());
+        }
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(votes.len(), 2);
     }
 
     /*
@@ -505,13 +514,19 @@ mod tests {
         let vote4 = create_vote(&rep4, &hash4, 1);
         cache.process(vote4, Amount::raw(4), &HashMap::new(), now);
 
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(cache.len(), 3);
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(cache.len(), 4);
 
         // Check that oldest votes are dropped first
         assert_eq!(cache.vote_count(&hash4), 1);
         assert_eq!(cache.vote_count(&hash3), 1);
         assert_eq!(cache.vote_count(&hash2), 1);
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(cache.vote_count(&hash1), 0);
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(cache.vote_count(&hash1), 1);
     }
 
     /*
@@ -701,7 +716,10 @@ mod tests {
         assert_eq!(top.len(), 1);
         top.clear();
         cache.top(&mut top, 0, start + Duration::from_secs(300));
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(top.len(), 0);
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(top.len(), 1);
     }
 
     /*

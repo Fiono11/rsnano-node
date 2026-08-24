@@ -28,6 +28,8 @@ pub enum Message {
     CloseReport(CloseReport),
     #[cfg(feature = "rai_protocol")]
     CloseVote(CloseVote),
+    #[cfg(feature = "rai_protocol")]
+    ClosePayload(ClosePayload),
 }
 
 pub trait MessageVariant {
@@ -109,6 +111,10 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::CloseReport) => Self::InvalidMessageType,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::CloseVote) => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ClosePayload) => {
+                Self::InvalidMessageType
+            }
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
@@ -160,6 +166,8 @@ impl Message {
             Message::CloseReport(_) => MessageType::CloseReport,
             #[cfg(feature = "rai_protocol")]
             Message::CloseVote(_) => MessageType::CloseVote,
+            #[cfg(feature = "rai_protocol")]
+            Message::ClosePayload(_) => MessageType::ClosePayload,
         }
     }
 
@@ -186,6 +194,8 @@ impl Message {
             Message::CloseReport(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::CloseVote(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ClosePayload(x) => Some(x),
             _ => None,
         }
     }
@@ -224,6 +234,8 @@ impl Message {
             Message::CloseReport(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::CloseVote(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ClosePayload(m) => m.serialize(writer),
         }
     }
 
@@ -276,6 +288,8 @@ impl Message {
             MessageType::CloseReport => Message::CloseReport(CloseReport::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseVote => Message::CloseVote(CloseVote::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ClosePayload => Message::ClosePayload(ClosePayload::deserialize(payload)?),
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);
             }

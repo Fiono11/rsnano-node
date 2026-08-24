@@ -91,6 +91,11 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn begin_epoch_one(&self) {
+        self.aec.write().unwrap().begin_epoch_one();
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn advance_epoch(&self) -> u64 {
         self.aec.read().unwrap().advance_epoch()
     }
@@ -171,6 +176,21 @@ impl AecService {
     #[cfg(feature = "rai_protocol")]
     pub fn exclude_by_cut(&self, root: &QualifiedRoot) -> bool {
         self.aec.write().unwrap().exclude_by_cut(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_cemented_outcome(&self, block: &SavedBlock) -> bool {
+        self.aec.write().unwrap().apply_cemented_outcome(block)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rolled_back_outcome(&self, root: &QualifiedRoot) -> bool {
+        self.aec.write().unwrap().apply_rolled_back_outcome(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_rolled_back_block(&self, hash: &BlockHash) -> bool {
+        self.aec.write().unwrap().apply_rolled_back_block(hash)
     }
 
     pub fn confirm_dependent_elections(

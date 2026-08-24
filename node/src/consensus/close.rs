@@ -1,13 +1,14 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::{Arc, Mutex, mpsc::Receiver},
     time::Duration,
 };
 
-use rsnano_ledger::RepWeightCache;
-use rsnano_messages::{CloseReport, CloseVote, Message};
-use rsnano_network::TrafficType;
+use rsnano_ledger::{Ledger, RepWeightCache};
+use rsnano_messages::{ClosePayload, ClosePayloadKind, CloseReport, CloseVote, Message};
+use rsnano_network::{ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
     Amount, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, QualifiedRoot,
@@ -79,8 +80,14 @@ pub struct CloseElection {
     pub epoch: u64,
     pub round: u32,
     pub value: BlockHash,
+    local_value: BlockHash,
+    value_updated: bool,
+    known_values: HashSet<BlockHash>,
     candidates: HashSet<BlockHash>,
     votes: HashMap<PublicKey, VoteSummary>,
+    second_look: HashSet<BlockHash>,
+    has_quorum: bool,
+    timeout_predicate: bool,
     finalized: bool,
     timed_out: bool,
 }
@@ -92,8 +99,14 @@ impl CloseElection {
             epoch,
             round,
             value,
+            local_value: value,
+            value_updated: false,
+            known_values: HashSet::from([value]),
             candidates: HashSet::from([value]),
             votes: HashMap::new(),
+            second_look: HashSet::new(),
+            has_quorum: false,
+            timeout_predicate: false,
             finalized: false,
             timed_out: false,
         }
@@ -108,10 +121,10 @@ impl CloseElection {
         quorum: &QuorumSnapshot,
         now: Timestamp,
     ) -> Result<(), VoteError> {
-        if !self.candidates.contains(&value) {
-            return Err(VoteError::Indeterminate);
-        }
-        let mut vote = VoteSummary::new(voter, value, UnixMillisTimestamp::new(0), now);
+        let vote = self
+            .votes
+            .entry(voter)
+            .or_insert_with(|| VoteSummary::new(voter, value, UnixMillisTimestamp::new(0), now));
         vote.apply_phase(
             vote_type,
             value,
@@ -119,12 +132,26 @@ impl CloseElection {
             now,
         )?;
         vote.weight = weight;
-        self.votes.insert(voter, vote);
+        self.value_updated |= self.known_values.insert(value);
         self.update_outcome(quorum);
         Ok(())
     }
 
     fn update_outcome(&mut self, quorum: &QuorumSnapshot) {
+        let mut first_tallies = HashMap::<BlockHash, Amount>::new();
+        let mut tallies = HashMap::<BlockHash, Amount>::new();
+        let mut final_tallies = HashMap::<BlockHash, Amount>::new();
+        for vote in self.votes.values() {
+            if let Some(hash) = vote.first {
+                *first_tallies.entry(hash).or_default() += vote.weight;
+            }
+            for hash in &vote.notarized {
+                *tallies.entry(*hash).or_default() += vote.weight;
+            }
+            if let Some(hash) = vote.final_vote {
+                *final_tallies.entry(hash).or_default() += vote.weight;
+            }
+        }
         let timeout: Amount = self
             .votes
             .values()
@@ -132,20 +159,30 @@ impl CloseElection {
             .map(|vote| vote.weight)
             .sum();
         let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let winner = tallies
+            .iter()
+            .max_by(|(a_hash, a_weight), (b_hash, b_weight)| {
+                a_weight.cmp(b_weight).then_with(|| b_hash.cmp(a_hash))
+            })
+            .map(|(hash, weight)| (*hash, *weight));
+        if let Some((winner, weight)) = winner {
+            self.value = winner;
+            self.has_quorum |= weight >= certificate;
+        }
+        self.second_look = first_tallies
+            .iter()
+            .filter_map(|(hash, weight)| {
+                (*weight > quorum.faulty_weight + quorum.slack_weight).then_some(*hash)
+            })
+            .collect();
+        let all_first: Amount = first_tallies.values().copied().sum();
+        let max_first = first_tallies.values().copied().max().unwrap_or_default();
+        self.timeout_predicate = all_first - max_first > quorum.faulty_weight + quorum.slack_weight;
         for candidate in self.candidates.iter().copied() {
-            let first: Amount = self
-                .votes
-                .values()
-                .filter(|vote| vote.first == Some(candidate))
-                .map(|vote| vote.weight)
-                .sum();
-            let final_weight: Amount = self
-                .votes
-                .values()
-                .filter(|vote| vote.final_vote == Some(candidate))
-                .map(|vote| vote.weight)
-                .sum();
-            if first >= quorum.total_weight - quorum.slack_weight || final_weight >= certificate {
+            if first_tallies.get(&candidate).copied().unwrap_or_default()
+                >= quorum.total_weight - quorum.slack_weight
+                || final_tallies.get(&candidate).copied().unwrap_or_default() >= certificate
+            {
                 self.value = candidate;
                 self.finalized = true;
                 break;
@@ -163,7 +200,25 @@ impl CloseElection {
     }
 
     fn add_candidate(&mut self, value: BlockHash) -> bool {
-        self.candidates.insert(value)
+        let changed = self.local_value != value;
+        self.local_value = value;
+        self.value_updated |= self.known_values.insert(value) || changed;
+        self.candidates.insert(value) || changed
+    }
+
+    fn vote_targets(&self) -> Vec<(BlockHash, VoteType)> {
+        let mut targets = Vec::new();
+        for hash in &self.second_look {
+            if self.candidates.contains(hash) {
+                targets.push((*hash, VoteType::NonFinal));
+            }
+        }
+        if self.timeout_predicate {
+            targets.push((self.value, VoteType::Timeout));
+        } else if self.has_quorum && self.candidates.contains(&self.value) {
+            targets.push((self.value, VoteType::Final));
+        }
+        targets
     }
 }
 
@@ -202,6 +257,7 @@ struct CloseVoteCacheKey {
     epoch: u64,
     round: u32,
     value: BlockHash,
+    vote_type: VoteType,
 }
 
 impl From<&CloseVote> for CloseVoteCacheKey {
@@ -211,6 +267,7 @@ impl From<&CloseVote> for CloseVoteCacheKey {
             epoch: vote.epoch,
             round: vote.round,
             value: vote.value,
+            vote_type: vote.vote_type,
         }
     }
 }
@@ -228,25 +285,40 @@ impl CloseVoteCache {
 
     fn insert(&mut self, vote: CloseVote) {
         let key = CloseVoteCacheKey::from(&vote);
+        #[cfg(not(feature = "rai_protocol"))]
         if !self.entries.contains_key(&key) && self.entries.len() >= Self::MAX_ELECTIONS {
             return;
         }
         let voters = self.entries.entry(key).or_default();
+        #[cfg(feature = "rai_protocol")]
+        {
+            voters.insert(vote.voter, vote);
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         if voters.len() < Self::MAX_VOTERS || voters.contains_key(&vote.voter) {
             voters.insert(vote.voter, vote);
         }
     }
 
     fn take(&mut self, election: &CloseElection) -> Vec<CloseVote> {
-        self.entries
-            .remove(&CloseVoteCacheKey {
-                kind: election.kind.wire(),
-                epoch: election.epoch,
-                round: election.round,
-                value: election.value,
+        let keys: Vec<_> = self
+            .entries
+            .keys()
+            .filter(|key| {
+                key.kind == election.kind.wire()
+                    && key.epoch == election.epoch
+                    && key.round == election.round
             })
-            .map(|votes| votes.into_values().collect())
-            .unwrap_or_default()
+            .copied()
+            .collect();
+        keys.into_iter()
+            .flat_map(|key| {
+                self.entries
+                    .remove(&key)
+                    .into_iter()
+                    .flat_map(HashMap::into_values)
+            })
+            .collect()
     }
 
     fn remove_obsolete(&mut self, epoch: u64, kind: CloseElectionKind, round: u32) {
@@ -273,6 +345,10 @@ impl CloseCoordinator {
         self.open_epoch
     }
 
+    fn start_epoch_at(&mut self, now: Timestamp) {
+        self.next_close_at = now + self.epoch_duration;
+    }
+
     pub fn closing_epoch(&self) -> Option<u64> {
         self.closing.as_ref().map(|close| close.epoch)
     }
@@ -283,6 +359,15 @@ impl CloseCoordinator {
 
     pub fn phase(&self) -> Option<&ClosingPhase> {
         self.closing.as_ref().map(|close| &close.phase)
+    }
+
+    fn active_election(&self) -> Option<CloseElection> {
+        match self.phase()? {
+            ClosingPhase::ElectingCut(election) | ClosingPhase::ElectingRecord(election) => {
+                Some(election.clone())
+            }
+            _ => None,
+        }
     }
 
     pub fn apply_vote(
@@ -302,13 +387,26 @@ impl CloseCoordinator {
         if vote.epoch != election.epoch
             || vote.round != election.round
             || vote.kind != election.kind.wire()
-            || vote.value != election.value
         {
             return None;
         }
         election
             .apply_vote(vote.voter, vote.value, vote.vote_type, weight, quorum, now)
             .ok()?;
+        tracing::info!(
+            epoch = election.epoch,
+            round = election.round,
+            kind = ?election.kind,
+            voter = ?vote.voter,
+            vote_type = ?vote.vote_type,
+            weight = weight.number(),
+            votes = election.votes.len(),
+            total_weight = quorum.total_weight.number(),
+            faulty_weight = quorum.faulty_weight.number(),
+            slack_weight = quorum.slack_weight.number(),
+            finalized = election.is_finalized(),
+            "close vote applied"
+        );
         election
             .is_finalized()
             .then_some((election.kind, election.value))
@@ -327,7 +425,6 @@ impl CloseCoordinator {
         vote.epoch == election.epoch
             && vote.round == election.round
             && vote.kind == election.kind.wire()
-            && vote.value == election.value
     }
 
     pub fn tick(
@@ -340,17 +437,23 @@ impl CloseCoordinator {
         if self.closing.is_some() || now < self.next_close_at {
             return None;
         }
+        let pending: Vec<_> = pending.into_iter().collect();
+        let finalized: Vec<_> = finalized.into_iter().collect();
+        if pending.is_empty() && finalized.is_empty() {
+            self.next_close_at += self.epoch_duration;
+            return None;
+        }
         let epoch = self.open_epoch;
         self.open_epoch += 1;
         self.next_close_at += self.epoch_duration;
-        let report = CloseReport::new(epoch, pending, key);
+        let report = CloseReport::new_with_finalized(epoch, pending, finalized.clone(), key);
         self.closing = Some(ClosingEpoch {
             epoch,
             phase: ClosingPhase::CollectingReports,
             reports: HashMap::new(),
             cut: Vec::new(),
             cut_candidates: HashMap::new(),
-            finalized: finalized.into_iter().collect(),
+            finalized,
         });
         Some(report)
     }
@@ -372,6 +475,9 @@ impl CloseCoordinator {
         {
             return None;
         }
+        close.finalized.extend(report.finalized.iter().cloned());
+        close.finalized.sort();
+        close.finalized.dedup();
         if close.reports.contains_key(&report.reporter) {
             return None;
         }
@@ -416,12 +522,17 @@ impl CloseCoordinator {
             }
             _ => return None,
         };
-        let next = CloseElection::new(
+        if !current.value_updated {
+            return None;
+        }
+        let mut next = CloseElection::new(
             current.kind,
             current.epoch,
             current.round + 1,
-            current.value,
+            current.local_value,
         );
+        next.known_values = current.known_values.clone();
+        next.candidates = current.candidates.clone();
         close.phase = match next.kind {
             CloseElectionKind::Cut => ClosingPhase::ElectingCut(next.clone()),
             CloseElectionKind::Record => ClosingPhase::ElectingRecord(next.clone()),
@@ -493,6 +604,44 @@ impl CloseCoordinator {
         Some(election)
     }
 
+    /// Incorporates newly learned finalization evidence into the active record
+    /// election. Earlier record hashes remain candidates, so votes received before
+    /// this replica caught up can be replayed once their evidence is known locally.
+    pub fn refresh_record(
+        &mut self,
+        finalized: impl IntoIterator<Item = (QualifiedRoot, BlockHash)>,
+    ) -> Option<CloseElection> {
+        let close = self.closing.as_mut()?;
+        let ClosingPhase::ElectingRecord(election) = &mut close.phase else {
+            return None;
+        };
+        let old_finalized = close.finalized.clone();
+        close.finalized.extend(finalized);
+        close
+            .finalized
+            .sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        close.finalized.dedup_by(|a, b| a.0 == b.0);
+        if close.finalized == old_finalized {
+            return None;
+        }
+        let value = close_record_hash(close.epoch, self.previous_record, &close.finalized);
+        if !election.add_candidate(value) {
+            return None;
+        }
+        election.value = value;
+        Some(election.clone())
+    }
+
+    fn draining_roots(&self) -> Vec<QualifiedRoot> {
+        let Some(close) = &self.closing else {
+            return Vec::new();
+        };
+        if close.phase != ClosingPhase::DrainingCut {
+            return Vec::new();
+        }
+        close.cut.clone()
+    }
+
     pub fn record_finalized(&mut self, value: BlockHash) -> bool {
         let Some(close) = self.closing.as_ref() else {
             return false;
@@ -508,6 +657,41 @@ impl CloseCoordinator {
         self.closing = None;
         true
     }
+
+    fn current_record_payload(&self) -> Option<(BlockHash, Vec<(QualifiedRoot, BlockHash)>)> {
+        let close = self.closing.as_ref()?;
+        let ClosingPhase::ElectingRecord(election) = &close.phase else {
+            return None;
+        };
+        Some((election.local_value, close.finalized.clone()))
+    }
+
+    fn admit_record_payload(
+        &mut self,
+        base: BlockHash,
+        target: BlockHash,
+        payload: Vec<(QualifiedRoot, BlockHash)>,
+    ) -> Option<CloseElection> {
+        let previous_record = self.previous_record;
+        let close = self.closing.as_mut()?;
+        let ClosingPhase::ElectingRecord(election) = &mut close.phase else {
+            return None;
+        };
+        if election.local_value != base
+            || payload.windows(2).any(|items| items[0] >= items[1])
+            || !close
+                .finalized
+                .iter()
+                .all(|entry| payload.binary_search(entry).is_ok())
+            || close_record_hash(close.epoch, previous_record, &payload) != target
+        {
+            return None;
+        }
+        close.finalized = payload;
+        election.add_candidate(target);
+        election.value = target;
+        Some(election.clone())
+    }
 }
 
 /// Clock-driven single-node vertical slice used by nanospam. Report and vote
@@ -519,13 +703,28 @@ pub struct CloseTransitionPlugin {
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     rep_weights: Arc<RepWeightCache>,
     rep_tracker: Arc<RepresentativeTracker>,
+    ledger: Arc<Ledger>,
     draining: HashMap<QualifiedRoot, BlockHash>,
     report_rx: Receiver<CloseReport>,
     vote_rx: Receiver<CloseVote>,
+    payload_rx: Receiver<(ClosePayload, ChannelId)>,
     flooder: Mutex<MessageFlooder>,
     local_report: Option<CloseReport>,
     pending_cut: Option<CloseElection>,
+    finalized_cut: Option<CloseElection>,
     vote_cache: CloseVoteCache,
+    epoch_start_file: Option<PathBuf>,
+    epoch_started: bool,
+    local_representative: Option<PublicKey>,
+    fixed_committee: Vec<PublicKey>,
+    metrics_file: Option<PathBuf>,
+    cut_started: Option<(u64, Timestamp)>,
+    cut_duration: Option<Duration>,
+    cut_round: Option<u32>,
+    record_started: Option<(u64, Timestamp)>,
+    retained_record_payloads: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
+    reconciliation_targets: HashSet<BlockHash>,
+    reconciliation_attempts: HashMap<(BlockHash, BlockHash), HashSet<ChannelId>>,
 }
 
 impl CloseTransitionPlugin {
@@ -535,14 +734,25 @@ impl CloseTransitionPlugin {
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         rep_weights: Arc<RepWeightCache>,
         rep_tracker: Arc<RepresentativeTracker>,
+        ledger: Arc<Ledger>,
         report_rx: Receiver<CloseReport>,
         vote_rx: Receiver<CloseVote>,
+        payload_rx: Receiver<(ClosePayload, ChannelId)>,
         flooder: MessageFlooder,
     ) -> Self {
         let start_delay = std::env::var("NANO_RAI_EPOCH_START_DELAY_SECONDS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or_default();
+        let epoch_start_file = std::env::var_os("NANO_RAI_EPOCH_START_FILE").map(PathBuf::from);
+        let local_representative = std::env::var("NANO_RAI_LOCAL_REPRESENTATIVE")
+            .ok()
+            .and_then(|value| PublicKey::decode_hex(&value));
+        let fixed_committee = std::env::var("NANO_RAI_FIXED_COMMITTEE")
+            .ok()
+            .map(|value| value.split(',').filter_map(PublicKey::decode_hex).collect())
+            .unwrap_or_default();
+        let metrics_file = std::env::var_os("NANO_RAI_CLOSE_METRICS_FILE").map(PathBuf::from);
         Self {
             coordinator: CloseCoordinator::new(
                 clock.now() + Duration::from_secs(start_delay),
@@ -552,29 +762,93 @@ impl CloseTransitionPlugin {
             wallet_reps,
             rep_weights,
             rep_tracker,
+            ledger,
             draining: HashMap::new(),
             report_rx,
             vote_rx,
+            payload_rx,
             flooder: Mutex::new(flooder),
             local_report: None,
             pending_cut: None,
+            finalized_cut: None,
             vote_cache: CloseVoteCache::default(),
+            epoch_started: epoch_start_file.is_none(),
+            epoch_start_file,
+            local_representative,
+            fixed_committee,
+            metrics_file,
+            cut_started: None,
+            cut_duration: None,
+            cut_round: None,
+            record_started: None,
+            retained_record_payloads: HashMap::new(),
+            reconciliation_targets: HashSet::new(),
+            reconciliation_attempts: HashMap::new(),
         }
+    }
+
+    fn start_epoch_if_ready(&mut self, aec: &AecService, now: Timestamp) -> bool {
+        if self.epoch_started {
+            return true;
+        }
+        let Some(path) = &self.epoch_start_file else {
+            unreachable!();
+        };
+        if !path.exists() {
+            return false;
+        }
+        // Wallet funding happens before nanospam opens the measured protocol epoch.
+        // Do not carry those setup finalizations into epoch 1's close record.
+        aec.begin_epoch_one();
+        self.coordinator.start_epoch_at(now);
+        self.epoch_started = true;
+        tracing::info!(epoch = 1, "epoch opened");
+        true
     }
 
     fn local_key(&self) -> Option<PrivateKey> {
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
-        keys.into_iter().next()
+        if let Some(representative) = self.local_representative {
+            keys.into_iter()
+                .find(|key| key.public_key() == representative)
+        } else {
+            keys.into_iter().next()
+        }
+    }
+
+    fn quorum_snapshot(&self) -> QuorumSnapshot {
+        let mut quorum = self.rep_tracker.quorum_snapshot();
+        if !self.fixed_committee.is_empty() {
+            quorum.total_weight = self
+                .fixed_committee
+                .iter()
+                .map(|representative| self.rep_weights.weight(representative))
+                .sum();
+            let budget = Amount::raw(quorum.total_weight.number().saturating_sub(1) / 5);
+            quorum.faulty_weight = budget;
+            quorum.slack_weight = budget;
+        }
+        quorum
     }
 
     fn publish_vote(&mut self, election: &CloseElection, key: &PrivateKey) {
+        self.publish_vote_for(election, election.local_value, VoteType::First, key);
+    }
+
+    fn publish_vote_for(
+        &mut self,
+        election: &CloseElection,
+        value: BlockHash,
+        vote_type: VoteType,
+        key: &PrivateKey,
+    ) {
         let vote = CloseVote::new(
             election.epoch,
             election.round,
             election.kind.wire(),
-            election.value,
-            VoteType::First,
+            value,
+            vote_type,
             key,
         );
         self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
@@ -592,51 +866,107 @@ impl CloseTransitionPlugin {
     }
 
     fn apply_vote(&mut self, vote: CloseVote) {
-        let quorum = self.rep_tracker.quorum_snapshot();
-        let Some((kind, value)) = self.coordinator.apply_vote(
+        if vote.kind == CloseElectionKind::Record.wire()
+            && self.coordinator.active_election().is_some_and(|e| {
+                e.kind == CloseElectionKind::Record && !e.candidates.contains(&vote.value)
+            })
+        {
+            self.reconciliation_targets.insert(vote.value);
+        }
+        let quorum = self.quorum_snapshot();
+        let outcome = self.coordinator.apply_vote(
             &vote,
             self.rep_weights.weight(&vote.voter),
             &quorum,
             self.clock.now(),
-        ) else {
-            return;
-        };
-        match kind {
-            CloseElectionKind::Cut => {
-                self.vote_cache
-                    .remove_obsolete(vote.epoch, CloseElectionKind::Cut, u32::MAX);
-                self.pending_cut = Some(CloseElection::new(
-                    CloseElectionKind::Cut,
-                    vote.epoch,
-                    vote.round,
-                    value,
-                ))
-            }
-            CloseElectionKind::Record => {
-                if self.coordinator.record_finalized(value) {
-                    self.vote_cache.remove_obsolete(
-                        vote.epoch,
-                        CloseElectionKind::Record,
-                        u32::MAX,
-                    );
-                    tracing::warn!(epoch = vote.epoch, "epoch closed");
+        );
+        if let Some((kind, value)) = outcome {
+            match kind {
+                CloseElectionKind::Cut => {
+                    self.vote_cache
+                        .remove_obsolete(vote.epoch, CloseElectionKind::Cut, u32::MAX);
+                    let cut =
+                        CloseElection::new(CloseElectionKind::Cut, vote.epoch, vote.round, value);
+                    self.pending_cut = Some(cut.clone());
+                    self.finalized_cut = Some(cut);
                 }
+                CloseElectionKind::Record => {
+                    if self.coordinator.record_finalized(value) {
+                        let record_duration = self
+                            .record_started
+                            .take()
+                            .filter(|(epoch, _)| *epoch == vote.epoch)
+                            .map(|(_, started)| started.elapsed(self.clock.now()))
+                            .unwrap_or_default();
+                        let cut_duration = self.cut_duration.take().unwrap_or_default();
+                        if let Some(path) = &self.metrics_file {
+                            use std::io::Write;
+                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(path)
+                            {
+                                let _ = writeln!(
+                                    file,
+                                    "{} {} {} {} {}",
+                                    vote.epoch,
+                                    cut_duration.as_micros(),
+                                    record_duration.as_micros(),
+                                    self.cut_round.take().unwrap_or_default(),
+                                    vote.round
+                                );
+                            }
+                        }
+                        self.vote_cache.remove_obsolete(
+                            vote.epoch,
+                            CloseElectionKind::Record,
+                            u32::MAX,
+                        );
+                        tracing::warn!(epoch = vote.epoch, "epoch closed");
+                    }
+                }
+            }
+            return;
+        }
+        if self
+            .coordinator
+            .active_election()
+            .is_some_and(|election| election.is_timed_out())
+        {
+            let Some(next) = self.coordinator.close_timed_out() else {
+                return;
+            };
+            tracing::warn!(
+                epoch = next.epoch,
+                round = next.round,
+                kind = ?next.kind,
+                "close election round advanced"
+            );
+            if let Some(key) = self.local_key() {
+                self.publish_vote(&next, &key);
+                self.replay_cached_votes(&next);
             }
         }
     }
 
     fn apply_report(&mut self, _aec: &AecService, key: &PrivateKey, report: CloseReport) {
-        let quorum = self.rep_tracker.quorum_snapshot();
+        if !report.validate() {
+            return;
+        }
+        let finalized = report.finalized.clone();
+        let quorum = self.quorum_snapshot();
         if let Some(cut) = self.coordinator.add_report(
             report,
             |reporter| self.rep_weights.weight(reporter),
             quorum.total_weight,
             quorum.faulty_weight,
         ) {
-            self.local_report = None;
             tracing::warn!(epoch = cut.epoch, round = cut.round, value = ?cut.value, "close cut started");
+            self.cut_started = Some((cut.epoch, self.clock.now()));
             self.publish_vote(&cut, key);
             self.replay_cached_votes(&cut);
+        } else if let Some(record) = self.coordinator.refresh_record(finalized) {
+            self.start_record(key, record);
         }
     }
 
@@ -667,13 +997,177 @@ impl CloseTransitionPlugin {
         let Some(record) = self.coordinator.finish_empty_drain() else {
             return;
         };
+        if self
+            .record_started
+            .is_none_or(|(epoch, _)| epoch != record.epoch)
+        {
+            self.record_started = Some((record.epoch, self.clock.now()));
+        }
         tracing::info!(
             epoch = record.epoch,
             round = record.round,
             "close record started"
         );
+        self.retain_current_record_payload();
         self.publish_vote(&record, key);
         self.replay_cached_votes(&record);
+    }
+
+    fn start_record(&mut self, key: &PrivateKey, record: CloseElection) {
+        if self
+            .record_started
+            .is_none_or(|(epoch, _)| epoch != record.epoch)
+        {
+            self.record_started = Some((record.epoch, self.clock.now()));
+        }
+        tracing::info!(
+            epoch = record.epoch,
+            round = record.round,
+            "close record started"
+        );
+        self.retain_current_record_payload();
+        self.publish_vote(&record, key);
+        self.replay_cached_votes(&record);
+    }
+
+    fn refresh_record(&mut self, aec: &AecService, key: &PrivateKey) {
+        let Some(epoch) = self.coordinator.closing_epoch() else {
+            return;
+        };
+        let Some(record) = self
+            .coordinator
+            .refresh_record(aec.finalized_epoch_slots(epoch))
+        else {
+            return;
+        };
+        tracing::info!(
+            epoch = record.epoch,
+            round = record.round,
+            value = ?record.value,
+            "close record updated"
+        );
+        self.retain_current_record_payload();
+        self.publish_vote(&record, key);
+        self.replay_cached_votes(&record);
+    }
+
+    fn retain_current_record_payload(&mut self) {
+        if let Some((hash, payload)) = self.coordinator.current_record_payload() {
+            self.retained_record_payloads.insert(hash, payload);
+        }
+    }
+
+    fn drain_payloads(&mut self, key: &PrivateKey) {
+        while let Ok((message, channel_id)) = self.payload_rx.try_recv() {
+            match message.kind {
+                ClosePayloadKind::Request => {
+                    let kind = if message.election_kind != CloseElectionKind::Record.wire() {
+                        ClosePayloadKind::UnknownBase
+                    } else if let (Some(base), Some(target)) = (
+                        self.retained_record_payloads.get(&message.base),
+                        self.retained_record_payloads.get(&message.target),
+                    ) {
+                        if base.iter().all(|entry| target.binary_search(entry).is_ok()) {
+                            let additions: Vec<_> = target
+                                .iter()
+                                .filter(|entry| base.binary_search(entry).is_err())
+                                .cloned()
+                                .collect();
+                            if additions.len() <= 256 {
+                                ClosePayloadKind::Delta(additions)
+                            } else {
+                                ClosePayloadKind::DeltaTooLarge
+                            }
+                        } else {
+                            ClosePayloadKind::UnknownBase
+                        }
+                    } else {
+                        ClosePayloadKind::UnknownBase
+                    };
+                    let response = ClosePayload { kind, ..message };
+                    tracing::info!(base=?response.base, target=?response.target, response=?response.kind, "close payload request handled");
+                    self.flooder.lock().unwrap().try_send_channel_id(
+                        channel_id,
+                        &Message::ClosePayload(response),
+                        TrafficType::Generic,
+                    );
+                }
+                ClosePayloadKind::UnknownBase | ClosePayloadKind::DeltaTooLarge => {
+                    tracing::info!(base=?message.base, target=?message.target, response=?message.kind, "close payload request rejected");
+                    self.reconciliation_attempts
+                        .entry((message.base, message.target))
+                        .or_default()
+                        .insert(channel_id);
+                }
+                ClosePayloadKind::Delta(additions) => {
+                    let Some(base_payload) = self.retained_record_payloads.get(&message.base)
+                    else {
+                        continue;
+                    };
+                    if additions.len() > 256
+                        || additions.windows(2).any(|items| items[0] >= items[1])
+                        || additions
+                            .iter()
+                            .any(|entry| base_payload.binary_search(entry).is_ok())
+                    {
+                        continue;
+                    }
+                    let mut payload = base_payload.clone();
+                    payload.extend(additions);
+                    payload.sort();
+                    if payload.windows(2).any(|items| items[0].0 == items[1].0) {
+                        continue;
+                    }
+                    if let Some(record) = self.coordinator.admit_record_payload(
+                        message.base,
+                        message.target,
+                        payload.clone(),
+                    ) {
+                        tracing::info!(base=?message.base, target=?message.target, "close record reconciled");
+                        self.retained_record_payloads
+                            .insert(message.target, payload);
+                        self.reconciliation_targets.remove(&message.target);
+                        self.publish_vote(&record, key);
+                        self.replay_cached_votes(&record);
+                    }
+                }
+            }
+        }
+    }
+
+    fn request_reconciliation(&mut self) {
+        let Some((base, _)) = self.coordinator.current_record_payload() else {
+            return;
+        };
+        let peers = self.rep_tracker.peered_reps();
+        for target in self.reconciliation_targets.clone() {
+            if target == base {
+                self.reconciliation_targets.remove(&target);
+                continue;
+            }
+            let attempts = self
+                .reconciliation_attempts
+                .entry((base, target))
+                .or_default();
+            if let Some(peer) = peers
+                .iter()
+                .find(|peer| !attempts.contains(&peer.channel_id))
+            {
+                attempts.insert(peer.channel_id);
+                let request = ClosePayload::request(
+                    self.coordinator.closing_epoch().unwrap_or_default(),
+                    CloseElectionKind::Record.wire(),
+                    base,
+                    target,
+                );
+                tracing::info!(?base, ?target, channel=?peer.channel_id, "requesting close record delta");
+                self.flooder.lock().unwrap().try_send_channel_id(
+                    peer.channel_id,
+                    &Message::ClosePayload(request),
+                    TrafficType::Generic,
+                );
+            }
+        }
     }
 
     fn apply_cut(&mut self, aec: &AecService, key: &PrivateKey, cut: &CloseElection) {
@@ -682,8 +1176,26 @@ impl CloseTransitionPlugin {
         let Some(excluded) = self.coordinator.cut_finalized(cut.value, roots) else {
             return;
         };
+        self.cut_duration = self
+            .cut_started
+            .take()
+            .filter(|(epoch, _)| *epoch == cut.epoch)
+            .map(|(_, started)| started.elapsed(self.clock.now()));
+        self.cut_round = Some(cut.round);
         for root in excluded {
+            let hashes = aec
+                .election_for_root(&root)
+                .map(|election| {
+                    election
+                        .candidate_blocks()
+                        .keys()
+                        .copied()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            self.ledger.roll_back_batch(&hashes, usize::MAX);
             aec.exclude_by_cut(&root);
+            aec.apply_rolled_back_outcome(&root);
             tracing::info!(epoch = cut.epoch, ?root, "slot excluded by finalized cut");
         }
         self.draining = active
@@ -695,16 +1207,35 @@ impl CloseTransitionPlugin {
             pending = self.draining.len(),
             "cut finalized"
         );
+
+        // A slot can terminate after it was reported but before the cut certificate
+        // arrives. Such a slot is no longer active, so no later AEC transition can
+        // notify the close coordinator. Reconcile it from the finalized snapshot now.
+        let finalized: HashMap<_, _> = aec.finalized_epoch_slots(cut.epoch).into_iter().collect();
+        for root in self.coordinator.draining_roots() {
+            if self.draining.contains_key(&root) {
+                continue;
+            }
+            if let Some(record) = self
+                .coordinator
+                .slot_terminated(root.clone(), finalized.get(&root).copied())
+            {
+                self.start_record(key, record);
+            }
+        }
         self.start_record_if_drained(key);
     }
 }
 
 impl AecTickerPlugin for CloseTransitionPlugin {
     fn run(&mut self, aec: &AecService) {
+        let now = self.clock.now();
+        if !self.start_epoch_if_ready(aec, now) {
+            return;
+        }
         let Some(key) = self.local_key() else {
             return;
         };
-        let now = self.clock.now();
 
         if let Some(report) = &self.local_report {
             self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
@@ -712,6 +1243,14 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                 TrafficType::Generic,
                 1.0,
             );
+        }
+
+        // A replica that has already finalized the cut must keep advertising its
+        // final support until the record closes. Otherwise two fast replicas can
+        // leave a slower replica without enough final votes to reconstruct the cut
+        // certificate after they move into draining.
+        if let Some(cut) = self.finalized_cut.clone() {
+            self.publish_vote_for(&cut, cut.value, VoteType::Final, &key);
         }
 
         if self.coordinator.closing_epoch().is_none() {
@@ -745,29 +1284,47 @@ impl AecTickerPlugin for CloseTransitionPlugin {
         }
 
         self.drain_reports(aec, &key);
+        self.refresh_record(aec, &key);
+        self.drain_payloads(&key);
+        // Close votes may be emitted before every PR has entered the matching
+        // election. Keep advertising the current candidate until it obtains a
+        // certificate, just as reports are advertised while being collected.
+        if let Some(election) = self.coordinator.active_election() {
+            self.publish_vote(&election, &key);
+        }
         self.drain_votes();
+        self.request_reconciliation();
+        if let Some(election) = self.coordinator.active_election() {
+            for (value, vote_type) in election.vote_targets() {
+                self.publish_vote_for(&election, value, vote_type, &key);
+            }
+        }
         if let Some(cut) = self.pending_cut.take() {
             self.apply_cut(aec, &key, &cut);
         }
 
         if matches!(self.coordinator.phase(), Some(ClosingPhase::DrainingCut)) {
+            let epoch = self.coordinator.closing_epoch().unwrap_or_default();
+            let finalized: HashMap<_, _> = aec.finalized_epoch_slots(epoch).into_iter().collect();
             let terminated: Vec<_> = self
                 .draining
                 .iter()
-                .filter(|(root, _)| !aec.is_active_root(root))
-                .map(|(root, hash)| (root.clone(), *hash))
+                .filter_map(|(root, hash)| {
+                    if let Some(hash) = finalized.get(root) {
+                        Some((root.clone(), Some(*hash)))
+                    } else if aec.was_recently_confirmed(hash) {
+                        Some((root.clone(), Some(*hash)))
+                    } else if !aec.is_active_root(root) {
+                        Some((root.clone(), None))
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            for (root, hash) in terminated {
+            for (root, finalized) in terminated {
                 self.draining.remove(&root);
-                let finalized = aec.was_recently_confirmed(&hash).then_some(hash);
                 if let Some(record) = self.coordinator.slot_terminated(root, finalized) {
-                    tracing::info!(
-                        epoch = record.epoch,
-                        round = record.round,
-                        "close record started"
-                    );
-                    self.publish_vote(&record, &key);
-                    self.replay_cached_votes(&record);
+                    self.start_record(&key, record);
                 }
             }
         }
@@ -785,6 +1342,54 @@ mod tests {
 
     fn root(value: u64, epoch: u64) -> QualifiedRoot {
         QualifiedRoot::new(Root::from(value), BlockHash::from(value + 100)).with_epoch(epoch)
+    }
+
+    #[test]
+    fn synchronized_start_waits_a_full_epoch_duration() {
+        let initial = Timestamp::new_test_instance();
+        let mut close = CloseCoordinator::new(initial, Duration::from_secs(5));
+        let synchronized_start = initial + Duration::from_secs(20);
+        close.start_epoch_at(synchronized_start);
+        let key = PrivateKey::from(1);
+
+        assert!(
+            close
+                .tick(synchronized_start + Duration::from_secs(4), [], [], &key)
+                .is_none()
+        );
+        assert_eq!(
+            close
+                .tick(
+                    synchronized_start + Duration::from_secs(5),
+                    [],
+                    [(root(9, 1), BlockHash::from(9))],
+                    &key,
+                )
+                .unwrap()
+                .epoch,
+            1
+        );
+    }
+
+    #[test]
+    fn empty_epoch_is_not_closed() {
+        let now = Timestamp::new_test_instance();
+        let duration = Duration::from_secs(5);
+        let key = PrivateKey::from(1);
+        let mut close = CloseCoordinator::new(now, duration);
+
+        assert!(close.tick(now + duration, [], [], &key).is_none());
+        assert_eq!(close.open_epoch(), 1);
+        assert_eq!(close.latest_closed_epoch(), 0);
+        assert_eq!(close.closing_epoch(), None);
+
+        assert_eq!(
+            close
+                .tick(now + duration * 2, [root(1, 1)], [], &key)
+                .unwrap()
+                .epoch,
+            1
+        );
     }
 
     #[test]
@@ -853,13 +1458,119 @@ mod tests {
     }
 
     #[test]
-    fn timeout_certificate_advances_close_round() {
+    fn record_candidate_updates_when_finalization_evidence_arrives() {
+        let now = Timestamp::new_test_instance();
+        let key = PrivateKey::from(1);
+        let first = root(1, 1);
+        let learned = root(2, 1);
+        let first_hash = BlockHash::from(201);
+        let learned_hash = BlockHash::from(202);
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+
+        close
+            .tick(
+                now + Duration::from_secs(1),
+                [],
+                [(first.clone(), first_hash)],
+                &key,
+            )
+            .unwrap();
+        let cut = close
+            .add_report(
+                CloseReport::new(1, [], &key),
+                |_| Amount::raw(1),
+                Amount::raw(1),
+                Amount::ZERO,
+            )
+            .unwrap();
+        close.cut_finalized(cut.value, []).unwrap();
+        let initial = close.finish_empty_drain().unwrap();
+
+        let updated = close
+            .refresh_record([(learned.clone(), learned_hash)])
+            .unwrap();
+        assert_ne!(updated.value, initial.value);
+
+        let quorum = QuorumSnapshot {
+            total_weight: Amount::raw(1),
+            faulty_weight: Amount::ZERO,
+            slack_weight: Amount::ZERO,
+            ..Default::default()
+        };
+        let old_vote = CloseVote::new(
+            1,
+            0,
+            CloseElectionKind::Record.wire(),
+            initial.value,
+            VoteType::Final,
+            &key,
+        );
+        assert!(close.accepts_vote(&old_vote));
+
+        let updated_vote = CloseVote::new(
+            1,
+            0,
+            CloseElectionKind::Record.wire(),
+            updated.value,
+            VoteType::Final,
+            &key,
+        );
+        assert!(close.accepts_vote(&updated_vote));
+        assert_eq!(
+            close.apply_vote(&updated_vote, Amount::raw(1), &quorum, now),
+            Some((CloseElectionKind::Record, updated.value))
+        );
+    }
+
+    #[test]
+    fn reconciled_record_payload_must_extend_the_current_base() {
+        let now = Timestamp::new_test_instance();
+        let key = PrivateKey::from(1);
+        let first = (root(1, 1), BlockHash::from(101));
+        let second = (root(2, 1), BlockHash::from(102));
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+        let report = close
+            .tick(now + Duration::from_secs(1), [], [first.clone()], &key)
+            .unwrap();
+        let cut = close
+            .add_report(report, |_| Amount::raw(1), Amount::raw(1), Amount::ZERO)
+            .unwrap();
+        close.cut_finalized(cut.value, []).unwrap();
+        let record = close.finish_empty_drain().unwrap();
+
+        let payload = vec![first.clone(), second];
+        let target = close_record_hash(1, BlockHash::ZERO, &payload);
+        assert!(
+            close
+                .admit_record_payload(record.value, target, payload)
+                .is_some()
+        );
+
+        let removal = vec![first];
+        let removal_target = close_record_hash(1, BlockHash::ZERO, &removal);
+        assert!(
+            close
+                .admit_record_payload(target, removal_target, removal)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn timeout_certificate_does_not_advance_without_a_value_update() {
         let now = Timestamp::new_test_instance();
         let key = PrivateKey::from(1);
         let weights = HashMap::from([(key.public_key(), Amount::raw(1))]);
         let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
         let report = close
-            .tick(now + Duration::from_secs(1), [], [], &key)
+            .tick(
+                now + Duration::from_secs(1),
+                [],
+                [(
+                    QualifiedRoot::new_test_instance().with_epoch(1),
+                    BlockHash::from(9),
+                )],
+                &key,
+            )
             .unwrap();
         close
             .add_report(
@@ -869,9 +1580,59 @@ mod tests {
                 Amount::ZERO,
             )
             .unwrap();
+        assert!(close.close_timed_out().is_none());
+    }
+
+    #[test]
+    fn one_remote_value_update_allows_one_round_advance() {
+        let now = Timestamp::new_test_instance();
+        let key = PrivateKey::from(1);
+        let weights = HashMap::from([(key.public_key(), Amount::raw(1))]);
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+        let report = close
+            .tick(
+                now + Duration::from_secs(1),
+                [],
+                [(
+                    QualifiedRoot::new_test_instance().with_epoch(1),
+                    BlockHash::from(9),
+                )],
+                &key,
+            )
+            .unwrap();
+        close
+            .add_report(
+                report,
+                |reporter| weights.get(reporter).copied().unwrap_or_default(),
+                Amount::raw(1),
+                Amount::ZERO,
+            )
+            .unwrap();
+        let ClosingPhase::ElectingCut(election) = &mut close.closing.as_mut().unwrap().phase else {
+            panic!("expected cut election");
+        };
+        election
+            .apply_vote(
+                PrivateKey::from(2).public_key(),
+                BlockHash::from(10),
+                VoteType::First,
+                Amount::raw(1),
+                &QuorumSnapshot {
+                    total_weight: Amount::raw(2),
+                    faulty_weight: Amount::ZERO,
+                    slack_weight: Amount::ZERO,
+                    ..Default::default()
+                },
+                now,
+            )
+            .unwrap();
+
         let next = close.close_timed_out().unwrap();
         assert_eq!(next.kind, CloseElectionKind::Cut);
         assert_eq!(next.round, 1);
+        assert_eq!(next.local_value, close_cut_hash(1, &[]));
+        assert!(next.known_values.contains(&BlockHash::from(10)));
+        assert!(close.close_timed_out().is_none());
     }
 
     #[test]
@@ -936,7 +1697,15 @@ mod tests {
         let root = root(44, 1);
         let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
         close
-            .tick(now + Duration::from_secs(1), [], [], &keys[0])
+            .tick(
+                now + Duration::from_secs(1),
+                [],
+                [(
+                    QualifiedRoot::new_test_instance().with_epoch(1),
+                    BlockHash::from(9),
+                )],
+                &keys[0],
+            )
             .unwrap();
         let weight = |reporter: &PublicKey| weights.get(reporter).copied().unwrap_or_default();
         assert!(

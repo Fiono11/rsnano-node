@@ -18,6 +18,8 @@ use super::{
     request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
 };
 use crate::consensus::election::VoteType;
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::{AecService, vote_generation::voting_scheduler::vote_targets};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestAggregatorConfig {
@@ -48,6 +50,8 @@ pub struct RequestAggregator {
     stats: Arc<Stats>,
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<AecService>,
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -59,12 +63,15 @@ impl RequestAggregator {
         stats: Arc<Stats>,
         vote_generators: Arc<VoteGenerators>,
         ledger: Arc<Ledger>,
+        #[cfg(feature = "rai_protocol")] active_elections: Arc<AecService>,
     ) -> Self {
         let max_queue = config.max_queue;
         Self {
             stats,
             vote_generators,
             ledger,
+            #[cfg(feature = "rai_protocol")]
+            active_elections,
             config,
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
@@ -81,6 +88,8 @@ impl RequestAggregator {
             Stats::default().into(),
             VoteGenerators::new_null().into(),
             Ledger::new_null().into(),
+            #[cfg(feature = "rai_protocol")]
+            AecService::new_null().into(),
         )
     }
 
@@ -94,6 +103,8 @@ impl RequestAggregator {
                 config: self.config.clone(),
                 ledger: self.ledger.clone(),
                 vote_generators: self.vote_generators.clone(),
+                #[cfg(feature = "rai_protocol")]
+                active_elections: self.active_elections.clone(),
             };
 
             guard.push(
@@ -218,6 +229,8 @@ struct RequestAggregatorLoop {
     config: RequestAggregatorConfig,
     ledger: Arc<Ledger>,
     vote_generators: Arc<VoteGenerators>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<AecService>,
 }
 
 impl RequestAggregatorLoop {
@@ -272,6 +285,7 @@ impl RequestAggregatorLoop {
             self.stats
                 .inc(StatType::RequestAggregatorReplies, DetailType::NormalVote);
 
+            #[cfg(not(feature = "rai_protocol"))]
             // Generate votes for the remaining hashes
             let generated = self.vote_generators.generate_votes(
                 &remaining.remaining_normal,
@@ -280,6 +294,9 @@ impl RequestAggregatorLoop {
                 #[cfg(feature = "rai_protocol")]
                 request.epoch,
             );
+            #[cfg(feature = "rai_protocol")]
+            let generated =
+                self.generate_active_election_votes(any, &remaining.remaining_normal, request);
             self.stats.add_dir(
                 StatType::Requests,
                 DetailType::RequestsCannotVote,
@@ -307,6 +324,35 @@ impl RequestAggregatorLoop {
                 (remaining.remaining_final.len() - generated) as u64,
             );
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn generate_active_election_votes(
+        &self,
+        any: &dyn AnySet,
+        requested: &[rsnano_types::SavedBlock],
+        request: &AggregatorRequest,
+    ) -> usize {
+        let mut generated = 0;
+        for block in requested {
+            let Some(election) = self.active_elections.election_for_block(&block.hash()) else {
+                continue;
+            };
+            let mut responded = false;
+            for target in vote_targets(&election) {
+                let Some(target_block) = any.get_block(&target.winner) else {
+                    continue;
+                };
+                responded |= self.vote_generators.generate_votes(
+                    &[target_block],
+                    &request.channel,
+                    target.vote_type,
+                    request.epoch,
+                ) > 0;
+            }
+            generated += usize::from(responded);
+        }
+        generated
     }
 
     /// Aggregate requests and send cached votes to channel.

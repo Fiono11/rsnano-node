@@ -45,6 +45,7 @@ impl From<ConfirmationType> for DetailType {
 /// Information about confirmed election
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfirmedElection {
+    pub epoch: u64,
     pub winner: MaybeSavedBlock,
     pub tally: Amount,
     pub final_tally: Amount,
@@ -59,6 +60,7 @@ pub struct ConfirmedElection {
 impl ConfirmedElection {
     pub fn new(block: SavedBlock, confirmation_type: ConfirmationType) -> Self {
         Self {
+            epoch: 0,
             winner: MaybeSavedBlock::Saved(block),
             election_end: SystemTime::now(),
             block_count: 1,

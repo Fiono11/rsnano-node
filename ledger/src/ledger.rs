@@ -349,14 +349,8 @@ impl Ledger {
             #[cfg(feature = "rai_protocol")]
             if let Some(committee) = &fixed_committee {
                 let base_weight = Amount::MAX / committee.len() as u128;
-                let remainder = Amount::MAX - base_weight * committee.len() as u128;
-                for (index, representative) in committee.iter().enumerate() {
-                    let weight = if index == 0 {
-                        base_weight + remainder
-                    } else {
-                        base_weight
-                    };
-                    write_guard.put(*representative, weight);
+                for representative in committee {
+                    write_guard.put(*representative, base_weight);
                 }
                 info!(
                     representatives = committee.len(),

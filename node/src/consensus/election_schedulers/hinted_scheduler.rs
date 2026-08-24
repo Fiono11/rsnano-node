@@ -1,5 +1,6 @@
+#[cfg(not(feature = "rai_protocol"))]
+use std::cmp::min;
 use std::{
-    cmp::min,
     collections::{BTreeMap, HashMap, HashSet},
     mem::size_of,
     sync::{
@@ -19,9 +20,11 @@ use rsnano_utils::{
 };
 
 use super::VoteCache;
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::election::ElectionBehavior;
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
+    consensus::{AecInsertRequest, AecService},
     representatives::RepresentativeTracker,
 };
 
@@ -129,11 +132,20 @@ impl HintedScheduler {
     }
 
     fn aec_vacancy(&self) -> i64 {
+        #[cfg(feature = "rai_protocol")]
+        {
+            // The configured AEC and hinted-election limits are soft limits for
+            // RAI. Refusing an eligible cached-vote activation here could leave
+            // an unresolved slot without an election indefinitely.
+            return i64::MAX;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         let vacancy = self.max_elections as i64
             - self
                 .active_elections
                 .count_by_behavior(ElectionBehavior::Hinted) as i64;
-        min(vacancy, self.active_elections.vacancy())
+        #[cfg(not(feature = "rai_protocol"))]
+        return min(vacancy, self.active_elections.vacancy());
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -292,8 +304,19 @@ impl HintedScheduler {
     }
 
     fn tally_threshold(&self) -> Amount {
-        (self.rep_tracker.quorum_snapshot().trended_or_min_weight / 100)
-            * self.config.hinting_threshold_percent as u128
+        #[cfg(feature = "rai_protocol")]
+        {
+            let faulty_weight = self.rep_tracker.quorum_snapshot().faulty_weight;
+            // Slot votes remain passive in the cache until their combined weight
+            // is strictly greater than f. Close elections use their own eager
+            // lifecycle and do not pass through the hinted scheduler.
+            return rai_tally_threshold(faulty_weight);
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            (self.rep_tracker.quorum_snapshot().trended_or_min_weight / 100)
+                * self.config.hinting_threshold_percent as u128
+        }
     }
 
     fn final_tally_threshold(&self) -> Amount {
@@ -320,10 +343,25 @@ impl HintedScheduler {
     }
 }
 
+#[cfg(feature = "rai_protocol")]
+fn rai_tally_threshold(faulty_weight: Amount) -> Amount {
+    Amount::raw(faulty_weight.number().saturating_add(1))
+}
+
 impl Drop for HintedScheduler {
     fn drop(&mut self) {
         // Thread must be stopped before destruction
         debug_assert!(self.thread.lock().unwrap().is_none());
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_hinting_requires_strictly_more_than_faulty_weight() {
+        assert_eq!(rai_tally_threshold(Amount::raw(20)), Amount::raw(21));
     }
 }
 

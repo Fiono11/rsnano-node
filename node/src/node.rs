@@ -776,6 +776,8 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         ));
 
         let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));
@@ -834,6 +836,8 @@ impl Node {
         let (close_report_tx, close_report_rx) = mpsc::channel();
         #[cfg(feature = "rai_protocol")]
         let (close_vote_tx, close_vote_rx) = mpsc::channel();
+        #[cfg(feature = "rai_protocol")]
+        let (close_payload_tx, close_payload_rx) = mpsc::channel();
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
@@ -848,8 +852,10 @@ impl Node {
                 wallet_reps.clone(),
                 rep_weights.clone(),
                 rep_tracker.clone(),
+                ledger.clone(),
                 close_report_rx,
                 close_vote_rx,
+                close_payload_rx,
                 message_flooder.clone(),
             ));
             info!(seconds, "enabled in-memory RAI close transition skeleton");
@@ -977,6 +983,8 @@ impl Node {
             close_report_tx,
             #[cfg(feature = "rai_protocol")]
             close_vote_tx,
+            #[cfg(feature = "rai_protocol")]
+            close_payload_tx,
             #[cfg(feature = "rai_protocol")]
             message_flooder.clone(),
         ));
@@ -1233,6 +1241,8 @@ impl Node {
             block_processor_queue: block_processor_queue.clone(),
             confirming_set: confirming_set.clone(),
             active_elections: active_elections.clone(),
+            #[cfg(feature = "rai_protocol")]
+            ledger: ledger.clone(),
             clock: steady_clock.clone(),
             local_votes_remover,
             aec_fork_inserter,

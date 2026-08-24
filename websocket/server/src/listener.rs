@@ -261,6 +261,7 @@ pub fn into_json_vote_summary(v: &VoteSummary) -> JsonVoteSummary {
 
 pub fn into_election_info(value: &ConfirmedElection) -> ElectionInfo {
     ElectionInfo {
+        epoch: value.epoch.to_string(),
         duration: value.election_duration.as_millis().to_string(),
         time: value
             .election_end

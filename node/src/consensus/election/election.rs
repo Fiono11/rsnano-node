@@ -599,8 +599,13 @@ impl Election {
         result: ConfirmationType,
     ) -> ConfirmedElection {
         let votes = self.votes().clone();
+        #[cfg(feature = "rai_protocol")]
+        let epoch = self.qualified_root().epoch;
+        #[cfg(not(feature = "rai_protocol"))]
+        let epoch = 0;
 
         ConfirmedElection {
+            epoch,
             winner: self.winner().clone(),
             tally: self.winner_tally(),
             final_tally: self.winner_final_tally(),

@@ -1,5 +1,7 @@
 use rsnano_ledger::{AnySet, LedgerSet};
-use rsnano_types::{Account, Block, BlockHash, Root, SavedBlock};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::Account;
+use rsnano_types::{Block, BlockHash, Root, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 pub(super) struct RequestAggregatorImpl<'a> {
@@ -27,6 +29,16 @@ impl<'a> RequestAggregatorImpl<'a> {
             return block;
         }
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            // A RAI vote request is for an exact slot value. If that value is no
+            // longer in the ledger, silence is the response; never substitute a
+            // successor or a different fork selected through the root.
+            let _ = root;
+            return None;
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
         if !root.is_zero() {
             // Search for successor of root
             if let Some(successor) = self.any.block_successor(&(*root).into()) {
@@ -39,7 +51,8 @@ impl<'a> RequestAggregatorImpl<'a> {
             }
         }
 
-        None
+        #[cfg(not(feature = "rai_protocol"))]
+        return None;
     }
 
     pub fn add_votes(&mut self, requests: &[(BlockHash, Root)]) {
@@ -122,6 +135,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn generates_final_vote_for_previously_final_voted_fork() {
         let ledger = Ledger::new_null();
 
@@ -136,6 +150,22 @@ mod tests {
 
         assert_eq!(result.remaining_final.len(), 1);
         assert_eq!(result.remaining_final[0].hash(), fork_a.hash());
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn does_not_substitute_a_confirmed_fork_for_an_absent_requested_hash() {
+        let ledger = Ledger::new_null();
+
+        let present = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let absent = UnsavedBlockLatticeBuilder::new().genesis().send(200, 1);
+        ledger.process_one(&present).unwrap();
+        ledger.confirm(present.hash());
+
+        let result = run_aggregator(&ledger, &[(absent.hash(), absent.root())]);
+
+        assert!(result.remaining_normal.is_empty());
+        assert!(result.remaining_final.is_empty());
     }
 
     /*

@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::VoteType;
 use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
 
 use rsnano_nullable_clock::Timestamp;
@@ -31,6 +33,8 @@ pub(crate) struct VotedBlock {
     final_tally: Amount,
     max_voters: usize,
     by_representative: FxHashMap<PublicKey, CachedVote>,
+    #[cfg(feature = "rai_protocol")]
+    by_phase: FxHashMap<(PublicKey, VoteType), Arc<Vote>>,
     by_weight: BTreeMap<Amount, Vec<PublicKey>>,
 }
 
@@ -50,6 +54,8 @@ impl VotedBlock {
             final_tally: Amount::ZERO,
             max_voters,
             by_representative: FxHashMap::default(),
+            #[cfg(feature = "rai_protocol")]
+            by_phase: FxHashMap::default(),
             by_weight: BTreeMap::new(),
             last_modified: now,
         };
@@ -70,8 +76,19 @@ impl VotedBlock {
         self.final_tally
     }
 
-    pub fn iter_votes<'a>(&'a self) -> impl Iterator<Item = &'a Arc<Vote>> {
+    pub fn iter_votes(&self) -> impl Iterator<Item = &Arc<Vote>> {
         self.by_representative.values().map(|i| &i.vote)
+    }
+
+    pub fn iter_replay_votes(&self) -> Box<dyn Iterator<Item = &Arc<Vote>> + '_> {
+        #[cfg(feature = "rai_protocol")]
+        {
+            Box::new(self.by_phase.values())
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            Box::new(self.iter_votes())
+        }
     }
 
     pub fn vote_count(&self) -> usize {
@@ -86,6 +103,10 @@ impl VotedBlock {
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        self.by_phase
+            .entry((vote.voter, vote.vote_type()))
+            .or_insert_with(|| vote.clone());
         let rep_key = vote.voter;
         let new_weight = rep_weight;
         let vote = CachedVote::new(vote, rep_weight);
