@@ -1,12 +1,13 @@
 use std::{
     process::{Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tokio::time::sleep;
 use tracing::info;
 
 use rsnano_rpc_client::NanoRpcClient;
+use rsnano_rpc_messages::PeersDto;
 
 use crate::{
     cli_args::CliArgs,
@@ -94,9 +95,11 @@ pub(crate) async fn start_nodes(
         }
     }
 
-    if args.cpp {
-        // Send keepalives so that nano_node connects (their preconfigured peers don't allow ports)!
-        info!("Sending keepalives...");
+    // Establish the PR mesh explicitly. Preconfigured-peer discovery is
+    // asynchronous and RPC readiness alone does not mean the PRs are connected.
+    info!("Connecting all PRs...");
+    let started = Instant::now();
+    loop {
         for (i, rpc_client) in rpc_clients.iter().enumerate() {
             for k in 0..args.prs {
                 if k != i {
@@ -104,8 +107,27 @@ pub(crate) async fn start_nodes(
                 }
             }
         }
-        // Give time to connect
-        sleep(Duration::from_secs(5)).await;
+
+        let mut peer_counts = Vec::with_capacity(rpc_clients.len());
+        for rpc_client in rpc_clients {
+            let count = match rpc_client.peers(Some(false)).await {
+                Ok(PeersDto::Simple(response)) => response.peers.len(),
+                Ok(PeersDto::Detailed(response)) => response.peers.len(),
+                Err(_) => 0,
+            };
+            peer_counts.push(count);
+        }
+        let expected_peers = args.prs.saturating_sub(1);
+        if peer_counts.iter().all(|count| *count >= expected_peers) {
+            info!(?peer_counts, "All PRs connected");
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "PR mesh did not form: peer counts {peer_counts:?}, expected at least {}",
+            expected_peers
+        );
+        sleep(Duration::from_millis(100)).await;
     }
     children
 }

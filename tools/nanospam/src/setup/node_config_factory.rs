@@ -25,7 +25,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     enable_voting = true
     vote_minimum = "0"
     preconfigured_peers = PRECONF_PEERS
-    preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
+    preconfigured_representatives = PRECONF_REPS
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
 
@@ -101,6 +101,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+                .replace("PRECONF_REPS", &preconfigured_representatives(args.prs))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string());
             std::fs::write(node_config_path, node_config).unwrap();
@@ -114,6 +115,14 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             std::fs::write(rpc_config_path, rpc_config).unwrap();
         }
     }
+}
+
+fn preconfigured_representatives(prs: usize) -> String {
+    let representatives = (0..prs)
+        .map(|index| format!("\"{}\"", pr_key(index).account().encode_account()))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{representatives}]")
 }
 
 fn preconfigured_peers(prs: usize, current_pr: usize) -> String {

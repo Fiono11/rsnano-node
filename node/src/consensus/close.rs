@@ -446,10 +446,6 @@ impl CloseCoordinator {
         }
         let pending: Vec<_> = pending.into_iter().collect();
         let finalized: Vec<_> = finalized.into_iter().collect();
-        if pending.is_empty() && finalized.is_empty() {
-            self.next_close_at += self.epoch_duration;
-            return None;
-        }
         let epoch = self.open_epoch;
         self.open_epoch += 1;
         self.next_close_at += self.epoch_duration;
@@ -1549,23 +1545,24 @@ mod tests {
     }
 
     #[test]
-    fn empty_epoch_is_not_closed() {
+    fn empty_epoch_starts_closing_at_deadline() {
         let now = Timestamp::new_test_instance();
         let duration = Duration::from_secs(5);
         let key = PrivateKey::from(1);
         let mut close = CloseCoordinator::new(now, duration);
 
-        assert!(close.tick(now + duration, [], [], &key).is_none());
-        assert_eq!(close.open_epoch(), 1);
+        let report = close.tick(now + duration, [], [], &key).unwrap();
+        assert_eq!(report.epoch, 1);
+        assert!(report.pending.is_empty());
+        assert!(report.finalized.is_empty());
+        assert!(report.validate());
+        assert_eq!(close.open_epoch(), 2);
         assert_eq!(close.latest_closed_epoch(), 0);
-        assert_eq!(close.closing_epoch(), None);
-
-        assert_eq!(
+        assert_eq!(close.closing_epoch(), Some(1));
+        assert!(
             close
                 .tick(now + duration * 2, [BlockHash::from(1)], [], &key)
-                .unwrap()
-                .epoch,
-            1
+                .is_none()
         );
     }
 
