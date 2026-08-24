@@ -169,6 +169,11 @@ impl AecService {
         self.aec.write().unwrap().transition_active(block_hash)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn transition_active_root(&self, root: &QualifiedRoot) -> bool {
+        self.aec.write().unwrap().transition_active_root(root)
+    }
+
     pub fn refill<T>(&self, source: &mut T, now: Timestamp)
     where
         T: ElectionCandidateSource,

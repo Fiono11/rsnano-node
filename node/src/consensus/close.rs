@@ -728,6 +728,7 @@ pub struct CloseTransitionPlugin {
     local_report: Option<CloseReport>,
     pending_cut: Option<CloseElection>,
     finalized_cut: Option<CloseElection>,
+    finalized_record: Option<CloseElection>,
     vote_cache: CloseVoteCache,
     epoch_start_file: Option<PathBuf>,
     epoch_started: bool,
@@ -792,6 +793,7 @@ impl CloseTransitionPlugin {
             local_report: None,
             pending_cut: None,
             finalized_cut: None,
+            finalized_record: None,
             vote_cache: CloseVoteCache::default(),
             epoch_started: epoch_start_file.is_none(),
             epoch_start_file,
@@ -933,6 +935,12 @@ impl CloseTransitionPlugin {
                 }
                 CloseElectionKind::Record => {
                     if let Some(closed) = self.coordinator.record_finalized(value) {
+                        self.finalized_record = Some(CloseElection::new(
+                            CloseElectionKind::Record,
+                            vote.epoch,
+                            vote.round,
+                            value,
+                        ));
                         self.closed_epoch = Some(closed);
                         let record_duration = self
                             .record_started
@@ -1324,6 +1332,34 @@ impl CloseTransitionPlugin {
         }
     }
 
+    /// A certified cut obligates every replica to resolve all included slots.
+    /// Keep old-epoch elections active and advertise the block and all locally
+    /// stored protocol votes while the close record is waiting for them.
+    fn drive_draining_slots(&mut self, aec: &AecService) {
+        let epoch = self.coordinator.closing_epoch().unwrap_or_default();
+        for (root, hash) in self.draining.clone() {
+            aec.transition_active_root(&root);
+
+            if let Some(block) = self.ledger.any().get_block(&hash) {
+                self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                    &Message::Publish(Publish::new_forward(block.into())),
+                    TrafficType::Generic,
+                    1.0,
+                );
+            }
+
+            for vote in self.vote_history.all_votes_for_epoch(&root.root, epoch) {
+                self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                    &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
+                        (*vote).clone(),
+                    )),
+                    TrafficType::Generic,
+                    1.0,
+                );
+            }
+        }
+    }
+
     fn install_closed_record(&mut self, aec: &AecService) {
         let Some(closed) = self.closed_epoch.take() else {
             return;
@@ -1379,6 +1415,12 @@ impl AecTickerPlugin for CloseTransitionPlugin {
         if let Some(cut) = self.finalized_cut.clone() {
             self.publish_vote_for(&cut, cut.value, VoteType::Final, &key);
         }
+        // A slower replica can enter the record election after faster replicas
+        // have closed it. Retain and advertise final support so it can assemble
+        // the same record certificate without relying on wall-clock expiry.
+        if let Some(record) = self.finalized_record.clone() {
+            self.publish_vote_for(&record, record.value, VoteType::Final, &key);
+        }
 
         if self.coordinator.closing_epoch().is_none() {
             let epoch = self.coordinator.open_epoch();
@@ -1433,6 +1475,7 @@ impl AecTickerPlugin for CloseTransitionPlugin {
 
         if matches!(self.coordinator.phase(), Some(ClosingPhase::DrainingCut)) {
             self.recover_cut_data(aec);
+            self.drive_draining_slots(aec);
             for (root, hash) in &mut self.draining {
                 if let Some(election) = aec.election_for_root(root) {
                     *hash = election.winner().hash();

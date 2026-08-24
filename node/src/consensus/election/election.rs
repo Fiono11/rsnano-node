@@ -39,7 +39,6 @@ pub struct Election {
     #[cfg(feature = "rai_protocol")]
     timeout_predicate: bool,
     #[cfg(feature = "rai_protocol")]
-    expired: bool,
     #[cfg(feature = "rai_protocol")]
     terminated: bool,
     #[cfg(feature = "rai_protocol")]
@@ -83,7 +82,6 @@ impl Election {
             #[cfg(feature = "rai_protocol")]
             timeout_predicate: false,
             #[cfg(feature = "rai_protocol")]
-            expired: false,
             #[cfg(feature = "rai_protocol")]
             terminated: false,
             #[cfg(feature = "rai_protocol")]
@@ -266,15 +264,9 @@ impl Election {
             _ => {}
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         if !self.state.has_ended() && self.behavior.time_to_live() < duration {
-            #[cfg(not(feature = "rai_protocol"))]
-            {
-                self.state = ElectionState::ExpiredUnconfirmed;
-            }
-            #[cfg(feature = "rai_protocol")]
-            {
-                self.expired = true;
-            }
+            self.state = ElectionState::ExpiredUnconfirmed;
         }
     }
 
@@ -332,7 +324,7 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn should_vote_timeout(&self) -> bool {
-        self.expired || self.timeout_predicate
+        self.timeout_predicate
     }
 
     pub fn cancel(&mut self) {
@@ -987,7 +979,7 @@ mod rai_voting_tests {
     }
 
     #[test]
-    fn expiry_requests_timeout_without_ending_election() {
+    fn expiry_does_not_request_timeout_or_end_election() {
         let block = SavedBlock::new_test_instance();
         let mut election = Election::new_test_instance_with(block);
         let expired_at = election.start() + Duration::from_mins(5) + Duration::from_millis(1);
@@ -995,7 +987,7 @@ mod rai_voting_tests {
         assert!(!election.should_vote_timeout());
         election.transition_time(expired_at);
 
-        assert!(election.should_vote_timeout());
+        assert!(!election.should_vote_timeout());
         assert!(!election.state().has_ended());
     }
 }

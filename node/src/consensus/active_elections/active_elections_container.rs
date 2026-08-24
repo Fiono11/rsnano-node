@@ -407,6 +407,15 @@ impl ActiveElectionsContainer {
         true
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn transition_active_root(&mut self, root: &QualifiedRoot) -> bool {
+        let Some(entry) = self.roots.get_mut(root) else {
+            return false;
+        };
+        entry.election.transition_active();
+        true
+    }
+
     pub fn refill<T>(&mut self, source: &mut T, now: Timestamp)
     where
         T: ElectionCandidateSource,
