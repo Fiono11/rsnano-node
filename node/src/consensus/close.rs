@@ -286,6 +286,35 @@ struct CloseVoteCache {
     entries: HashMap<CloseVoteCacheKey, HashMap<PublicKey, CloseVote>>,
 }
 
+/// Close reports can arrive before a lagging replica opens their epoch. Retain
+/// them until that epoch closes so the replica can reconstruct the report
+/// certificate and start the matching cut election.
+#[derive(Default)]
+struct CloseReportCache {
+    entries: HashMap<u64, HashMap<PublicKey, CloseReport>>,
+}
+
+impl CloseReportCache {
+    fn insert(&mut self, report: CloseReport) {
+        self.entries
+            .entry(report.epoch)
+            .or_default()
+            .insert(report.reporter, report);
+    }
+
+    fn reports(&self, epoch: u64) -> Vec<CloseReport> {
+        self.entries
+            .get(&epoch)
+            .into_iter()
+            .flat_map(|reports| reports.values().cloned())
+            .collect()
+    }
+
+    fn remove_closed(&mut self, epoch: u64) {
+        self.entries.retain(|cached_epoch, _| *cached_epoch > epoch);
+    }
+}
+
 impl CloseVoteCache {
     const MAX_ELECTIONS: usize = 64;
     const MAX_VOTERS: usize = 1024;
@@ -725,6 +754,7 @@ pub struct CloseTransitionPlugin {
     pending_cut: Option<CloseElection>,
     finalized_cut: Option<CloseElection>,
     finalized_record: Option<CloseElection>,
+    report_cache: CloseReportCache,
     vote_cache: CloseVoteCache,
     epoch_start_file: Option<PathBuf>,
     epoch_started: bool,
@@ -742,6 +772,7 @@ pub struct CloseTransitionPlugin {
     unresolved_cut: HashSet<BlockHash>,
     recovery_attempts: HashMap<BlockHash, HashSet<ChannelId>>,
     vote_history: Arc<LocalVoteHistory>,
+    node_index: usize,
 }
 
 impl CloseTransitionPlugin {
@@ -771,6 +802,10 @@ impl CloseTransitionPlugin {
             .map(|value| value.split(',').filter_map(PublicKey::decode_hex).collect())
             .unwrap_or_default();
         let metrics_file = std::env::var_os("NANO_RAI_CLOSE_METRICS_FILE").map(PathBuf::from);
+        let node_index = std::env::var("NANO_RAI_NODE_INDEX")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_default();
         Self {
             coordinator: CloseCoordinator::new(
                 clock.now() + Duration::from_secs(start_delay),
@@ -790,6 +825,7 @@ impl CloseTransitionPlugin {
             pending_cut: None,
             finalized_cut: None,
             finalized_record: None,
+            report_cache: CloseReportCache::default(),
             vote_cache: CloseVoteCache::default(),
             epoch_started: epoch_start_file.is_none(),
             epoch_start_file,
@@ -807,6 +843,7 @@ impl CloseTransitionPlugin {
             unresolved_cut: HashSet::new(),
             recovery_attempts: HashMap::new(),
             vote_history,
+            node_index,
         }
     }
 
@@ -968,7 +1005,8 @@ impl CloseTransitionPlugin {
                             CloseElectionKind::Record,
                             u32::MAX,
                         );
-                        tracing::warn!(epoch = vote.epoch, "epoch closed");
+                        self.report_cache.remove_closed(vote.epoch);
+                        tracing::warn!(node = self.node_index, epoch = vote.epoch, "epoch closed");
                     }
                 }
             }
@@ -999,6 +1037,14 @@ impl CloseTransitionPlugin {
         if !report.validate() {
             return;
         }
+        if report.epoch <= self.coordinator.latest_closed_epoch() {
+            return;
+        }
+        self.report_cache.insert(report.clone());
+        if self.coordinator.closing_epoch() != Some(report.epoch) {
+            return;
+        }
+        tracing::info!(node = self.node_index, epoch = report.epoch, reporter = ?report.reporter, pending = report.pending.len(), finalized = report.finalized.len(), "close report received");
         let finalized = report.finalized.clone();
         let quorum = self.quorum_snapshot();
         if let Some(cut) = self.coordinator.add_report(
@@ -1007,7 +1053,7 @@ impl CloseTransitionPlugin {
             quorum.total_weight,
             quorum.faulty_weight,
         ) {
-            tracing::warn!(epoch = cut.epoch, round = cut.round, value = ?cut.value, "close cut started");
+            tracing::warn!(node = self.node_index, epoch = cut.epoch, round = cut.round, value = ?cut.value, "close cut started");
             self.cut_started = Some((cut.epoch, self.clock.now()));
             self.publish_vote(&cut, key);
             self.replay_cached_votes(&cut);
@@ -1019,6 +1065,11 @@ impl CloseTransitionPlugin {
     fn drain_reports(&mut self, aec: &AecService, key: &PrivateKey) {
         while let Ok(report) = self.report_rx.try_recv() {
             self.apply_report(aec, key, report);
+        }
+        if let Some(epoch) = self.coordinator.closing_epoch() {
+            for report in self.report_cache.reports(epoch) {
+                self.apply_report(aec, key, report);
+            }
         }
     }
 
@@ -1050,6 +1101,7 @@ impl CloseTransitionPlugin {
             self.record_started = Some((record.epoch, self.clock.now()));
         }
         tracing::info!(
+            node = self.node_index,
             epoch = record.epoch,
             round = record.round,
             "close record started"
@@ -1067,6 +1119,7 @@ impl CloseTransitionPlugin {
             self.record_started = Some((record.epoch, self.clock.now()));
         }
         tracing::info!(
+            node = self.node_index,
             epoch = record.epoch,
             round = record.round,
             "close record started"
@@ -1515,6 +1568,29 @@ mod tests {
 
     fn root(value: u64, epoch: u64) -> QualifiedRoot {
         QualifiedRoot::new(Root::from(value), BlockHash::from(value + 100)).with_epoch(epoch)
+    }
+
+    #[test]
+    fn future_reports_are_retained_until_their_epoch_closes() {
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+        ];
+        let mut cache = CloseReportCache::default();
+        cache.insert(CloseReport::new(2, [BlockHash::from(20)], &keys[0]));
+        cache.insert(CloseReport::new(3, [BlockHash::from(30)], &keys[1]));
+        cache.insert(CloseReport::new(3, [BlockHash::from(31)], &keys[2]));
+
+        assert_eq!(cache.reports(2).len(), 1);
+        assert_eq!(cache.reports(3).len(), 2);
+
+        cache.remove_closed(2);
+        assert!(cache.reports(2).is_empty());
+        assert_eq!(cache.reports(3).len(), 2);
+
+        cache.remove_closed(3);
+        assert!(cache.reports(3).is_empty());
     }
 
     #[test]
