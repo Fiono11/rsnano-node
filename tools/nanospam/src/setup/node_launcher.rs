@@ -13,6 +13,11 @@ use crate::{
     setup::{GENESIS_BLOCK, GENESIS_PRV, peering_port, pr_key},
 };
 
+#[cfg(feature = "rai_protocol")]
+pub(crate) const EPOCH_START_MARKER: &str = "rai_epoch_start";
+#[cfg(feature = "rai_protocol")]
+pub(crate) const CLOSE_METRICS_FILE: &str = "rai_close_metrics";
+
 pub(crate) async fn start_nodes(
     args: &CliArgs,
     data_dir: std::path::PathBuf,
@@ -23,6 +28,8 @@ pub(crate) async fn start_nodes(
         .map(|i| pr_key(i).public_key().encode_hex())
         .collect::<Vec<_>>()
         .join(",");
+    #[cfg(feature = "rai_protocol")]
+    let epoch_start_marker = data_dir.join(EPOCH_START_MARKER);
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         let mut node_dir = data_dir.clone();
         node_dir.push(format!("pr{i}"));
@@ -48,6 +55,10 @@ pub(crate) async fn start_nodes(
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
+                .env(
+                    "NANO_RAI_LOCAL_REPRESENTATIVE",
+                    pr_key(i).public_key().encode_hex(),
+                )
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")
@@ -61,8 +72,15 @@ pub(crate) async fn start_nodes(
                     "NANO_RAI_EPOCH_DURATION_SECONDS",
                     args.epoch_duration.to_string(),
                 )
-                .env("NANO_RAI_EPOCH_START_DELAY_SECONDS", "30")
+                .env("NANO_RAI_EPOCH_START_DELAY_SECONDS", "5")
+                .env("NANO_RAI_EPOCH_START_FILE", &epoch_start_marker)
                 .stdout(Stdio::inherit());
+                if i == 0 {
+                    cmd.env(
+                        "NANO_RAI_CLOSE_METRICS_FILE",
+                        data_dir.join(CLOSE_METRICS_FILE),
+                    );
+                }
             }
             cmd
         };

@@ -79,6 +79,18 @@ impl NanoSpamApp {
         };
         std::fs::create_dir_all(&data_dir)?;
 
+        #[cfg(feature = "rai_protocol")]
+        let epoch_start_marker = data_dir.join(crate::setup::EPOCH_START_MARKER);
+        #[cfg(feature = "rai_protocol")]
+        if self.args.set_up_new_nodes() && self.args.epoch_duration > 0 {
+            match std::fs::remove_file(&epoch_start_marker) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            let _ = std::fs::remove_file(data_dir.join(crate::setup::CLOSE_METRICS_FILE));
+        }
+
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
         if self.args.set_up_new_nodes() {
@@ -94,7 +106,7 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
+            let node_handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
             if self.args.kill_nodes() {
                 self.node_lifetime = NodeLifetime::new(node_handles);
             }
@@ -159,6 +171,16 @@ impl NanoSpamApp {
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
+
+        #[cfg(feature = "rai_protocol")]
+        if self.args.set_up_new_nodes() && self.args.epoch_duration > 0 {
+            logic.lock().unwrap().start_epochs(
+                self.clock.now(),
+                Duration::from_secs(self.args.epoch_duration),
+            );
+            std::fs::write(&epoch_start_marker, b"start")?;
+            info!(epoch_duration = self.args.epoch_duration, "Epoch 1 opened");
+        }
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -234,9 +256,85 @@ impl NanoSpamApp {
         info!("Finalized {finalized_blocks} of {created_blocks} elections");
         #[cfg(feature = "rai_protocol")]
         info!(
+            "Non-finalized terminal outcomes: {}",
+            logic.non_finalized_total
+        );
+        #[cfg(feature = "rai_protocol")]
+        info!(
+            "Resolved outcomes: {} of {}",
+            finalized_blocks + logic.non_finalized_total,
+            created_blocks
+        );
+        #[cfg(feature = "rai_protocol")]
+        info!(
             "Fast finalizations: {} | Final-vote finalizations: {}",
             logic.fast_finalized_total, logic.final_finalized_total
         );
+        #[cfg(feature = "rai_protocol")]
+        if self.args.epoch_duration > 0 {
+            let metrics = std::fs::read_to_string(data_dir.join(crate::setup::CLOSE_METRICS_FILE))
+                .unwrap_or_default();
+            let mut close_times = std::collections::BTreeMap::new();
+            for line in metrics.lines() {
+                let values: Vec<_> = line.split_whitespace().collect();
+                if values.len() == 5 {
+                    close_times.insert(
+                        values[0].parse::<u64>().unwrap(),
+                        (
+                            values[1].parse::<u128>().unwrap(),
+                            values[2].parse::<u128>().unwrap(),
+                            values[3].parse::<u32>().unwrap(),
+                            values[4].parse::<u32>().unwrap(),
+                        ),
+                    );
+                }
+            }
+            info!("Epochs closed: {}", close_times.len());
+            let last_closed_epoch = close_times.last_key_value().map(|(epoch, _)| *epoch);
+            let unassigned = logic.epoch_stats.get(&0);
+            for (epoch, (cut_us, record_us, cut_round, record_round)) in &close_times {
+                let stats = logic.epoch_stats.get(epoch);
+                let include_unassigned = Some(*epoch) == last_closed_epoch;
+                let extra_fast = include_unassigned
+                    .then(|| unassigned.map(|stats| stats.fast).unwrap_or_default())
+                    .unwrap_or_default();
+                let extra_not_fast = include_unassigned
+                    .then(|| unassigned.map(|stats| stats.not_fast).unwrap_or_default())
+                    .unwrap_or_default();
+                let extra_non_finalized = include_unassigned
+                    .then(|| {
+                        unassigned
+                            .map(|stats| stats.non_finalized)
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                let fast = stats.map(|stats| stats.fast).unwrap_or_default() + extra_fast;
+                let not_fast =
+                    stats.map(|stats| stats.not_fast).unwrap_or_default() + extra_not_fast;
+                let non_finalized = stats.map(|stats| stats.non_finalized).unwrap_or_default()
+                    + extra_non_finalized;
+                let fast_time = stats.map(|stats| stats.fast_time).unwrap_or_default()
+                    + include_unassigned
+                        .then(|| unassigned.map(|stats| stats.fast_time).unwrap_or_default())
+                        .unwrap_or_default();
+                let average_fast = if fast == 0 {
+                    0
+                } else {
+                    fast_time.as_millis() / fast as u128
+                };
+                info!(
+                    "Epoch {epoch}: fast={} not-fast={} non-finalized={} avg fast finalization={} ms | cut={:.3} ms (rounds={}) record={:.3} ms (rounds={})",
+                    fast,
+                    not_fast,
+                    non_finalized,
+                    average_fast,
+                    *cut_us as f64 / 1_000.0,
+                    cut_round + 1,
+                    *record_us as f64 / 1_000.0,
+                    record_round + 1
+                );
+            }
+        }
         info!("Finalization rate: {finalization_rate} elections/s");
         if finalized_blocks > 0 {
             let finalization_time =
@@ -248,10 +346,16 @@ impl NanoSpamApp {
                 logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
             info!("Average election termination time: {termination_time} ms");
         }
-        if self.args.timeout > 0 && terminated_elections < created_blocks {
+        #[cfg(feature = "rai_protocol")]
+        let resolved = finalized_blocks + logic.non_finalized_total;
+        #[cfg(not(feature = "rai_protocol"))]
+        let resolved = terminated_elections;
+        let incomplete = resolved < created_blocks;
+        if self.args.timeout > 0 && incomplete {
             return Err(anyhow!(
-                "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
-                self.args.timeout
+                "only {} of {created_blocks} blocks reached a terminal outcome within {} seconds",
+                resolved,
+                self.args.timeout,
             ));
         }
 
@@ -432,10 +536,19 @@ fn track_confirmations(
                 {
                     let final_tally = rsnano_types::Amount::decode_dec(&election_info.final_tally)
                         .expect("invalid final tally in confirmation message");
-                    logic.record_finalization_type(final_tally);
+                    let fast = SpamLogic::is_fast_finalization(final_tally);
+                    let epoch = election_info.epoch.parse().expect("invalid election epoch");
+                    let conf_time = logic.confirmed(&block_hash, timestamp, fast, epoch);
+                    (conf_time, logic.is_finished())
+                } else {
+                    let conf_time = logic.confirmed(&block_hash, timestamp, false, 0);
+                    (conf_time, logic.is_finished())
                 }
-                let conf_time = logic.confirmed(&block_hash, timestamp);
-                (conf_time, logic.is_finished())
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    let conf_time = logic.confirmed(&block_hash, timestamp);
+                    (conf_time, logic.is_finished())
+                }
             };
 
             if finished {
@@ -517,6 +630,9 @@ async fn reconcile_confirmations(
             {
                 let finished = {
                     let mut logic = logic.lock().unwrap();
+                    #[cfg(feature = "rai_protocol")]
+                    logic.confirmed(&hash, clock.now(), false, 0);
+                    #[cfg(not(feature = "rai_protocol"))]
                     logic.confirmed(&hash, clock.now());
                     logic.is_finished()
                 };

@@ -5,7 +5,19 @@ use crate::domain::{
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, Block, BlockHash};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Duration,
+};
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+pub(crate) struct EpochStats {
+    pub(crate) fast: usize,
+    pub(crate) not_fast: usize,
+    pub(crate) fast_time: Duration,
+    pub(crate) non_finalized: usize,
+}
 
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
@@ -29,10 +41,17 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) terminated_total: usize,
+    pub(crate) non_finalized_total: usize,
     #[cfg(feature = "rai_protocol")]
     pub(crate) fast_finalized_total: usize,
     #[cfg(feature = "rai_protocol")]
     pub(crate) final_finalized_total: usize,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) epoch_stats: BTreeMap<u64, EpochStats>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_start: Option<Timestamp>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_duration: Duration,
     pub(crate) sum_termination_time_total: Duration,
     terminated: HashSet<BlockHash>,
     pub(crate) cps_measure_start: Option<Timestamp>,
@@ -54,10 +73,17 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             terminated_total: 0,
+            non_finalized_total: 0,
             #[cfg(feature = "rai_protocol")]
             fast_finalized_total: 0,
             #[cfg(feature = "rai_protocol")]
             final_finalized_total: 0,
+            #[cfg(feature = "rai_protocol")]
+            epoch_stats: BTreeMap::new(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_start: None,
+            #[cfg(feature = "rai_protocol")]
+            epoch_duration: Duration::ZERO,
             sum_termination_time_total: Duration::ZERO,
             terminated: HashSet::new(),
             cps_measure_start: None,
@@ -71,7 +97,7 @@ impl SpamLogic {
             // Termination/notarization releases dependent block generation, but it is not
             // finality. Keep the run alive until every requested block has actually been
             // finalized (or the outer timeout cancels it).
-            max_blocks > 0 && self.confirmed_total >= max_blocks
+            max_blocks > 0 && self.confirmed_total + self.non_finalized_total >= max_blocks
         }
         #[cfg(not(feature = "rai_protocol"))]
         {
@@ -89,6 +115,12 @@ impl SpamLogic {
             return false;
         }
         if timeout {
+            self.non_finalized_total += 1;
+            #[cfg(feature = "rai_protocol")]
+            if let Some(start) = self.epoch_start {
+                let epoch = start.elapsed(now).as_secs() / self.epoch_duration.as_secs() + 1;
+                self.epoch_stats.entry(epoch).or_default().non_finalized += 1;
+            }
             self.block_factory.rollback(&primary);
             self.delayed.discard(&primary);
         } else {
@@ -185,6 +217,8 @@ impl SpamLogic {
         &mut self,
         block_hash: &BlockHash,
         timestamp: Timestamp,
+        #[cfg(feature = "rai_protocol")] fast: bool,
+        #[cfg(feature = "rai_protocol")] epoch: u64,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
             let finalized = self.block_factory.finalize(block_hash);
@@ -204,6 +238,18 @@ impl SpamLogic {
                 self.confirmed_total += 1;
                 self.sum_conf_time_recent += conf_time;
                 self.sum_conf_time_total += conf_time;
+                #[cfg(feature = "rai_protocol")]
+                if self.epoch_start.is_some() {
+                    let stats = self.epoch_stats.entry(epoch).or_default();
+                    if fast {
+                        stats.fast += 1;
+                        stats.fast_time += conf_time;
+                        self.fast_finalized_total += 1;
+                    } else {
+                        stats.not_fast += 1;
+                        self.final_finalized_total += 1;
+                    }
+                }
             }
         }
 
@@ -211,14 +257,16 @@ impl SpamLogic {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn record_finalization_type(&mut self, final_tally: Amount) {
+    pub(crate) fn is_fast_finalization(final_tally: Amount) -> bool {
         let faulty_weight = Amount::raw((Amount::MAX.number() - 1) / 5);
         let final_certificate_threshold = Amount::MAX - faulty_weight * 2;
-        if final_tally >= final_certificate_threshold {
-            self.final_finalized_total += 1;
-        } else {
-            self.fast_finalized_total += 1;
-        }
+        final_tally < final_certificate_threshold
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn start_epochs(&mut self, start: Timestamp, duration: Duration) {
+        self.epoch_start = Some(start);
+        self.epoch_duration = duration;
     }
 
     pub(crate) fn reset_cps_counter(&mut self, now: Timestamp) {
