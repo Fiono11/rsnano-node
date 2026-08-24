@@ -11,6 +11,7 @@ pub enum ClosePayloadKind {
     UnknownBase,
     Delta(Vec<(QualifiedRoot, BlockHash)>),
     DeltaTooLarge,
+    SlotRequest,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,7 @@ impl ClosePayload {
             ClosePayloadKind::UnknownBase => (1, &[]),
             ClosePayloadKind::Delta(additions) => (2, additions),
             ClosePayloadKind::DeltaTooLarge => (3, &[]),
+            ClosePayloadKind::SlotRequest => (4, &[]),
         };
         writer.write_all(&[tag])?;
         writer.write_all(&self.epoch.to_be_bytes())?;
@@ -89,6 +91,7 @@ impl ClosePayload {
             1 => ClosePayloadKind::UnknownBase,
             2 => ClosePayloadKind::Delta(additions),
             3 => ClosePayloadKind::DeltaTooLarge,
+            4 => ClosePayloadKind::SlotRequest,
             _ => return Err(DeserializationError::InvalidData),
         };
         Ok(Self {

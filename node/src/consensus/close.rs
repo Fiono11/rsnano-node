@@ -3,20 +3,22 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc::Receiver},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_ledger::{Ledger, RepWeightCache};
-use rsnano_messages::{ClosePayload, ClosePayloadKind, CloseReport, CloseVote, Message};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet, RepWeightCache};
+use rsnano_messages::{
+    ClosePayload, ClosePayloadKind, CloseReport, CloseVote, ConfirmAck, Message, Publish,
+};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
-    Amount, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, QualifiedRoot,
+    Amount, Blake2HashBuilder, BlockHash, BlockPriority, PrivateKey, PublicKey, QualifiedRoot,
     UnixMillisTimestamp, VoteError, VoteType,
 };
 
 use super::election::VoteSummary;
-use super::{AecService, AecTickerPlugin};
+use super::{AecInsertRequest, AecService, AecTickerPlugin, LocalVoteHistory};
 use crate::{
     representatives::{QuorumSnapshot, RepresentativeTracker},
     transport::MessageFlooder,
@@ -34,12 +36,12 @@ fn hash_root(mut builder: Blake2HashBuilder, root: &QualifiedRoot) -> Blake2Hash
     builder
 }
 
-pub fn close_cut_hash(epoch: u64, roots: &[QualifiedRoot]) -> BlockHash {
+pub fn close_cut_hash(epoch: u64, hashes: &[BlockHash]) -> BlockHash {
     let mut builder = Blake2HashBuilder::default()
         .update(CUT_DOMAIN)
         .update(epoch.to_be_bytes());
-    for root in roots {
-        builder = hash_root(builder, root);
+    for hash in hashes {
+        builder = builder.update(hash.as_bytes());
     }
     builder.build().into()
 }
@@ -235,8 +237,13 @@ struct ClosingEpoch {
     epoch: u64,
     phase: ClosingPhase,
     reports: HashMap<PublicKey, CloseReport>,
-    cut: Vec<QualifiedRoot>,
-    cut_candidates: HashMap<BlockHash, Vec<QualifiedRoot>>,
+    cut: Vec<BlockHash>,
+    cut_candidates: HashMap<BlockHash, Vec<BlockHash>>,
+    finalized: Vec<(QualifiedRoot, BlockHash)>,
+}
+
+struct ClosedEpoch {
+    epoch: u64,
     finalized: Vec<(QualifiedRoot, BlockHash)>,
 }
 
@@ -430,7 +437,7 @@ impl CloseCoordinator {
     pub fn tick(
         &mut self,
         now: Timestamp,
-        pending: impl IntoIterator<Item = QualifiedRoot>,
+        pending: impl IntoIterator<Item = BlockHash>,
         finalized: impl IntoIterator<Item = (QualifiedRoot, BlockHash)>,
         key: &PrivateKey,
     ) -> Option<CloseReport> {
@@ -486,11 +493,11 @@ impl CloseCoordinator {
         if received < total_weight - faulty_weight {
             return None;
         }
-        let mut visibility = HashMap::<QualifiedRoot, Amount>::new();
+        let mut visibility = HashMap::<BlockHash, Amount>::new();
         for report in close.reports.values() {
             let weight = weight(&report.reporter);
-            for root in &report.pending {
-                *visibility.entry(root.clone()).or_default() += weight;
+            for hash in &report.pending {
+                *visibility.entry(*hash).or_default() += weight;
             }
         }
         let mut cut: Vec<_> = visibility
@@ -540,11 +547,11 @@ impl CloseCoordinator {
         Some(next)
     }
 
-    /// Returns the active epoch slot elections excluded by the decided cut.
+    /// Returns active epoch slot elections excluded by the decided cut.
     pub fn cut_finalized(
         &mut self,
         value: BlockHash,
-        active: impl IntoIterator<Item = QualifiedRoot>,
+        active: impl IntoIterator<Item = (QualifiedRoot, BlockHash)>,
     ) -> Option<Vec<QualifiedRoot>> {
         let close = self.closing.as_mut()?;
         if !matches!(close.phase, ClosingPhase::ElectingCut(_)) {
@@ -553,7 +560,10 @@ impl CloseCoordinator {
         close.cut = close.cut_candidates.get(&value)?.clone();
         let excluded = active
             .into_iter()
-            .filter(|root| root.epoch == close.epoch && close.cut.binary_search(root).is_err())
+            .filter_map(|(root, hash)| {
+                (root.epoch == close.epoch && close.cut.binary_search(&hash).is_err())
+                    .then_some(root)
+            })
             .collect();
         close.phase = ClosingPhase::DrainingCut;
         Some(excluded)
@@ -562,16 +572,17 @@ impl CloseCoordinator {
     pub fn slot_terminated(
         &mut self,
         root: QualifiedRoot,
+        hash: BlockHash,
         finalized: Option<BlockHash>,
     ) -> Option<CloseElection> {
         let close = self.closing.as_mut()?;
-        if close.phase != ClosingPhase::DrainingCut || close.cut.binary_search(&root).is_err() {
+        if close.phase != ClosingPhase::DrainingCut || close.cut.binary_search(&hash).is_err() {
             return None;
         }
         if let Some(hash) = finalized {
             close.finalized.push((root.clone(), hash));
         }
-        close.cut.retain(|pending| pending != &root);
+        close.cut.retain(|pending| pending != &hash);
         if !close.cut.is_empty() {
             return None;
         }
@@ -632,7 +643,7 @@ impl CloseCoordinator {
         Some(election.clone())
     }
 
-    fn draining_roots(&self) -> Vec<QualifiedRoot> {
+    fn draining_hashes(&self) -> Vec<BlockHash> {
         let Some(close) = &self.closing else {
             return Vec::new();
         };
@@ -642,20 +653,24 @@ impl CloseCoordinator {
         close.cut.clone()
     }
 
-    pub fn record_finalized(&mut self, value: BlockHash) -> bool {
+    fn record_finalized(&mut self, value: BlockHash) -> Option<ClosedEpoch> {
         let Some(close) = self.closing.as_ref() else {
-            return false;
+            return None;
         };
         let ClosingPhase::ElectingRecord(election) = &close.phase else {
-            return false;
+            return None;
         };
         if election.value != value {
-            return false;
+            return None;
         }
+        let result = ClosedEpoch {
+            epoch: close.epoch,
+            finalized: close.finalized.clone(),
+        };
         self.latest_closed_epoch = close.epoch;
         self.previous_record = value;
         self.closing = None;
-        true
+        Some(result)
     }
 
     fn current_record_payload(&self) -> Option<(BlockHash, Vec<(QualifiedRoot, BlockHash)>)> {
@@ -692,6 +707,7 @@ impl CloseCoordinator {
         election.value = target;
         Some(election.clone())
     }
+
 }
 
 /// Clock-driven single-node vertical slice used by nanospam. Report and vote
@@ -725,6 +741,10 @@ pub struct CloseTransitionPlugin {
     retained_record_payloads: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
     reconciliation_targets: HashSet<BlockHash>,
     reconciliation_attempts: HashMap<(BlockHash, BlockHash), HashSet<ChannelId>>,
+    closed_epoch: Option<ClosedEpoch>,
+    unresolved_cut: HashSet<BlockHash>,
+    recovery_attempts: HashMap<BlockHash, HashSet<ChannelId>>,
+    vote_history: Arc<LocalVoteHistory>,
 }
 
 impl CloseTransitionPlugin {
@@ -735,6 +755,7 @@ impl CloseTransitionPlugin {
         rep_weights: Arc<RepWeightCache>,
         rep_tracker: Arc<RepresentativeTracker>,
         ledger: Arc<Ledger>,
+        vote_history: Arc<LocalVoteHistory>,
         report_rx: Receiver<CloseReport>,
         vote_rx: Receiver<CloseVote>,
         payload_rx: Receiver<(ClosePayload, ChannelId)>,
@@ -784,6 +805,10 @@ impl CloseTransitionPlugin {
             retained_record_payloads: HashMap::new(),
             reconciliation_targets: HashSet::new(),
             reconciliation_attempts: HashMap::new(),
+            closed_epoch: None,
+            unresolved_cut: HashSet::new(),
+            recovery_attempts: HashMap::new(),
+            vote_history,
         }
     }
 
@@ -797,10 +822,26 @@ impl CloseTransitionPlugin {
         if !path.exists() {
             return false;
         }
+        let synchronized_start = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|value| value.parse::<u128>().ok())
+            .and_then(|millis| u64::try_from(millis).ok())
+            .map(Duration::from_millis)
+            .and_then(|start| {
+                let wall_now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+                if wall_now < start {
+                    None
+                } else {
+                    Some(now - (wall_now - start))
+                }
+            });
+        let Some(synchronized_start) = synchronized_start else {
+            return false;
+        };
         // Wallet funding happens before nanospam opens the measured protocol epoch.
         // Do not carry those setup finalizations into epoch 1's close record.
         aec.begin_epoch_one();
-        self.coordinator.start_epoch_at(now);
+        self.coordinator.start_epoch_at(synchronized_start);
         self.epoch_started = true;
         tracing::info!(epoch = 1, "epoch opened");
         true
@@ -891,7 +932,8 @@ impl CloseTransitionPlugin {
                     self.finalized_cut = Some(cut);
                 }
                 CloseElectionKind::Record => {
-                    if self.coordinator.record_finalized(value) {
+                    if let Some(closed) = self.coordinator.record_finalized(value) {
+                        self.closed_epoch = Some(closed);
                         let record_duration = self
                             .record_started
                             .take()
@@ -1131,6 +1173,28 @@ impl CloseTransitionPlugin {
                         self.replay_cached_votes(&record);
                     }
                 }
+                ClosePayloadKind::SlotRequest => {
+                    if let Some(block) = self.ledger.any().get_block(&message.target) {
+                        let root = block.qualified_root();
+                        self.flooder.lock().unwrap().try_send_channel_id(
+                            channel_id,
+                            &Message::Publish(Publish::new_forward(block.into())),
+                            TrafficType::Generic,
+                        );
+                        for vote in self
+                            .vote_history
+                            .all_votes_for_epoch(&root.root, message.epoch)
+                        {
+                            self.flooder.lock().unwrap().try_send_channel_id(
+                                channel_id,
+                                &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
+                                    (*vote).clone(),
+                                )),
+                                TrafficType::Generic,
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -1172,8 +1236,10 @@ impl CloseTransitionPlugin {
 
     fn apply_cut(&mut self, aec: &AecService, key: &PrivateKey, cut: &CloseElection) {
         let active = aec.epoch_slots(cut.epoch);
-        let roots = active.iter().map(|(root, _)| root.clone());
-        let Some(excluded) = self.coordinator.cut_finalized(cut.value, roots) else {
+        let Some(excluded) = self
+            .coordinator
+            .cut_finalized(cut.value, active.iter().cloned())
+        else {
             return;
         };
         self.cut_duration = self
@@ -1183,6 +1249,90 @@ impl CloseTransitionPlugin {
             .map(|(_, started)| started.elapsed(self.clock.now()));
         self.cut_round = Some(cut.round);
         for root in excluded {
+            aec.exclude_by_cut(&root);
+            tracing::info!(
+                epoch = cut.epoch,
+                ?root,
+                "fresh slot votes suppressed by finalized cut"
+            );
+        }
+        let active: HashMap<_, _> = active.into_iter().map(|(root, hash)| (hash, root)).collect();
+        let cut_hashes = self.coordinator.draining_hashes();
+        self.unresolved_cut = cut_hashes
+            .iter()
+            .filter(|hash| !active.contains_key(hash))
+            .copied()
+            .collect();
+        self.draining = self
+            .coordinator
+            .draining_hashes()
+            .into_iter()
+            .filter_map(|hash| active.get(&hash).cloned().map(|root| (root, hash)))
+            .collect();
+        tracing::info!(
+            epoch = cut.epoch,
+            pending = self.draining.len(),
+            "cut finalized"
+        );
+
+        self.start_record_if_drained(key);
+    }
+
+    fn recover_cut_data(&mut self, aec: &AecService) {
+        let epoch = self.coordinator.closing_epoch().unwrap_or_default();
+        for hash in self.unresolved_cut.clone() {
+            if let Some(block) = self.ledger.any().get_block(&hash) {
+                let root = block.qualified_root().with_epoch(epoch);
+                if self.ledger.any().confirmed().block_exists(&hash) {
+                    self.draining.insert(root, hash);
+                    self.unresolved_cut.remove(&hash);
+                    continue;
+                }
+                let _ = aec.insert_for_epoch(
+                    AecInsertRequest::new_manual(block, BlockPriority::new_test_instance()),
+                    self.clock.now(),
+                    epoch,
+                );
+                if aec.is_active_root(&root) || aec.epoch_slot_outcome(&root).is_some() {
+                    self.draining.insert(root, hash);
+                    self.unresolved_cut.remove(&hash);
+                    continue;
+                }
+            }
+            let attempts = self.recovery_attempts.entry(hash).or_default();
+            if let Some(peer) = self
+                .rep_tracker
+                .peered_reps()
+                .into_iter()
+                .find(|peer| !attempts.contains(&peer.channel_id))
+            {
+                let request = ClosePayload {
+                    epoch,
+                    election_kind: 2,
+                    base: BlockHash::ZERO,
+                    target: hash,
+                    kind: ClosePayloadKind::SlotRequest,
+                };
+                if self.flooder.lock().unwrap().try_send_channel_id(
+                    peer.channel_id,
+                    &Message::ClosePayload(request),
+                    TrafficType::Generic,
+                ) {
+                    attempts.insert(peer.channel_id);
+                }
+            }
+        }
+    }
+
+    fn install_closed_record(&mut self, aec: &AecService) {
+        let Some(closed) = self.closed_epoch.take() else {
+            return;
+        };
+        let finalized: HashSet<_> = closed.finalized.iter().map(|(root, _)| root).collect();
+        for (root, _) in aec.epoch_slots(closed.epoch) {
+            if finalized.contains(&root) {
+                continue;
+            }
             let hashes = aec
                 .election_for_root(&root)
                 .map(|election| {
@@ -1194,36 +1344,13 @@ impl CloseTransitionPlugin {
                 })
                 .unwrap_or_default();
             self.ledger.roll_back_batch(&hashes, usize::MAX);
-            aec.exclude_by_cut(&root);
             aec.apply_rolled_back_outcome(&root);
-            tracing::info!(epoch = cut.epoch, ?root, "slot excluded by finalized cut");
+            tracing::info!(
+                epoch = closed.epoch,
+                ?root,
+                "slot excluded by certified close record"
+            );
         }
-        self.draining = active
-            .into_iter()
-            .filter(|(root, _)| aec.is_active_root(root))
-            .collect();
-        tracing::info!(
-            epoch = cut.epoch,
-            pending = self.draining.len(),
-            "cut finalized"
-        );
-
-        // A slot can terminate after it was reported but before the cut certificate
-        // arrives. Such a slot is no longer active, so no later AEC transition can
-        // notify the close coordinator. Reconcile it from the finalized snapshot now.
-        let finalized: HashMap<_, _> = aec.finalized_epoch_slots(cut.epoch).into_iter().collect();
-        for root in self.coordinator.draining_roots() {
-            if self.draining.contains_key(&root) {
-                continue;
-            }
-            if let Some(record) = self
-                .coordinator
-                .slot_terminated(root.clone(), finalized.get(&root).copied())
-            {
-                self.start_record(key, record);
-            }
-        }
-        self.start_record_if_drained(key);
     }
 }
 
@@ -1259,7 +1386,7 @@ impl AecTickerPlugin for CloseTransitionPlugin {
             let finalized = aec.finalized_epoch_slots(epoch);
             let Some(report) = self.coordinator.tick(
                 now,
-                pending.iter().map(|(root, _)| root.clone()),
+                pending.iter().map(|(_, hash)| *hash),
                 finalized,
                 &key,
             ) else {
@@ -1299,31 +1426,38 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                 self.publish_vote_for(&election, value, vote_type, &key);
             }
         }
+        self.install_closed_record(aec);
         if let Some(cut) = self.pending_cut.take() {
             self.apply_cut(aec, &key, &cut);
         }
 
         if matches!(self.coordinator.phase(), Some(ClosingPhase::DrainingCut)) {
-            let epoch = self.coordinator.closing_epoch().unwrap_or_default();
-            let finalized: HashMap<_, _> = aec.finalized_epoch_slots(epoch).into_iter().collect();
+            self.recover_cut_data(aec);
+            for (root, hash) in &mut self.draining {
+                if let Some(election) = aec.election_for_root(root) {
+                    *hash = election.winner().hash();
+                }
+            }
             let terminated: Vec<_> = self
                 .draining
                 .iter()
                 .filter_map(|(root, hash)| {
-                    if let Some(hash) = finalized.get(root) {
+                    if let Some(outcome) = aec.epoch_slot_outcome(root) {
+                        Some((root.clone(), outcome))
+                    } else if !hash.is_zero()
+                        && (aec.was_recently_confirmed(hash)
+                            || self.ledger.any().confirmed().block_exists(hash))
+                    {
                         Some((root.clone(), Some(*hash)))
-                    } else if aec.was_recently_confirmed(hash) {
-                        Some((root.clone(), Some(*hash)))
-                    } else if !aec.is_active_root(root) {
-                        Some((root.clone(), None))
                     } else {
                         None
                     }
                 })
                 .collect();
             for (root, finalized) in terminated {
+                let hash = self.draining[&root];
                 self.draining.remove(&root);
-                if let Some(record) = self.coordinator.slot_terminated(root, finalized) {
+                if let Some(record) = self.coordinator.slot_terminated(root, hash, finalized) {
                     self.start_record(&key, record);
                 }
             }
@@ -1385,7 +1519,7 @@ mod tests {
 
         assert_eq!(
             close
-                .tick(now + duration * 2, [root(1, 1)], [], &key)
+                .tick(now + duration * 2, [BlockHash::from(1)], [], &key)
                 .unwrap()
                 .epoch,
             1
@@ -1408,13 +1542,15 @@ mod tests {
         let included = root(1, 1);
         let excluded = root(2, 1);
         let already_final = root(3, 1);
+        let included_hash = BlockHash::from(201);
+        let excluded_hash = BlockHash::from(202);
         let mut close = CloseCoordinator::new(now, duration);
 
         assert!(close.tick(now, [], [], &keys[0]).is_none());
         let local_report = close
             .tick(
                 now + duration,
-                [included.clone(), excluded.clone()],
+                [included_hash, excluded_hash],
                 [(already_final.clone(), BlockHash::from(203))],
                 &keys[0],
             )
@@ -1434,7 +1570,7 @@ mod tests {
         );
         let cut = close
             .add_report(
-                CloseReport::new(1, [included.clone()], &keys[1]),
+                CloseReport::new(1, [included_hash], &keys[1]),
                 |reporter| weights.get(reporter).copied().unwrap_or_default(),
                 Amount::raw(3),
                 Amount::raw(1),
@@ -1443,15 +1579,21 @@ mod tests {
         assert_eq!(cut.kind, CloseElectionKind::Cut);
 
         let excluded_roots = close
-            .cut_finalized(cut.value, [included.clone(), excluded.clone()])
+            .cut_finalized(
+                cut.value,
+                [
+                    (included.clone(), included_hash),
+                    (excluded.clone(), excluded_hash),
+                ],
+            )
             .unwrap();
         assert_eq!(excluded_roots, vec![excluded]);
 
         let record = close
-            .slot_terminated(included.clone(), Some(BlockHash::from(201)))
+            .slot_terminated(included.clone(), included_hash, Some(included_hash))
             .unwrap();
         assert_eq!(record.kind, CloseElectionKind::Record);
-        assert!(close.record_finalized(record.value));
+        assert!(close.record_finalized(record.value).is_some());
         assert_eq!(close.latest_closed_epoch(), 1);
         assert_eq!(close.open_epoch(), 2);
         assert_eq!(close.closing_epoch(), None);
@@ -1694,7 +1836,7 @@ mod tests {
             .iter()
             .map(|key| (key.public_key(), Amount::raw(1)))
             .collect::<HashMap<_, _>>();
-        let root = root(44, 1);
+        let candidate = BlockHash::from(44);
         let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
         close
             .tick(
@@ -1711,7 +1853,7 @@ mod tests {
         assert!(
             close
                 .add_report(
-                    CloseReport::new(1, [root.clone()], &keys[0]),
+                    CloseReport::new(1, [candidate], &keys[0]),
                     weight,
                     Amount::raw(3),
                     Amount::raw(1)
@@ -1728,7 +1870,7 @@ mod tests {
             .unwrap();
         let second = close
             .add_report(
-                CloseReport::new(1, [root], &keys[2]),
+                CloseReport::new(1, [candidate], &keys[2]),
                 weight,
                 Amount::raw(3),
                 Amount::raw(1),
@@ -1738,4 +1880,5 @@ mod tests {
         assert!(second.candidates.contains(&first.value));
         assert!(second.candidates.contains(&second.value));
     }
+
 }

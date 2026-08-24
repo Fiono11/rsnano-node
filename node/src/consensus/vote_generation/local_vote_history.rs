@@ -206,6 +206,17 @@ impl LocalVoteHistory {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn all_votes_for_epoch(&self, root: &Root, epoch: u64) -> Vec<Arc<Vote>> {
+        let data = self.data.lock().unwrap();
+        data.history_by_root
+            .get(&(*root, epoch))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id).map(|entry| entry.vote.clone()))
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn vote_for_epoch(
         &self,
         root: &Root,

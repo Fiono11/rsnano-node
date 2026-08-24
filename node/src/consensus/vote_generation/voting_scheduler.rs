@@ -27,6 +27,9 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
 
 #[cfg(feature = "rai_protocol")]
 pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
+    if !e.vote_generation_enabled() {
+        return Vec::new();
+    }
     let mut targets = vec![VoteTarget {
         root: e.qualified_root().clone(),
         winner: e.winner().hash(),
@@ -264,6 +267,15 @@ mod tests {
                 .iter()
                 .any(|target| target.vote_type == VoteType::Timeout)
         );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn suppressed_election_has_no_local_vote_targets() {
+        let mut election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        election.suppress_vote_generation();
+
+        assert!(vote_targets(&election).is_empty());
     }
 
     /*

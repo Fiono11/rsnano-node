@@ -14,7 +14,7 @@ const FINALIZED_SIZE: usize = ROOT_SIZE + BlockHash::SERIALIZED_SIZE;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloseReport {
     pub epoch: u64,
-    pub pending: Vec<QualifiedRoot>,
+    pub pending: Vec<BlockHash>,
     pub finalized: Vec<(QualifiedRoot, BlockHash)>,
     pub reporter: PublicKey,
     pub signature: Signature,
@@ -23,7 +23,7 @@ pub struct CloseReport {
 impl CloseReport {
     pub fn new(
         epoch: u64,
-        pending: impl IntoIterator<Item = QualifiedRoot>,
+        pending: impl IntoIterator<Item = BlockHash>,
         key: &PrivateKey,
     ) -> Self {
         Self::new_with_finalized(epoch, pending, [], key)
@@ -31,7 +31,7 @@ impl CloseReport {
 
     pub fn new_with_finalized(
         epoch: u64,
-        pending: impl IntoIterator<Item = QualifiedRoot>,
+        pending: impl IntoIterator<Item = BlockHash>,
         finalized: impl IntoIterator<Item = (QualifiedRoot, BlockHash)>,
         key: &PrivateKey,
     ) -> Self {
@@ -74,10 +74,8 @@ impl CloseReport {
         self.reporter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&(self.pending.len() as u16).to_be_bytes())?;
-        for root in &self.pending {
-            writer.write_all(root.root.as_bytes())?;
-            writer.write_all(root.previous.as_bytes())?;
-            writer.write_all(&root.epoch.to_be_bytes())?;
+        for hash in &self.pending {
+            writer.write_all(hash.as_bytes())?;
         }
         for (root, hash) in &self.finalized {
             writer.write_all(root.root.as_bytes())?;
@@ -97,17 +95,14 @@ impl CloseReport {
         let signature = Signature::deserialize(&mut bytes)?;
         let pending_count = u16::from_be_bytes(bytes[..2].try_into().unwrap()) as usize;
         bytes = &bytes[2..];
-        if bytes.len() < pending_count * ROOT_SIZE
-            || (bytes.len() - pending_count * ROOT_SIZE) % FINALIZED_SIZE != 0
+        if bytes.len() < pending_count * BlockHash::SERIALIZED_SIZE
+            || (bytes.len() - pending_count * BlockHash::SERIALIZED_SIZE) % FINALIZED_SIZE != 0
         {
             return Err(DeserializationError::InvalidData);
         }
         let mut pending = Vec::with_capacity(pending_count);
         for _ in 0..pending_count {
-            let root = Root::deserialize(&mut bytes)?;
-            let previous = BlockHash::deserialize(&mut bytes)?;
-            let root_epoch = read_u64_be(&mut bytes)?;
-            pending.push(QualifiedRoot::new(root, previous).with_epoch(root_epoch));
+            pending.push(BlockHash::deserialize(&mut bytes)?);
         }
         let mut finalized = Vec::new();
         while !bytes.is_empty() {
@@ -142,7 +137,7 @@ impl MessageVariant for CloseReport {
 
 fn report_hash(
     epoch: u64,
-    pending: &[QualifiedRoot],
+    pending: &[BlockHash],
     finalized: &[(QualifiedRoot, BlockHash)],
     reporter: &PublicKey,
 ) -> Blake2Hash {
@@ -150,11 +145,8 @@ fn report_hash(
         .update(DOMAIN)
         .update(epoch.to_be_bytes())
         .update(reporter.as_bytes());
-    for root in pending {
-        builder = builder
-            .update(root.root.as_bytes())
-            .update(root.previous.as_bytes())
-            .update(root.epoch.to_be_bytes());
+    for hash in pending {
+        builder = builder.update(hash.as_bytes());
     }
     for (root, hash) in finalized {
         builder = builder
@@ -175,7 +167,7 @@ mod tests {
     fn close_report_roundtrip_and_signature() {
         let report = CloseReport::new(
             7,
-            [QualifiedRoot::new_test_instance().with_epoch(7)],
+            [BlockHash::from(7)],
             &PrivateKey::from(1),
         );
         assert!(report.validate());

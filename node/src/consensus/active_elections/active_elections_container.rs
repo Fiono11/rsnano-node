@@ -1,6 +1,10 @@
 #[cfg(feature = "rai_protocol")]
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::{cmp::max, collections::HashMap, time::Duration};
+use std::{
+    cmp::max,
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use strum::EnumCount;
 
@@ -51,6 +55,8 @@ pub(crate) struct ActiveElectionsContainer {
     rai_epoch: RaiEpoch,
     #[cfg(feature = "rai_protocol")]
     rai_finalized: HashMap<QualifiedRoot, BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    rai_terminated: HashSet<QualifiedRoot>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -91,6 +97,8 @@ impl ActiveElectionsContainer {
             rai_epoch: RaiEpoch::new(),
             #[cfg(feature = "rai_protocol")]
             rai_finalized: HashMap::new(),
+            #[cfg(feature = "rai_protocol")]
+            rai_terminated: HashSet::new(),
         }
     }
 
@@ -151,6 +159,29 @@ impl ActiveElectionsContainer {
         }
 
         self.insert_new_election(request, now);
+        Ok(())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_for_epoch(
+        &mut self,
+        request: AecInsertRequest,
+        now: Timestamp,
+        epoch: u64,
+    ) -> Result<(), AecInsertError> {
+        self.ensure_not_stopped()?;
+        self.ensure_not_recently_confirmed(&request)?;
+        let root = request.block.qualified_root().with_epoch(epoch);
+        if self.try_upgrade_priority_election(&request, root.clone())? {
+            return Ok(());
+        }
+        let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
+        election.set_qualified_root(root.clone());
+        self.roots.insert(Entry {
+            root,
+            election,
+            priority: request.priority,
+        });
         Ok(())
     }
 
@@ -295,9 +326,21 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slot_outcome(&self, root: &QualifiedRoot) -> Option<Option<BlockHash>> {
+        if let Some(hash) = self.rai_finalized.get(root) {
+            Some(Some(*hash))
+        } else if self.rai_terminated.contains(root) {
+            Some(None)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn begin_epoch_one(&mut self) {
         debug_assert_eq!(self.rai_epoch.current(), 1);
         self.rai_finalized.clear();
+        self.rai_terminated.clear();
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -307,12 +350,10 @@ impl ActiveElectionsContainer {
 
     #[cfg(feature = "rai_protocol")]
     pub fn exclude_by_cut(&mut self, root: &QualifiedRoot) -> bool {
-        if let Some(entry) = self.roots.get(root) {
-            self.notify(AecFact::ElectionTerminated(
-                root.clone(),
-                entry.election.candidate_blocks().keys().copied().collect(),
-                true,
-            ));
+        if let Some(entry) = self.roots.get_mut(root) {
+            // A cut exclusion stops fresh local support, but the election must
+            // remain routable for epoch votes which were already produced.
+            entry.election.suppress_vote_generation();
             true
         } else {
             false
@@ -498,11 +539,13 @@ impl ActiveElectionsContainer {
             return false;
         }
         self.rai_finalized.insert(root.clone(), block.hash());
+        self.rai_terminated.remove(&root);
         self.erase_certified(&root)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn apply_rolled_back_outcome(&mut self, root: &QualifiedRoot) -> bool {
+        self.rai_terminated.insert(root.clone());
         self.erase_certified(root)
     }
 
@@ -824,6 +867,25 @@ mod tests {
             .unwrap();
 
         assert!(!container.erase(&root));
+        assert!(container.is_active_root(&root));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn cut_exclusion_suppresses_fresh_votes_without_erasing_the_election() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root().with_epoch(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert!(container.exclude_by_cut(&root));
+        let election = container.election_for_root(&root).unwrap();
+        assert!(!election.vote_generation_enabled());
         assert!(container.is_active_root(&root));
     }
 

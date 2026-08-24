@@ -44,6 +44,8 @@ pub struct Election {
     terminated: bool,
     #[cfg(feature = "rai_protocol")]
     terminated_by_timeout: bool,
+    #[cfg(feature = "rai_protocol")]
+    vote_generation_enabled: bool,
 
     behavior: ElectionBehavior,
     has_quorum: bool,
@@ -86,6 +88,8 @@ impl Election {
             terminated: false,
             #[cfg(feature = "rai_protocol")]
             terminated_by_timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            vote_generation_enabled: true,
             winner_tally: Amount::ZERO,
             winner_final_tally: Amount::ZERO,
             behavior,
@@ -115,6 +119,16 @@ impl Election {
         debug_assert!(root.epoch > 0);
         debug_assert_eq!(root.slot(), self.qualified_root.slot());
         self.qualified_root = root;
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn suppress_vote_generation(&mut self) {
+        self.vote_generation_enabled = false;
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn vote_generation_enabled(&self) -> bool {
+        self.vote_generation_enabled
     }
 
     pub fn behavior(&self) -> ElectionBehavior {

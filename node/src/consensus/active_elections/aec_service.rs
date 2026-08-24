@@ -91,6 +91,11 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slot_outcome(&self, root: &QualifiedRoot) -> Option<Option<BlockHash>> {
+        self.aec.read().unwrap().epoch_slot_outcome(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn begin_epoch_one(&self) {
         self.aec.write().unwrap().begin_epoch_one();
     }
@@ -133,6 +138,16 @@ impl AecService {
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
         self.aec.write().unwrap().insert(request, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_for_epoch(
+        &self,
+        request: AecInsertRequest,
+        now: Timestamp,
+        epoch: u64,
+    ) -> Result<(), AecInsertError> {
+        self.aec.write().unwrap().insert_for_epoch(request, now, epoch)
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {

@@ -2,7 +2,7 @@ use std::{
     net::{Ipv6Addr, SocketAddrV6},
     sync::Mutex,
     thread::yield_now,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
@@ -174,11 +174,18 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         if self.args.set_up_new_nodes() && self.args.epoch_duration > 0 {
+            const EPOCH_START_SYNC_DELAY: Duration = Duration::from_secs(1);
+            let start_at = SystemTime::now() + EPOCH_START_SYNC_DELAY;
+            let start_millis = start_at
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is before the Unix epoch")
+                .as_millis();
+            std::fs::write(&epoch_start_marker, start_millis.to_string())?;
+            tokio::time::sleep(EPOCH_START_SYNC_DELAY).await;
             logic.lock().unwrap().start_epochs(
                 self.clock.now(),
                 Duration::from_secs(self.args.epoch_duration),
             );
-            std::fs::write(&epoch_start_marker, b"start")?;
             info!(epoch_duration = self.args.epoch_duration, "Epoch 1 opened");
         }
 
