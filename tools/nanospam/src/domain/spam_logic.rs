@@ -16,6 +16,7 @@ pub(crate) struct EpochStats {
     pub(crate) fast: usize,
     pub(crate) not_fast: usize,
     pub(crate) fast_time: Duration,
+    pub(crate) final_time: Duration,
     pub(crate) non_finalized: usize,
 }
 
@@ -105,6 +106,18 @@ impl SpamLogic {
                 && (self.confirmed_total >= max_blocks
                     || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn final_outcome_epoch(&self) -> Option<u64> {
+        self.is_finished().then(|| {
+            self.epoch_stats
+                .iter()
+                .rev()
+                .find(|(_, stats)| stats.fast + stats.not_fast + stats.non_finalized > 0)
+                .map(|(epoch, _)| *epoch)
+                .unwrap_or(0)
+        })
     }
 
     pub(crate) fn terminated(&mut self, hash: &BlockHash, timeout: bool, now: Timestamp) -> bool {
@@ -247,6 +260,7 @@ impl SpamLogic {
                         self.fast_finalized_total += 1;
                     } else {
                         stats.not_fast += 1;
+                        stats.final_time += conf_time;
                         self.final_finalized_total += 1;
                     }
                 }

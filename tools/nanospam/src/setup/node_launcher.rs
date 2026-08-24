@@ -60,6 +60,7 @@ pub(crate) async fn start_nodes(
                     "NANO_RAI_LOCAL_REPRESENTATIVE",
                     pr_key(i).public_key().encode_hex(),
                 )
+                .env("NANO_RAI_NODE_INDEX", i.to_string())
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")
@@ -76,12 +77,10 @@ pub(crate) async fn start_nodes(
                 .env("NANO_RAI_EPOCH_START_DELAY_SECONDS", "5")
                 .env("NANO_RAI_EPOCH_START_FILE", &epoch_start_marker)
                 .stdout(Stdio::inherit());
-                if i == 0 {
-                    cmd.env(
-                        "NANO_RAI_CLOSE_METRICS_FILE",
-                        data_dir.join(CLOSE_METRICS_FILE),
-                    );
-                }
+                cmd.env(
+                    "NANO_RAI_CLOSE_METRICS_FILE",
+                    data_dir.join(format!("{CLOSE_METRICS_FILE}_pr{i}")),
+                );
             }
             cmd
         };
