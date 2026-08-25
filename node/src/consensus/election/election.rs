@@ -120,6 +120,25 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn reassign_to_certified_epoch(&mut self, root: QualifiedRoot) {
+        self.set_qualified_root(root);
+        // Votes and phase tallies are scoped to the qualified root's epoch. None
+        // of the state accumulated under the speculative epoch can be reused.
+        self.votes.clear();
+        self.tallies = BlockTallies::new();
+        self.final_tallies = BlockTallies::new();
+        self.first_tallies = BlockTallies::new();
+        self.second_look.clear();
+        self.timeout_predicate = false;
+        self.terminated = false;
+        self.terminated_by_timeout = false;
+        self.vote_generation_enabled = true;
+        self.winner_tally = Amount::ZERO;
+        self.winner_final_tally = Amount::ZERO;
+        self.has_quorum = false;
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn suppress_vote_generation(&mut self) {
         self.vote_generation_enabled = false;
     }

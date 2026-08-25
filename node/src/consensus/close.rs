@@ -27,6 +27,7 @@ use crate::{
 
 const CUT_DOMAIN: &[u8] = b"RAI/CloseCut";
 const RECORD_DOMAIN: &[u8] = b"RAI/CloseRecord";
+const REPORT_REQUEST_INTERVAL: Duration = Duration::from_millis(250);
 
 fn hash_root(mut builder: Blake2HashBuilder, root: &QualifiedRoot) -> Blake2HashBuilder {
     builder = builder
@@ -308,6 +309,13 @@ impl CloseReportCache {
             .into_iter()
             .flat_map(|reports| reports.values().cloned())
             .collect()
+    }
+
+    fn reporters(&self, epoch: u64) -> HashSet<PublicKey> {
+        self.entries
+            .get(&epoch)
+            .map(|reports| reports.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     fn remove_closed(&mut self, epoch: u64) {
@@ -732,7 +740,6 @@ impl CloseCoordinator {
         election.value = target;
         Some(election.clone())
     }
-
 }
 
 /// Clock-driven single-node vertical slice used by nanospam. Report and vote
@@ -751,6 +758,8 @@ pub struct CloseTransitionPlugin {
     payload_rx: Receiver<(ClosePayload, ChannelId)>,
     flooder: Mutex<MessageFlooder>,
     local_report: Option<CloseReport>,
+    local_reports: HashMap<u64, CloseReport>,
+    last_report_request: HashMap<u64, Timestamp>,
     pending_cut: Option<CloseElection>,
     finalized_cut: Option<CloseElection>,
     finalized_record: Option<CloseElection>,
@@ -760,6 +769,7 @@ pub struct CloseTransitionPlugin {
     epoch_started: bool,
     local_representative: Option<PublicKey>,
     fixed_committee: Vec<PublicKey>,
+    fixed_committee_ports: Vec<u16>,
     metrics_file: Option<PathBuf>,
     cut_started: Option<(u64, Timestamp)>,
     cut_duration: Option<Duration>,
@@ -801,6 +811,15 @@ impl CloseTransitionPlugin {
             .ok()
             .map(|value| value.split(',').filter_map(PublicKey::decode_hex).collect())
             .unwrap_or_default();
+        let fixed_committee_ports = std::env::var("NANO_RAI_FIXED_COMMITTEE_PEERING_PORTS")
+            .ok()
+            .map(|value| {
+                value
+                    .split(',')
+                    .filter_map(|port| port.parse().ok())
+                    .collect()
+            })
+            .unwrap_or_default();
         let metrics_file = std::env::var_os("NANO_RAI_CLOSE_METRICS_FILE").map(PathBuf::from);
         let node_index = std::env::var("NANO_RAI_NODE_INDEX")
             .ok()
@@ -822,6 +841,8 @@ impl CloseTransitionPlugin {
             payload_rx,
             flooder: Mutex::new(flooder),
             local_report: None,
+            local_reports: HashMap::new(),
+            last_report_request: HashMap::new(),
             pending_cut: None,
             finalized_cut: None,
             finalized_record: None,
@@ -831,6 +852,7 @@ impl CloseTransitionPlugin {
             epoch_start_file,
             local_representative,
             fixed_committee,
+            fixed_committee_ports,
             metrics_file,
             cut_started: None,
             cut_duration: None,
@@ -890,6 +912,23 @@ impl CloseTransitionPlugin {
                 .find(|key| key.public_key() == representative)
         } else {
             keys.into_iter().next()
+        }
+    }
+
+    fn classify_fixed_committee_channels(&self) {
+        if self.fixed_committee.len() != self.fixed_committee_ports.len() {
+            return;
+        }
+        for channel in self.flooder.lock().unwrap().channels() {
+            let port = channel.peering_addr_or_peer_addr().port();
+            if let Some(index) = self
+                .fixed_committee_ports
+                .iter()
+                .position(|committee_port| *committee_port == port)
+            {
+                self.rep_tracker
+                    .set_channel(self.fixed_committee[index], channel.channel_id());
+            }
         }
     }
 
@@ -1100,7 +1139,7 @@ impl CloseTransitionPlugin {
         {
             self.record_started = Some((record.epoch, self.clock.now()));
         }
-        tracing::info!(
+        tracing::warn!(
             node = self.node_index,
             epoch = record.epoch,
             round = record.round,
@@ -1118,7 +1157,7 @@ impl CloseTransitionPlugin {
         {
             self.record_started = Some((record.epoch, self.clock.now()));
         }
-        tracing::info!(
+        tracing::warn!(
             node = self.node_index,
             epoch = record.epoch,
             round = record.round,
@@ -1139,7 +1178,8 @@ impl CloseTransitionPlugin {
         else {
             return;
         };
-        tracing::info!(
+        tracing::warn!(
+            node = self.node_index,
             epoch = record.epoch,
             round = record.round,
             value = ?record.value,
@@ -1152,6 +1192,13 @@ impl CloseTransitionPlugin {
 
     fn retain_current_record_payload(&mut self) {
         if let Some((hash, payload)) = self.coordinator.current_record_payload() {
+            tracing::warn!(
+                node = self.node_index,
+                epoch = self.coordinator.closing_epoch().unwrap_or_default(),
+                ?hash,
+                entries = ?payload,
+                "close record payload"
+            );
             self.retained_record_payloads.insert(hash, payload);
         }
     }
@@ -1192,7 +1239,7 @@ impl CloseTransitionPlugin {
                     );
                 }
                 ClosePayloadKind::UnknownBase | ClosePayloadKind::DeltaTooLarge => {
-                    tracing::info!(base=?message.base, target=?message.target, response=?message.kind, "close payload request rejected");
+                    tracing::warn!(node=self.node_index, base=?message.base, target=?message.target, response=?message.kind, "close payload request rejected");
                     self.reconciliation_attempts
                         .entry((message.base, message.target))
                         .or_default()
@@ -1222,7 +1269,7 @@ impl CloseTransitionPlugin {
                         message.target,
                         payload.clone(),
                     ) {
-                        tracing::info!(base=?message.base, target=?message.target, "close record reconciled");
+                        tracing::warn!(node=self.node_index, base=?message.base, target=?message.target, "close record reconciled");
                         self.retained_record_payloads
                             .insert(message.target, payload);
                         self.reconciliation_targets.remove(&message.target);
@@ -1252,8 +1299,58 @@ impl CloseTransitionPlugin {
                         }
                     }
                 }
+                ClosePayloadKind::ReportRequest => {
+                    if let Some(report) = self.local_reports.get(&message.epoch) {
+                        self.flooder.lock().unwrap().try_send_channel_id(
+                            channel_id,
+                            &Message::CloseReport(report.clone()),
+                            TrafficType::Generic,
+                        );
+                    }
+                }
             }
         }
+    }
+
+    fn request_missing_reports(&mut self) {
+        let Some(epoch) = self.coordinator.closing_epoch() else {
+            return;
+        };
+        if !matches!(
+            self.coordinator.phase(),
+            Some(ClosingPhase::CollectingReports)
+        ) {
+            return;
+        }
+        let reporters = self.report_cache.reporters(epoch);
+        if self
+            .fixed_committee
+            .iter()
+            .all(|rep| reporters.contains(rep))
+        {
+            return;
+        }
+        let now = self.clock.now();
+        if self
+            .last_report_request
+            .get(&epoch)
+            .is_some_and(|last| last.elapsed(now) < REPORT_REQUEST_INTERVAL)
+        {
+            return;
+        }
+        self.last_report_request.insert(epoch, now);
+        let request = ClosePayload {
+            epoch,
+            election_kind: CloseElectionKind::Cut.wire(),
+            base: BlockHash::ZERO,
+            target: BlockHash::ZERO,
+            kind: ClosePayloadKind::ReportRequest,
+        };
+        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+            &Message::ClosePayload(request),
+            TrafficType::Generic,
+            1.0,
+        );
     }
 
     fn request_reconciliation(&mut self) {
@@ -1281,7 +1378,7 @@ impl CloseTransitionPlugin {
                     base,
                     target,
                 );
-                tracing::info!(?base, ?target, channel=?peer.channel_id, "requesting close record delta");
+                tracing::warn!(node=self.node_index, ?base, ?target, channel=?peer.channel_id, "requesting close record delta");
                 self.flooder.lock().unwrap().try_send_channel_id(
                     peer.channel_id,
                     &Message::ClosePayload(request),
@@ -1313,8 +1410,19 @@ impl CloseTransitionPlugin {
                 "fresh slot votes suppressed by finalized cut"
             );
         }
-        let active: HashMap<_, _> = active.into_iter().map(|(root, hash)| (hash, root)).collect();
+        let active: HashMap<_, _> = active
+            .into_iter()
+            .map(|(root, hash)| (hash, root))
+            .collect();
         let cut_hashes = self.coordinator.draining_hashes();
+        tracing::warn!(
+            node = self.node_index,
+            epoch = cut.epoch,
+            cut_hash = ?cut.value,
+            hashes = ?cut_hashes,
+            local_slots = ?active,
+            "certified cut contents"
+        );
         self.unresolved_cut = cut_hashes
             .iter()
             .filter(|hash| !active.contains_key(hash))
@@ -1326,9 +1434,11 @@ impl CloseTransitionPlugin {
             .into_iter()
             .filter_map(|hash| active.get(&hash).cloned().map(|root| (root, hash)))
             .collect();
-        tracing::info!(
+        tracing::warn!(
+            node = self.node_index,
             epoch = cut.epoch,
             pending = self.draining.len(),
+            unresolved = self.unresolved_cut.len(),
             "cut finalized"
         );
 
@@ -1340,7 +1450,26 @@ impl CloseTransitionPlugin {
         for hash in self.unresolved_cut.clone() {
             if let Some(block) = self.ledger.any().get_block(&hash) {
                 let root = block.qualified_root().with_epoch(epoch);
+                if aec.reassign_epoch_by_cut(&hash, epoch) {
+                    tracing::warn!(
+                        node = self.node_index,
+                        epoch,
+                        ?hash,
+                        ?root,
+                        "reassigned active cut slot to certified epoch"
+                    );
+                    self.draining.insert(root, hash);
+                    self.unresolved_cut.remove(&hash);
+                    continue;
+                }
                 if self.ledger.any().confirmed().block_exists(&hash) {
+                    tracing::warn!(
+                        node = self.node_index,
+                        epoch,
+                        ?hash,
+                        ?root,
+                        "recovered confirmed cut slot"
+                    );
                     self.draining.insert(root, hash);
                     self.unresolved_cut.remove(&hash);
                     continue;
@@ -1351,6 +1480,13 @@ impl CloseTransitionPlugin {
                     epoch,
                 );
                 if aec.is_active_root(&root) || aec.epoch_slot_outcome(&root).is_some() {
+                    tracing::warn!(
+                        node = self.node_index,
+                        epoch,
+                        ?hash,
+                        ?root,
+                        "recovered active cut slot"
+                    );
                     self.draining.insert(root, hash);
                     self.unresolved_cut.remove(&hash);
                     continue;
@@ -1375,6 +1511,7 @@ impl CloseTransitionPlugin {
                     &Message::ClosePayload(request),
                     TrafficType::Generic,
                 ) {
+                    tracing::warn!(node=self.node_index, epoch, ?hash, channel=?peer.channel_id, "requested missing cut slot");
                     attempts.insert(peer.channel_id);
                 }
             }
@@ -1399,9 +1536,7 @@ impl CloseTransitionPlugin {
 
             for vote in self.vote_history.all_votes_for_epoch(&root.root, epoch) {
                 self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                    &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
-                        (*vote).clone(),
-                    )),
+                    &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote((*vote).clone())),
                     TrafficType::Generic,
                     1.0,
                 );
@@ -1442,6 +1577,7 @@ impl CloseTransitionPlugin {
 impl AecTickerPlugin for CloseTransitionPlugin {
     fn run(&mut self, aec: &AecService) {
         let now = self.clock.now();
+        self.classify_fixed_committee_channels();
         if !self.start_epoch_if_ready(aec, now) {
             return;
         }
@@ -1475,16 +1611,24 @@ impl AecTickerPlugin for CloseTransitionPlugin {
             let epoch = self.coordinator.open_epoch();
             let pending = aec.epoch_slots(epoch);
             let finalized = aec.finalized_epoch_slots(epoch);
+            tracing::warn!(
+                node = self.node_index,
+                epoch,
+                pending = ?pending,
+                finalized = ?finalized,
+                "local epoch contents before close report"
+            );
             let Some(report) = self.coordinator.tick(
                 now,
                 pending.iter().map(|(_, hash)| *hash),
-                finalized,
+                finalized.clone(),
                 &key,
             ) else {
                 return;
             };
             debug_assert_eq!(aec.advance_epoch(), epoch + 1);
             self.local_report = Some(report.clone());
+            self.local_reports.insert(epoch, report.clone());
             self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
                 &Message::CloseReport(report.clone()),
                 TrafficType::Generic,
@@ -1502,6 +1646,7 @@ impl AecTickerPlugin for CloseTransitionPlugin {
         }
 
         self.drain_reports(aec, &key);
+        self.request_missing_reports();
         self.refresh_record(aec, &key);
         self.drain_payloads(&key);
         // Close votes may be emitted before every PR has entered the matching
@@ -1546,8 +1691,10 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                     }
                 })
                 .collect();
+            let epoch = self.coordinator.closing_epoch().unwrap_or_default();
             for (root, finalized) in terminated {
                 let hash = self.draining[&root];
+                tracing::warn!(node=self.node_index, epoch, ?root, ?hash, finalized=?finalized, "cut slot drained");
                 self.draining.remove(&root);
                 if let Some(record) = self.coordinator.slot_terminated(root, hash, finalized) {
                     self.start_record(&key, record);
@@ -1996,5 +2143,4 @@ mod tests {
         assert!(second.candidates.contains(&first.value));
         assert!(second.candidates.contains(&second.value));
     }
-
 }

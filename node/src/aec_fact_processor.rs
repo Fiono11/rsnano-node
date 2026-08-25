@@ -68,6 +68,16 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
         self.plugins.handle(&event);
         match event {
             AecFact::ElectionStarted(hash, root) => {
+                #[cfg(feature = "rai_protocol")]
+                if root.epoch > 0 {
+                    tracing::warn!(
+                        node = rai_node_index(),
+                        epoch = root.epoch,
+                        ?root,
+                        ?hash,
+                        "slot election started"
+                    );
+                }
                 self.aec_fork_inserter.try_add_cached_forks(&root);
                 self.bootstrap_election_activator.election_started(hash);
                 if let Some(tx) = &self.node_observer {
@@ -88,6 +98,16 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             AecFact::ElectionTerminated(root, hashes, timeout) => {
+                if root.epoch > 0 {
+                    tracing::warn!(
+                        node = rai_node_index(),
+                        epoch = root.epoch,
+                        ?root,
+                        ?hashes,
+                        timeout,
+                        "slot election terminated"
+                    );
+                }
                 if timeout {
                     self.ledger.roll_back_batch(&hashes, usize::MAX);
                     self.active_elections.apply_rolled_back_outcome(&root);
@@ -175,4 +195,12 @@ impl AecFactProcessor {
             .expect("Should serialize block successfully");
         self.network_filter.clear_bytes(&buffer);
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn rai_node_index() -> usize {
+    std::env::var("NANO_RAI_NODE_INDEX")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default()
 }

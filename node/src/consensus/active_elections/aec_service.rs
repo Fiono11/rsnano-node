@@ -147,7 +147,15 @@ impl AecService {
         now: Timestamp,
         epoch: u64,
     ) -> Result<(), AecInsertError> {
-        self.aec.write().unwrap().insert_for_epoch(request, now, epoch)
+        self.aec
+            .write()
+            .unwrap()
+            .insert_for_epoch(request, now, epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn reassign_epoch_by_cut(&self, hash: &BlockHash, epoch: u64) -> bool {
+        self.aec.write().unwrap().reassign_epoch_by_cut(hash, epoch)
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {

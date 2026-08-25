@@ -12,6 +12,7 @@ pub enum ClosePayloadKind {
     Delta(Vec<(QualifiedRoot, BlockHash)>),
     DeltaTooLarge,
     SlotRequest,
+    ReportRequest,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +42,7 @@ impl ClosePayload {
             ClosePayloadKind::Delta(additions) => (2, additions),
             ClosePayloadKind::DeltaTooLarge => (3, &[]),
             ClosePayloadKind::SlotRequest => (4, &[]),
+            ClosePayloadKind::ReportRequest => (5, &[]),
         };
         writer.write_all(&[tag])?;
         writer.write_all(&self.epoch.to_be_bytes())?;
@@ -92,6 +94,7 @@ impl ClosePayload {
             2 => ClosePayloadKind::Delta(additions),
             3 => ClosePayloadKind::DeltaTooLarge,
             4 => ClosePayloadKind::SlotRequest,
+            5 => ClosePayloadKind::ReportRequest,
             _ => return Err(DeserializationError::InvalidData),
         };
         Ok(Self {
@@ -130,6 +133,18 @@ mod tests {
                 QualifiedRoot::new_test_instance().with_epoch(3),
                 BlockHash::from(4),
             )]),
+        };
+        assert_deserializable(&Message::ClosePayload(payload));
+    }
+
+    #[test]
+    fn roundtrip_report_request() {
+        let payload = ClosePayload {
+            epoch: 7,
+            election_kind: 0,
+            base: BlockHash::ZERO,
+            target: BlockHash::ZERO,
+            kind: ClosePayloadKind::ReportRequest,
         };
         assert_deserializable(&Message::ClosePayload(payload));
     }

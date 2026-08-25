@@ -154,6 +154,8 @@ impl ActiveElectionsContainer {
         let root = request.block.qualified_root();
         #[cfg(feature = "rai_protocol")]
         let root = root.with_epoch(self.rai_epoch.current());
+        #[cfg(feature = "rai_protocol")]
+        self.ensure_hash_not_active_in_other_epoch(&request, &root)?;
         if self.try_upgrade_priority_election(&request, root)? {
             return Ok(());
         }
@@ -172,6 +174,7 @@ impl ActiveElectionsContainer {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
         let root = request.block.qualified_root().with_epoch(epoch);
+        self.ensure_hash_not_active_in_other_epoch(&request, &root)?;
         if self.try_upgrade_priority_election(&request, root.clone())? {
             return Ok(());
         }
@@ -183,6 +186,37 @@ impl ActiveElectionsContainer {
             priority: request.priority,
         });
         Ok(())
+    }
+
+    /// Moves the active election for `hash` to the epoch certified by a close cut.
+    ///
+    /// A replica can open the next local epoch before learning that a concurrently
+    /// received block belongs to the previous epoch's cut. Re-keying the existing
+    /// election preserves the one-active-election-per-hash invariant while making
+    /// the certified cut authoritative for the slot's epoch.
+    #[cfg(feature = "rai_protocol")]
+    pub fn reassign_epoch_by_cut(&mut self, hash: &BlockHash, epoch: u64) -> bool {
+        let Some(old_root) = self.roots.vote_router.qualified_root(hash).cloned() else {
+            return false;
+        };
+        if old_root.epoch == epoch {
+            return true;
+        }
+
+        let Some(mut entry) = self.roots.erase(&old_root) else {
+            return false;
+        };
+        let new_root = entry.root.clone().with_epoch(epoch);
+        entry.root = new_root.clone();
+        entry.election.reassign_to_certified_epoch(new_root.clone());
+        let candidate_hashes: Vec<_> = entry.election.candidate_blocks().keys().copied().collect();
+        self.roots.insert(entry);
+        for candidate_hash in candidate_hashes {
+            self.roots
+                .vote_router
+                .connect(candidate_hash, new_root.clone());
+        }
+        true
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -197,12 +231,28 @@ impl ActiveElectionsContainer {
         &self,
         request: &AecInsertRequest,
     ) -> Result<(), AecInsertError> {
-        let root = request.block.qualified_root();
-
-        if self.recently_confirmed.root_exists(&root) {
+        if self.recently_confirmed.hash_exists(&request.block.hash()) {
             return Err(AecInsertError::RecentlyConfirmed);
         }
         Ok(())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn ensure_hash_not_active_in_other_epoch(
+        &self,
+        request: &AecInsertRequest,
+        intended_root: &QualifiedRoot,
+    ) -> Result<(), AecInsertError> {
+        if self
+            .roots
+            .vote_router
+            .qualified_root(&request.block.hash())
+            .is_some_and(|active_root| active_root != intended_root)
+        {
+            Err(AecInsertError::Duplicate)
+        } else {
+            Ok(())
+        }
     }
 
     fn try_upgrade_priority_election(
@@ -896,6 +946,88 @@ mod tests {
         let election = container.election_for_root(&root).unwrap();
         assert!(!election.vote_generation_enabled());
         assert!(container.is_active_root(&root));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn active_hash_cannot_be_inserted_in_another_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let epoch_one_root = block.qualified_root().with_epoch(1);
+        let now = Timestamp::new_test_instance();
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        assert_eq!(container.advance_epoch(), 2);
+
+        let result = container.insert(
+            AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+            now,
+        );
+
+        assert_eq!(result, Err(AecInsertError::Duplicate));
+        assert_eq!(container.len(), 1);
+        assert_eq!(
+            container.roots.vote_router.qualified_root(&hash),
+            Some(&epoch_one_root)
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recently_confirmed_hash_cannot_be_reinserted_in_another_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        container
+            .recently_confirmed
+            .put(block.qualified_root().with_epoch(1), hash);
+        assert_eq!(container.advance_epoch(), 2);
+
+        let result = container.insert(
+            AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+            Timestamp::new_test_instance(),
+        );
+
+        assert_eq!(result, Err(AecInsertError::RecentlyConfirmed));
+        assert!(container.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn certified_cut_reassigns_active_hash_without_creating_another_election() {
+        let mut container = ActiveElectionsContainer::default();
+        assert_eq!(container.advance_epoch(), 2);
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let epoch_one_root = block.qualified_root().with_epoch(1);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert!(container.reassign_epoch_by_cut(&hash, 1));
+        assert_eq!(container.len(), 1);
+        assert!(container.is_active_root(&epoch_one_root));
+        assert_eq!(
+            container.roots.vote_router.qualified_root(&hash),
+            Some(&epoch_one_root)
+        );
+        assert_eq!(
+            container
+                .election_for_root(&epoch_one_root)
+                .unwrap()
+                .qualified_root(),
+            &epoch_one_root
+        );
     }
 
     #[test]

@@ -107,6 +107,10 @@ impl MessageFlooder {
         self.network.read().unwrap().get(channel_id).cloned()
     }
 
+    pub(crate) fn channels(&self) -> Vec<Arc<Channel>> {
+        self.network.read().unwrap().channels().cloned().collect()
+    }
+
     fn remove_principal_reps(&self, channels: &mut Vec<Arc<Channel>>, count: usize) {
         self.rep_tracker.with_snapshot(|snapshot| {
             channels.retain(|c| !snapshot.is_principal_rep(c.channel_id()));

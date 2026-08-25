@@ -29,6 +29,10 @@ pub(crate) async fn start_nodes(
         .map(|i| pr_key(i).public_key().encode_hex())
         .collect::<Vec<_>>()
         .join(",");
+    let fixed_committee_ports = (0..args.prs)
+        .map(|i| peering_port(i).to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     #[cfg(feature = "rai_protocol")]
     let epoch_start_marker = data_dir.join(EPOCH_START_MARKER);
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
@@ -40,6 +44,10 @@ pub(crate) async fn start_nodes(
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
+                .env(
+                    "NANO_RAI_FIXED_COMMITTEE_PEERING_PORTS",
+                    &fixed_committee_ports,
+                )
                 .env("NANO_TEST_EPOCH_1", "0")
                 .env("NANO_TEST_EPOCH_2", "0")
                 .env("NANO_TEST_EPOCH_2_RECV", "0")
@@ -128,5 +136,6 @@ pub(crate) async fn start_nodes(
         );
         sleep(Duration::from_millis(100)).await;
     }
+
     children
 }
