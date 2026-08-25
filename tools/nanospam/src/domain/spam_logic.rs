@@ -95,10 +95,7 @@ impl SpamLogic {
         let max_blocks = self.block_factory.max_blocks();
         #[cfg(feature = "rai_protocol")]
         {
-            // Termination/notarization releases dependent block generation, but it is not
-            // finality. Keep the run alive until every requested block has actually been
-            // finalized (or the outer timeout cancels it).
-            max_blocks > 0 && self.confirmed_total + self.non_finalized_total >= max_blocks
+            max_blocks > 0 && self.terminated_total >= max_blocks
         }
         #[cfg(not(feature = "rai_protocol"))]
         {

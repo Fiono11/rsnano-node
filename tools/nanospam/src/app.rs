@@ -108,6 +108,9 @@ impl NanoSpamApp {
                 let _ = std::fs::remove_file(
                     data_dir.join(format!("{}_pr{i}", crate::setup::CLOSE_METRICS_FILE)),
                 );
+                let _ = std::fs::remove_file(
+                    data_dir.join(format!("{}_pr{i}", crate::setup::CLOSE_READY_FILE)),
+                );
             }
         }
 
@@ -194,6 +197,7 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         if self.args.set_up_new_nodes() && self.args.epoch_duration > 0 {
+            wait_for_close_participants(&data_dir, self.args.prs).await?;
             const EPOCH_START_SYNC_DELAY: Duration = Duration::from_secs(1);
             let start_at = SystemTime::now() + EPOCH_START_SYNC_DELAY;
             let start_millis = start_at
@@ -222,13 +226,7 @@ impl NanoSpamApp {
 
             let confirmation_cancel = cancel_nanospam.clone();
             s.spawn(|| {
-                track_confirmations(
-                    rx_ws_msg,
-                    &logic,
-                    confirmation_cancel,
-                    &milestones,
-                    started,
-                )
+                track_confirmations(rx_ws_msg, &logic, confirmation_cancel, &milestones, started)
             });
 
             tokio_scoped::scope(|scope| {
@@ -329,22 +327,21 @@ impl NanoSpamApp {
         info!("Finalized {finalized_blocks} of {created_blocks} elections");
         #[cfg(feature = "rai_protocol")]
         info!(
-            "Non-finalized terminal outcomes: {}",
-            logic.non_finalized_total
+            "Non-terminated elections: {}",
+            created_blocks.saturating_sub(terminated_elections)
         );
         #[cfg(feature = "rai_protocol")]
-        info!(
-            "Resolved outcomes: {} of {}",
-            finalized_blocks + logic.non_finalized_total,
-            created_blocks
-        );
+        info!("Terminal outcomes: {terminated_elections} of {created_blocks}");
         #[cfg(feature = "rai_protocol")]
         info!(
             "Fast finalizations: {} | Final-vote finalizations: {}",
             logic.fast_finalized_total, logic.final_finalized_total
         );
         #[cfg(feature = "rai_protocol")]
+        let mut epoch_validation_error = None;
+        #[cfg(feature = "rai_protocol")]
         if self.args.epoch_duration > 0 {
+            let mut closed_by_pr = Vec::with_capacity(self.args.prs);
             for i in 0..self.args.prs {
                 let path = data_dir.join(format!("{}_pr{i}", crate::setup::CLOSE_METRICS_FILE));
                 let closed = std::fs::read_to_string(path)
@@ -353,6 +350,26 @@ impl NanoSpamApp {
                     .filter_map(|line| line.split_whitespace().next()?.parse::<u64>().ok())
                     .collect::<Vec<_>>();
                 info!("PR{i} epochs closed: {closed:?}");
+                closed_by_pr.push(closed);
+            }
+            let expected = closed_by_pr.first().cloned().unwrap_or_default();
+            let disagreeing = closed_by_pr
+                .iter()
+                .enumerate()
+                .filter(|(_, closed)| **closed != expected)
+                .map(|(i, closed)| format!("PR{i}={closed:?}"))
+                .collect::<Vec<_>>();
+            if !disagreeing.is_empty() {
+                epoch_validation_error = Some(format!(
+                    "PRs did not close the same epochs: PR0={expected:?}, {}",
+                    disagreeing.join(", ")
+                ));
+            } else if let Some(final_epoch) = logic.final_outcome_epoch()
+                && !expected.contains(&final_epoch)
+            {
+                epoch_validation_error = Some(format!(
+                    "all PRs closed {expected:?}, but final outcome epoch {final_epoch} was not closed"
+                ));
             }
             let metrics = std::fs::read_to_string(
                 data_dir.join(format!("{}_pr0", crate::setup::CLOSE_METRICS_FILE)),
@@ -451,21 +468,53 @@ impl NanoSpamApp {
                 logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
             info!("Average slot election termination time: {termination_time} ms");
         }
-        #[cfg(feature = "rai_protocol")]
-        let resolved = finalized_blocks + logic.non_finalized_total;
-        #[cfg(not(feature = "rai_protocol"))]
-        let resolved = terminated_elections;
-        let incomplete = resolved < created_blocks;
+        let incomplete = terminated_elections < created_blocks;
         if self.args.timeout > 0 && incomplete {
             return Err(anyhow!(
-                "only {} of {created_blocks} blocks reached a terminal outcome within {} seconds",
-                resolved,
+                "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
                 self.args.timeout,
             ));
+        }
+        #[cfg(feature = "rai_protocol")]
+        if let Some(error) = epoch_validation_error {
+            return Err(anyhow!(error));
         }
 
         Ok(())
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn wait_for_close_participants(data_dir: &std::path::Path, prs: usize) -> anyhow::Result<()> {
+    const READY_TIMEOUT: Duration = Duration::from_secs(30);
+    let wait = async {
+        loop {
+            let missing = (0..prs)
+                .filter(|i| {
+                    !data_dir
+                        .join(format!("{}_pr{i}", crate::setup::CLOSE_READY_FILE))
+                        .exists()
+                })
+                .collect::<Vec<_>>();
+            if missing.is_empty() {
+                info!(prs, "All PRs are ready to participate in epoch closing");
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    timeout(READY_TIMEOUT, wait).await.map_err(|_| {
+        let missing = (0..prs)
+            .filter(|i| {
+                !data_dir
+                    .join(format!("{}_pr{i}", crate::setup::CLOSE_READY_FILE))
+                    .exists()
+            })
+            .map(|i| format!("PR{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow!("close participant readiness timed out after 30 seconds; not ready: {missing}")
+    })
 }
 
 #[cfg(feature = "rai_protocol")]

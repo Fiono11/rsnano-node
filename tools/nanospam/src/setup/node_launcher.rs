@@ -18,6 +18,8 @@ use crate::{
 pub(crate) const EPOCH_START_MARKER: &str = "rai_epoch_start";
 #[cfg(feature = "rai_protocol")]
 pub(crate) const CLOSE_METRICS_FILE: &str = "rai_close_metrics";
+#[cfg(feature = "rai_protocol")]
+pub(crate) const CLOSE_READY_FILE: &str = "rai_close_ready";
 
 pub(crate) async fn start_nodes(
     args: &CliArgs,
@@ -85,6 +87,10 @@ pub(crate) async fn start_nodes(
                 .env("NANO_RAI_EPOCH_START_DELAY_SECONDS", "5")
                 .env("NANO_RAI_EPOCH_START_FILE", &epoch_start_marker)
                 .stdout(Stdio::inherit());
+                cmd.env(
+                    "NANO_RAI_CLOSE_READY_FILE",
+                    data_dir.join(format!("{CLOSE_READY_FILE}_pr{i}")),
+                );
                 cmd.env(
                     "NANO_RAI_CLOSE_METRICS_FILE",
                     data_dir.join(format!("{CLOSE_METRICS_FILE}_pr{i}")),
