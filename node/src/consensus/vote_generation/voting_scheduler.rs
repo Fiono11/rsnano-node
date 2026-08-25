@@ -49,7 +49,10 @@ pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
             vote_type: VoteType::Final,
         });
     }
-    if e.should_vote_timeout() {
+    // Once final is eligible, prefer it and do not concurrently queue a timeout.
+    // Per-representative history below the generators supplies the durable-for-
+    // process-lifetime lock when a timeout was signed on an earlier pass.
+    if !e.has_quorum() && e.should_vote_timeout() {
         targets.push(VoteTarget {
             root: e.qualified_root().clone(),
             winner: e.winner().hash(),
@@ -236,7 +239,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rai_protocol")]
-    fn timeout_does_not_replace_an_eligible_final_vote() {
+    fn eligible_final_vote_excludes_timeout_vote() {
         let block = SavedBlock::new_test_instance();
         let hash = block.hash();
         let mut election = Election::new_test_instance_with(block);
@@ -263,7 +266,7 @@ mod tests {
                 .any(|target| target.vote_type == VoteType::Final)
         );
         assert!(
-            targets
+            !targets
                 .iter()
                 .any(|target| target.vote_type == VoteType::Timeout)
         );

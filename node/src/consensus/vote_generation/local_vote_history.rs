@@ -256,6 +256,22 @@ impl LocalVoteHistory {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn has_conflicting_terminal_vote(
+        &self,
+        root: &Root,
+        epoch: u64,
+        vote_type: rsnano_types::VoteType,
+        voter: PublicKey,
+    ) -> bool {
+        let conflicting = match vote_type {
+            rsnano_types::VoteType::Final => rsnano_types::VoteType::Timeout,
+            rsnano_types::VoteType::Timeout => rsnano_types::VoteType::Final,
+            _ => return false,
+        };
+        self.has_vote_type(root, epoch, conflicting, voter)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn non_timeout_notarization_count(
         &self,
         root: &Root,

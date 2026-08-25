@@ -96,6 +96,14 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn epoch_slot_finalized_or_timed_out(&self, root: &QualifiedRoot) -> bool {
+        self.aec
+            .read()
+            .unwrap()
+            .epoch_slot_finalized_or_timed_out(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn begin_epoch_one(&self) {
         self.aec.write().unwrap().begin_epoch_one();
     }
@@ -154,8 +162,8 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn reassign_epoch_by_cut(&self, hash: &BlockHash, epoch: u64) -> bool {
-        self.aec.write().unwrap().reassign_epoch_by_cut(hash, epoch)
+    pub fn has_election_for_epoch(&self, hash: &BlockHash, epoch: u64) -> bool {
+        self.aec.read().unwrap().has_election_for_epoch(hash, epoch)
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {

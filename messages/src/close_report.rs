@@ -21,11 +21,7 @@ pub struct CloseReport {
 }
 
 impl CloseReport {
-    pub fn new(
-        epoch: u64,
-        pending: impl IntoIterator<Item = BlockHash>,
-        key: &PrivateKey,
-    ) -> Self {
+    pub fn new(epoch: u64, pending: impl IntoIterator<Item = BlockHash>, key: &PrivateKey) -> Self {
         Self::new_with_finalized(epoch, pending, [], key)
     }
 
@@ -165,11 +161,7 @@ mod tests {
 
     #[test]
     fn close_report_roundtrip_and_signature() {
-        let report = CloseReport::new(
-            7,
-            [BlockHash::from(7)],
-            &PrivateKey::from(1),
-        );
+        let report = CloseReport::new(7, [BlockHash::from(7)], &PrivateKey::from(1));
         assert!(report.validate());
         assert_deserializable(&Message::CloseReport(report));
     }

@@ -14,11 +14,13 @@ use rsnano_network::{ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
     Amount, Blake2HashBuilder, BlockHash, BlockPriority, PrivateKey, PublicKey, QualifiedRoot,
-    UnixMillisTimestamp, VoteError, VoteType,
+    UnixMillisTimestamp, Vote, VoteError, VoteType,
 };
 
 use super::election::VoteSummary;
-use super::{AecInsertRequest, AecService, AecTickerPlugin, LocalVoteHistory};
+use super::{
+    AecInsertRequest, AecService, AecTickerPlugin, LocalVoteHistory, vote_cache::VoteCache,
+};
 use crate::{
     representatives::{QuorumSnapshot, RepresentativeTracker},
     transport::MessageFlooder,
@@ -240,6 +242,7 @@ struct ClosingEpoch {
     reports: HashMap<PublicKey, CloseReport>,
     cut: Vec<BlockHash>,
     cut_candidates: HashMap<BlockHash, Vec<BlockHash>>,
+    deferred_cut_value: Option<BlockHash>,
     finalized: Vec<(QualifiedRoot, BlockHash)>,
 }
 
@@ -493,6 +496,7 @@ impl CloseCoordinator {
             reports: HashMap::new(),
             cut: Vec::new(),
             cut_candidates: HashMap::new(),
+            deferred_cut_value: None,
             finalized,
         });
         Some(report)
@@ -546,6 +550,15 @@ impl CloseCoordinator {
                 close.phase = ClosingPhase::ElectingCut(election.clone());
                 Some(election)
             }
+            ClosingPhase::ElectingCut(election) if election.round == 0 => {
+                // Round 0's proposal is immutable once voting has started. A late
+                // report may change the locally derived cut, but publishing a new
+                // First vote in the same round makes the result depend on message
+                // ordering at each replica. Carry the newer value into round 1 if
+                // round 0 times out instead.
+                close.deferred_cut_value = (value != election.local_value).then_some(value);
+                None
+            }
             ClosingPhase::ElectingCut(election) => election.add_candidate(value).then(|| {
                 election.value = value;
                 election.clone()
@@ -562,17 +575,23 @@ impl CloseCoordinator {
             }
             _ => return None,
         };
-        if !current.value_updated {
+        if !current.value_updated && close.deferred_cut_value.is_none() {
             return None;
         }
-        let mut next = CloseElection::new(
-            current.kind,
-            current.epoch,
-            current.round + 1,
-            current.local_value,
-        );
+        let local_value = if current.kind == CloseElectionKind::Cut {
+            close
+                .deferred_cut_value
+                .take()
+                .unwrap_or(current.local_value)
+        } else {
+            current.local_value
+        };
+        let mut next =
+            CloseElection::new(current.kind, current.epoch, current.round + 1, local_value);
         next.known_values = current.known_values.clone();
         next.candidates = current.candidates.clone();
+        next.known_values.insert(local_value);
+        next.candidates.insert(local_value);
         close.phase = match next.kind {
             CloseElectionKind::Cut => ClosingPhase::ElectingCut(next.clone()),
             CloseElectionKind::Record => ClosingPhase::ElectingRecord(next.clone()),
@@ -766,6 +785,8 @@ pub struct CloseTransitionPlugin {
     report_cache: CloseReportCache,
     vote_cache: CloseVoteCache,
     epoch_start_file: Option<PathBuf>,
+    close_ready_file: Option<PathBuf>,
+    close_ready_written: bool,
     epoch_started: bool,
     local_representative: Option<PublicKey>,
     fixed_committee: Vec<PublicKey>,
@@ -778,10 +799,12 @@ pub struct CloseTransitionPlugin {
     retained_record_payloads: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
     reconciliation_targets: HashSet<BlockHash>,
     reconciliation_attempts: HashMap<(BlockHash, BlockHash), HashSet<ChannelId>>,
+    last_reconciliation_request: HashMap<(BlockHash, BlockHash), Timestamp>,
     closed_epoch: Option<ClosedEpoch>,
     unresolved_cut: HashSet<BlockHash>,
-    recovery_attempts: HashMap<BlockHash, HashSet<ChannelId>>,
+    last_recovery_request: HashMap<BlockHash, Timestamp>,
     vote_history: Arc<LocalVoteHistory>,
+    slot_vote_cache: Arc<VoteCache>,
     node_index: usize,
 }
 
@@ -794,6 +817,7 @@ impl CloseTransitionPlugin {
         rep_tracker: Arc<RepresentativeTracker>,
         ledger: Arc<Ledger>,
         vote_history: Arc<LocalVoteHistory>,
+        slot_vote_cache: Arc<VoteCache>,
         report_rx: Receiver<CloseReport>,
         vote_rx: Receiver<CloseVote>,
         payload_rx: Receiver<(ClosePayload, ChannelId)>,
@@ -804,6 +828,7 @@ impl CloseTransitionPlugin {
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or_default();
         let epoch_start_file = std::env::var_os("NANO_RAI_EPOCH_START_FILE").map(PathBuf::from);
+        let close_ready_file = std::env::var_os("NANO_RAI_CLOSE_READY_FILE").map(PathBuf::from);
         let local_representative = std::env::var("NANO_RAI_LOCAL_REPRESENTATIVE")
             .ok()
             .and_then(|value| PublicKey::decode_hex(&value));
@@ -850,6 +875,8 @@ impl CloseTransitionPlugin {
             vote_cache: CloseVoteCache::default(),
             epoch_started: epoch_start_file.is_none(),
             epoch_start_file,
+            close_ready_file,
+            close_ready_written: false,
             local_representative,
             fixed_committee,
             fixed_committee_ports,
@@ -861,10 +888,12 @@ impl CloseTransitionPlugin {
             retained_record_payloads: HashMap::new(),
             reconciliation_targets: HashSet::new(),
             reconciliation_attempts: HashMap::new(),
+            last_reconciliation_request: HashMap::new(),
             closed_epoch: None,
             unresolved_cut: HashSet::new(),
-            recovery_attempts: HashMap::new(),
+            last_recovery_request: HashMap::new(),
             vote_history,
+            slot_vote_cache,
             node_index,
         }
     }
@@ -913,6 +942,24 @@ impl CloseTransitionPlugin {
         } else {
             keys.into_iter().next()
         }
+    }
+
+    fn signal_close_ready(&mut self) {
+        if self.close_ready_written {
+            return;
+        }
+        if let Some(path) = &self.close_ready_file {
+            if let Err(error) = std::fs::write(path, b"ready") {
+                tracing::warn!(
+                    node = self.node_index,
+                    ?error,
+                    "failed to signal close readiness"
+                );
+                return;
+            }
+        }
+        self.close_ready_written = true;
+        tracing::info!(node = self.node_index, "close participant ready");
     }
 
     fn classify_fixed_committee_channels(&self) {
@@ -1285,6 +1332,21 @@ impl CloseTransitionPlugin {
                             &Message::Publish(Publish::new_forward(block.into())),
                             TrafficType::Generic,
                         );
+                        // Vote history is an optimization, not the source of truth for
+                        // finality. A PR can always recreate its final vote when the
+                        // requested block is already confirmed in its ledger.
+                        if self.ledger.any().confirmed().block_exists(&message.target) {
+                            let vote = Arc::new(Vote::new_rai(
+                                key,
+                                message.epoch,
+                                VoteType::Final,
+                                vec![message.target],
+                            ));
+                            self.vote_history.add(&root.root, &message.target, &vote);
+                        }
+                        // Return every locally authored vote for this slot and epoch.
+                        // RAI phases can require an earlier vote as well as the latest
+                        // one, so answering with only a current vote is insufficient.
                         for vote in self
                             .vote_history
                             .all_votes_for_epoch(&root.root, message.epoch)
@@ -1384,6 +1446,36 @@ impl CloseTransitionPlugin {
                     &Message::ClosePayload(request),
                     TrafficType::Generic,
                 );
+            } else {
+                // Representative discovery is advisory and can lag behind the
+                // close protocol. Keep reconciliation live even when no channel
+                // is currently classified as a PR (or every classified channel
+                // has already been tried).
+                let now = self.clock.now();
+                let last = self
+                    .last_reconciliation_request
+                    .entry((base, target))
+                    .or_insert(Timestamp::new(0));
+                if now >= *last + Duration::from_millis(250) {
+                    *last = now;
+                    let request = ClosePayload::request(
+                        self.coordinator.closing_epoch().unwrap_or_default(),
+                        CloseElectionKind::Record.wire(),
+                        base,
+                        target,
+                    );
+                    tracing::warn!(
+                        node = self.node_index,
+                        ?base,
+                        ?target,
+                        "broadcasting close record delta request"
+                    );
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ClosePayload(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
             }
         }
     }
@@ -1450,13 +1542,13 @@ impl CloseTransitionPlugin {
         for hash in self.unresolved_cut.clone() {
             if let Some(block) = self.ledger.any().get_block(&hash) {
                 let root = block.qualified_root().with_epoch(epoch);
-                if aec.reassign_epoch_by_cut(&hash, epoch) {
+                if aec.has_election_for_epoch(&hash, epoch) {
                     tracing::warn!(
                         node = self.node_index,
                         epoch,
                         ?hash,
                         ?root,
-                        "reassigned active cut slot to certified epoch"
+                        "recovered existing certified-epoch cut slot"
                     );
                     self.draining.insert(root, hash);
                     self.unresolved_cut.remove(&hash);
@@ -1492,28 +1584,109 @@ impl CloseTransitionPlugin {
                     continue;
                 }
             }
-            let attempts = self.recovery_attempts.entry(hash).or_default();
-            if let Some(peer) = self
-                .rep_tracker
-                .peered_reps()
-                .into_iter()
-                .find(|peer| !attempts.contains(&peer.channel_id))
-            {
-                let request = ClosePayload {
+            self.request_cut_slot(epoch, hash, "requested missing cut slot");
+        }
+
+        // Reassigning an election resolves the block/root, but clears votes and
+        // tallies. Until that election reaches a terminal outcome it still needs
+        // vote recovery from the other PRs.
+        let stalled: Vec<_> = self
+            .draining
+            .iter()
+            .filter_map(|(root, hash)| aec.epoch_slot_outcome(root).is_none().then_some(*hash))
+            .collect();
+        for hash in stalled {
+            self.request_cut_slot(epoch, hash, "requested votes for draining cut slot");
+        }
+    }
+
+    fn request_cut_slot(&mut self, epoch: u64, hash: BlockHash, message: &'static str) {
+        let now = self.clock.now();
+        if self
+            .last_recovery_request
+            .get(&hash)
+            .is_some_and(|last| last.elapsed(now) < REPORT_REQUEST_INTERVAL)
+        {
+            return;
+        }
+        self.last_recovery_request.insert(hash, now);
+        let request = ClosePayload {
+            epoch,
+            election_kind: 2,
+            base: BlockHash::ZERO,
+            target: hash,
+            kind: ClosePayloadKind::SlotRequest,
+        };
+        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+            &Message::ClosePayload(request),
+            TrafficType::Generic,
+            1.0,
+        );
+        tracing::warn!(
+            node = self.node_index,
+            epoch,
+            ?hash,
+            recovery = message,
+            "requested cut slot recovery"
+        );
+    }
+
+    fn request_active_epoch_slot_votes(&mut self, aec: &AecService) {
+        let Some(epoch) = self.coordinator.closing_epoch() else {
+            return;
+        };
+        let unresolved: Vec<_> = aec
+            .epoch_slots(epoch)
+            .into_iter()
+            .filter_map(|(root, hash)| {
+                (!aec.epoch_slot_finalized_or_timed_out(&root)).then_some(hash)
+            })
+            .collect();
+        for hash in unresolved {
+            self.request_cut_slot(epoch, hash, "requested votes for active closing-epoch slot");
+        }
+    }
+
+    /// A late publish is inserted into the newly opened epoch, while its votes
+    /// remain tagged with the epoch that is currently closing. Once more than f
+    /// representative weight supports such a hash, recreate the missing election
+    /// in the closing epoch. ElectionStarted replays the cached votes.
+    fn recover_supported_epoch_slots(&mut self, aec: &AecService) {
+        let Some(epoch) = self.coordinator.closing_epoch() else {
+            return;
+        };
+        if !matches!(
+            self.coordinator.phase(),
+            Some(ClosingPhase::CollectingReports | ClosingPhase::ElectingCut(_))
+        ) {
+            return;
+        }
+        let faulty_weight = self.quorum_snapshot().faulty_weight;
+        for hash in self
+            .slot_vote_cache
+            .supported_hashes_for_epoch(epoch, faulty_weight)
+        {
+            if aec.has_election_for_epoch(&hash, epoch) || aec.was_recently_confirmed(&hash) {
+                continue;
+            }
+            let Some(block) = self.ledger.any().get_block(&hash) else {
+                self.request_cut_slot(epoch, hash, "requested supported closing-epoch slot");
+                continue;
+            };
+            if aec
+                .insert_for_epoch(
+                    AecInsertRequest::new_manual(block, BlockPriority::new_test_instance()),
+                    self.clock.now(),
                     epoch,
-                    election_kind: 2,
-                    base: BlockHash::ZERO,
-                    target: hash,
-                    kind: ClosePayloadKind::SlotRequest,
-                };
-                if self.flooder.lock().unwrap().try_send_channel_id(
-                    peer.channel_id,
-                    &Message::ClosePayload(request),
-                    TrafficType::Generic,
-                ) {
-                    tracing::warn!(node=self.node_index, epoch, ?hash, channel=?peer.channel_id, "requested missing cut slot");
-                    attempts.insert(peer.channel_id);
-                }
+                )
+                .is_ok()
+            {
+                tracing::warn!(
+                    node = self.node_index,
+                    epoch,
+                    ?hash,
+                    "recovered slot election from >f cached vote support"
+                );
             }
         }
     }
@@ -1578,12 +1751,13 @@ impl AecTickerPlugin for CloseTransitionPlugin {
     fn run(&mut self, aec: &AecService) {
         let now = self.clock.now();
         self.classify_fixed_committee_channels();
-        if !self.start_epoch_if_ready(aec, now) {
-            return;
-        }
         let Some(key) = self.local_key() else {
             return;
         };
+        self.signal_close_ready();
+        if !self.start_epoch_if_ready(aec, now) {
+            return;
+        }
 
         if let Some(report) = &self.local_report {
             self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
@@ -1606,6 +1780,10 @@ impl AecTickerPlugin for CloseTransitionPlugin {
         if let Some(record) = self.finalized_record.clone() {
             self.publish_vote_for(&record, record.value, VoteType::Final, &key);
         }
+
+        // Recovery requests must be served even between local close epochs. A
+        // slower PR may still be draining the epoch we have already closed.
+        self.drain_payloads(&key);
 
         if self.coordinator.closing_epoch().is_none() {
             let epoch = self.coordinator.open_epoch();
@@ -1647,8 +1825,9 @@ impl AecTickerPlugin for CloseTransitionPlugin {
 
         self.drain_reports(aec, &key);
         self.request_missing_reports();
+        self.recover_supported_epoch_slots(aec);
+        self.request_active_epoch_slot_votes(aec);
         self.refresh_record(aec, &key);
-        self.drain_payloads(&key);
         // Close votes may be emitted before every PR has entered the matching
         // election. Keep advertising the current candidate until it obtains a
         // certificate, just as reports are advertised while being collected.
@@ -1670,11 +1849,6 @@ impl AecTickerPlugin for CloseTransitionPlugin {
         if matches!(self.coordinator.phase(), Some(ClosingPhase::DrainingCut)) {
             self.recover_cut_data(aec);
             self.drive_draining_slots(aec);
-            for (root, hash) in &mut self.draining {
-                if let Some(election) = aec.election_for_root(root) {
-                    *hash = election.winner().hash();
-                }
-            }
             let terminated: Vec<_> = self
                 .draining
                 .iter()
@@ -1989,6 +2163,72 @@ mod tests {
     }
 
     #[test]
+    fn late_report_defers_new_cut_until_round_one() {
+        let now = Timestamp::new_test_instance();
+        let keys = [
+            PrivateKey::from(1),
+            PrivateKey::from(2),
+            PrivateKey::from(3),
+        ];
+        let weights = keys
+            .iter()
+            .map(|key| (key.public_key(), Amount::raw(1)))
+            .collect::<HashMap<_, _>>();
+        let first_hash = BlockHash::from(101);
+        let late_hash = BlockHash::from(102);
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+
+        let first_report = close
+            .tick(
+                now + Duration::from_secs(1),
+                [first_hash, late_hash],
+                [],
+                &keys[0],
+            )
+            .unwrap();
+        assert!(
+            close
+                .add_report(
+                    first_report,
+                    |reporter| weights.get(reporter).copied().unwrap_or_default(),
+                    Amount::raw(3),
+                    Amount::raw(1),
+                )
+                .is_none()
+        );
+        let round_zero = close
+            .add_report(
+                CloseReport::new(1, [first_hash], &keys[1]),
+                |reporter| weights.get(reporter).copied().unwrap_or_default(),
+                Amount::raw(3),
+                Amount::raw(1),
+            )
+            .unwrap();
+
+        assert_eq!(round_zero.round, 0);
+        assert!(
+            close
+                .add_report(
+                    CloseReport::new(1, [late_hash], &keys[2]),
+                    |reporter| weights.get(reporter).copied().unwrap_or_default(),
+                    Amount::raw(3),
+                    Amount::raw(1),
+                )
+                .is_none()
+        );
+        assert_eq!(close.active_election().unwrap(), round_zero);
+
+        let round_one = close.close_timed_out().unwrap();
+        assert_eq!(round_one.round, 1);
+        assert_ne!(round_one.local_value, round_zero.local_value);
+        assert_eq!(
+            round_one.local_value,
+            close_cut_hash(1, &[first_hash, late_hash])
+        );
+        assert!(round_one.candidates.contains(&round_one.local_value));
+    }
+
+    #[test]
     fn one_remote_value_update_allows_one_round_advance() {
         let now = Timestamp::new_test_instance();
         let key = PrivateKey::from(1);
@@ -2088,7 +2328,7 @@ mod tests {
     }
 
     #[test]
-    fn new_report_evidence_adds_a_cut_candidate() {
+    fn new_report_evidence_is_deferred_until_next_cut_round() {
         let now = Timestamp::new_test_instance();
         let keys = [
             PrivateKey::from(1),
@@ -2131,16 +2371,22 @@ mod tests {
                 Amount::raw(1),
             )
             .unwrap();
-        let second = close
-            .add_report(
-                CloseReport::new(1, [candidate], &keys[2]),
-                weight,
-                Amount::raw(3),
-                Amount::raw(1),
-            )
-            .unwrap();
+        assert!(
+            close
+                .add_report(
+                    CloseReport::new(1, [candidate], &keys[2]),
+                    weight,
+                    Amount::raw(3),
+                    Amount::raw(1),
+                )
+                .is_none()
+        );
+        assert_eq!(close.active_election().unwrap(), first);
+
+        let second = close.close_timed_out().unwrap();
+        assert_eq!(second.round, 1);
         assert_ne!(first.value, second.value);
-        assert!(second.candidates.contains(&first.value));
+        assert_eq!(second.value, close_cut_hash(1, &[candidate]));
         assert!(second.candidates.contains(&second.value));
     }
 }

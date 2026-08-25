@@ -179,6 +179,19 @@ impl VoteCache {
             .map(|b| b.non_final_tally())
             .unwrap_or_default()
     }
+
+    /// Returns hashes whose cached votes for `epoch` have distinct representative
+    /// weight strictly greater than the Byzantine fault budget.
+    #[cfg(feature = "rai_protocol")]
+    pub fn supported_hashes_for_epoch(&self, epoch: u64, faulty_weight: Amount) -> Vec<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|block| block.tally_for_epoch(epoch) > faulty_weight)
+            .map(|block| *block.block_hash())
+            .collect()
+    }
 }
 
 impl ContainerInfoProvider for VoteCache {
@@ -206,6 +219,16 @@ impl EventHandler<AecFact> for VoteCache {
                 // Cache the votes that didn't match any election
                 if vote.delivery != VoteDelivery::Replayed {
                     self.process(vote.vote.clone(), *voter_weight, results);
+                    // ElectionStarted and VoteProcessed facts can be produced by
+                    // different threads and observed in either order. If the election
+                    // trigger ran before this indeterminate vote reached the cache,
+                    // trigger again now. Vote routing includes the RAI epoch, so a
+                    // replay cannot leak into an election for another epoch.
+                    for (hash, result) in results {
+                        if matches!(result, Err(VoteError::Indeterminate)) {
+                            self.processor.trigger(*hash);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -217,6 +240,8 @@ impl EventHandler<AecFact> for VoteCache {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
+    #[cfg(feature = "rai_protocol")]
+    use rsnano_types::VoteType;
     use rsnano_types::{PrivateKey, QualifiedRoot, UnixMillisTimestamp};
 
     #[test]
@@ -328,6 +353,73 @@ mod tests {
         ));
 
         assert_eq!(cache.vote_count(&block_hash), 1);
+    }
+
+    #[test]
+    fn indeterminate_vote_triggers_replay_after_cache_insertion() {
+        let cache = make_vote_cache();
+        let trigger_tracker = cache.processor.track_trigger();
+        let block_hash = BlockHash::from(1);
+        let vote = Arc::new(Vote::build_test_instance().blocks([block_hash]).finish());
+        let recv_vote = ReceivedVote::new(vote, VoteDelivery::Direct, None);
+
+        // Model the racy ordering: the one-shot election trigger is handled before
+        // the indeterminate vote fact inserts the vote into the cache.
+        cache.handle(&AecFact::ElectionStarted(
+            block_hash,
+            QualifiedRoot::new_test_instance(),
+        ));
+        cache.handle(&AecFact::VoteProcessed(
+            recv_vote,
+            Amount::nano(1000),
+            HashMap::from([(block_hash, Err(VoteError::Indeterminate))]),
+        ));
+
+        assert_eq!(cache.vote_count(&block_hash), 1);
+        assert_eq!(trigger_tracker.output(), vec![block_hash, block_hash]);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn closing_epoch_recovery_requires_strictly_more_than_f_weight() {
+        let cache = make_vote_cache();
+        let hash = BlockHash::from(1);
+        let other_epoch_hash = BlockHash::from(2);
+        let first = PrivateKey::from(1);
+        let second = PrivateKey::from(2);
+
+        cache.process(
+            Arc::new(Vote::new_rai(&first, 7, VoteType::First, vec![hash])),
+            Amount::raw(5),
+            &HashMap::new(),
+        );
+        cache.process(
+            Arc::new(Vote::new_rai(
+                &first,
+                8,
+                VoteType::First,
+                vec![other_epoch_hash],
+            )),
+            Amount::raw(100),
+            &HashMap::new(),
+        );
+
+        assert!(
+            cache
+                .supported_hashes_for_epoch(7, Amount::raw(5))
+                .is_empty()
+        );
+
+        cache.process(
+            Arc::new(Vote::new_rai(&second, 7, VoteType::First, vec![hash])),
+            Amount::raw(1),
+            &HashMap::new(),
+        );
+
+        assert_eq!(
+            cache.supported_hashes_for_epoch(7, Amount::raw(5)),
+            vec![hash]
+        );
     }
 
     /*

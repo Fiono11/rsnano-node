@@ -483,6 +483,18 @@ impl SharedState {
                     ) {
                         continue;
                     }
+                    if self.history.has_conflicting_terminal_vote(
+                        root,
+                        *epoch,
+                        self.vote_type,
+                        rep_key.public_key(),
+                    ) {
+                        self.stats.inc(
+                            self.stat_type(),
+                            DetailType::GeneratorHistorySuppressedConflict,
+                        );
+                        continue;
+                    }
                     if self.vote_type == VoteType::NonFinal
                         && self.history.non_timeout_notarization_count(
                             root,

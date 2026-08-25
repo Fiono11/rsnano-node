@@ -120,25 +120,6 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn reassign_to_certified_epoch(&mut self, root: QualifiedRoot) {
-        self.set_qualified_root(root);
-        // Votes and phase tallies are scoped to the qualified root's epoch. None
-        // of the state accumulated under the speculative epoch can be reused.
-        self.votes.clear();
-        self.tallies = BlockTallies::new();
-        self.final_tallies = BlockTallies::new();
-        self.first_tallies = BlockTallies::new();
-        self.second_look.clear();
-        self.timeout_predicate = false;
-        self.terminated = false;
-        self.terminated_by_timeout = false;
-        self.vote_generation_enabled = true;
-        self.winner_tally = Amount::ZERO;
-        self.winner_final_tally = Amount::ZERO;
-        self.has_quorum = false;
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub(crate) fn suppress_vote_generation(&mut self) {
         self.vote_generation_enabled = false;
     }
@@ -697,6 +678,14 @@ impl VoteSummary {
         created: UnixMillisTimestamp,
         received: Timestamp,
     ) -> Result<(), VoteError> {
+        // Final and timeout are mutually exclusive terminal votes for an epoch
+        // slot. Allowing one representative to sign both destroys the quorum-
+        // intersection argument which prevents conflicting certificates.
+        if (vote_type == VoteType::Final && self.timeout)
+            || (vote_type == VoteType::Timeout && self.final_vote.is_some())
+        {
+            return Err(VoteError::Invalid);
+        }
         let existing = match vote_type {
             VoteType::First => self.first,
             VoteType::NonFinal if self.notarized.contains(&hash) => Some(hash),
@@ -928,6 +917,52 @@ mod rai_voting_tests {
 
         assert_eq!(vote.notarized, HashSet::from([hash]));
         assert_eq!(vote.final_vote, Some(hash));
+    }
+
+    #[test]
+    fn timeout_vote_locks_out_final_vote() {
+        let mut vote = summary();
+        let hash = BlockHash::from(1);
+        vote.apply_phase(
+            VoteType::Timeout,
+            hash,
+            1.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            vote.apply_phase(
+                VoteType::Final,
+                hash,
+                2.into(),
+                Timestamp::new_test_instance(),
+            ),
+            Err(VoteError::Invalid)
+        );
+    }
+
+    #[test]
+    fn final_vote_locks_out_timeout_vote() {
+        let mut vote = summary();
+        let hash = BlockHash::from(1);
+        vote.apply_phase(
+            VoteType::Final,
+            hash,
+            1.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            vote.apply_phase(
+                VoteType::Timeout,
+                hash,
+                2.into(),
+                Timestamp::new_test_instance(),
+            ),
+            Err(VoteError::Invalid)
+        );
     }
 
     #[test]

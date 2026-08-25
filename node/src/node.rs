@@ -854,6 +854,7 @@ impl Node {
                 rep_tracker.clone(),
                 ledger.clone(),
                 vote_history.clone(),
+                vote_cache.clone(),
                 close_report_rx,
                 close_vote_rx,
                 close_payload_rx,

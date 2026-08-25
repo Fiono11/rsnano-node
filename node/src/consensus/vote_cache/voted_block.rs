@@ -76,6 +76,16 @@ impl VotedBlock {
         self.final_tally
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn tally_for_epoch(&self, epoch: u64) -> Amount {
+        self.by_representative
+            .values()
+            .filter(|cached| cached.vote.epoch() == epoch)
+            .fold(Amount::ZERO, |total, cached| {
+                total.wrapping_add(cached.weight)
+            })
+    }
+
     pub fn iter_votes(&self) -> impl Iterator<Item = &Arc<Vote>> {
         self.by_representative.values().map(|i| &i.vote)
     }

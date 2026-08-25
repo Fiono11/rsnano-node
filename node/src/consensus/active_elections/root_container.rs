@@ -130,10 +130,10 @@ impl RootContainer {
 
     #[cfg(feature = "rai_protocol")]
     pub fn election_for_block(&self, block_hash: &BlockHash, epoch: u64) -> Option<&Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        if root.epoch != epoch && root.epoch != 0 {
-            return None;
-        }
+        let root = self
+            .vote_router
+            .qualified_root_for_epoch(block_hash, epoch)
+            .or_else(|| self.vote_router.qualified_root_for_epoch(block_hash, 0))?;
         self.by_root.get(root).map(|entry| &entry.election)
     }
 
@@ -143,20 +143,11 @@ impl RootContainer {
         block_hash: &BlockHash,
         epoch: u64,
     ) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        if root.epoch != epoch && root.epoch != 0 {
-            return None;
-        }
+        let root = self
+            .vote_router
+            .qualified_root_for_epoch(block_hash, epoch)
+            .or_else(|| self.vote_router.qualified_root_for_epoch(block_hash, 0))?;
         self.by_root.get_mut(root).map(|entry| &mut entry.election)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn election_for_block_any_epoch_mut(
-        &mut self,
-        block_hash: &BlockHash,
-    ) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
-        self.by_root.get_mut(&root).map(|entry| &mut entry.election)
     }
 
     pub fn bucket_infos(&self) -> &[BucketInfo] {
@@ -271,6 +262,15 @@ impl RootContainer {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
         self.by_root.values_mut()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn roots_for_slot(&self, root: &QualifiedRoot) -> Vec<QualifiedRoot> {
+        self.by_root
+            .keys()
+            .filter(|candidate| candidate.slot() == root.slot())
+            .cloned()
+            .collect()
     }
 
     #[cfg(feature = "rai_protocol")]
