@@ -1108,7 +1108,9 @@ pub struct CloseTransitionPlugin {
     rep_weights: Arc<RepWeightCache>,
     rep_tracker: Arc<RepresentativeTracker>,
     ledger: Arc<Ledger>,
-    draining: HashMap<QualifiedRoot, BlockHash>,
+    // A certified cut can contain multiple fork hashes for one root. Keep each
+    // hash as independent work so none is overwritten before it is drained.
+    draining: HashMap<BlockHash, QualifiedRoot>,
     decided_cut_slots: HashMap<BlockHash, QualifiedRoot>,
     report_rx: Receiver<CloseReport>,
     vote_rx: Receiver<CloseVote>,
@@ -2245,12 +2247,7 @@ impl CloseTransitionPlugin {
             .filter(|hash| !active_by_hash.contains_key(hash))
             .copied()
             .collect();
-        self.draining = self
-            .coordinator
-            .draining_hashes()
-            .into_iter()
-            .filter_map(|hash| active_by_hash.get(&hash).cloned().map(|root| (root, hash)))
-            .collect();
+        self.draining = known_cut_slots(self.coordinator.draining_hashes(), &active_by_hash);
         tracing::warn!(
             node = self.node_index,
             epoch = cut.epoch,
@@ -2275,7 +2272,7 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered existing certified-epoch cut slot"
                     );
-                    self.draining.insert(root.clone(), hash);
+                    self.draining.insert(hash, root.clone());
                     self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
@@ -2288,7 +2285,7 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered confirmed cut slot"
                     );
-                    self.draining.insert(root.clone(), hash);
+                    self.draining.insert(hash, root.clone());
                     self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
@@ -2306,7 +2303,7 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered active cut slot"
                     );
-                    self.draining.insert(root.clone(), hash);
+                    self.draining.insert(hash, root.clone());
                     self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
@@ -2321,7 +2318,7 @@ impl CloseTransitionPlugin {
         let stalled: Vec<_> = self
             .draining
             .iter()
-            .filter_map(|(root, hash)| aec.epoch_slot_outcome(root).is_none().then_some(*hash))
+            .filter_map(|(hash, root)| aec.epoch_slot_outcome(root).is_none().then_some(*hash))
             .collect();
         for hash in stalled {
             self.request_cut_slot(epoch, hash, "requested votes for draining cut slot");
@@ -2612,7 +2609,7 @@ impl AecTickerPlugin for CloseTransitionPlugin {
             let terminated: Vec<_> = self
                 .draining
                 .iter()
-                .filter_map(|(root, hash)| {
+                .filter_map(|(hash, root)| {
                     let selected_hash_confirmed = !hash.is_zero()
                         && (aec.was_recently_confirmed(hash)
                             || self.ledger.any().confirmed().block_exists(hash));
@@ -2621,14 +2618,13 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                         *hash,
                         selected_hash_confirmed,
                     )
-                    .map(|outcome| (root.clone(), outcome))
+                    .map(|outcome| (*hash, root.clone(), outcome))
                 })
                 .collect();
             let epoch = self.coordinator.closing_epoch().unwrap_or_default();
-            for (root, finalized) in terminated {
-                let hash = self.draining[&root];
+            for (hash, root, finalized) in terminated {
                 tracing::warn!(node=self.node_index, epoch, ?root, ?hash, finalized=?finalized, "cut slot drained");
-                self.draining.remove(&root);
+                self.draining.remove(&hash);
                 if let Some(record) = self.coordinator.slot_terminated(root, hash, finalized) {
                     self.start_record(aec, &key, record);
                 }
@@ -2653,6 +2649,16 @@ fn resolved_cut_slot_outcome(
     }
 }
 
+fn known_cut_slots(
+    cut_hashes: impl IntoIterator<Item = BlockHash>,
+    active_by_hash: &HashMap<BlockHash, QualifiedRoot>,
+) -> HashMap<BlockHash, QualifiedRoot> {
+    cut_hashes
+        .into_iter()
+        .filter_map(|hash| active_by_hash.get(&hash).cloned().map(|root| (hash, root)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2675,6 +2681,20 @@ mod tests {
             Some(None)
         );
         assert_eq!(resolved_cut_slot_outcome(None, selected, false), None);
+    }
+
+    #[test]
+    fn draining_preserves_all_cut_hashes_for_the_same_root() {
+        let root = root(1, 7);
+        let first = BlockHash::from(1);
+        let second = BlockHash::from(2);
+        let active_by_hash = HashMap::from([(first, root.clone()), (second, root.clone())]);
+
+        let draining = known_cut_slots([first, second], &active_by_hash);
+
+        assert_eq!(draining.len(), 2);
+        assert_eq!(draining.get(&first), Some(&root));
+        assert_eq!(draining.get(&second), Some(&root));
     }
 
     #[test]
