@@ -1276,6 +1276,7 @@ impl Node {
             fork_cache_updater,
             plugins: ledger_event_handlers,
             backpressure_plugins: backpressure_handlers,
+            ledger: ledger.clone(),
         };
 
         spawn_backpressure_processor("Ledger ev proc", ledger_rx, ledger_event_processor);

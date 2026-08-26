@@ -104,13 +104,13 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn begin_epoch_one(&self) {
-        self.aec.write().unwrap().begin_epoch_one();
+    pub fn begin_epoch_one(&self, baseline: HashMap<Account, u64>) {
+        self.aec.write().unwrap().begin_epoch_one(baseline);
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn advance_epoch(&self) -> u64 {
-        self.aec.read().unwrap().advance_epoch()
+    pub fn advance_epoch(&self, baseline: HashMap<Account, u64>) -> u64 {
+        self.aec.write().unwrap().advance_epoch(baseline)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -229,8 +229,16 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn apply_cemented_outcome(&self, block: &SavedBlock) -> bool {
-        self.aec.write().unwrap().apply_cemented_outcome(block)
+    pub fn apply_cemented_outcome(&self, block: &SavedBlock, source_epoch: Option<u64>) -> bool {
+        self.aec
+            .write()
+            .unwrap()
+            .apply_cemented_outcome(block, source_epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn belongs_to_epoch(&self, block: &SavedBlock, epoch: u64) -> bool {
+        self.aec.read().unwrap().belongs_to_epoch(block, epoch)
     }
 
     #[cfg(feature = "rai_protocol")]

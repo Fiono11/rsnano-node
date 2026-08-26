@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     sync::{
         Arc, RwLock,
         atomic::{AtomicU64, Ordering},
@@ -23,7 +24,8 @@ use crate::{
     },
     utils::BackpressureEventProcessor,
 };
-use rsnano_ledger::LedgerEvent;
+use rsnano_ledger::{AnySet, Ledger, LedgerEvent};
+use rsnano_types::BlockHash;
 
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
@@ -36,6 +38,7 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) fork_cache_updater: ForkCacheUpdater,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
     pub(crate) backpressure_plugins: BackpressureHandlerRegistry,
+    pub(crate) ledger: Arc<Ledger>,
 }
 
 impl LedgerEventProcessor {
@@ -52,6 +55,7 @@ impl LedgerEventProcessor {
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
             plugins: EventHandlerRegistry::default(),
             backpressure_plugins: BackpressureHandlerRegistry::default(),
+            ledger: Arc::new(Ledger::new_null()),
         }
     }
 }
@@ -113,12 +117,18 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .ev_blocks_confirmed_total
                         .fetch_add(confirmed.len() as u64, Ordering::Relaxed);
                     let dep_conf_start = Instant::now();
+                    #[cfg(feature = "rai_protocol")]
+                    let source_epochs =
+                        self.dependent_elections_confirmer.source_epochs(&confirmed);
                     self.dependent_elections_confirmer
                         .confirm_dependent_elections(&confirmed);
                     #[cfg(feature = "rai_protocol")]
-                    for (block, _) in &confirmed {
-                        self.active_elections.apply_cemented_outcome(block);
+                    for ((block, _), source_epoch) in confirmed.iter().zip(source_epochs) {
+                        self.active_elections
+                            .apply_cemented_outcome(block, source_epoch);
                     }
+                    #[cfg(feature = "rai_protocol")]
+                    self.finalize_dependency_closures(&confirmed);
                     self.stats.dur_dependent_elections.fetch_add(
                         dep_conf_start.elapsed().as_millis() as u64,
                         Ordering::Relaxed,
@@ -179,6 +189,42 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
         self.stats
             .dur_total
             .fetch_add(start.elapsed().as_micros() as u64, Ordering::Relaxed);
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl LedgerEventProcessor {
+    fn finalize_dependency_closures(&self, confirmed: &[(rsnano_types::SavedBlock, BlockHash)]) {
+        let mut roots = HashMap::new();
+        self.confirming_set.do_election_cache(|cache| {
+            for (_, confirmation_root) in confirmed {
+                if let Some(election) = cache.get(confirmation_root) {
+                    roots.insert(*confirmation_root, election.epoch);
+                }
+            }
+        });
+
+        let any = self.ledger.any();
+        for (root, epoch) in roots {
+            let mut stack = vec![root];
+            let mut visited = HashSet::new();
+            while let Some(hash) = stack.pop() {
+                if !visited.insert(hash) {
+                    continue;
+                }
+                let Some(block) = any.get_block(&hash) else {
+                    continue;
+                };
+                if !self.active_elections.belongs_to_epoch(&block, epoch) {
+                    continue;
+                }
+                self.active_elections
+                    .apply_cemented_outcome(&block, Some(epoch));
+                let dependencies = any.block_dependencies(&block);
+                stack.extend(dependencies.previous());
+                stack.extend(dependencies.link());
+            }
+        }
     }
 }
 

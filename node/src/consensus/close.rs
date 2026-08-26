@@ -6,15 +6,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerSet, RepWeightCache};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet, RepWeightCache};
 use rsnano_messages::{
     ClosePayload, ClosePayloadKind, CloseReport, CloseVote, ConfirmAck, Message, Publish,
 };
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
-    Amount, Blake2HashBuilder, BlockHash, BlockPriority, PrivateKey, PublicKey, QualifiedRoot,
-    UnixMillisTimestamp, VoteError, VoteType,
+    Account, Amount, Blake2HashBuilder, BlockHash, BlockPriority, PrivateKey, PublicKey,
+    QualifiedRoot, UnixMillisTimestamp, VoteError, VoteType,
 };
 
 use super::election::VoteSummary;
@@ -645,7 +645,7 @@ impl CloseCoordinator {
         let epoch = self.open_epoch;
         self.open_epoch += 1;
         self.next_close_at += self.epoch_duration;
-        let report = CloseReport::new_with_finalized(epoch, pending, finalized.clone(), key);
+        let report = CloseReport::new(epoch, pending, key);
         self.closing = Some(ClosingEpoch {
             epoch,
             phase: ClosingPhase::CollectingReports,
@@ -673,16 +673,6 @@ impl CloseCoordinator {
         if close.reports.contains_key(&report.reporter) {
             return None;
         }
-        let mut finalized_by_slot: HashMap<QualifiedRoot, BlockHash> =
-            close.finalized.iter().cloned().collect();
-        for (root, hash) in &report.finalized {
-            finalized_by_slot
-                .entry(root.clone())
-                .and_modify(|current| *current = (*current).max(*hash))
-                .or_insert(*hash);
-        }
-        close.finalized = finalized_by_slot.into_iter().collect();
-        close.finalized.sort_by(|a, b| a.0.cmp(&b.0));
         close.reports.insert(report.reporter, report);
         let received: Amount = close.reports.keys().map(&weight).sum();
         if received < total_weight - faulty_weight {
@@ -946,6 +936,14 @@ impl CloseCoordinator {
             .unwrap_or_default()
     }
 
+    fn empty_record_payload(&self) -> Option<(u64, BlockHash)> {
+        let close = self.closing.as_ref()?;
+        Some((
+            close.epoch,
+            close_record_hash(close.epoch, self.previous_record, &[]),
+        ))
+    }
+
     fn cut_payloads(&self) -> Vec<(BlockHash, Vec<BlockHash>)> {
         self.closing
             .as_ref()
@@ -987,7 +985,7 @@ impl CloseCoordinator {
 
     fn admit_record_payload(
         &mut self,
-        base: BlockHash,
+        _base: BlockHash,
         target: BlockHash,
         payload: Vec<(QualifiedRoot, BlockHash)>,
         quorum: &QuorumSnapshot,
@@ -997,7 +995,6 @@ impl CloseCoordinator {
         let ClosingPhase::ElectingRecord(election) = &mut close.phase else {
             return None;
         };
-        close.record_candidates.get(&base)?;
         if payload.windows(2).any(|items| items[0] >= items[1])
             || payload.windows(2).any(|items| items[0].0 == items[1].0)
             || close_record_hash(close.epoch, previous_record, &payload) != target
@@ -1042,6 +1039,7 @@ pub struct CloseTransitionPlugin {
     close_ready_file: Option<PathBuf>,
     close_ready_written: bool,
     epoch_started: bool,
+    epoch_one_baseline: Option<HashMap<Account, u64>>,
     local_representative: Option<PublicKey>,
     fixed_committee: Vec<PublicKey>,
     fixed_committee_ports: Vec<u16>,
@@ -1051,6 +1049,7 @@ pub struct CloseTransitionPlugin {
     cut_round: Option<u32>,
     record_started: Option<(u64, Timestamp)>,
     retained_record_payloads: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
+    record_empty_bases: HashMap<u64, BlockHash>,
     retained_cut_payloads: HashMap<BlockHash, Vec<BlockHash>>,
     reconciliation_targets: HashSet<BlockHash>,
     cut_reconciliation_targets: HashSet<BlockHash>,
@@ -1136,6 +1135,7 @@ impl CloseTransitionPlugin {
             epoch_start_file,
             close_ready_file,
             close_ready_written: false,
+            epoch_one_baseline: None,
             local_representative,
             fixed_committee,
             fixed_committee_ports,
@@ -1145,6 +1145,7 @@ impl CloseTransitionPlugin {
             cut_round: None,
             record_started: None,
             retained_record_payloads: HashMap::new(),
+            record_empty_bases: HashMap::new(),
             retained_cut_payloads: HashMap::new(),
             reconciliation_targets: HashSet::new(),
             cut_reconciliation_targets: HashSet::new(),
@@ -1163,13 +1164,20 @@ impl CloseTransitionPlugin {
         if self.epoch_started {
             return true;
         }
-        let Some(path) = &self.epoch_start_file else {
+        let Some(path) = self.epoch_start_file.clone() else {
             unreachable!();
         };
         if !path.exists() {
             return false;
         }
-        let synchronized_start = std::fs::read_to_string(path)
+        // The start file is published before its synchronized wall-clock
+        // deadline. Capture the boundary immediately in that quiet window;
+        // waiting until a later tick observes the deadline lets early spam
+        // blocks enter some replicas' baselines but not others'.
+        if self.epoch_one_baseline.is_none() {
+            self.epoch_one_baseline = Some(self.confirmed_height_snapshot());
+        }
+        let synchronized_start = std::fs::read_to_string(&path)
             .ok()
             .and_then(|value| value.parse::<u128>().ok())
             .and_then(|millis| u64::try_from(millis).ok())
@@ -1187,11 +1195,23 @@ impl CloseTransitionPlugin {
         };
         // Wallet funding happens before nanospam opens the measured protocol epoch.
         // Do not carry those setup finalizations into epoch 1's close record.
-        aec.begin_epoch_one();
+        aec.begin_epoch_one(self.epoch_one_baseline.take().unwrap_or_default());
         self.coordinator.start_epoch_at(synchronized_start);
         self.epoch_started = true;
         tracing::info!(epoch = 1, "epoch opened");
         true
+    }
+
+    fn confirmed_height_snapshot(&self) -> HashMap<Account, u64> {
+        let any = self.ledger.any();
+        let confirmed = self.ledger.confirmed();
+        any.iter_accounts()
+            .filter_map(|(account, _)| {
+                confirmed
+                    .get_conf_info(&account)
+                    .map(|info| (account, info.height))
+            })
+            .collect()
     }
 
     fn local_key(&self) -> Option<PrivateKey> {
@@ -1534,8 +1554,8 @@ impl CloseTransitionPlugin {
         if self.coordinator.closing_epoch() != Some(report.epoch) {
             return;
         }
-        tracing::info!(node = self.node_index, epoch = report.epoch, reporter = ?report.reporter, pending = report.pending.len(), finalized = report.finalized.len(), "close report received");
-        let finalized = report.finalized.clone();
+        tracing::info!(node = self.node_index, epoch = report.epoch, reporter = ?report.reporter, pending = report.pending.len(), "close report received");
+        let finalized = aec.finalized_epoch_slots(report.epoch);
         let quorum = self.quorum_snapshot();
         let new_cut = self.coordinator.add_report(
             report,
@@ -1691,6 +1711,10 @@ impl CloseTransitionPlugin {
     }
 
     fn retain_current_record_payload(&mut self) {
+        if let Some((epoch, hash)) = self.coordinator.empty_record_payload() {
+            self.record_empty_bases.insert(epoch, hash);
+            self.retained_record_payloads.entry(hash).or_default();
+        }
         for (hash, payload) in self.coordinator.record_payloads() {
             self.retained_record_payloads.insert(hash, payload);
         }
@@ -1724,13 +1748,37 @@ impl CloseTransitionPlugin {
                             ClosePayloadKind::UnknownBase
                         }
                     } else if message.election_kind == CloseElectionKind::Record.wire()
-                        && let (Some(base), Some(target)) = (
-                            self.retained_record_payloads.get(&message.base),
-                            self.retained_record_payloads.get(&message.target),
-                        )
+                        && let Some(target) = self.retained_record_payloads.get(&message.target)
                     {
-                        let (upserts, removals) = record_delta(base, target);
-                        ClosePayloadKind::RecordDelta { upserts, removals }
+                        // The requester can name a transient base which this
+                        // replica never advertised. Every replica nevertheless
+                        // knows the epoch's empty record commitment (the previous
+                        // finalized record is shared), so fall back to that base.
+                        // This keeps every advertised historical target
+                        // reconstructible without requiring a full-payload wire
+                        // format or relying on overlapping transient snapshots.
+                        let response_base = self
+                            .retained_record_payloads
+                            .contains_key(&message.base)
+                            .then_some(message.base)
+                            .or_else(|| self.record_empty_bases.get(&message.epoch).copied());
+                        if let Some(response_base) = response_base {
+                            let base = &self.retained_record_payloads[&response_base];
+                            let (upserts, removals) = record_delta(base, target);
+                            let response = ClosePayload {
+                                base: response_base,
+                                kind: ClosePayloadKind::RecordDelta { upserts, removals },
+                                ..message
+                            };
+                            tracing::info!(base=?response.base, target=?response.target, response=?response.kind, "close payload request handled");
+                            self.flooder.lock().unwrap().try_send_channel_id(
+                                channel_id,
+                                &Message::ClosePayload(response),
+                                TrafficType::Generic,
+                            );
+                            continue;
+                        }
+                        ClosePayloadKind::UnknownBase
                     } else {
                         ClosePayloadKind::UnknownBase
                     };
@@ -2385,7 +2433,10 @@ impl AecTickerPlugin for CloseTransitionPlugin {
             // Closing freezes only fresh local support. Elections remain active
             // and routable so reports, old votes, and certificates still apply.
             aec.suppress_epoch_votes(epoch);
-            debug_assert_eq!(aec.advance_epoch(), epoch + 1);
+            debug_assert_eq!(
+                aec.advance_epoch(self.confirmed_height_snapshot()),
+                epoch + 1
+            );
             self.local_report = Some(report.clone());
             self.local_reports.insert(epoch, report.clone());
             self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
@@ -2665,7 +2716,6 @@ mod tests {
         let report = close.tick(now + duration, [], [], &key).unwrap();
         assert_eq!(report.epoch, 1);
         assert!(report.pending.is_empty());
-        assert!(report.finalized.is_empty());
         assert!(report.validate());
         assert_eq!(close.open_epoch(), 2);
         assert_eq!(close.latest_closed_epoch(), 0);

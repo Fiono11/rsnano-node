@@ -29,6 +29,19 @@ impl DependentElectionsConfirmer {
             .confirm_dependent_elections(blocks_plus_election, now);
     }
 
+    /// Returns the epoch of the confirmed election which caused each block to
+    /// be cemented. Dependencies share the confirmation root of that election.
+    #[cfg(feature = "rai_protocol")]
+    pub fn source_epochs(&self, blocks: &[(SavedBlock, BlockHash)]) -> Vec<Option<u64>> {
+        let mut epochs = Vec::with_capacity(blocks.len());
+        self.confirming_set.do_election_cache(|cache| {
+            for (_, confirmation_root) in blocks {
+                epochs.push(cache.get(confirmation_root).map(|election| election.epoch));
+            }
+        });
+        epochs
+    }
+
     fn blocks_plus_elections(
         &self,
         blocks: &Vec<(SavedBlock, BlockHash)>,

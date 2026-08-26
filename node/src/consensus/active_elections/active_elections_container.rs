@@ -11,7 +11,8 @@ use strum::EnumCount;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
+    VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -57,6 +58,8 @@ pub(crate) struct ActiveElectionsContainer {
     rai_finalized: HashMap<QualifiedRoot, BlockHash>,
     #[cfg(feature = "rai_protocol")]
     rai_terminated: HashSet<QualifiedRoot>,
+    #[cfg(feature = "rai_protocol")]
+    rai_epoch_baselines: HashMap<u64, HashMap<Account, u64>>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -99,6 +102,8 @@ impl ActiveElectionsContainer {
             rai_finalized: HashMap::new(),
             #[cfg(feature = "rai_protocol")]
             rai_terminated: HashSet::new(),
+            #[cfg(feature = "rai_protocol")]
+            rai_epoch_baselines: HashMap::new(),
         }
     }
 
@@ -372,15 +377,18 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn begin_epoch_one(&mut self) {
+    pub fn begin_epoch_one(&mut self, baseline: HashMap<Account, u64>) {
         debug_assert_eq!(self.rai_epoch.current(), 1);
         self.rai_finalized.clear();
         self.rai_terminated.clear();
+        self.rai_epoch_baselines.insert(1, baseline);
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn advance_epoch(&self) -> u64 {
-        self.rai_epoch.advance()
+    pub fn advance_epoch(&mut self, baseline: HashMap<Account, u64>) -> u64 {
+        let epoch = self.rai_epoch.advance();
+        self.rai_epoch_baselines.insert(epoch, baseline);
+        epoch
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -590,8 +598,12 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn apply_cemented_outcome(&mut self, block: &SavedBlock) -> bool {
-        let Some(root) = self
+    pub fn apply_cemented_outcome(
+        &mut self,
+        block: &SavedBlock,
+        source_epoch: Option<u64>,
+    ) -> bool {
+        let active_root = self
             .roots
             .vote_router
             .qualified_roots(&block.hash())
@@ -600,8 +612,22 @@ impl ActiveElectionsContainer {
                 self.roots.get(root).is_some_and(|entry| {
                     entry.election.is_confirmed() && entry.election.winner().hash() == block.hash()
                 })
+            });
+        // Cementing a confirmed winner also cements its dependencies. Those
+        // dependencies need not have an active local election, but they belong
+        // to the epoch of the election which triggered this cementation batch.
+        let root = active_root.or_else(|| {
+            source_epoch.and_then(|epoch| {
+                let baseline_height = self
+                    .rai_epoch_baselines
+                    .get(&epoch)
+                    .and_then(|baseline| baseline.get(&block.account()))
+                    .copied()
+                    .unwrap_or_default();
+                (block.height() > baseline_height).then(|| block.qualified_root().with_epoch(epoch))
             })
-        else {
+        });
+        let Some(root) = root else {
             return false;
         };
         self.rai_finalized.insert(root.clone(), block.hash());
@@ -615,6 +641,17 @@ impl ActiveElectionsContainer {
             erased |= self.erase_certified(&candidate);
         }
         erased
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn belongs_to_epoch(&self, block: &SavedBlock, epoch: u64) -> bool {
+        let baseline_height = self
+            .rai_epoch_baselines
+            .get(&epoch)
+            .and_then(|baseline| baseline.get(&block.account()))
+            .copied()
+            .unwrap_or_default();
+        block.height() > baseline_height
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -936,9 +973,24 @@ mod tests {
         #[cfg(feature = "rai_protocol")]
         {
             assert!(container.election_for_block(&block_hash).is_some());
-            assert!(container.apply_cemented_outcome(&block));
+            assert!(container.apply_cemented_outcome(&block, None));
             assert!(container.election_for_block(&block_hash).is_none());
         }
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn cemented_dependency_is_finalized_in_source_epoch_without_local_election() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root().with_epoch(7);
+
+        assert!(container.election_for_block(&block.hash()).is_none());
+        assert!(!container.apply_cemented_outcome(&block, Some(7)));
+        assert_eq!(
+            container.finalized_epoch_slots(7),
+            vec![(root, block.hash())]
+        );
     }
 
     #[test]
@@ -1180,7 +1232,7 @@ mod tests {
                 now,
             )
             .unwrap();
-        assert_eq!(container.advance_epoch(), 2);
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
 
         let result = container.insert(
             AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
@@ -1247,7 +1299,7 @@ mod tests {
         container
             .recently_confirmed
             .put(block.qualified_root().with_epoch(1), hash);
-        assert_eq!(container.advance_epoch(), 2);
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
 
         let result = container.insert(
             AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
@@ -1262,7 +1314,7 @@ mod tests {
     #[cfg(feature = "rai_protocol")]
     fn certified_cut_does_not_reassign_another_epochs_election() {
         let mut container = ActiveElectionsContainer::default();
-        assert_eq!(container.advance_epoch(), 2);
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
         let block = SavedBlock::new_test_instance();
         let hash = block.hash();
         let epoch_one_root = block.qualified_root().with_epoch(1);
