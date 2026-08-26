@@ -1609,7 +1609,7 @@ impl CloseTransitionPlugin {
     }
 
     fn start_record_if_drained(&mut self, aec: &AecService, key: &PrivateKey) {
-        if !self.draining.is_empty() {
+        if !self.draining.is_empty() || !self.unresolved_cut.is_empty() {
             return;
         }
         let Some(record) = self.coordinator.finish_empty_drain() else {
@@ -2485,16 +2485,15 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                 .draining
                 .iter()
                 .filter_map(|(root, hash)| {
-                    if let Some(outcome) = aec.epoch_slot_outcome(root) {
-                        Some((root.clone(), outcome))
-                    } else if !hash.is_zero()
+                    let selected_hash_confirmed = !hash.is_zero()
                         && (aec.was_recently_confirmed(hash)
-                            || self.ledger.any().confirmed().block_exists(hash))
-                    {
-                        Some((root.clone(), Some(*hash)))
-                    } else {
-                        None
-                    }
+                            || self.ledger.any().confirmed().block_exists(hash));
+                    resolved_cut_slot_outcome(
+                        aec.epoch_slot_outcome(root),
+                        *hash,
+                        selected_hash_confirmed,
+                    )
+                    .map(|outcome| (root.clone(), outcome))
                 })
                 .collect();
             let epoch = self.coordinator.closing_epoch().unwrap_or_default();
@@ -2514,6 +2513,18 @@ impl AecTickerPlugin for CloseTransitionPlugin {
     }
 }
 
+fn resolved_cut_slot_outcome(
+    aec_outcome: Option<Option<BlockHash>>,
+    selected_hash: BlockHash,
+    selected_hash_confirmed: bool,
+) -> Option<Option<BlockHash>> {
+    if selected_hash_confirmed {
+        Some(Some(selected_hash))
+    } else {
+        aec_outcome
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2521,6 +2532,21 @@ mod tests {
 
     fn root(value: u64, epoch: u64) -> QualifiedRoot {
         QualifiedRoot::new(Root::from(value), BlockHash::from(value + 100)).with_epoch(epoch)
+    }
+
+    #[test]
+    fn confirmed_cut_hash_overrides_stale_non_finalized_aec_outcome() {
+        let selected = BlockHash::from(1);
+
+        assert_eq!(
+            resolved_cut_slot_outcome(Some(None), selected, true),
+            Some(Some(selected))
+        );
+        assert_eq!(
+            resolved_cut_slot_outcome(Some(None), selected, false),
+            Some(None)
+        );
+        assert_eq!(resolved_cut_slot_outcome(None, selected, false), None);
     }
 
     #[test]
