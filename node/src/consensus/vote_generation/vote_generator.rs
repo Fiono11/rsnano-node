@@ -475,6 +475,20 @@ impl SharedState {
                 let mut pending_roots = Vec::new();
                 let mut pending_epochs = Vec::new();
                 for ((root, hash), epoch) in roots.iter().zip(hashes).zip(epochs) {
+                    // A record vote is a finalization lock for every value named
+                    // by that record. No later slot vote may be signed for the
+                    // locked slot, regardless of which generator/request path
+                    // reached this common signing routine.
+                    if self
+                        .history
+                        .is_record_locked(root, *epoch, rep_key.public_key())
+                    {
+                        self.stats.inc(
+                            self.stat_type(),
+                            DetailType::GeneratorHistorySuppressedConflict,
+                        );
+                        continue;
+                    }
                     if self.history.has_vote_type(
                         root,
                         *epoch,

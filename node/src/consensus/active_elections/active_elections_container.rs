@@ -395,6 +395,29 @@ impl ActiveElectionsContainer {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn suppress_epoch_votes(&mut self, epoch: u64) {
+        for entry in self.roots.iter_mut() {
+            if entry.root.epoch == epoch {
+                entry.election.suppress_vote_generation();
+            }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn resume_cut_votes(&mut self, epoch: u64, included: &HashSet<QualifiedRoot>) {
+        for entry in self.roots.iter_mut() {
+            if entry.root.epoch != epoch {
+                continue;
+            }
+            if included.contains(&entry.root) {
+                entry.election.resume_vote_generation();
+            } else {
+                entry.election.suppress_vote_generation();
+            }
+        }
+    }
+
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
         self.recently_confirmed.hash_exists(block_hash)
     }
@@ -598,6 +621,21 @@ impl ActiveElectionsContainer {
     pub fn apply_rolled_back_outcome(&mut self, root: &QualifiedRoot) -> bool {
         self.rai_terminated.insert(root.clone());
         self.erase_certified(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_record_outcome(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
+        self.rai_finalized.insert(root.clone(), hash);
+        self.rai_terminated.remove(root);
+        let competing = self.roots.roots_for_slot(root);
+        let mut erased = false;
+        for candidate in competing {
+            if candidate != *root {
+                self.rai_terminated.insert(candidate.clone());
+            }
+            erased |= self.erase_certified(&candidate);
+        }
+        erased
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -1010,6 +1048,52 @@ mod tests {
         let election = container.election_for_root(&root).unwrap();
         assert!(!election.vote_generation_enabled());
         assert!(container.is_active_root(&root));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn epoch_close_suppresses_all_slots_and_cut_resumes_only_included_slots() {
+        let mut container = ActiveElectionsContainer::default();
+        let included = SavedBlock::new_test_instance_with_key(1);
+        let excluded = SavedBlock::new_test_instance_with_key(2);
+        let included_root = included.qualified_root().with_epoch(1);
+        let excluded_root = excluded.qualified_root().with_epoch(1);
+        for block in [included, excluded] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                    Timestamp::new_test_instance(),
+                )
+                .unwrap();
+        }
+
+        container.suppress_epoch_votes(1);
+        assert!(
+            !container
+                .election_for_root(&included_root)
+                .unwrap()
+                .vote_generation_enabled()
+        );
+        assert!(
+            !container
+                .election_for_root(&excluded_root)
+                .unwrap()
+                .vote_generation_enabled()
+        );
+
+        container.resume_cut_votes(1, &HashSet::from([included_root.clone()]));
+        assert!(
+            container
+                .election_for_root(&included_root)
+                .unwrap()
+                .vote_generation_enabled()
+        );
+        assert!(
+            !container
+                .election_for_root(&excluded_root)
+                .unwrap()
+                .vote_generation_enabled()
+        );
     }
 
     #[test]

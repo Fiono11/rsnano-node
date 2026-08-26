@@ -3,14 +3,20 @@ use rsnano_types::{BlockHash, DeserializationError, QualifiedRoot, Root, read_u6
 
 use crate::MessageVariant;
 
-const FIXED_SIZE: usize = 1 + 8 + 1 + BlockHash::SERIALIZED_SIZE * 2 + 2;
+const FIXED_SIZE: usize = 1 + 8 + 1 + BlockHash::SERIALIZED_SIZE * 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClosePayloadKind {
     Request,
     UnknownBase,
-    Delta(Vec<(QualifiedRoot, BlockHash)>),
-    DeltaTooLarge,
+    RecordDelta {
+        upserts: Vec<(QualifiedRoot, BlockHash)>,
+        removals: Vec<QualifiedRoot>,
+    },
+    CutDelta {
+        additions: Vec<BlockHash>,
+        removals: Vec<BlockHash>,
+    },
     SlotRequest,
     ReportRequest,
 }
@@ -36,25 +42,42 @@ impl ClosePayload {
     }
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
-        let (tag, additions): (u8, &[(QualifiedRoot, BlockHash)]) = match &self.kind {
-            ClosePayloadKind::Request => (0, &[]),
-            ClosePayloadKind::UnknownBase => (1, &[]),
-            ClosePayloadKind::Delta(additions) => (2, additions),
-            ClosePayloadKind::DeltaTooLarge => (3, &[]),
-            ClosePayloadKind::SlotRequest => (4, &[]),
-            ClosePayloadKind::ReportRequest => (5, &[]),
+        let tag = match &self.kind {
+            ClosePayloadKind::Request => 0,
+            ClosePayloadKind::UnknownBase => 1,
+            ClosePayloadKind::RecordDelta { .. } => 2,
+            ClosePayloadKind::SlotRequest => 4,
+            ClosePayloadKind::ReportRequest => 5,
+            ClosePayloadKind::CutDelta { .. } => 6,
         };
         writer.write_all(&[tag])?;
         writer.write_all(&self.epoch.to_be_bytes())?;
         writer.write_all(&[self.election_kind])?;
         writer.write_all(self.base.as_bytes())?;
         writer.write_all(self.target.as_bytes())?;
-        writer.write_all(&(additions.len() as u16).to_be_bytes())?;
-        for (root, hash) in additions {
-            writer.write_all(root.root.as_bytes())?;
-            writer.write_all(root.previous.as_bytes())?;
-            writer.write_all(&root.epoch.to_be_bytes())?;
-            writer.write_all(hash.as_bytes())?;
+        match &self.kind {
+            ClosePayloadKind::RecordDelta { upserts, removals } => {
+                writer.write_all(&(upserts.len() as u32).to_be_bytes())?;
+                writer.write_all(&(removals.len() as u32).to_be_bytes())?;
+                for (root, hash) in upserts {
+                    serialize_root(writer, root)?;
+                    writer.write_all(hash.as_bytes())?;
+                }
+                for root in removals {
+                    serialize_root(writer, root)?;
+                }
+            }
+            ClosePayloadKind::CutDelta {
+                additions,
+                removals,
+            } => {
+                writer.write_all(&(additions.len() as u32).to_be_bytes())?;
+                writer.write_all(&(removals.len() as u32).to_be_bytes())?;
+                for hash in additions.iter().chain(removals) {
+                    writer.write_all(hash.as_bytes())?;
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -70,31 +93,63 @@ impl ClosePayload {
         bytes = &bytes[1..];
         let base = BlockHash::deserialize(&mut bytes)?;
         let target = BlockHash::deserialize(&mut bytes)?;
-        let count = u16::from_be_bytes(bytes[..2].try_into().unwrap()) as usize;
-        bytes = &bytes[2..];
+        let (first_count, second_count) = if tag == 2 || tag == 6 {
+            if bytes.len() < 8 {
+                return Err(DeserializationError::InvalidData);
+            }
+            let first = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+            let second = u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
+            bytes = &bytes[8..];
+            (first, second)
+        } else {
+            (0, 0)
+        };
         const ENTRY_SIZE: usize =
             Root::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 8 + BlockHash::SERIALIZED_SIZE;
-        if bytes.len() != count * ENTRY_SIZE || tag != 2 && count != 0 {
+        const ROOT_SIZE: usize = Root::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 8;
+        let expected = match tag {
+            2 => first_count * ENTRY_SIZE + second_count * ROOT_SIZE,
+            6 => (first_count + second_count) * BlockHash::SERIALIZED_SIZE,
+            _ => 0,
+        };
+        if bytes.len() != expected {
             return Err(DeserializationError::InvalidData);
         }
-        let mut additions = Vec::with_capacity(count);
-        for _ in 0..count {
-            let root = Root::deserialize(&mut bytes)?;
-            let previous = BlockHash::deserialize(&mut bytes)?;
-            let root_epoch = read_u64_be(&mut bytes)?;
-            let hash = BlockHash::deserialize(&mut bytes)?;
-            additions.push((
-                QualifiedRoot::new(root, previous).with_epoch(root_epoch),
-                hash,
-            ));
+        let mut additions = Vec::with_capacity(first_count);
+        let mut hash_removals = Vec::with_capacity(second_count);
+        if tag == 6 {
+            for _ in 0..first_count {
+                additions.push(BlockHash::deserialize(&mut bytes)?);
+            }
+            for _ in 0..second_count {
+                hash_removals.push(BlockHash::deserialize(&mut bytes)?);
+            }
+        }
+        let mut upserts = Vec::with_capacity(first_count);
+        let mut root_removals = Vec::with_capacity(second_count);
+        if tag == 2 {
+            for _ in 0..first_count {
+                let root = deserialize_root(&mut bytes)?;
+                let hash = BlockHash::deserialize(&mut bytes)?;
+                upserts.push((root, hash));
+            }
+            for _ in 0..second_count {
+                root_removals.push(deserialize_root(&mut bytes)?);
+            }
         }
         let kind = match tag {
             0 => ClosePayloadKind::Request,
             1 => ClosePayloadKind::UnknownBase,
-            2 => ClosePayloadKind::Delta(additions),
-            3 => ClosePayloadKind::DeltaTooLarge,
+            2 => ClosePayloadKind::RecordDelta {
+                upserts,
+                removals: root_removals,
+            },
             4 => ClosePayloadKind::SlotRequest,
             5 => ClosePayloadKind::ReportRequest,
+            6 => ClosePayloadKind::CutDelta {
+                additions,
+                removals: hash_removals,
+            },
             _ => return Err(DeserializationError::InvalidData),
         };
         Ok(Self {
@@ -109,6 +164,19 @@ impl ClosePayload {
     pub const fn serialized_size(extensions: BitArray<u16>) -> usize {
         extensions.data as usize
     }
+}
+
+fn serialize_root<T: std::io::Write>(writer: &mut T, root: &QualifiedRoot) -> std::io::Result<()> {
+    writer.write_all(root.root.as_bytes())?;
+    writer.write_all(root.previous.as_bytes())?;
+    writer.write_all(&root.epoch.to_be_bytes())
+}
+
+fn deserialize_root(bytes: &mut &[u8]) -> Result<QualifiedRoot, DeserializationError> {
+    let root = Root::deserialize(bytes)?;
+    let previous = BlockHash::deserialize(bytes)?;
+    let epoch = read_u64_be(bytes)?;
+    Ok(QualifiedRoot::new(root, previous).with_epoch(epoch))
 }
 
 impl MessageVariant for ClosePayload {
@@ -129,10 +197,13 @@ mod tests {
             election_kind: 1,
             base: BlockHash::from(1),
             target: BlockHash::from(2),
-            kind: ClosePayloadKind::Delta(vec![(
-                QualifiedRoot::new_test_instance().with_epoch(3),
-                BlockHash::from(4),
-            )]),
+            kind: ClosePayloadKind::RecordDelta {
+                upserts: vec![(
+                    QualifiedRoot::new_test_instance().with_epoch(3),
+                    BlockHash::from(4),
+                )],
+                removals: vec![QualifiedRoot::new_test_instance().with_epoch(4)],
+            },
         };
         assert_deserializable(&Message::ClosePayload(payload));
     }
@@ -145,6 +216,21 @@ mod tests {
             base: BlockHash::ZERO,
             target: BlockHash::ZERO,
             kind: ClosePayloadKind::ReportRequest,
+        };
+        assert_deserializable(&Message::ClosePayload(payload));
+    }
+
+    #[test]
+    fn roundtrip_cut_hash_delta() {
+        let payload = ClosePayload {
+            epoch: 7,
+            election_kind: 0,
+            base: BlockHash::from(1),
+            target: BlockHash::from(2),
+            kind: ClosePayloadKind::CutDelta {
+                additions: vec![BlockHash::from(3), BlockHash::from(4)],
+                removals: vec![BlockHash::from(5)],
+            },
         };
         assert_deserializable(&Message::ClosePayload(payload));
     }

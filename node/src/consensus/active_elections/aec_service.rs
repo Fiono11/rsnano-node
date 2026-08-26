@@ -215,6 +215,20 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn suppress_epoch_votes(&self, epoch: u64) {
+        self.aec.write().unwrap().suppress_epoch_votes(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn resume_cut_votes(
+        &self,
+        epoch: u64,
+        included: &std::collections::HashSet<QualifiedRoot>,
+    ) {
+        self.aec.write().unwrap().resume_cut_votes(epoch, included)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn apply_cemented_outcome(&self, block: &SavedBlock) -> bool {
         self.aec.write().unwrap().apply_cemented_outcome(block)
     }
@@ -222,6 +236,11 @@ impl AecService {
     #[cfg(feature = "rai_protocol")]
     pub fn apply_rolled_back_outcome(&self, root: &QualifiedRoot) -> bool {
         self.aec.write().unwrap().apply_rolled_back_outcome(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn apply_record_outcome(&self, root: &QualifiedRoot, hash: BlockHash) -> bool {
+        self.aec.write().unwrap().apply_record_outcome(root, hash)
     }
 
     #[cfg(feature = "rai_protocol")]

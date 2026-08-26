@@ -14,7 +14,7 @@ use rsnano_network::{ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
     Amount, Blake2HashBuilder, BlockHash, BlockPriority, PrivateKey, PublicKey, QualifiedRoot,
-    UnixMillisTimestamp, Vote, VoteError, VoteType,
+    UnixMillisTimestamp, VoteError, VoteType,
 };
 
 use super::election::VoteSummary;
@@ -30,6 +30,82 @@ use crate::{
 const CUT_DOMAIN: &[u8] = b"RAI/CloseCut";
 const RECORD_DOMAIN: &[u8] = b"RAI/CloseRecord";
 const REPORT_REQUEST_INTERVAL: Duration = Duration::from_millis(250);
+
+fn cut_delta(base: &[BlockHash], target: &[BlockHash]) -> (Vec<BlockHash>, Vec<BlockHash>) {
+    let base: HashSet<_> = base.iter().copied().collect();
+    let target: HashSet<_> = target.iter().copied().collect();
+    let mut additions: Vec<_> = target.difference(&base).copied().collect();
+    let mut removals: Vec<_> = base.difference(&target).copied().collect();
+    additions.sort();
+    removals.sort();
+    (additions, removals)
+}
+
+fn apply_cut_delta(
+    base: &[BlockHash],
+    additions: &[BlockHash],
+    removals: &[BlockHash],
+) -> Option<Vec<BlockHash>> {
+    let mut result: HashSet<_> = base.iter().copied().collect();
+    let mut mutations = HashSet::new();
+    for hash in removals {
+        if !mutations.insert(*hash) || !result.remove(hash) {
+            return None;
+        }
+    }
+    for hash in additions {
+        if !mutations.insert(*hash) || !result.insert(*hash) {
+            return None;
+        }
+    }
+    let mut result: Vec<_> = result.into_iter().collect();
+    result.sort();
+    Some(result)
+}
+
+fn record_delta(
+    base: &[(QualifiedRoot, BlockHash)],
+    target: &[(QualifiedRoot, BlockHash)],
+) -> (Vec<(QualifiedRoot, BlockHash)>, Vec<QualifiedRoot>) {
+    let base: HashMap<_, _> = base.iter().cloned().collect();
+    let target: HashMap<_, _> = target.iter().cloned().collect();
+    let mut upserts: Vec<_> = target
+        .iter()
+        .filter(|(root, hash)| base.get(*root) != Some(*hash))
+        .map(|(root, hash)| (root.clone(), *hash))
+        .collect();
+    let mut removals: Vec<_> = base
+        .keys()
+        .filter(|root| !target.contains_key(*root))
+        .cloned()
+        .collect();
+    upserts.sort_by(|a, b| a.0.cmp(&b.0));
+    removals.sort();
+    (upserts, removals)
+}
+
+fn apply_record_delta(
+    base: &[(QualifiedRoot, BlockHash)],
+    upserts: &[(QualifiedRoot, BlockHash)],
+    removals: &[QualifiedRoot],
+) -> Option<Vec<(QualifiedRoot, BlockHash)>> {
+    let mut result: HashMap<_, _> = base.iter().cloned().collect();
+    let mut mutations = HashSet::new();
+    for root in removals {
+        if !mutations.insert(root.clone()) || result.remove(root).is_none() {
+            return None;
+        }
+    }
+    for (root, hash) in upserts {
+        if !mutations.insert(root.clone()) || result.get(root) == Some(hash) {
+            return None;
+        }
+        result.insert(root.clone(), *hash);
+    }
+    let mut result: Vec<_> = result.into_iter().collect();
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    Some(result)
+}
 
 fn hash_root(mut builder: Blake2HashBuilder, root: &QualifiedRoot) -> Blake2HashBuilder {
     builder = builder
@@ -86,6 +162,7 @@ pub struct CloseElection {
     pub round: u32,
     pub value: BlockHash,
     local_value: BlockHash,
+    pending_value: Option<BlockHash>,
     value_updated: bool,
     known_values: HashSet<BlockHash>,
     candidates: HashSet<BlockHash>,
@@ -95,6 +172,7 @@ pub struct CloseElection {
     timeout_predicate: bool,
     finalized: bool,
     timed_out: bool,
+    finalization_round: bool,
 }
 
 impl CloseElection {
@@ -105,6 +183,7 @@ impl CloseElection {
             round,
             value,
             local_value: value,
+            pending_value: None,
             value_updated: false,
             known_values: HashSet::from([value]),
             candidates: HashSet::from([value]),
@@ -114,6 +193,7 @@ impl CloseElection {
             timeout_predicate: false,
             finalized: false,
             timed_out: false,
+            finalization_round: false,
         }
     }
 
@@ -126,6 +206,9 @@ impl CloseElection {
         quorum: &QuorumSnapshot,
         now: Timestamp,
     ) -> Result<(), VoteError> {
+        if self.finalization_round != (vote_type == VoteType::Final) {
+            return Err(VoteError::Invalid);
+        }
         let vote = self
             .votes
             .entry(voter)
@@ -204,14 +287,23 @@ impl CloseElection {
         self.timed_out
     }
 
+    fn is_notarized(&self) -> bool {
+        self.has_quorum
+    }
+
     fn add_candidate(&mut self, value: BlockHash) -> bool {
-        let changed = self.local_value != value;
-        self.local_value = value;
-        self.value_updated |= self.known_values.insert(value) || changed;
-        self.candidates.insert(value) || changed
+        let inserted = self.candidates.insert(value);
+        self.value_updated |= self.known_values.insert(value) || inserted;
+        if value != self.local_value {
+            self.pending_value = Some(value);
+        }
+        inserted
     }
 
     fn vote_targets(&self) -> Vec<(BlockHash, VoteType)> {
+        if self.finalization_round {
+            return vec![(self.local_value, VoteType::Final)];
+        }
         let mut targets = Vec::new();
         for hash in &self.second_look {
             if self.candidates.contains(hash) {
@@ -242,6 +334,7 @@ struct ClosingEpoch {
     reports: HashMap<PublicKey, CloseReport>,
     cut: Vec<BlockHash>,
     cut_candidates: HashMap<BlockHash, Vec<BlockHash>>,
+    record_candidates: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
     deferred_cut_value: Option<BlockHash>,
     finalized: Vec<(QualifiedRoot, BlockHash)>,
 }
@@ -496,6 +589,7 @@ impl CloseCoordinator {
             reports: HashMap::new(),
             cut: Vec::new(),
             cut_candidates: HashMap::new(),
+            record_candidates: HashMap::new(),
             deferred_cut_value: None,
             finalized,
         });
@@ -510,13 +604,7 @@ impl CloseCoordinator {
         faulty_weight: Amount,
     ) -> Option<CloseElection> {
         let close = self.closing.as_mut()?;
-        if report.epoch != close.epoch
-            || !report.validate()
-            || !matches!(
-                close.phase,
-                ClosingPhase::CollectingReports | ClosingPhase::ElectingCut(_)
-            )
-        {
+        if report.epoch != close.epoch || !report.validate() {
             return None;
         }
         close.finalized.extend(report.finalized.iter().cloned());
@@ -559,10 +647,9 @@ impl CloseCoordinator {
                 close.deferred_cut_value = (value != election.local_value).then_some(value);
                 None
             }
-            ClosingPhase::ElectingCut(election) => election.add_candidate(value).then(|| {
-                election.value = value;
-                election.clone()
-            }),
+            ClosingPhase::ElectingCut(election) => {
+                election.add_candidate(value).then(|| election.clone())
+            }
             _ => None,
         }
     }
@@ -578,20 +665,47 @@ impl CloseCoordinator {
         if !current.value_updated && close.deferred_cut_value.is_none() {
             return None;
         }
-        let local_value = if current.kind == CloseElectionKind::Cut {
-            close
-                .deferred_cut_value
-                .take()
-                .unwrap_or(current.local_value)
-        } else {
-            current.local_value
-        };
+        let local_value = close
+            .deferred_cut_value
+            .take()
+            .or(current.pending_value)
+            .unwrap_or(current.local_value);
         let mut next =
             CloseElection::new(current.kind, current.epoch, current.round + 1, local_value);
         next.known_values = current.known_values.clone();
         next.candidates = current.candidates.clone();
         next.known_values.insert(local_value);
         next.candidates.insert(local_value);
+        close.phase = match next.kind {
+            CloseElectionKind::Cut => ClosingPhase::ElectingCut(next.clone()),
+            CloseElectionKind::Record => ClosingPhase::ElectingRecord(next.clone()),
+        };
+        Some(next)
+    }
+
+    /// A notarization terminates the proposal round but is not finality. Move the
+    /// notarized value into a dedicated subsequent round whose only legal local
+    /// action is a final vote for that value.
+    pub fn close_notarized(&mut self) -> Option<CloseElection> {
+        let close = self.closing.as_mut()?;
+        let current = match &close.phase {
+            ClosingPhase::ElectingCut(election) | ClosingPhase::ElectingRecord(election) => {
+                election
+            }
+            _ => return None,
+        };
+        if current.finalization_round || current.is_finalized() || !current.is_notarized() {
+            return None;
+        }
+        let mut next = CloseElection::new(
+            current.kind,
+            current.epoch,
+            current.round + 1,
+            current.value,
+        );
+        next.finalization_round = true;
+        next.known_values = current.known_values.clone();
+        next.candidates = current.candidates.clone();
         close.phase = match next.kind {
             CloseElectionKind::Cut => ClosingPhase::ElectingCut(next.clone()),
             CloseElectionKind::Record => ClosingPhase::ElectingRecord(next.clone()),
@@ -640,12 +754,11 @@ impl CloseCoordinator {
         }
         close.finalized.sort_by(|a, b| a.0.cmp(&b.0));
         close.finalized.dedup_by(|a, b| a.0 == b.0);
-        let election = CloseElection::new(
-            CloseElectionKind::Record,
-            close.epoch,
-            0,
-            close_record_hash(close.epoch, self.previous_record, &close.finalized),
-        );
+        let value = close_record_hash(close.epoch, self.previous_record, &close.finalized);
+        close
+            .record_candidates
+            .insert(value, close.finalized.clone());
+        let election = CloseElection::new(CloseElectionKind::Record, close.epoch, 0, value);
         close.phase = ClosingPhase::ElectingRecord(election.clone());
         Some(election)
     }
@@ -657,12 +770,11 @@ impl CloseCoordinator {
         }
         close.finalized.sort_by(|a, b| a.0.cmp(&b.0));
         close.finalized.dedup_by(|a, b| a.0 == b.0);
-        let election = CloseElection::new(
-            CloseElectionKind::Record,
-            close.epoch,
-            0,
-            close_record_hash(close.epoch, self.previous_record, &close.finalized),
-        );
+        let value = close_record_hash(close.epoch, self.previous_record, &close.finalized);
+        close
+            .record_candidates
+            .insert(value, close.finalized.clone());
+        let election = CloseElection::new(CloseElectionKind::Record, close.epoch, 0, value);
         close.phase = ClosingPhase::ElectingRecord(election.clone());
         Some(election)
     }
@@ -679,19 +791,23 @@ impl CloseCoordinator {
             return None;
         };
         let old_finalized = close.finalized.clone();
-        close.finalized.extend(finalized);
-        close
-            .finalized
-            .sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-        close.finalized.dedup_by(|a, b| a.0 == b.0);
+        let mut by_slot: HashMap<QualifiedRoot, BlockHash> =
+            close.finalized.iter().cloned().collect();
+        for (root, hash) in finalized {
+            by_slot.insert(root, hash);
+        }
+        close.finalized = by_slot.into_iter().collect();
+        close.finalized.sort_by(|a, b| a.0.cmp(&b.0));
         if close.finalized == old_finalized {
             return None;
         }
         let value = close_record_hash(close.epoch, self.previous_record, &close.finalized);
+        close
+            .record_candidates
+            .insert(value, close.finalized.clone());
         if !election.add_candidate(value) {
             return None;
         }
-        election.value = value;
         Some(election.clone())
     }
 
@@ -717,7 +833,7 @@ impl CloseCoordinator {
         }
         let result = ClosedEpoch {
             epoch: close.epoch,
-            finalized: close.finalized.clone(),
+            finalized: close.record_candidates.get(&value)?.clone(),
         };
         self.latest_closed_epoch = close.epoch;
         self.previous_record = value;
@@ -730,7 +846,62 @@ impl CloseCoordinator {
         let ClosingPhase::ElectingRecord(election) = &close.phase else {
             return None;
         };
-        Some((election.local_value, close.finalized.clone()))
+        Some((
+            election.local_value,
+            close.record_candidates.get(&election.local_value)?.clone(),
+        ))
+    }
+
+    fn record_payloads(&self) -> Vec<(BlockHash, Vec<(QualifiedRoot, BlockHash)>)> {
+        self.closing
+            .as_ref()
+            .map(|close| {
+                close
+                    .record_candidates
+                    .iter()
+                    .map(|(hash, payload)| (*hash, payload.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn cut_payloads(&self) -> Vec<(BlockHash, Vec<BlockHash>)> {
+        self.closing
+            .as_ref()
+            .map(|close| {
+                close
+                    .cut_candidates
+                    .iter()
+                    .map(|(hash, payload)| (*hash, payload.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn cut_payload(&self, value: BlockHash) -> Option<Vec<BlockHash>> {
+        self.closing.as_ref()?.cut_candidates.get(&value).cloned()
+    }
+
+    fn admit_cut_payload(
+        &mut self,
+        base: BlockHash,
+        target: BlockHash,
+        payload: Vec<BlockHash>,
+    ) -> Option<CloseElection> {
+        let close = self.closing.as_mut()?;
+        close.cut_candidates.get(&base)?;
+        if payload.windows(2).any(|items| items[0] >= items[1])
+            || close_cut_hash(close.epoch, &payload) != target
+        {
+            return None;
+        }
+        close.cut_candidates.insert(target, payload);
+        if let ClosingPhase::ElectingCut(election) = &mut close.phase {
+            election.add_candidate(target);
+            Some(election.clone())
+        } else {
+            None
+        }
     }
 
     fn admit_record_payload(
@@ -744,19 +915,17 @@ impl CloseCoordinator {
         let ClosingPhase::ElectingRecord(election) = &mut close.phase else {
             return None;
         };
+        close.record_candidates.get(&base)?;
         if election.local_value != base
             || payload.windows(2).any(|items| items[0] >= items[1])
-            || !close
-                .finalized
-                .iter()
-                .all(|entry| payload.binary_search(entry).is_ok())
+            || payload.windows(2).any(|items| items[0].0 == items[1].0)
             || close_record_hash(close.epoch, previous_record, &payload) != target
         {
             return None;
         }
-        close.finalized = payload;
+        close.finalized = payload.clone();
+        close.record_candidates.insert(target, payload);
         election.add_candidate(target);
-        election.value = target;
         Some(election.clone())
     }
 }
@@ -772,6 +941,7 @@ pub struct CloseTransitionPlugin {
     rep_tracker: Arc<RepresentativeTracker>,
     ledger: Arc<Ledger>,
     draining: HashMap<QualifiedRoot, BlockHash>,
+    decided_cut_slots: HashMap<BlockHash, QualifiedRoot>,
     report_rx: Receiver<CloseReport>,
     vote_rx: Receiver<CloseVote>,
     payload_rx: Receiver<(ClosePayload, ChannelId)>,
@@ -797,7 +967,9 @@ pub struct CloseTransitionPlugin {
     cut_round: Option<u32>,
     record_started: Option<(u64, Timestamp)>,
     retained_record_payloads: HashMap<BlockHash, Vec<(QualifiedRoot, BlockHash)>>,
+    retained_cut_payloads: HashMap<BlockHash, Vec<BlockHash>>,
     reconciliation_targets: HashSet<BlockHash>,
+    cut_reconciliation_targets: HashSet<BlockHash>,
     reconciliation_attempts: HashMap<(BlockHash, BlockHash), HashSet<ChannelId>>,
     last_reconciliation_request: HashMap<(BlockHash, BlockHash), Timestamp>,
     closed_epoch: Option<ClosedEpoch>,
@@ -861,6 +1033,7 @@ impl CloseTransitionPlugin {
             rep_tracker,
             ledger,
             draining: HashMap::new(),
+            decided_cut_slots: HashMap::new(),
             report_rx,
             vote_rx,
             payload_rx,
@@ -886,7 +1059,9 @@ impl CloseTransitionPlugin {
             cut_round: None,
             record_started: None,
             retained_record_payloads: HashMap::new(),
+            retained_cut_payloads: HashMap::new(),
             reconciliation_targets: HashSet::new(),
+            cut_reconciliation_targets: HashSet::new(),
             reconciliation_attempts: HashMap::new(),
             last_reconciliation_request: HashMap::new(),
             closed_epoch: None,
@@ -995,7 +1170,12 @@ impl CloseTransitionPlugin {
     }
 
     fn publish_vote(&mut self, election: &CloseElection, key: &PrivateKey) {
-        self.publish_vote_for(election, election.local_value, VoteType::First, key);
+        let vote_type = if election.finalization_round {
+            VoteType::Final
+        } else {
+            VoteType::First
+        };
+        self.publish_vote_for(election, election.local_value, vote_type, key);
     }
 
     fn publish_vote_for(
@@ -1005,6 +1185,27 @@ impl CloseTransitionPlugin {
         vote_type: VoteType,
         key: &PrivateKey,
     ) {
+        if election.kind == CloseElectionKind::Record {
+            let Some(payload) = self.retained_record_payloads.get(&value) else {
+                tracing::warn!(
+                    epoch = election.epoch,
+                    ?value,
+                    "record vote suppressed: payload unavailable"
+                );
+                return;
+            };
+            if !self
+                .vote_history
+                .try_lock_record_values(payload, key.public_key())
+            {
+                tracing::warn!(
+                    epoch = election.epoch,
+                    ?value,
+                    "record vote suppressed by conflicting slot finalization lock"
+                );
+                return;
+            }
+        }
         let vote = CloseVote::new(
             election.epoch,
             election.round,
@@ -1028,6 +1229,13 @@ impl CloseTransitionPlugin {
     }
 
     fn apply_vote(&mut self, vote: CloseVote) {
+        if vote.kind == CloseElectionKind::Cut.wire()
+            && self.coordinator.active_election().is_some_and(|e| {
+                e.kind == CloseElectionKind::Cut && !e.candidates.contains(&vote.value)
+            })
+        {
+            self.cut_reconciliation_targets.insert(vote.value);
+        }
         if vote.kind == CloseElectionKind::Record.wire()
             && self.coordinator.active_election().is_some_and(|e| {
                 e.kind == CloseElectionKind::Record && !e.candidates.contains(&vote.value)
@@ -1098,6 +1306,20 @@ impl CloseTransitionPlugin {
             }
             return;
         }
+        if let Some(next) = self.coordinator.close_notarized() {
+            tracing::warn!(
+                epoch = next.epoch,
+                round = next.round,
+                kind = ?next.kind,
+                value = ?next.value,
+                "close election notarized; finalization round started"
+            );
+            if let Some(key) = self.local_key() {
+                self.publish_vote_for(&next, next.local_value, VoteType::Final, &key);
+                self.replay_cached_votes(&next);
+            }
+            return;
+        }
         if self
             .coordinator
             .active_election()
@@ -1119,7 +1341,7 @@ impl CloseTransitionPlugin {
         }
     }
 
-    fn apply_report(&mut self, _aec: &AecService, key: &PrivateKey, report: CloseReport) {
+    fn apply_report(&mut self, aec: &AecService, key: &PrivateKey, report: CloseReport) {
         if !report.validate() {
             return;
         }
@@ -1133,18 +1355,22 @@ impl CloseTransitionPlugin {
         tracing::info!(node = self.node_index, epoch = report.epoch, reporter = ?report.reporter, pending = report.pending.len(), finalized = report.finalized.len(), "close report received");
         let finalized = report.finalized.clone();
         let quorum = self.quorum_snapshot();
-        if let Some(cut) = self.coordinator.add_report(
+        let new_cut = self.coordinator.add_report(
             report,
             |reporter| self.rep_weights.weight(reporter),
             quorum.total_weight,
             quorum.faulty_weight,
-        ) {
+        );
+        for (hash, payload) in self.coordinator.cut_payloads() {
+            self.retained_cut_payloads.insert(hash, payload);
+        }
+        if let Some(cut) = new_cut {
             tracing::warn!(node = self.node_index, epoch = cut.epoch, round = cut.round, value = ?cut.value, "close cut started");
             self.cut_started = Some((cut.epoch, self.clock.now()));
             self.publish_vote(&cut, key);
             self.replay_cached_votes(&cut);
         } else if let Some(record) = self.coordinator.refresh_record(finalized) {
-            self.start_record(key, record);
+            self.start_record(aec, key, record);
         }
     }
 
@@ -1173,7 +1399,7 @@ impl CloseTransitionPlugin {
         }
     }
 
-    fn start_record_if_drained(&mut self, key: &PrivateKey) {
+    fn start_record_if_drained(&mut self, aec: &AecService, key: &PrivateKey) {
         if !self.draining.is_empty() {
             return;
         }
@@ -1192,12 +1418,13 @@ impl CloseTransitionPlugin {
             round = record.round,
             "close record started"
         );
+        aec.suppress_epoch_votes(record.epoch);
         self.retain_current_record_payload();
         self.publish_vote(&record, key);
         self.replay_cached_votes(&record);
     }
 
-    fn start_record(&mut self, key: &PrivateKey, record: CloseElection) {
+    fn start_record(&mut self, aec: &AecService, key: &PrivateKey, record: CloseElection) {
         if self
             .record_started
             .is_none_or(|(epoch, _)| epoch != record.epoch)
@@ -1210,6 +1437,7 @@ impl CloseTransitionPlugin {
             round = record.round,
             "close record started"
         );
+        aec.suppress_epoch_votes(record.epoch);
         self.retain_current_record_payload();
         self.publish_vote(&record, key);
         self.replay_cached_votes(&record);
@@ -1219,10 +1447,13 @@ impl CloseTransitionPlugin {
         let Some(epoch) = self.coordinator.closing_epoch() else {
             return;
         };
-        let Some(record) = self
-            .coordinator
-            .refresh_record(aec.finalized_epoch_slots(epoch))
-        else {
+        let mut entries = aec.finalized_epoch_slots(epoch);
+        entries.extend(self.decided_cut_slots.values().filter_map(|root| {
+            aec.epoch_slot_outcome(root)
+                .flatten()
+                .map(|hash| (root.clone(), hash))
+        }));
+        let Some(record) = self.coordinator.refresh_record(entries) else {
             return;
         };
         tracing::warn!(
@@ -1238,6 +1469,9 @@ impl CloseTransitionPlugin {
     }
 
     fn retain_current_record_payload(&mut self) {
+        for (hash, payload) in self.coordinator.record_payloads() {
+            self.retained_record_payloads.insert(hash, payload);
+        }
         if let Some((hash, payload)) = self.coordinator.current_record_payload() {
             tracing::warn!(
                 node = self.node_index,
@@ -1254,26 +1488,27 @@ impl CloseTransitionPlugin {
         while let Ok((message, channel_id)) = self.payload_rx.try_recv() {
             match message.kind {
                 ClosePayloadKind::Request => {
-                    let kind = if message.election_kind != CloseElectionKind::Record.wire() {
-                        ClosePayloadKind::UnknownBase
-                    } else if let (Some(base), Some(target)) = (
-                        self.retained_record_payloads.get(&message.base),
-                        self.retained_record_payloads.get(&message.target),
-                    ) {
-                        if base.iter().all(|entry| target.binary_search(entry).is_ok()) {
-                            let additions: Vec<_> = target
-                                .iter()
-                                .filter(|entry| base.binary_search(entry).is_err())
-                                .cloned()
-                                .collect();
-                            if additions.len() <= 256 {
-                                ClosePayloadKind::Delta(additions)
-                            } else {
-                                ClosePayloadKind::DeltaTooLarge
+                    let kind = if message.election_kind == CloseElectionKind::Cut.wire() {
+                        if let (Some(base), Some(target)) = (
+                            self.retained_cut_payloads.get(&message.base),
+                            self.retained_cut_payloads.get(&message.target),
+                        ) {
+                            let (additions, removals) = cut_delta(base, target);
+                            ClosePayloadKind::CutDelta {
+                                additions,
+                                removals,
                             }
                         } else {
                             ClosePayloadKind::UnknownBase
                         }
+                    } else if message.election_kind == CloseElectionKind::Record.wire()
+                        && let (Some(base), Some(target)) = (
+                            self.retained_record_payloads.get(&message.base),
+                            self.retained_record_payloads.get(&message.target),
+                        )
+                    {
+                        let (upserts, removals) = record_delta(base, target);
+                        ClosePayloadKind::RecordDelta { upserts, removals }
                     } else {
                         ClosePayloadKind::UnknownBase
                     };
@@ -1285,32 +1520,20 @@ impl CloseTransitionPlugin {
                         TrafficType::Generic,
                     );
                 }
-                ClosePayloadKind::UnknownBase | ClosePayloadKind::DeltaTooLarge => {
+                ClosePayloadKind::UnknownBase => {
                     tracing::warn!(node=self.node_index, base=?message.base, target=?message.target, response=?message.kind, "close payload request rejected");
                     self.reconciliation_attempts
                         .entry((message.base, message.target))
                         .or_default()
                         .insert(channel_id);
                 }
-                ClosePayloadKind::Delta(additions) => {
-                    let Some(base_payload) = self.retained_record_payloads.get(&message.base)
-                    else {
+                ClosePayloadKind::RecordDelta { upserts, removals } => {
+                    let Some(base) = self.retained_record_payloads.get(&message.base) else {
                         continue;
                     };
-                    if additions.len() > 256
-                        || additions.windows(2).any(|items| items[0] >= items[1])
-                        || additions
-                            .iter()
-                            .any(|entry| base_payload.binary_search(entry).is_ok())
-                    {
+                    let Some(payload) = apply_record_delta(base, &upserts, &removals) else {
                         continue;
-                    }
-                    let mut payload = base_payload.clone();
-                    payload.extend(additions);
-                    payload.sort();
-                    if payload.windows(2).any(|items| items[0].0 == items[1].0) {
-                        continue;
-                    }
+                    };
                     if let Some(record) = self.coordinator.admit_record_payload(
                         message.base,
                         message.target,
@@ -1322,6 +1545,33 @@ impl CloseTransitionPlugin {
                         self.reconciliation_targets.remove(&message.target);
                         self.publish_vote(&record, key);
                         self.replay_cached_votes(&record);
+                    }
+                }
+                ClosePayloadKind::CutDelta {
+                    additions,
+                    removals,
+                } => {
+                    if message.election_kind != CloseElectionKind::Cut.wire() {
+                        continue;
+                    }
+                    let Some(base) = self.retained_cut_payloads.get(&message.base) else {
+                        continue;
+                    };
+                    let Some(payload) = apply_cut_delta(base, &additions, &removals) else {
+                        continue;
+                    };
+                    if close_cut_hash(message.epoch, &payload) != message.target {
+                        continue;
+                    }
+                    let candidate = self.coordinator.admit_cut_payload(
+                        message.base,
+                        message.target,
+                        payload.clone(),
+                    );
+                    self.retained_cut_payloads.insert(message.target, payload);
+                    self.cut_reconciliation_targets.remove(&message.target);
+                    if let Some(cut) = candidate {
+                        self.replay_cached_votes(&cut);
                     }
                 }
                 ClosePayloadKind::SlotRequest => {
@@ -1336,13 +1586,12 @@ impl CloseTransitionPlugin {
                         // finality. A PR can always recreate its final vote when the
                         // requested block is already confirmed in its ledger.
                         if self.ledger.any().confirmed().block_exists(&message.target) {
-                            let vote = Arc::new(Vote::new_rai(
-                                key,
+                            self.vote_history.get_or_create_final_vote(
+                                &root.root,
                                 message.epoch,
-                                VoteType::Final,
-                                vec![message.target],
-                            ));
-                            self.vote_history.add(&root.root, &message.target, &vote);
+                                message.target,
+                                key,
+                            );
                         }
                         // Return every locally authored vote for this slot and epoch.
                         // RAI phases can require an earlier vote as well as the latest
@@ -1416,6 +1665,39 @@ impl CloseTransitionPlugin {
     }
 
     fn request_reconciliation(&mut self) {
+        let cut_base = self
+            .coordinator
+            .active_election()
+            .filter(|e| e.kind == CloseElectionKind::Cut)
+            .map(|e| e.local_value)
+            .or_else(|| self.finalized_cut.as_ref().map(|e| e.value));
+        if let Some(base) = cut_base {
+            let now = self.clock.now();
+            for target in self.cut_reconciliation_targets.clone() {
+                if target == base {
+                    self.cut_reconciliation_targets.remove(&target);
+                    continue;
+                }
+                let last = self
+                    .last_reconciliation_request
+                    .entry((base, target))
+                    .or_insert(Timestamp::new(0));
+                if now >= *last + Duration::from_millis(250) {
+                    *last = now;
+                    let request = ClosePayload::request(
+                        self.coordinator.closing_epoch().unwrap_or_default(),
+                        CloseElectionKind::Cut.wire(),
+                        base,
+                        target,
+                    );
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ClosePayload(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+            }
+        }
         let Some((base, _)) = self.coordinator.current_record_payload() else {
             return;
         };
@@ -1482,10 +1764,26 @@ impl CloseTransitionPlugin {
 
     fn apply_cut(&mut self, aec: &AecService, key: &PrivateKey, cut: &CloseElection) {
         let active = aec.epoch_slots(cut.epoch);
-        let Some(excluded) = self
-            .coordinator
-            .cut_finalized(cut.value, active.iter().cloned())
-        else {
+        let Some(certified_hashes) = self.coordinator.cut_payload(cut.value) else {
+            return;
+        };
+        let membership: Vec<_> = active
+            .iter()
+            .map(|(root, current)| {
+                let certified = aec
+                    .election_for_root(root)
+                    .and_then(|election| {
+                        election
+                            .candidate_blocks()
+                            .keys()
+                            .find(|hash| certified_hashes.binary_search(hash).is_ok())
+                            .copied()
+                    })
+                    .unwrap_or(*current);
+                (root.clone(), certified)
+            })
+            .collect();
+        let Some(excluded) = self.coordinator.cut_finalized(cut.value, membership) else {
             return;
         };
         self.cut_duration = self
@@ -1502,29 +1800,46 @@ impl CloseTransitionPlugin {
                 "fresh slot votes suppressed by finalized cut"
             );
         }
-        let active: HashMap<_, _> = active
-            .into_iter()
-            .map(|(root, hash)| (hash, root))
-            .collect();
+        let mut active_by_hash = HashMap::new();
+        for (root, _) in active {
+            if let Some(election) = aec.election_for_root(&root) {
+                for hash in election.candidate_blocks().keys() {
+                    if certified_hashes.binary_search(hash).is_ok() {
+                        active_by_hash.insert(*hash, root.clone());
+                    }
+                }
+            }
+        }
         let cut_hashes = self.coordinator.draining_hashes();
+        self.decided_cut_slots = active_by_hash
+            .iter()
+            .filter_map(|(hash, root)| {
+                cut_hashes
+                    .binary_search(hash)
+                    .is_ok()
+                    .then_some((*hash, root.clone()))
+            })
+            .collect();
+        let included: HashSet<_> = self.decided_cut_slots.values().cloned().collect();
+        aec.resume_cut_votes(cut.epoch, &included);
         tracing::warn!(
             node = self.node_index,
             epoch = cut.epoch,
             cut_hash = ?cut.value,
             hashes = ?cut_hashes,
-            local_slots = ?active,
+            local_slots = ?active_by_hash,
             "certified cut contents"
         );
         self.unresolved_cut = cut_hashes
             .iter()
-            .filter(|hash| !active.contains_key(hash))
+            .filter(|hash| !active_by_hash.contains_key(hash))
             .copied()
             .collect();
         self.draining = self
             .coordinator
             .draining_hashes()
             .into_iter()
-            .filter_map(|hash| active.get(&hash).cloned().map(|root| (root, hash)))
+            .filter_map(|hash| active_by_hash.get(&hash).cloned().map(|root| (root, hash)))
             .collect();
         tracing::warn!(
             node = self.node_index,
@@ -1534,7 +1849,7 @@ impl CloseTransitionPlugin {
             "cut finalized"
         );
 
-        self.start_record_if_drained(key);
+        self.start_record_if_drained(aec, key);
     }
 
     fn recover_cut_data(&mut self, aec: &AecService) {
@@ -1550,7 +1865,8 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered existing certified-epoch cut slot"
                     );
-                    self.draining.insert(root, hash);
+                    self.draining.insert(root.clone(), hash);
+                    self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
                 }
@@ -1562,7 +1878,8 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered confirmed cut slot"
                     );
-                    self.draining.insert(root, hash);
+                    self.draining.insert(root.clone(), hash);
+                    self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
                 }
@@ -1579,7 +1896,8 @@ impl CloseTransitionPlugin {
                         ?root,
                         "recovered active cut slot"
                     );
-                    self.draining.insert(root, hash);
+                    self.draining.insert(root.clone(), hash);
+                    self.decided_cut_slots.insert(hash, root);
                     self.unresolved_cut.remove(&hash);
                     continue;
                 }
@@ -1722,6 +2040,28 @@ impl CloseTransitionPlugin {
             return;
         };
         let finalized: HashSet<_> = closed.finalized.iter().map(|(root, _)| root).collect();
+        // The record certificate is itself finality evidence. Slot notarization
+        // is not required here; block validation/availability is sufficient.
+        if let Some((root, hash)) = closed
+            .finalized
+            .iter()
+            .find(|(_, hash)| self.ledger.any().get_block(hash).is_none())
+            .cloned()
+        {
+            tracing::warn!(
+                epoch = closed.epoch,
+                ?root,
+                ?hash,
+                "record value unavailable; installation deferred"
+            );
+            self.request_cut_slot(closed.epoch, hash, "requested missing decided-record value");
+            self.closed_epoch = Some(closed);
+            return;
+        }
+        for (root, hash) in &closed.finalized {
+            self.ledger.confirm(*hash);
+            aec.apply_record_outcome(root, *hash);
+        }
         for (root, _) in aec.epoch_slots(closed.epoch) {
             if finalized.contains(&root) {
                 continue;
@@ -1804,6 +2144,9 @@ impl AecTickerPlugin for CloseTransitionPlugin {
             ) else {
                 return;
             };
+            // Closing freezes only fresh local support. Elections remain active
+            // and routable so reports, old votes, and certificates still apply.
+            aec.suppress_epoch_votes(epoch);
             debug_assert_eq!(aec.advance_epoch(), epoch + 1);
             self.local_report = Some(report.clone());
             self.local_reports.insert(epoch, report.clone());
@@ -1871,7 +2214,7 @@ impl AecTickerPlugin for CloseTransitionPlugin {
                 tracing::warn!(node=self.node_index, epoch, ?root, ?hash, finalized=?finalized, "cut slot drained");
                 self.draining.remove(&root);
                 if let Some(record) = self.coordinator.slot_terminated(root, hash, finalized) {
-                    self.start_record(&key, record);
+                    self.start_record(aec, &key, record);
                 }
             }
         }
@@ -1889,6 +2232,61 @@ mod tests {
 
     fn root(value: u64, epoch: u64) -> QualifiedRoot {
         QualifiedRoot::new(Root::from(value), BlockHash::from(value + 100)).with_epoch(epoch)
+    }
+
+    #[test]
+    fn close_notarization_starts_a_subsequent_finalization_round() {
+        let now = Timestamp::new_test_instance();
+        let keys: Vec<_> = (1..=4).map(PrivateKey::from).collect();
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+        let report = close
+            .tick(now + Duration::from_secs(1), [], [], &keys[0])
+            .unwrap();
+        let proposal = close
+            .add_report(report, |_| Amount::raw(1), Amount::raw(1), Amount::ZERO)
+            .unwrap();
+        let quorum = QuorumSnapshot {
+            total_weight: Amount::raw(5),
+            faulty_weight: Amount::raw(1),
+            slack_weight: Amount::ZERO,
+            ..Default::default()
+        };
+        for key in &keys {
+            let vote = CloseVote::new(
+                1,
+                0,
+                CloseElectionKind::Cut.wire(),
+                proposal.value,
+                VoteType::NonFinal,
+                key,
+            );
+            assert_eq!(close.apply_vote(&vote, Amount::raw(1), &quorum, now), None);
+        }
+
+        let finalization = close.close_notarized().unwrap();
+        assert_eq!(finalization.round, 1);
+        assert!(finalization.finalization_round);
+        assert_eq!(finalization.local_value, proposal.value);
+        assert_eq!(
+            finalization.vote_targets(),
+            vec![(proposal.value, VoteType::Final)]
+        );
+
+        let mut outcome = None;
+        for key in &keys {
+            let vote = CloseVote::new(
+                1,
+                1,
+                CloseElectionKind::Cut.wire(),
+                proposal.value,
+                VoteType::Final,
+                key,
+            );
+            outcome = close
+                .apply_vote(&vote, Amount::raw(1), &quorum, now)
+                .or(outcome);
+        }
+        assert_eq!(outcome, Some((CloseElectionKind::Cut, proposal.value)));
     }
 
     #[test]
@@ -2068,7 +2466,13 @@ mod tests {
         let updated = close
             .refresh_record([(learned.clone(), learned_hash)])
             .unwrap();
-        assert_ne!(updated.value, initial.value);
+        let updated_hash = close_record_hash(
+            1,
+            BlockHash::ZERO,
+            &[(first.clone(), first_hash), (learned, learned_hash)],
+        );
+        assert_eq!(updated.local_value, initial.value);
+        assert!(updated.candidates.contains(&updated_hash));
 
         let quorum = QuorumSnapshot {
             total_weight: Amount::raw(1),
@@ -2076,33 +2480,25 @@ mod tests {
             slack_weight: Amount::ZERO,
             ..Default::default()
         };
-        let old_vote = CloseVote::new(
+        let timeout = CloseVote::new(
             1,
             0,
             CloseElectionKind::Record.wire(),
             initial.value,
-            VoteType::Final,
+            VoteType::Timeout,
             &key,
         );
-        assert!(close.accepts_vote(&old_vote));
-
-        let updated_vote = CloseVote::new(
-            1,
-            0,
-            CloseElectionKind::Record.wire(),
-            updated.value,
-            VoteType::Final,
-            &key,
-        );
-        assert!(close.accepts_vote(&updated_vote));
         assert_eq!(
-            close.apply_vote(&updated_vote, Amount::raw(1), &quorum, now),
-            Some((CloseElectionKind::Record, updated.value))
+            close.apply_vote(&timeout, Amount::raw(1), &quorum, now),
+            None
         );
+        let next = close.close_timed_out().unwrap();
+        assert_eq!(next.round, 1);
+        assert_eq!(next.local_value, updated_hash);
     }
 
     #[test]
-    fn reconciled_record_payload_must_extend_the_current_base() {
+    fn reconciled_record_payload_can_add_remove_or_replace_entries() {
         let now = Timestamp::new_test_instance();
         let key = PrivateKey::from(1);
         let first = (root(1, 1), BlockHash::from(101));
@@ -2125,13 +2521,47 @@ mod tests {
                 .is_some()
         );
 
-        let removal = vec![first];
+        let removal = Vec::new();
         let removal_target = close_record_hash(1, BlockHash::ZERO, &removal);
         assert!(
             close
-                .admit_record_payload(target, removal_target, removal)
-                .is_none()
+                .admit_record_payload(record.value, removal_target, removal)
+                .is_some()
         );
+    }
+
+    #[test]
+    fn cut_delta_transmits_only_mutations_and_reconstructs_target() {
+        let base = vec![BlockHash::from(1), BlockHash::from(2), BlockHash::from(3)];
+        let target = vec![BlockHash::from(2), BlockHash::from(3), BlockHash::from(4)];
+        let (additions, removals) = cut_delta(&base, &target);
+
+        assert_eq!(additions, vec![BlockHash::from(4)]);
+        assert_eq!(removals, vec![BlockHash::from(1)]);
+        assert_eq!(apply_cut_delta(&base, &additions, &removals), Some(target));
+    }
+
+    #[test]
+    fn record_delta_transmits_only_mutations_and_reconstructs_target() {
+        let unchanged = (root(1, 1), BlockHash::from(101));
+        let replaced_root = root(2, 1);
+        let removed = (root(3, 1), BlockHash::from(103));
+        let added = (root(4, 1), BlockHash::from(104));
+        let base = vec![
+            unchanged.clone(),
+            (replaced_root.clone(), BlockHash::from(102)),
+            removed.clone(),
+        ];
+        let target = vec![
+            unchanged,
+            (replaced_root.clone(), BlockHash::from(202)),
+            added.clone(),
+        ];
+        let (upserts, removals) = record_delta(&base, &target);
+
+        assert_eq!(upserts, vec![(replaced_root, BlockHash::from(202)), added]);
+        assert_eq!(removals, vec![removed.0]);
+        assert_eq!(apply_record_delta(&base, &upserts, &removals), Some(target));
     }
 
     #[test]

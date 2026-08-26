@@ -125,6 +125,11 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn resume_vote_generation(&mut self) {
+        self.vote_generation_enabled = true;
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn vote_generation_enabled(&self) -> bool {
         self.vote_generation_enabled
     }

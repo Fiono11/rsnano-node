@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_types::{BlockHash, NetworkType, PublicKey, Root, Vote};
+use rsnano_types::{BlockHash, NetworkType, PrivateKey, PublicKey, Root, Vote};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 pub struct LocalVoteHistory {
@@ -19,6 +19,11 @@ struct LocalVoteHistoryData {
     history_by_root: HashMap<Root, HashSet<usize>>,
     #[cfg(feature = "rai_protocol")]
     history_by_root: HashMap<(Root, u64), HashSet<usize>>,
+    /// A local vote for an epoch record finalizes the value named for each slot.
+    /// Keep that cross-protocol lock beside slot vote history so every slot vote
+    /// generation path observes it for the lifetime of the process.
+    #[cfg(feature = "rai_protocol")]
+    record_locks: HashMap<(Root, u64, PublicKey), BlockHash>,
 }
 
 impl LocalVoteHistoryData {
@@ -126,6 +131,79 @@ impl LocalVoteHistory {
         }
     }
 
+    /// Returns an existing final vote for `hash`, or creates it if the local
+    /// representative is still allowed to finalize this epoch slot.
+    ///
+    /// Recovery paths must use the same Kudzu support lock as ordinary vote
+    /// generation: a representative that timed out or notarized another value
+    /// cannot later manufacture a final vote just because the block is present
+    /// in its confirmed ledger.  The checks and insertion share one lock so a
+    /// concurrent terminal vote cannot be recorded between them.
+    #[cfg(feature = "rai_protocol")]
+    pub fn get_or_create_final_vote(
+        &self,
+        root: &Root,
+        epoch: u64,
+        hash: BlockHash,
+        key: &PrivateKey,
+    ) -> Option<Arc<Vote>> {
+        let voter = key.public_key();
+        let mut data = self.data.lock().unwrap();
+        let history_key = (*root, epoch);
+
+        let entries: Vec<_> = data
+            .history_by_root
+            .get(&history_key)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| data.history.get(id))
+            .filter(|entry| entry.vote.voter == voter)
+            .collect();
+
+        if let Some(existing) = entries.iter().find(|entry| {
+            entry.hash == hash && entry.vote.vote_type() == rsnano_types::VoteType::Final
+        }) {
+            return Some(existing.vote.clone());
+        }
+
+        if data.record_locks.contains_key(&(*root, epoch, voter))
+            || entries.iter().any(|entry| {
+                entry.vote.vote_type() == rsnano_types::VoteType::Timeout
+                    || (entry.vote.vote_type() != rsnano_types::VoteType::Timeout
+                        && entry.hash != hash)
+            })
+        {
+            return None;
+        }
+
+        let vote = Arc::new(Vote::new_rai(
+            key,
+            epoch,
+            rsnano_types::VoteType::Final,
+            vec![hash],
+        ));
+        let id = data
+            .history
+            .iter()
+            .next_back()
+            .map(|(id, _)| id + 1)
+            .unwrap_or_default();
+        data.history.insert(
+            id,
+            LocalVote {
+                root: *root,
+                epoch,
+                hash,
+                vote: vote.clone(),
+            },
+        );
+        data.history_by_root
+            .entry(history_key)
+            .or_default()
+            .insert(id);
+        Some(vote)
+    }
+
     pub fn erase_batch(&self, roots: impl IntoIterator<Item = Root>) {
         let mut guard = self.data.lock().unwrap();
         for root in roots {
@@ -182,6 +260,60 @@ impl LocalVoteHistory {
             }
         }
         result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn try_lock_record_values(
+        &self,
+        entries: &[(rsnano_types::QualifiedRoot, BlockHash)],
+        voter: PublicKey,
+    ) -> bool {
+        let mut data = self.data.lock().unwrap();
+
+        // Validate the complete record candidate before installing any lock.
+        // A locally signed final slot vote is a permanent lock against putting a
+        // conflicting value in a record. A timeout is deliberately not checked:
+        // a decided record is allowed to finalize a validated block after a node
+        // locally terminated the slot by timeout.
+        for (root, hash) in entries {
+            let key = (root.root, root.epoch, voter);
+            if data
+                .record_locks
+                .get(&key)
+                .is_some_and(|locked| locked != hash)
+            {
+                return false;
+            }
+            let conflicting_final = data
+                .history_by_root
+                .get(&(root.root, root.epoch))
+                .into_iter()
+                .flatten()
+                .filter_map(|id| data.history.get(id))
+                .any(|entry| {
+                    entry.vote.voter == voter
+                        && entry.vote.vote_type() == rsnano_types::VoteType::Final
+                        && entry.hash != *hash
+                });
+            if conflicting_final {
+                return false;
+            }
+        }
+
+        for (root, hash) in entries {
+            data.record_locks
+                .insert((root.root, root.epoch, voter), *hash);
+        }
+        true
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_record_locked(&self, root: &Root, epoch: u64, voter: PublicKey) -> bool {
+        self.data
+            .lock()
+            .unwrap()
+            .record_locks
+            .contains_key(&(*root, epoch, voter))
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -624,5 +756,138 @@ mod tests {
             &BlockHash::from(2),
             PrivateKey::from(1).public_key()
         ));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_final_is_rejected_after_timeout() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let key = PrivateKey::from(1);
+        let timeout = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::Timeout,
+            vec![hash],
+        ));
+        history.add(&root, &hash, &timeout);
+
+        assert!(
+            history
+                .get_or_create_final_vote(&root, 1, hash, &key)
+                .is_none()
+        );
+        assert!(
+            history
+                .votes_for_epoch(&root, 1, &hash, Some(rsnano_types::VoteType::Final))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_final_is_rejected_after_conflicting_notarization() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let selected = BlockHash::from(2);
+        let conflicting = BlockHash::from(3);
+        let key = PrivateKey::from(1);
+        let notarization = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::NonFinal,
+            vec![conflicting],
+        ));
+        history.add(&root, &conflicting, &notarization);
+
+        assert!(
+            history
+                .get_or_create_final_vote(&root, 1, selected, &key)
+                .is_none()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_final_is_allowed_after_compatible_notarization() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let key = PrivateKey::from(1);
+        let first = Arc::new(Vote::new_rai(
+            &key,
+            1,
+            rsnano_types::VoteType::First,
+            vec![hash],
+        ));
+        history.add(&root, &hash, &first);
+
+        let final_vote = history
+            .get_or_create_final_vote(&root, 1, hash, &key)
+            .unwrap();
+
+        assert_eq!(final_vote.vote_type(), rsnano_types::VoteType::Final);
+        assert_eq!(final_vote.hashes, vec![hash]);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_reuses_existing_final_vote() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let key = PrivateKey::from(1);
+
+        let first = history
+            .get_or_create_final_vote(&root, 1, hash, &key)
+            .unwrap();
+        let second = history
+            .get_or_create_final_vote(&root, 1, hash, &key)
+            .unwrap();
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(history.size(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn record_lock_rejects_conflicting_local_final_vote() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::from(1);
+        let root = Root::from(1);
+        let finalized = BlockHash::from(2);
+        let record_value = BlockHash::from(3);
+        let final_vote = Arc::new(Vote::new_rai(
+            &key,
+            7,
+            rsnano_types::VoteType::Final,
+            vec![finalized],
+        ));
+        history.add(&root, &finalized, &final_vote);
+
+        let entry = rsnano_types::QualifiedRoot::new(root, BlockHash::from(9)).with_epoch(7);
+        assert!(!history.try_lock_record_values(&[(entry, record_value)], key.public_key()));
+        assert!(!history.is_record_locked(&root, 7, key.public_key()));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn record_lock_blocks_later_slot_votes_but_allows_local_timeout_exception() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let key = PrivateKey::from(1);
+        let root = Root::from(1);
+        let value = BlockHash::from(2);
+        let timeout = Arc::new(Vote::new_rai(
+            &key,
+            7,
+            rsnano_types::VoteType::Timeout,
+            vec![value],
+        ));
+        history.add(&root, &value, &timeout);
+
+        let entry = rsnano_types::QualifiedRoot::new(root, BlockHash::from(9)).with_epoch(7);
+        assert!(history.try_lock_record_values(&[(entry, value)], key.public_key()));
+        assert!(history.is_record_locked(&root, 7, key.public_key()));
     }
 }
