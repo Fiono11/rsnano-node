@@ -57,18 +57,6 @@ pub(crate) async fn create_wallets(
                 })
                 .await
                 .unwrap();
-
-            // PR0 creates the redistribution chain. Let it sign for each new
-            // representative until the periodic local-representative refresh
-            // observes the transferred voting weight.
-            genesis_rpc
-                .wallet_add(WalletAddArgs {
-                    wallet: genesis_wallet,
-                    key: pr_key.raw_key(),
-                    work: None,
-                })
-                .await
-                .unwrap();
         }
 
         info!("Setting default representative...");
@@ -190,10 +178,6 @@ pub(crate) async fn create_wallets(
 
     #[cfg(feature = "rai_protocol")]
     for i in 1..pr_count {
-        genesis_rpc
-            .account_remove(genesis_wallet, pr_key(i).account())
-            .await
-            .unwrap();
         rpc_clients[i]
             .account_remove(setup_wallets[i], genesis_key.account())
             .await
@@ -226,6 +210,8 @@ pub(crate) async fn wait_until_confirmed_on_all(
     rpc_clients: &[NanoRpcClient],
     hash: BlockHash,
 ) -> anyhow::Result<()> {
+    const CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(60);
+    let started = std::time::Instant::now();
     let block = loop {
         let mut found = None;
         for client in rpc_clients {
@@ -237,26 +223,39 @@ pub(crate) async fn wait_until_confirmed_on_all(
         if let Some(block) = found {
             break block;
         }
+        if started.elapsed() >= CONFIRMATION_TIMEOUT {
+            return Err(anyhow::anyhow!(
+                "setup block {hash} was not observed by any PR within {} seconds",
+                CONFIRMATION_TIMEOUT.as_secs()
+            ));
+        }
         sleep(Duration::from_millis(100)).await;
     };
     let mut last_confirm_request = None;
     loop {
-        let mut all_confirmed = true;
-        for client in rpc_clients {
+        let mut unconfirmed = Vec::new();
+        for (index, client) in rpc_clients.iter().enumerate() {
             match client.block_info(hash).await {
                 Ok(info) if info.confirmed.inner() => {}
-                Ok(_) => all_confirmed = false,
+                Ok(_) => unconfirmed.push(index),
                 Err(_) => {
                     // Setup traffic can arrive after the originating election
                     // has ended. Repair the missing block before requesting a
                     // fresh committee-wide election.
                     let _ = client.process(block.clone()).await;
-                    all_confirmed = false;
+                    unconfirmed.push(index);
                 }
             }
         }
-        if all_confirmed {
+        if unconfirmed.is_empty() {
             return Ok(());
+        }
+
+        if started.elapsed() >= CONFIRMATION_TIMEOUT {
+            return Err(anyhow::anyhow!(
+                "setup block {hash} was not confirmed within {} seconds on PRs {unconfirmed:?}",
+                CONFIRMATION_TIMEOUT.as_secs()
+            ));
         }
 
         if last_confirm_request
@@ -264,6 +263,11 @@ pub(crate) async fn wait_until_confirmed_on_all(
         {
             // Restart the election on the whole committee. A lagging replica may
             // receive a setup block after peers have already dropped its election.
+            // Re-process on every lagging PR first so the restarted election has
+            // its block and dependency context available locally.
+            for index in &unconfirmed {
+                let _ = rpc_clients[*index].process(block.clone()).await;
+            }
             for client in rpc_clients {
                 let _ = client.block_confirm(hash).await;
             }
