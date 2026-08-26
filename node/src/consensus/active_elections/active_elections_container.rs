@@ -1033,6 +1033,55 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rai_protocol")]
+    fn later_nonfinal_certificate_supersedes_timeout_outcome() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let root = block.qualified_root().with_epoch(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let timeout_rep = PrivateKey::from(1);
+        let nonfinal_rep = PrivateKey::from(2);
+        let mut weights = RepWeights::default();
+        weights.put(timeout_rep.public_key(), certificate);
+        weights.put(nonfinal_rep.public_key(), certificate);
+
+        for (rep, vote_type) in [
+            (&timeout_rep, VoteType::Timeout),
+            (&nonfinal_rep, VoteType::NonFinal),
+        ] {
+            let vote: FilteredVote = ReceivedVote::new(
+                Arc::new(Vote::new_rai(rep, 1, vote_type, vec![hash])),
+                VoteDelivery::Direct,
+                None,
+            )
+            .into();
+            container.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &weights,
+                quorum_snapshot: &quorum,
+                now: Timestamp::new_test_instance(),
+            });
+        }
+
+        assert_eq!(container.epoch_slot_outcome(&root), Some(Some(hash)));
+        assert!(
+            !container
+                .election_for_root(&root)
+                .unwrap()
+                .terminated_by_timeout()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
     fn cut_exclusion_suppresses_fresh_votes_without_erasing_the_election() {
         let mut container = ActiveElectionsContainer::default();
         let block = SavedBlock::new_test_instance();

@@ -124,6 +124,35 @@ impl BlockTallies {
     }
 
     fn sort_by_descending_tally(&mut self) {
-        self.tallies[..self.len].sort_by(|(_, left), (_, right)| right.cmp(left));
+        self.tallies[..self.len].sort_by(|(left_hash, left_tally), (right_hash, right_tally)| {
+            right_tally
+                .cmp(left_tally)
+                .then_with(|| right_hash.cmp(left_hash))
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equal_tallies_choose_highest_hash_deterministically() {
+        let low = BlockHash::from(1);
+        let high = BlockHash::from(2);
+        let weight = Amount::raw(10);
+
+        let mut low_first = BlockTallies::new();
+        low_first.add(low, weight);
+        low_first.add(high, weight);
+        low_first.sort();
+
+        let mut high_first = BlockTallies::new();
+        high_first.add(high, weight);
+        high_first.add(low, weight);
+        high_first.sort();
+
+        assert_eq!(low_first.winner(), Some(&(high, weight)));
+        assert_eq!(high_first.winner(), Some(&(high, weight)));
     }
 }

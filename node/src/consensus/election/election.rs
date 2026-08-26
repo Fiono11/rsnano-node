@@ -528,7 +528,13 @@ impl Election {
                 .unwrap_or_default();
             self.timeout_predicate = all_vote_weight - max_candidate_weight > f + p;
             self.has_quorum |= self.winner_tally >= certificate;
-            if !self.terminated {
+            if self.has_quorum {
+                // Timeout terminates only the current observation of the slot.
+                // Later notarization (including the notarization implied by Final
+                // votes) supersedes it and supplies the protocol-selected value.
+                self.terminated_by_timeout = false;
+                self.terminated = true;
+            } else if !self.terminated {
                 self.terminated_by_timeout = !self.has_quorum && timeout_weight >= certificate;
                 self.terminated = self.has_quorum || timeout_weight >= certificate;
             }
