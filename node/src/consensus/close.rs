@@ -173,6 +173,7 @@ pub struct CloseElection {
     finalized: bool,
     timed_out: bool,
     finalization_round: bool,
+    final_evidence_round: Option<u32>,
 }
 
 impl CloseElection {
@@ -194,6 +195,7 @@ impl CloseElection {
             finalized: false,
             timed_out: false,
             finalization_round: false,
+            final_evidence_round: None,
         }
     }
 
@@ -448,6 +450,7 @@ impl CloseVoteCache {
                 key.kind == election.kind.wire()
                     && key.epoch == election.epoch
                     && key.round == election.round
+                    && election.finalization_round == (key.vote_type == VoteType::Final)
             })
             .copied()
             .collect();
@@ -578,6 +581,62 @@ impl CloseCoordinator {
         vote.epoch == election.epoch
             && vote.round == election.round
             && vote.kind == election.kind.wire()
+            && election.finalization_round == (vote.vote_type == VoteType::Final)
+    }
+
+    /// A replica can lag behind peers which have already entered a finalization
+    /// round. Their Final votes are evidence for the notarized value and must not
+    /// be discarded merely because the local proposal round is older.
+    fn apply_same_round_final_evidence(
+        &mut self,
+        vote: &CloseVote,
+        weight: Amount,
+        quorum: &QuorumSnapshot,
+        now: Timestamp,
+    ) -> bool {
+        let Some(close) = self.closing.as_mut() else {
+            return false;
+        };
+        let election = match &mut close.phase {
+            ClosingPhase::ElectingCut(election) | ClosingPhase::ElectingRecord(election) => {
+                election
+            }
+            _ => return false,
+        };
+        if vote.vote_type != VoteType::Final
+            || vote.epoch != election.epoch
+            || vote.kind != election.kind.wire()
+            || vote.round < election.round
+            || election.finalization_round
+        {
+            return false;
+        }
+        election.final_evidence_round = Some(
+            election
+                .final_evidence_round
+                .map_or(vote.round, |round| round.max(vote.round)),
+        );
+        election
+            .apply_vote(
+                vote.voter,
+                vote.value,
+                VoteType::NonFinal,
+                weight,
+                quorum,
+                now,
+            )
+            .is_ok()
+    }
+
+    fn accepts_same_round_final_evidence(&self, vote: &CloseVote) -> bool {
+        let Some(election) = self.active_election() else {
+            return false;
+        };
+        vote.vote_type == VoteType::Final
+            && vote.epoch == election.epoch
+            && vote.kind == election.kind.wire()
+            && vote.round >= election.round
+            && !election.finalization_round
     }
 
     /// A final vote for round r+1 also proves notarization support for the same
@@ -761,12 +820,8 @@ impl CloseCoordinator {
         {
             return None;
         }
-        let mut next = CloseElection::new(
-            current.kind,
-            current.epoch,
-            current.round + 1,
-            current.value,
-        );
+        let next_round = current.final_evidence_round.unwrap_or(current.round + 1);
+        let mut next = CloseElection::new(current.kind, current.epoch, next_round, current.value);
         next.finalization_round = true;
         next.known_values = current.known_values.clone();
         next.candidates = current.candidates.clone();
@@ -1001,9 +1056,43 @@ impl CloseCoordinator {
         {
             return None;
         }
-        close.finalized = payload.clone();
+
+        // A peer's record can be an earlier (or simply less complete) view of
+        // the epoch.  Learning it must never discard slot outcomes which this
+        // replica has already validated.  Compatible records therefore form a
+        // monotonic map keyed by slot; the canonical proposal is the hash of
+        // their sorted union.
+        let mut merged: HashMap<QualifiedRoot, BlockHash> =
+            close.finalized.iter().cloned().collect();
+        let mut compatible = true;
+        for (root, hash) in &payload {
+            if merged.get(root).is_some_and(|known| known != hash) {
+                compatible = false;
+                break;
+            }
+            merged.insert(root.clone(), *hash);
+        }
+
+        // Retain the advertised commitment as a candidate so already-received
+        // votes for it can still be evaluated. A conflicting local view must not
+        // make an otherwise certified target opaque: the target can be decided
+        // directly, while the local slot-finalization lock prevents this replica
+        // from signing an unsafe value. Compatible payloads additionally derive
+        // a canonical union independent of delivery order.
         close.record_candidates.insert(target, payload);
         election.add_candidate(target);
+        if compatible {
+            let mut merged: Vec<_> = merged.into_iter().collect();
+            merged.sort_by(|a, b| a.0.cmp(&b.0));
+            let merged_target = close_record_hash(close.epoch, previous_record, &merged);
+            close.finalized = merged.clone();
+            close.record_candidates.insert(merged_target, merged);
+            election.add_candidate(merged_target);
+            if merged_target != election.local_value {
+                election.pending_value = Some(merged_target);
+                election.value_updated = true;
+            }
+        }
         election.update_outcome(quorum);
         Some(election.clone())
     }
@@ -1294,17 +1383,24 @@ impl CloseTransitionPlugin {
         if election.kind == CloseElectionKind::Record {
             let Some(payload) = self.retained_record_payloads.get(&value) else {
                 tracing::warn!(
+                    node = self.node_index,
                     epoch = election.epoch,
                     ?value,
                     "record vote suppressed: payload unavailable"
                 );
                 return;
             };
-            if !self
-                .vote_history
-                .try_lock_record_values(payload, key.public_key())
+            // Proposal votes describe a replica's current view and may be
+            // superseded by reconciliation. Only a Final vote makes those slot
+            // values irreversible; locking on First would strand replicas on
+            // different transient records and prevent a later quorum.
+            if vote_type == VoteType::Final
+                && !self
+                    .vote_history
+                    .try_lock_record_values(payload, key.public_key())
             {
                 tracing::warn!(
+                    node = self.node_index,
                     epoch = election.epoch,
                     ?value,
                     "record vote suppressed by conflicting slot finalization lock"
@@ -1384,6 +1480,10 @@ impl CloseTransitionPlugin {
                         self.finalized_record = Some(record.clone());
                         self.retain_finalized_record(record);
                         self.closed_epoch = Some(closed);
+                        self.reconciliation_targets.clear();
+                        self.cut_reconciliation_targets.clear();
+                        self.reconciliation_attempts.clear();
+                        self.last_reconciliation_request.clear();
                         let record_duration = self
                             .record_started
                             .take()
@@ -1476,6 +1576,18 @@ impl CloseTransitionPlugin {
         }
     }
 
+    fn apply_same_round_final_evidence(&mut self, vote: &CloseVote) {
+        let quorum = self.quorum_snapshot();
+        if self.coordinator.apply_same_round_final_evidence(
+            vote,
+            self.rep_weights.weight(&vote.voter),
+            &quorum,
+            self.clock.now(),
+        ) {
+            self.start_finalization_round();
+        }
+    }
+
     /// Completes a record whose already-stored votes became decisive when new
     /// slot evidence or a reconciled payload validated their commitment.
     fn finish_record_if_finalized(&mut self) {
@@ -1496,6 +1608,10 @@ impl CloseTransitionPlugin {
         self.finalized_record = Some(record.clone());
         self.retain_finalized_record(record);
         self.closed_epoch = Some(closed);
+        self.reconciliation_targets.clear();
+        self.cut_reconciliation_targets.clear();
+        self.reconciliation_attempts.clear();
+        self.last_reconciliation_request.clear();
         let record_duration = self
             .record_started
             .take()
@@ -1593,6 +1709,13 @@ impl CloseTransitionPlugin {
         while let Ok(vote) = self.vote_rx.try_recv() {
             if self.coordinator.accepts_vote(&vote) {
                 self.apply_vote(vote);
+            } else if self.coordinator.accepts_same_round_final_evidence(&vote) {
+                // A timeout proposal round and the preceding proposal's
+                // finalization round can share the same number. Preserve the
+                // signed Final vote, use its implied notarization support to
+                // enter the peers' phase, then replay it there.
+                self.vote_cache.insert(vote.clone());
+                self.apply_same_round_final_evidence(&vote);
             } else if self.coordinator.accepts_successor_final_evidence(&vote) {
                 // Preserve the signed successor-round vote for its own round,
                 // while also counting its implied notarization in this round.
@@ -1814,6 +1937,11 @@ impl CloseTransitionPlugin {
                         tracing::warn!(node=self.node_index, base=?message.base, target=?message.target, "close record reconciled");
                         self.retained_record_payloads
                             .insert(message.target, payload);
+                        // Admission can derive a new canonical union hash which
+                        // was not present on the wire.  Retain every coordinator
+                        // candidate before it can become the next-round local
+                        // value.
+                        self.retain_current_record_payload();
                         self.reconciliation_targets.remove(&message.target);
                         self.publish_vote(&record, key);
                         self.replay_cached_votes(&record);
@@ -2647,6 +2775,90 @@ mod tests {
     }
 
     #[test]
+    fn same_round_final_votes_catch_up_a_timeout_proposal_round() {
+        let now = Timestamp::new_test_instance();
+        let keys: Vec<_> = (1..=4).map(PrivateKey::from).collect();
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+        let report = close
+            .tick(now + Duration::from_secs(1), [], [], &keys[0])
+            .unwrap();
+        let proposal = close
+            .add_report(report, |_| Amount::raw(1), Amount::raw(1), Amount::ZERO)
+            .unwrap();
+        let quorum = QuorumSnapshot {
+            total_weight: Amount::raw(5),
+            faulty_weight: Amount::raw(1),
+            slack_weight: Amount::ZERO,
+            ..Default::default()
+        };
+
+        if let ClosingPhase::ElectingCut(election) = &mut close.closing.as_mut().unwrap().phase {
+            election.add_candidate(BlockHash::from(999));
+        }
+        for key in &keys {
+            let timeout = CloseVote::new(
+                proposal.epoch,
+                proposal.round,
+                proposal.kind.wire(),
+                proposal.value,
+                VoteType::Timeout,
+                key,
+            );
+            close.apply_vote(&timeout, Amount::raw(1), &quorum, now);
+        }
+        let timeout_round = close.close_timed_out().unwrap();
+        assert_eq!(timeout_round.round, 1);
+        assert!(!timeout_round.finalization_round);
+
+        for key in &keys {
+            let final_vote = CloseVote::new(
+                proposal.epoch,
+                timeout_round.round,
+                proposal.kind.wire(),
+                proposal.value,
+                VoteType::Final,
+                key,
+            );
+            assert!(close.accepts_same_round_final_evidence(&final_vote));
+            assert!(close.apply_same_round_final_evidence(
+                &final_vote,
+                Amount::raw(1),
+                &quorum,
+                now,
+            ));
+        }
+
+        let finalization = close.close_notarized().unwrap();
+        assert_eq!(finalization.round, timeout_round.round);
+        assert_eq!(finalization.value, proposal.value);
+        assert!(finalization.finalization_round);
+    }
+
+    #[test]
+    fn proposal_replay_preserves_same_round_final_votes_for_finalization() {
+        let key = PrivateKey::from(1);
+        let value = BlockHash::from(7);
+        let mut cache = CloseVoteCache::default();
+        cache.insert(CloseVote::new(
+            1,
+            1,
+            CloseElectionKind::Record.wire(),
+            value,
+            VoteType::Final,
+            &key,
+        ));
+
+        let proposal = CloseElection::new(CloseElectionKind::Record, 1, 1, value);
+        assert!(cache.take(&proposal).is_empty());
+
+        let mut finalization = proposal;
+        finalization.finalization_round = true;
+        let votes = cache.take(&finalization);
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].vote_type, VoteType::Final);
+    }
+
+    #[test]
     fn opaque_notarized_value_does_not_discard_the_valid_reconciliation_base() {
         let now = Timestamp::new_test_instance();
         let keys: Vec<_> = (1..=4).map(PrivateKey::from).collect();
@@ -2927,7 +3139,7 @@ mod tests {
     }
 
     #[test]
-    fn reconciled_record_payload_can_add_remove_or_replace_entries() {
+    fn reconciled_record_payloads_converge_by_monotonic_union() {
         let now = Timestamp::new_test_instance();
         let key = PrivateKey::from(1);
         let first = (root(1, 1), BlockHash::from(101));
@@ -2952,17 +3164,60 @@ mod tests {
         let target = close_record_hash(1, BlockHash::ZERO, &payload);
         assert!(
             close
-                .admit_record_payload(record.value, target, payload, &quorum)
+                .admit_record_payload(record.value, target, payload.clone(), &quorum)
                 .is_some()
         );
 
-        let removal = Vec::new();
-        let removal_target = close_record_hash(1, BlockHash::ZERO, &removal);
+        // Replaying an older/subset record must not remove locally validated
+        // entries or change the canonical proposal.
+        let subset = Vec::new();
+        let subset_target = close_record_hash(1, BlockHash::ZERO, &subset);
         assert!(
             close
-                .admit_record_payload(target, removal_target, removal, &quorum)
+                .admit_record_payload(target, subset_target, subset, &quorum)
                 .is_some()
         );
+        let (_, current) = close.current_record_payload().unwrap();
+        assert_eq!(current, payload);
+
+        // Delivery order does not matter: a replica starting from the subset
+        // derives the same union hash after learning the larger record.
+        let expected = target;
+        assert_eq!(close_record_hash(1, BlockHash::ZERO, &current), expected);
+    }
+
+    #[test]
+    fn reconciled_conflicting_record_remains_decidable_without_overwriting_local_outcome() {
+        let now = Timestamp::new_test_instance();
+        let key = PrivateKey::from(1);
+        let slot = root(1, 1);
+        let local = (slot.clone(), BlockHash::from(101));
+        let conflicting = (slot, BlockHash::from(202));
+        let mut close = CloseCoordinator::new(now, Duration::from_secs(1));
+        let report = close
+            .tick(now + Duration::from_secs(1), [], [local], &key)
+            .unwrap();
+        let cut = close
+            .add_report(report, |_| Amount::raw(1), Amount::raw(1), Amount::ZERO)
+            .unwrap();
+        close.cut_finalized(cut.value, []).unwrap();
+        close.finish_empty_drain().unwrap();
+        let quorum = QuorumSnapshot {
+            total_weight: Amount::raw(1),
+            faulty_weight: Amount::ZERO,
+            slack_weight: Amount::ZERO,
+            ..Default::default()
+        };
+        let payload = vec![conflicting];
+        let target = close_record_hash(1, BlockHash::ZERO, &payload);
+
+        let election = close
+            .admit_record_payload(BlockHash::ZERO, target, payload.clone(), &quorum)
+            .unwrap();
+        assert!(election.candidates.contains(&target));
+        let closing = close.closing.as_ref().unwrap();
+        assert_eq!(closing.finalized, vec![(root(1, 1), BlockHash::from(101))]);
+        assert_eq!(closing.record_candidates[&target], payload);
     }
 
     #[test]
