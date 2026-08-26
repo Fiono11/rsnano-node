@@ -219,8 +219,9 @@ impl NanoSpamApp {
         let milestones = Mutex::new(RunMilestones::default());
         let max_blocks = logic.lock().unwrap().block_factory.max_blocks();
         std::thread::scope(|s| {
+            let producer_cancel = cancel_nanospam.clone();
             s.spawn(|| {
-                enqueue_blocks(&logic, tx_blocks, &self.clock);
+                enqueue_blocks(&logic, tx_blocks, &self.clock, producer_cancel);
                 cancel_block_creation2.cancel();
             });
 
@@ -551,8 +552,13 @@ async fn wait_for_all_nodes_ready(
     }
 }
 
-fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
-    loop {
+fn enqueue_blocks(
+    logic: &Mutex<SpamLogic>,
+    tx_blocks: mpsc::Sender<Forks>,
+    clock: &SteadyClock,
+    cancel_token: CancellationToken,
+) {
+    while !cancel_token.is_cancelled() {
         let now = clock.now();
 
         let result = {
@@ -562,9 +568,19 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
         };
 
         match result {
-            Some(BlockResult::Block(forks)) => {
-                tx_blocks.blocking_send(forks).unwrap();
-            }
+            Some(BlockResult::Block(mut forks)) => loop {
+                if cancel_token.is_cancelled() {
+                    return;
+                }
+                match tx_blocks.try_send(forks) {
+                    Ok(()) => break,
+                    Err(mpsc::error::TrySendError::Full(value)) => {
+                        forks = value;
+                        yield_now();
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => return,
+                }
+            },
             Some(BlockResult::Waiting) => {
                 yield_now();
                 continue;
