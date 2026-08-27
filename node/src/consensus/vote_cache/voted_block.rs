@@ -86,6 +86,21 @@ impl VotedBlock {
             })
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn phase_tally_for_epoch(&self, epoch: u64, vote_type: VoteType) -> Amount {
+        self.by_phase
+            .iter()
+            .filter(|((_, phase), vote)| *phase == vote_type && vote.epoch() == epoch)
+            .fold(Amount::ZERO, |total, ((representative, _), _)| {
+                total.wrapping_add(
+                    self.by_representative
+                        .get(representative)
+                        .map(|cached| cached.weight)
+                        .unwrap_or_default(),
+                )
+            })
+    }
+
     pub fn iter_votes(&self) -> impl Iterator<Item = &Arc<Vote>> {
         self.by_representative.values().map(|i| &i.vote)
     }

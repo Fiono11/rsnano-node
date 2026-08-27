@@ -15,6 +15,8 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::VoteType;
 use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
     EventHandler,
@@ -189,6 +191,26 @@ impl VoteCache {
             .unwrap()
             .iter()
             .filter(|block| block.tally_for_epoch(epoch) > faulty_weight)
+            .map(|block| *block.block_hash())
+            .collect()
+    }
+
+    /// Returns hashes carrying a complete fast or final certificate for `epoch`.
+    #[cfg(feature = "rai_protocol")]
+    pub fn finalized_hashes_for_epoch(
+        &self,
+        epoch: u64,
+        fast_threshold: Amount,
+        final_threshold: Amount,
+    ) -> Vec<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|block| {
+                block.phase_tally_for_epoch(epoch, VoteType::First) >= fast_threshold
+                    || block.phase_tally_for_epoch(epoch, VoteType::Final) >= final_threshold
+            })
             .map(|block| *block.block_hash())
             .collect()
     }
