@@ -13,6 +13,11 @@ pub enum ClosePayloadKind {
         upserts: Vec<(QualifiedRoot, BlockHash)>,
         removals: Vec<QualifiedRoot>,
     },
+    RecordChunk {
+        index: u16,
+        total: u16,
+        entries: Vec<(QualifiedRoot, BlockHash)>,
+    },
     CutDelta {
         additions: Vec<BlockHash>,
         removals: Vec<BlockHash>,
@@ -49,6 +54,7 @@ impl ClosePayload {
             ClosePayloadKind::SlotRequest => 4,
             ClosePayloadKind::ReportRequest => 5,
             ClosePayloadKind::CutDelta { .. } => 6,
+            ClosePayloadKind::RecordChunk { .. } => 7,
         };
         writer.write_all(&[tag])?;
         writer.write_all(&self.epoch.to_be_bytes())?;
@@ -74,6 +80,19 @@ impl ClosePayload {
                 writer.write_all(&(additions.len() as u32).to_be_bytes())?;
                 writer.write_all(&(removals.len() as u32).to_be_bytes())?;
                 for hash in additions.iter().chain(removals) {
+                    writer.write_all(hash.as_bytes())?;
+                }
+            }
+            ClosePayloadKind::RecordChunk {
+                index,
+                total,
+                entries,
+            } => {
+                writer.write_all(&index.to_be_bytes())?;
+                writer.write_all(&total.to_be_bytes())?;
+                writer.write_all(&(entries.len() as u16).to_be_bytes())?;
+                for (root, hash) in entries {
+                    serialize_root(writer, root)?;
                     writer.write_all(hash.as_bytes())?;
                 }
             }
@@ -110,6 +129,13 @@ impl ClosePayload {
         let expected = match tag {
             2 => first_count * ENTRY_SIZE + second_count * ROOT_SIZE,
             6 => (first_count + second_count) * BlockHash::SERIALIZED_SIZE,
+            7 => {
+                if bytes.len() < 6 {
+                    return Err(DeserializationError::InvalidData);
+                }
+                let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+                6 + count * ENTRY_SIZE
+            }
             _ => 0,
         };
         if bytes.len() != expected {
@@ -137,6 +163,20 @@ impl ClosePayload {
                 root_removals.push(deserialize_root(&mut bytes)?);
             }
         }
+        let mut record_chunk = None;
+        if tag == 7 {
+            let index = u16::from_be_bytes(bytes[..2].try_into().unwrap());
+            let total = u16::from_be_bytes(bytes[2..4].try_into().unwrap());
+            let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+            bytes = &bytes[6..];
+            let mut entries = Vec::with_capacity(count);
+            for _ in 0..count {
+                let root = deserialize_root(&mut bytes)?;
+                let hash = BlockHash::deserialize(&mut bytes)?;
+                entries.push((root, hash));
+            }
+            record_chunk = Some((index, total, entries));
+        }
         let kind = match tag {
             0 => ClosePayloadKind::Request,
             1 => ClosePayloadKind::UnknownBase,
@@ -150,6 +190,14 @@ impl ClosePayload {
                 additions,
                 removals: hash_removals,
             },
+            7 => {
+                let (index, total, entries) = record_chunk.unwrap();
+                ClosePayloadKind::RecordChunk {
+                    index,
+                    total,
+                    entries,
+                }
+            }
             _ => return Err(DeserializationError::InvalidData),
         };
         Ok(Self {
@@ -230,6 +278,25 @@ mod tests {
             kind: ClosePayloadKind::CutDelta {
                 additions: vec![BlockHash::from(3), BlockHash::from(4)],
                 removals: vec![BlockHash::from(5)],
+            },
+        };
+        assert_deserializable(&Message::ClosePayload(payload));
+    }
+
+    #[test]
+    fn roundtrip_record_chunk() {
+        let payload = ClosePayload {
+            epoch: 9,
+            election_kind: 1,
+            base: BlockHash::from(1),
+            target: BlockHash::from(2),
+            kind: ClosePayloadKind::RecordChunk {
+                index: 1,
+                total: 3,
+                entries: vec![(
+                    QualifiedRoot::new_test_instance().with_epoch(9),
+                    BlockHash::from(4),
+                )],
             },
         };
         assert_deserializable(&Message::ClosePayload(payload));

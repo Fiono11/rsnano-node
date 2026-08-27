@@ -65,7 +65,17 @@ impl VotedBlockMap {
         } else {
             for (hash, code) in results {
                 // Cache votes with a corresponding election in case that election gets dropped
-                if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
+                #[cfg(not(feature = "rai_protocol"))]
+                let should_cache = matches!(code, Ok(()) | Err(VoteError::Indeterminate));
+                #[cfg(feature = "rai_protocol")]
+                let should_cache = matches!(
+                    code,
+                    Ok(()) | Err(VoteError::Indeterminate) | Err(VoteError::Late)
+                );
+                // Under RAI, Late can mean that this hash finalized through a
+                // different epoch-specific election. Preserve the vote so >f
+                // support can recreate the exact epoch alias it names.
+                if should_cache {
                     self.insert_vote(vote.clone(), hash, rep_weight, now);
                     inserted += 1;
                 }
@@ -299,6 +309,27 @@ mod tests {
         cache.process(vote, Amount::raw(7), &HashMap::new(), now);
 
         assert_eq!(cache.contains(&hash), true);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn caches_late_vote_for_epoch_alias_recovery() {
+        let mut cache = make_block_map();
+        let rep = PrivateKey::from(1);
+        let hash = BlockHash::from(1);
+        let vote = create_vote(&rep, &hash, 1);
+        let results = HashMap::from([(hash, Err(VoteError::Late))]);
+
+        assert_eq!(
+            cache.process(
+                vote,
+                Amount::raw(7),
+                &results,
+                Timestamp::new_test_instance()
+            ),
+            1
+        );
+        assert!(cache.contains(&hash));
     }
 
     /*

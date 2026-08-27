@@ -1137,6 +1137,12 @@ impl CloseCoordinator {
     }
 }
 
+#[derive(Default)]
+struct RecordPayloadChunks {
+    total: u16,
+    chunks: Vec<Option<Vec<(QualifiedRoot, BlockHash)>>>,
+}
+
 /// Clock-driven single-node vertical slice used by nanospam. Report and vote
 /// networking can be layered onto the same coordinator without changing its
 /// state transitions.
@@ -1179,6 +1185,7 @@ pub struct CloseTransitionPlugin {
     cut_round: Option<u32>,
     record_started: Option<(u64, Timestamp)>,
     retained_record_payloads: HashMap<(u64, BlockHash), Vec<(QualifiedRoot, BlockHash)>>,
+    record_payload_chunks: HashMap<(u64, BlockHash), RecordPayloadChunks>,
     retained_cut_payloads: HashMap<(u64, BlockHash), Vec<BlockHash>>,
     reconciliation_targets: HashSet<(u64, BlockHash)>,
     cut_reconciliation_targets: HashSet<(u64, BlockHash)>,
@@ -1274,6 +1281,7 @@ impl CloseTransitionPlugin {
             cut_round: None,
             record_started: None,
             retained_record_payloads: HashMap::new(),
+            record_payload_chunks: HashMap::new(),
             retained_cut_payloads: HashMap::new(),
             reconciliation_targets: HashSet::new(),
             cut_reconciliation_targets: HashSet::new(),
@@ -1794,6 +1802,29 @@ impl CloseTransitionPlugin {
         if !self.draining.is_empty() || !self.unresolved_cut.is_empty() {
             return;
         }
+        let Some(epoch) = self.coordinator.closing_epoch() else {
+            return;
+        };
+        // A locally empty certified cut is not sufficient to start the record:
+        // another replica may already have >f evidence for an epoch-qualified
+        // alias which this replica is about to recreate. Wait for those
+        // supported aliases, without blocking on locally excluded elections
+        // which never obtained protocol-level support.
+        let faulty_weight = self.quorum_snapshot().faulty_weight;
+        if self
+            .slot_vote_cache
+            .supported_hashes_for_epoch(epoch, faulty_weight)
+            .into_iter()
+            .any(|hash| {
+                self.ledger
+                    .any()
+                    .get_block(&hash)
+                    .map(|block| block.qualified_root().with_epoch(epoch))
+                    .is_none_or(|root| aec.epoch_slot_outcome(&root).is_none())
+            })
+        {
+            return;
+        }
         let Some(record) = self.coordinator.finish_empty_drain() else {
             return;
         };
@@ -1850,29 +1881,18 @@ impl CloseTransitionPlugin {
         // Epoch membership comes from signed vote certificates, not from the
         // replica's local wall-clock epoch assignment.
         let quorum = self.quorum_snapshot();
-        let fast_threshold = quorum.total_weight - quorum.slack_weight;
-        let final_threshold = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
-        let mut entries: Vec<_> = self
-            .slot_vote_cache
-            .finalized_hashes_for_epoch(epoch, fast_threshold, final_threshold)
-            .into_iter()
-            .filter_map(|hash| {
-                self.ledger
-                    .any()
-                    .confirmed()
-                    .block_exists(&hash)
-                    .then(|| self.ledger.any().get_block(&hash))
-                    .flatten()
-                    .map(|block| (block.qualified_root().with_epoch(epoch), hash))
-            })
-            .collect();
+        // Vote-cache contents depend on local delivery and replay history.  By
+        // this point >f support has already been used to recreate missing
+        // epoch-specific elections; record membership must come from their
+        // resolved AEC outcomes so every replica hashes the same state.
+        let mut entries = aec.finalized_epoch_slots(epoch);
         entries.retain(|(root, _)| !cut_roots.contains(root));
         entries.extend(self.decided_cut_slots.iter().filter_map(|(_, root)| {
             aec.epoch_slot_outcome(root)
                 .flatten()
                 .map(|hash| (root.clone(), hash))
         }));
-        let Some(record) = self.coordinator.rebuild_record(entries, &quorum) else {
+        let Some(record) = self.coordinator.refresh_record(entries, &quorum) else {
             return;
         };
         tracing::warn!(
@@ -1947,6 +1967,29 @@ impl CloseTransitionPlugin {
                                 continue;
                             }
                         }
+                        if let Some(target) = self
+                            .retained_record_payloads
+                            .get(&(message.epoch, message.target))
+                        {
+                            const ENTRIES_PER_CHUNK: usize = 500;
+                            let total = target.len().div_ceil(ENTRIES_PER_CHUNK) as u16;
+                            for (index, entries) in target.chunks(ENTRIES_PER_CHUNK).enumerate() {
+                                let response = ClosePayload {
+                                    kind: ClosePayloadKind::RecordChunk {
+                                        index: index as u16,
+                                        total,
+                                        entries: entries.to_vec(),
+                                    },
+                                    ..message.clone()
+                                };
+                                self.flooder.lock().unwrap().try_send_channel_id(
+                                    channel_id,
+                                    &Message::ClosePayload(response),
+                                    TrafficType::Generic,
+                                );
+                            }
+                            continue;
+                        }
                         ClosePayloadKind::UnknownBase
                     } else {
                         ClosePayloadKind::UnknownBase
@@ -1990,6 +2033,51 @@ impl CloseTransitionPlugin {
                         // was not present on the wire.  Retain every coordinator
                         // candidate before it can become the next-round local
                         // value.
+                        self.retain_current_record_payload();
+                        self.reconciliation_targets
+                            .remove(&(message.epoch, message.target));
+                        self.publish_vote(&record, key);
+                        self.replay_cached_votes(&record);
+                        self.start_finalization_round();
+                        self.finish_record_if_finalized();
+                    }
+                }
+                ClosePayloadKind::RecordChunk {
+                    index,
+                    total,
+                    entries,
+                } => {
+                    if total == 0 || index >= total {
+                        continue;
+                    }
+                    let chunks = self
+                        .record_payload_chunks
+                        .entry((message.epoch, message.target))
+                        .or_default();
+                    if chunks.total != total {
+                        chunks.total = total;
+                        chunks.chunks = vec![None; total as usize];
+                    }
+                    chunks.chunks[index as usize] = Some(entries);
+                    if chunks.chunks.iter().any(Option::is_none) {
+                        continue;
+                    }
+                    let payload: Vec<_> = chunks
+                        .chunks
+                        .iter_mut()
+                        .flat_map(|chunk| chunk.take().unwrap())
+                        .collect();
+                    self.record_payload_chunks
+                        .remove(&(message.epoch, message.target));
+                    let quorum = self.quorum_snapshot();
+                    if let Some(record) = self.coordinator.admit_record_payload(
+                        message.base,
+                        message.target,
+                        payload.clone(),
+                        &quorum,
+                    ) {
+                        self.retained_record_payloads
+                            .insert((message.epoch, message.target), payload);
                         self.retain_current_record_payload();
                         self.reconciliation_targets
                             .remove(&(message.epoch, message.target));
@@ -2449,13 +2537,14 @@ impl CloseTransitionPlugin {
             .slot_vote_cache
             .supported_hashes_for_epoch(epoch, faulty_weight)
         {
-            if aec.has_election_for_epoch(&hash, epoch) || aec.was_recently_confirmed(&hash) {
-                continue;
-            }
             let Some(block) = self.ledger.any().get_block(&hash) else {
                 self.request_cut_slot(epoch, hash, "requested supported closing-epoch slot");
                 continue;
             };
+            let root = block.qualified_root().with_epoch(epoch);
+            if aec.has_election_for_epoch(&hash, epoch) || aec.epoch_slot_outcome(&root).is_some() {
+                continue;
+            }
             if aec
                 .insert_for_epoch(
                     AecInsertRequest::new_manual(block, BlockPriority::new_test_instance()),

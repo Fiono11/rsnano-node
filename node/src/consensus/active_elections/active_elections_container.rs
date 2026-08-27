@@ -175,7 +175,10 @@ impl ActiveElectionsContainer {
         epoch: u64,
     ) -> Result<(), AecInsertError> {
         self.ensure_not_stopped()?;
-        self.ensure_not_recently_confirmed(&request)?;
+        // A hash may already have finalized through an election carrying a
+        // different epoch.  Explicit epoch recovery must still be able to
+        // create this QualifiedRoot once >f epoch-tagged votes are observed.
+        // Ordinary insertion retains the global recently-confirmed guard.
         let root = request.block.qualified_root().with_epoch(epoch);
         if self.try_upgrade_priority_election(&request, root.clone())? {
             return Ok(());
@@ -632,10 +635,24 @@ impl ActiveElectionsContainer {
         };
         self.rai_finalized.insert(root.clone(), block.hash());
         self.rai_terminated.remove(&root);
+        self.erase_certified(&root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn apply_finalized_slot_outcome(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
+        // A certified outcome fixes the slot's epoch as well as its winner. A
+        // replica may have started the same slot in a different local epoch;
+        // discard that stale attribution when the certificate identifies the
+        // canonical qualified root.
+        self.rai_finalized
+            .retain(|candidate, _| candidate.slot() != root.slot() || candidate == root);
+        self.rai_terminated
+            .retain(|candidate| candidate.slot() != root.slot());
+        self.rai_finalized.insert(root.clone(), hash);
         let competing = self.roots.roots_for_slot(&root);
         let mut erased = false;
         for candidate in competing {
-            if candidate != root {
+            if candidate != *root {
                 self.rai_terminated.insert(candidate.clone());
             }
             erased |= self.erase_certified(&candidate);
@@ -662,17 +679,7 @@ impl ActiveElectionsContainer {
 
     #[cfg(feature = "rai_protocol")]
     pub fn apply_record_outcome(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
-        self.rai_finalized.insert(root.clone(), hash);
-        self.rai_terminated.remove(root);
-        let competing = self.roots.roots_for_slot(root);
-        let mut erased = false;
-        for candidate in competing {
-            if candidate != *root {
-                self.rai_terminated.insert(candidate.clone());
-            }
-            erased |= self.erase_certified(&candidate);
-        }
-        erased
+        self.apply_finalized_slot_outcome(root, hash)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -1292,6 +1299,87 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rai_protocol")]
+    fn certified_record_reassigns_slot_epoch_and_removes_other_epoch_elections() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let epoch_one_root = block.qualified_root().with_epoch(1);
+        let epoch_two_root = block.qualified_root().with_epoch(2);
+        let now = Timestamp::new_test_instance();
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        container.rai_finalized.insert(epoch_two_root.clone(), hash);
+
+        assert!(container.apply_record_outcome(&epoch_one_root, hash));
+
+        assert_eq!(
+            container.finalized_epoch_slots(1),
+            vec![(epoch_one_root.clone(), hash)]
+        );
+        assert!(container.finalized_epoch_slots(2).is_empty());
+        assert!(!container.is_active_root(&epoch_one_root));
+        assert!(!container.is_active_root(&epoch_two_root));
+        assert_eq!(container.epoch_slot_outcome(&epoch_two_root), Some(None));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn final_slot_election_keeps_same_slot_election_in_another_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let epoch_one_root = block.qualified_root().with_epoch(1);
+        let epoch_two_root = block.qualified_root().with_epoch(2);
+        let now = Timestamp::new_test_instance();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), Amount::MAX);
+        let vote: FilteredVote = ReceivedVote::new(
+            Arc::new(Vote::new_rai(&rep, 1, VoteType::First, vec![hash])),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        container.apply_vote(ApplyVoteArgs {
+            vote: &vote,
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+
+        assert!(container.is_active_root(&epoch_one_root));
+        assert!(container.is_active_root(&epoch_two_root));
+        assert_eq!(container.epoch_slot_outcome(&epoch_two_root), None);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
     fn recently_confirmed_hash_cannot_be_reinserted_in_another_epoch() {
         let mut container = ActiveElectionsContainer::default();
         let block = SavedBlock::new_test_instance();
@@ -1308,6 +1396,28 @@ mod tests {
 
         assert_eq!(result, Err(AecInsertError::RecentlyConfirmed));
         assert!(container.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn supported_epoch_alias_can_be_inserted_after_another_alias_confirmed() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        container
+            .recently_confirmed
+            .put(block.qualified_root().with_epoch(1), hash);
+        assert_eq!(container.advance_epoch(HashMap::new()), 2);
+
+        container
+            .insert_for_epoch(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+                2,
+            )
+            .unwrap();
+
+        assert!(container.is_active_root(&block.qualified_root().with_epoch(2)));
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub(crate) struct VotedBlock {
     max_voters: usize,
     by_representative: FxHashMap<PublicKey, CachedVote>,
     #[cfg(feature = "rai_protocol")]
-    by_phase: FxHashMap<(PublicKey, VoteType), Arc<Vote>>,
+    by_phase: FxHashMap<(PublicKey, u64, VoteType), Arc<Vote>>,
     by_weight: BTreeMap<Amount, Vec<PublicKey>>,
 }
 
@@ -78,20 +78,28 @@ impl VotedBlock {
 
     #[cfg(feature = "rai_protocol")]
     pub fn tally_for_epoch(&self, epoch: u64) -> Amount {
-        self.by_representative
-            .values()
-            .filter(|cached| cached.vote.epoch() == epoch)
-            .fold(Amount::ZERO, |total, cached| {
-                total.wrapping_add(cached.weight)
-            })
+        let mut representatives = FxHashMap::default();
+        for ((representative, vote_epoch, _), _) in &self.by_phase {
+            if *vote_epoch == epoch {
+                representatives.insert(*representative, ());
+            }
+        }
+        representatives.keys().fold(Amount::ZERO, |total, rep| {
+            total.wrapping_add(
+                self.by_representative
+                    .get(rep)
+                    .map(|cached| cached.weight)
+                    .unwrap_or_default(),
+            )
+        })
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn phase_tally_for_epoch(&self, epoch: u64, vote_type: VoteType) -> Amount {
         self.by_phase
             .iter()
-            .filter(|((_, phase), vote)| *phase == vote_type && vote.epoch() == epoch)
-            .fold(Amount::ZERO, |total, ((representative, _), _)| {
+            .filter(|((_, vote_epoch, phase), _)| *phase == vote_type && *vote_epoch == epoch)
+            .fold(Amount::ZERO, |total, ((representative, _, _), _)| {
                 total.wrapping_add(
                     self.by_representative
                         .get(representative)
@@ -130,7 +138,7 @@ impl VotedBlock {
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
         #[cfg(feature = "rai_protocol")]
         self.by_phase
-            .entry((vote.voter, vote.vote_type()))
+            .entry((vote.voter, vote.epoch(), vote.vote_type()))
             .or_insert_with(|| vote.clone());
         let rep_key = vote.voter;
         let new_weight = rep_weight;

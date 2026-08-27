@@ -444,6 +444,37 @@ mod tests {
         );
     }
 
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn epoch_alias_support_survives_votes_for_same_hash_in_another_epoch() {
+        let cache = make_vote_cache();
+        let hash = BlockHash::from(1);
+        let first = PrivateKey::from(1);
+        let second = PrivateKey::from(2);
+        let late = HashMap::from([(hash, Err(VoteError::Late))]);
+
+        cache.process(
+            Arc::new(Vote::new_rai(&first, 1, VoteType::First, vec![hash])),
+            Amount::raw(5),
+            &HashMap::new(),
+        );
+        cache.process(
+            Arc::new(Vote::new_rai(&first, 2, VoteType::First, vec![hash])),
+            Amount::raw(5),
+            &late,
+        );
+        cache.process(
+            Arc::new(Vote::new_rai(&second, 2, VoteType::First, vec![hash])),
+            Amount::raw(1),
+            &late,
+        );
+
+        assert_eq!(
+            cache.supported_hashes_for_epoch(2, Amount::raw(5)),
+            vec![hash]
+        );
+    }
+
     /*
      * Test helpers
      */
