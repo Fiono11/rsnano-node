@@ -136,7 +136,7 @@ impl NanoSpamApp {
         }
 
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
-            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
+            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await?
         } else {
             WalletId::ZERO
         };

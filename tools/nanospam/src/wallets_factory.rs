@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::Context;
 use tokio::time::sleep;
 #[cfg(not(feature = "rai_protocol"))]
 use tracing::debug;
@@ -20,7 +21,7 @@ pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
-) -> WalletId {
+) -> anyhow::Result<WalletId> {
     let mut genesis_wallet = WalletId::ZERO;
     #[cfg(feature = "rai_protocol")]
     let mut setup_wallets = Vec::with_capacity(rpc_clients.len());
@@ -28,7 +29,10 @@ pub(crate) async fn create_wallets(
     let pr_count = rpc_clients.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
-        let resp = rpc_client.wallet_create(None).await.unwrap();
+        let resp = rpc_client
+            .wallet_create(None)
+            .await
+            .with_context(|| format!("failed to create wallet on PR{i}"))?;
         #[cfg(feature = "rai_protocol")]
         setup_wallets.push(resp.wallet);
         if i == 0 {
@@ -42,7 +46,7 @@ pub(crate) async fn create_wallets(
                 work: None,
             })
             .await
-            .unwrap();
+            .with_context(|| format!("failed to add representative key on PR{i}"))?;
 
         // RAI starts in a fixed epoch-zero committee containing the genesis
         // representative. Keep that signer locally available while setup
@@ -56,7 +60,7 @@ pub(crate) async fn create_wallets(
                     work: None,
                 })
                 .await
-                .unwrap();
+                .with_context(|| format!("failed to add setup genesis key on PR{i}"))?;
         }
 
         info!("Setting default representative...");
@@ -67,7 +71,7 @@ pub(crate) async fn create_wallets(
                 update_existing_accounts: Some(false.into()),
             })
             .await
-            .unwrap();
+            .with_context(|| format!("failed to set default representative on PR{i}"))?;
 
         // the first rpc client is the genesis client
         if i > 0 {
@@ -87,36 +91,50 @@ pub(crate) async fn create_wallets(
                     id: None,
                 })
                 .await
-                .unwrap()
+                .with_context(|| format!("failed to fund PR{i}"))?
                 .block;
             #[cfg(not(feature = "rai_protocol"))]
             wait_until_confirmed(rpc_client, send_hash).await;
             #[cfg(feature = "rai_protocol")]
             wait_until_confirmed_on_all(rpc_clients, send_hash)
                 .await
-                .unwrap();
+                .with_context(|| format!("failed to confirm PR{i} funding send {send_hash}"))?;
 
             info!("Receiving...");
             // trigger wallet receive to speed things up
-            let _ = rpc_client
+            let recv_hash = match rpc_client
                 .receive(ReceiveArgs {
                     wallet: resp.wallet,
                     account: pr_key.account(),
                     block: send_hash,
                     work: Some(WorkNonce::new(0)),
                 })
-                .await;
-            let recv_hash = rpc_client
-                .account_info(pr_key.account())
                 .await
-                .unwrap()
-                .frontier;
+            {
+                Ok(response) => response.block,
+                Err(error) => {
+                    // The wallet may have auto-received the send before this
+                    // explicit request reaches it. In that case the RPC reports
+                    // "Block is not receivable", but the account frontier is
+                    // the receive block we need to confirm.
+                    tracing::debug!(pr = i, %send_hash, ?error, "explicit receive did not create a block; checking account frontier");
+                    rpc_client
+                        .account_info(pr_key.account())
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to receive PR{i} funding send {send_hash}: {error}"
+                            )
+                        })?
+                        .frontier
+                }
+            };
             #[cfg(not(feature = "rai_protocol"))]
             wait_until_confirmed(rpc_client, recv_hash).await;
             #[cfg(feature = "rai_protocol")]
             wait_until_confirmed_on_all(rpc_clients, recv_hash)
                 .await
-                .unwrap();
+                .with_context(|| format!("failed to confirm PR{i} funding receive {recv_hash}"))?;
 
             info!("DONE");
             info!(
@@ -138,14 +156,14 @@ pub(crate) async fn create_wallets(
             id: None,
         })
         .await
-        .unwrap()
+        .context("failed to send initial spam amount")?
         .block;
     #[cfg(not(feature = "rai_protocol"))]
     wait_until_confirmed(genesis_rpc, genesis_send).await;
     #[cfg(feature = "rai_protocol")]
     wait_until_confirmed_on_all(rpc_clients, genesis_send)
         .await
-        .unwrap();
+        .with_context(|| format!("failed to confirm initial spam send {genesis_send}"))?;
     info!("Receiving initial spam amount...");
     let initial_representative = initial_key.public_key();
     let genesis_receive: Block = StateBlockArgs {
@@ -161,14 +179,14 @@ pub(crate) async fn create_wallets(
     let recv = genesis_rpc
         .process(JsonBlock::from(genesis_receive.clone()))
         .await
-        .unwrap();
+        .context("failed to process initial spam receive")?;
 
     #[cfg(not(feature = "rai_protocol"))]
     wait_until_confirmed(genesis_rpc, recv.hash).await;
     #[cfg(feature = "rai_protocol")]
     wait_until_confirmed_on_all(rpc_clients, recv.hash)
         .await
-        .unwrap();
+        .with_context(|| format!("failed to confirm initial spam receive {}", recv.hash))?;
 
     account_map.set_account_state(
         initial_key.account(),
@@ -181,10 +199,10 @@ pub(crate) async fn create_wallets(
         rpc_clients[i]
             .account_remove(setup_wallets[i], genesis_key.account())
             .await
-            .unwrap();
+            .with_context(|| format!("failed to remove setup genesis key from PR{i}"))?;
     }
 
-    genesis_wallet
+    Ok(genesis_wallet)
 }
 
 #[cfg(not(feature = "rai_protocol"))]
@@ -242,7 +260,11 @@ pub(crate) async fn wait_until_confirmed_on_all(
                     // Setup traffic can arrive after the originating election
                     // has ended. Repair the missing block before requesting a
                     // fresh committee-wide election.
-                    let _ = client.process(block.clone()).await;
+                    if let Err(error) = client.process(block.clone()).await
+                        && !error.to_string().contains("Old block")
+                    {
+                        tracing::warn!(pr = index, %hash, ?error, "failed to repair missing setup block");
+                    }
                     unconfirmed.push(index);
                 }
             }
@@ -266,10 +288,16 @@ pub(crate) async fn wait_until_confirmed_on_all(
             // Re-process on every lagging PR first so the restarted election has
             // its block and dependency context available locally.
             for index in &unconfirmed {
-                let _ = rpc_clients[*index].process(block.clone()).await;
+                if let Err(error) = rpc_clients[*index].process(block.clone()).await
+                    && !error.to_string().contains("Old block")
+                {
+                    tracing::warn!(pr = *index, %hash, ?error, "failed to reprocess setup block");
+                }
             }
-            for client in rpc_clients {
-                let _ = client.block_confirm(hash).await;
+            for (index, client) in rpc_clients.iter().enumerate() {
+                if let Err(error) = client.block_confirm(hash).await {
+                    tracing::warn!(pr = index, %hash, ?error, "failed to request setup block confirmation");
+                }
             }
             last_confirm_request = Some(std::time::Instant::now());
         }
