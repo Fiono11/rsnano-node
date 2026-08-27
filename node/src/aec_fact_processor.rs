@@ -108,10 +108,14 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                         "slot election terminated"
                     );
                 }
-                if timeout {
-                    self.ledger.roll_back_batch(&hashes, usize::MAX);
-                    self.active_elections.apply_rolled_back_outcome(&root);
-                }
+                // A timeout certificate is a notarization certificate for the
+                // special timeout value, not a final disposition of the slot.
+                // Until the certified cut classifies this slot, it may still be
+                // included in the cut and acquire additional non-timeout
+                // notarization certificates.  Keep the election in the AEC (and
+                // therefore connected to the vote router) so those certificates
+                // continue to update its outcome.  A certified close record is
+                // the authority which eventually installs or rolls back the slot.
                 if let Some(tx) = &self.node_observer {
                     for hash in hashes {
                         tx.send(NodeEvent::ElectionTerminated(hash, timeout))
