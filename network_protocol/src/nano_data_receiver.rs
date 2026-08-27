@@ -22,7 +22,7 @@ pub struct NanoDataReceiver {
     network: Weak<RwLock<Network>>,
     first_message: bool,
     node_id: NodeId,
-    retry_enqueue: Option<Message>,
+    retry_enqueue: Mutex<Option<Message>>,
 }
 
 impl NanoDataReceiver {
@@ -47,7 +47,7 @@ impl NanoDataReceiver {
             network,
             first_message: true,
             node_id: NodeId::ZERO,
-            retry_enqueue: None,
+            retry_enqueue: Mutex::new(None),
         }
     }
 
@@ -84,8 +84,9 @@ impl NanoDataReceiver {
         if enqueued {
             ReceiveResult::Continue
         } else {
-            debug_assert!(self.retry_enqueue.is_none());
-            self.retry_enqueue = Some(message);
+            let mut retry = self.retry_enqueue.lock().unwrap();
+            debug_assert!(retry.is_none());
+            *retry = Some(message);
             ReceiveResult::Pause
         }
     }
@@ -336,10 +337,11 @@ impl DataReceiver for NanoDataReceiver {
                 ReceiveResult::Continue
             }
             ChannelMode::Established => {
-                let message = self.retry_enqueue.clone();
+                let message = self.retry_enqueue.lock().unwrap().clone();
                 match message {
                     Some(message) => {
                         if self.try_enqueue(message) {
+                            *self.retry_enqueue.lock().unwrap() = None;
                             ReceiveResult::Continue
                         } else {
                             ReceiveResult::Pause
