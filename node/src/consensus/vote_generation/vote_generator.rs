@@ -475,6 +475,26 @@ impl SharedState {
                 let mut pending_roots = Vec::new();
                 let mut pending_epochs = Vec::new();
                 for ((root, hash), epoch) in roots.iter().zip(hashes).zip(epochs) {
+                    let existing = self.history.vote_for_epoch(
+                        root,
+                        *epoch,
+                        hash,
+                        self.vote_type,
+                        rep_key.public_key(),
+                    );
+                    if let Some(existing) = existing {
+                        if _replay_cached
+                            && !replay_votes
+                                .iter()
+                                .any(|vote| vote.signature == existing.signature)
+                        {
+                            replay_votes.push(existing);
+                        }
+                        // Never create a second logical vote for a phase that is
+                        // already present in local history.
+                        continue;
+                    }
+
                     // A record vote is a finalization lock for every value named
                     // by that record. No later slot vote may be signed for the
                     // locked slot, regardless of which generator/request path
@@ -487,14 +507,6 @@ impl SharedState {
                             self.stat_type(),
                             DetailType::GeneratorHistorySuppressedConflict,
                         );
-                        continue;
-                    }
-                    if self.history.has_vote_type(
-                        root,
-                        *epoch,
-                        self.vote_type,
-                        rep_key.public_key(),
-                    ) {
                         continue;
                     }
                     if self.history.has_conflicting_terminal_vote(
@@ -543,32 +555,9 @@ impl SharedState {
                         );
                         continue;
                     }
-                    let existing = self.history.vote_for_epoch(
-                        root,
-                        *epoch,
-                        hash,
-                        self.vote_type,
-                        rep_key.public_key(),
-                    );
-                    if let Some(existing) = existing
-                        && _replay_cached
-                    {
-                        if !replay_votes
-                            .iter()
-                            .any(|vote| vote.signature == existing.signature)
-                        {
-                            replay_votes.push(existing);
-                        }
-                    } else {
-                        // A confirm_req reply must cover only the requested hashes. Replaying a
-                        // cached batched RAI vote here amplifies one requested hash into as many
-                        // as 255 unrelated hashes at every receiving node. Signing the requested
-                        // subset is safe (the phase and hash are unchanged) and keeps reply work
-                        // proportional to the request.
-                        pending_roots.push(*root);
-                        pending_hashes.push(*hash);
-                        pending_epochs.push(*epoch);
-                    }
+                    pending_roots.push(*root);
+                    pending_hashes.push(*hash);
+                    pending_epochs.push(*epoch);
                 }
                 if !pending_hashes.is_empty() {
                     debug_assert!(
@@ -661,7 +650,7 @@ impl SharedState {
                     &roots,
                     #[cfg(feature = "rai_protocol")]
                     &epochs,
-                    false,
+                    cfg!(feature = "rai_protocol"),
                     |vote, _origin| {
                         #[cfg(feature = "rai_protocol")]
                         if _origin == VoteOrigin::Replay

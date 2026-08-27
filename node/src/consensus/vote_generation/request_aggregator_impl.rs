@@ -75,6 +75,10 @@ impl<'a> RequestAggregatorImpl<'a> {
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsFinal);
                 } else {
+                    // An unconfirmed block still needs to reach the active-election
+                    // responder. In RAI that path replays the locally signed phase
+                    // votes (First/NonFinal/Final) selected by the election state.
+                    self.to_generate.push(block);
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsNonFinal);
                 }
@@ -132,6 +136,19 @@ mod tests {
 
         assert_eq!(result.remaining_final.len(), 1);
         assert_eq!(result.remaining_final[0].hash(), block.hash());
+    }
+
+    #[test]
+    fn routes_unconfirmed_block_to_normal_vote_generation() {
+        let ledger = Ledger::new_null();
+        let block = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        ledger.process_one(&block).unwrap();
+
+        let result = run_aggregator(&ledger, &[(block.hash(), block.root())]);
+
+        assert_eq!(result.remaining_normal.len(), 1);
+        assert_eq!(result.remaining_normal[0].hash(), block.hash());
+        assert!(result.remaining_final.is_empty());
     }
 
     #[test]
