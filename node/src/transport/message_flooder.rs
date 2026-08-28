@@ -1,6 +1,7 @@
 use std::{
+    collections::{HashSet, VecDeque},
     ops::{Deref, DerefMut},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use rsnano_messages::{Message, MessageSerializer};
@@ -22,6 +23,13 @@ pub struct MessageFlooder {
     message_serializer: MessageSerializer,
     sender: MessageSender,
     flood_listener: OutputListenerMt<FloodEvent>,
+    pending_pr_sends: Arc<Mutex<VecDeque<PendingPrSend>>>,
+}
+
+struct PendingPrSend {
+    channel_id: ChannelId,
+    message: Message,
+    traffic_type: TrafficType,
 }
 
 impl MessageFlooder {
@@ -38,6 +46,7 @@ impl MessageFlooder {
             message_serializer: sender.get_serializer(),
             sender,
             flood_listener: OutputListenerMt::new(),
+            pending_pr_sends: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -68,6 +77,7 @@ impl MessageFlooder {
         traffic_type: TrafficType,
         scale: f32,
     ) -> FloodCount {
+        self.flush_pending_pr_sends();
         if self.flood_listener.is_tracked() {
             self.flood_listener.emit(FloodEvent {
                 message: message.clone(),
@@ -78,10 +88,29 @@ impl MessageFlooder {
         }
 
         let mut flood_count = FloodCount::default();
+        let reliable = matches!(message, Message::Publish(_) | Message::ConfirmAck(_));
+        #[cfg(feature = "rai_protocol")]
+        let reliable =
+            reliable || matches!(message, Message::CloseVote(_) | Message::CloseReport(_));
         let peered_prs = self.rep_tracker.peered_principal_reps();
         for rep in peered_prs {
-            if self.try_send_channel_id(rep.channel_id, message, traffic_type) {
+            let already_pending = self
+                .pending_pr_sends
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|item| item.channel_id == rep.channel_id);
+            if !already_pending && self.try_send_channel_id(rep.channel_id, message, traffic_type) {
                 flood_count.principal_reps += 1;
+            } else if reliable && self.channel(rep.channel_id).is_some() {
+                self.pending_pr_sends
+                    .lock()
+                    .unwrap()
+                    .push_back(PendingPrSend {
+                        channel_id: rep.channel_id,
+                        message: message.clone(),
+                        traffic_type,
+                    });
             }
         }
 
@@ -101,6 +130,26 @@ impl MessageFlooder {
         }
 
         flood_count
+    }
+
+    fn flush_pending_pr_sends(&mut self) {
+        let pending_sends = self.pending_pr_sends.clone();
+        let mut pending = pending_sends.lock().unwrap();
+        let attempts = pending.len();
+        let mut blocked = HashSet::new();
+        for _ in 0..attempts {
+            let Some(item) = pending.pop_front() else {
+                break;
+            };
+            if blocked.contains(&item.channel_id) {
+                pending.push_back(item);
+            } else if self.channel(item.channel_id).is_some()
+                && !self.try_send_channel_id(item.channel_id, &item.message, item.traffic_type)
+            {
+                blocked.insert(item.channel_id);
+                pending.push_back(item);
+            }
+        }
     }
 
     pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {
@@ -185,6 +234,7 @@ impl Clone for MessageFlooder {
             message_serializer: self.message_serializer.clone(),
             sender: self.sender.clone(),
             flood_listener: OutputListenerMt::new(),
+            pending_pr_sends: self.pending_pr_sends.clone(),
         }
     }
 }

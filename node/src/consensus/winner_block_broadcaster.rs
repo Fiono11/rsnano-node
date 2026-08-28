@@ -1,5 +1,4 @@
 use std::{
-    cmp::max,
     collections::HashMap,
     sync::{Arc, RwLock},
     time::Duration,
@@ -22,8 +21,6 @@ pub(crate) struct WinnerBlockBroadcaster {
     message_flooder: MessageFlooder,
     rebroadcast_limiter: TokenBucket,
     broadcast_listener: OutputListenerMt<BlockHash>,
-    rep_tracker: Arc<RepresentativeTracker>,
-    network: Arc<RwLock<Network>>,
 }
 
 impl WinnerBlockBroadcaster {
@@ -31,8 +28,8 @@ impl WinnerBlockBroadcaster {
         clock: Arc<SteadyClock>,
         networks: NetworkType,
         message_flooder: MessageFlooder,
-        rep_tracker: Arc<RepresentativeTracker>,
-        network: Arc<RwLock<Network>>,
+        _rep_tracker: Arc<RepresentativeTracker>,
+        _network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
             clock,
@@ -41,8 +38,6 @@ impl WinnerBlockBroadcaster {
             // TODO: Make rate limit configurable
             rebroadcast_limiter: TokenBucket::with_burst_ratio(100, 2.0),
             broadcast_listener: OutputListenerMt::default(),
-            rep_tracker,
-            network,
         }
     }
 
@@ -69,7 +64,7 @@ impl WinnerBlockBroadcaster {
     pub fn try_broadcast_winner(
         &mut self,
         winner_block: &Block,
-        votes: &HashMap<PublicKey, VoteSummary>,
+        _votes: &HashMap<PublicKey, VoteSummary>,
     ) {
         let now = self.clock.now();
         let winner_hash = winner_block.hash();
@@ -79,43 +74,17 @@ impl WinnerBlockBroadcaster {
             return;
         }
 
-        // Maximum amount of directed broadcasts to be sent per election
-        let max_election_broadcasts = max(self.network.read().unwrap().fanout(1.0) / 2, 1);
-
         if !self.rebroadcast_limiter.try_consume(1) {
             return;
         }
 
         let winner_msg = Message::Publish(Publish::new_forward(winner_block.clone()));
 
-        let peered_prs = self.rep_tracker.peered_principal_reps();
-
-        let mut count = 0;
-        // Directed broadcasting to principal representatives
-        for i in &peered_prs {
-            if count >= max_election_broadcasts {
-                break;
-            }
-            let should_broadcast = if let Some(existing) = votes.get(&i.rep_key) {
-                // Don't rebroadcast to a PR if this PR has voted for the block!
-                existing.hash != winner_hash
-            } else {
-                true
-            };
-            if should_broadcast {
-                count += 1;
-                self.message_flooder.try_send_channel_id(
-                    i.channel_id,
-                    &winner_msg,
-                    TrafficType::BlockBroadcast,
-                );
-            }
-        }
-
-        // Random flood for block propagation
-        // TODO: Avoid broadcasting to the same peers that were already broadcasted to
-        self.message_flooder
-            .flood(&winner_msg, TrafficType::BlockBroadcast, 0.5);
+        self.message_flooder.flood_prs_and_some_non_prs(
+            &winner_msg,
+            TrafficType::BlockBroadcast,
+            0.5,
+        );
 
         self.broadcast_tracker.insert(now, winner_hash);
     }

@@ -263,16 +263,19 @@ impl NetworkMessageProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             Message::CloseVote(vote) => {
-                if vote.validate() && self.close_report_seen.lock().unwrap().insert(vote.hash()) {
-                    let _ = self.close_vote_tx.send(vote.clone());
-                    self.message_flooder
-                        .lock()
-                        .unwrap()
-                        .flood_prs_and_some_non_prs(
-                            &Message::CloseVote(vote),
-                            TrafficType::Generic,
-                            1.0,
-                        );
+                if vote.validate() {
+                    let first_seen = self.close_report_seen.lock().unwrap().insert(vote.hash());
+                    if first_seen {
+                        let _ = self.close_vote_tx.send(vote.clone());
+                        self.message_flooder
+                            .lock()
+                            .unwrap()
+                            .flood_prs_and_some_non_prs(
+                                &Message::CloseVote(vote),
+                                TrafficType::Generic,
+                                1.0,
+                            );
+                    }
                 }
             }
             #[cfg(feature = "rai_protocol")]
