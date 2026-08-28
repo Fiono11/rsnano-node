@@ -20,6 +20,10 @@ pub struct CloseVote {
 }
 
 impl CloseVote {
+    /// A signed record-hash advertisement used to synchronize record election
+    /// startup. It deliberately shares the close-vote envelope, but is routed
+    /// outside the election tally.
+    pub const RECORD_HASH_ADVERTISEMENT_KIND: u8 = 2;
     pub const SERIALIZED_SIZE: usize = 8 + 4 + 1 + 32 + 1 + 32 + 64;
 
     pub fn new(
@@ -55,7 +59,9 @@ impl CloseVote {
     }
 
     pub fn validate(&self) -> bool {
-        self.kind <= 1
+        (self.kind <= 1
+            || (self.kind == Self::RECORD_HASH_ADVERTISEMENT_KIND
+                && self.vote_type == VoteType::First))
             && self
                 .voter
                 .verify(self.hash().as_bytes(), &self.signature)
@@ -143,5 +149,20 @@ mod tests {
         );
         assert!(vote.validate());
         assert_deserializable(&Message::CloseVote(vote));
+    }
+
+    #[test]
+    fn record_hash_advertisement_roundtrips_and_validates() {
+        let advertisement = CloseVote::new(
+            7,
+            2,
+            CloseVote::RECORD_HASH_ADVERTISEMENT_KIND,
+            BlockHash::from(9),
+            VoteType::First,
+            &PrivateKey::from(1),
+        );
+
+        assert!(advertisement.validate());
+        assert_deserializable(&Message::CloseVote(advertisement));
     }
 }

@@ -183,6 +183,9 @@ impl ActiveElectionsContainer {
         if self.try_upgrade_priority_election(&request, root.clone())? {
             return Ok(());
         }
+        // A timed-out alias is not permanent: later epoch-tagged support can
+        // justify running the same epoch-qualified election again.
+        self.rai_terminated.remove(&root);
         let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
         election.set_qualified_root(root.clone());
         let hash = election.winner().hash();
@@ -633,22 +636,15 @@ impl ActiveElectionsContainer {
         let Some(root) = root else {
             return false;
         };
-        self.rai_finalized.insert(root.clone(), block.hash());
-        self.rai_terminated.remove(&root);
+        self.record_earliest_finalized(root.clone(), block.hash());
         self.erase_certified(&root)
     }
 
     #[cfg(feature = "rai_protocol")]
     fn apply_finalized_slot_outcome(&mut self, root: &QualifiedRoot, hash: BlockHash) -> bool {
-        // A certified outcome fixes the slot's epoch as well as its winner. A
-        // replica may have started the same slot in a different local epoch;
-        // discard that stale attribution when the certificate identifies the
-        // canonical qualified root.
-        self.rai_finalized
-            .retain(|candidate, _| candidate.slot() != root.slot() || candidate == root);
+        self.record_earliest_finalized(root.clone(), hash);
         self.rai_terminated
             .retain(|candidate| candidate.slot() != root.slot());
-        self.rai_finalized.insert(root.clone(), hash);
         let competing = self.roots.roots_for_slot(&root);
         let mut erased = false;
         for candidate in competing {
@@ -658,6 +654,24 @@ impl ActiveElectionsContainer {
             erased |= self.erase_certified(&candidate);
         }
         erased
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn record_earliest_finalized(&mut self, root: QualifiedRoot, hash: BlockHash) {
+        let earliest = self
+            .rai_finalized
+            .keys()
+            .filter(|candidate| candidate.slot() == root.slot())
+            .map(|candidate| candidate.epoch)
+            .min();
+        if earliest.is_some_and(|epoch| epoch < root.epoch) {
+            return;
+        }
+        self.rai_finalized.retain(|candidate, _| {
+            candidate.slot() != root.slot() || candidate.epoch <= root.epoch
+        });
+        self.rai_terminated.remove(&root);
+        self.rai_finalized.insert(root, hash);
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -790,8 +804,7 @@ impl ActiveElectionsContainer {
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
             #[cfg(feature = "rai_protocol")]
-            self.rai_finalized
-                .insert(entry.root.clone(), entry.election.winner().hash());
+            self.record_earliest_finalized(entry.root.clone(), entry.election.winner().hash());
             self.cleanup_election(entry);
         }
         result.per_block

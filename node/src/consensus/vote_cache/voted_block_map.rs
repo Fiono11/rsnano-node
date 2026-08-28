@@ -68,13 +68,14 @@ impl VotedBlockMap {
                 #[cfg(not(feature = "rai_protocol"))]
                 let should_cache = matches!(code, Ok(()) | Err(VoteError::Indeterminate));
                 #[cfg(feature = "rai_protocol")]
-                let should_cache = matches!(
-                    code,
-                    Ok(()) | Err(VoteError::Indeterminate) | Err(VoteError::Late)
-                );
-                // Under RAI, Late can mean that this hash finalized through a
-                // different epoch-specific election. Preserve the vote so >f
-                // support can recreate the exact epoch alias it names.
+                let should_cache = {
+                    let _ = code;
+                    true
+                };
+                // Every signature-valid RAI vote is epoch evidence. Its local
+                // application result depends on whether this replica already
+                // has that epoch-qualified election and which phase it has
+                // reached; caching must not depend on that local state.
                 if should_cache {
                     self.insert_vote(vote.clone(), hash, rep_weight, now);
                     inserted += 1;
