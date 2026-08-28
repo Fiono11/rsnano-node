@@ -149,13 +149,13 @@ impl DaemonBuilder {
             }
         };
 
-        node.runtime.block_on(run_rpc(
+        let rpc_result = node.runtime.block_on(run_rpc(
             daemon_config,
             rpc_config,
             node.clone(),
             tx_stop,
             wait_for_shutdown,
-        ))?;
+        ));
 
         if let Some(ref websocket) = websocket_server {
             websocket.stop();
@@ -163,7 +163,7 @@ impl DaemonBuilder {
 
         let node = Arc::get_mut(&mut node).expect("No exclusive access to node!");
         node.stop();
-        Ok(())
+        rpc_result
     }
 }
 
