@@ -34,7 +34,10 @@ pub(crate) const NODE_CONFIG: &str = r#"
 
 [node.lmdb]
     sync = "nosync_unsafe"
-    map_size = 134217728
+    # A six-PR RAI run can temporarily retain several epoch-scoped elections and
+    # bootstrap indexes per block. Leave enough headroom that the benchmark
+    # measures consensus instead of failing or stalling on LMDB map growth.
+    map_size = 536870912
 
 [node.network]
     max_peers_per_ip = 256
