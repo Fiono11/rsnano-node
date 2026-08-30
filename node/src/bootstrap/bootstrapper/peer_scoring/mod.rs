@@ -1,7 +1,10 @@
 mod peer_score;
 mod peer_score_container;
 
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use rand::seq::IndexedRandom;
 
@@ -13,12 +16,14 @@ use peer_score_container::PeerScoreContainer;
 /// Container for tracking and scoring peers with respect to bootstrapping
 pub(crate) struct PeerScoring {
     scoring: Mutex<PeerScoreContainer>,
+    frontier_cursor: AtomicUsize,
 }
 
 impl PeerScoring {
     pub fn new(channel_limit: usize) -> Self {
         Self {
             scoring: Mutex::new(PeerScoreContainer::new(channel_limit)),
+            frontier_cursor: AtomicUsize::new(0),
         }
     }
 
@@ -30,6 +35,17 @@ impl PeerScoring {
     pub fn channel(&self) -> Option<ChannelId> {
         let scoring = self.scoring.lock().unwrap();
         scoring.usable().choose(&mut rand::rng()).cloned()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn frontier_channel(&self) -> Option<ChannelId> {
+        let scoring = self.scoring.lock().unwrap();
+        let usable = scoring.usable();
+        if usable.is_empty() {
+            return None;
+        }
+        let index = self.frontier_cursor.fetch_add(1, Ordering::Relaxed) % usable.len();
+        Some(usable[index])
     }
 
     pub fn channel_full(&self, channel_id: ChannelId) {

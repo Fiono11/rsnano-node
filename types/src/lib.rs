@@ -327,11 +327,18 @@ impl FromStr for NetworkType {
 pub struct Frontier {
     pub account: Account,
     pub hash: BlockHash,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
 }
 
 impl Frontier {
     pub fn new(account: Account, hash: BlockHash) -> Self {
-        Self { account, hash }
+        Self {
+            account,
+            hash,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
+        }
     }
 
     pub fn new_test_instance() -> Self {
@@ -343,7 +350,13 @@ impl Frontier {
         T: std::io::Write,
     {
         self.account.serialize(writer)?;
-        self.hash.serialize(writer)
+        self.hash.serialize(writer)?;
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_be_bytes())?;
+        #[cfg(feature = "rai_protocol")]
+        return Ok(());
+        #[cfg(not(feature = "rai_protocol"))]
+        Ok(())
     }
 
     pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
@@ -352,7 +365,12 @@ impl Frontier {
     {
         let account = Account::deserialize(reader)?;
         let hash = BlockHash::deserialize(reader)?;
-        Ok(Self::new(account, hash))
+        let mut result = Self::new(account, hash);
+        #[cfg(feature = "rai_protocol")]
+        {
+            result.epoch = read_u64_be(reader)?;
+        }
+        Ok(result)
     }
 }
 

@@ -35,10 +35,14 @@ use rsnano_utils::{
     stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource},
 };
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::election::ConfirmedElection;
 use crate::{
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
     transport::MessageSender,
 };
+#[cfg(feature = "rai_protocol")]
+use bounded_vec_deque::BoundedVecDeque;
 
 use bootstrap_queue::BootstrapQueue;
 use bootstrap_queue::Priority;
@@ -159,6 +163,9 @@ impl Bootstrapper {
         network: Arc<RwLock<Network>>,
         message_sender: MessageSender,
         config: BootstrapConfig,
+        #[cfg(feature = "rai_protocol")] recently_cemented: Arc<
+            Mutex<BoundedVecDeque<ConfirmedElection>>,
+        >,
     ) -> Self {
         let bootstrap_queue = Arc::new(BootstrapQueue::new(config.bootstrap_queue.clone()));
         let frontier_scan = Arc::new(FrontierScan::new(
@@ -179,6 +186,8 @@ impl Bootstrapper {
             config,
             Arc::new(SteadyClock::default()),
             stopped,
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented,
         )
     }
 
@@ -194,6 +203,8 @@ impl Bootstrapper {
         let frontier_scan = Arc::new(FrontierScan::new_null());
         let bootstrap_queue = Arc::new(BootstrapQueue::new_null());
         let stopped = NullableCondvarMutex::new_null(StoppedFlag::default());
+        #[cfg(feature = "rai_protocol")]
+        let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(2048)));
 
         Self::new_impl(
             block_processor_queue,
@@ -206,6 +217,8 @@ impl Bootstrapper {
             config,
             clock,
             stopped,
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented,
         )
     }
 
@@ -220,6 +233,9 @@ impl Bootstrapper {
         config: BootstrapConfig,
         clock: Arc<SteadyClock>,
         stopped: NullableCondvarMutex<StoppedFlag>,
+        #[cfg(feature = "rai_protocol")] recently_cemented: Arc<
+            Mutex<BoundedVecDeque<ConfirmedElection>>,
+        >,
     ) -> Self {
         let peer_scoring = Arc::new(PeerScoring::new(config.channel_limit));
         let query_tracker = Arc::new(QueryTracker::new(stats.clone()));
@@ -230,6 +246,14 @@ impl Bootstrapper {
             bootstrap_queue.clone(),
             block_processor_queue.clone(),
             frontier_scan.clone(),
+            #[cfg(feature = "rai_protocol")]
+            ledger.clone(),
+            #[cfg(feature = "rai_protocol")]
+            network.clone(),
+            #[cfg(feature = "rai_protocol")]
+            message_sender.clone(),
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented,
         );
 
         let mut ledger_observer = LedgerObserver::new(

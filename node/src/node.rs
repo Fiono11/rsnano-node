@@ -474,11 +474,17 @@ impl Node {
             steady_clock.clone(),
         ));
 
+        let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
+            config.confirmation_history_size,
+        )));
+
         let bootstrap_responder = Arc::new(BootstrapResponder::new(
             config.bootstrap_server.clone(),
             stats.clone(),
             ledger.clone(),
             message_sender.clone(),
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented.clone(),
         ));
 
         let vote_processor_queue = Arc::new(VoteProcessorQueue::new(
@@ -655,10 +661,6 @@ impl Node {
             stats.clone(),
         ));
 
-        let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
-            config.confirmation_history_size,
-        )));
-
         let winner_block_broadcaster = Arc::new(Mutex::new(WinnerBlockBroadcaster::new(
             steady_clock.clone(),
             current_network,
@@ -822,6 +824,8 @@ impl Node {
             network.clone(),
             message_sender.clone(),
             global_config.node_config.bootstrap.clone(),
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented.clone(),
         ));
         ledger_event_handlers.add(bootstrapper.clone());
 

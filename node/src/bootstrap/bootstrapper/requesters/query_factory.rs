@@ -171,6 +171,9 @@ impl QueryFactory {
         if self.frontier_scan.frontier_checker_overfill() {
             return None;
         }
+        #[cfg(feature = "rai_protocol")]
+        let channel = self.acquire_frontier_channel()?;
+        #[cfg(not(feature = "rai_protocol"))]
         let channel = self.acquire_channel()?;
 
         let start = self.frontier_scan.next_account_to_query();
@@ -190,6 +193,19 @@ impl QueryFactory {
         };
         let network = self.network.read().unwrap();
         let channel = network.get(channel_id).cloned();
+        if channel.is_none() {
+            self.stats.no_channel.fetch_add(1, Relaxed);
+        }
+        channel
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn acquire_frontier_channel(&mut self) -> Option<Arc<Channel>> {
+        let Some(channel_id) = self.peer_scoring.frontier_channel() else {
+            self.stats.no_channel.fetch_add(1, Relaxed);
+            return None;
+        };
+        let channel = self.network.read().unwrap().get(channel_id).cloned();
         if channel.is_none() {
             self.stats.no_channel.fetch_add(1, Relaxed);
         }

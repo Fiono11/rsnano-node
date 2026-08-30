@@ -10,6 +10,8 @@ use tracing::trace;
 
 use rsnano_ledger::BlockSource;
 use rsnano_messages::{AscPullAck, AscPullAckType};
+#[cfg(feature = "rai_protocol")]
+use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
@@ -27,6 +29,16 @@ use crate::{
         },
     },
 };
+#[cfg(feature = "rai_protocol")]
+use crate::{consensus::election::ConfirmedElection, transport::MessageSender};
+#[cfg(feature = "rai_protocol")]
+use bounded_vec_deque::BoundedVecDeque;
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::{AnySet, Ledger};
+#[cfg(feature = "rai_protocol")]
+use rsnano_network::{Network, TrafficType};
+#[cfg(feature = "rai_protocol")]
+use std::sync::{Mutex, RwLock};
 
 pub(crate) struct ResponseProcessor {
     query_tracker: Arc<QueryTracker>,
@@ -39,6 +51,14 @@ pub(crate) struct ResponseProcessor {
     response_blocks: AtomicU64,
     response_account: AtomicU64,
     response_frontiers: AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    ledger: Arc<Ledger>,
+    #[cfg(feature = "rai_protocol")]
+    network: Arc<RwLock<Network>>,
+    #[cfg(feature = "rai_protocol")]
+    message_sender: Mutex<MessageSender>,
+    #[cfg(feature = "rai_protocol")]
+    recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
 }
 
 impl ResponseProcessor {
@@ -48,6 +68,12 @@ impl ResponseProcessor {
         bootstrap_queue: Arc<BootstrapQueue>,
         block_queue: Arc<BlockProcessorQueue>,
         frontier_scan: Arc<FrontierScan>,
+        #[cfg(feature = "rai_protocol")] ledger: Arc<Ledger>,
+        #[cfg(feature = "rai_protocol")] network: Arc<RwLock<Network>>,
+        #[cfg(feature = "rai_protocol")] message_sender: MessageSender,
+        #[cfg(feature = "rai_protocol")] recently_cemented: Arc<
+            Mutex<BoundedVecDeque<ConfirmedElection>>,
+        >,
     ) -> Self {
         let account_ack_processor = AccountAckProcessor::new(bootstrap_queue.clone());
         let block_ack_processor =
@@ -64,6 +90,14 @@ impl ResponseProcessor {
             response_blocks: AtomicU64::new(0),
             response_account: AtomicU64::new(0),
             response_frontiers: AtomicU64::new(0),
+            #[cfg(feature = "rai_protocol")]
+            ledger,
+            #[cfg(feature = "rai_protocol")]
+            network,
+            #[cfg(feature = "rai_protocol")]
+            message_sender: Mutex::new(message_sender),
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented,
         }
     }
 
@@ -144,6 +178,8 @@ impl ResponseProcessor {
             }
             AscPullAckType::Frontiers(frontiers) => {
                 self.response_frontiers.fetch_add(1, Relaxed);
+                #[cfg(feature = "rai_protocol")]
+                self.request_earlier_epoch_votes(query, &frontiers);
                 self.frontier_scan.process(query, frontiers)
             }
         };
@@ -152,6 +188,53 @@ impl ResponseProcessor {
             Ok(())
         } else {
             Err(ProcessError::InvalidResponse)
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn request_earlier_epoch_votes(
+        &self,
+        query: &RunningQuery,
+        frontiers: &[rsnano_types::Frontier],
+    ) {
+        let local_epochs = {
+            let history = self.recently_cemented.lock().unwrap();
+            let mut epochs = std::collections::HashMap::with_capacity(history.len());
+            for entry in history.iter().filter(|entry| entry.epoch > 0) {
+                epochs
+                    .entry(entry.winner.hash())
+                    .and_modify(|epoch: &mut u64| *epoch = (*epoch).min(entry.epoch))
+                    .or_insert(entry.epoch);
+            }
+            epochs
+        };
+        let mut by_epoch = std::collections::HashMap::<u64, Vec<_>>::new();
+        let any = self.ledger.any();
+        for frontier in frontiers.iter().filter(|frontier| frontier.epoch > 0) {
+            let local = local_epochs.get(&frontier.hash).copied();
+            if local.is_none_or(|epoch| frontier.epoch < epoch)
+                && let Some(block) = any.get_block(&frontier.hash)
+            {
+                by_epoch
+                    .entry(frontier.epoch)
+                    .or_default()
+                    .push((frontier.hash, block.root()));
+            }
+        }
+        let channel = self.network.read().unwrap().get(query.channel_id).cloned();
+        let Some(channel) = channel else {
+            return;
+        };
+        for (epoch, requests) in by_epoch {
+            for chunk in requests.chunks(ConfirmReq::HASHES_MAX) {
+                let message =
+                    Message::ConfirmReq(ConfirmReq::new(chunk.to_vec()).with_epoch(epoch));
+                self.message_sender.lock().unwrap().try_send(
+                    &channel,
+                    &message,
+                    TrafficType::ConfirmationRequests,
+                );
+            }
         }
     }
 
@@ -322,6 +405,14 @@ mod tests {
             queue.clone(),
             Arc::new(BlockProcessorQueue::default()),
             Arc::new(FrontierScan::new_null()),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(Ledger::new_null()),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(RwLock::new(Network::new_null())),
+            #[cfg(feature = "rai_protocol")]
+            MessageSender::new_null(),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(Mutex::new(BoundedVecDeque::new(2048))),
         );
         Fixture {
             processor,

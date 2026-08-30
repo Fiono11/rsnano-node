@@ -22,7 +22,11 @@ use rsnano_utils::{
     stats::{DetailType, Direction, StatType, Stats},
 };
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::election::ConfirmedElection;
 use crate::transport::MessageSender;
+#[cfg(feature = "rai_protocol")]
+use bounded_vec_deque::BoundedVecDeque;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapResponderConfig {
@@ -64,6 +68,9 @@ impl BootstrapResponder {
         stats: Arc<Stats>,
         ledger: Arc<Ledger>,
         message_sender: MessageSender,
+        #[cfg(feature = "rai_protocol")] recently_cemented: Arc<
+            Mutex<BoundedVecDeque<ConfirmedElection>>,
+        >,
     ) -> Self {
         let max_queue = config.max_queue;
         let server_impl = Arc::new(BootstrapResponderImpl {
@@ -76,6 +83,8 @@ impl BootstrapResponder {
             queue: Mutex::new(FairQueue::new(move |_| max_queue, |_| 1)),
             message_sender: Mutex::new(message_sender),
             limiter: Mutex::new(TokenBucket::with_burst_ratio(config.limiter, 3.0)),
+            #[cfg(feature = "rai_protocol")]
+            recently_cemented,
         });
 
         Self {
@@ -93,6 +102,8 @@ impl BootstrapResponder {
             Stats::default().into(),
             Ledger::new_null().into(),
             MessageSender::new_null(),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(Mutex::new(BoundedVecDeque::new(2048))),
         )
     }
 
@@ -194,6 +205,8 @@ struct BootstrapResponderImpl {
     batch_size: usize,
     message_sender: Mutex<MessageSender>,
     limiter: Mutex<TokenBucket>,
+    #[cfg(feature = "rai_protocol")]
+    recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
 }
 
 impl BootstrapResponderImpl {
@@ -341,9 +354,28 @@ impl BootstrapResponderImpl {
         id: u64,
         request: FrontiersReqPayload,
     ) -> AscPullAck {
+        #[cfg(feature = "rai_protocol")]
+        let canonical_epochs = {
+            let history = self.recently_cemented.lock().unwrap();
+            let mut epochs = std::collections::HashMap::with_capacity(history.len());
+            for entry in history.iter().filter(|entry| entry.epoch > 0) {
+                epochs
+                    .entry(entry.winner.hash())
+                    .and_modify(|epoch: &mut u64| *epoch = (*epoch).min(entry.epoch))
+                    .or_insert(entry.epoch);
+            }
+            epochs
+        };
         let frontiers = any
             .accounts_range(request.start..)
-            .map(|(account, info)| Frontier::new(account, info.head))
+            .map(|(account, info)| {
+                let mut frontier = Frontier::new(account, info.head);
+                #[cfg(feature = "rai_protocol")]
+                {
+                    frontier.epoch = canonical_epochs.get(&info.head).copied().unwrap_or(0);
+                }
+                frontier
+            })
             .take(request.count as usize)
             .collect();
 
