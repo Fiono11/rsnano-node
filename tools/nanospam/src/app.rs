@@ -166,12 +166,8 @@ impl NanoSpamApp {
 
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
-        #[cfg(not(feature = "rai_protocol"))]
         info!("Connecting to websocket...");
-        #[cfg(not(feature = "rai_protocol"))]
         let mut conf_receivers = vec![ConfirmationReceiver::connect().await?];
-        #[cfg(feature = "rai_protocol")]
-        let mut conf_receivers: Vec<ConfirmationReceiver> = Vec::new();
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -204,7 +200,17 @@ impl NanoSpamApp {
                 });
             }
             #[cfg(feature = "rai_protocol")]
-            drop(rx_ws_msg);
+            {
+                let confirmation_cancel = cancel_nanospam.clone();
+                let confirmation_logic = &logic;
+                s.spawn(move || {
+                    track_rai_confirmation_feedback(
+                        rx_ws_msg,
+                        confirmation_logic,
+                        confirmation_cancel,
+                    )
+                });
+            }
 
             tokio_scoped::scope(|scope| {
                 if self.args.timeout > 0 {
@@ -226,14 +232,6 @@ impl NanoSpamApp {
                     &self.clock,
                     cancel_nanospam.clone(),
                 ));
-                #[cfg(feature = "rai_protocol")]
-                scope.spawn(drive_block_generation_from_node(
-                    genesis_rpc,
-                    &logic,
-                    &self.clock,
-                    cancel_nanospam.clone(),
-                ));
-
                 if self.args.high_prio_check() {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
                 }
@@ -787,6 +785,30 @@ fn track_confirmations(
     }
 }
 
+#[cfg(feature = "rai_protocol")]
+fn track_rai_confirmation_feedback(
+    rx_ws_msg: std::sync::mpsc::Receiver<(MessageEnvelope, Timestamp)>,
+    logic: &Mutex<SpamLogic>,
+    cancel_token: CancellationToken,
+) {
+    while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
+        if msg.topic != Some(Topic::Confirmation) {
+            continue;
+        }
+        let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
+        let block_hash = BlockHash::decode_hex(data.hash).unwrap();
+        let finished = {
+            let mut logic = logic.lock().unwrap();
+            logic.confirmed(&block_hash, timestamp, None);
+            logic.is_finished()
+        };
+        if finished {
+            cancel_token.cancel();
+            return;
+        }
+    }
+}
+
 async fn log_status(
     logic: &Mutex<SpamLogic>,
     clock: &SteadyClock,
@@ -846,32 +868,5 @@ async fn reconcile_confirmations(
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
-#[cfg(feature = "rai_protocol")]
-async fn drive_block_generation_from_node(
-    rpc: &NanoRpcClient,
-    logic: &Mutex<SpamLogic>,
-    clock: &SteadyClock,
-    cancel_token: CancellationToken,
-) {
-    let mut seen = std::collections::HashSet::new();
-    while !cancel_token.is_cancelled() {
-        if let Ok(response) = rpc.confirmation_history().await {
-            for entry in response.confirmations {
-                if seen.insert(entry.hash) {
-                    logic.lock().unwrap().confirmed(
-                        &entry.hash,
-                        clock.now(),
-                        Some(entry.epoch.inner()),
-                    );
-                }
-            }
-        }
-        tokio::select! {
-            _ = cancel_token.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-        }
     }
 }

@@ -60,7 +60,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     interval = 10
 
 [node.websocket]
-    enable = false
+    enable = true
 
 [rpc]
     enable = true
