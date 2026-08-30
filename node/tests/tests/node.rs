@@ -133,8 +133,11 @@ fn vote_by_hash_bundle() {
 
     // Enqueue vote requests for all the blocks
     for block in &blocks {
-        node.vote_generators
-            .generate_vote(&block.root(), &block.hash(), VoteType::NonFinal);
+        node.vote_generators.generate_vote(
+            &block.qualified_root(),
+            &block.hash(),
+            VoteType::NonFinal,
+        );
     }
 
     let mut max_hashes = 0;

@@ -1,13 +1,20 @@
-#[cfg(feature = "rai_protocol")]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::{cmp::max, collections::HashMap, time::Duration};
+#[cfg(feature = "rai_protocol")]
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use strum::EnumCount;
 
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::MaybeSavedBlock;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Amount, Block, BlockHash, BlockPriority, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
+    VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -49,26 +56,84 @@ pub(crate) struct ActiveElectionsContainer {
     stats: AecStats,
     #[cfg(feature = "rai_protocol")]
     rai_epoch: RaiEpoch,
+    #[cfg(feature = "rai_protocol")]
+    rai_election_seeds: HashMap<BlockHash, RaiElectionSeed>,
 }
 
 #[cfg(feature = "rai_protocol")]
-#[derive(Default)]
+#[derive(Clone)]
+struct RaiElectionSeed {
+    block: SavedBlock,
+    behavior: ElectionBehavior,
+    priority: BlockPriority,
+    epoch: u64,
+}
+
+#[cfg(feature = "rai_protocol")]
 pub struct RaiEpoch {
-    current: AtomicU64,
+    start_unix_millis: AtomicU64,
+    observed: AtomicU64,
+    duration_millis: u64,
+    start_file: Option<PathBuf>,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl Default for RaiEpoch {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(feature = "rai_protocol")]
 impl RaiEpoch {
     pub fn new() -> Self {
         Self {
-            current: AtomicU64::new(1),
+            start_unix_millis: AtomicU64::new(0),
+            observed: AtomicU64::new(1),
+            duration_millis: std::env::var("NANO_RAI_EPOCH_DURATION_MS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(5_000),
+            start_file: std::env::var_os("NANO_RAI_EPOCH_START_FILE").map(PathBuf::from),
         }
     }
     pub fn current(&self) -> u64 {
-        self.current.load(Ordering::Acquire)
-    }
-    pub fn advance(&self) -> u64 {
-        self.current.fetch_add(1, Ordering::AcqRel) + 1
+        let mut start = self.start_unix_millis.load(Ordering::Acquire);
+        if start == 0
+            && let Some(path) = &self.start_file
+            && let Ok(value) = std::fs::read_to_string(path)
+            && let Ok(parsed) = value.trim().parse::<u64>()
+            && parsed > 0
+        {
+            let _ = self.start_unix_millis.compare_exchange(
+                0,
+                parsed,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+            start = self.start_unix_millis.load(Ordering::Acquire);
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let epoch = if start == 0 || now <= start {
+            1
+        } else {
+            (now - start) / self.duration_millis + 1
+        };
+        let previous = self.observed.swap(epoch, Ordering::AcqRel);
+        if previous != epoch {
+            tracing::warn!(
+                target: "rsnano_node::consensus::close",
+                closed_epoch = previous,
+                opened_epoch = epoch,
+                "RAI epoch boundary"
+            );
+        }
+        epoch
     }
 }
 
@@ -87,6 +152,8 @@ impl ActiveElectionsContainer {
             stats: Default::default(),
             #[cfg(feature = "rai_protocol")]
             rai_epoch: RaiEpoch::new(),
+            #[cfg(feature = "rai_protocol")]
+            rai_election_seeds: HashMap::new(),
         }
     }
 
@@ -196,7 +263,9 @@ impl ActiveElectionsContainer {
         let hash = request.block.hash();
         let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
         #[cfg(feature = "rai_protocol")]
-        election.set_qualified_root(root.clone());
+        {
+            election.set_qualified_root(root.clone());
+        }
 
         self.roots.insert(Entry {
             root: root.clone(),
@@ -224,7 +293,12 @@ impl ActiveElectionsContainer {
                 true
             }
             AddForkResult::Replaced(removed) => {
+                #[cfg(not(feature = "rai_protocol"))]
                 self.roots.vote_router.disconnect(&removed.hash());
+                #[cfg(feature = "rai_protocol")]
+                self.roots
+                    .vote_router
+                    .disconnect_epoch(&removed.hash(), root.epoch);
                 self.notify(AecFact::BlockDiscarded(removed.into()));
                 self.notify(AecFact::BlockAddedToElection(fork.hash()));
                 true
@@ -419,6 +493,25 @@ impl ActiveElectionsContainer {
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
+        #[cfg(feature = "rai_protocol")]
+        if entry.election.is_confirmed()
+            && let MaybeSavedBlock::Saved(block) = entry.election.winner()
+        {
+            let seed = RaiElectionSeed {
+                block: block.clone(),
+                behavior: entry.election.behavior(),
+                priority: entry.priority,
+                epoch: entry.root.epoch,
+            };
+            self.rai_election_seeds
+                .entry(block.hash())
+                .and_modify(|current| {
+                    if seed.epoch > current.epoch {
+                        *current = seed.clone();
+                    }
+                })
+                .or_insert(seed);
+        }
         let election = &entry.election;
 
         // Keep track of election count by election type
@@ -450,42 +543,52 @@ impl ActiveElectionsContainer {
     ) -> ConfirmedElection {
         // Check if the currently confirmed block was part of an election that triggered
         // the block confirmation
-        if let Some(source) = source_election
+        if let Some(source) = &source_election
             && confirmed_block.hash() == source.winner.hash()
         {
             // This is the block that was directly confirmed by the source election.
             // The election is already confirmed, so there is nothing to do.
-            return source;
+            return source.clone();
         }
 
-        #[cfg(not(feature = "rai_protocol"))]
-        let corresponding = self.roots.get_mut(&confirmed_block.qualified_root());
+        // Ledger cementation is shared by all RAI epochs. It must not force-confirm
+        // (and therefore stop) an independently active election for this block in
+        // another epoch; that election still has to reach its own vote quorum.
         #[cfg(feature = "rai_protocol")]
-        let corresponding = self
-            .roots
-            .election_for_block_any_epoch_mut(&confirmed_block.hash())
-            .map(|election| election);
-
-        let Some(corresponding_election) = corresponding else {
-            return ConfirmedElection::new(
+        {
+            let mut confirmed = ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::InactiveConfirmationHeight,
             );
-        };
+            // A RAI certificate also finalizes its selected ancestors. Preserve the
+            // certificate epoch so those protocol finalizations are reportable.
+            confirmed.epoch = source_election.map_or(0, |source| source.epoch);
+            return confirmed;
+        }
 
         #[cfg(not(feature = "rai_protocol"))]
-        let corresponding_election = &mut corresponding_election.election;
+        {
+            let corresponding = self.roots.get_mut(&confirmed_block.qualified_root());
+            let Some(corresponding_election) = corresponding else {
+                return ConfirmedElection::new(
+                    confirmed_block.clone(),
+                    ConfirmationType::InactiveConfirmationHeight,
+                );
+            };
 
-        if corresponding_election.winner().hash() == confirmed_block.hash() {
-            corresponding_election.force_confirm();
-            corresponding_election
-                .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
-        } else {
-            corresponding_election.cancel();
-            ConfirmedElection::new(
-                confirmed_block.clone(),
-                ConfirmationType::ActiveConfirmationHeight,
-            )
+            let corresponding_election = &mut corresponding_election.election;
+
+            if corresponding_election.winner().hash() == confirmed_block.hash() {
+                corresponding_election.force_confirm();
+                corresponding_election
+                    .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
+            } else {
+                corresponding_election.cancel();
+                ConfirmedElection::new(
+                    confirmed_block.clone(),
+                    ConfirmationType::ActiveConfirmationHeight,
+                )
+            }
         }
     }
 
@@ -502,6 +605,9 @@ impl ActiveElectionsContainer {
         &mut self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        #[cfg(feature = "rai_protocol")]
+        self.activate_older_epoch_elections(&args);
+
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -514,6 +620,76 @@ impl ActiveElectionsContainer {
             self.cleanup_election(entry);
         }
         result.per_block
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn activate_older_epoch_elections(&mut self, args: &ApplyVoteArgs<'_>) {
+        if args.vote.is_timeout() {
+            return;
+        }
+        let epoch = args.vote.epoch();
+        let hashes: Vec<_> = args.vote.filtered_blocks().copied().collect();
+
+        for hash in hashes {
+            if self.roots.election_for_block(&hash, epoch).is_some() {
+                continue;
+            }
+
+            let seed = if let Some(source) = self.roots.entry_for_block_any_epoch(&hash) {
+                let MaybeSavedBlock::Saved(block) = source.election.winner() else {
+                    continue;
+                };
+                RaiElectionSeed {
+                    block: block.clone(),
+                    behavior: source.election.behavior(),
+                    priority: source.priority,
+                    epoch: source.root.epoch,
+                }
+            } else if let Some(seed) = self.rai_election_seeds.get(&hash) {
+                seed.clone()
+            } else {
+                continue;
+            };
+            if epoch >= seed.epoch {
+                continue;
+            }
+
+            let slot = seed.block.qualified_root().slot();
+            let replaced = self.roots.drain_filter(|entry| {
+                entry.root.slot() == slot
+                    && entry.root.epoch > epoch
+                    && !entry.election.is_confirmed()
+            });
+            for mut entry in replaced {
+                entry.election.cancel();
+                self.cleanup_election(entry);
+            }
+
+            let block = seed.block;
+            let behavior = seed.behavior;
+            let priority = seed.priority;
+            let root = block.qualified_root().with_epoch(epoch);
+            if self.roots.get(&root).is_some() {
+                continue;
+            }
+
+            let mut election = Election::new(block, behavior, self.base_latency, args.now);
+            election.set_qualified_root(root.clone());
+            self.roots.insert(Entry {
+                root: root.clone(),
+                election,
+                priority,
+            });
+            *self.count_by_behavior_mut(behavior) += 1;
+            self.stats.started(behavior);
+            self.notify(AecFact::ElectionStarted(hash, root));
+            tracing::warn!(
+                target: "rsnano_node::consensus::close",
+                block_hash = %hash,
+                epoch,
+                "activated older RAI epoch election on first vote"
+            );
+        }
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
@@ -636,7 +812,7 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
-    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteDelivery};
+    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteDelivery, VoteType};
     use std::sync::Arc;
 
     #[test]
@@ -739,6 +915,102 @@ mod tests {
 
         assert_eq!(container.info(start).stale, 0);
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn activates_same_block_in_older_epoch_on_first_vote() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let now = Timestamp::new_test_instance();
+        let behavior = ElectionBehavior::Priority;
+        let priority = BlockPriority::new_test_instance();
+        let root = block.qualified_root().with_epoch(3);
+        let mut election = Election::new(block, behavior, container.base_latency, now);
+        election.set_qualified_root(root.clone());
+        container.roots.insert(Entry {
+            root,
+            election,
+            priority,
+        });
+        *container.count_by_behavior_mut(behavior) += 1;
+
+        let rep1 = PrivateKey::from(1);
+        let rep2 = PrivateKey::from(2);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep1.public_key(), Amount::nano(11_000_000));
+        rep_weights.put(rep2.public_key(), Amount::nano(11_000_000));
+        let quorum = QuorumSnapshot::new_test_instance();
+
+        for (index, rep) in [&rep1, &rep2].into_iter().enumerate() {
+            let received = ReceivedVote::new(
+                Arc::new(Vote::new_rai(rep, 2, VoteType::First, vec![hash])),
+                VoteDelivery::Direct,
+                None,
+            );
+            let filtered = FilteredVote::from(received);
+            let result = container.apply_vote(ApplyVoteArgs {
+                vote: &filtered,
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum,
+                now,
+            });
+
+            assert_eq!(result.get(&hash), Some(&Ok(())));
+            let older = container.roots.election_for_block(&hash, 2).unwrap();
+            assert_eq!(older.vote_count(), index + 1);
+        }
+
+        let older = container.roots.election_for_block(&hash, 2).unwrap();
+        assert_eq!(older.qualified_root().epoch, 2);
+        assert_eq!(older.winner().hash(), hash);
+        assert_eq!(older.vote_count(), 2);
+        assert!(container.roots.election_for_block(&hash, 3).is_none());
+        assert_eq!(container.len(), 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn finalized_newer_epoch_does_not_block_older_epoch_activation() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let now = Timestamp::new_test_instance();
+        container.rai_election_seeds.insert(
+            hash,
+            RaiElectionSeed {
+                block,
+                behavior: ElectionBehavior::Priority,
+                priority: BlockPriority::new_test_instance(),
+                epoch: 3,
+            },
+        );
+
+        let rep1 = PrivateKey::from(1);
+        let rep2 = PrivateKey::from(2);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep1.public_key(), Amount::nano(11_000_000));
+        rep_weights.put(rep2.public_key(), Amount::nano(11_000_000));
+        let quorum = QuorumSnapshot::new_test_instance();
+
+        for rep in [&rep1, &rep2] {
+            let vote = FilteredVote::from(ReceivedVote::new(
+                Arc::new(Vote::new_rai(rep, 2, VoteType::First, vec![hash])),
+                VoteDelivery::Direct,
+                None,
+            ));
+            container.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum,
+                now,
+            });
+        }
+
+        let older = container.roots.election_for_block(&hash, 2).unwrap();
+        assert_eq!(older.qualified_root().epoch, 2);
+        assert_eq!(older.vote_count(), 2);
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

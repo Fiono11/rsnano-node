@@ -433,7 +433,7 @@ impl SharedState {
         hashes: &[BlockHash],
         roots: &[Root],
         #[cfg(feature = "rai_protocol")] epochs: &[u64],
-        _replay_cached: bool,
+        resign_cached: bool,
         action: F,
     ) where
         F: Fn(Arc<Vote>, VoteOrigin),
@@ -475,12 +475,14 @@ impl SharedState {
                 let mut pending_roots = Vec::new();
                 let mut pending_epochs = Vec::new();
                 for ((root, hash), epoch) in roots.iter().zip(hashes).zip(epochs) {
-                    if self.history.has_vote_type(
+                    if !resign_cached
+                        && self.history.has_vote_type(
                         root,
                         *epoch,
                         self.vote_type,
                         rep_key.public_key(),
-                    ) {
+                    )
+                    {
                         continue;
                     }
                     if self.vote_type == VoteType::NonFinal
@@ -517,32 +519,14 @@ impl SharedState {
                         );
                         continue;
                     }
-                    let existing = self.history.vote_for_epoch(
-                        root,
-                        *epoch,
-                        hash,
-                        self.vote_type,
-                        rep_key.public_key(),
-                    );
-                    if let Some(existing) = existing
-                        && _replay_cached
-                    {
-                        if !replay_votes
-                            .iter()
-                            .any(|vote| vote.signature == existing.signature)
-                        {
-                            replay_votes.push(existing);
-                        }
-                    } else {
-                        // A confirm_req reply must cover only the requested hashes. Replaying a
-                        // cached batched RAI vote here amplifies one requested hash into as many
-                        // as 255 unrelated hashes at every receiving node. Signing the requested
-                        // subset is safe (the phase and hash are unchanged) and keeps reply work
-                        // proportional to the request.
-                        pending_roots.push(*root);
-                        pending_hashes.push(*hash);
-                        pending_epochs.push(*epoch);
-                    }
+                    // A confirm_req reply must cover only the requested hashes. Replaying a
+                    // cached batched RAI vote here amplifies one requested hash into as many
+                    // as 255 unrelated hashes at every receiving node. Re-signing the requested
+                    // subset is safe (the phase and hash are unchanged) and keeps reply work
+                    // proportional to the request.
+                    pending_roots.push(*root);
+                    pending_hashes.push(*hash);
+                    pending_epochs.push(*epoch);
                 }
                 if !pending_hashes.is_empty() {
                     debug_assert!(
@@ -635,7 +619,7 @@ impl SharedState {
                     &roots,
                     #[cfg(feature = "rai_protocol")]
                     &epochs,
-                    false,
+                    true,
                     |vote, _origin| {
                         #[cfg(feature = "rai_protocol")]
                         if _origin == VoteOrigin::Replay

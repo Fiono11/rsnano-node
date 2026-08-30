@@ -206,6 +206,17 @@ pub struct AggregatorRequest {
     pub epoch: u64,
 }
 
+impl AggregatorRequest {
+    pub fn new(channel: Arc<Channel>, roots_hashes: Vec<(BlockHash, Root)>) -> Self {
+        Self {
+            channel,
+            roots_hashes,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
+        }
+    }
+}
+
 pub(crate) struct RequestAggregatorState {
     queue: FairQueue<ChannelId, AggregatorRequest>,
     stopped: bool,

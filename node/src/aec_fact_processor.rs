@@ -20,7 +20,8 @@ use crate::{
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
-        aggregate_vote_results, election_schedulers::ElectionSchedulers,
+        aggregate_vote_results, election::ConfirmationType,
+        election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     utils::BackpressureEventProcessor,
@@ -71,6 +72,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             AecFact::ElectionConfirmed(election) => {
+                #[cfg(feature = "rai_protocol")]
+                self.recently_cemented_inserter.insert(election.clone());
                 self.confirming_set.add(election.clone());
                 // We don't rebroadcast winners during bootstrap, because it would just
                 // spam the network with blocks that the other nodes already have
@@ -149,6 +152,13 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     tx.send(NodeEvent::BlockConfirmed(block, election.clone()))
                         .unwrap();
                 }
+                #[cfg(feature = "rai_protocol")]
+                if election.confirmation_type != ConfirmationType::ActiveConfirmedQuorum
+                    && election.epoch > 0
+                {
+                    self.recently_cemented_inserter.insert(election.clone());
+                }
+                #[cfg(not(feature = "rai_protocol"))]
                 self.recently_cemented_inserter.insert(election);
             }
             AecFact::Recovered => self.election_schedulers.notify(),

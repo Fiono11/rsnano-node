@@ -44,6 +44,8 @@ pub struct Election {
     terminated: bool,
     #[cfg(feature = "rai_protocol")]
     terminated_by_timeout: bool,
+    #[cfg(feature = "rai_protocol")]
+    fast_finalized: bool,
 
     behavior: ElectionBehavior,
     has_quorum: bool,
@@ -86,6 +88,8 @@ impl Election {
             terminated: false,
             #[cfg(feature = "rai_protocol")]
             terminated_by_timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            fast_finalized: false,
             winner_tally: Amount::ZERO,
             winner_final_tally: Amount::ZERO,
             behavior,
@@ -521,9 +525,11 @@ impl Election {
                 self.terminated_by_timeout = !self.has_quorum && timeout_weight >= certificate;
                 self.terminated = self.has_quorum || timeout_weight >= certificate;
             }
-            if self.winner_final_tally >= certificate
-                || self.first_tallies.get(&self.winner.hash()) >= w - p
-            {
+            if self.winner_final_tally >= certificate {
+                self.fast_finalized = false;
+                self.state = ElectionState::Confirmed;
+            } else if self.first_tallies.get(&self.winner.hash()) >= w - p {
+                self.fast_finalized = true;
                 self.state = ElectionState::Confirmed;
             }
             if timeout_weight >= certificate {
@@ -599,6 +605,10 @@ impl Election {
         result: ConfirmationType,
     ) -> ConfirmedElection {
         let votes = self.votes().clone();
+        #[cfg(feature = "rai_protocol")]
+        let epoch = self.qualified_root().epoch;
+        #[cfg(not(feature = "rai_protocol"))]
+        let epoch = 0;
 
         ConfirmedElection {
             winner: self.winner().clone(),
@@ -610,6 +620,9 @@ impl Election {
             election_end: SystemTime::now(),
             confirmation_type: result,
             votes,
+            epoch,
+            #[cfg(feature = "rai_protocol")]
+            fast_finalized: self.fast_finalized,
         }
     }
 }

@@ -54,6 +54,11 @@ pub struct ConfirmedElection {
     pub election_duration: Duration,
     pub confirmation_type: ConfirmationType,
     pub votes: HashMap<PublicKey, VoteSummary>,
+    /// RAI vote epoch which finalized this election. Zero for legacy or inactive confirmations.
+    pub epoch: u64,
+    /// True when RAI finalized from the unanimous first-vote fast path rather than a final-vote certificate.
+    #[cfg(feature = "rai_protocol")]
+    pub fast_finalized: bool,
 }
 
 impl ConfirmedElection {
@@ -68,6 +73,9 @@ impl ConfirmedElection {
             voter_count: 0,
             election_duration: Duration::ZERO,
             votes: Default::default(),
+            epoch: 0,
+            #[cfg(feature = "rai_protocol")]
+            fast_finalized: false,
         }
     }
 

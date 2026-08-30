@@ -118,22 +118,19 @@ impl RootContainer {
 
     #[cfg(not(feature = "rai_protocol"))]
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
+        let root = self.vote_router.qualified_root(block_hash, 0)?;
         self.election_for_root(root)
     }
 
     #[cfg(not(feature = "rai_protocol"))]
     pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
+        let root = self.vote_router.qualified_root(block_hash, 0)?.clone();
         self.get_mut(&root).map(|i| &mut i.election)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn election_for_block(&self, block_hash: &BlockHash, epoch: u64) -> Option<&Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        if root.epoch != epoch && root.epoch != 0 {
-            return None;
-        }
+        let root = self.vote_router.qualified_root(block_hash, epoch)?;
         self.by_root.get(root).map(|entry| &entry.election)
     }
 
@@ -143,10 +140,7 @@ impl RootContainer {
         block_hash: &BlockHash,
         epoch: u64,
     ) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        if root.epoch != epoch && root.epoch != 0 {
-            return None;
-        }
+        let root = self.vote_router.qualified_root(block_hash, epoch)?;
         self.by_root.get_mut(root).map(|entry| &mut entry.election)
     }
 
@@ -155,8 +149,17 @@ impl RootContainer {
         &mut self,
         block_hash: &BlockHash,
     ) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
+        let root = self
+            .vote_router
+            .qualified_root_any_epoch(block_hash)?
+            .clone();
         self.by_root.get_mut(&root).map(|entry| &mut entry.election)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn entry_for_block_any_epoch(&self, block_hash: &BlockHash) -> Option<&Entry> {
+        let root = self.vote_router.qualified_root_any_epoch(block_hash)?;
+        self.by_root.get(root)
     }
 
     pub fn bucket_infos(&self) -> &[BucketInfo] {

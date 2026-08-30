@@ -36,8 +36,8 @@ impl DependentElectionsConfirmer {
         let mut blocks_with_election = Vec::with_capacity(blocks.len());
 
         self.confirming_set.do_election_cache(|cache| {
-            for (confirmed_block, _) in blocks {
-                let source_election = cache.get(&confirmed_block.hash()).cloned();
+            for (confirmed_block, source_hash) in blocks {
+                let source_election = cache.get(source_hash).cloned();
                 blocks_with_election.push((confirmed_block.clone(), source_election));
             }
         });

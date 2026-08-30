@@ -1,8 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rsnano_ledger::{
-    DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY,
-    test_helpers::UnsavedBlockLatticeBuilder,
+    DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_network::ChannelId;
 use rsnano_node::{
@@ -111,8 +110,11 @@ fn vote_generator_cache() {
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    node.vote_generators
-        .generate_vote(&epoch1.root(), &epoch1.hash(), VoteType::NonFinal);
+    node.vote_generators.generate_vote(
+        &epoch1.qualified_root(),
+        &epoch1.hash(),
+        VoteType::NonFinal,
+    );
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(1), || {
@@ -316,7 +318,7 @@ fn vote_spacing_vote_generator() {
     node.ledger.roll_back(&send1.hash()).unwrap();
     node.ledger.process_one(&send2).unwrap();
     node.vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
+        &send2.qualified_root(),
         &send2.hash().into(),
         VoteType::NonFinal,
     );
@@ -343,7 +345,7 @@ fn vote_spacing_vote_generator() {
     std::thread::sleep(node.vote_generators.voting_delay());
 
     node.vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
+        &send2.qualified_root(),
         &send2.hash().into(),
         VoteType::NonFinal,
     );
@@ -417,7 +419,7 @@ fn vote_spacing_rapid() {
     std::thread::sleep(node.vote_generators.voting_delay());
 
     node.vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
+        &send2.qualified_root(),
         &send2.hash().into(),
         VoteType::NonFinal,
     );
