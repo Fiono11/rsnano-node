@@ -78,6 +78,12 @@ impl NanoSpamApp {
             path
         };
         std::fs::create_dir_all(&data_dir)?;
+        #[cfg(feature = "rai_protocol")]
+        let epoch_start_file = data_dir.join("rai_epoch_start");
+        #[cfg(feature = "rai_protocol")]
+        if epoch_start_file.exists() {
+            std::fs::remove_file(&epoch_start_file)?;
+        }
 
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
@@ -157,10 +163,27 @@ impl NanoSpamApp {
 
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
+        #[cfg(not(feature = "rai_protocol"))]
         info!("Connecting to websocket...");
-        let mut conf_receiver = ConfirmationReceiver::connect().await?;
+        #[cfg(not(feature = "rai_protocol"))]
+        let mut conf_receivers = vec![ConfirmationReceiver::connect().await?];
+        #[cfg(feature = "rai_protocol")]
+        let mut conf_receivers: Vec<ConfirmationReceiver> = Vec::new();
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
+
+        #[cfg(feature = "rai_protocol")]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let start = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64 + 1_000;
+            std::fs::write(&epoch_start_file, start.to_string())?;
+            info!(
+                start_unix_millis = start,
+                duration_ms = 5_000,
+                "All PRs ready; arming synchronized RAI epoch 1"
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
 
         let started = Instant::now();
         std::thread::scope(|s| {
@@ -169,20 +192,39 @@ impl NanoSpamApp {
                 cancel_block_creation2.cancel();
             });
 
-            let confirmation_cancel = cancel_nanospam.clone();
-            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel));
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                let confirmation_cancel = cancel_nanospam.clone();
+                let confirmation_logic = &logic;
+                s.spawn(move || {
+                    track_confirmations(rx_ws_msg, confirmation_logic, confirmation_cancel)
+                });
+            }
+            #[cfg(feature = "rai_protocol")]
+            drop(rx_ws_msg);
 
             tokio_scoped::scope(|scope| {
                 if self.args.timeout > 0 {
                     let timeout_cancel = cancel_nanospam.clone();
+                    let completed = cancel_nanospam.clone();
                     let wait = Duration::from_secs(self.args.timeout);
                     scope.spawn(async move {
-                        tokio::time::sleep(wait).await;
-                        timeout_cancel.cancel();
+                        tokio::select! {
+                            _ = tokio::time::sleep(wait) => timeout_cancel.cancel(),
+                            _ = completed.cancelled() => {}
+                        }
                     });
                 }
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+                #[cfg(not(feature = "rai_protocol"))]
                 scope.spawn(reconcile_confirmations(
+                    genesis_rpc,
+                    &logic,
+                    &self.clock,
+                    cancel_nanospam.clone(),
+                ));
+                #[cfg(feature = "rai_protocol")]
+                scope.spawn(drive_block_generation_from_node(
                     genesis_rpc,
                     &logic,
                     &self.clock,
@@ -193,7 +235,14 @@ impl NanoSpamApp {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
                 }
 
-                scope.spawn(conf_receiver.run(cancel_nanospam.clone(), tx_ws_msg, &self.clock));
+                for receiver in &mut conf_receivers {
+                    scope.spawn(receiver.run(
+                        cancel_nanospam.clone(),
+                        tx_ws_msg.clone(),
+                        &self.clock,
+                    ));
+                }
+                drop(tx_ws_msg);
                 scope.spawn(receive_messages(
                     tcp_readers,
                     protocol,
@@ -221,6 +270,15 @@ impl NanoSpamApp {
             });
         });
         let duration_secs = started.elapsed().as_secs_f64();
+        #[cfg(feature = "rai_protocol")]
+        let node_converged = {
+            let metrics_wait = if self.args.timeout == 0 {
+                Duration::from_secs(60)
+            } else {
+                Duration::from_secs(self.args.timeout).saturating_sub(started.elapsed())
+            };
+            collect_node_metrics(&self.rpc_clients, &logic, metrics_wait).await?
+        };
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
         let finalized_blocks = logic.confirmed_total;
@@ -238,6 +296,95 @@ impl NanoSpamApp {
             logic.fast_finalized_total, logic.final_finalized_total
         );
         info!("Finalization rate: {finalization_rate} elections/s");
+        #[cfg(feature = "rai_protocol")]
+        for (epoch, stats) in &logic.epoch_stats {
+            let average_finalization_ms = if stats.finalized == 0 {
+                0
+            } else {
+                stats.sum_confirmation_time.as_millis() / stats.finalized as u128
+            };
+            let average_termination_ms = if stats.terminated == 0 {
+                0
+            } else {
+                stats.sum_termination_time.as_millis() / stats.terminated as u128
+            };
+            info!(
+                epoch,
+                published = stats.published,
+                terminated = stats.terminated,
+                finalized = stats.finalized,
+                fast_finalized = stats.fast_finalized,
+                final_vote_finalized = stats.final_vote_finalized,
+                average_finalization_ms,
+                average_termination_ms,
+                "RAI epoch results"
+            );
+        }
+        #[cfg(feature = "rai_protocol")]
+        info!(
+            unclassified = logic.unclassified_finalizations,
+            "Finalizations without an election epoch"
+        );
+        #[cfg(feature = "rai_protocol")]
+        {
+            let expected_by_epoch: std::collections::BTreeMap<_, _> = logic
+                .per_pr_epoch_stats
+                .iter()
+                .filter(|((pr, _), _)| *pr == 0)
+                .map(|((_, epoch), _)| (*epoch, logic.canonical_epoch_hashes(0, *epoch)))
+                .collect();
+            let all_epochs: std::collections::BTreeSet<_> = logic
+                .per_pr_epoch_stats
+                .keys()
+                .map(|(_, epoch)| *epoch)
+                .collect();
+            for pr_index in 0..self.args.prs {
+                let all_finalized = logic.pr_finalized_hashes(pr_index);
+                for epoch in &all_epochs {
+                    let expected_hashes = expected_by_epoch.get(epoch).cloned().unwrap_or_default();
+                    let mut stats = logic
+                        .per_pr_epoch_stats
+                        .get(&(pr_index, *epoch))
+                        .cloned()
+                        .unwrap_or_default();
+                    stats.finalized_hashes = logic.canonical_epoch_hashes(pr_index, *epoch);
+                    let missing = expected_hashes.difference(&stats.finalized_hashes).count();
+                    let extra = stats.finalized_hashes.difference(&expected_hashes).count();
+                    let finalized = stats.finalized_hashes.len();
+                    let average_finalization_ms = if finalized == 0 {
+                        0
+                    } else {
+                        stats.sum_confirmation_time.as_millis() / finalized as u128
+                    };
+                    info!(
+                        pr = pr_index,
+                        epoch,
+                        expected = expected_hashes.len(),
+                        finalized,
+                        missing,
+                        extra,
+                        fast_finalized = stats.fast_finalized,
+                        final_vote_finalized = stats.final_vote_finalized,
+                        average_finalization_ms,
+                        "RAI per-PR epoch results"
+                    );
+                }
+                let missing_total = logic.expected_hashes.difference(&all_finalized).count();
+                let unclassified = logic
+                    .per_pr_unclassified
+                    .get(&pr_index)
+                    .map(|hashes| hashes.len())
+                    .unwrap_or_default();
+                info!(
+                    pr = pr_index,
+                    expected = logic.expected_hashes.len(),
+                    finalized = all_finalized.intersection(&logic.expected_hashes).count(),
+                    missing = missing_total,
+                    unclassified,
+                    "RAI per-PR convergence"
+                );
+            }
+        }
         if finalized_blocks > 0 {
             let finalization_time =
                 logic.sum_conf_time_total.as_millis() / finalized_blocks as u128;
@@ -248,15 +395,136 @@ impl NanoSpamApp {
                 logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
             info!("Average election termination time: {termination_time} ms");
         }
+        #[cfg(not(feature = "rai_protocol"))]
         if self.args.timeout > 0 && terminated_elections < created_blocks {
             return Err(anyhow!(
                 "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
                 self.args.timeout
             ));
         }
+        #[cfg(feature = "rai_protocol")]
+        if !node_converged {
+            return Err(anyhow!(
+                "not every PR finalized all {} published blocks",
+                logic.expected_hashes.len()
+            ));
+        }
 
         Ok(())
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn collect_node_metrics(
+    rpc_clients: &[NanoRpcClient],
+    logic: &Mutex<SpamLogic>,
+    wait: Duration,
+) -> anyhow::Result<bool> {
+    logic.lock().unwrap().clear_pr_finalizations();
+    let deadline = Instant::now() + wait;
+
+    loop {
+        for (pr_index, client) in rpc_clients.iter().enumerate() {
+            let response = client.confirmation_history().await?;
+            let mut logic = logic.lock().unwrap();
+            for entry in response.confirmations {
+                logic.record_node_finalization(
+                    pr_index,
+                    entry.hash,
+                    entry.epoch.inner(),
+                    entry.final_tally,
+                    Duration::from_millis(entry.duration.inner()),
+                );
+            }
+        }
+
+        if logic
+            .lock()
+            .unwrap()
+            .all_prs_same_canonical_epochs(rpc_clients.len())
+            || Instant::now() >= deadline
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let all_nodes_reported = logic
+        .lock()
+        .unwrap()
+        .all_prs_same_canonical_epochs(rpc_clients.len());
+
+    let expected = logic.lock().unwrap().expected_hashes.clone();
+    let hashes = expected.iter().copied().collect::<Vec<_>>();
+    let mut all_confirmed = true;
+    for (pr_index, client) in rpc_clients.iter().enumerate() {
+        let ledger = client.blocks_info(hashes.clone()).await?;
+        let ledger_confirmed = ledger
+            .blocks
+            .iter()
+            .filter(|(hash, info)| expected.contains(hash) && info.confirmed.inner())
+            .count();
+        let absent = expected.len().saturating_sub(ledger.blocks.len());
+        let history_hashes = logic.lock().unwrap().pr_finalized_hashes(pr_index);
+        let confirmed_without_history = ledger
+            .blocks
+            .iter()
+            .filter(|(hash, info)| {
+                expected.contains(hash) && info.confirmed.inner() && !history_hashes.contains(hash)
+            })
+            .count();
+        let unconfirmed = ledger
+            .blocks
+            .iter()
+            .filter(|(hash, info)| expected.contains(hash) && !info.confirmed.inner())
+            .count();
+        if unconfirmed > 0 {
+            let logic = logic.lock().unwrap();
+            for (hash, _) in ledger
+                .blocks
+                .iter()
+                .filter(|(hash, info)| expected.contains(hash) && !info.confirmed.inner())
+            {
+                info!(
+                    pr = pr_index,
+                    block_hash = %hash,
+                    reference_canonical_epoch = ?logic.canonical_epoch(0, hash),
+                    pr_canonical_epoch = ?logic.canonical_epoch(pr_index, hash),
+                    pr_finalized_epochs = ?logic.finalized_epochs(pr_index, hash),
+                    "RAI stalled block diagnosis"
+                );
+            }
+        }
+        info!(
+            pr = pr_index,
+            expected = expected.len(),
+            ledger_confirmed,
+            unconfirmed,
+            absent,
+            history_finalized = history_hashes.len(),
+            confirmed_without_history,
+            "RAI node finality diagnosis"
+        );
+        if pr_index > 0 {
+            let logic = logic.lock().unwrap();
+            for hash in expected.iter().filter(|hash| {
+                logic.canonical_epoch(0, hash) != logic.canonical_epoch(pr_index, hash)
+            }) {
+                info!(
+                    pr = pr_index,
+                    block_hash = %hash,
+                    reference_canonical_epoch = ?logic.canonical_epoch(0, hash),
+                    pr_canonical_epoch = ?logic.canonical_epoch(pr_index, hash),
+                    reference_finalized_epochs = ?logic.finalized_epochs(0, hash),
+                    pr_finalized_epochs = ?logic.finalized_epochs(pr_index, hash),
+                    "RAI canonical epoch mismatch diagnosis"
+                );
+            }
+        }
+        all_confirmed &= ledger_confirmed == expected.len();
+    }
+
+    Ok(all_nodes_reported && all_confirmed)
 }
 
 fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
@@ -350,7 +618,11 @@ async fn publish_blocks(
             let mut l = logic.lock().unwrap();
             // TODO support delayed forks
             let prio = l.published(&hash, now);
-            if l.is_finished() {
+            #[cfg(feature = "rai_protocol")]
+            let finished = l.all_blocks_published();
+            #[cfg(not(feature = "rai_protocol"))]
+            let finished = l.is_finished();
+            if finished {
                 break;
             }
             prio
@@ -414,12 +686,14 @@ async fn receive_messages(
     }
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 fn track_confirmations(
     rx_ws_msg: std::sync::mpsc::Receiver<(MessageEnvelope, Timestamp)>,
     logic: &Mutex<SpamLogic>,
     cancel_token: CancellationToken,
 ) {
     while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
+        let pr_index = 0;
         if msg.topic == Some(Topic::Confirmation) {
             let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
             let block_hash = BlockHash::decode_hex(data.hash).unwrap();
@@ -427,15 +701,48 @@ fn track_confirmations(
             let (high_prio_conf_time, finished) = {
                 let mut logic = logic.lock().unwrap();
                 #[cfg(feature = "rai_protocol")]
-                if logic.delayed.primary_hash(&block_hash).is_some()
-                    && let Some(election_info) = &data.election_info
-                {
+                if let Some(election_info) = &data.election_info {
                     let final_tally = rsnano_types::Amount::decode_dec(&election_info.final_tally)
                         .expect("invalid final tally in confirmation message");
-                    logic.record_finalization_type(final_tally);
+                    let epoch = election_info
+                        .epoch
+                        .as_deref()
+                        .and_then(|value| value.parse::<u64>().ok());
+                    logic.record_pr_finalization(
+                        pr_index,
+                        block_hash,
+                        epoch,
+                        final_tally,
+                        timestamp,
+                    );
+                    if pr_index == 0
+                        && logic.delayed.primary_hash(&block_hash).is_some()
+                        && let Some(epoch) = epoch
+                    {
+                        logic.record_finalization_type(epoch, final_tally);
+                    }
                 }
-                let conf_time = logic.confirmed(&block_hash, timestamp);
-                (conf_time, logic.is_finished())
+                #[cfg(feature = "rai_protocol")]
+                let epoch = data
+                    .election_info
+                    .as_ref()
+                    .and_then(|info| info.epoch.as_deref())
+                    .and_then(|value| value.parse::<u64>().ok());
+                let conf_time = if pr_index == 0 {
+                    logic.confirmed(
+                        &block_hash,
+                        timestamp,
+                        #[cfg(feature = "rai_protocol")]
+                        epoch,
+                    )
+                } else {
+                    None
+                };
+                #[cfg(feature = "rai_protocol")]
+                let finished = logic.is_finished();
+                #[cfg(not(feature = "rai_protocol"))]
+                let finished = logic.is_finished();
+                (conf_time, finished)
             };
 
             if finished {
@@ -448,7 +755,8 @@ fn track_confirmations(
                     time.as_millis()
                 );
             }
-        } else if msg.topic == Some(Topic::ElectionTerminated)
+        } else if pr_index == 0
+            && msg.topic == Some(Topic::ElectionTerminated)
             && let Some(message) = msg.message
             && let Some(hash) = message.get("hash").and_then(|value| value.as_str())
             && let Some(hash) = BlockHash::decode_hex(hash)
@@ -464,6 +772,13 @@ fn track_confirmations(
                     logic.terminated_total,
                     logic.block_factory.created()
                 );
+            }
+            #[cfg(feature = "rai_protocol")]
+            let finished = logic.block_factory.created() >= logic.block_factory.max_blocks()
+                && logic.terminated_total >= logic.block_factory.max_blocks();
+            #[cfg(feature = "rai_protocol")]
+            if finished {
+                cancel_token.cancel();
             }
         }
     }
@@ -497,6 +812,7 @@ async fn log_status(
     }
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 async fn reconcile_confirmations(
     rpc: &NanoRpcClient,
     logic: &Mutex<SpamLogic>,
@@ -527,5 +843,32 @@ async fn reconcile_confirmations(
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn drive_block_generation_from_node(
+    rpc: &NanoRpcClient,
+    logic: &Mutex<SpamLogic>,
+    clock: &SteadyClock,
+    cancel_token: CancellationToken,
+) {
+    let mut seen = std::collections::HashSet::new();
+    while !cancel_token.is_cancelled() {
+        if let Ok(response) = rpc.confirmation_history().await {
+            for entry in response.confirmations {
+                if seen.insert(entry.hash) {
+                    logic.lock().unwrap().confirmed(
+                        &entry.hash,
+                        clock.now(),
+                        Some(entry.epoch.inner()),
+                    );
+                }
+            }
+        }
+        tokio::select! {
+            _ = cancel_token.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
     }
 }

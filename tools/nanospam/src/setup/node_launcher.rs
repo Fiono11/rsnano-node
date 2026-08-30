@@ -23,6 +23,7 @@ pub(crate) async fn start_nodes(
         .map(|i| pr_key(i).public_key().encode_hex())
         .collect::<Vec<_>>()
         .join(",");
+    let epoch_start_file = data_dir.join("rai_epoch_start");
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         let mut node_dir = data_dir.clone();
         node_dir.push(format!("pr{i}"));
@@ -32,6 +33,8 @@ pub(crate) async fn start_nodes(
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
+                .env("NANO_RAI_EPOCH_START_FILE", &epoch_start_file)
+                .env("NANO_RAI_EPOCH_DURATION_MS", "5000")
                 .env("NANO_TEST_EPOCH_1", "0")
                 .env("NANO_TEST_EPOCH_2", "0")
                 .env("NANO_TEST_EPOCH_2_RECV", "0")
@@ -48,6 +51,8 @@ pub(crate) async fn start_nodes(
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
+                .env("NANO_RAI_EPOCH_START_FILE", &epoch_start_file)
+                .env("NANO_RAI_EPOCH_DURATION_MS", "5000")
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")

@@ -75,6 +75,13 @@ impl NanoRpcClient {
         self.request(&cmd).await
     }
 
+    pub async fn confirmation_history(&self) -> Result<ConfirmationHistoryResponse> {
+        self.request(&RpcCommand::ConfirmationHistory(ConfirmationHistoryArgs {
+            hash: None,
+        }))
+        .await
+    }
+
     pub async fn unchecked_keys(
         &self,
         key: HashOrAccount,

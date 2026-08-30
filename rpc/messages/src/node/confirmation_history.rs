@@ -16,6 +16,8 @@ pub struct ConfirmationHistoryResponse {
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ConfirmationEntry {
     pub hash: BlockHash,
+    #[serde(default)]
+    pub epoch: RpcU64,
     pub duration: RpcU64,
     pub time: RpcU64,
     pub tally: Amount,

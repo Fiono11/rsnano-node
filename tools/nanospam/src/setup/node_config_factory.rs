@@ -29,8 +29,12 @@ pub(crate) const NODE_CONFIG: &str = r#"
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
 
+[node.active_elections]
+    confirmation_history_size = 10000
+
 [node.lmdb]
     sync = "nosync_unsafe"
+    map_size = 134217728
 
 [node.network]
     max_peers_per_ip = 256
@@ -53,9 +57,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     interval = 10
 
 [node.websocket]
-    enable = true
-    address = "::"
-    port = WS_PORT
+    enable = false
 
 [rpc]
     enable = true
@@ -99,7 +101,6 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             info!("Creating node config file: {node_config_path:?}");
             let node_config = NODE_CONFIG
                 .replace("PEERING_PORT", &peering_port(i).to_string())
-                .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string());

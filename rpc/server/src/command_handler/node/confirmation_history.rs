@@ -16,6 +16,7 @@ impl RpcCommandHandler {
             if hash.is_zero() || election.winner.hash() == hash {
                 elections.push(ConfirmationEntry {
                     hash: election.winner.hash(),
+                    epoch: election.epoch.into(),
                     duration: (election.election_duration.as_millis() as u64).into(),
                     time: (election
                         .election_end
