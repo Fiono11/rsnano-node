@@ -208,7 +208,12 @@ impl ActiveElectionsContainer {
 
         let root = request.block.qualified_root();
         #[cfg(feature = "rai_protocol")]
-        let root = root.with_epoch(self.rai_epoch.current());
+        let root = self
+            .roots
+            .vote_router
+            .qualified_root_any_epoch(&request.block.hash())
+            .cloned()
+            .unwrap_or_else(|| root.with_epoch(self.rai_epoch.current()));
         if self.try_upgrade_priority_election(&request, root)? {
             return Ok(());
         }
@@ -379,7 +384,8 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         {
             self.roots
-                .election_for_block(block_hash, self.rai_epoch.current())
+                .entry_for_block_any_epoch(block_hash)
+                .map(|entry| &entry.election)
         }
     }
 
@@ -387,9 +393,7 @@ impl ActiveElectionsContainer {
         #[cfg(not(feature = "rai_protocol"))]
         let election = self.roots.election_for_block_mut(block_hash);
         #[cfg(feature = "rai_protocol")]
-        let election = self
-            .roots
-            .election_for_block_mut(block_hash, self.rai_epoch.current());
+        let election = self.roots.election_for_block_any_epoch_mut(block_hash);
         let Some(election) = election else {
             return false;
         };
@@ -696,9 +700,7 @@ impl ActiveElectionsContainer {
         #[cfg(not(feature = "rai_protocol"))]
         let election = self.roots.election_for_block_mut(block_hash);
         #[cfg(feature = "rai_protocol")]
-        let election = self
-            .roots
-            .election_for_block_mut(block_hash, self.rai_epoch.current());
+        let election = self.roots.election_for_block_any_epoch_mut(block_hash);
         let Some(election) = election else {
             panic!("Force confirm failed, because no active election was found");
         };
@@ -915,6 +917,46 @@ mod tests {
 
         assert_eq!(container.info(start).stale, 0);
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn generic_operations_reuse_election_from_another_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let now = Timestamp::new_test_instance();
+        let behavior = ElectionBehavior::Priority;
+        let priority = BlockPriority::new_test_instance();
+        let root = block.qualified_root().with_epoch(3);
+        let mut election = Election::new(block.clone(), behavior, container.base_latency, now);
+        election.set_qualified_root(root.clone());
+        container.roots.insert(Entry {
+            root: root.clone(),
+            election,
+            priority,
+        });
+        *container.count_by_behavior_mut(behavior) += 1;
+
+        assert_eq!(
+            container
+                .election_for_block(&hash)
+                .unwrap()
+                .qualified_root(),
+            &root
+        );
+        assert!(container.transition_active(&hash));
+
+        let result = container.insert(
+            AecInsertRequest {
+                block,
+                behavior,
+                priority,
+            },
+            now,
+        );
+        assert_eq!(result, Err(AecInsertError::Duplicate));
+        assert_eq!(container.len(), 1);
     }
 
     #[cfg(feature = "rai_protocol")]
