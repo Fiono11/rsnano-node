@@ -100,9 +100,12 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
+            let nodes = start_nodes(&self.args, data_dir, &self.rpc_clients).await?;
             if self.args.kill_nodes() {
-                self.node_lifetime = NodeLifetime::new(node_handles);
+                self.node_lifetime = nodes;
+            } else {
+                // Explicitly relinquish ownership for --no-kill.
+                let _ = nodes.release();
             }
         }
 

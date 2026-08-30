@@ -1,8 +1,9 @@
 use std::{
     process::{Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+use anyhow::{Context, Result, bail};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -10,15 +11,20 @@ use rsnano_rpc_client::NanoRpcClient;
 
 use crate::{
     cli_args::CliArgs,
+    node_lifetime::NodeLifetime,
     setup::{GENESIS_BLOCK, GENESIS_PRV, peering_port, pr_key},
 };
+
+const RPC_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) async fn start_nodes(
     args: &CliArgs,
     data_dir: std::path::PathBuf,
     rpc_clients: &[NanoRpcClient],
-) -> Vec<std::process::Child> {
-    let mut children = Vec::new();
+) -> Result<NodeLifetime> {
+    // Keep every successfully spawned process guarded while later nodes start.
+    // If this future is cancelled or returns an error, Drop cleans them all up.
+    let mut nodes = NodeLifetime::default();
     let fixed_committee = (0..args.prs)
         .map(|i| pr_key(i).public_key().encode_hex())
         .collect::<Vec<_>>()
@@ -64,10 +70,28 @@ pub(crate) async fn start_nodes(
         };
 
         info!("Starting node: {cmd:?}");
-        children.push(cmd.spawn().unwrap());
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("could not start node PR{i}"))?;
+        nodes.push(child);
 
         info!("Waiting for RPC...");
+        let deadline = Instant::now() + RPC_STARTUP_TIMEOUT;
         while rpc_client.version().await.is_err() {
+            if let Some(status) = nodes
+                .last_mut()
+                .expect("the node was just added")
+                .try_wait()
+                .context("could not query node process status")?
+            {
+                bail!("node PR{i} exited before RPC became ready: {status}");
+            }
+            if Instant::now() >= deadline {
+                bail!(
+                    "node PR{i} RPC did not become ready within {} seconds",
+                    RPC_STARTUP_TIMEOUT.as_secs()
+                );
+            }
             sleep(Duration::from_millis(100)).await;
         }
     }
@@ -85,5 +109,5 @@ pub(crate) async fn start_nodes(
         // Give time to connect
         sleep(Duration::from_secs(5)).await;
     }
-    children
+    Ok(nodes)
 }
