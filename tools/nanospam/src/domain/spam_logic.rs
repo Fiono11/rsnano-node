@@ -409,6 +409,7 @@ impl SpamLogic {
         self.sum_conf_time_total = Duration::ZERO;
         self.fast_finalized_total = 0;
         self.final_finalized_total = 0;
+        self.unclassified_finalizations = 0;
         for stats in self.epoch_stats.values_mut() {
             stats.finalized = 0;
             stats.fast_finalized = 0;
