@@ -6,6 +6,7 @@ edition = "2024"
 
 [features]
 output_tracking = []
+rai_protocol = ["rsnano_types/rai_protocol"]
 banano = [
 	"rsnano_types/banano",
 	"rsnano_store_lmdb/banano",

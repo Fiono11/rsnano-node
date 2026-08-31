@@ -16,6 +16,7 @@ use rsnano_utils::container_info::ContainerInfo;
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct RepWeights {
     entries: FxHashMap<PublicKey, Amount>,
+    total_weight: Amount,
 
     /// Representatives with a weight below this min_weight are discarded
     min_weight: Amount,
@@ -25,6 +26,7 @@ impl RepWeights {
     pub fn new(min_weight: Amount) -> Self {
         Self {
             entries: FxHashMap::default(),
+            total_weight: Amount::ZERO,
             min_weight,
         }
     }
@@ -34,11 +36,18 @@ impl RepWeights {
     }
 
     pub fn put(&mut self, rep: PublicKey, new_weight: Amount) {
-        if new_weight < self.min_weight || new_weight.is_zero() {
-            self.entries.remove(&rep);
-        } else {
-            self.entries.insert(rep, new_weight);
+        if let Some(old_weight) = self.entries.remove(&rep) {
+            self.total_weight -= old_weight;
         }
+
+        if new_weight >= self.min_weight && !new_weight.is_zero() {
+            self.entries.insert(rep, new_weight);
+            self.total_weight += new_weight;
+        }
+    }
+
+    pub fn total_weight(&self) -> Amount {
+        self.total_weight
     }
 }
 
@@ -52,10 +61,11 @@ impl Deref for RepWeights {
 
 impl<const N: usize> From<[(PublicKey, Amount); N]> for RepWeights {
     fn from(value: [(PublicKey, Amount); N]) -> Self {
-        Self {
-            min_weight: Amount::ZERO,
-            entries: FxHashMap::from_iter(value),
+        let mut result = Self::new(Amount::ZERO);
+        for (rep, weight) in value {
+            result.put(rep, weight);
         }
+        result
     }
 }
 
@@ -188,5 +198,27 @@ impl From<RepWeights> for RepWeightCache {
 impl Default for RepWeightCache {
     fn default() -> Self {
         Self::new(Amount::ZERO)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_weight_is_updated_incrementally() {
+        let rep1 = PublicKey::from(1);
+        let rep2 = PublicKey::from(2);
+        let mut weights = RepWeights::new(Amount::raw(10));
+
+        weights.put(rep1, Amount::raw(40));
+        weights.put(rep2, Amount::raw(60));
+        assert_eq!(weights.total_weight(), Amount::raw(100));
+
+        weights.put(rep1, Amount::raw(25));
+        assert_eq!(weights.total_weight(), Amount::raw(85));
+
+        weights.put(rep2, Amount::raw(5));
+        assert_eq!(weights.total_weight(), Amount::raw(25));
     }
 }

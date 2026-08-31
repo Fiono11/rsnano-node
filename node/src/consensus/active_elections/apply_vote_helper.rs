@@ -82,9 +82,15 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             return Err(VoteError::Late);
         }
 
+        #[cfg(feature = "rai_protocol")]
+        if self.args.vote.epoch() != self.election.qualified_root().epoch {
+            return Err(VoteError::Invalid);
+        }
+
         let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
 
         if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
+            #[cfg(not(feature = "rai_protocol"))]
             last_vote.ensure_no_replay(self.args.vote, self.block_hash)?;
 
             if self.should_cool_down(last_vote, rep_weight) {
@@ -111,12 +117,16 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn add_vote(&mut self) {
+        #[cfg(not(feature = "rai_protocol"))]
         self.election.add_vote(
             self.args.vote.voter,
             *self.block_hash,
             self.args.vote.timestamp(),
             self.args.now,
         );
+        #[cfg(feature = "rai_protocol")]
+        self.election
+            .add_rai_vote(self.args.vote, *self.block_hash, self.args.now);
         self.vote_counter.count(self.args.vote.delivery);
         self.confirm_if_quorum();
     }
@@ -127,6 +137,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         self.election.update_tallies(
             self.args.rep_weights,
             self.args.quorum_snapshot.quorum_delta,
+            #[cfg(feature = "rai_protocol")]
+            self.args.rep_weights.total_weight(),
         );
 
         self.notify_winner_changed(old_winner);
@@ -225,6 +237,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn ignore_vote_with_lower_timestamp() {
         let mut fixture = FixtureForElection::default();
         fixture.add_processed_vote(UnixMillisTimestamp::new(2000), Duration::ZERO);
@@ -286,6 +299,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rai_protocol"))]
     fn notify_winner_changed() {
         let block = StateBlockArgs::new_test_instance();
         let key = block.key.clone();

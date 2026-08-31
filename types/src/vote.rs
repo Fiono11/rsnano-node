@@ -2,8 +2,9 @@ use std::{io::Read, time::Duration};
 
 use super::{
     Account, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, Signature, UnixMillisTimestamp,
-    VoteTimestamp,
 };
+#[cfg(not(feature = "rai_protocol"))]
+use super::VoteTimestamp;
 use crate::{DeserializationError, SignatureError};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, EnumCount, EnumIter)]
@@ -59,7 +60,14 @@ impl VoteError {
 
 #[derive(Clone, Debug)]
 pub struct Vote {
+    #[cfg(not(feature = "rai_protocol"))]
     timestamp: VoteTimestamp,
+
+    #[cfg(feature = "rai_protocol")]
+    kind: RaiVoteKind,
+
+    #[cfg(feature = "rai_protocol")]
+    epoch: u64,
 
     // Account that's voting
     pub voter: PublicKey,
@@ -77,7 +85,12 @@ impl Vote {
     pub const MAX_HASHES: usize = 255;
     pub fn null() -> Self {
         Self {
+            #[cfg(not(feature = "rai_protocol"))]
             timestamp: 0.into(),
+            #[cfg(feature = "rai_protocol")]
+            kind: RaiVoteKind::First,
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
             voter: PublicKey::ZERO,
             signature: Signature::new(),
             hashes: Vec::new(),
@@ -98,7 +111,18 @@ impl Vote {
         assert!(hashes.len() <= Self::MAX_HASHES);
         let mut result = Self {
             voter: priv_key.public_key(),
+            #[cfg(not(feature = "rai_protocol"))]
             timestamp: VoteTimestamp::new(timestamp, duration),
+            #[cfg(feature = "rai_protocol")]
+            kind: if timestamp == Self::TIMESTAMP_MAX && duration == Self::DURATION_MAX {
+                RaiVoteKind::Final
+            } else {
+                // The normal Nano vote generator's first non-final vote maps to Kudzu's
+                // combined FirstVote + NotarVote on the optimistic path.
+                RaiVoteKind::First
+            },
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
             signature: Signature::new(),
             hashes,
         };
@@ -119,19 +143,81 @@ impl Vote {
     pub const TIMESTAMP_MIN: UnixMillisTimestamp = UnixMillisTimestamp::new(0x0000_0000_0000_0010);
 
     pub fn timestamp(&self) -> UnixMillisTimestamp {
-        self.timestamp.unix_timestamp()
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.timestamp.unix_timestamp()
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            match self.kind {
+                RaiVoteKind::First => UnixMillisTimestamp::ZERO,
+                RaiVoteKind::Timeout => UnixMillisTimestamp::new(1),
+                RaiVoteKind::Notarization => UnixMillisTimestamp::new(2),
+                RaiVoteKind::Final => UnixMillisTimestamp::MAX,
+            }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_rai(
+        key: &PrivateKey,
+        epoch: u64,
+        kind: RaiVoteKind,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        assert!(hashes.len() <= Self::MAX_HASHES);
+        let mut result = Self {
+            kind,
+            epoch,
+            voter: key.public_key(),
+            signature: Signature::new(),
+            hashes,
+        };
+        result.signature = key.sign(result.hash().as_bytes());
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn rai_kind(&self) -> RaiVoteKind {
+        self.kind
     }
 
     pub fn is_final(&self) -> bool {
-        self.timestamp.is_final()
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.timestamp.is_final()
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.kind == RaiVoteKind::Final
+        }
     }
 
     pub fn duration_bits(&self) -> u8 {
-        self.timestamp.duration_bits()
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.timestamp.duration_bits()
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            0
+        }
     }
 
     pub fn duration(&self) -> Duration {
-        self.timestamp.duration()
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.timestamp.duration()
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            Duration::ZERO
+        }
     }
 
     pub fn hash(&self) -> BlockHash {
@@ -141,7 +227,15 @@ impl Vote {
             builder = builder.update(hash.as_bytes())
         }
 
-        builder.update(self.timestamp.to_ne_bytes()).build()
+        #[cfg(feature = "rai_protocol")]
+        let builder = builder.update(self.epoch.to_le_bytes());
+
+        #[cfg(not(feature = "rai_protocol"))]
+        let bytes = self.timestamp.to_ne_bytes();
+        #[cfg(feature = "rai_protocol")]
+        let bytes = self.kind.to_le_bytes();
+
+        builder.update(bytes).build()
     }
 
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
@@ -149,13 +243,27 @@ impl Vote {
         let signature = Signature::deserialize(&mut bytes)?;
         let mut buffer = [0; 8];
         bytes.read_exact(&mut buffer)?;
+        #[cfg(not(feature = "rai_protocol"))]
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
+        #[cfg(feature = "rai_protocol")]
+        let kind = RaiVoteKind::from_le_bytes(buffer);
+        #[cfg(feature = "rai_protocol")]
+        let epoch = {
+            let mut buffer = [0; 8];
+            bytes.read_exact(&mut buffer)?;
+            u64::from_le_bytes(buffer)
+        };
         let mut hashes = Vec::new();
         while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
             hashes.push(BlockHash::deserialize(&mut bytes)?);
         }
         Ok(Self {
+            #[cfg(not(feature = "rai_protocol"))]
             timestamp,
+            #[cfg(feature = "rai_protocol")]
+            kind,
+            #[cfg(feature = "rai_protocol")]
+            epoch,
             voter,
             signature,
             hashes,
@@ -170,6 +278,7 @@ impl Vote {
         Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
+        + if cfg!(feature = "rai_protocol") { std::mem::size_of::<u64>() } else { 0 }
         + (BlockHash::SERIALIZED_SIZE * count)
     }
 
@@ -179,7 +288,12 @@ impl Vote {
     {
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
+        #[cfg(not(feature = "rai_protocol"))]
         writer.write_all(&self.timestamp.to_le_bytes())?;
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.kind.to_le_bytes())?;
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         for hash in &self.hashes {
             hash.serialize(writer)?;
         }
@@ -189,7 +303,25 @@ impl Vote {
 
 impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
-        self.timestamp == other.timestamp
+        ({
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                self.timestamp == other.timestamp
+            }
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.kind == other.kind
+            }
+        }) && {
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.epoch == other.epoch
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                true
+            }
+        }
             && self.voter == other.voter
             && self.signature == other.signature
             && self.hashes == other.hashes
@@ -197,6 +329,37 @@ impl PartialEq for Vote {
 }
 
 impl Eq for Vote {}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaiVoteKind {
+    First,
+    Timeout,
+    Notarization,
+    Final,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RaiVoteKind {
+    fn to_le_bytes(self) -> [u8; 8] {
+        let raw = match self {
+            Self::First => 0,
+            Self::Timeout => 1,
+            Self::Notarization => 2,
+            Self::Final => u64::MAX,
+        };
+        raw.to_le_bytes()
+    }
+
+    fn from_le_bytes(bytes: [u8; 8]) -> Self {
+        match u64::from_le_bytes(bytes) {
+            0 => Self::First,
+            1 => Self::Timeout,
+            u64::MAX => Self::Final,
+            _ => Self::Notarization,
+        }
+    }
+}
 
 pub struct TestVoteBuilder {
     key: PrivateKey,
@@ -242,6 +405,44 @@ impl TestVoteBuilder {
             Vote::new_final(&self.key, self.hashes)
         } else {
             Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
+        }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+
+    #[test]
+    fn rai_vote_kind_and_epoch_are_signed_and_serialized() {
+        let key = PrivateKey::from(7);
+        let vote = Vote::new_rai(
+            &key,
+            42,
+            RaiVoteKind::Notarization,
+            vec![BlockHash::from(9)],
+        );
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        let decoded = Vote::deserialize(&bytes).unwrap();
+
+        assert_eq!(decoded.epoch(), 42);
+        assert_eq!(decoded.rai_kind(), RaiVoteKind::Notarization);
+        assert_eq!(decoded, vote);
+        assert!(decoded.validate().is_ok());
+    }
+
+    #[test]
+    fn rai_vote_kinds_are_explicit() {
+        let key = PrivateKey::from(7);
+        for kind in [
+            RaiVoteKind::First,
+            RaiVoteKind::Timeout,
+            RaiVoteKind::Notarization,
+            RaiVoteKind::Final,
+        ] {
+            let vote = Vote::new_rai(&key, 3, kind, vec![BlockHash::from(9)]);
+            assert_eq!(vote.rai_kind(), kind);
         }
     }
 }
