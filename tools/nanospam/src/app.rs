@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use futures_util::future::join_all;
 use num_format::{Locale, ToFormattedString};
 use rand::{RngExt, rng};
 use tokio::{
@@ -42,6 +43,8 @@ use crate::{
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
+const CONVERGENCE_POLL_INTERVAL: Duration = Duration::from_millis(20);
+const CONVERGENCE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub(crate) struct NanoSpamApp {
     tracing_init: TracingInitializer,
@@ -70,8 +73,13 @@ impl NanoSpamApp {
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
-        let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
-        data_dir.push("NanoSpam");
+        let data_dir = if let Some(path) = &self.args.data_path {
+            path.clone()
+        } else {
+            let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
+            path.push("NanoSpam");
+            path
+        };
 
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
@@ -154,6 +162,8 @@ impl NanoSpamApp {
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
 
+        let baseline_cemented = query_cemented_counts(&self.rpc_clients).await?;
+
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
         let started = Instant::now();
@@ -197,16 +207,70 @@ impl NanoSpamApp {
                 }
             });
         });
-        let duration_secs = started.elapsed().as_secs_f64();
-        let logic = logic.lock().unwrap();
-        let created_blocks = logic.block_factory.created();
-        let cps = (created_blocks as f64 / duration_secs) as i32;
-        info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
-        info!("Confirmation rate: {cps} cps");
-        let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
-        info!("Average conf time: {conf_time} ms");
+        let pr0_duration = started.elapsed();
+        let (created_blocks, conf_time) = {
+            let logic = logic.lock().unwrap();
+            let created_blocks = logic.block_factory.created();
+            let conf_time = if created_blocks == 0 {
+                0
+            } else {
+                logic.sum_conf_time_total.as_millis() / created_blocks as u128
+            };
+            (created_blocks, conf_time)
+        };
+        let cps = (created_blocks as f64 / pr0_duration.as_secs_f64()) as i32;
+
+        let expected_cemented =
+            baseline_cemented.iter().copied().max().unwrap_or_default() + created_blocks as u64;
+        let convergence =
+            wait_for_replica_convergence(&self.rpc_clients, expected_cemented, CONVERGENCE_TIMEOUT)
+                .await?;
+        let convergence_duration = started.elapsed();
+        let convergence_lag = convergence_duration.saturating_sub(pr0_duration);
+        let all_converged = convergence.iter().all(|count| *count >= expected_cemented);
+
+        info!("PR0:");
+        info!("  confirmation rate: {cps} CPS");
+        info!("  average latency: {conf_time} ms");
+        info!("  completion: {:.2} s", pr0_duration.as_secs_f64());
+        info!("All replicas:");
+        info!("  convergence: {:.2} s", convergence_duration.as_secs_f64());
+        info!("  lag after PR0: {} ms", convergence_lag.as_millis());
+        info!(
+            "  PR0-PR{} confirmed expected state: {}",
+            self.args.prs.saturating_sub(1),
+            if all_converged { "yes" } else { "no" }
+        );
 
         Ok(())
+    }
+}
+
+async fn query_cemented_counts(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<Vec<u64>> {
+    join_all(rpc_clients.iter().map(|client| client.block_count()))
+        .await
+        .into_iter()
+        .map(|result| result.map(|response| response.cemented.inner()))
+        .collect()
+}
+
+async fn wait_for_replica_convergence(
+    rpc_clients: &[NanoRpcClient],
+    expected_cemented: u64,
+    timeout_after: Duration,
+) -> anyhow::Result<Vec<u64>> {
+    let wait_started = Instant::now();
+    loop {
+        let cemented = query_cemented_counts(rpc_clients).await?;
+        if cemented.iter().all(|count| *count >= expected_cemented) {
+            return Ok(cemented);
+        }
+        if wait_started.elapsed() >= timeout_after {
+            anyhow::bail!(
+                "replicas did not converge to {expected_cemented} cemented blocks within {timeout_after:?}: {cemented:?}"
+            );
+        }
+        tokio::time::sleep(CONVERGENCE_POLL_INTERVAL).await;
     }
 }
 

@@ -3,6 +3,9 @@ name = "nanospam"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+rai_protocol = ["rsnano_types/rai_protocol"]
+
 [dependencies]
 rsnano_nullable_clock = { path = "../../nullables/clock" }
 rsnano_nullable_tcp = { path = "../../nullables/tcp" }
@@ -25,6 +28,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.10.1"
 tokio-util = "0.7.18"
+futures-util = "0.3.32"
 dirs = "6.0.0"
 clap = { version = "4.6.1", features = ["derive"] }
 rustc-hash = "2.1.2"
