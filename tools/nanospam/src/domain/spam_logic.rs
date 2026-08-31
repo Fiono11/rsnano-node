@@ -60,15 +60,15 @@ impl SpamLogic {
     }
 
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
-        if self.block_factory.max_blocks_reached() {
-            return None;
-        }
-
         if self.bps_start.is_none() {
             self.bps_start = Some(now);
         }
 
         if self.next_block.is_none() {
+            if self.block_factory.max_blocks_reached() {
+                return None;
+            }
+
             match self.block_factory.create_next(is_fork) {
                 Some(BlockResult::Block(b)) => {
                     self.next_block = Some(b);
@@ -168,4 +168,51 @@ pub(crate) struct SpamStats {
     pub(crate) target_bps: usize,
     pub(crate) current_cps: i32,
     pub(crate) average_conf_time: Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::{Amount, BlockHash, PrivateKey};
+
+    #[test]
+    fn rate_limited_last_block_is_not_dropped() {
+        let mut accounts = AccountMap::default();
+        let initial_key = PrivateKey::from(1);
+        accounts.add_unopened(initial_key.clone());
+        accounts.add_unopened(PrivateKey::from(2));
+        accounts.set_account_state(
+            initial_key.account(),
+            Amount::nano(1),
+            BlockHash::from(1),
+        );
+        let mut logic = SpamLogic::new(
+            accounts,
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 2,
+                rate: RateSpec::new(1),
+                fork_probability: 0.0,
+                track_confirmations: true,
+            },
+        );
+        let now = Timestamp::new_test_instance();
+
+        let first = logic.next_block(false, now).unwrap();
+        let BlockResult::Block(first) = first else {
+            panic!("first block should not be rate limited");
+        };
+        let first_hash = first.block.hash();
+        logic.published(&first_hash, now);
+        logic.confirmed(&first_hash, now);
+
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Waiting)
+        ));
+        assert!(matches!(
+            logic.next_block(false, now + Duration::from_secs(1)),
+            Some(BlockResult::Block(_))
+        ));
+    }
 }
