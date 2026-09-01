@@ -500,6 +500,38 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rai_protocol")]
+    fn retains_and_returns_every_phase_vote() {
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let hash = BlockHash::from(2);
+        let key = PrivateKey::from(1);
+        let phases = [
+            rsnano_types::VoteType::First,
+            rsnano_types::VoteType::NonFinal,
+            rsnano_types::VoteType::Timeout,
+            rsnano_types::VoteType::Final,
+        ];
+
+        for phase in phases {
+            let vote = Arc::new(Vote::new_rai(&key, 1, phase, vec![hash]));
+            history.add(&root, &hash, &vote);
+        }
+
+        let cached = history.votes_for_epoch(&root, 1, &hash, None);
+        assert_eq!(cached.len(), phases.len());
+        for phase in phases {
+            assert_eq!(
+                cached
+                    .iter()
+                    .filter(|vote| vote.vote_type() == phase)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
     fn retains_multiple_second_look_notarizations() {
         let history = LocalVoteHistory::with_max_cache(256);
         let root = Root::from(1);

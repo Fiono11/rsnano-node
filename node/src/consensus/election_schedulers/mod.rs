@@ -256,7 +256,7 @@ impl EventHandler<LedgerPipelineEvent> for ElectionSchedulers {
                     }
                 }
                 LedgerEvent::BlocksConfirmed(confirmed) => {
-                    for (block, _) in confirmed {
+                    for (block, _, _) in confirmed {
                         self.enqueue_activation(block.account());
                         if let Some(destination) = block.destination()
                             && !destination.is_zero()

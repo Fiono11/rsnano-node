@@ -16,7 +16,8 @@ impl OrderedEntries {
 
         self.by_hash
             .entry(hash)
-            .and_modify(|_| {
+            .and_modify(|existing| {
+                existing.epoch = existing.epoch.min(entry.epoch);
                 inserted = false;
             })
             .or_insert(entry);
@@ -63,5 +64,25 @@ impl OrderedEntries {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.sequenced.is_empty()
+    }
+
+    pub(crate) fn contains_epoch(&self, epoch: u64) -> bool {
+        self.by_hash.values().any(|entry| entry.epoch == epoch)
+    }
+
+    pub(crate) fn has_eligible(&self, max_epoch: u64) -> bool {
+        self.by_hash
+            .values()
+            .any(|entry| entry.epoch == 0 || entry.epoch <= max_epoch)
+    }
+
+    pub(crate) fn pop_front_eligible(&mut self, max_epoch: u64) -> Option<CementingEntry> {
+        let position = self.sequenced.iter().position(|hash| {
+            self.by_hash
+                .get(hash)
+                .is_some_and(|entry| entry.epoch == 0 || entry.epoch <= max_epoch)
+        })?;
+        let hash = self.sequenced.remove(position)?;
+        self.by_hash.remove(&hash)
     }
 }

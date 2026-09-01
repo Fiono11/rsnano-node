@@ -472,7 +472,7 @@ mod tests {
             .insert(&saved_block, BlockPriority::new_test_instance());
 
         backlog.handle(&LedgerPipelineEvent::Ledger(LedgerEvent::BlocksConfirmed(
-            vec![(saved_block, BlockHash::ZERO)],
+            vec![(saved_block, BlockHash::ZERO, 0)],
         )));
 
         assert!(!backlog.logic.lock().contains(&hash));

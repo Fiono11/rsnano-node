@@ -1,8 +1,8 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -26,6 +26,7 @@ use crate::{
 #[derive(Clone)]
 pub struct CementingEntry {
     pub confirmation_root: BlockHash,
+    pub epoch: u64,
     pub timestamp: Instant,
 }
 
@@ -66,7 +67,7 @@ impl ConfirmingSet {
                 mutex: Mutex::new(ConfirmingSetImpl {
                     set: OrderedEntries::default(),
                     deferred: OrderedEntries::default(),
-                    current: HashSet::new(),
+                    current: HashMap::new(),
                     stats: stats.clone(),
                     config: config.clone(),
                     near_full: false,
@@ -75,6 +76,7 @@ impl ConfirmingSet {
                     recovered_limit: config.max_blocks * 50 / 100,
                     election_cache: ConfirmedElectionsCache::default(),
                 }),
+                max_consensus_epoch: AtomicU64::new(u64::MAX),
                 stopped: AtomicBool::new(false),
                 condition: Condvar::new(),
                 ledger,
@@ -145,6 +147,22 @@ impl ConfirmingSet {
         self.len() == 0
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_max_consensus_epoch(&self, epoch: u64) {
+        self.thread
+            .max_consensus_epoch
+            .store(epoch, Ordering::SeqCst);
+        self.thread.condition.notify_all();
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_epoch(&self, epoch: u64) -> bool {
+        let guard = self.thread.mutex.lock().unwrap();
+        guard.set.contains_epoch(epoch)
+            || guard.deferred.contains_epoch(epoch)
+            || guard.current.values().any(|current| *current == epoch)
+    }
+
     pub fn info(&self) -> ConfirmingSetInfo {
         let guard = self.thread.mutex.lock().unwrap();
         ConfirmingSetInfo {
@@ -212,6 +230,7 @@ struct ConfirmingSetThread {
     mutex: Mutex<ConfirmingSetImpl>,
     stopped: AtomicBool,
     condition: Condvar,
+    max_consensus_epoch: AtomicU64,
     ledger: Arc<Ledger>,
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
@@ -234,11 +253,18 @@ impl ConfirmingSetThread {
         let mut near_full_warning = false;
         {
             let mut guard = self.mutex.lock().unwrap();
+            let epoch = election.as_ref().map_or(0, |e| {
+                #[cfg(feature = "rai_protocol")]
+                { e.epoch }
+                #[cfg(not(feature = "rai_protocol"))]
+                { 0 }
+            });
             if let Some(e) = election {
                 guard.election_cache.insert(e);
             }
             added = guard.set.push_back(CementingEntry {
                 confirmation_root: hash,
+                epoch,
                 timestamp: Instant::now(),
             });
 
@@ -263,7 +289,9 @@ impl ConfirmingSetThread {
 
     fn contains(&self, hash: &BlockHash) -> bool {
         let guard = self.mutex.lock().unwrap();
-        guard.set.contains(hash) || guard.deferred.contains(hash) || guard.current.contains(hash)
+        guard.set.contains(hash)
+            || guard.deferred.contains(hash)
+            || guard.current.contains_key(hash)
     }
 
     fn len(&self) -> usize {
@@ -291,13 +319,14 @@ impl ConfirmingSetThread {
                 guard = self.mutex.lock().unwrap();
             }
 
-            if !guard.set.is_empty() {
-                let batch = guard.next_batch(self.config.batch_size);
+            let max_epoch = self.max_consensus_epoch.load(Ordering::SeqCst);
+            if guard.set.has_eligible(max_epoch) {
+                let batch = guard.next_batch(self.config.batch_size, max_epoch);
 
                 // Keep track of the blocks we're currently cementing, so that the .contains (...) check is accurate
                 debug_assert!(guard.current.is_empty());
                 for entry in &batch {
-                    guard.current.insert(entry.confirmation_root);
+                    guard.current.insert(entry.confirmation_root, entry.epoch);
                 }
                 let recovered = guard.near_full && guard.set.len() < guard.recovered_limit;
                 if recovered {
@@ -316,7 +345,9 @@ impl ConfirmingSetThread {
                 guard = self
                     .condition
                     .wait_while(guard, |i| {
-                        (i.set.is_empty() || i.cool_down) && !self.stopped.load(Ordering::SeqCst)
+                        (!i.set.has_eligible(self.max_consensus_epoch.load(Ordering::SeqCst))
+                            || i.cool_down)
+                            && !self.stopped.load(Ordering::SeqCst)
                     })
                     .unwrap();
             }
@@ -324,9 +355,9 @@ impl ConfirmingSetThread {
     }
 
     fn run_batch(&self, batch: VecDeque<CementingEntry>) {
-        let mut notifier = CementedNotifier::new(self);
+        let mut notifier = CementedNotifier::new(self, &batch);
         self.ledger.confirm_batch(
-            batch.iter().map(|i| &i.confirmation_root),
+            batch.iter().map(|i| (&i.confirmation_root, i.epoch)),
             &self.stopped,
             self.config.max_blocks,
             &mut notifier,
@@ -349,7 +380,7 @@ struct ConfirmingSetImpl {
     /// Blocks that could not be cemented immediately (e.g. waiting for rollbacks to complete)
     deferred: OrderedEntries,
     /// Blocks that are being cemented in the current batch
-    current: HashSet<BlockHash>,
+    current: std::collections::HashMap<BlockHash, u64>,
 
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
@@ -361,10 +392,9 @@ struct ConfirmingSetImpl {
 }
 
 impl ConfirmingSetImpl {
-    fn next_batch(&mut self, max_count: usize) -> VecDeque<CementingEntry> {
+    fn next_batch(&mut self, max_count: usize, max_epoch: u64) -> VecDeque<CementingEntry> {
         let mut results = VecDeque::new();
-        // TODO: use extract_if once it is stablized
-        while let Some(entry) = self.set.pop_front() {
+        while let Some(entry) = self.set.pop_front_eligible(max_epoch) {
             results.push_back(entry);
             if results.len() >= max_count {
                 break;
@@ -408,13 +438,15 @@ pub struct ConfirmationContext {
 struct CementedNotifier<'a> {
     confirming_set: &'a ConfirmingSetThread,
     already_confirmed: VecDeque<BlockHash>,
+    epochs: std::collections::HashMap<BlockHash, u64>,
 }
 
 impl<'a> CementedNotifier<'a> {
-    fn new(confirming_set: &'a ConfirmingSetThread) -> Self {
+    fn new(confirming_set: &'a ConfirmingSetThread, batch: &VecDeque<CementingEntry>) -> Self {
         Self {
             confirming_set,
             already_confirmed: Default::default(),
+            epochs: batch.iter().map(|entry| (entry.confirmation_root, entry.epoch)).collect(),
         }
     }
 }
@@ -432,6 +464,7 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
             .deferred
             .push_back(CementingEntry {
                 confirmation_root: *hash,
+                epoch: self.epochs.get(hash).copied().unwrap_or_default(),
                 timestamp: Instant::now(),
             });
     }

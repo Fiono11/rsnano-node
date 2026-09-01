@@ -16,7 +16,7 @@ use rsnano_utils::{
 use crate::{
     NodeEvent,
     block_processing::{BlockProcessorQueue, LedgerPipelineEvent},
-    cementation::{ConfirmingSet, ConfirmingSetEvent},
+    cementation::{ConfirmingSet, ConfirmingSetEvent, EpochCementationTracker},
     consensus::{
         AecCooldownReason, AecService, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         LocalVoteHistory,
@@ -28,6 +28,7 @@ use rsnano_ledger::LedgerEvent;
 pub(crate) struct LedgerEventProcessor {
     pub(crate) node_event_sender: Option<SyncSender<NodeEvent>>,
     pub confirming_set: Arc<ConfirmingSet>,
+    pub epoch_cementation_tracker: Arc<EpochCementationTracker>,
     pub stats: Arc<LedgerEventProcessorStats>,
     pub(crate) dependent_elections_confirmer: DependentElectionsConfirmer,
     pub(crate) vote_history: Arc<LocalVoteHistory>,
@@ -44,6 +45,7 @@ impl LedgerEventProcessor {
         Self {
             node_event_sender: None,
             confirming_set: Arc::new(ConfirmingSet::new_null()),
+            epoch_cementation_tracker: Arc::new(EpochCementationTracker::default()),
             stats: Arc::new(Default::default()),
             dependent_elections_confirmer: DependentElectionsConfirmer::new_null(),
             vote_history: Arc::new(LocalVoteHistory::new(NetworkType::NanoLiveNetwork)),
@@ -115,6 +117,8 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     let dep_conf_start = Instant::now();
                     self.dependent_elections_confirmer
                         .confirm_dependent_elections(&confirmed);
+                    self.epoch_cementation_tracker
+                        .confirmations_applied(&confirmed);
                     self.stats.dur_dependent_elections.fetch_add(
                         dep_conf_start.elapsed().as_millis() as u64,
                         Ordering::Relaxed,

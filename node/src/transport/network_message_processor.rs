@@ -11,6 +11,8 @@ use rsnano_types::VoteDelivery;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::epochs::EpochCoordinator;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
@@ -37,6 +39,8 @@ pub struct NetworkMessageProcessor {
     work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_coordinator: Arc<Mutex<EpochCoordinator>>,
 }
 
 impl NetworkMessageProcessor {
@@ -52,6 +56,7 @@ impl NetworkMessageProcessor {
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
+        #[cfg(feature = "rai_protocol")] epoch_coordinator: Arc<Mutex<EpochCoordinator>>,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
@@ -66,6 +71,8 @@ impl NetworkMessageProcessor {
             bootstrap_responder,
             bootstrapper,
             work_thresholds,
+            #[cfg(feature = "rai_protocol")]
+            epoch_coordinator,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -85,6 +92,18 @@ impl NetworkMessageProcessor {
         );
 
         match message {
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochStart(start) => self.epoch_coordinator.lock().unwrap().schedule(start),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportChunk(chunk) => {
+                self.epoch_coordinator.lock().unwrap().receive_report(chunk)
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochFinalization(report) => self
+                .epoch_coordinator
+                .lock()
+                .unwrap()
+                .receive_finalization(report),
             Message::Keepalive(keepalive) => {
                 // Check for special node port data
                 let peer0 = keepalive.peers[0];

@@ -83,7 +83,7 @@ impl EventHandlerMut<LedgerPipelineEvent> for TrackConfirmationTimes {
             let now = Utc::now();
             let mut stats = self.stats.lock().unwrap();
 
-            for (block, _) in blocks {
+            for (block, _, _) in blocks {
                 let conf_time = (now - block.sideband().timestamp.utc())
                     .to_std()
                     .unwrap_or_default();

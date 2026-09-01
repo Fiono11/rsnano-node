@@ -54,6 +54,8 @@ pub struct ConfirmedElection {
     pub election_duration: Duration,
     pub confirmation_type: ConfirmationType,
     pub votes: HashMap<PublicKey, VoteSummary>,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: u64,
 }
 
 impl ConfirmedElection {
@@ -68,6 +70,8 @@ impl ConfirmedElection {
             voter_count: 0,
             election_duration: Duration::ZERO,
             votes: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epoch: 0,
         }
     }
 

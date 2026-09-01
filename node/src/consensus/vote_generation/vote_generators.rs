@@ -14,6 +14,8 @@ use rsnano_utils::{
 };
 
 use super::{LocalVoteHistory, vote_generator::VoteGenerator};
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::epochs::VoteGate;
 use crate::{
     config::{NetworkParams, NodeConfig},
     consensus::{VoteBroadcaster, election::VoteType},
@@ -42,6 +44,19 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
+    #[cfg(feature = "rai_protocol")]
+    pub fn cut_generation(&self) -> u64 {
+        self.first_vote_generator.cut_generation()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear_vote_spacing(&self) {
+        self.non_final_vote_generator.clear_vote_spacing();
+        self.final_vote_generator.clear_vote_spacing();
+        self.first_vote_generator.clear_vote_spacing();
+        self.timeout_vote_generator.clear_vote_spacing();
+    }
+
     fn voting_delay_for(network: NetworkType) -> Duration {
         match network {
             NetworkType::NanoDevNetwork => Duration::from_secs(1),
@@ -59,6 +74,7 @@ impl VoteGenerators {
         vote_broadcaster: Arc<VoteBroadcaster>,
         message_sender: MessageSender,
         clock: Arc<SteadyClock>,
+        #[cfg(feature = "rai_protocol")] vote_gate: Arc<VoteGate>,
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
@@ -75,6 +91,8 @@ impl VoteGenerators {
             clock.clone(),
             #[cfg(feature = "rai_protocol")]
             VoteType::NonFinal,
+            #[cfg(feature = "rai_protocol")]
+            vote_gate.clone(),
         );
 
         #[cfg(feature = "rai_protocol")]
@@ -90,6 +108,7 @@ impl VoteGenerators {
             vote_broadcaster.clone(),
             clock.clone(),
             VoteType::First,
+            vote_gate.clone(),
         );
         #[cfg(feature = "rai_protocol")]
         let timeout_vote_generator = VoteGenerator::new(
@@ -104,6 +123,7 @@ impl VoteGenerators {
             vote_broadcaster.clone(),
             clock.clone(),
             VoteType::Timeout,
+            vote_gate.clone(),
         );
 
         let final_vote_generator = VoteGenerator::new(
@@ -119,6 +139,8 @@ impl VoteGenerators {
             clock,
             #[cfg(feature = "rai_protocol")]
             VoteType::Final,
+            #[cfg(feature = "rai_protocol")]
+            vote_gate,
         );
 
         Self {
@@ -155,6 +177,8 @@ impl VoteGenerators {
             vote_broadcaster,
             message_sender,
             clock,
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(VoteGate::default()),
         )
     }
 
@@ -218,6 +242,22 @@ impl VoteGenerators {
         vote_type: VoteType,
         #[cfg(feature = "rai_protocol")] epoch: u64,
     ) -> usize {
+        #[cfg(feature = "rai_protocol")]
+        {
+            let without_final: Vec<_> = blocks
+                .iter()
+                .filter(|block| !self.final_vote_generator.has_cached_vote(block, epoch))
+                .cloned()
+                .collect();
+            self.first_vote_generator
+                .reply_cached_votes(&without_final, channel, epoch);
+            self.non_final_vote_generator
+                .reply_cached_votes(&without_final, channel, epoch);
+            self.timeout_vote_generator
+                .reply_cached_votes(&without_final, channel, epoch);
+            self.final_vote_generator
+                .reply_cached_votes(blocks, channel, epoch);
+        }
         if self.vote_listener.is_tracked() {
             self.vote_listener.emit(VoteGenerationEvent {
                 channel_id: channel.channel_id(),

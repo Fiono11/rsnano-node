@@ -86,6 +86,8 @@ pub struct AecInsertRequest {
     pub block: SavedBlock,
     pub behavior: ElectionBehavior,
     pub priority: BlockPriority,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch: Option<u64>,
 }
 
 impl AecInsertRequest {
@@ -94,6 +96,18 @@ impl AecInsertRequest {
             block,
             behavior: ElectionBehavior::Hinted,
             priority,
+            #[cfg(feature = "rai_protocol")]
+            epoch: None,
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_hinted_for_epoch(block: SavedBlock, priority: BlockPriority, epoch: u64) -> Self {
+        Self {
+            block,
+            behavior: ElectionBehavior::Hinted,
+            priority,
+            epoch: Some(epoch),
         }
     }
 
@@ -102,6 +116,8 @@ impl AecInsertRequest {
             block,
             behavior: ElectionBehavior::Optimistic,
             priority,
+            #[cfg(feature = "rai_protocol")]
+            epoch: None,
         }
     }
 
@@ -110,6 +126,8 @@ impl AecInsertRequest {
             block,
             behavior: ElectionBehavior::Manual,
             priority,
+            #[cfg(feature = "rai_protocol")]
+            epoch: None,
         }
     }
 
@@ -118,6 +136,8 @@ impl AecInsertRequest {
             block,
             behavior: ElectionBehavior::Priority,
             priority,
+            #[cfg(feature = "rai_protocol")]
+            epoch: None,
         }
     }
 }

@@ -24,6 +24,8 @@ use rsnano_utils::{
 };
 
 use super::{LocalVoteHistory, VoteSpacing};
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::epochs::VoteGate;
 use crate::{
     consensus::VoteBroadcaster, transport::MessageSender, utils::ProcessingQueue,
     wallets::WalletRepresentatives,
@@ -47,6 +49,81 @@ impl VoteGenerator {
     const MAX_REQUESTS: usize = 2048;
     const MAX_HASHES: usize = 255;
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn cut_generation(&self) -> u64 {
+        self.shared_state.vote_gate.cut_generation()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear_vote_spacing(&self) {
+        self.shared_state.spacing.lock().unwrap().clear();
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn has_cached_vote(&self, block: &SavedBlock, epoch: u64) -> bool {
+        !self
+            .shared_state
+            .history
+            .votes_for_epoch(
+                &block.root(),
+                epoch,
+                &block.hash(),
+                Some(self.shared_state.vote_type),
+            )
+            .is_empty()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_cached_votes(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+        epoch: u64,
+    ) {
+        let mut votes = Vec::new();
+        for block in blocks {
+            for vote in self.shared_state.history.votes_for_epoch(
+                &block.root(),
+                epoch,
+                &block.hash(),
+                Some(self.shared_state.vote_type),
+            ) {
+                if !votes
+                    .iter()
+                    .any(|existing: &Arc<Vote>| existing.signature == vote.signature)
+                {
+                    votes.push(vote);
+                }
+            }
+        }
+        for vote in votes {
+            if !self
+                .shared_state
+                .reply_replay_filter
+                .lock()
+                .unwrap()
+                .should_send(channel.channel_id(), &vote.signature, Instant::now())
+            {
+                self.stats.inc(
+                    self.shared_state.stat_type(),
+                    DetailType::GeneratorReplaySuppressed,
+                );
+                continue;
+            }
+            let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+            self.shared_state.message_sender.lock().unwrap().try_send(
+                channel,
+                &confirm,
+                TrafficType::Vote,
+            );
+            self.stats.inc_dir(
+                StatType::Requests,
+                DetailType::RequestsGeneratedVotes,
+                Direction::In,
+            );
+        }
+    }
+
     pub(crate) fn new(
         ledger: Arc<Ledger>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -59,6 +136,7 @@ impl VoteGenerator {
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
         #[cfg(feature = "rai_protocol")] vote_type: VoteType,
+        #[cfg(feature = "rai_protocol")] vote_gate: Arc<VoteGate>,
     ) -> Self {
         let shared_state = Arc::new(SharedState {
             ledger: Arc::clone(&ledger),
@@ -82,6 +160,8 @@ impl VoteGenerator {
             vote_type,
             #[cfg(feature = "rai_protocol")]
             reply_replay_filter: Mutex::new(ReplayFilter::new(Duration::from_millis(500))),
+            #[cfg(feature = "rai_protocol")]
+            vote_gate,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -259,6 +339,8 @@ struct SharedState {
     vote_type: VoteType,
     #[cfg(feature = "rai_protocol")]
     reply_replay_filter: Mutex<ReplayFilter>,
+    #[cfg(feature = "rai_protocol")]
+    vote_gate: Arc<VoteGate>,
 }
 
 #[derive(Clone, Copy)]
@@ -471,18 +553,45 @@ impl SharedState {
             }
             #[cfg(feature = "rai_protocol")]
             {
+                let mut vote_permits = Vec::new();
                 let mut pending_hashes = Vec::new();
                 let mut pending_roots = Vec::new();
                 let mut pending_epochs = Vec::new();
                 for ((root, hash), epoch) in roots.iter().zip(hashes).zip(epochs) {
-                    if self.history.has_vote_type(
+                    let existing = self.history.vote_for_epoch(
                         root,
                         *epoch,
+                        hash,
                         self.vote_type,
                         rep_key.public_key(),
-                    ) {
+                    );
+                    if let Some(existing) = existing.as_ref()
+                        && _replay_cached
+                    {
+                        if !replay_votes
+                            .iter()
+                            .any(|vote| vote.signature == existing.signature)
+                        {
+                            replay_votes.push(existing.clone());
+                        }
                         continue;
                     }
+                    let qualified_root = self
+                        .ledger
+                        .any()
+                        .get_block(hash)
+                        .map(|block| block.qualified_root().with_epoch(*epoch))
+                        .unwrap_or_else(|| {
+                            QualifiedRoot::new(*root, BlockHash::ZERO).with_epoch(*epoch)
+                        });
+                    let permit = self.vote_gate.enter(&qualified_root);
+                    let final_recovery = _replay_cached
+                        && self.vote_type == VoteType::Final
+                        && self.vote_gate.allows_final_recovery(&qualified_root, hash);
+                    if permit.is_none() && !final_recovery {
+                        continue;
+                    }
+                    vote_permits.extend(permit);
                     if self.vote_type == VoteType::NonFinal
                         && self.history.non_timeout_notarization_count(
                             root,
@@ -517,23 +626,7 @@ impl SharedState {
                         );
                         continue;
                     }
-                    let existing = self.history.vote_for_epoch(
-                        root,
-                        *epoch,
-                        hash,
-                        self.vote_type,
-                        rep_key.public_key(),
-                    );
-                    if let Some(existing) = existing
-                        && _replay_cached
                     {
-                        if !replay_votes
-                            .iter()
-                            .any(|vote| vote.signature == existing.signature)
-                        {
-                            replay_votes.push(existing);
-                        }
-                    } else {
                         // A confirm_req reply must cover only the requested hashes. Replaying a
                         // cached batched RAI vote here amplifies one requested hash into as many
                         // as 255 unrelated hashes at every receiving node. Signing the requested
@@ -560,6 +653,7 @@ impl SharedState {
                         pending_roots,
                     ));
                 }
+                drop(vote_permits);
             }
         }
 
@@ -635,7 +729,7 @@ impl SharedState {
                     &roots,
                     #[cfg(feature = "rai_protocol")]
                     &epochs,
-                    false,
+                    true,
                     |vote, _origin| {
                         #[cfg(feature = "rai_protocol")]
                         if _origin == VoteOrigin::Replay

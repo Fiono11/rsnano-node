@@ -54,11 +54,14 @@ impl ConfirmationSolicitor {
             }
             let mut full_queue = false;
             let existing_vote = election.votes().get(&rep.rep_key);
+            #[cfg(not(feature = "rai_protocol"))]
             let is_final = if let Some(vote) = existing_vote {
                 !election.has_quorum() || vote.is_final_vote()
             } else {
                 false
             };
+            #[cfg(feature = "rai_protocol")]
+            let is_final = existing_vote.is_some_and(|vote| vote.final_vote == Some(winner.hash()));
             let different_hash = if let Some(existing) = existing_vote {
                 existing.hash != winner.hash()
             } else {

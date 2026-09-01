@@ -24,6 +24,18 @@ pub struct AecService {
     clock: SteadyClock,
 }
 
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+pub struct EpochDrainStatus {
+    pub active: usize,
+    pub missing: usize,
+    pub no_votes: usize,
+    pub awaiting_second_look: usize,
+    pub second_look: usize,
+    pub quorum: usize,
+    pub terminated: usize,
+}
+
 impl AecService {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
@@ -155,7 +167,7 @@ impl AecService {
 
     pub fn confirm_dependent_elections(
         &self,
-        confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
+        confirmed: Vec<(SavedBlock, Option<ConfirmedElection>, u64)>,
         now: Timestamp,
     ) {
         self.aec
@@ -202,6 +214,122 @@ impl AecService {
     pub fn snapshot(&self) -> AecSnapshot {
         let now = self.clock.now();
         self.aec.read().unwrap().snapshot(now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn pending_for_epoch(&self, epoch: u64) -> Vec<(rsnano_types::SlotRoot, BlockHash)> {
+        let mut result: Vec<_> = self
+            .aec
+            .read()
+            .unwrap()
+            .iter_round_robin()
+            .filter(|election| election.qualified_root().epoch == epoch && !election.is_final())
+            .map(|election| (election.qualified_root().slot(), election.winner().hash()))
+            .collect();
+        result.sort_unstable_by_key(|(slot, _)| *slot);
+        result.dedup_by_key(|(slot, _)| *slot);
+        result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn finalized_for_epoch(&self, epoch: u64) -> HashMap<rsnano_types::SlotRoot, BlockHash> {
+        self.aec.read().unwrap().finalized_for_epoch(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear_finalized_for_epoch(&self, epoch: u64) {
+        self.aec.write().unwrap().clear_finalized_for_epoch(epoch);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn seal_finalized_epoch(&self, epoch: u64) {
+        self.aec.write().unwrap().seal_finalized_epoch(epoch);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn merge_finalized_for_epoch(
+        &self,
+        epoch: u64,
+        finalized: HashMap<rsnano_types::SlotRoot, BlockHash>,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .merge_finalized_for_epoch(epoch, finalized);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn replace_finalized_for_epoch(
+        &self,
+        epoch: u64,
+        finalized: HashMap<rsnano_types::SlotRoot, BlockHash>,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .replace_finalized_for_epoch(epoch, finalized);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn current_epoch(&self) -> u64 {
+        self.aec.read().unwrap().current_epoch()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn advance_epoch(&self) -> u64 {
+        self.aec.write().unwrap().advance_epoch()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn install_epoch_cut(
+        &self,
+        epoch: u64,
+        cut: std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) {
+        self.aec.write().unwrap().install_epoch_cut(epoch, cut);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear_epoch_cut(&self, epoch: u64) {
+        self.aec.write().unwrap().clear_epoch_cut(epoch);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn remove_epoch_elections(&self, epoch: u64) {
+        self.aec.write().unwrap().remove_epoch_elections(epoch);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_drain_status(
+        &self,
+        epoch: u64,
+        slots: &std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) -> EpochDrainStatus {
+        let guard = self.aec.read().unwrap();
+        let mut status = EpochDrainStatus::default();
+        let finalized = guard.finalized_for_epoch(epoch);
+        for slot in slots {
+            let Some(election) = guard.election_for_root(&slot.with_epoch(epoch)) else {
+                if !finalized.contains_key(slot) {
+                    status.missing += 1;
+                }
+                continue;
+            };
+            status.active += 1;
+            if election.is_terminated() {
+                status.terminated += 1;
+            }
+            if election.has_quorum() {
+                status.quorum += 1;
+            } else if election.second_look_targets().next().is_some() {
+                status.second_look += 1;
+            } else if election.vote_count() == 0 {
+                status.no_votes += 1;
+            } else {
+                status.awaiting_second_look += 1;
+            }
+        }
+        status
     }
 }
 

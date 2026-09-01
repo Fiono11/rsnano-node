@@ -828,7 +828,7 @@ impl Ledger {
 
     pub fn confirm_batch<'a, O>(
         &self,
-        batch: impl IntoIterator<Item = &'a BlockHash>,
+        batch: impl IntoIterator<Item = (&'a BlockHash, u64)>,
         stopped: &AtomicBool,
         max_blocks: usize,
         cementing_observer: &mut O,
@@ -840,7 +840,7 @@ impl Ledger {
         {
             let mut txn = self.store.begin_write();
 
-            for confirmation_root in batch.into_iter() {
+            for (confirmation_root, confirmation_epoch) in batch.into_iter() {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
@@ -886,7 +886,7 @@ impl Ledger {
                         );
                         blocks_confirmed += added.len();
                         for block in added {
-                            confirmed.push((block, *confirmation_root));
+                            confirmed.push((block, *confirmation_root, confirmation_epoch));
                         }
                     } else if BorrowingConfirmedSet::new(&self.store, &txn)
                         .block_exists(confirmation_root)

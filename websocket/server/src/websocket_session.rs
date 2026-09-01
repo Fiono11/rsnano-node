@@ -96,13 +96,13 @@ impl WebsocketSessionEntry {
 
 pub struct WebsocketSession {
     entry: Arc<WebsocketSessionEntry>,
-    topic_subscriber_count: Arc<[AtomicUsize; 11]>,
+    topic_subscriber_count: Arc<[AtomicUsize; 13]>,
     peer_addr: SocketAddr,
 }
 
 impl WebsocketSession {
     pub fn new(
-        topic_subscriber_count: Arc<[AtomicUsize; 11]>,
+        topic_subscriber_count: Arc<[AtomicUsize; 13]>,
         peer_addr: SocketAddr,
         entry: Arc<WebsocketSessionEntry>,
     ) -> Self {

@@ -25,6 +25,28 @@ pub struct MessageFlooder {
 }
 
 impl MessageFlooder {
+    #[cfg(feature = "rai_protocol")]
+    pub fn send_to_all_prs_once(&mut self, message: &Message) -> FloodCount {
+        let mut result = FloodCount::default();
+        // The representative tracker is deliberately sampled and may not contain every PR even
+        // in a fully connected committee. Epoch setup establishes a direct channel between every
+        // pair, so queue the report once on every established channel instead. Non-PR peers may
+        // receive and ignore a copy; PR delivery must not depend on crawler state.
+        let channels = self
+            .network
+            .read()
+            .unwrap()
+            .shuffled_channels(TrafficType::EpochControl);
+        for channel in channels {
+            if self
+                .sender
+                .try_send(&channel, message, TrafficType::EpochControl)
+            {
+                result.principal_reps += 1;
+            }
+        }
+        result
+    }
     pub fn new(
         rep_tracker: Arc<RepresentativeTracker>,
         network: Arc<RwLock<Network>>,

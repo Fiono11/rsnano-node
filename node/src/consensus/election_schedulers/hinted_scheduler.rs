@@ -152,6 +152,13 @@ impl HintedScheduler {
     }
 
     fn activate(&self, any: &impl AnySet, hash: BlockHash, check_dependents: bool) {
+        #[cfg(feature = "rai_protocol")]
+        let cached_epoch = self
+            .vote_cache
+            .get(&hash)
+            .into_iter()
+            .map(|vote| vote.epoch())
+            .min();
         const MAX_ITERATIONS: usize = 64;
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
@@ -180,7 +187,17 @@ impl HintedScheduler {
                 let is_confirmed = self.confirming_set.contains(&current_hash)
                     || any.confirmed().block_exists(&current_hash);
 
-                if is_confirmed && !forked {
+                #[cfg(feature = "rai_protocol")]
+                let accounted_in_cached_epoch = cached_epoch.is_some_and(|epoch| {
+                    self.active_elections
+                        .finalized_for_epoch(epoch)
+                        .get(&block.qualified_root().slot())
+                        == Some(&current_hash)
+                });
+                #[cfg(not(feature = "rai_protocol"))]
+                let accounted_in_cached_epoch = true;
+
+                if is_confirmed && !forked && accounted_in_cached_epoch {
                     self.stats
                         .inc(StatType::Hinting, DetailType::AlreadyConfirmed);
                     self.vote_cache.remove(&current_hash); // Remove from vote cache
@@ -206,10 +223,15 @@ impl HintedScheduler {
                 // Try to insert it into AEC as hinted election
                 let now = self.clock.now();
                 let priority = any.block_priority(&block);
-                let inserted = self
-                    .active_elections
-                    .insert(AecInsertRequest::new_hinted(block, priority), now)
-                    .is_ok();
+                #[cfg(not(feature = "rai_protocol"))]
+                let request = AecInsertRequest::new_hinted(block, priority);
+                #[cfg(feature = "rai_protocol")]
+                let request = cached_epoch
+                    .map(|epoch| {
+                        AecInsertRequest::new_hinted_for_epoch(block.clone(), priority, epoch)
+                    })
+                    .unwrap_or_else(|| AecInsertRequest::new_hinted(block, priority));
+                let inserted = self.active_elections.insert(request, now).is_ok();
 
                 self.stats.inc(
                     StatType::Hinting,
@@ -292,8 +314,16 @@ impl HintedScheduler {
     }
 
     fn tally_threshold(&self) -> Amount {
-        (self.rep_tracker.quorum_snapshot().trended_or_min_weight / 100)
-            * self.config.hinting_threshold_percent as u128
+        #[cfg(feature = "rai_protocol")]
+        {
+            Amount::raw(1)
+        }
+
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            (self.rep_tracker.quorum_snapshot().trended_or_min_weight / 100)
+                * self.config.hinting_threshold_percent as u128
+        }
     }
 
     fn final_tally_threshold(&self) -> Amount {

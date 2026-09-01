@@ -155,6 +155,12 @@ impl VotingScheduler {
             }
         }
     }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear(&mut self) {
+        self.records.clear();
+        self.expiry_queue.clear();
+    }
 }
 
 impl ContainerInfoProvider for VotingScheduler {
@@ -229,6 +235,17 @@ mod tests {
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         s.cleanup(t(5));
         assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn clear_makes_recent_targets_immediately_eligible() {
+        let mut s = scheduler();
+        let target = target(VoteType::First);
+        s.mark_voted(&target, t(0));
+        assert!(!s.can_vote(&target, t(1)));
+        s.clear();
+        assert!(s.can_vote(&target, t(1)));
     }
 
     #[test]

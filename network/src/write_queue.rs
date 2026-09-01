@@ -21,8 +21,14 @@ impl WriteQueue {
     pub(crate) fn new(max_size: usize, stats: Arc<ChannelStats>) -> Self {
         Self {
             queue: Mutex::new(FairQueue::new(
-                move |_| max_size,
+                move |traffic_type| match traffic_type {
+                    #[cfg(feature = "rai_protocol")]
+                    TrafficType::EpochControl => max_size * 4,
+                    _ => max_size,
+                },
                 |traffic_type| match traffic_type {
+                    #[cfg(feature = "rai_protocol")]
+                    TrafficType::EpochControl => 16,
                     TrafficType::BlockBroadcast | TrafficType::VoteRebroadcast => 1,
                     _ => 4,
                 },
