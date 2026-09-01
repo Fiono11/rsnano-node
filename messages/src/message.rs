@@ -24,6 +24,12 @@ pub enum Message {
     SnapshotProposal(Proposal),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotProposalVote(ProposalVote),
+    #[cfg(feature = "rai_protocol")]
+    EpochReportChunk(EpochReportChunk),
+    #[cfg(feature = "rai_protocol")]
+    EpochStart(EpochStart),
+    #[cfg(feature = "rai_protocol")]
+    EpochFinalization(EpochFinalization),
 }
 
 pub trait MessageVariant {
@@ -101,6 +107,15 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ProposalVote) => {
                 Self::InvalidMessageType
             }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EpochReportChunk)
+            | ParseMessageError::InvalidMessage(MessageType::EpochStart) => {
+                Self::InvalidMessageType
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EpochFinalization) => {
+                Self::InvalidMessageType
+            }
             ParseMessageError::InvalidMessage(MessageType::Invalid)
             | ParseMessageError::InvalidMessage(MessageType::NotAType) => Self::InvalidMessageType,
             ParseMessageError::InvalidNetwork => Self::InvalidNetwork,
@@ -148,6 +163,12 @@ impl Message {
             Message::SnapshotProposal(_) => MessageType::Proposal,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(_) => MessageType::ProposalVote,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportChunk(_) => MessageType::EpochReportChunk,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochStart(_) => MessageType::EpochStart,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochFinalization(_) => MessageType::EpochFinalization,
         }
     }
 
@@ -170,6 +191,12 @@ impl Message {
             Message::SnapshotProposal(x) => Some(x),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportChunk(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochStart(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochFinalization(x) => Some(x),
             _ => None,
         }
     }
@@ -204,6 +231,12 @@ impl Message {
             Message::SnapshotProposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportChunk(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochStart(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochFinalization(m) => m.serialize(writer),
         }
     }
 
@@ -251,6 +284,16 @@ impl Message {
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => {
                 Message::SnapshotProposalVote(ProposalVote::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportChunk => {
+                Message::EpochReportChunk(EpochReportChunk::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochStart => Message::EpochStart(EpochStart::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochFinalization => {
+                Message::EpochFinalization(EpochFinalization::deserialize(payload)?)
             }
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);

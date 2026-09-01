@@ -32,8 +32,9 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
-    SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
+    Account, Amount, Blake2Hash, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey,
+    QualifiedRoot, Root, SavedBlock, Vote, VoteError, WorkNonce, WorkRequest,
+    currency_constants::CURRENCY_NAME,
 };
 use rsnano_utils::{
     BackpressureHandlerRegistry, CancellationToken, EventHandlerRegistry, EventProcessor,
@@ -46,6 +47,8 @@ use rsnano_utils::{
 };
 use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::epochs::{EpochCoordinator, VoteGate};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
@@ -63,7 +66,7 @@ use crate::{
         bootstrapper::{BootstrapExt, Bootstrapper},
         responder::BootstrapResponder,
     },
-    cementation::{ConfirmingSet, TrackConfirmationTimes},
+    cementation::{ConfirmingSet, EpochCementationTracker, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
@@ -317,7 +320,9 @@ impl Node {
         info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
         info!("Loading ledger, this may take a while...");
         let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024 * 16);
+        let epoch_cementation_tracker = Arc::new(EpochCementationTracker::default());
         let ledger_tx2 = ledger_tx.clone();
+        let epoch_cementation_tracker2 = epoch_cementation_tracker.clone();
         let ledger = LedgerBuilder::new(&ledger_path)
             .env_factory(&lmdb_env_factory)
             .config(config.lmdb_config.clone())
@@ -327,6 +332,7 @@ impl Node {
             .consistency_check(!flags.skip_consistency_check)
             .stats(stats.clone())
             .publish_to(move |ev| {
+                epoch_cementation_tracker2.event_enqueued(&ev);
                 ledger_tx2
                     .send(LedgerPipelineEvent::Ledger(ev))
                     .expect("channel should be open")
@@ -601,6 +607,8 @@ impl Node {
             stats.clone(),
         ));
 
+        #[cfg(feature = "rai_protocol")]
+        let vote_gate = Arc::new(VoteGate::default());
         let vote_generators = Arc::new(VoteGenerators::new(
             ledger.clone(),
             wallet_reps.clone(),
@@ -611,6 +619,8 @@ impl Node {
             vote_broadcaster,
             message_sender.clone(),
             steady_clock.clone(),
+            #[cfg(feature = "rai_protocol")]
+            vote_gate.clone(),
         ));
 
         let base_latency = match current_network {
@@ -627,6 +637,20 @@ impl Node {
             base_latency,
         ));
         active_elections.set_observer(aec_tx.clone());
+
+        #[cfg(feature = "rai_protocol")]
+        let epoch_coordinator = Arc::new(Mutex::new(EpochCoordinator::new(
+            active_elections.clone(),
+            ledger.clone(),
+            confirming_set.clone(),
+            epoch_cementation_tracker.clone(),
+            vote_gate,
+            Arc::new(Mutex::new(message_flooder.clone())),
+            wallet_reps.clone(),
+            node_observer.clone(),
+        )));
+        #[cfg(feature = "rai_protocol")]
+        ticker_pool.insert(epoch_coordinator.clone(), Duration::from_millis(20));
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();
@@ -946,6 +970,8 @@ impl Node {
             bootstrap_responder.clone(),
             bootstrapper.clone(),
             network_params.work.clone(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_coordinator,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));
@@ -1226,6 +1252,7 @@ impl Node {
             node_event_sender: node_observer.clone(),
             dependent_elections_confirmer,
             confirming_set: confirming_set.clone(),
+            epoch_cementation_tracker,
             stats: ledger_event_processor_stats.clone(),
             vote_history: vote_history.clone(),
             active_elections: active_elections.clone(),
@@ -1650,6 +1677,15 @@ pub enum NodeEvent {
     BlockConfirmed(SavedBlock, ConfirmedElection),
     VoteProcessed(Arc<Vote>, Result<(), VoteError>),
     BlocksProcessed(Vec<ProcessResult>),
+    EpochCut {
+        cut: Vec<BlockHash>,
+        non_cut: Vec<BlockHash>,
+    },
+    EpochComplete {
+        epoch: u64,
+        non_cut_count: u64,
+        finalized_hash: Blake2Hash,
+    },
 }
 
 pub trait NodeEventHandler {

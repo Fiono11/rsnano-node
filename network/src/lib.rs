@@ -97,6 +97,8 @@ pub enum TrafficType {
     VoteReply,
     RepCrawler,
     Telemetry,
+    #[cfg(feature = "rai_protocol")]
+    EpochControl,
     #[cfg(feature = "ledger_snapshots")]
     LedgerSnapshots,
 }
@@ -189,6 +191,8 @@ impl From<TrafficType> for DetailType {
             TrafficType::RepCrawler => DetailType::RepCrawler,
             TrafficType::VoteReply => DetailType::VoteReply,
             TrafficType::Telemetry => DetailType::Telemetry,
+            #[cfg(feature = "rai_protocol")]
+            TrafficType::EpochControl => DetailType::Generic,
             #[cfg(feature = "ledger_snapshots")]
             TrafficType::LedgerSnapshots => DetailType::Preproposal,
         }

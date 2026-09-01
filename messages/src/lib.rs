@@ -39,6 +39,11 @@ pub use confirm_req::*;
 mod confirm_ack;
 pub use confirm_ack::*;
 
+#[cfg(feature = "rai_protocol")]
+mod epoch_report;
+#[cfg(feature = "rai_protocol")]
+pub use epoch_report::*;
+
 mod frontier_req;
 pub use frontier_req::*;
 

@@ -37,6 +37,12 @@ pub enum MessageType {
     Proposal = 0x11,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote = 0x12,
+    #[cfg(feature = "rai_protocol")]
+    EpochReportChunk = 0x13,
+    #[cfg(feature = "rai_protocol")]
+    EpochStart = 0x14,
+    #[cfg(feature = "rai_protocol")]
+    EpochFinalization = 0x15,
 }
 
 impl MessageType {
@@ -63,15 +69,25 @@ impl MessageType {
             MessageType::Proposal => "proposal",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => "proposal_vote",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportChunk => "epoch_report_chunk",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochStart => "epoch_start",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochFinalization => "epoch_finalization",
         }
     }
 
     pub const fn max_id() -> usize {
-        #[cfg(feature = "ledger_snapshots")]
+        #[cfg(feature = "rai_protocol")]
+        {
+            Self::EpochFinalization as usize
+        }
+        #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
             Self::ProposalVote as usize
         }
-        #[cfg(not(feature = "ledger_snapshots"))]
+        #[cfg(all(not(feature = "rai_protocol"), not(feature = "ledger_snapshots")))]
         {
             Self::AscPullAck as usize
         }
@@ -197,6 +213,12 @@ impl MessageHeader {
             MessageType::Proposal => Proposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => ProposalVote::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportChunk => EpochReportChunk::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochStart => EpochStart::SERIALIZED_SIZE,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochFinalization => EpochFinalization::SERIALIZED_SIZE,
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -262,6 +284,10 @@ impl From<MessageType> for DetailType {
             MessageType::Proposal => DetailType::Proposal,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::ProposalVote => DetailType::ProposalVote,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportChunk
+            | MessageType::EpochStart
+            | MessageType::EpochFinalization => DetailType::Generic,
         }
     }
 }

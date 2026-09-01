@@ -237,6 +237,8 @@ pub enum TopicSub {
     /// Stopped election message (dropped elections due to bounding or block lost the elections)
     StoppedElection,
     ElectionTerminated,
+    EpochCut,
+    EpochComplete,
     /// A vote message
     Vote,
     /// Work generation message
@@ -256,6 +258,8 @@ impl From<&TopicSub> for Topic {
             TopicSub::StartedElection => Topic::StartedElection,
             TopicSub::StoppedElection => Topic::StoppedElection,
             TopicSub::ElectionTerminated => Topic::ElectionTerminated,
+            TopicSub::EpochCut => Topic::EpochCut,
+            TopicSub::EpochComplete => Topic::EpochComplete,
             TopicSub::Vote => Topic::Vote,
             TopicSub::Work => Topic::Work,
             TopicSub::Bootstrap => Topic::Bootstrap,

@@ -30,7 +30,7 @@ pub struct WebsocketListener {
     tx_stop: Mutex<Option<oneshot::Sender<()>>>,
     wallets: Arc<Wallets>,
     ledger: Arc<Ledger>,
-    topic_subscriber_count: Arc<[AtomicUsize; 11]>,
+    topic_subscriber_count: Arc<[AtomicUsize; 13]>,
     sessions: Arc<Mutex<Vec<Weak<WebsocketSessionEntry>>>>,
     tokio: tokio::runtime::Handle,
     bound: Mutex<bool>,
@@ -213,7 +213,7 @@ impl WebsocketListenerExt for Arc<WebsocketListener> {
 async fn accept_connection(
     stream: TcpStream,
     wallets: Arc<Wallets>,
-    topic_subscriber_count: Arc<[AtomicUsize; 11]>,
+    topic_subscriber_count: Arc<[AtomicUsize; 13]>,
     peer_addr: SocketAddr,
     tx_send: mpsc::Sender<MessageEnvelope>,
     mut rx_send: mpsc::Receiver<MessageEnvelope>,

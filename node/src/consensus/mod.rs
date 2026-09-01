@@ -12,6 +12,8 @@ mod confirmed_election_cache;
 mod dependent_elections_confirmer;
 pub mod election;
 pub mod election_schedulers;
+#[cfg(feature = "rai_protocol")]
+pub mod epochs;
 mod filtered_vote;
 mod fork_cache;
 mod fork_cache_updater;

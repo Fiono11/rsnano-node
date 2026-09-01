@@ -44,6 +44,11 @@ impl VoteSpacing {
         self.recent.is_empty()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear(&mut self) {
+        self.recent = EntryContainer::new();
+    }
+
     fn trim(&mut self, now: Timestamp) {
         self.recent.trim(now - self.delay);
     }
@@ -210,6 +215,18 @@ mod tests {
 
         spacing.flag(&root2, &hash3, now);
         assert_eq!(spacing.len(), 2);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn clear_removes_winner_change_delay() {
+        let now = Timestamp::new_test_instance();
+        let mut spacing = VoteSpacing::new(Duration::from_secs(15));
+        let root = Root::from(1);
+        spacing.flag(&root, &BlockHash::from(2), now);
+        assert!(!spacing.votable(&root, &BlockHash::from(3), now));
+        spacing.clear();
+        assert!(spacing.votable(&root, &BlockHash::from(3), now));
     }
 
     #[test]

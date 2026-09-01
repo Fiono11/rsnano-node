@@ -40,7 +40,9 @@ use rsnano_types::{Block, BlockHash, BlockPriority, SavedBlock};
 pub enum LedgerEvent {
     /// The confirmed block + it's confirmation root
     BlocksProcessed(Vec<ProcessResult>),
-    BlocksConfirmed(Vec<(SavedBlock, BlockHash)>),
+    /// Confirmed block, the confirmation root which caused it, and that root's
+    /// consensus epoch (zero outside the RAI protocol).
+    BlocksConfirmed(Vec<(SavedBlock, BlockHash, u64)>),
     BlocksRolledBack(RollbackResults),
 }
 

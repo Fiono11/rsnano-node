@@ -27,6 +27,8 @@ pub enum Topic {
     /// Stopped election message (dropped elections due to bounding or block lost the elections)
     StoppedElection,
     ElectionTerminated,
+    EpochCut,
+    EpochComplete,
     /// A vote message
     Vote,
     /// Work generation message
@@ -175,6 +177,8 @@ pub fn to_topic(topic: impl AsRef<str>) -> Topic {
         "started_election" => Topic::StartedElection,
         "stopped_election" => Topic::StoppedElection,
         "election_terminated" => Topic::ElectionTerminated,
+        "epoch_cut" => Topic::EpochCut,
+        "epoch_complete" => Topic::EpochComplete,
         "vote" => Topic::Vote,
         "ack" => Topic::Ack,
         "work" => Topic::Work,

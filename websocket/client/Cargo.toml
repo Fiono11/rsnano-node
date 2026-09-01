@@ -3,6 +3,9 @@ name = "rsnano_websocket_client"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_websocket_messages/rai_protocol"]
+
 [dependencies]
 rsnano_types = { path = "../../types" }
 rsnano_websocket_messages = { path = "../messages" }

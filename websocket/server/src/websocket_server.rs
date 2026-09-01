@@ -144,6 +144,15 @@ fn election_terminated(hash: &BlockHash, timeout: bool) -> MessageEnvelope {
     )
 }
 
+fn epoch_cut(cut: &[BlockHash], non_cut: &[BlockHash]) -> MessageEnvelope {
+    #[derive(Serialize)]
+    struct EpochCut<'a> {
+        cut: &'a [BlockHash],
+        non_cut: &'a [BlockHash],
+    }
+    MessageEnvelope::new(Topic::EpochCut, EpochCut { cut, non_cut })
+}
+
 #[derive(Serialize)]
 struct ElectionTerminated {
     hash: String,
@@ -207,6 +216,27 @@ impl NodeEventHandler for NodeEventProcessor {
             NodeEvent::ElectionTerminated(hash, timeout) => {
                 if self.server.any_subscriber(Topic::ElectionTerminated) {
                     self.server.broadcast(&election_terminated(hash, *timeout));
+                }
+            }
+            NodeEvent::EpochCut { cut, non_cut } => {
+                if self.server.any_subscriber(Topic::EpochCut) {
+                    self.server.broadcast(&epoch_cut(cut, non_cut));
+                }
+            }
+            NodeEvent::EpochComplete {
+                epoch,
+                non_cut_count,
+                finalized_hash,
+            } => {
+                if self.server.any_subscriber(Topic::EpochComplete) {
+                    self.server.broadcast(&MessageEnvelope::new(
+                        Topic::EpochComplete,
+                        serde_json::json!({
+                            "epoch": epoch,
+                            "non_cut_count": non_cut_count,
+                            "finalized_hash": finalized_hash,
+                        }),
+                    ));
                 }
             }
             NodeEvent::BlockConfirmed(block, election) => {

@@ -25,6 +25,8 @@ pub(crate) struct AecVoter {
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
     scheduler: VotingScheduler,
+    #[cfg(feature = "rai_protocol")]
+    observed_cut_generation: u64,
 }
 
 impl AecVoter {
@@ -39,12 +41,16 @@ impl AecVoter {
             NetworkType::NanoDevNetwork => Duration::from_millis(500),
             _ => Duration::from_secs(15),
         };
+        #[cfg(feature = "rai_protocol")]
+        let observed_cut_generation = vote_generators.cut_generation();
         Self {
             aec,
             vote_generators,
             clock,
             cps_limiter,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
+            #[cfg(feature = "rai_protocol")]
+            observed_cut_generation,
         }
     }
 
@@ -68,6 +74,15 @@ impl ContainerInfoProvider for AecVoter {
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
+        #[cfg(feature = "rai_protocol")]
+        {
+            let generation = self.vote_generators.cut_generation();
+            if generation != self.observed_cut_generation {
+                self.scheduler.clear();
+                self.vote_generators.clear_vote_spacing();
+                self.observed_cut_generation = generation;
+            }
+        }
         let scheduler = &self.scheduler;
 
         // Collect all vote targets in a single lock acquisition, iterating all

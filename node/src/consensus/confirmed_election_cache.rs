@@ -10,7 +10,13 @@ pub(crate) struct ConfirmedElectionsCache {
 }
 
 impl ConfirmedElectionsCache {
+    #[cfg(not(feature = "rai_protocol"))]
     const DEFAULT_MAX_LEN: usize = 4096;
+    // RAI needs the initiating election's epoch until asynchronous cementation reports every
+    // indirectly confirmed dependency. Match the inactive vote-cache scale so a 50k epoch does
+    // not discard that provenance before the ledger event arrives.
+    #[cfg(feature = "rai_protocol")]
+    const DEFAULT_MAX_LEN: usize = 1024 * 64;
 
     pub fn with_max_len(max_len: usize) -> Self {
         Self {

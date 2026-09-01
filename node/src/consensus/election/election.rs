@@ -610,6 +610,8 @@ impl Election {
             election_end: SystemTime::now(),
             confirmation_type: result,
             votes,
+            #[cfg(feature = "rai_protocol")]
+            epoch: self.qualified_root().epoch,
         }
     }
 }
