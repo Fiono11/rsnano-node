@@ -86,6 +86,11 @@ pub(crate) struct CliArgs {
     /// Seconds to collect termination and finalization certificates after publishing
     #[arg(long, default_value_t = 0)]
     pub timeout: u64,
+
+    /// Duration of the single RAI epoch in seconds
+    #[cfg(feature = "rai_protocol")]
+    #[arg(long, default_value_t = 35)]
+    pub epoch_duration: u64,
 }
 
 impl CliArgs {

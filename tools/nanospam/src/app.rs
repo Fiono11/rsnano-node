@@ -1,8 +1,9 @@
 use std::{
+    collections::HashSet,
     net::{Ipv6Addr, SocketAddrV6},
     sync::Mutex,
     thread::yield_now,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
@@ -18,11 +19,14 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_messages::EpochStart;
 use rsnano_messages::{Message, MessageSerializer, Publish};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
+use rsnano_rpc_messages::PeersDto;
 use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
@@ -129,6 +133,9 @@ impl NanoSpamApp {
             high_prio_check.sync_accounts().await?;
         }
 
+        #[cfg(feature = "rai_protocol")]
+        wait_for_full_mesh(&self.rpc_clients, self.args.prs).await?;
+
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
 
@@ -150,15 +157,43 @@ impl NanoSpamApp {
             tcp_readers.push(node_readers);
         }
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            let starts_at_unix_ms =
+                SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64 + 3_000;
+            let mut serializer = MessageSerializer::new(protocol);
+            let epoch_duration_ms = self.args.epoch_duration * 1_000;
+            for epoch in 1..=2 {
+                let epoch_starts_at = starts_at_unix_ms + (epoch - 1) * epoch_duration_ms;
+                let start = Message::EpochStart(EpochStart {
+                    epoch,
+                    starts_at_unix_ms: epoch_starts_at,
+                    closes_at_unix_ms: epoch_starts_at + epoch_duration_ms,
+                });
+                let bytes = serializer.serialize(&start).to_vec();
+                for writers in &mut tcp_writers {
+                    writers[0].write_all(&bytes).await?;
+                }
+            }
+            info!(
+                starts_at_unix_ms,
+                epoch_duration_ms, "Scheduled two common RAI epochs on all PRs"
+            );
+        }
+
         let tx_forks_clone = tx_blocks.clone();
         let cancel_block_creation = CancellationToken::new();
         let cancel_block_creation2 = cancel_block_creation.clone();
         let cancel_nanospam = CancellationToken::new();
 
-        let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
+        let (tx_ws_msg, rx_ws_msg) =
+            std::sync::mpsc::channel::<(usize, MessageEnvelope, Timestamp)>();
 
         info!("Connecting to websocket...");
-        let mut conf_receiver = ConfirmationReceiver::connect().await?;
+        let mut conf_receivers = Vec::with_capacity(self.args.prs);
+        for node_index in 0..self.args.prs {
+            conf_receivers.push(ConfirmationReceiver::connect(node_index).await?);
+        }
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -170,7 +205,7 @@ impl NanoSpamApp {
             });
 
             let confirmation_cancel = cancel_nanospam.clone();
-            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel));
+            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel, self.args.prs));
 
             tokio_scoped::scope(|scope| {
                 if self.args.timeout > 0 {
@@ -193,7 +228,14 @@ impl NanoSpamApp {
                     scope.spawn(high_prio_check.run(cancel_block_creation, tx_forks_clone.clone()));
                 }
 
-                scope.spawn(conf_receiver.run(cancel_nanospam.clone(), tx_ws_msg, &self.clock));
+                for (node_index, receiver) in conf_receivers.iter_mut().enumerate() {
+                    scope.spawn(receiver.run(
+                        node_index,
+                        cancel_nanospam.clone(),
+                        tx_ws_msg.clone(),
+                        &self.clock,
+                    ));
+                }
                 scope.spawn(receive_messages(
                     tcp_readers,
                     protocol,
@@ -237,6 +279,26 @@ impl NanoSpamApp {
             "Fast finalizations: {} | Final-vote finalizations: {}",
             logic.fast_finalized_total, logic.final_finalized_total
         );
+        #[cfg(feature = "rai_protocol")]
+        {
+            let (cut, non_cut) = logic.cut_stats(started.elapsed());
+            info!(
+                "Cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
+                cut.total,
+                cut.finalized,
+                cut.confirmation_percent,
+                cut.rate,
+                cut.average_latency.as_millis()
+            );
+            info!(
+                "Non-cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
+                non_cut.total,
+                non_cut.finalized,
+                non_cut.confirmation_percent,
+                non_cut.rate,
+                non_cut.average_latency.as_millis()
+            );
+        }
         info!("Finalization rate: {finalization_rate} elections/s");
         if finalized_blocks > 0 {
             let finalization_time =
@@ -248,9 +310,22 @@ impl NanoSpamApp {
                 logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
             info!("Average election termination time: {termination_time} ms");
         }
+        #[cfg(not(feature = "rai_protocol"))]
         if self.args.timeout > 0 && terminated_elections < created_blocks {
             return Err(anyhow!(
                 "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
+                self.args.timeout
+            ));
+        }
+        #[cfg(feature = "rai_protocol")]
+        if let Some(error) = logic.epoch_error() {
+            return Err(anyhow!(error.to_owned()));
+        }
+        #[cfg(feature = "rai_protocol")]
+        if logic.epochs_completed() != 2 {
+            return Err(anyhow!(
+                "only {} of 2 RAI epochs finalized within {} seconds",
+                logic.epochs_completed(),
                 self.args.timeout
             ));
         }
@@ -271,7 +346,9 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         match result {
             Some(BlockResult::Block(forks)) => {
-                tx_blocks.blocking_send(forks).unwrap();
+                if tx_blocks.blocking_send(forks).is_err() {
+                    break;
+                }
             }
             Some(BlockResult::Waiting) => {
                 yield_now();
@@ -415,11 +492,23 @@ async fn receive_messages(
 }
 
 fn track_confirmations(
-    rx_ws_msg: std::sync::mpsc::Receiver<(MessageEnvelope, Timestamp)>,
+    rx_ws_msg: std::sync::mpsc::Receiver<(usize, MessageEnvelope, Timestamp)>,
     logic: &Mutex<SpamLogic>,
     cancel_token: CancellationToken,
+    prs: usize,
 ) {
-    while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
+    loop {
+        let (node_index, msg, timestamp) = match rx_ws_msg.recv_timeout(Duration::from_millis(100))
+        {
+            Ok(message) => message,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) if !cancel_token.is_cancelled() => {
+                continue;
+            }
+            Err(_) => break,
+        };
+        if node_index != 0 && msg.topic != Some(Topic::EpochComplete) {
+            continue;
+        }
         if msg.topic == Some(Topic::Confirmation) {
             let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
             let block_hash = BlockHash::decode_hex(data.hash).unwrap();
@@ -449,7 +538,7 @@ fn track_confirmations(
                 );
             }
         } else if msg.topic == Some(Topic::ElectionTerminated)
-            && let Some(message) = msg.message
+            && let Some(ref message) = msg.message
             && let Some(hash) = message.get("hash").and_then(|value| value.as_str())
             && let Some(hash) = BlockHash::decode_hex(hash)
         {
@@ -458,14 +547,92 @@ fn track_confirmations(
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
             let mut logic = logic.lock().unwrap();
-            if logic.terminated(&hash, timeout, timestamp) {
-                info!(
-                    "Terminated {} of {} elections",
-                    logic.terminated_total,
-                    logic.block_factory.created()
-                );
+            logic.terminated(&hash, timeout, timestamp);
+        } else {
+            #[cfg(feature = "rai_protocol")]
+            if msg.topic == Some(Topic::EpochCut) {
+                if let Some(message) = msg.message {
+                    let decode = |name: &str| -> HashSet<BlockHash> {
+                        message
+                            .get(name)
+                            .and_then(|v| v.as_array())
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|v| v.as_str())
+                            .filter_map(BlockHash::decode_hex)
+                            .collect()
+                    };
+                    let cut = decode("cut");
+                    let non_cut = decode("non_cut");
+                    info!(
+                        cut = cut.len(),
+                        non_cut = non_cut.len(),
+                        "Received RAI epoch cut"
+                    );
+                    logic.lock().unwrap().install_cut(cut, non_cut);
+                }
+            } else if msg.topic == Some(Topic::EpochComplete) {
+                let Some(message) = msg.message else {
+                    continue;
+                };
+                let Some(epoch) = message.get("epoch").and_then(|value| value.as_u64()) else {
+                    continue;
+                };
+                let Some(non_cut_count) = message
+                    .get("non_cut_count")
+                    .and_then(|value| value.as_u64())
+                else {
+                    continue;
+                };
+                let Some(finalized_hash) = message
+                    .get("finalized_hash")
+                    .and_then(|value| value.as_str())
+                else {
+                    continue;
+                };
+                let (completed, error) = {
+                    let mut logic = logic.lock().unwrap();
+                    logic.epoch_reported(
+                        node_index,
+                        epoch,
+                        non_cut_count,
+                        finalized_hash.to_owned(),
+                        prs,
+                    );
+                    (logic.epochs_completed(), logic.epoch_error().is_some())
+                };
+                info!(node_index, epoch, completed, "RAI epoch finalized by PR");
+                if completed >= 2 || error {
+                    cancel_token.cancel();
+                }
             }
         }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn wait_for_full_mesh(clients: &[NanoRpcClient], prs: usize) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let mut ready = true;
+        for client in clients {
+            let count = match client.peers(None).await? {
+                PeersDto::Simple(peers) => peers.peers.len(),
+                PeersDto::Detailed(peers) => peers.peers.len(),
+            };
+            if count < prs.saturating_sub(1) {
+                ready = false;
+                break;
+            }
+        }
+        if ready {
+            info!(prs, "All PRs are fully interconnected before epoch start");
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!("PR network did not become fully interconnected"));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -510,6 +677,9 @@ async fn reconcile_confirmations(
             return;
         }
         for hash in hashes {
+            if cancel_token.is_cancelled() {
+                return;
+            }
             if rpc
                 .block_info(hash)
                 .await
