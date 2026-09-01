@@ -1,4 +1,5 @@
 use std::{
+    fs::File,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -26,6 +27,8 @@ pub(crate) async fn start_nodes(
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         let mut node_dir = data_dir.clone();
         node_dir.push(format!("pr{i}"));
+        let stdout = File::create(node_dir.join("nanospam-node.log")).unwrap();
+        let stderr = stdout.try_clone().unwrap();
 
         let mut cmd = if args.cpp {
             let mut cmd = Command::new("nano_node");
@@ -40,21 +43,26 @@ pub(crate) async fn start_nodes(
                 .arg("--data_path")
                 .arg(&node_dir)
                 .arg("--daemon")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr));
             cmd
         } else {
             let mut cmd = Command::new("rsnano");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
+                .env(
+                    "RUST_LOG",
+                    "warn,rsnano_node::consensus::epochs::coordinator=info",
+                )
                 .arg("--network")
                 .arg("test")
                 .arg("--data-path")
                 .arg(&node_dir)
                 .arg("node")
                 .arg("run")
-                .stdout(Stdio::null());
+                .stdout(Stdio::from(stdout))
+                .stderr(Stdio::from(stderr));
             cmd
         };
 

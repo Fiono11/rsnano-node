@@ -90,6 +90,16 @@ pub(crate) struct CliArgs {
     /// Print only the final performance summary when tracing is disabled
     #[arg(long, default_value_t = false)]
     pub final_results_only: bool,
+
+    /// Number of RAI epochs to schedule (zero disables epoch transitions)
+    #[cfg(feature = "rai_protocol")]
+    #[arg(long, default_value_t = 0)]
+    pub epochs: usize,
+
+    /// Duration of each RAI epoch in seconds
+    #[cfg(feature = "rai_protocol")]
+    #[arg(long, default_value_t = 35)]
+    pub epoch_duration: u64,
 }
 
 impl CliArgs {
@@ -100,6 +110,8 @@ impl CliArgs {
             rate: self.rate_spec()?,
             fork_probability: self.fork_probability(),
             track_confirmations: !self.unconfirmed,
+            #[cfg(feature = "rai_protocol")]
+            expected_epochs: self.epochs,
         })
     }
 

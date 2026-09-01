@@ -17,47 +17,64 @@ pub(crate) struct ConfirmationReceiver {
 }
 
 impl ConfirmationReceiver {
-    pub async fn connect() -> anyhow::Result<Self> {
+    pub async fn connect(node_index: usize, track_blocks: bool) -> anyhow::Result<Self> {
         let mut ws_client = NanoWebSocketClientFactory::default()
-            .connect(&format!("ws://[::1]:{}", websocket_port(0)))
+            .connect(&format!("ws://[::1]:{}", websocket_port(node_index)))
             .await?;
 
-        ws_client
-            .subscribe(SubscribeArgs {
-                topic: TopicSub::Confirmation(ConfirmationSubArgs {
-                    include_election_info: true,
-                    ..Default::default()
-                }),
-                ack: true,
-                id: None,
-            })
-            .await?;
+        if track_blocks {
+            ws_client
+                .subscribe(SubscribeArgs {
+                    topic: TopicSub::Confirmation(ConfirmationSubArgs {
+                        include_election_info: true,
+                        ..Default::default()
+                    }),
+                    ack: true,
+                    id: None,
+                })
+                .await?;
 
-        // wait for ack
-        ws_client
-            .next()
-            .await
-            .ok_or_else(|| anyhow!("no ws response received"))??;
+            ws_client
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("no ws response received"))??;
 
-        ws_client
-            .subscribe(SubscribeArgs {
-                topic: TopicSub::ElectionTerminated,
-                ack: true,
-                id: None,
-            })
-            .await?;
-        ws_client
-            .next()
-            .await
-            .ok_or_else(|| anyhow!("no termination subscription response received"))??;
+            ws_client
+                .subscribe(SubscribeArgs {
+                    topic: TopicSub::ElectionTerminated,
+                    ack: true,
+                    id: None,
+                })
+                .await?;
+            ws_client
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("no termination subscription response received"))??;
+        }
+
+        #[cfg(feature = "rai_protocol")]
+        for topic in [TopicSub::EpochCut, TopicSub::EpochComplete] {
+            ws_client
+                .subscribe(SubscribeArgs {
+                    topic,
+                    ack: true,
+                    id: None,
+                })
+                .await?;
+            ws_client
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("no epoch subscription response received"))??;
+        }
 
         Ok(Self { ws_client })
     }
 
     pub async fn run(
         &mut self,
+        node_index: usize,
         cancel_token: CancellationToken,
-        tx_ws_msg: Sender<(MessageEnvelope, Timestamp)>,
+        tx_ws_msg: Sender<(usize, MessageEnvelope, Timestamp)>,
         clock: &SteadyClock,
     ) {
         loop {
@@ -67,7 +84,7 @@ impl ConfirmationReceiver {
             };
 
             let msg = res.unwrap().unwrap();
-            tx_ws_msg.send((msg, clock.now())).unwrap();
+            tx_ws_msg.send((node_index, msg, clock.now())).unwrap();
         }
     }
 }

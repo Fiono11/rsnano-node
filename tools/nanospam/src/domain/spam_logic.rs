@@ -5,7 +5,10 @@ use crate::domain::{
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, Block, BlockHash};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
@@ -13,6 +16,8 @@ pub(crate) struct SpamSpec {
     pub(crate) rate: RateSpec,
     pub(crate) fork_probability: f64,
     pub(crate) track_confirmations: bool,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) expected_epochs: usize,
 }
 
 pub(crate) struct SpamLogic {
@@ -36,6 +41,20 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_termination_time_total: Duration,
     terminated: HashSet<BlockHash>,
     pub(crate) cps_measure_start: Option<Timestamp>,
+    #[cfg(feature = "rai_protocol")]
+    cut: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    non_cut: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    finalization_times: HashMap<BlockHash, Duration>,
+    #[cfg(feature = "rai_protocol")]
+    epochs_completed: usize,
+    #[cfg(feature = "rai_protocol")]
+    completed_epoch_ids: HashSet<u64>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_reports: HashMap<u64, HashMap<usize, (u64, String)>>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_error: Option<String>,
 }
 
 impl SpamLogic {
@@ -61,6 +80,20 @@ impl SpamLogic {
             sum_termination_time_total: Duration::ZERO,
             terminated: HashSet::new(),
             cps_measure_start: None,
+            #[cfg(feature = "rai_protocol")]
+            cut: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            non_cut: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            finalization_times: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epochs_completed: 0,
+            #[cfg(feature = "rai_protocol")]
+            completed_epoch_ids: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_reports: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_error: None,
         }
     }
 
@@ -71,7 +104,9 @@ impl SpamLogic {
             // Termination/notarization releases dependent block generation, but it is not
             // finality. Keep the run alive until every requested block has actually been
             // finalized (or the outer timeout cancels it).
-            max_blocks > 0 && self.confirmed_total >= max_blocks
+            max_blocks > 0
+                && self.confirmed_total >= max_blocks
+                && self.epochs_completed >= self.spec.expected_epochs
         }
         #[cfg(not(feature = "rai_protocol"))]
         {
@@ -204,6 +239,10 @@ impl SpamLogic {
                 self.confirmed_total += 1;
                 self.sum_conf_time_recent += conf_time;
                 self.sum_conf_time_total += conf_time;
+                #[cfg(feature = "rai_protocol")]
+                {
+                    self.finalization_times.insert(finalized_hash, conf_time);
+                }
             }
         }
 
@@ -254,6 +293,102 @@ impl SpamLogic {
             average_conf_time: self.average_conf_time(),
         }
     }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn install_cut(&mut self, cut: HashSet<BlockHash>, non_cut: HashSet<BlockHash>) {
+        self.cut = cut;
+        self.non_cut = non_cut;
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_reported(
+        &mut self,
+        node_index: usize,
+        epoch: u64,
+        non_cut_count: u64,
+        finalized_hash: String,
+        prs: usize,
+    ) {
+        if self.completed_epoch_ids.contains(&epoch) || self.epoch_error.is_some() {
+            return;
+        }
+        let reports = self.epoch_reports.entry(epoch).or_default();
+        let value = (non_cut_count, finalized_hash);
+        if let Some(previous) = reports.insert(node_index, value.clone())
+            && previous != value
+        {
+            self.epoch_error = Some(format!(
+                "PR{node_index} emitted conflicting completion reports for RAI epoch {epoch}"
+            ));
+            return;
+        }
+        if reports.len() != prs {
+            return;
+        }
+        let first = reports.values().next().unwrap();
+        if reports.values().any(|report| report != first) {
+            self.epoch_error = Some(format!(
+                "RAI epoch {epoch} closed with different finalized blocks across PRs"
+            ));
+            return;
+        }
+        self.completed_epoch_ids.insert(epoch);
+        self.epochs_completed += 1;
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epochs_completed(&self) -> usize {
+        self.epochs_completed
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_error(&self) -> Option<&str> {
+        self.epoch_error.as_deref()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn cut_stats(&self, elapsed: Duration) -> (GroupStats, GroupStats) {
+        (
+            self.group_stats(&self.cut, elapsed),
+            self.group_stats(&self.non_cut, elapsed),
+        )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn group_stats(&self, group: &HashSet<BlockHash>, elapsed: Duration) -> GroupStats {
+        let times: Vec<_> = group
+            .iter()
+            .filter_map(|hash| self.finalization_times.get(hash))
+            .copied()
+            .collect();
+        let finalized = times.len();
+        let total = group.len();
+        let average_latency = if finalized == 0 {
+            Duration::ZERO
+        } else {
+            times.iter().sum::<Duration>() / finalized as u32
+        };
+        GroupStats {
+            total,
+            finalized,
+            confirmation_percent: if total == 0 {
+                0.0
+            } else {
+                finalized as f64 * 100.0 / total as f64
+            },
+            rate: finalized as f64 / elapsed.as_secs_f64(),
+            average_latency,
+        }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+pub(crate) struct GroupStats {
+    pub total: usize,
+    pub finalized: usize,
+    pub confirmation_percent: f64,
+    pub rate: f64,
+    pub average_latency: Duration,
 }
 
 pub(crate) struct SpamStats {
