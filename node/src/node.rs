@@ -642,8 +642,6 @@ impl Node {
         let epoch_coordinator = Arc::new(Mutex::new(EpochCoordinator::new(
             active_elections.clone(),
             ledger.clone(),
-            confirming_set.clone(),
-            epoch_cementation_tracker.clone(),
             vote_gate,
             Arc::new(Mutex::new(message_flooder.clone())),
             wallet_reps.clone(),
@@ -1679,6 +1677,7 @@ pub enum NodeEvent {
     BlocksProcessed(Vec<ProcessResult>),
     EpochCut {
         epoch: u64,
+        cut_hash: Blake2Hash,
         cut: Vec<BlockHash>,
         non_cut: Vec<BlockHash>,
     },

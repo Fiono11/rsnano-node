@@ -11,7 +11,8 @@ use strum::EnumCount;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
+    VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -585,8 +586,47 @@ impl ActiveElectionsContainer {
         &mut self,
         epoch: u64,
         cut: std::collections::HashSet<rsnano_types::SlotRoot>,
+        now: Timestamp,
     ) {
-        self.closing_cut = Some((epoch, cut));
+        self.closing_cut = Some((epoch, cut.clone()));
+        for slot in cut {
+            if self
+                .roots
+                .election_for_root(&slot.with_epoch(epoch))
+                .is_some()
+                || self
+                    .finalized_by_epoch
+                    .get(&epoch)
+                    .is_some_and(|finalized| finalized.contains_key(&slot))
+            {
+                continue;
+            }
+            let later = self.roots.drain_later_epochs(&slot.with_epoch(epoch));
+            let replacement = later
+                .iter()
+                .find_map(|entry| match entry.election.winner() {
+                    MaybeSavedBlock::Saved(block) => {
+                        Some((block.clone(), entry.election.behavior(), entry.priority))
+                    }
+                    MaybeSavedBlock::Unsaved(_) => None,
+                });
+            for entry in later {
+                *self.count_by_behavior_mut(entry.election.behavior()) -= 1;
+                self.stats.stopped(&entry.election);
+                self.notify(AecFact::ElectionEnded(entry.election));
+            }
+            if let Some((block, behavior, priority)) = replacement {
+                let _ = self.insert(
+                    AecInsertRequest {
+                        block,
+                        behavior,
+                        priority,
+                        epoch: Some(epoch),
+                    },
+                    now,
+                );
+            }
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -902,7 +942,7 @@ mod tests {
         let block = SavedBlock::new_test_instance();
         let slot = block.qualified_root().slot();
         container.advance_epoch();
-        container.install_epoch_cut(1, [slot].into());
+        container.install_epoch_cut(1, [slot].into(), Timestamp::new_test_instance());
 
         container
             .insert(
@@ -927,7 +967,7 @@ mod tests {
         let block = SavedBlock::new_test_instance();
         let slot = block.qualified_root().slot();
         container.advance_epoch();
-        container.install_epoch_cut(1, Default::default());
+        container.install_epoch_cut(1, Default::default(), Timestamp::new_test_instance());
 
         container
             .insert(
@@ -939,6 +979,32 @@ mod tests {
                 Timestamp::new_test_instance(),
             )
             .unwrap();
+
+        assert!(container.is_active_root(&slot.with_epoch(1)));
+        assert!(!container.is_active_root(&slot.with_epoch(2)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn cut_restarts_existing_later_epoch_election_in_closing_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let slot = block.qualified_root().slot();
+        container.advance_epoch();
+        container
+            .insert(
+                AecInsertRequest {
+                    block,
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                    epoch: None,
+                },
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        assert!(container.is_active_root(&slot.with_epoch(2)));
+
+        container.install_epoch_cut(1, [slot].into(), Timestamp::new_test_instance());
 
         assert!(container.is_active_root(&slot.with_epoch(1)));
         assert!(!container.is_active_root(&slot.with_epoch(2)));

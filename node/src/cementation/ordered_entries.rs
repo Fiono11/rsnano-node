@@ -1,5 +1,5 @@
 use rsnano_types::BlockHash;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use super::CementingEntry;
 
@@ -7,7 +7,6 @@ use super::CementingEntry;
 pub(super) struct OrderedEntries {
     sequenced: VecDeque<BlockHash>,
     by_hash: HashMap<BlockHash, CementingEntry>,
-    epoch_counts: BTreeMap<u64, usize>,
 }
 
 impl OrderedEntries {
@@ -16,16 +15,9 @@ impl OrderedEntries {
         let mut inserted = true;
 
         if let Some(existing) = self.by_hash.get_mut(&hash) {
-            let previous_epoch = existing.epoch;
             existing.epoch = existing.epoch.min(entry.epoch);
             inserted = false;
-            if existing.epoch != previous_epoch {
-                let new_epoch = existing.epoch;
-                self.decrement_epoch(previous_epoch);
-                *self.epoch_counts.entry(new_epoch).or_default() += 1;
-            }
         } else {
-            *self.epoch_counts.entry(entry.epoch).or_default() += 1;
             self.by_hash.insert(hash, entry);
         }
 
@@ -54,9 +46,7 @@ impl OrderedEntries {
 
     pub(crate) fn pop_front(&mut self) -> Option<CementingEntry> {
         if let Some(hash) = self.sequenced.pop_front() {
-            let entry = self.by_hash.remove(&hash)?;
-            self.decrement_epoch(entry.epoch);
-            Some(entry)
+            self.by_hash.remove(&hash)
         } else {
             None
         }
@@ -64,7 +54,6 @@ impl OrderedEntries {
 
     pub(crate) fn remove(&mut self, hash: &BlockHash) -> Option<CementingEntry> {
         if let Some(entry) = self.by_hash.remove(hash) {
-            self.decrement_epoch(entry.epoch);
             self.sequenced.retain(|h| *h != entry.confirmation_root);
             Some(entry)
         } else {
@@ -74,20 +63,5 @@ impl OrderedEntries {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.sequenced.is_empty()
-    }
-
-    pub(crate) fn contains_epoch(&self, epoch: u64) -> bool {
-        self.epoch_counts.contains_key(&epoch)
-    }
-
-    fn decrement_epoch(&mut self, epoch: u64) {
-        let count = self
-            .epoch_counts
-            .get_mut(&epoch)
-            .expect("cementation epoch count must match entries");
-        *count -= 1;
-        if *count == 0 {
-            self.epoch_counts.remove(&epoch);
-        }
     }
 }

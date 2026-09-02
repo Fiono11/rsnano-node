@@ -146,14 +146,6 @@ impl ConfirmingSet {
         self.len() == 0
     }
 
-    #[cfg(feature = "rai_protocol")]
-    pub fn has_epoch(&self, epoch: u64) -> bool {
-        let guard = self.thread.mutex.lock().unwrap();
-        guard.set.contains_epoch(epoch)
-            || guard.deferred.contains_epoch(epoch)
-            || guard.current.values().any(|current| *current == epoch)
-    }
-
     pub fn info(&self) -> ConfirmingSetInfo {
         let guard = self.thread.mutex.lock().unwrap();
         ConfirmingSetInfo {

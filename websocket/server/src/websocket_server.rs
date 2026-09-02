@@ -144,10 +144,16 @@ fn election_terminated(hash: &BlockHash, timeout: bool) -> MessageEnvelope {
     )
 }
 
-fn epoch_cut(epoch: u64, cut: &[BlockHash], non_cut: &[BlockHash]) -> MessageEnvelope {
+fn epoch_cut(
+    epoch: u64,
+    cut_hash: &rsnano_types::Blake2Hash,
+    cut: &[BlockHash],
+    non_cut: &[BlockHash],
+) -> MessageEnvelope {
     #[derive(Serialize)]
     struct EpochCut<'a> {
         epoch: u64,
+        cut_hash: &'a rsnano_types::Blake2Hash,
         cut: &'a [BlockHash],
         non_cut: &'a [BlockHash],
     }
@@ -155,6 +161,7 @@ fn epoch_cut(epoch: u64, cut: &[BlockHash], non_cut: &[BlockHash]) -> MessageEnv
         Topic::EpochCut,
         EpochCut {
             epoch,
+            cut_hash,
             cut,
             non_cut,
         },
@@ -228,11 +235,13 @@ impl NodeEventHandler for NodeEventProcessor {
             }
             NodeEvent::EpochCut {
                 epoch,
+                cut_hash,
                 cut,
                 non_cut,
             } => {
                 if self.server.any_subscriber(Topic::EpochCut) {
-                    self.server.broadcast(&epoch_cut(*epoch, cut, non_cut));
+                    self.server
+                        .broadcast(&epoch_cut(*epoch, cut_hash, cut, non_cut));
                 }
             }
             NodeEvent::EpochComplete {

@@ -1,10 +1,6 @@
 use super::VoteGate;
 use crate::{
-    NodeEvent,
-    cementation::{ConfirmingSet, EpochCementationTracker},
-    consensus::AecService,
-    transport::MessageFlooder,
-    wallets::WalletRepresentatives,
+    NodeEvent, consensus::AecService, transport::MessageFlooder, wallets::WalletRepresentatives,
 };
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{EpochFinalization, EpochReportChunk, EpochStart, Message};
@@ -37,8 +33,6 @@ pub struct EpochCoordinator {
     phase: Phase,
     aec: Arc<AecService>,
     ledger: Arc<Ledger>,
-    confirming_set: Arc<ConfirmingSet>,
-    epoch_cementation_tracker: Arc<EpochCementationTracker>,
     gate: Arc<VoteGate>,
     flooder: Arc<Mutex<MessageFlooder>>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -55,6 +49,7 @@ pub struct EpochCoordinator {
     open_epoch: Option<u64>,
     next_start: Option<EpochStart>,
     next_drain_log_ms: u64,
+    next_finalization_broadcast_ms: u64,
     observer: Option<SyncSender<NodeEvent>>,
 }
 
@@ -62,8 +57,6 @@ impl EpochCoordinator {
     pub fn new(
         aec: Arc<AecService>,
         ledger: Arc<Ledger>,
-        confirming_set: Arc<ConfirmingSet>,
-        epoch_cementation_tracker: Arc<EpochCementationTracker>,
         gate: Arc<VoteGate>,
         flooder: Arc<Mutex<MessageFlooder>>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -78,8 +71,6 @@ impl EpochCoordinator {
             phase: Phase::Waiting,
             aec,
             ledger,
-            confirming_set,
-            epoch_cementation_tracker,
             gate,
             flooder,
             wallet_reps,
@@ -96,6 +87,7 @@ impl EpochCoordinator {
             open_epoch: None,
             next_start: None,
             next_drain_log_ms: 0,
+            next_finalization_broadcast_ms: 0,
             observer,
         }
     }
@@ -143,11 +135,20 @@ impl EpochCoordinator {
             .chunks
             .entry(chunk.chunk_index)
             .or_insert(chunk.elections);
+        let provisional_cut: HashSet<_> = self
+            .reports
+            .values()
+            .flat_map(|report| report.chunks.values().flatten().copied())
+            .collect();
+        self.aec
+            .install_epoch_cut(self.closing_epoch, provisional_cut);
     }
 
     pub fn receive_finalization(&mut self, report: EpochFinalization) {
-        if !matches!(self.phase, Phase::Cut | Phase::Converging)
-            || report.epoch != self.closing_epoch
+        if !matches!(
+            self.phase,
+            Phase::Collecting | Phase::Cut | Phase::Converging
+        ) || report.epoch != self.closing_epoch
             || !self.committee.contains(&report.reporter)
             || !report.validate()
         {
@@ -281,9 +282,18 @@ impl EpochCoordinator {
                 non_cut_hashes.push(*hash);
             }
         }
+        let mut cut_slots: Vec<_> = self.cut.iter().copied().collect();
+        cut_slots.sort_unstable();
+        let mut cut_slots_builder = Blake2HashBuilder::default().update(b"RAI/CUT_SLOTS/v1");
+        for slot in cut_slots {
+            cut_slots_builder = cut_slots_builder
+                .update(slot.root.as_bytes())
+                .update(slot.previous.as_bytes());
+        }
         if let Some(observer) = &self.observer {
             let _ = observer.send(NodeEvent::EpochCut {
                 epoch,
+                cut_hash: cut_slots_builder.build(),
                 cut: cut_hashes,
                 non_cut: non_cut_hashes,
             });
@@ -401,11 +411,20 @@ impl EpochCoordinator {
         {
             return;
         }
-        if self
+        if let Some(report) = self
             .finalization_reports
             .get(&reporter)
-            .is_some_and(|report| report.round == self.finalization_round)
+            .filter(|report| report.round == self.finalization_round)
+            .cloned()
         {
+            let now = Self::now_ms();
+            if now >= self.next_finalization_broadcast_ms {
+                self.flooder
+                    .lock()
+                    .unwrap()
+                    .send_to_all_prs_once(&Message::EpochFinalization(report));
+                self.next_finalization_broadcast_ms = now + 250;
+            }
             return;
         }
         let report = EpochFinalization::new(
@@ -420,6 +439,7 @@ impl EpochCoordinator {
             .lock()
             .unwrap()
             .send_to_all_prs_once(&Message::EpochFinalization(report));
+        self.next_finalization_broadcast_ms = Self::now_ms() + 250;
         info!(
             round = self.finalization_round,
             epoch = self.closing_epoch,
@@ -474,6 +494,7 @@ impl EpochCoordinator {
                 self.round_delayed_reporter = None;
                 self.finalization_reports.clear();
                 self.future_finalization_reports.clear();
+                self.next_finalization_broadcast_ms = 0;
                 self.gate.open();
                 info!(
                     epoch = start.epoch,
@@ -495,6 +516,7 @@ impl EpochCoordinator {
         self.round_delayed_reporter = Some(highest_report.reporter);
         self.target_non_cut_count = highest;
         self.finalization_round += 1;
+        self.next_finalization_broadcast_ms = 0;
         self.finalization_reports = self
             .future_finalization_reports
             .remove(&self.finalization_round)
@@ -535,10 +557,7 @@ impl Tickable for EpochCoordinator {
                     .iter()
                     .filter(|slot| !finalized.contains_key(slot))
                     .count();
-                if remaining == 0
-                    && !self.confirming_set.has_epoch(self.closing_epoch)
-                    && self.epoch_cementation_tracker.pending(self.closing_epoch) == 0
-                {
+                if remaining == 0 {
                     info!(cut = self.cut.len(), "RAI epoch cut finalized");
                     // Keep the draining policy installed during convergence. It blocks only the
                     // creation of new votes for non-cut epoch-e elections; votes created before

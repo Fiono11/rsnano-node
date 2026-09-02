@@ -286,7 +286,10 @@ impl AecService {
         epoch: u64,
         cut: std::collections::HashSet<rsnano_types::SlotRoot>,
     ) {
-        self.aec.write().unwrap().install_epoch_cut(epoch, cut);
+        self.aec
+            .write()
+            .unwrap()
+            .install_epoch_cut(epoch, cut, self.clock.now());
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -637,6 +637,13 @@ fn track_confirmations(
                     let Some(epoch) = message.get("epoch").and_then(|value| value.as_u64()) else {
                         continue;
                     };
+                    let Some(cut_hash) = message
+                        .get("cut_hash")
+                        .and_then(|value| value.as_str())
+                        .and_then(rsnano_types::Blake2Hash::decode_hex)
+                    else {
+                        continue;
+                    };
                     let decode = |name: &str| -> HashSet<BlockHash> {
                         message
                             .get(name)
@@ -657,7 +664,7 @@ fn track_confirmations(
                     logic
                         .lock()
                         .unwrap()
-                        .cut_reported(node_index, epoch, cut, non_cut, timestamp);
+                        .cut_reported(node_index, epoch, cut_hash, cut, non_cut, timestamp);
                 }
             } else if msg.topic == Some(Topic::EpochComplete) {
                 let Some(message) = msg.message else {

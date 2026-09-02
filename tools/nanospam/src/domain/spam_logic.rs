@@ -4,7 +4,7 @@ use crate::domain::{
 };
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Amount, Blake2Hash, Blake2HashBuilder, Block, BlockHash};
+use rsnano_types::{Amount, Blake2Hash, Block, BlockHash};
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
@@ -324,20 +324,15 @@ impl SpamLogic {
         &mut self,
         node_index: usize,
         epoch: u64,
+        cut_hash: Blake2Hash,
         cut: HashSet<BlockHash>,
         non_cut: HashSet<BlockHash>,
         timestamp: Timestamp,
     ) {
-        let mut hashes: Vec<_> = cut.iter().copied().collect();
-        hashes.sort_unstable();
-        let mut builder = Blake2HashBuilder::default().update(b"RAI/BENCHMARK_CUT/v1");
-        for hash in hashes {
-            builder = builder.update(hash.as_bytes());
-        }
         self.cut_reports
             .entry(epoch)
             .or_default()
-            .insert(node_index, (builder.build(), timestamp));
+            .insert(node_index, (cut_hash, timestamp));
         if node_index == 0 {
             self.cuts_by_epoch.insert(
                 epoch,
