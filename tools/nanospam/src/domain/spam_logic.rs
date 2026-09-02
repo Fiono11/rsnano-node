@@ -104,9 +104,11 @@ impl SpamLogic {
             // Termination/notarization releases dependent block generation, but it is not
             // finality. Keep the run alive until every requested block has actually been
             // finalized (or the outer timeout cancels it).
-            max_blocks > 0
-                && self.confirmed_total >= max_blocks
-                && self.epochs_completed >= self.spec.expected_epochs
+            if self.spec.expected_epochs > 0 {
+                self.epochs_completed >= self.spec.expected_epochs
+            } else {
+                max_blocks > 0 && self.confirmed_total >= max_blocks
+            }
         }
         #[cfg(not(feature = "rai_protocol"))]
         {

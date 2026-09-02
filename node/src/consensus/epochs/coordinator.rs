@@ -307,13 +307,15 @@ impl EpochCoordinator {
             .find(|key| self.committee.contains(&key.public_key()))
     }
 
-    fn local_finalization(&self) -> (Blake2Hash, u64, usize) {
+    fn local_finalization(
+        &self,
+        finalized: &HashMap<SlotRoot, BlockHash>,
+    ) -> (Blake2Hash, u64, usize) {
         let epoch = self.closing_epoch;
-        let finalized = self.aec.finalized_for_epoch(epoch);
         let mut hashes = Vec::new();
         let mut non_cut_count = 0;
         for (slot, hash) in finalized {
-            hashes.push(hash);
+            hashes.push(*hash);
             if !self.cut.contains(&slot) {
                 non_cut_count += 1;
             }
@@ -330,7 +332,9 @@ impl EpochCoordinator {
         (builder.build(), non_cut_count, hashes.len())
     }
 
-    fn complete_cut_dependency_closure(&self) -> (usize, Blake2Hash, Blake2Hash) {
+    fn complete_cut_dependency_closure(
+        &self,
+    ) -> (HashMap<SlotRoot, BlockHash>, Blake2Hash, Blake2Hash) {
         let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
         let mut cut_winners: Vec<_> = self
             .cut
@@ -371,25 +375,24 @@ impl EpochCoordinator {
         };
         let cut_hash = fingerprint(b"RAI/CUT_WINNERS/v1", &cut_winners);
         let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
-        let closure_count = closure.len();
         // Cementation events are local observations and cannot define a replicated epoch set.
         // The agreed cut winners and their dependency closure are the deterministic finalized
         // set every PR can derive from the protocol transcript.
         self.aec
-            .replace_finalized_for_epoch(self.closing_epoch, closure);
-        (closure_count, cut_hash, closure_hash)
+            .replace_finalized_for_epoch(self.closing_epoch, closure.clone());
+        (closure, cut_hash, closure_hash)
     }
 
     fn send_local_finalization(&mut self) {
         // Cementation only emits newly confirmed blocks. Reconstruct the complete closure here
         // so an already-cemented dependency is attributed identically by every PR.
-        let (closure_count, cut_winners_hash, closure_hash) =
-            self.complete_cut_dependency_closure();
+        let (closure, cut_winners_hash, closure_hash) = self.complete_cut_dependency_closure();
+        let closure_count = closure.len();
         let Some(key) = self.committee_key() else {
             error!("Cannot report RAI finalization: no local committee key");
             return;
         };
-        let (hash, non_cut_count, finalized_count) = self.local_finalization();
+        let (hash, non_cut_count, finalized_count) = self.local_finalization(&closure);
         if self.finalization_round > 0 && non_cut_count < self.target_non_cut_count {
             return;
         }
@@ -535,10 +538,7 @@ impl Tickable for EpochCoordinator {
                     .iter()
                     .filter(|slot| !finalized.contains_key(slot))
                     .count();
-                if remaining == 0
-                    && !self.confirming_set.has_epoch(self.closing_epoch)
-                    && self.epoch_cementation_tracker.pending(self.closing_epoch) == 0
-                {
+                if remaining == 0 {
                     info!(cut = self.cut.len(), "RAI epoch cut finalized");
                     // Keep the draining policy installed during convergence. It blocks only the
                     // creation of new votes for non-cut epoch-e elections; votes created before

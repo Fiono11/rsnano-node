@@ -214,8 +214,10 @@ impl NanoSpamApp {
                     let timeout_cancel = cancel_nanospam.clone();
                     let wait = Duration::from_secs(self.args.timeout);
                     scope.spawn(async move {
-                        tokio::time::sleep(wait).await;
-                        timeout_cancel.cancel();
+                        select! {
+                            _ = tokio::time::sleep(wait) => timeout_cancel.cancel(),
+                            _ = timeout_cancel.cancelled() => {}
+                        }
                     });
                 }
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
