@@ -40,6 +40,7 @@ pub struct EpochCoordinator {
     reports: HashMap<PublicKey, PartialReport>,
     local_snapshot: HashMap<SlotRoot, BlockHash>,
     cut: HashSet<SlotRoot>,
+    reclassified_elections: usize,
     finalization_round: u32,
     target_non_cut_count: u64,
     round_delayed_reporter: Option<PublicKey>,
@@ -78,6 +79,7 @@ impl EpochCoordinator {
             reports: Default::default(),
             local_snapshot: Default::default(),
             cut: Default::default(),
+            reclassified_elections: 0,
             finalization_round: 0,
             target_non_cut_count: 0,
             round_delayed_reporter: None,
@@ -140,7 +142,8 @@ impl EpochCoordinator {
             .values()
             .flat_map(|report| report.chunks.values().flatten().copied())
             .collect();
-        self.aec
+        self.reclassified_elections += self
+            .aec
             .install_epoch_cut(self.closing_epoch, provisional_cut);
     }
 
@@ -270,7 +273,7 @@ impl EpochCoordinator {
             .collect();
         self.gate
             .install_cut(epoch, self.open_epoch, self.cut.clone());
-        self.aec.install_epoch_cut(epoch, self.cut.clone());
+        self.reclassified_elections += self.aec.install_epoch_cut(epoch, self.cut.clone());
         self.gate
             .set_finalized(epoch, self.aec.finalized_for_epoch(epoch));
         let mut cut_hashes = Vec::new();
@@ -294,6 +297,7 @@ impl EpochCoordinator {
             let _ = observer.send(NodeEvent::EpochCut {
                 epoch,
                 cut_hash: cut_slots_builder.build(),
+                reclassified_elections: self.reclassified_elections,
                 cut: cut_hashes,
                 non_cut: non_cut_hashes,
             });
@@ -489,6 +493,7 @@ impl EpochCoordinator {
                 self.reports.clear();
                 self.local_snapshot.clear();
                 self.cut.clear();
+                self.reclassified_elections = 0;
                 self.finalization_round = 0;
                 self.target_non_cut_count = 0;
                 self.round_delayed_reporter = None;

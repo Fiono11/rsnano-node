@@ -51,22 +51,31 @@ const CONNECTIONS_PER_NODE: usize = 4;
 fn log_epoch_stats(epoch: &crate::domain::spam_logic::EpochStats, stdout: bool) {
     let lines = [
         format!(
-            "Epoch {} cut elections: {} total, {} finalized ({:.2}%), completion {} ms, average latency {} ms",
+            "Epoch {} cut elections: {} total, {} finalized ({:.2}%), completion {} ms, latency avg/p50/p95/p99/max {}/{}/{}/{}/{} ms, reclassified {}",
             epoch.epoch,
             epoch.cut.total,
             epoch.cut.finalized,
             epoch.cut.confirmation_percent,
             epoch.cut.completion_time.as_millis(),
-            epoch.cut.average_latency.as_millis()
+            epoch.cut.average_latency.as_millis(),
+            epoch.cut.p50_latency.as_millis(),
+            epoch.cut.p95_latency.as_millis(),
+            epoch.cut.p99_latency.as_millis(),
+            epoch.cut.max_latency.as_millis(),
+            epoch.reclassified_elections
         ),
         format!(
-            "Epoch {} non-cut elections: {} total, {} finalized ({:.2}%), completion {} ms, average latency {} ms",
+            "Epoch {} non-cut elections: {} total, {} finalized ({:.2}%), completion {} ms, latency avg/p50/p95/p99/max {}/{}/{}/{}/{} ms",
             epoch.epoch,
             epoch.non_cut.total,
             epoch.non_cut.finalized,
             epoch.non_cut.confirmation_percent,
             epoch.non_cut.completion_time.as_millis(),
-            epoch.non_cut.average_latency.as_millis()
+            epoch.non_cut.average_latency.as_millis(),
+            epoch.non_cut.p50_latency.as_millis(),
+            epoch.non_cut.p95_latency.as_millis(),
+            epoch.non_cut.p99_latency.as_millis(),
+            epoch.non_cut.max_latency.as_millis()
         ),
         format!(
             "Epoch {} cut hash: {} | convergence {} ms | reports {}/{} | rounds 1 | agree {}",
@@ -644,6 +653,11 @@ fn track_confirmations(
                     else {
                         continue;
                     };
+                    let reclassified_elections = message
+                        .get("reclassified_elections")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or_default()
+                        as usize;
                     let decode = |name: &str| -> HashSet<BlockHash> {
                         message
                             .get(name)
@@ -661,10 +675,15 @@ fn track_confirmations(
                         non_cut = non_cut.len(),
                         "Received RAI epoch cut"
                     );
-                    logic
-                        .lock()
-                        .unwrap()
-                        .cut_reported(node_index, epoch, cut_hash, cut, non_cut, timestamp);
+                    logic.lock().unwrap().cut_reported(
+                        node_index,
+                        epoch,
+                        cut_hash,
+                        reclassified_elections,
+                        cut,
+                        non_cut,
+                        timestamp,
+                    );
                 }
             } else if msg.topic == Some(Topic::EpochComplete) {
                 let Some(message) = msg.message else {

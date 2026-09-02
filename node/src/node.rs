@@ -1678,6 +1678,7 @@ pub enum NodeEvent {
     EpochCut {
         epoch: u64,
         cut_hash: Blake2Hash,
+        reclassified_elections: usize,
         cut: Vec<BlockHash>,
         non_cut: Vec<BlockHash>,
     },

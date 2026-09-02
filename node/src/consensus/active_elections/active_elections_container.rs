@@ -587,7 +587,8 @@ impl ActiveElectionsContainer {
         epoch: u64,
         cut: std::collections::HashSet<rsnano_types::SlotRoot>,
         now: Timestamp,
-    ) {
+    ) -> usize {
+        let mut reclassified = 0;
         self.closing_cut = Some((epoch, cut.clone()));
         for slot in cut {
             if self
@@ -616,6 +617,7 @@ impl ActiveElectionsContainer {
                 self.notify(AecFact::ElectionEnded(entry.election));
             }
             if let Some((block, behavior, priority)) = replacement {
+                reclassified += 1;
                 let _ = self.insert(
                     AecInsertRequest {
                         block,
@@ -627,6 +629,7 @@ impl ActiveElectionsContainer {
                 );
             }
         }
+        reclassified
     }
 
     #[cfg(feature = "rai_protocol")]

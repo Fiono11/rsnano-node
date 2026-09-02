@@ -20,6 +20,14 @@ pub(crate) struct SpamSpec {
     pub(crate) expected_epochs: usize,
 }
 
+fn percentile(sorted: &[Duration], percentile: usize) -> Duration {
+    if sorted.is_empty() {
+        return Duration::ZERO;
+    }
+    let rank = (sorted.len() * percentile).div_ceil(100);
+    sorted[rank.saturating_sub(1)]
+}
+
 pub(crate) struct SpamLogic {
     pub(crate) delayed: DelayedBlocks,
     pub(crate) high_prio_tracker: HighPrioTracker,
@@ -325,6 +333,7 @@ impl SpamLogic {
         node_index: usize,
         epoch: u64,
         cut_hash: Blake2Hash,
+        reclassified_elections: usize,
         cut: HashSet<BlockHash>,
         non_cut: HashSet<BlockHash>,
         timestamp: Timestamp,
@@ -340,6 +349,7 @@ impl SpamLogic {
                     cut,
                     non_cut,
                     installed_at: timestamp,
+                    reclassified_elections,
                 },
             );
         }
@@ -427,6 +437,7 @@ impl SpamLogic {
                     cut: self.group_stats(&cut.cut, cut.installed_at),
                     non_cut: self.group_stats(&cut.non_cut, cut.installed_at),
                     cut_hash,
+                    reclassified_elections: cut.reclassified_elections,
                     cut_hash_convergence: convergence(
                         reports
                             .into_iter()
@@ -461,11 +472,12 @@ impl SpamLogic {
 
     #[cfg(feature = "rai_protocol")]
     fn group_stats(&self, group: &HashSet<BlockHash>, cut_at: Timestamp) -> GroupStats {
-        let times: Vec<_> = group
+        let mut times: Vec<_> = group
             .iter()
             .filter_map(|hash| self.finalization_times.get(hash))
             .copied()
             .collect();
+        times.sort_unstable();
         let finalized = times.len();
         let total = group.len();
         let average_latency = if finalized == 0 {
@@ -488,6 +500,10 @@ impl SpamLogic {
                 .max()
                 .map_or(Duration::ZERO, |at| cut_at.elapsed(*at)),
             average_latency,
+            p50_latency: percentile(&times, 50),
+            p95_latency: percentile(&times, 95),
+            p99_latency: percentile(&times, 99),
+            max_latency: times.last().copied().unwrap_or_default(),
         }
     }
 }
@@ -499,6 +515,10 @@ pub(crate) struct GroupStats {
     pub confirmation_percent: f64,
     pub completion_time: Duration,
     pub average_latency: Duration,
+    pub p50_latency: Duration,
+    pub p95_latency: Duration,
+    pub p99_latency: Duration,
+    pub max_latency: Duration,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -506,6 +526,7 @@ struct EpochCutState {
     cut: HashSet<BlockHash>,
     non_cut: HashSet<BlockHash>,
     installed_at: Timestamp,
+    reclassified_elections: usize,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -514,6 +535,7 @@ pub(crate) struct EpochStats {
     pub cut: GroupStats,
     pub non_cut: GroupStats,
     pub cut_hash: Blake2Hash,
+    pub reclassified_elections: usize,
     pub cut_hash_convergence: Duration,
     pub cut_reports: usize,
     pub cut_hashes_agree: bool,
