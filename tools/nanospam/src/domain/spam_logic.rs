@@ -4,7 +4,7 @@ use crate::domain::{
 };
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Amount, Block, BlockHash};
+use rsnano_types::{Amount, Blake2Hash, Blake2HashBuilder, Block, BlockHash};
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
@@ -40,19 +40,24 @@ pub(crate) struct SpamLogic {
     pub(crate) final_finalized_total: usize,
     pub(crate) sum_termination_time_total: Duration,
     terminated: HashSet<BlockHash>,
+    published: HashSet<BlockHash>,
+    first_publish_at: Option<Timestamp>,
+    last_publish_at: Option<Timestamp>,
     pub(crate) cps_measure_start: Option<Timestamp>,
     #[cfg(feature = "rai_protocol")]
-    cut: HashSet<BlockHash>,
+    cuts_by_epoch: HashMap<u64, EpochCutState>,
     #[cfg(feature = "rai_protocol")]
-    non_cut: HashSet<BlockHash>,
+    cut_reports: HashMap<u64, HashMap<usize, (Blake2Hash, Timestamp)>>,
     #[cfg(feature = "rai_protocol")]
     finalization_times: HashMap<BlockHash, Duration>,
+    #[cfg(feature = "rai_protocol")]
+    finalized_at: HashMap<BlockHash, Timestamp>,
     #[cfg(feature = "rai_protocol")]
     epochs_completed: usize,
     #[cfg(feature = "rai_protocol")]
     completed_epoch_ids: HashSet<u64>,
     #[cfg(feature = "rai_protocol")]
-    epoch_reports: HashMap<u64, HashMap<usize, (u64, String)>>,
+    epoch_reports: HashMap<u64, HashMap<usize, (u64, String, u32, Timestamp)>>,
     #[cfg(feature = "rai_protocol")]
     epoch_error: Option<String>,
 }
@@ -79,13 +84,18 @@ impl SpamLogic {
             final_finalized_total: 0,
             sum_termination_time_total: Duration::ZERO,
             terminated: HashSet::new(),
+            published: HashSet::new(),
+            first_publish_at: None,
+            last_publish_at: None,
             cps_measure_start: None,
             #[cfg(feature = "rai_protocol")]
-            cut: Default::default(),
+            cuts_by_epoch: Default::default(),
             #[cfg(feature = "rai_protocol")]
-            non_cut: Default::default(),
+            cut_reports: Default::default(),
             #[cfg(feature = "rai_protocol")]
             finalization_times: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            finalized_at: Default::default(),
             #[cfg(feature = "rai_protocol")]
             epochs_completed: 0,
             #[cfg(feature = "rai_protocol")]
@@ -195,6 +205,10 @@ impl SpamLogic {
     }
 
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
+        if self.published.insert(*hash) {
+            self.first_publish_at.get_or_insert(now);
+            self.last_publish_at = Some(now);
+        }
         let confirmed_before_publish = self.delayed.published(hash, now);
 
         if self.spec.track_confirmations
@@ -216,6 +230,14 @@ impl SpamLogic {
             self.confirmed_total += 1;
         }
         self.high_prio_tracker.published(hash, now)
+    }
+
+    pub(crate) fn publication_stats(&self) -> (usize, Duration) {
+        let duration = self
+            .first_publish_at
+            .zip(self.last_publish_at)
+            .map_or(Duration::ZERO, |(first, last)| first.elapsed(last));
+        (self.published.len(), duration)
     }
 
     pub(crate) fn confirmed(
@@ -244,6 +266,7 @@ impl SpamLogic {
                 #[cfg(feature = "rai_protocol")]
                 {
                     self.finalization_times.insert(finalized_hash, conf_time);
+                    self.finalized_at.insert(finalized_hash, timestamp);
                 }
             }
         }
@@ -297,9 +320,34 @@ impl SpamLogic {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn install_cut(&mut self, cut: HashSet<BlockHash>, non_cut: HashSet<BlockHash>) {
-        self.cut = cut;
-        self.non_cut = non_cut;
+    pub(crate) fn cut_reported(
+        &mut self,
+        node_index: usize,
+        epoch: u64,
+        cut: HashSet<BlockHash>,
+        non_cut: HashSet<BlockHash>,
+        timestamp: Timestamp,
+    ) {
+        let mut hashes: Vec<_> = cut.iter().copied().collect();
+        hashes.sort_unstable();
+        let mut builder = Blake2HashBuilder::default().update(b"RAI/BENCHMARK_CUT/v1");
+        for hash in hashes {
+            builder = builder.update(hash.as_bytes());
+        }
+        self.cut_reports
+            .entry(epoch)
+            .or_default()
+            .insert(node_index, (builder.build(), timestamp));
+        if node_index == 0 {
+            self.cuts_by_epoch.insert(
+                epoch,
+                EpochCutState {
+                    cut,
+                    non_cut,
+                    installed_at: timestamp,
+                },
+            );
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -307,17 +355,19 @@ impl SpamLogic {
         &mut self,
         node_index: usize,
         epoch: u64,
+        round: u32,
         non_cut_count: u64,
         finalized_hash: String,
+        timestamp: Timestamp,
         prs: usize,
     ) {
         if self.completed_epoch_ids.contains(&epoch) || self.epoch_error.is_some() {
             return;
         }
         let reports = self.epoch_reports.entry(epoch).or_default();
-        let value = (non_cut_count, finalized_hash);
+        let value = (non_cut_count, finalized_hash, round, timestamp);
         if let Some(previous) = reports.insert(node_index, value.clone())
-            && previous != value
+            && (previous.0 != value.0 || previous.1 != value.1 || previous.2 != value.2)
         {
             self.epoch_error = Some(format!(
                 "PR{node_index} emitted conflicting completion reports for RAI epoch {epoch}"
@@ -328,7 +378,10 @@ impl SpamLogic {
             return;
         }
         let first = reports.values().next().unwrap();
-        if reports.values().any(|report| report != first) {
+        if reports
+            .values()
+            .any(|report| report.0 != first.0 || report.1 != first.1)
+        {
             self.epoch_error = Some(format!(
                 "RAI epoch {epoch} closed with different finalized blocks across PRs"
             ));
@@ -349,15 +402,70 @@ impl SpamLogic {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn cut_stats(&self, elapsed: Duration) -> (GroupStats, GroupStats) {
-        (
-            self.group_stats(&self.cut, elapsed),
-            self.group_stats(&self.non_cut, elapsed),
-        )
+    pub(crate) fn epoch_stats(&self, prs: usize) -> Vec<EpochStats> {
+        let mut epochs: Vec<_> = self.cuts_by_epoch.keys().copied().collect();
+        epochs.sort_unstable();
+        epochs
+            .into_iter()
+            .map(|epoch| {
+                let cut = &self.cuts_by_epoch[&epoch];
+                let reports = self.cut_reports.get(&epoch);
+                let completions = self.epoch_reports.get(&epoch);
+                let convergence = |timestamps: Vec<Timestamp>| {
+                    let first = timestamps.iter().min().copied();
+                    let last = timestamps.iter().max().copied();
+                    first
+                        .zip(last)
+                        .map_or(Duration::ZERO, |(a, b)| a.elapsed(b))
+                };
+                let cut_hashes: HashSet<_> = reports
+                    .into_iter()
+                    .flat_map(|values| values.values().map(|(hash, _)| *hash))
+                    .collect();
+                let cut_hash = cut_hashes.iter().next().copied().unwrap_or_default();
+                let epoch_hash = completions
+                    .and_then(|values| values.values().next())
+                    .map(|(_, hash, _, _)| hash.clone())
+                    .unwrap_or_default();
+                EpochStats {
+                    epoch,
+                    cut: self.group_stats(&cut.cut, cut.installed_at),
+                    non_cut: self.group_stats(&cut.non_cut, cut.installed_at),
+                    cut_hash,
+                    cut_hash_convergence: convergence(
+                        reports
+                            .into_iter()
+                            .flat_map(|values| values.values().map(|(_, at)| *at))
+                            .collect(),
+                    ),
+                    cut_reports: reports.map_or(0, HashMap::len),
+                    cut_hashes_agree: cut_hashes.len() <= 1,
+                    epoch_hash,
+                    epoch_hash_convergence: convergence(
+                        completions
+                            .into_iter()
+                            .flat_map(|values| values.values().map(|(_, _, _, at)| *at))
+                            .collect(),
+                    ),
+                    epoch_completion_time: completions
+                        .into_iter()
+                        .flat_map(|values| values.values().map(|(_, _, _, at)| *at))
+                        .max()
+                        .map_or(Duration::ZERO, |at| cut.installed_at.elapsed(at)),
+                    epoch_reports: completions.map_or(0, HashMap::len),
+                    convergence_rounds: completions
+                        .into_iter()
+                        .flat_map(|values| values.values().map(|(_, _, round, _)| *round + 1))
+                        .max()
+                        .unwrap_or_default(),
+                    expected_reports: prs,
+                }
+            })
+            .collect()
     }
 
     #[cfg(feature = "rai_protocol")]
-    fn group_stats(&self, group: &HashSet<BlockHash>, elapsed: Duration) -> GroupStats {
+    fn group_stats(&self, group: &HashSet<BlockHash>, cut_at: Timestamp) -> GroupStats {
         let times: Vec<_> = group
             .iter()
             .filter_map(|hash| self.finalization_times.get(hash))
@@ -378,7 +486,12 @@ impl SpamLogic {
             } else {
                 finalized as f64 * 100.0 / total as f64
             },
-            rate: finalized as f64 / elapsed.as_secs_f64(),
+            completion_time: group
+                .iter()
+                .filter_map(|hash| self.finalized_at.get(hash))
+                .filter(|at| **at > cut_at)
+                .max()
+                .map_or(Duration::ZERO, |at| cut_at.elapsed(*at)),
             average_latency,
         }
     }
@@ -389,8 +502,32 @@ pub(crate) struct GroupStats {
     pub total: usize,
     pub finalized: usize,
     pub confirmation_percent: f64,
-    pub rate: f64,
+    pub completion_time: Duration,
     pub average_latency: Duration,
+}
+
+#[cfg(feature = "rai_protocol")]
+struct EpochCutState {
+    cut: HashSet<BlockHash>,
+    non_cut: HashSet<BlockHash>,
+    installed_at: Timestamp,
+}
+
+#[cfg(feature = "rai_protocol")]
+pub(crate) struct EpochStats {
+    pub epoch: u64,
+    pub cut: GroupStats,
+    pub non_cut: GroupStats,
+    pub cut_hash: Blake2Hash,
+    pub cut_hash_convergence: Duration,
+    pub cut_reports: usize,
+    pub cut_hashes_agree: bool,
+    pub epoch_hash: String,
+    pub epoch_hash_convergence: Duration,
+    pub epoch_completion_time: Duration,
+    pub epoch_reports: usize,
+    pub convergence_rounds: u32,
+    pub expected_reports: usize,
 }
 
 pub(crate) struct SpamStats {

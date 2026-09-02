@@ -283,6 +283,7 @@ impl EpochCoordinator {
         }
         if let Some(observer) = &self.observer {
             let _ = observer.send(NodeEvent::EpochCut {
+                epoch,
                 cut: cut_hashes,
                 non_cut: non_cut_hashes,
             });
@@ -451,6 +452,7 @@ impl EpochCoordinator {
             if let Some(observer) = &self.observer {
                 let _ = observer.send(NodeEvent::EpochComplete {
                     epoch: self.closing_epoch,
+                    round: self.finalization_round,
                     non_cut_count: first.non_cut_count,
                     finalized_hash: first.finalized_hash,
                 });

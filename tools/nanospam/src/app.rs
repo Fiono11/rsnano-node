@@ -47,6 +47,56 @@ use crate::{
 const MAX_BUFFERED_BLOCKS: usize = 1024;
 const CONNECTIONS_PER_NODE: usize = 4;
 
+#[cfg(feature = "rai_protocol")]
+fn log_epoch_stats(epoch: &crate::domain::spam_logic::EpochStats, stdout: bool) {
+    let lines = [
+        format!(
+            "Epoch {} cut elections: {} total, {} finalized ({:.2}%), completion {} ms, average latency {} ms",
+            epoch.epoch,
+            epoch.cut.total,
+            epoch.cut.finalized,
+            epoch.cut.confirmation_percent,
+            epoch.cut.completion_time.as_millis(),
+            epoch.cut.average_latency.as_millis()
+        ),
+        format!(
+            "Epoch {} non-cut elections: {} total, {} finalized ({:.2}%), completion {} ms, average latency {} ms",
+            epoch.epoch,
+            epoch.non_cut.total,
+            epoch.non_cut.finalized,
+            epoch.non_cut.confirmation_percent,
+            epoch.non_cut.completion_time.as_millis(),
+            epoch.non_cut.average_latency.as_millis()
+        ),
+        format!(
+            "Epoch {} cut hash: {} | convergence {} ms | reports {}/{} | rounds 1 | agree {}",
+            epoch.epoch,
+            epoch.cut_hash,
+            epoch.cut_hash_convergence.as_millis(),
+            epoch.cut_reports,
+            epoch.expected_reports,
+            epoch.cut_hashes_agree
+        ),
+        format!(
+            "Epoch {} finalized hash: {} | cut-to-close {} ms | convergence {} ms | reports {}/{} | rounds {}",
+            epoch.epoch,
+            epoch.epoch_hash,
+            epoch.epoch_completion_time.as_millis(),
+            epoch.epoch_hash_convergence.as_millis(),
+            epoch.epoch_reports,
+            epoch.expected_reports,
+            epoch.convergence_rounds
+        ),
+    ];
+    for line in lines {
+        if stdout {
+            println!("{line}");
+        } else {
+            info!("{line}");
+        }
+    }
+}
+
 pub(crate) struct NanoSpamApp {
     tracing_init: TracingInitializer,
     tcp_stream_factory: TcpStreamFactory,
@@ -269,6 +319,13 @@ impl NanoSpamApp {
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
+        let (published_blocks, publication_duration) = logic.publication_stats();
+        let publication_duration_secs = publication_duration.as_secs_f64();
+        let publication_rate = if publication_duration_secs > 0.0 {
+            published_blocks as f64 / publication_duration_secs
+        } else {
+            0.0
+        };
         let finalized_blocks = logic.confirmed_total;
         let terminated_elections = logic.terminated_total;
         let termination_rate = (created_blocks as f64 / duration_secs) as i32;
@@ -286,6 +343,9 @@ impl NanoSpamApp {
         info!(
             "Terminated {terminated_elections} of {created_blocks} elections in {duration_secs:.2}s"
         );
+        info!(
+            "Published {published_blocks} blocks in {publication_duration_secs:.2}s ({publication_rate:.2} blocks/s)"
+        );
         info!("Election termination rate: {termination_rate} elections/s");
         info!("Finalized {finalized_blocks} of {created_blocks} elections");
         #[cfg(feature = "rai_protocol")]
@@ -294,24 +354,8 @@ impl NanoSpamApp {
             logic.fast_finalized_total, logic.final_finalized_total
         );
         #[cfg(feature = "rai_protocol")]
-        {
-            let (cut, non_cut) = logic.cut_stats(started.elapsed());
-            info!(
-                "Cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
-                cut.total,
-                cut.finalized,
-                cut.confirmation_percent,
-                cut.rate,
-                cut.average_latency.as_millis()
-            );
-            info!(
-                "Non-cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
-                non_cut.total,
-                non_cut.finalized,
-                non_cut.confirmation_percent,
-                non_cut.rate,
-                non_cut.average_latency.as_millis()
-            );
+        for epoch in logic.epoch_stats(self.args.prs) {
+            log_epoch_stats(&epoch, false);
         }
         info!("Finalization rate: {finalization_rate} elections/s");
         if finalized_blocks > 0 {
@@ -324,6 +368,9 @@ impl NanoSpamApp {
             println!(
                 "Terminated {terminated_elections} of {created_blocks} elections in {duration_secs:.2}s"
             );
+            println!(
+                "Published {published_blocks} blocks in {publication_duration_secs:.2}s ({publication_rate:.2} blocks/s)"
+            );
             println!("Election termination rate: {termination_rate} elections/s");
             println!("Finalized {finalized_blocks} of {created_blocks} elections");
             #[cfg(feature = "rai_protocol")]
@@ -333,23 +380,9 @@ impl NanoSpamApp {
             );
             #[cfg(feature = "rai_protocol")]
             if self.args.epochs > 0 {
-                let (cut, non_cut) = logic.cut_stats(started.elapsed());
-                println!(
-                    "Cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
-                    cut.total,
-                    cut.finalized,
-                    cut.confirmation_percent,
-                    cut.rate,
-                    cut.average_latency.as_millis()
-                );
-                println!(
-                    "Non-cut elections: {} total, {} finalized ({:.2}%), {:.2} confirmations/s, average latency {} ms",
-                    non_cut.total,
-                    non_cut.finalized,
-                    non_cut.confirmation_percent,
-                    non_cut.rate,
-                    non_cut.average_latency.as_millis()
-                );
+                for epoch in logic.epoch_stats(self.args.prs) {
+                    log_epoch_stats(&epoch, true);
+                }
             }
             println!("Finalization rate: {finalization_rate} elections/s");
             println!("Average finalization time: {finalization_time} ms");
@@ -552,7 +585,10 @@ fn track_confirmations(
             }
             Err(_) => break,
         };
-        if node_index != 0 && msg.topic != Some(Topic::EpochComplete) {
+        if node_index != 0
+            && msg.topic != Some(Topic::EpochComplete)
+            && msg.topic != Some(Topic::EpochCut)
+        {
             continue;
         }
         if msg.topic == Some(Topic::Confirmation) {
@@ -598,6 +634,9 @@ fn track_confirmations(
             #[cfg(feature = "rai_protocol")]
             if msg.topic == Some(Topic::EpochCut) {
                 if let Some(message) = msg.message {
+                    let Some(epoch) = message.get("epoch").and_then(|value| value.as_u64()) else {
+                        continue;
+                    };
                     let decode = |name: &str| -> HashSet<BlockHash> {
                         message
                             .get(name)
@@ -615,7 +654,10 @@ fn track_confirmations(
                         non_cut = non_cut.len(),
                         "Received RAI epoch cut"
                     );
-                    logic.lock().unwrap().install_cut(cut, non_cut);
+                    logic
+                        .lock()
+                        .unwrap()
+                        .cut_reported(node_index, epoch, cut, non_cut, timestamp);
                 }
             } else if msg.topic == Some(Topic::EpochComplete) {
                 let Some(message) = msg.message else {
@@ -630,6 +672,9 @@ fn track_confirmations(
                 else {
                     continue;
                 };
+                let Some(round) = message.get("round").and_then(|value| value.as_u64()) else {
+                    continue;
+                };
                 let Some(finalized_hash) = message
                     .get("finalized_hash")
                     .and_then(|value| value.as_str())
@@ -641,8 +686,10 @@ fn track_confirmations(
                     logic.epoch_reported(
                         node_index,
                         epoch,
+                        round as u32,
                         non_cut_count,
                         finalized_hash.to_owned(),
+                        timestamp,
                         prs,
                     );
                     (logic.epochs_completed(), logic.epoch_error().is_some())

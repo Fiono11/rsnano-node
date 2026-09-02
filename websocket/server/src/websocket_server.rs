@@ -144,13 +144,21 @@ fn election_terminated(hash: &BlockHash, timeout: bool) -> MessageEnvelope {
     )
 }
 
-fn epoch_cut(cut: &[BlockHash], non_cut: &[BlockHash]) -> MessageEnvelope {
+fn epoch_cut(epoch: u64, cut: &[BlockHash], non_cut: &[BlockHash]) -> MessageEnvelope {
     #[derive(Serialize)]
     struct EpochCut<'a> {
+        epoch: u64,
         cut: &'a [BlockHash],
         non_cut: &'a [BlockHash],
     }
-    MessageEnvelope::new(Topic::EpochCut, EpochCut { cut, non_cut })
+    MessageEnvelope::new(
+        Topic::EpochCut,
+        EpochCut {
+            epoch,
+            cut,
+            non_cut,
+        },
+    )
 }
 
 #[derive(Serialize)]
@@ -218,13 +226,18 @@ impl NodeEventHandler for NodeEventProcessor {
                     self.server.broadcast(&election_terminated(hash, *timeout));
                 }
             }
-            NodeEvent::EpochCut { cut, non_cut } => {
+            NodeEvent::EpochCut {
+                epoch,
+                cut,
+                non_cut,
+            } => {
                 if self.server.any_subscriber(Topic::EpochCut) {
-                    self.server.broadcast(&epoch_cut(cut, non_cut));
+                    self.server.broadcast(&epoch_cut(*epoch, cut, non_cut));
                 }
             }
             NodeEvent::EpochComplete {
                 epoch,
+                round,
                 non_cut_count,
                 finalized_hash,
             } => {
@@ -233,6 +246,7 @@ impl NodeEventHandler for NodeEventProcessor {
                         Topic::EpochComplete,
                         serde_json::json!({
                             "epoch": epoch,
+                            "round": round,
                             "non_cut_count": non_cut_count,
                             "finalized_hash": finalized_hash,
                         }),

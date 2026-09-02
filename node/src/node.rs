@@ -1678,11 +1678,13 @@ pub enum NodeEvent {
     VoteProcessed(Arc<Vote>, Result<(), VoteError>),
     BlocksProcessed(Vec<ProcessResult>),
     EpochCut {
+        epoch: u64,
         cut: Vec<BlockHash>,
         non_cut: Vec<BlockHash>,
     },
     EpochComplete {
         epoch: u64,
+        round: u32,
         non_cut_count: u64,
         finalized_hash: Blake2Hash,
     },
