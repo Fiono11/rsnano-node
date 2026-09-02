@@ -182,9 +182,6 @@ impl EpochCoordinator {
 
     fn close(&mut self, epoch: u64) {
         self.gate.pause();
-        // Later epochs may reach consensus concurrently, but their ledger cementation must not
-        // overtake the closing epoch and claim its dependency closure.
-        self.confirming_set.set_max_consensus_epoch(epoch);
         let pending = self.aec.pending_for_epoch(epoch);
         self.local_snapshot = pending.iter().copied().collect();
         let elections: Vec<_> = pending.into_iter().map(|(slot, _)| slot).collect();
@@ -476,14 +473,12 @@ impl EpochCoordinator {
                 self.finalization_reports.clear();
                 self.future_finalization_reports.clear();
                 self.gate.open();
-                self.confirming_set.set_max_consensus_epoch(start.epoch);
                 info!(
                     epoch = start.epoch,
                     "RAI next epoch remains active after prior close"
                 );
                 self.phase = Phase::Open(start);
             } else {
-                self.confirming_set.set_max_consensus_epoch(u64::MAX);
                 self.phase = Phase::Complete;
             }
             return;
@@ -538,7 +533,10 @@ impl Tickable for EpochCoordinator {
                     .iter()
                     .filter(|slot| !finalized.contains_key(slot))
                     .count();
-                if remaining == 0 {
+                if remaining == 0
+                    && !self.confirming_set.has_epoch(self.closing_epoch)
+                    && self.epoch_cementation_tracker.pending(self.closing_epoch) == 0
+                {
                     info!(cut = self.cut.len(), "RAI epoch cut finalized");
                     // Keep the draining policy installed during convergence. It blocks only the
                     // creation of new votes for non-cut epoch-e elections; votes created before

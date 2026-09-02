@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -76,7 +76,6 @@ impl ConfirmingSet {
                     recovered_limit: config.max_blocks * 50 / 100,
                     election_cache: ConfirmedElectionsCache::default(),
                 }),
-                max_consensus_epoch: AtomicU64::new(u64::MAX),
                 stopped: AtomicBool::new(false),
                 condition: Condvar::new(),
                 ledger,
@@ -145,14 +144,6 @@ impl ConfirmingSet {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn set_max_consensus_epoch(&self, epoch: u64) {
-        self.thread
-            .max_consensus_epoch
-            .store(epoch, Ordering::SeqCst);
-        self.thread.condition.notify_all();
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -230,7 +221,6 @@ struct ConfirmingSetThread {
     mutex: Mutex<ConfirmingSetImpl>,
     stopped: AtomicBool,
     condition: Condvar,
-    max_consensus_epoch: AtomicU64,
     ledger: Arc<Ledger>,
     stats: Arc<Stats>,
     config: ConfirmingSetConfig,
@@ -323,9 +313,8 @@ impl ConfirmingSetThread {
                 guard = self.mutex.lock().unwrap();
             }
 
-            let max_epoch = self.max_consensus_epoch.load(Ordering::SeqCst);
-            if guard.set.has_eligible(max_epoch) {
-                let batch = guard.next_batch(self.config.batch_size, max_epoch);
+            if !guard.set.is_empty() {
+                let batch = guard.next_batch(self.config.batch_size);
 
                 // Keep track of the blocks we're currently cementing, so that the .contains (...) check is accurate
                 debug_assert!(guard.current.is_empty());
@@ -349,10 +338,7 @@ impl ConfirmingSetThread {
                 guard = self
                     .condition
                     .wait_while(guard, |i| {
-                        (!i.set
-                            .has_eligible(self.max_consensus_epoch.load(Ordering::SeqCst))
-                            || i.cool_down)
-                            && !self.stopped.load(Ordering::SeqCst)
+                        (i.set.is_empty() || i.cool_down) && !self.stopped.load(Ordering::SeqCst)
                     })
                     .unwrap();
             }
@@ -397,9 +383,9 @@ struct ConfirmingSetImpl {
 }
 
 impl ConfirmingSetImpl {
-    fn next_batch(&mut self, max_count: usize, max_epoch: u64) -> VecDeque<CementingEntry> {
+    fn next_batch(&mut self, max_count: usize) -> VecDeque<CementingEntry> {
         let mut results = VecDeque::new();
-        while let Some(entry) = self.set.pop_front_eligible(max_epoch) {
+        while let Some(entry) = self.set.pop_front() {
             results.push_back(entry);
             if results.len() >= max_count {
                 break;

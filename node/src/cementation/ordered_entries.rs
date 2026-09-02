@@ -80,24 +80,6 @@ impl OrderedEntries {
         self.epoch_counts.contains_key(&epoch)
     }
 
-    pub(crate) fn has_eligible(&self, max_epoch: u64) -> bool {
-        self.epoch_counts
-            .first_key_value()
-            .is_some_and(|(epoch, _)| *epoch <= max_epoch)
-    }
-
-    pub(crate) fn pop_front_eligible(&mut self, max_epoch: u64) -> Option<CementingEntry> {
-        let position = self.sequenced.iter().position(|hash| {
-            self.by_hash
-                .get(hash)
-                .is_some_and(|entry| entry.epoch == 0 || entry.epoch <= max_epoch)
-        })?;
-        let hash = self.sequenced.remove(position)?;
-        let entry = self.by_hash.remove(&hash)?;
-        self.decrement_epoch(entry.epoch);
-        Some(entry)
-    }
-
     fn decrement_epoch(&mut self, epoch: u64) {
         let count = self
             .epoch_counts
@@ -107,48 +89,5 @@ impl OrderedEntries {
         if *count == 0 {
             self.epoch_counts.remove(&epoch);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-
-    fn entry(hash: u64, epoch: u64) -> CementingEntry {
-        CementingEntry {
-            confirmation_root: BlockHash::from(hash),
-            epoch,
-            timestamp: Instant::now(),
-        }
-    }
-
-    #[test]
-    fn tracks_eligible_epochs_across_mutations() {
-        let mut entries = OrderedEntries::default();
-        entries.push_back(entry(1, 2));
-        entries.push_back(entry(2, 1));
-        assert!(!entries.has_eligible(0));
-        assert!(entries.has_eligible(1));
-        assert!(entries.contains_epoch(2));
-
-        assert_eq!(
-            entries.pop_front_eligible(1).unwrap().confirmation_root,
-            BlockHash::from(2)
-        );
-        assert!(!entries.contains_epoch(1));
-        assert!(!entries.has_eligible(1));
-        entries.remove(&BlockHash::from(1));
-        assert!(!entries.has_eligible(u64::MAX));
-    }
-
-    #[test]
-    fn lowering_duplicate_epoch_updates_index() {
-        let mut entries = OrderedEntries::default();
-        entries.push_back(entry(1, 3));
-        entries.push_back(entry(1, 1));
-        assert!(!entries.contains_epoch(3));
-        assert!(entries.contains_epoch(1));
-        assert_eq!(entries.len(), 1);
     }
 }
