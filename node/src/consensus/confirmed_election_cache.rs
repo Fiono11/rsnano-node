@@ -70,7 +70,14 @@ mod tests {
     #[test]
     fn empty() {
         let cache = ConfirmedElectionsCache::default();
-        assert_eq!(cache.max_len(), 4096);
+        assert_eq!(
+            cache.max_len(),
+            if cfg!(feature = "rai_protocol") {
+                1024 * 64
+            } else {
+                4096
+            }
+        );
         assert_eq!(cache.len(), 0);
         assert!(cache.get(&BlockHash::from(123)).is_none());
     }

@@ -409,6 +409,8 @@ mod tests {
     impl Fixture {
         fn with_block(block: SavedBlock) -> Self {
             let root = block.qualified_root();
+            #[cfg(feature = "rai_protocol")]
+            let root = root.with_epoch(1);
             let block_hash = block.hash();
             Self {
                 block,
@@ -421,7 +423,9 @@ mod tests {
         }
 
         fn add_active_election(&mut self) {
-            let election = Election::new_test_instance_with(self.block.clone());
+            let mut election = Election::new_test_instance_with(self.block.clone());
+            #[cfg(feature = "rai_protocol")]
+            election.set_qualified_root(self.root.clone());
             self.roots.insert(Entry {
                 root: self.root.clone(),
                 election,
