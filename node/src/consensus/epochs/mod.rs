@@ -95,6 +95,13 @@ impl VoteGate {
         })
     }
 
+    pub fn allows_vote(&self, root: &QualifiedRoot) -> bool {
+        if self.fast_open.load(Ordering::Acquire) {
+            return true;
+        }
+        Self::allows(&self.state.lock().unwrap().policy, root)
+    }
+
     /// Authorizes only a solicited final-vote recovery response for a winner this node already
     /// finalized in the closing epoch. It does not authorize first/non-final vote generation.
     pub fn allows_final_recovery(&self, root: &QualifiedRoot, hash: &BlockHash) -> bool {
@@ -198,6 +205,18 @@ impl Drop for VotePermit {
 mod tests {
     use super::*;
     use rsnano_types::{BlockHash, Root};
+
+    #[test]
+    fn reports_whether_votes_are_currently_allowed() {
+        let gate = VoteGate::default();
+        let root = QualifiedRoot::new(Root::from(1), BlockHash::from(2));
+
+        assert!(gate.allows_vote(&root));
+        gate.pause();
+        assert!(!gate.allows_vote(&root));
+        gate.open();
+        assert!(gate.allows_vote(&root));
+    }
 
     #[test]
     fn draining_allows_next_epoch_and_only_cut_elections_from_closing_epoch() {

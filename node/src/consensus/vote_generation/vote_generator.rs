@@ -55,6 +55,11 @@ impl VoteGenerator {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn voting_allowed(&self, root: &QualifiedRoot) -> bool {
+        self.shared_state.vote_gate.allows_vote(root)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn clear_vote_spacing(&self) {
         self.shared_state.spacing.lock().unwrap().clear();
     }

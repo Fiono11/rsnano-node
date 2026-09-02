@@ -23,7 +23,6 @@ pub(crate) const NODE_CONFIG: &str = r#"
     allow_local_peers = true
     bandwidth_limit = 0
     enable_voting = true
-    vote_minimum = "0"
     preconfigured_peers = PRECONF_PEERS
     preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
     database_backend = "DB_BACKEND"

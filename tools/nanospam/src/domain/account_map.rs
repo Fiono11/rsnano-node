@@ -220,6 +220,38 @@ impl AccountMap {
         );
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
+    pub fn confirm(&mut self, hash: &BlockHash) {
+        let Some(entry) = self.unconfirmed.remove(hash) else {
+            return;
+        };
+
+        if let Some(fork) = entry.fork {
+            self.unconfirmed.remove(&fork);
+        }
+
+        if let Some(dest) = entry.destination
+            && let Some(entries) = self.receivable.get(&dest)
+            && let Some((_, amount)) = entries.iter().find(|(h, _)| h == hash)
+        {
+            self.confirmed_receivable.insert((dest, *hash), *amount);
+        }
+
+        let Some(state) = self.account_states.get_mut(&entry.source) else {
+            return;
+        };
+        state.confirmed_frontier = *hash;
+        if state.confirmed() {
+            self.confirmed_accounts.insert(entry.source);
+        }
+    }
+
+    #[cfg(all(test, not(feature = "rai_protocol")))]
+    pub fn terminate(&mut self, hash: &BlockHash) {
+        self.confirm(hash);
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn terminate(&mut self, hash: &BlockHash) {
         let Some(primary) = self.primary_hash(hash) else {
             return;
@@ -249,6 +281,7 @@ impl AccountMap {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub fn finalize(&mut self, hash: &BlockHash) -> Vec<BlockHash> {
         let Some(primary) = self.primary_hash(hash) else {
             return Vec::new();
@@ -297,6 +330,7 @@ impl AccountMap {
         finalized.into_iter().map(|(_, winner, _)| winner).collect()
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub fn rollback(&mut self, hash: &BlockHash) {
         let Some(primary) = self.primary_hash(hash) else {
             return;
@@ -436,6 +470,7 @@ mod tests {
         assert_eq!(map.state(&dest_account).unwrap().balance, Amount::ZERO);
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn confirming_send_fork_uses_winning_hash() {
         let mut map = AccountMap::default();
@@ -539,6 +574,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn confirming_receive_fork_uses_winning_hash() {
         let mut map = AccountMap::default();
@@ -563,6 +599,7 @@ mod tests {
         assert!(map.random_account_that_can_send().is_some());
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn notarization_advances_slot_without_finalizing() {
         let mut map = AccountMap::default();
@@ -582,6 +619,7 @@ mod tests {
         assert!(map.finalize(&BlockHash::from(999)).is_empty());
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn finalizing_descendant_finalizes_notarized_ancestors() {
         let mut map = AccountMap::default();
@@ -605,6 +643,7 @@ mod tests {
         assert!(map.finalize(&first).is_empty());
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn finalizing_receive_finalizes_source_send() {
         let mut map = AccountMap::default();
@@ -639,6 +678,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn timeout_rolls_back_without_advancing_slot() {
         let mut map = AccountMap::default();
@@ -658,6 +698,7 @@ mod tests {
         assert!(state.confirmed());
     }
 
+    #[cfg(feature = "rai_protocol")]
     #[test]
     fn finalization_before_termination_advances_and_finalizes_slot() {
         let mut map = AccountMap::default();

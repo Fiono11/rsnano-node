@@ -103,6 +103,10 @@ impl Tickable for AecVoter {
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
         for target in targets {
+            #[cfg(feature = "rai_protocol")]
+            if !self.vote_generators.voting_allowed(&target.root) {
+                continue;
+            }
             if target.vote_type == VoteType::NonFinal {
                 if skip_non_final {
                     continue;

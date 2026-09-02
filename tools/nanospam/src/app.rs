@@ -245,6 +245,12 @@ impl NanoSpamApp {
                 epochs = self.args.epochs,
                 "Scheduled common RAI epochs on all PRs"
             );
+
+            let now_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+            tokio::time::sleep(Duration::from_millis(
+                starts_at_unix_ms.saturating_sub(now_ms),
+            ))
+            .await;
         }
 
         let tx_forks_clone = tx_blocks.clone();
@@ -256,8 +262,13 @@ impl NanoSpamApp {
             std::sync::mpsc::channel::<(usize, MessageEnvelope, Timestamp)>();
 
         info!("Connecting to websocket...");
-        let mut conf_receivers = Vec::with_capacity(self.args.prs);
-        for node_index in 0..self.args.prs {
+        let receiver_count = if cfg!(feature = "rai_protocol") {
+            self.args.prs
+        } else {
+            1
+        };
+        let mut conf_receivers = Vec::with_capacity(receiver_count);
+        for node_index in 0..receiver_count {
             conf_receivers.push(ConfirmationReceiver::connect(node_index, node_index == 0).await?);
         }
 
@@ -294,6 +305,7 @@ impl NanoSpamApp {
                     });
                 }
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
+                #[cfg(feature = "rai_protocol")]
                 scope.spawn(reconcile_confirmations(
                     genesis_rpc,
                     &logic,
@@ -704,7 +716,8 @@ fn track_confirmations(
                     time.as_millis()
                 );
             }
-        } else if msg.topic == Some(Topic::ElectionTerminated)
+        } else if cfg!(feature = "rai_protocol")
+            && msg.topic == Some(Topic::ElectionTerminated)
             && let Some(ref message) = msg.message
             && let Some(hash) = message.get("hash").and_then(|value| value.as_str())
             && let Some(hash) = BlockHash::decode_hex(hash)
@@ -713,8 +726,11 @@ fn track_confirmations(
                 .get("timeout")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
-            let mut logic = logic.lock().unwrap();
-            logic.terminated(&hash, timeout, timestamp);
+            #[cfg(feature = "rai_protocol")]
+            {
+                let mut logic = logic.lock().unwrap();
+                logic.terminated(&hash, timeout, timestamp);
+            }
         } else {
             #[cfg(feature = "rai_protocol")]
             if msg.topic == Some(Topic::EpochCut) {
@@ -859,6 +875,7 @@ async fn log_status(
     }
 }
 
+#[cfg(feature = "rai_protocol")]
 async fn reconcile_confirmations(
     rpc: &NanoRpcClient,
     logic: &Mutex<SpamLogic>,

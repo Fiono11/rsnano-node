@@ -95,14 +95,27 @@ impl BlockFactory {
         self.max_blocks > 0 && self.created >= self.max_blocks
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
+    pub fn confirm(&mut self, hash: &BlockHash) {
+        self.account_map.confirm(hash);
+    }
+
+    #[cfg(all(test, not(feature = "rai_protocol")))]
+    pub fn terminate(&mut self, hash: &BlockHash) {
+        self.confirm(hash);
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn terminate(&mut self, hash: &BlockHash) {
         self.account_map.terminate(hash);
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub fn finalize(&mut self, hash: &BlockHash) -> Vec<BlockHash> {
         self.account_map.finalize(hash)
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub fn rollback(&mut self, hash: &BlockHash) {
         self.account_map.rollback(hash);
     }

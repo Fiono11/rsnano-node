@@ -49,6 +49,10 @@ impl VoteGenerators {
         self.first_vote_generator.cut_generation()
     }
 
+    pub fn voting_allowed(&self, root: &QualifiedRoot) -> bool {
+        self.first_vote_generator.voting_allowed(root)
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn clear_vote_spacing(&self) {
         self.non_final_vote_generator.clear_vote_spacing();

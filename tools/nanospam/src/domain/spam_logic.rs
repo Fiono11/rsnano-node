@@ -130,12 +130,11 @@ impl SpamLogic {
         }
         #[cfg(not(feature = "rai_protocol"))]
         {
-            max_blocks > 0
-                && (self.confirmed_total >= max_blocks
-                    || (self.block_factory.created() >= max_blocks && self.delayed.len() == 0))
+            max_blocks > 0 && self.confirmed_total >= max_blocks
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn terminated(&mut self, hash: &BlockHash, timeout: bool, now: Timestamp) -> bool {
         let Some(primary) = self.delayed.primary_hash(hash) else {
             return false;
@@ -152,6 +151,7 @@ impl SpamLogic {
         true
     }
 
+    #[cfg(feature = "rai_protocol")]
     fn record_termination(&mut self, primary: BlockHash, now: Timestamp) -> bool {
         if !self.terminated.insert(primary) {
             return false;
@@ -229,11 +229,17 @@ impl SpamLogic {
             self.confirmed_total += 1;
             self.sum_conf_time_recent += conf_time;
             self.sum_conf_time_total += conf_time;
+            #[cfg(not(feature = "rai_protocol"))]
+            self.block_factory.confirm(hash);
+            #[cfg(feature = "rai_protocol")]
             self.block_factory.terminate(hash);
         }
 
         if !self.spec.track_confirmations {
             self.delayed.confirmed(hash, now);
+            #[cfg(not(feature = "rai_protocol"))]
+            self.block_factory.confirm(hash);
+            #[cfg(feature = "rai_protocol")]
             self.block_factory.terminate(hash);
             self.confirmed_total += 1;
         }
@@ -254,27 +260,46 @@ impl SpamLogic {
         timestamp: Timestamp,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
-            let finalized = self.block_factory.finalize(block_hash);
-            for finalized_hash in finalized {
-                if let Some(primary) = self.delayed.primary_hash(&finalized_hash) {
-                    // A finalization certificate also proves notarization. Record the implied
-                    // termination if its websocket notification has not arrived yet.
-                    self.record_termination(primary, timestamp);
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                let conf_time = self.delayed.confirmed(block_hash, timestamp);
+                if let Some(conf_time) = conf_time {
+                    if self.cps_measure_start.is_none() {
+                        self.cps_measure_start = Some(timestamp);
+                    }
+                    self.confirmed_recent += 1;
+                    self.confirmed_total += 1;
+                    self.terminated_total += 1;
+                    self.sum_conf_time_recent += conf_time;
+                    self.sum_conf_time_total += conf_time;
+                    self.sum_termination_time_total += conf_time;
                 }
-                let Some(conf_time) = self.delayed.confirmed(&finalized_hash, timestamp) else {
-                    continue;
-                };
-                if self.cps_measure_start.is_none() {
-                    self.cps_measure_start = Some(timestamp);
-                }
-                self.confirmed_recent += 1;
-                self.confirmed_total += 1;
-                self.sum_conf_time_recent += conf_time;
-                self.sum_conf_time_total += conf_time;
-                #[cfg(feature = "rai_protocol")]
-                {
-                    self.finalization_times.insert(finalized_hash, conf_time);
-                    self.finalized_at.insert(finalized_hash, timestamp);
+                self.block_factory.confirm(block_hash);
+            }
+            #[cfg(feature = "rai_protocol")]
+            {
+                let finalized = self.block_factory.finalize(block_hash);
+                for finalized_hash in finalized {
+                    if let Some(primary) = self.delayed.primary_hash(&finalized_hash) {
+                        // A finalization certificate also proves notarization. Record the implied
+                        // termination if its websocket notification has not arrived yet.
+                        self.record_termination(primary, timestamp);
+                    }
+                    let Some(conf_time) = self.delayed.confirmed(&finalized_hash, timestamp) else {
+                        continue;
+                    };
+                    if self.cps_measure_start.is_none() {
+                        self.cps_measure_start = Some(timestamp);
+                    }
+                    self.confirmed_recent += 1;
+                    self.confirmed_total += 1;
+                    self.sum_conf_time_recent += conf_time;
+                    self.sum_conf_time_total += conf_time;
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        self.finalization_times.insert(finalized_hash, conf_time);
+                        self.finalized_at.insert(finalized_hash, timestamp);
+                    }
                 }
             }
         }
