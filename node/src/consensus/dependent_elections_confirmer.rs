@@ -21,7 +21,10 @@ impl DependentElectionsConfirmer {
     }
 
     /// Confirmed blocks might implicitly confirm dependent elections
-    pub fn confirm_dependent_elections(&self, confirmed_blocks: &Vec<(SavedBlock, BlockHash, u64)>) {
+    pub fn confirm_dependent_elections(
+        &self,
+        confirmed_blocks: &Vec<(SavedBlock, BlockHash, u64)>,
+    ) {
         let blocks_plus_election = self.blocks_plus_elections(confirmed_blocks);
         let now = self.clock.now();
 

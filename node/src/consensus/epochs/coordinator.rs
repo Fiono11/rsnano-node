@@ -6,8 +6,8 @@ use crate::{
     transport::MessageFlooder,
     wallets::WalletRepresentatives,
 };
-use rsnano_messages::{EpochFinalization, EpochReportChunk, EpochStart, Message};
 use rsnano_ledger::{AnySet, Ledger};
+use rsnano_messages::{EpochFinalization, EpochReportChunk, EpochStart, Message};
 use rsnano_types::{Blake2Hash, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, SlotRoot};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{

@@ -13,7 +13,9 @@ pub(crate) struct VoteRouter {
     #[cfg(not(feature = "rai_protocol"))]
     elections: HashMap<BlockHash, QualifiedRoot>,
     #[cfg(feature = "rai_protocol")]
-    elections: HashMap<(BlockHash, u64), QualifiedRoot>,
+    elections: HashMap<BlockHash, HashMap<u64, QualifiedRoot>>,
+    #[cfg(feature = "rai_protocol")]
+    route_count: usize,
 }
 
 impl VoteRouter {
@@ -23,7 +25,18 @@ impl VoteRouter {
         #[cfg(not(feature = "rai_protocol"))]
         self.elections.insert(hash, root);
         #[cfg(feature = "rai_protocol")]
-        self.elections.insert((hash, root.epoch), root);
+        {
+            let epoch = root.epoch;
+            if self
+                .elections
+                .entry(hash)
+                .or_default()
+                .insert(epoch, root)
+                .is_none()
+            {
+                self.route_count += 1;
+            }
+        }
     }
 
     /// Remove all routes to this election
@@ -32,8 +45,7 @@ impl VoteRouter {
             #[cfg(not(feature = "rai_protocol"))]
             self.elections.remove(hash);
             #[cfg(feature = "rai_protocol")]
-            self.elections
-                .remove(&(*hash, election.qualified_root().epoch));
+            self.disconnect(hash, election.qualified_root().epoch);
         }
     }
 
@@ -42,7 +54,14 @@ impl VoteRouter {
         #[cfg(not(feature = "rai_protocol"))]
         self.elections.remove(hash);
         #[cfg(feature = "rai_protocol")]
-        self.elections.remove(&(*hash, epoch));
+        if let Some(epochs) = self.elections.get_mut(hash) {
+            if epochs.remove(&epoch).is_some() {
+                self.route_count -= 1;
+            }
+            if epochs.is_empty() {
+                self.elections.remove(hash);
+            }
+        }
     }
 
     pub fn qualified_root(
@@ -53,30 +72,36 @@ impl VoteRouter {
         #[cfg(not(feature = "rai_protocol"))]
         return self.elections.get(hash);
         #[cfg(feature = "rai_protocol")]
-        return self.elections.get(&(*hash, epoch));
+        return self.elections.get(hash)?.get(&epoch);
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn qualified_root_any_epoch(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
-        self.elections
-            .iter()
-            .find_map(|((candidate, _), root)| (candidate == hash).then_some(root))
+        self.elections.get(hash)?.values().next()
     }
 
     pub fn is_active(&self, hash: &BlockHash) -> bool {
         #[cfg(not(feature = "rai_protocol"))]
         return self.elections.contains_key(hash);
         #[cfg(feature = "rai_protocol")]
-        return self
-            .elections
-            .keys()
-            .any(|(candidate, _)| candidate == hash);
+        return self.elections.contains_key(hash);
     }
 
     pub fn container_info(&self) -> ContainerInfo {
         [(
             "elections",
-            self.elections.len(),
+            if cfg!(feature = "rai_protocol") {
+                #[cfg(feature = "rai_protocol")]
+                {
+                    self.route_count
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    unreachable!()
+                }
+            } else {
+                self.elections.len()
+            },
             size_of::<BlockHash>()
                 + size_of::<QualifiedRoot>()
                 + if cfg!(feature = "rai_protocol") {

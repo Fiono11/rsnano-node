@@ -232,11 +232,7 @@ impl ActiveElectionsContainer {
         request: &AecInsertRequest,
     ) -> Result<(), AecInsertError> {
         let root = self.request_root(request);
-        if self
-            .roots
-            .round_robin()
-            .any(|entry| entry.root.epoch < root.epoch && entry.root.slot() == root.slot())
-        {
+        if self.roots.has_earlier_epoch(&root) {
             Err(AecInsertError::Duplicate)
         } else {
             Ok(())
@@ -480,7 +476,11 @@ impl ActiveElectionsContainer {
         let election = &entry.election;
 
         #[cfg(feature = "rai_protocol")]
-        if election.is_confirmed() && !self.sealed_epochs.contains(&election.qualified_root().epoch) {
+        if election.is_confirmed()
+            && !self
+                .sealed_epochs
+                .contains(&election.qualified_root().epoch)
+        {
             self.finalized_by_epoch
                 .entry(election.qualified_root().epoch)
                 .or_default()
@@ -490,10 +490,7 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         let superseded = if election.is_confirmed() {
             let finalized_root = election.qualified_root().clone();
-            self.roots.drain_filter(|candidate| {
-                candidate.root.epoch > finalized_root.epoch
-                    && candidate.root.slot() == finalized_root.slot()
-            })
+            self.roots.drain_later_epochs(&finalized_root)
         } else {
             Vec::new()
         };

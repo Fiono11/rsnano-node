@@ -16,9 +16,21 @@ mod tests {
     fn remains_pending_until_every_confirmation_is_applied() {
         let tracker = EpochCementationTracker::default();
         let blocks = vec![
-            (SavedBlock::new_test_instance_with_key(1), BlockHash::from(11), 1),
-            (SavedBlock::new_test_instance_with_key(2), BlockHash::from(12), 1),
-            (SavedBlock::new_test_instance_with_key(3), BlockHash::from(13), 2),
+            (
+                SavedBlock::new_test_instance_with_key(1),
+                BlockHash::from(11),
+                1,
+            ),
+            (
+                SavedBlock::new_test_instance_with_key(2),
+                BlockHash::from(12),
+                1,
+            ),
+            (
+                SavedBlock::new_test_instance_with_key(3),
+                BlockHash::from(13),
+                2,
+            ),
         ];
         tracker.event_enqueued(&LedgerEvent::BlocksConfirmed(blocks.clone()));
 
@@ -45,7 +57,10 @@ impl EpochCementationTracker {
         }
     }
 
-    pub fn confirmations_applied(&self, blocks: &[(rsnano_types::SavedBlock, rsnano_types::BlockHash, u64)]) {
+    pub fn confirmations_applied(
+        &self,
+        blocks: &[(rsnano_types::SavedBlock, rsnano_types::BlockHash, u64)],
+    ) {
         let mut pending = self.pending.lock().unwrap();
         for (_, _, epoch) in blocks {
             if *epoch == 0 {

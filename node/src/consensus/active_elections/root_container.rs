@@ -1,5 +1,7 @@
 use std::{cmp::Ordering, collections::BTreeSet};
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::SlotRoot;
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
@@ -54,6 +56,8 @@ impl PartialOrd for BucketEntry {
 /// Contains elections and their qualified roots
 pub(crate) struct RootContainer {
     by_root: FxHashMap<QualifiedRoot, Entry>,
+    #[cfg(feature = "rai_protocol")]
+    by_slot: FxHashMap<SlotRoot, BTreeSet<u64>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -74,6 +78,8 @@ impl RootContainer {
         let max_elections_per_bucket = max_elections / bucket_count;
         Self {
             by_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            by_slot: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -97,6 +103,11 @@ impl RootContainer {
         infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
 
         self.by_root.insert(root.clone(), entry);
+        #[cfg(feature = "rai_protocol")]
+        self.by_slot
+            .entry(root.slot())
+            .or_default()
+            .insert(root.epoch);
         self.vote_router.connect(hash, root.clone());
     }
 
@@ -227,9 +238,39 @@ impl RootContainer {
         removed
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_earlier_epoch(&self, root: &QualifiedRoot) -> bool {
+        self.by_slot
+            .get(&root.slot())
+            .and_then(|epochs| epochs.first())
+            .is_some_and(|epoch| *epoch < root.epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn drain_later_epochs(&mut self, root: &QualifiedRoot) -> Vec<Entry> {
+        let roots: Vec<_> = self
+            .by_slot
+            .get(&root.slot())
+            .into_iter()
+            .flat_map(|epochs| epochs.range((root.epoch + 1)..).copied())
+            .map(|epoch| root.slot().with_epoch(epoch))
+            .collect();
+        roots
+            .into_iter()
+            .filter_map(|candidate| self.erase(&candidate))
+            .collect()
+    }
+
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Entry> {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
+            #[cfg(feature = "rai_protocol")]
+            if let Some(epochs) = self.by_slot.get_mut(&entry.root.slot()) {
+                epochs.remove(&entry.root.epoch);
+                if epochs.is_empty() {
+                    self.by_slot.remove(&entry.root.slot());
+                }
+            }
             self.vote_router.disconnect_election(&entry.election);
             let bucket = &mut self.buckets[entry.bucket()];
             bucket.remove(&BucketEntry {
@@ -246,6 +287,9 @@ impl RootContainer {
 
     pub fn clear(&mut self) {
         self.by_root.clear();
+        #[cfg(feature = "rai_protocol")]
+        self.by_slot.clear();
+        self.vote_router = Default::default();
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
         }

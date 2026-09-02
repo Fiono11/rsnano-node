@@ -255,9 +255,13 @@ impl ConfirmingSetThread {
             let mut guard = self.mutex.lock().unwrap();
             let epoch = election.as_ref().map_or(0, |e| {
                 #[cfg(feature = "rai_protocol")]
-                { e.epoch }
+                {
+                    e.epoch
+                }
                 #[cfg(not(feature = "rai_protocol"))]
-                { 0 }
+                {
+                    0
+                }
             });
             if let Some(e) = election {
                 guard.election_cache.insert(e);
@@ -345,7 +349,8 @@ impl ConfirmingSetThread {
                 guard = self
                     .condition
                     .wait_while(guard, |i| {
-                        (!i.set.has_eligible(self.max_consensus_epoch.load(Ordering::SeqCst))
+                        (!i.set
+                            .has_eligible(self.max_consensus_epoch.load(Ordering::SeqCst))
                             || i.cool_down)
                             && !self.stopped.load(Ordering::SeqCst)
                     })
@@ -446,7 +451,10 @@ impl<'a> CementedNotifier<'a> {
         Self {
             confirming_set,
             already_confirmed: Default::default(),
-            epochs: batch.iter().map(|entry| (entry.confirmation_root, entry.epoch)).collect(),
+            epochs: batch
+                .iter()
+                .map(|entry| (entry.confirmation_root, entry.epoch))
+                .collect(),
         }
     }
 }
