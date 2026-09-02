@@ -3,15 +3,28 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
-#[derive(Default)]
 pub struct VoteGate {
     state: Mutex<GateInner>,
     drained: Condvar,
     cut_generation: AtomicU64,
+    fast_open: AtomicBool,
+    fast_in_flight: AtomicUsize,
+}
+
+impl Default for VoteGate {
+    fn default() -> Self {
+        Self {
+            state: Default::default(),
+            drained: Default::default(),
+            cut_generation: Default::default(),
+            fast_open: AtomicBool::new(true),
+            fast_in_flight: Default::default(),
+        }
+    }
 }
 
 mod coordinator;
@@ -60,12 +73,26 @@ impl VoteGate {
     }
 
     pub fn enter(self: &Arc<Self>, root: &QualifiedRoot) -> Option<VotePermit> {
+        if self.fast_open.load(Ordering::Acquire) {
+            self.fast_in_flight.fetch_add(1, Ordering::AcqRel);
+            if self.fast_open.load(Ordering::Acquire) {
+                return Some(VotePermit {
+                    gate: self.clone(),
+                    fast: true,
+                });
+            }
+            self.leave_fast();
+        }
+
         let mut state = self.state.lock().unwrap();
         if !Self::allows(&state.policy, root) {
             return None;
         }
         state.in_flight += 1;
-        Some(VotePermit { gate: self.clone() })
+        Some(VotePermit {
+            gate: self.clone(),
+            fast: false,
+        })
     }
 
     /// Authorizes only a solicited final-vote recovery response for a winner this node already
@@ -98,12 +125,14 @@ impl VoteGate {
 
     pub fn open(&self) {
         self.state.lock().unwrap().policy = VoteGateState::Open;
+        self.fast_open.store(true, Ordering::Release);
     }
 
     pub fn pause(&self) {
+        self.fast_open.store(false, Ordering::Release);
         let mut state = self.state.lock().unwrap();
         state.policy = VoteGateState::Paused;
-        while state.in_flight > 0 {
+        while state.in_flight > 0 || self.fast_in_flight.load(Ordering::Acquire) > 0 {
             state = self.drained.wait(state).unwrap();
         }
     }
@@ -112,6 +141,7 @@ impl VoteGate {
     /// collected. New closing-epoch phase votes remain blocked; cached replies bypass this gate,
     /// and `allows_final_recovery` admits final recovery for locally finalized winners.
     pub fn start_collecting(&self, closing_epoch: u64, open_epoch: Option<u64>) {
+        self.fast_open.store(false, Ordering::Release);
         self.state.lock().unwrap().policy = VoteGateState::Collecting {
             closing_epoch,
             open_epoch,
@@ -124,6 +154,7 @@ impl VoteGate {
         open_epoch: Option<u64>,
         cut_elections: HashSet<SlotRoot>,
     ) {
+        self.fast_open.store(false, Ordering::Release);
         self.state.lock().unwrap().policy = VoteGateState::Draining {
             closing_epoch: epoch,
             open_epoch,
@@ -135,14 +166,26 @@ impl VoteGate {
     pub fn cut_generation(&self) -> u64 {
         self.cut_generation.load(Ordering::Acquire)
     }
+
+    fn leave_fast(&self) {
+        if self.fast_in_flight.fetch_sub(1, Ordering::AcqRel) == 1 {
+            let _state = self.state.lock().unwrap();
+            self.drained.notify_all();
+        }
+    }
 }
 
 pub struct VotePermit {
     gate: Arc<VoteGate>,
+    fast: bool,
 }
 
 impl Drop for VotePermit {
     fn drop(&mut self) {
+        if self.fast {
+            self.gate.leave_fast();
+            return;
+        }
         let mut state = self.gate.state.lock().unwrap();
         state.in_flight -= 1;
         if state.in_flight == 0 {
