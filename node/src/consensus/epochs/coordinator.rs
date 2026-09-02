@@ -43,7 +43,6 @@ pub struct EpochCoordinator {
     reclassified_elections: usize,
     finalization_round: u32,
     target_non_cut_count: u64,
-    round_delayed_reporter: Option<PublicKey>,
     finalization_reports: HashMap<PublicKey, EpochFinalization>,
     future_finalization_reports: HashMap<u32, HashMap<PublicKey, EpochFinalization>>,
     closing_epoch: u64,
@@ -82,7 +81,6 @@ impl EpochCoordinator {
             reclassified_elections: 0,
             finalization_round: 0,
             target_non_cut_count: 0,
-            round_delayed_reporter: None,
             finalization_reports: Default::default(),
             future_finalization_reports: Default::default(),
             closing_epoch: 0,
@@ -95,10 +93,26 @@ impl EpochCoordinator {
     }
 
     pub fn schedule(&mut self, start: EpochStart) {
+        if let Phase::Scheduled(current) = &mut self.phase
+            && start.epoch == current.epoch
+        {
+            current.closes_at_unix_ms = current.closes_at_unix_ms.min(start.closes_at_unix_ms);
+            return;
+        }
+        if let Phase::Open(current) = &mut self.phase
+            && start.epoch == current.epoch
+        {
+            current.closes_at_unix_ms = current.closes_at_unix_ms.min(start.closes_at_unix_ms);
+            return;
+        }
         if !matches!(self.phase, Phase::Waiting) {
-            if start.epoch == self.closing_epoch + 1 && self.next_start.is_none() {
-                info!(epoch = start.epoch, "RAI next epoch scheduled");
-                self.next_start = Some(start);
+            if start.epoch == self.closing_epoch + 1 {
+                if let Some(next) = &mut self.next_start {
+                    next.closes_at_unix_ms = next.closes_at_unix_ms.min(start.closes_at_unix_ms);
+                } else {
+                    info!(epoch = start.epoch, "RAI next epoch scheduled");
+                    self.next_start = Some(start);
+                }
             }
             return;
         }
@@ -171,7 +185,13 @@ impl EpochCoordinator {
         let replace = self
             .finalization_reports
             .get(&report.reporter)
-            .is_none_or(|old| report.round > old.round);
+            .is_none_or(|old| {
+                report.round > old.round
+                    || (report.round == old.round
+                        && (report.non_cut_count > old.non_cut_count
+                            || (report.non_cut_count == old.non_cut_count
+                                && report.finalized_hash != old.finalized_hash)))
+            });
         if replace {
             self.finalization_reports.insert(report.reporter, report);
         }
@@ -360,6 +380,9 @@ impl EpochCoordinator {
             .filter_map(|slot| finalized.get(slot).copied())
             .collect();
         let mut visited = HashSet::new();
+        // Slot elections may finalize locally in more than one epoch. Epoch-close membership is
+        // instead derived only from the replicated cut and its dependency closure, then assigned
+        // to the earliest close which contains each slot.
         let mut closure = HashMap::new();
         let any = self.ledger.any();
         while let Some(hash) = stack.pop() {
@@ -376,8 +399,6 @@ impl EpochCoordinator {
                 }
             }
         }
-        let mut closure_hashes: Vec<_> = closure.values().copied().collect();
-        closure_hashes.sort_unstable();
         let fingerprint = |domain: &[u8], hashes: &[BlockHash]| {
             let mut builder = Blake2HashBuilder::default().update(domain);
             for hash in hashes {
@@ -386,12 +407,16 @@ impl EpochCoordinator {
             builder.build()
         };
         let cut_hash = fingerprint(b"RAI/CUT_WINNERS/v1", &cut_winners);
-        let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
         // Cementation events are local observations and cannot define a replicated epoch set.
         // The agreed cut winners and their dependency closure are the deterministic finalized
-        // set every PR can derive from the protocol transcript.
+        // set every PR can derive from the protocol transcript. Normalize through the AEC before
+        // hashing so slots already claimed by an earlier epoch cannot appear in this close.
         self.aec
-            .replace_finalized_for_epoch(self.closing_epoch, closure.clone());
+            .replace_finalized_for_epoch(self.closing_epoch, closure);
+        let closure = self.aec.finalized_for_epoch(self.closing_epoch);
+        let mut closure_hashes: Vec<_> = closure.values().copied().collect();
+        closure_hashes.sort_unstable();
+        let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
         (closure, cut_hash, closure_hash)
     }
 
@@ -409,26 +434,31 @@ impl EpochCoordinator {
             return;
         }
         let reporter = key.public_key();
-        if self.finalization_round > 0
-            && self.round_delayed_reporter == Some(reporter)
-            && self.finalization_reports.is_empty()
-        {
-            return;
-        }
-        if let Some(report) = self
+        let existing = self
             .finalization_reports
             .get(&reporter)
             .filter(|report| report.round == self.finalization_round)
-            .cloned()
+            .cloned();
+        if let Some(report) = existing
+            .as_ref()
+            .filter(|report| report.non_cut_count == non_cut_count && report.finalized_hash == hash)
         {
             let now = Self::now_ms();
             if now >= self.next_finalization_broadcast_ms {
                 self.flooder
                     .lock()
                     .unwrap()
-                    .send_to_all_prs_once(&Message::EpochFinalization(report));
+                    .send_to_all_prs_once(&Message::EpochFinalization(report.clone()));
                 self.next_finalization_broadcast_ms = now + 250;
             }
+            return;
+        }
+        // Finalization can continue while reports converge. Replace this PR's same-round report
+        // when its normalized epoch set grows, otherwise peers can wait forever on a stale hash.
+        if existing
+            .as_ref()
+            .is_some_and(|report| non_cut_count < report.non_cut_count)
+        {
             return;
         }
         let report = EpochFinalization::new(
@@ -496,7 +526,6 @@ impl EpochCoordinator {
                 self.reclassified_elections = 0;
                 self.finalization_round = 0;
                 self.target_non_cut_count = 0;
-                self.round_delayed_reporter = None;
                 self.finalization_reports.clear();
                 self.future_finalization_reports.clear();
                 self.next_finalization_broadcast_ms = 0;
@@ -512,13 +541,12 @@ impl EpochCoordinator {
             return;
         }
 
-        let highest_report = self
+        let highest = self
             .finalization_reports
             .values()
-            .max_by_key(|report| (report.non_cut_count, report.reporter))
+            .map(|report| report.non_cut_count)
+            .max()
             .unwrap();
-        let highest = highest_report.non_cut_count;
-        self.round_delayed_reporter = Some(highest_report.reporter);
         self.target_non_cut_count = highest;
         self.finalization_round += 1;
         self.next_finalization_broadcast_ms = 0;

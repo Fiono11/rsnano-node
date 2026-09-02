@@ -224,10 +224,15 @@ impl NanoSpamApp {
             let epoch_duration_ms = self.args.epoch_duration * 1_000;
             for epoch in 1..=self.args.epochs as u64 {
                 let epoch_starts_at = starts_at_unix_ms + (epoch - 1) * epoch_duration_ms;
+                let closes_at_unix_ms = if self.args.blocks_per_epoch > 0 {
+                    u64::MAX
+                } else {
+                    epoch_starts_at + epoch_duration_ms
+                };
                 let start = Message::EpochStart(EpochStart {
                     epoch,
                     starts_at_unix_ms: epoch_starts_at,
-                    closes_at_unix_ms: epoch_starts_at + epoch_duration_ms,
+                    closes_at_unix_ms,
                 });
                 let bytes = serializer.serialize(&start).to_vec();
                 for writers in &mut tcp_writers {
@@ -257,6 +262,15 @@ impl NanoSpamApp {
         }
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
+
+        #[cfg(feature = "rai_protocol")]
+        let initial_block_counts = {
+            let mut counts = Vec::with_capacity(self.rpc_clients.len());
+            for client in &self.rpc_clients {
+                counts.push(client.block_count().await?.count.inner());
+            }
+            counts
+        };
 
         let started = Instant::now();
         std::thread::scope(|s| {
@@ -313,6 +327,14 @@ impl NanoSpamApp {
                     self.args.drop_probability(),
                     self.args.fork_recipients,
                     &self.clock,
+                    #[cfg(feature = "rai_protocol")]
+                    self.args.blocks_per_epoch,
+                    #[cfg(feature = "rai_protocol")]
+                    self.args.epochs,
+                    #[cfg(feature = "rai_protocol")]
+                    &self.rpc_clients,
+                    #[cfg(feature = "rai_protocol")]
+                    &initial_block_counts,
                 ));
 
                 if !self.args.no_republish {
@@ -458,9 +480,15 @@ async fn publish_blocks(
     drop_probability: f64,
     fork_recipients: usize,
     clock: &SteadyClock,
+    #[cfg(feature = "rai_protocol")] blocks_per_epoch: usize,
+    #[cfg(feature = "rai_protocol")] epochs: usize,
+    #[cfg(feature = "rai_protocol")] rpc_clients: &[NanoRpcClient],
+    #[cfg(feature = "rai_protocol")] initial_block_counts: &[u64],
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
+    #[cfg(feature = "rai_protocol")]
+    let mut next_epoch_to_close = 1usize;
     let mut writer_index = 0;
     loop {
         let forks = select! {
@@ -511,15 +539,63 @@ async fn publish_blocks(
             writer_index = 0;
         }
 
-        let was_high_prio = {
+        let (was_high_prio, published_blocks, is_finished) = {
             let mut l = logic.lock().unwrap();
             // TODO support delayed forks
             let prio = l.published(&hash, now);
-            if l.is_finished() {
-                break;
-            }
-            prio
+            (prio, l.publication_stats().0, l.is_finished())
         };
+
+        #[cfg(feature = "rai_protocol")]
+        if blocks_per_epoch > 0
+            && next_epoch_to_close <= epochs
+            && published_blocks >= next_epoch_to_close * blocks_per_epoch
+        {
+            // Stop at the block boundary until every PR has inserted the complete batch. This is
+            // a ledger barrier, not a finalization barrier: pending elections are deliberately
+            // left for the cut to drain, while every PR can derive the same dependency closure.
+            loop {
+                let mut all_received = true;
+                for (client, initial_count) in rpc_clients.iter().zip(initial_block_counts) {
+                    match client.block_count().await {
+                        Ok(count)
+                            if count.count.inner()
+                                >= initial_count.saturating_add(published_blocks as u64) => {}
+                        _ => all_received = false,
+                    }
+                }
+                if all_received {
+                    break;
+                }
+                if cancel_token.is_cancelled() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let epoch = next_epoch_to_close as u64;
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let close = Message::EpochStart(EpochStart {
+                epoch,
+                starts_at_unix_ms: 0,
+                closes_at_unix_ms: now_ms,
+            });
+            let bytes = serializer.serialize(&close).to_vec();
+            for writers in &mut tcp_streams {
+                // Publishing is striped across these streams. Write the boundary to each one so
+                // TCP ordering makes it follow every block previously sent on that stream.
+                for writer in writers {
+                    writer.write_all(&bytes).await.unwrap();
+                }
+            }
+            next_epoch_to_close += 1;
+        }
+
+        if is_finished {
+            break;
+        }
 
         if was_high_prio {
             tracing::info!("High prio block published: {hash}");

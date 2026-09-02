@@ -100,6 +100,11 @@ pub(crate) struct CliArgs {
     #[cfg(feature = "rai_protocol")]
     #[arg(long, default_value_t = 35)]
     pub epoch_duration: u64,
+
+    /// Close each RAI epoch after this many first-published blocks (zero uses time boundaries)
+    #[cfg(feature = "rai_protocol")]
+    #[arg(long, default_value_t = 0)]
+    pub blocks_per_epoch: usize,
 }
 
 impl CliArgs {
