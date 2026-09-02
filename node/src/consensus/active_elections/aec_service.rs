@@ -242,6 +242,14 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn finalized_before_epoch(
+        &self,
+        epoch: u64,
+    ) -> std::collections::HashSet<rsnano_types::SlotRoot> {
+        self.aec.read().unwrap().finalized_before_epoch(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn seal_finalized_epoch(&self, epoch: u64) {
         self.aec.write().unwrap().seal_finalized_epoch(epoch);
     }

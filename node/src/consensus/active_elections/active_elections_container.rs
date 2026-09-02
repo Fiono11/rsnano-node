@@ -519,6 +519,15 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn finalized_before_epoch(&self, epoch: u64) -> HashSet<rsnano_types::SlotRoot> {
+        self.finalized_by_epoch
+            .iter()
+            .filter(|(candidate, _)| **candidate < epoch && self.sealed_epochs.contains(candidate))
+            .flat_map(|(_, finalized)| finalized.keys().copied())
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn clear_finalized_for_epoch(&mut self, epoch: u64) {
         self.sealed_epochs.remove(&epoch);
         self.finalized_by_epoch.remove(&epoch);
@@ -591,6 +600,21 @@ impl ActiveElectionsContainer {
         let mut reclassified = 0;
         self.closing_cut = Some((epoch, cut.clone()));
         for slot in cut {
+            // A slot belongs to the earliest epoch whose finalized dependency closure contains
+            // it. A peer may still report a later-epoch duplicate which this node already removed
+            // when the earlier election confirmed; never resurrect that duplicate into a later
+            // cut.
+            if self
+                .finalized_by_epoch
+                .iter()
+                .any(|(candidate, finalized)| {
+                    *candidate < epoch
+                        && self.sealed_epochs.contains(candidate)
+                        && finalized.contains_key(&slot)
+                })
+            {
+                continue;
+            }
             if self
                 .roots
                 .election_for_root(&slot.with_epoch(epoch))
@@ -1011,6 +1035,24 @@ mod tests {
 
         assert!(container.is_active_root(&slot.with_epoch(1)));
         assert!(!container.is_active_root(&slot.with_epoch(2)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn later_cut_does_not_resurrect_slot_finalized_in_earlier_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let slot = block.qualified_root().slot();
+        container.merge_finalized_for_epoch(1, [(slot, block.hash())].into());
+        container.seal_finalized_epoch(1);
+        container.advance_epoch();
+
+        assert_eq!(
+            container.install_epoch_cut(2, [slot].into(), Timestamp::new_test_instance()),
+            0
+        );
+        assert!(!container.is_active_root(&slot.with_epoch(2)));
+        assert!(container.finalized_for_epoch(2).is_empty());
     }
 
     #[cfg(feature = "rai_protocol")]

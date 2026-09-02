@@ -291,6 +291,12 @@ impl EpochCoordinator {
             .into_iter()
             .filter_map(|(election, reporters)| (reporters.len() >= f + 1).then_some(election))
             .collect();
+        // Reports are snapshots taken on different PRs. A slot can be reported for this epoch on
+        // one PR just before its duplicate is removed there, while another PR has already assigned
+        // it to an earlier finalized epoch. Earlier epoch agreement is authoritative and prevents
+        // the later cut from waiting forever for an intentionally removed election.
+        let finalized_earlier = self.aec.finalized_before_epoch(epoch);
+        self.cut.retain(|slot| !finalized_earlier.contains(slot));
         self.gate
             .install_cut(epoch, self.open_epoch, self.cut.clone());
         self.reclassified_elections += self.aec.install_epoch_cut(epoch, self.cut.clone());
