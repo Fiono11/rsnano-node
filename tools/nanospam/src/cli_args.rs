@@ -86,6 +86,10 @@ pub(crate) struct CliArgs {
     /// Seconds to collect termination and finalization certificates after publishing
     #[arg(long, default_value_t = 0)]
     pub timeout: u64,
+
+    /// Print only the final performance summary when tracing is disabled
+    #[arg(long, default_value_t = false)]
+    pub final_results_only: bool,
 }
 
 impl CliArgs {

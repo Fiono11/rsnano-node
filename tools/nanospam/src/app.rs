@@ -227,6 +227,16 @@ impl NanoSpamApp {
         let terminated_elections = logic.terminated_total;
         let termination_rate = (created_blocks as f64 / duration_secs) as i32;
         let finalization_rate = (finalized_blocks as f64 / duration_secs) as i32;
+        let finalization_time = if finalized_blocks > 0 {
+            logic.sum_conf_time_total.as_millis() / finalized_blocks as u128
+        } else {
+            0
+        };
+        let termination_time = if terminated_elections > 0 {
+            logic.sum_termination_time_total.as_millis() / terminated_elections as u128
+        } else {
+            0
+        };
         info!(
             "Terminated {terminated_elections} of {created_blocks} elections in {duration_secs:.2}s"
         );
@@ -239,14 +249,25 @@ impl NanoSpamApp {
         );
         info!("Finalization rate: {finalization_rate} elections/s");
         if finalized_blocks > 0 {
-            let finalization_time =
-                logic.sum_conf_time_total.as_millis() / finalized_blocks as u128;
             info!("Average finalization time: {finalization_time} ms");
         }
         if terminated_elections > 0 {
-            let termination_time =
-                logic.sum_termination_time_total.as_millis() / terminated_elections as u128;
             info!("Average election termination time: {termination_time} ms");
+        }
+        if self.args.final_results_only {
+            println!(
+                "Terminated {terminated_elections} of {created_blocks} elections in {duration_secs:.2}s"
+            );
+            println!("Election termination rate: {termination_rate} elections/s");
+            println!("Finalized {finalized_blocks} of {created_blocks} elections");
+            #[cfg(feature = "rai_protocol")]
+            println!(
+                "Fast finalizations: {} | Final-vote finalizations: {}",
+                logic.fast_finalized_total, logic.final_finalized_total
+            );
+            println!("Finalization rate: {finalization_rate} elections/s");
+            println!("Average finalization time: {finalization_time} ms");
+            println!("Average election termination time: {termination_time} ms");
         }
         if self.args.timeout > 0 && terminated_elections < created_blocks {
             return Err(anyhow!(
