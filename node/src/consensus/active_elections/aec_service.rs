@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
+    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, Root, SavedBlock, VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -125,6 +125,11 @@ impl AecService {
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
         self.aec.write().unwrap().insert(request, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn insert_now(&self, request: AecInsertRequest) -> Result<(), AecInsertError> {
+        self.aec.write().unwrap().insert(request, self.clock.now())
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
@@ -341,6 +346,46 @@ impl AecService {
             }
         }
         status
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn missing_for_epoch(
+        &self,
+        epoch: u64,
+        slots: &std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) -> Vec<rsnano_types::SlotRoot> {
+        let guard = self.aec.read().unwrap();
+        let finalized = guard.finalized_for_epoch(epoch);
+        slots
+            .iter()
+            .filter(|slot| {
+                guard.election_for_root(&slot.with_epoch(epoch)).is_none()
+                    && !finalized.contains_key(slot)
+            })
+            .copied()
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn final_vote_recovery_targets(
+        &self,
+        epoch: u64,
+        slots: &std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) -> Vec<(BlockHash, Root)> {
+        let guard = self.aec.read().unwrap();
+        let mut targets: Vec<_> = guard
+            .iter_round_robin()
+            .filter(|election| {
+                election.qualified_root().epoch == epoch
+                    && slots.contains(&election.qualified_root().slot())
+                    && election.has_quorum()
+                    && !election.is_confirmed()
+            })
+            .map(|election| (election.winner().hash(), election.winner().root()))
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        targets
     }
 }
 

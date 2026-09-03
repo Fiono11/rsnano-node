@@ -1,9 +1,12 @@
 use super::VoteGate;
 use crate::{
-    NodeEvent, consensus::AecService, transport::MessageFlooder, wallets::WalletRepresentatives,
+    NodeEvent,
+    consensus::{AecInsertRequest, AecService},
+    transport::MessageFlooder,
+    wallets::WalletRepresentatives,
 };
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_messages::{EpochFinalization, EpochReportChunk, EpochStart, Message};
+use rsnano_messages::{ConfirmReq, EpochFinalization, EpochReportChunk, EpochStart, Message};
 use rsnano_types::{Blake2Hash, Blake2HashBuilder, BlockHash, PrivateKey, PublicKey, SlotRoot};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{
@@ -29,6 +32,12 @@ struct PartialReport {
     chunks: HashMap<u16, Vec<SlotRoot>>,
 }
 
+struct CompleteClosure {
+    finalized: HashMap<SlotRoot, BlockHash>,
+    cut_winners_hash: Blake2Hash,
+    closure_hash: Blake2Hash,
+}
+
 pub struct EpochCoordinator {
     phase: Phase,
     aec: Arc<AecService>,
@@ -50,6 +59,8 @@ pub struct EpochCoordinator {
     next_start: Option<EpochStart>,
     next_drain_log_ms: u64,
     next_finalization_broadcast_ms: u64,
+    next_closure_wait_log_ms: u64,
+    next_final_vote_recovery_ms: u64,
     observer: Option<SyncSender<NodeEvent>>,
 }
 
@@ -88,6 +99,8 @@ impl EpochCoordinator {
             next_start: None,
             next_drain_log_ms: 0,
             next_finalization_broadcast_ms: 0,
+            next_closure_wait_log_ms: 0,
+            next_final_vote_recovery_ms: 0,
             observer,
         }
     }
@@ -336,6 +349,7 @@ impl EpochCoordinator {
             "RAI epoch cut installed"
         );
         self.phase = Phase::Cut;
+        self.next_final_vote_recovery_ms = 0;
     }
 
     fn committee_key(&self) -> Option<PrivateKey> {
@@ -370,9 +384,7 @@ impl EpochCoordinator {
         (builder.build(), non_cut_count, hashes.len())
     }
 
-    fn complete_cut_dependency_closure(
-        &self,
-    ) -> (HashMap<SlotRoot, BlockHash>, Blake2Hash, Blake2Hash) {
+    fn complete_cut_dependency_closure(&self) -> Result<CompleteClosure, BlockHash> {
         let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
         let mut cut_winners: Vec<_> = self
             .cut
@@ -395,9 +407,7 @@ impl EpochCoordinator {
             if hash.is_zero() || !visited.insert(hash) {
                 continue;
             }
-            let Some(block) = any.get_block(&hash) else {
-                continue;
-            };
+            let block = any.get_block(&hash).ok_or(hash)?;
             closure.insert(block.qualified_root().slot(), hash);
             for dependency in any.block_dependencies(&block).iter() {
                 if !dependency.is_zero() {
@@ -423,19 +433,37 @@ impl EpochCoordinator {
         let mut closure_hashes: Vec<_> = closure.values().copied().collect();
         closure_hashes.sort_unstable();
         let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
-        (closure, cut_hash, closure_hash)
+        Ok(CompleteClosure {
+            finalized: closure,
+            cut_winners_hash: cut_hash,
+            closure_hash,
+        })
     }
 
     fn send_local_finalization(&mut self) {
         // Cementation only emits newly confirmed blocks. Reconstruct the complete closure here
         // so an already-cemented dependency is attributed identically by every PR.
-        let (closure, cut_winners_hash, closure_hash) = self.complete_cut_dependency_closure();
-        let closure_count = closure.len();
+        let closure = match self.complete_cut_dependency_closure() {
+            Ok(closure) => closure,
+            Err(missing) => {
+                let now = Self::now_ms();
+                if now >= self.next_closure_wait_log_ms {
+                    warn!(
+                        epoch = self.closing_epoch,
+                        %missing,
+                        "RAI epoch closure waiting for a ledger dependency"
+                    );
+                    self.next_closure_wait_log_ms = now + 5_000;
+                }
+                return;
+            }
+        };
+        let closure_count = closure.finalized.len();
         let Some(key) = self.committee_key() else {
             error!("Cannot report RAI finalization: no local committee key");
             return;
         };
-        let (hash, non_cut_count, finalized_count) = self.local_finalization(&closure);
+        let (hash, non_cut_count, finalized_count) = self.local_finalization(&closure.finalized);
         if self.finalization_round > 0 && non_cut_count < self.target_non_cut_count {
             return;
         }
@@ -487,8 +515,8 @@ impl EpochCoordinator {
             finalized_count,
             finalized_hash = %hash,
             closure_count,
-            cut_winners_hash = %cut_winners_hash,
-            closure_hash = %closure_hash,
+            cut_winners_hash = %closure.cut_winners_hash,
+            closure_hash = %closure.closure_hash,
             "RAI epoch finalization broadcast"
         );
     }
@@ -535,6 +563,8 @@ impl EpochCoordinator {
                 self.finalization_reports.clear();
                 self.future_finalization_reports.clear();
                 self.next_finalization_broadcast_ms = 0;
+                self.next_closure_wait_log_ms = 0;
+                self.next_final_vote_recovery_ms = 0;
                 self.gate.open();
                 info!(
                     epoch = start.epoch,
@@ -586,6 +616,43 @@ impl Tickable for EpochCoordinator {
                 self.install_cut(self.closing_epoch)
             }
             Phase::Cut => {
+                if now >= self.next_final_vote_recovery_ms {
+                    let targets = self
+                        .aec
+                        .final_vote_recovery_targets(self.closing_epoch, &self.cut);
+                    for chunk in targets.chunks(ConfirmReq::HASHES_MAX) {
+                        let request =
+                            ConfirmReq::new(chunk.to_vec()).with_epoch(self.closing_epoch);
+                        self.flooder
+                            .lock()
+                            .unwrap()
+                            .send_to_all_prs_once(&Message::ConfirmReq(request));
+                    }
+                    if !targets.is_empty() {
+                        info!(
+                            epoch = self.closing_epoch,
+                            elections = targets.len(),
+                            "Requested final-vote recovery for RAI epoch cut"
+                        );
+                    }
+                    self.next_final_vote_recovery_ms = now + 500;
+                }
+                let any = self.ledger.any();
+                for slot in self.aec.missing_for_epoch(self.closing_epoch, &self.cut) {
+                    let root = slot.with_epoch(self.closing_epoch);
+                    let Some(hash) = any.block_successor_by_qualified_root(&root) else {
+                        continue;
+                    };
+                    let Some(block) = any.get_block(&hash) else {
+                        continue;
+                    };
+                    let priority = any.block_priority(&block);
+                    let _ = self.aec.insert_now(AecInsertRequest::new_hinted_for_epoch(
+                        block,
+                        priority,
+                        self.closing_epoch,
+                    ));
+                }
                 self.gate.set_finalized(
                     self.closing_epoch,
                     self.aec.finalized_for_epoch(self.closing_epoch),
