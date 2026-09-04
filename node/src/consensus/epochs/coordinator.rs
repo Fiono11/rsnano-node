@@ -34,6 +34,7 @@ struct PartialReport {
 
 struct CompleteClosure {
     finalized: HashMap<SlotRoot, BlockHash>,
+    cut_winners: Vec<BlockHash>,
     cut_winners_hash: Blake2Hash,
     closure_hash: Blake2Hash,
 }
@@ -386,18 +387,13 @@ impl EpochCoordinator {
     }
 
     fn complete_cut_dependency_closure(&self) -> Result<CompleteClosure, BlockHash> {
-        let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
-        let mut cut_winners: Vec<_> = self
-            .cut
-            .iter()
-            .filter_map(|slot| finalized.get(slot).copied())
-            .collect();
+        let cut_values = self
+            .aec
+            .terminated_cut_values(self.closing_epoch, &self.cut)
+            .expect("cut closure is only computed after every cut election terminates");
+        let mut cut_winners: Vec<_> = cut_values.values().copied().collect();
         cut_winners.sort_unstable();
-        let mut stack: Vec<_> = self
-            .cut
-            .iter()
-            .filter_map(|slot| finalized.get(slot).copied())
-            .collect();
+        let mut stack = cut_winners.clone();
         let mut visited = HashSet::new();
         // Slot elections may finalize locally in more than one epoch. Epoch-close membership is
         // instead derived only from the replicated cut and its dependency closure, then assigned
@@ -424,18 +420,12 @@ impl EpochCoordinator {
             builder.build()
         };
         let cut_hash = fingerprint(b"RAI/CUT_WINNERS/v1", &cut_winners);
-        // Cementation events are local observations and cannot define a replicated epoch set.
-        // The agreed cut winners and their dependency closure are the deterministic finalized
-        // set every PR can derive from the protocol transcript. Normalize through the AEC before
-        // hashing so slots already claimed by an earlier epoch cannot appear in this close.
-        self.aec
-            .replace_finalized_for_epoch(self.closing_epoch, closure);
-        let closure = self.aec.finalized_for_epoch(self.closing_epoch);
         let mut closure_hashes: Vec<_> = closure.values().copied().collect();
         closure_hashes.sort_unstable();
         let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
         Ok(CompleteClosure {
             finalized: closure,
+            cut_winners,
             cut_winners_hash: cut_hash,
             closure_hash,
         })
@@ -538,14 +528,22 @@ impl EpochCoordinator {
                 finalized_hash = %first.finalized_hash,
                 "All PRs ready to terminate RAI run"
             );
+            let closure = self
+                .complete_cut_dependency_closure()
+                .expect("an agreed local report has a complete ledger closure");
             if let Some(observer) = &self.observer {
                 let _ = observer.send(NodeEvent::EpochComplete {
                     epoch: self.closing_epoch,
                     round: self.finalization_round,
                     non_cut_count: first.non_cut_count,
                     finalized_hash: first.finalized_hash,
+                    included_cut: closure.cut_winners.clone(),
                 });
             }
+            // Epoch agreement turns included notarized values (and their dependency closure)
+            // into finalizations. Timeout-only cut elections are discarded below.
+            self.aec
+                .replace_finalized_for_epoch(self.closing_epoch, closure.finalized);
             // Agreement fixes the closed epoch's complete finalized set. Elections still active
             // in this epoch are not part of that set and may only be discarded now.
             self.aec.seal_finalized_epoch(self.closing_epoch);
@@ -658,14 +656,12 @@ impl Tickable for EpochCoordinator {
                     self.closing_epoch,
                     self.aec.finalized_for_epoch(self.closing_epoch),
                 );
-                let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
-                let remaining = self
-                    .cut
-                    .iter()
-                    .filter(|slot| !finalized.contains_key(slot))
-                    .count();
-                if remaining == 0 {
-                    info!(cut = self.cut.len(), "RAI epoch cut finalized");
+                let terminated = self
+                    .aec
+                    .terminated_cut_values(self.closing_epoch, &self.cut)
+                    .is_some();
+                if terminated {
+                    info!(cut = self.cut.len(), "RAI epoch cut terminated");
                     // Keep the draining policy installed during convergence. It blocks only the
                     // creation of new votes for non-cut epoch-e elections; votes created before
                     // the cut are still routed by their encoded epoch and may finalize them.
@@ -676,7 +672,7 @@ impl Tickable for EpochCoordinator {
                     let status = self.aec.epoch_drain_status(self.closing_epoch, &self.cut);
                     info!(
                         epoch = self.closing_epoch,
-                        remaining,
+                        remaining = self.cut.len().saturating_sub(status.terminated),
                         missing = status.missing,
                         no_votes = status.no_votes,
                         awaiting_second_look = status.awaiting_second_look,

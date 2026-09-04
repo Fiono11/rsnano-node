@@ -348,6 +348,33 @@ impl AecService {
         status
     }
 
+    /// Returns the deterministic outcome of every cut election once all of them have
+    /// terminated. Timeout-only elections are deliberately absent from the returned map.
+    #[cfg(feature = "rai_protocol")]
+    pub fn terminated_cut_values(
+        &self,
+        epoch: u64,
+        slots: &std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) -> Option<HashMap<rsnano_types::SlotRoot, BlockHash>> {
+        let guard = self.aec.read().unwrap();
+        let finalized = guard.finalized_for_epoch(epoch);
+        let mut values = HashMap::new();
+        for slot in slots {
+            if let Some(hash) = finalized.get(slot) {
+                values.insert(*slot, *hash);
+                continue;
+            }
+            let election = guard.election_for_root(&slot.with_epoch(epoch))?;
+            if !election.is_terminated() {
+                return None;
+            }
+            if let Some(hash) = election.notarized_value() {
+                values.insert(*slot, hash);
+            }
+        }
+        Some(values)
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn missing_for_epoch(
         &self,

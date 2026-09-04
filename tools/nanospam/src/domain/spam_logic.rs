@@ -49,6 +49,10 @@ pub(crate) struct SpamLogic {
     pub(crate) final_finalized_total: usize,
     pub(crate) sum_termination_time_total: Duration,
     terminated: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    pending_timeout_rollbacks: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    rolled_back_elections: usize,
     published: HashSet<BlockHash>,
     first_publish_at: Option<Timestamp>,
     last_publish_at: Option<Timestamp>,
@@ -94,6 +98,10 @@ impl SpamLogic {
             final_finalized_total: 0,
             sum_termination_time_total: Duration::ZERO,
             terminated: HashSet::new(),
+            #[cfg(feature = "rai_protocol")]
+            pending_timeout_rollbacks: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            rolled_back_elections: 0,
             published: HashSet::new(),
             first_publish_at: None,
             last_publish_at: None,
@@ -144,10 +152,12 @@ impl SpamLogic {
             return false;
         }
         if timeout {
-            self.block_factory.rollback(&primary);
-            self.delayed.discard(&primary);
+            // A timeout certificate only terminates the election. A later notarization
+            // certificate can still include its value, so defer rollback until epoch close.
+            self.pending_timeout_rollbacks.insert(primary);
         } else {
             self.block_factory.terminate(hash);
+            self.pending_timeout_rollbacks.remove(&primary);
         }
         true
     }
@@ -393,6 +403,7 @@ impl SpamLogic {
         finalized_hash: String,
         timestamp: Timestamp,
         prs: usize,
+        included_cut: HashSet<BlockHash>,
     ) {
         if self.completed_epoch_ids.contains(&epoch) || self.epoch_error.is_some() {
             return;
@@ -422,11 +433,54 @@ impl SpamLogic {
         }
         self.completed_epoch_ids.insert(epoch);
         self.epochs_completed += 1;
+        self.resolve_epoch_timeouts(epoch, &included_cut);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn resolve_epoch_timeouts(&mut self, epoch: u64, included: &HashSet<BlockHash>) {
+        let Some(cut) = self
+            .cuts_by_epoch
+            .get(&epoch)
+            .map(|state| state.cut.clone())
+        else {
+            return;
+        };
+        let resolved: Vec<_> = self
+            .pending_timeout_rollbacks
+            .iter()
+            .copied()
+            .filter(|primary| {
+                cut.iter()
+                    .any(|candidate| self.delayed.primary_hash(candidate) == Some(*primary))
+            })
+            .map(|primary| {
+                let included_value = included
+                    .iter()
+                    .find(|candidate| self.delayed.primary_hash(candidate) == Some(primary))
+                    .copied();
+                (primary, included_value)
+            })
+            .collect();
+        for (primary, included_value) in resolved {
+            if let Some(hash) = included_value {
+                self.block_factory.terminate(&hash);
+            } else {
+                self.block_factory.rollback(&primary);
+                self.delayed.discard(&primary);
+                self.rolled_back_elections += 1;
+            }
+            self.pending_timeout_rollbacks.remove(&primary);
+        }
     }
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn epochs_completed(&self) -> usize {
         self.epochs_completed
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rolled_back_elections(&self) -> usize {
+        self.rolled_back_elections
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -258,6 +258,7 @@ impl NodeEventHandler for NodeEventProcessor {
                 round,
                 non_cut_count,
                 finalized_hash,
+                included_cut,
             } => {
                 if self.server.any_subscriber(Topic::EpochComplete) {
                     self.server.broadcast(&MessageEnvelope::new(
@@ -267,6 +268,7 @@ impl NodeEventHandler for NodeEventProcessor {
                             "round": round,
                             "non_cut_count": non_cut_count,
                             "finalized_hash": finalized_hash,
+                            "included_cut": included_cut,
                         }),
                     ));
                 }

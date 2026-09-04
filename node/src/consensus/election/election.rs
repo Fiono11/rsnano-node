@@ -44,6 +44,9 @@ pub struct Election {
     terminated: bool,
     #[cfg(feature = "rai_protocol")]
     terminated_by_timeout: bool,
+    /// Values for which this election has observed a notarization certificate.
+    #[cfg(feature = "rai_protocol")]
+    notarized_values: HashSet<BlockHash>,
 
     behavior: ElectionBehavior,
     has_quorum: bool,
@@ -86,6 +89,8 @@ impl Election {
             terminated: false,
             #[cfg(feature = "rai_protocol")]
             terminated_by_timeout: false,
+            #[cfg(feature = "rai_protocol")]
+            notarized_values: HashSet::new(),
             winner_tally: Amount::ZERO,
             winner_final_tally: Amount::ZERO,
             behavior,
@@ -280,6 +285,15 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub fn terminated_by_timeout(&self) -> bool {
         self.terminated_by_timeout
+    }
+
+    /// The deterministic value selected from all notarization certificates seen so far.
+    ///
+    /// A terminated election can have no such value (timeout only), and can later collect
+    /// additional certificates. Selecting the greatest hash makes that evolution monotonic.
+    #[cfg(feature = "rai_protocol")]
+    pub fn notarized_value(&self) -> Option<BlockHash> {
+        self.notarized_values.iter().max().copied()
     }
 
     /// Returns true if final votes should be generated
@@ -481,17 +495,25 @@ impl Election {
         self.first_tallies.sort();
         self.tallies.sort();
         self.final_tallies.sort();
-        let old_winner = self.winner.hash();
-        let new_winner = self.tallies.winner().map(|(h, _)| *h).unwrap_or(old_winner);
-        if new_winner != old_winner {
-            self.change_winner_to(&new_winner);
-        }
-        self.update_winner_tally();
         let w = quorum.total_weight;
         let f = quorum.faulty_weight;
         let p = quorum.slack_weight;
         if w > f * 3 + p * 2 {
             let certificate = w - f - p;
+            self.notarized_values.extend(
+                self.tallies
+                    .iter()
+                    .filter_map(|(hash, weight)| (*weight >= certificate).then_some(*hash)),
+            );
+            let old_winner = self.winner.hash();
+            let new_winner = self
+                .notarized_value()
+                .or_else(|| self.tallies.winner().map(|(hash, _)| *hash))
+                .unwrap_or(old_winner);
+            if new_winner != old_winner {
+                self.change_winner_to(&new_winner);
+            }
+            self.update_winner_tally();
             self.second_look.clear();
             for (hash, weight) in self.first_tallies.iter() {
                 if *weight > f + p {
@@ -516,7 +538,7 @@ impl Election {
                 .map(|(_, weight)| *weight)
                 .unwrap_or_default();
             self.timeout_predicate = all_vote_weight - max_candidate_weight > f + p;
-            self.has_quorum |= self.winner_tally >= certificate;
+            self.has_quorum |= !self.notarized_values.is_empty();
             if !self.terminated {
                 self.terminated_by_timeout = !self.has_quorum && timeout_weight >= certificate;
                 self.terminated = self.has_quorum || timeout_weight >= certificate;
@@ -967,6 +989,48 @@ mod rai_voting_tests {
         assert!(election.is_terminated());
         assert!(!election.is_confirmed());
         assert!(!election.state().has_ended());
+    }
+
+    #[test]
+    fn notarized_value_advances_from_timeout_to_highest_certificate() {
+        let block = SavedBlock::new_test_instance();
+        let first = block.hash();
+        let fork = SavedBlock::new_test_instance_with_key(2);
+        let second = fork.hash();
+        let mut election = Election::new_test_instance_with(block);
+        election
+            .candidate_blocks
+            .insert(second, MaybeSavedBlock::Saved(fork));
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), certificate);
+
+        election
+            .apply_rai_vote(
+                &Vote::new_rai(&rep, 1, VoteType::Timeout, vec![first]),
+                first,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        assert!(election.is_terminated());
+        assert_eq!(election.notarized_value(), None);
+
+        for (timestamp, hash) in [(2, first), (3, second)] {
+            election
+                .apply_rai_vote(
+                    &Vote::new_rai(&rep, timestamp, VoteType::NonFinal, vec![hash]),
+                    hash,
+                    Timestamp::new_test_instance(),
+                )
+                .unwrap();
+            election.update_rai_tallies(&weights, &quorum);
+        }
+
+        assert_eq!(election.notarized_value(), Some(first.max(second)));
+        assert_eq!(election.winner().hash(), first.max(second));
     }
 
     #[test]

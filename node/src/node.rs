@@ -1687,6 +1687,7 @@ pub enum NodeEvent {
         round: u32,
         non_cut_count: u64,
         finalized_hash: Blake2Hash,
+        included_cut: Vec<BlockHash>,
     },
 }
 

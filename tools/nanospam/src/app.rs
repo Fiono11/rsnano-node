@@ -458,7 +458,26 @@ impl NanoSpamApp {
             println!("Average finalization time: {finalization_time} ms");
             println!("Average election termination time: {termination_time} ms");
         }
-        if self.args.timeout > 0 && terminated_elections < created_blocks {
+        #[cfg(feature = "rai_protocol")]
+        let require_all_terminations = self.args.epochs == 0;
+        #[cfg(not(feature = "rai_protocol"))]
+        let require_all_terminations = true;
+        if self.args.timeout > 0
+            && require_all_terminations
+            && terminated_elections < created_blocks
+        {
+            let mut outstanding = logic.unconfirmed_hashes();
+            outstanding.sort_unstable();
+            outstanding.dedup();
+            eprintln!(
+                "Outstanding published candidates ({}): {}",
+                outstanding.len(),
+                outstanding
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             return Err(anyhow!(
                 "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
                 self.args.timeout
@@ -532,6 +551,8 @@ async fn publish_blocks(
     let mut fork_serializer = MessageSerializer::new(protocol);
     #[cfg(feature = "rai_protocol")]
     let mut next_epoch_to_close = 1usize;
+    #[cfg(feature = "rai_protocol")]
+    let mut published_candidates = 0usize;
     let mut writer_index = 0;
     loop {
         let forks = select! {
@@ -550,6 +571,10 @@ async fn publish_blocks(
         if let Some(fork) = forks.fork {
             let publish_fork = Message::Publish(Publish::new_from_originator(fork));
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            published_candidates += 1 + usize::from(fork_buffer.is_some());
         }
 
         // Register before the first socket write. A fast local election can terminate while the
@@ -615,18 +640,20 @@ async fn publish_blocks(
         #[cfg(feature = "rai_protocol")]
         if blocks_per_epoch > 0
             && next_epoch_to_close <= epochs
-            && published_blocks >= next_epoch_to_close * blocks_per_epoch
+            && published_candidates >= next_epoch_to_close * blocks_per_epoch
         {
             // Stop at the block boundary until every PR has inserted the complete batch. This is
             // a ledger barrier, not a finalization barrier: pending elections are deliberately
             // left for the cut to drain, while every PR can derive the same dependency closure.
             loop {
                 let mut all_received = true;
+                let expected_growth =
+                    published_blocks.saturating_sub(logic.lock().unwrap().rolled_back_elections());
                 for (client, initial_count) in rpc_clients.iter().zip(initial_block_counts) {
                     match client.block_count().await {
                         Ok(count)
                             if count.count.inner()
-                                >= initial_count.saturating_add(published_blocks as u64) => {}
+                                >= initial_count.saturating_add(expected_growth as u64) => {}
                         _ => all_received = false,
                     }
                 }
@@ -853,6 +880,14 @@ fn track_confirmations(
                 else {
                     continue;
                 };
+                let included_cut = message
+                    .get("included_cut")
+                    .and_then(|value| value.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|value| value.as_str())
+                    .filter_map(BlockHash::decode_hex)
+                    .collect();
                 let (completed, error) = {
                     let mut logic = logic.lock().unwrap();
                     logic.epoch_reported(
@@ -863,6 +898,7 @@ fn track_confirmations(
                         finalized_hash.to_owned(),
                         timestamp,
                         prs,
+                        included_cut,
                     );
                     (logic.epochs_completed(), logic.epoch_error().is_some())
                 };
