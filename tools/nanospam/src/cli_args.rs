@@ -79,7 +79,8 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
 
-    /// Number of nodes that receive the fork (0 sends it to every second node)
+    /// Number of nodes that receive the fork first. When nonzero, their combined
+    /// representative weight is 51% and the remaining nodes receive 49%.
     #[arg(long, default_value_t = 0)]
     pub fork_recipients: usize,
 

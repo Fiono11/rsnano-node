@@ -41,7 +41,7 @@ use crate::{
     setup::{
         configure_nodes, create_account_map, get_genesis_hash, peering_port, rpc_port, start_nodes,
     },
-    wallets_factory::create_wallets,
+    wallets_factory::{create_wallets, expected_pr_weights},
 };
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
@@ -164,7 +164,13 @@ impl NanoSpamApp {
         }
 
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
-            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
+            create_wallets(
+                &self.rpc_clients,
+                genesis_rpc,
+                &mut account_map,
+                self.args.fork_recipients,
+            )
+            .await
         } else {
             WalletId::ZERO
         };
@@ -194,6 +200,21 @@ impl NanoSpamApp {
 
         #[cfg(feature = "rai_protocol")]
         wait_for_full_mesh(&self.rpc_clients, self.args.prs).await?;
+        if self.args.set_up_new_nodes() {
+            wait_for_expected_pr_weights(
+                &self.rpc_clients,
+                &expected_pr_weights(self.args.prs, self.args.fork_recipients),
+            )
+            .await?;
+            wait_for_complete_online_weight(
+                &self.rpc_clients,
+                expected_pr_weights(self.args.prs, self.args.fork_recipients)
+                    .iter()
+                    .map(|(_, weight)| *weight)
+                    .sum(),
+            )
+            .await?;
+        }
 
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
@@ -262,11 +283,14 @@ impl NanoSpamApp {
             std::sync::mpsc::channel::<(usize, MessageEnvelope, Timestamp)>();
 
         info!("Connecting to websocket...");
-        let receiver_count = if cfg!(feature = "rai_protocol") {
+        #[cfg(feature = "rai_protocol")]
+        let receiver_count = if self.args.epochs > 0 || self.args.fork_percentage > 0 {
             self.args.prs
         } else {
             1
         };
+        #[cfg(not(feature = "rai_protocol"))]
+        let receiver_count = 1;
         let mut conf_receivers = Vec::with_capacity(receiver_count);
         for node_index in 0..receiver_count {
             conf_receivers.push(ConfirmationReceiver::connect(node_index, node_index == 0).await?);
@@ -285,13 +309,16 @@ impl NanoSpamApp {
 
         let started = Instant::now();
         std::thread::scope(|s| {
-            s.spawn(|| {
-                enqueue_blocks(&logic, tx_blocks, &self.clock);
+            let enqueue_cancel = cancel_nanospam.clone();
+            let enqueue_logic = &logic;
+            let enqueue_clock = &self.clock;
+            s.spawn(move || {
+                enqueue_blocks(enqueue_logic, tx_blocks, enqueue_clock, &enqueue_cancel);
                 cancel_block_creation2.cancel();
             });
 
             let confirmation_cancel = cancel_nanospam.clone();
-            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel, self.args.prs));
+            s.spawn(|| track_confirmations(rx_ws_msg, &logic, confirmation_cancel, receiver_count));
 
             tokio_scoped::scope(|scope| {
                 if self.args.timeout > 0 {
@@ -431,7 +458,6 @@ impl NanoSpamApp {
             println!("Average finalization time: {finalization_time} ms");
             println!("Average election termination time: {termination_time} ms");
         }
-        #[cfg(not(feature = "rai_protocol"))]
         if self.args.timeout > 0 && terminated_elections < created_blocks {
             return Err(anyhow!(
                 "only {terminated_elections} of {created_blocks} elections terminated within {} seconds",
@@ -456,8 +482,13 @@ impl NanoSpamApp {
     }
 }
 
-fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {
-    loop {
+fn enqueue_blocks(
+    logic: &Mutex<SpamLogic>,
+    tx_blocks: mpsc::Sender<Forks>,
+    clock: &SteadyClock,
+    cancel_token: &CancellationToken,
+) {
+    while !cancel_token.is_cancelled() {
         let now = clock.now();
 
         let result = {
@@ -521,11 +552,23 @@ async fn publish_blocks(
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
 
-        let mut counter = 0;
+        // Register before the first socket write. A fast local election can terminate while the
+        // remaining node writes are still in flight; registering afterwards loses that event.
+        let now = clock.now();
+        let (was_high_prio, published_blocks) = {
+            let mut l = logic.lock().unwrap();
+            let prio = l.published(&hash, now);
+            (prio, l.publication_stats().0)
+        };
+
+        let transmit = (0..tcp_streams.len())
+            .map(|_| !rng().random_bool(drop_probability))
+            .collect::<Vec<_>>();
+
+        // Phase one: concurrently deliver the configured first candidate to every PR.
         tokio_scoped::scope(|s| {
-            for stream in &mut tcp_streams {
-                if rng().random_bool(drop_probability) {
-                    // drop this transmission
+            for (counter, stream) in tcp_streams.iter_mut().enumerate() {
+                if !transmit[counter] {
                     continue;
                 }
 
@@ -536,27 +579,38 @@ async fn publish_blocks(
                     .filter(|_| send_fork)
                     .unwrap_or(&buffer);
 
-                s.spawn(async {
+                s.spawn(async move {
                     stream[writer_index].write_all(buf).await.unwrap();
                 });
-
-                counter += 1;
             }
         });
 
-        let now = clock.now();
+        // Phase two: once all first-candidate socket writes have completed, concurrently deliver
+        // the alternate. There is no vote barrier; the short delay makes the configured first
+        // side observable before every PR receives the other side of the fork.
+        if let Some(fork) = fork_buffer.as_ref() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio_scoped::scope(|s| {
+                for (counter, stream) in tcp_streams.iter_mut().enumerate() {
+                    if !transmit[counter] {
+                        continue;
+                    }
+                    let send_fork = fork_recipients > 0 && counter < fork_recipients
+                        || fork_recipients == 0 && counter % 2 == 0;
+                    let alternate = if send_fork { buffer } else { *fork };
+                    s.spawn(async move {
+                        stream[writer_index].write_all(alternate).await.unwrap();
+                    });
+                }
+            });
+        }
 
         writer_index += 1;
         if writer_index >= CONNECTIONS_PER_NODE {
             writer_index = 0;
         }
 
-        let (was_high_prio, published_blocks, is_finished) = {
-            let mut l = logic.lock().unwrap();
-            // TODO support delayed forks
-            let prio = l.published(&hash, now);
-            (prio, l.publication_stats().0, l.is_finished())
-        };
+        let is_finished = logic.lock().unwrap().is_finished();
 
         #[cfg(feature = "rai_protocol")]
         if blocks_per_epoch > 0
@@ -842,6 +896,76 @@ async fn wait_for_full_mesh(clients: &[NanoRpcClient], prs: usize) -> anyhow::Re
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(anyhow!("PR network did not become fully interconnected"));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn wait_for_expected_pr_weights(
+    clients: &[NanoRpcClient],
+    expected: &[(rsnano_types::Account, rsnano_types::Amount)],
+) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let expected_total: rsnano_types::Amount = expected.iter().map(|(_, weight)| *weight).sum();
+    loop {
+        let mut ready = true;
+        for client in clients {
+            let representatives = client.representatives().await?.representatives;
+            let actual_total: rsnano_types::Amount = expected
+                .iter()
+                .map(|(account, _)| representatives.get(account).copied().unwrap_or_default())
+                .sum();
+            if actual_total != expected_total
+                || !expected.iter().all(|(account, weight)| {
+                    representatives
+                        .get(account)
+                        .is_some_and(|actual| actual == weight)
+                })
+            {
+                ready = false;
+                break;
+            }
+        }
+        if ready {
+            info!("Every ledger reports the expected PR voting weights");
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!(
+                "expected PR voting weights were not present in every ledger"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn wait_for_complete_online_weight(
+    clients: &[NanoRpcClient],
+    expected_total: rsnano_types::Amount,
+) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    loop {
+        let mut ready = true;
+        for client in clients {
+            match client.confirmation_quorum().await {
+                Ok(quorum) if quorum.online_stake_total == expected_total => {}
+                _ => {
+                    ready = false;
+                    break;
+                }
+            }
+        }
+        if ready {
+            info!(
+                ?expected_total,
+                "Every node reports the complete online voting weight"
+            );
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!(
+                "complete online voting weight was not visible on every node"
+            ));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }

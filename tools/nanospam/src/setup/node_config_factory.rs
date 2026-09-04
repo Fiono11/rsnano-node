@@ -3,7 +3,7 @@ use std::{fs::remove_dir_all, path::Path};
 use tracing::info;
 
 use crate::cli_args::CliArgs;
-use rsnano_types::{Block, BlockHash, PrivateKey};
+use rsnano_types::{Amount, Block, BlockHash, PrivateKey};
 
 pub(crate) const GENESIS_BLOCK: &str = r#"{
     "type": "open",
@@ -24,7 +24,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     bandwidth_limit = 0
     enable_voting = true
     preconfigured_peers = PRECONF_PEERS
-    preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
+    preconfigured_representatives = PRECONF_REPS
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
 
@@ -100,6 +100,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+                .replace("PRECONF_REPS", &preconfigured_representatives(args.prs))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string());
             std::fs::write(node_config_path, node_config).unwrap();
@@ -113,6 +114,14 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             std::fs::write(rpc_config_path, rpc_config).unwrap();
         }
     }
+}
+
+fn preconfigured_representatives(prs: usize) -> String {
+    let representatives = (0..prs)
+        .map(|i| format!("\"{}\"", pr_key(i).account().encode_account()))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{representatives}]")
 }
 
 fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
@@ -139,6 +148,37 @@ pub(crate) fn rpc_port(node_id: usize) -> u16 {
 
 pub(crate) fn websocket_port(node_id: usize) -> u16 {
     17078 + (node_id as u16) * 10
+}
+
+pub(crate) fn pr_balance_weights(total: Amount, prs: usize, fork_recipients: usize) -> Vec<Amount> {
+    pr_weights(total, prs, fork_recipients)
+}
+
+fn pr_weights(total: Amount, prs: usize, fork_recipients: usize) -> Vec<Amount> {
+    let mut weights = vec![Amount::ZERO; prs];
+    if prs == 0 {
+        return weights;
+    }
+    if fork_recipients == 0 || fork_recipients >= prs {
+        let base = total / prs as u128;
+        weights.fill(base);
+        weights[0] += total - base * prs as u128;
+        return weights;
+    }
+
+    let split = |percent: u128| {
+        Amount::raw(total.number() / 100 * percent + total.number() % 100 * percent / 100)
+    };
+    let first_total = split(51);
+    let second_total = total - first_total;
+    let first_base = first_total / fork_recipients as u128;
+    let second_count = prs - fork_recipients;
+    let second_base = second_total / second_count as u128;
+    weights[..fork_recipients].fill(first_base);
+    weights[fork_recipients..].fill(second_base);
+    weights[0] += first_total - first_base * fork_recipients as u128;
+    weights[fork_recipients] += second_total - second_base * second_count as u128;
+    weights
 }
 
 pub(crate) fn pr_key(node_id: usize) -> PrivateKey {

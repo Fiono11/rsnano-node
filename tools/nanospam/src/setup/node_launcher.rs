@@ -34,7 +34,6 @@ pub(crate) async fn start_nodes(
             let mut cmd = Command::new("nano_node");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
-                .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
                 .env("NANO_TEST_EPOCH_1", "0")
                 .env("NANO_TEST_EPOCH_2", "0")
                 .env("NANO_TEST_EPOCH_2_RECV", "0")
@@ -50,7 +49,6 @@ pub(crate) async fn start_nodes(
             let mut cmd = Command::new("rsnano");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
-                .env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee)
                 .env(
                     "RUST_LOG",
                     "warn,rsnano_node::consensus::epochs::coordinator=info",
@@ -65,6 +63,19 @@ pub(crate) async fn start_nodes(
                 .stderr(Stdio::from(stderr));
             cmd
         };
+
+        // Epoch reports need an explicit membership list, independent of ledger voting power.
+        cmd.env("NANO_RAI_EPOCH_COMMITTEE", &fixed_committee);
+        if args.fork_percentage == 0 {
+            cmd.env("NANO_RAI_FIXED_COMMITTEE", &fixed_committee);
+        }
+
+        // Nanospam itself disseminates both fork candidates to every PR. Disable the node's
+        // publish rebroadcaster so a fast relay cannot overtake the candidate deliberately sent
+        // first on another PR's direct nanospam connection and destroy the requested vote split.
+        if !args.cpp && args.fork_percentage > 0 {
+            cmd.arg("--disable-block-processor-republishing");
+        }
 
         info!("Starting node: {cmd:?}");
         children.push(cmd.spawn().unwrap());

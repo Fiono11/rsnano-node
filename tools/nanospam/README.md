@@ -50,12 +50,15 @@ Don't start any nodes, but attach to nodes that have to be running already
 nanospam --prs 4 --rate 1000 --attach --sync
 ```
 
-When built with `rai_protocol`, nanospam passes the ordered PR public keys to
-the nodes in `NANO_RAI_FIXED_COMMITTEE`. The nodes divide `Amount::MAX` equally
-between those keys (with any indivisible raw remainder assigned to PR0) and do
-not change those voting weights when blocks are inserted or rolled back. When
-using `--attach`, start every node with the same comma-separated public-key
-value because nanospam does not control the environment of attached processes.
+When built with `rai_protocol`, nanospam normally passes the ordered PR public
+keys to the nodes in `NANO_RAI_FIXED_COMMITTEE`. The nodes divide `Amount::MAX`
+equally between those keys (with any indivisible raw remainder assigned to PR0)
+and do not change those voting weights when blocks are inserted or rolled back.
+Fork runs (`--fork-percentage > 0`) instead use the legacy startup sequence, in
+which genesis initially owns quorum weight while the PR wallets are funded one
+at a time. When using `--attach`, nanospam does not control the node environment.
+After each generated fork, nanospam generates one non-forked successor from the
+terminated winner before applying the configured fork probability again.
 
 ## Overview
 Nanospam creates random blocks (without PoW) and sends them with increasing BPS to a local test node.

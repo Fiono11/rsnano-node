@@ -38,21 +38,21 @@ impl ConfirmationReceiver {
                 .next()
                 .await
                 .ok_or_else(|| anyhow!("no ws response received"))??;
+        }
 
-            #[cfg(feature = "rai_protocol")]
-            {
-                ws_client
-                    .subscribe(SubscribeArgs {
-                        topic: TopicSub::ElectionTerminated,
-                        ack: true,
-                        id: None,
-                    })
-                    .await?;
-                ws_client
-                    .next()
-                    .await
-                    .ok_or_else(|| anyhow!("no termination subscription response received"))??;
-            }
+        #[cfg(feature = "rai_protocol")]
+        {
+            ws_client
+                .subscribe(SubscribeArgs {
+                    topic: TopicSub::ElectionTerminated,
+                    ack: true,
+                    id: None,
+                })
+                .await?;
+            ws_client
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("no termination subscription response received"))??;
         }
 
         #[cfg(feature = "rai_protocol")]

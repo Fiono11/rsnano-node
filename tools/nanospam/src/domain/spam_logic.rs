@@ -35,6 +35,7 @@ pub(crate) struct SpamLogic {
     pub(crate) current_bps: usize,
     bps_limiter: TokenBucketLogic,
     next_block: Option<Forks>,
+    force_single_next: bool,
     bps_start: Option<Timestamp>,
     spec: SpamSpec,
     pub(crate) confirmed_total: usize,
@@ -79,6 +80,7 @@ impl SpamLogic {
             current_bps: spec.rate.initial_bps,
             bps_limiter: TokenBucketLogic::new(spec.rate.initial_bps),
             next_block: None,
+            force_single_next: false,
             bps_start: None,
             spec,
             confirmed_total: 0,
@@ -119,13 +121,12 @@ impl SpamLogic {
         let max_blocks = self.block_factory.max_blocks();
         #[cfg(feature = "rai_protocol")]
         {
-            // Termination/notarization releases dependent block generation, but it is not
-            // finality. Keep the run alive until every requested block has actually been
-            // finalized (or the outer timeout cancels it).
             if self.spec.expected_epochs > 0 {
                 self.epochs_completed >= self.spec.expected_epochs
             } else {
-                max_blocks > 0 && self.confirmed_total >= max_blocks
+                // Without epoch transitions there is no later epoch-finalization event to
+                // wait for. Finish once every requested election has terminated.
+                max_blocks > 0 && self.terminated_total >= max_blocks
             }
         }
         #[cfg(not(feature = "rai_protocol"))]
@@ -180,8 +181,10 @@ impl SpamLogic {
         }
 
         if self.next_block.is_none() {
+            let is_fork = is_fork && !self.force_single_next;
             match self.block_factory.create_next(is_fork) {
                 Some(BlockResult::Block(b)) => {
+                    self.force_single_next = b.fork.is_some();
                     self.next_block = Some(b);
                 }
                 Some(BlockResult::Waiting) => return Some(BlockResult::Waiting),

@@ -49,6 +49,7 @@ impl VoteGenerators {
         self.first_vote_generator.cut_generation()
     }
 
+    #[cfg(feature = "rai_protocol")]
     pub fn voting_allowed(&self, root: &QualifiedRoot) -> bool {
         self.first_vote_generator.voting_allowed(root)
     }

@@ -1,8 +1,6 @@
 use std::time::Duration;
 
 use tokio::time::sleep;
-#[cfg(not(feature = "rai_protocol"))]
-use tracing::debug;
 use tracing::info;
 
 use rsnano_rpc_client::NanoRpcClient;
@@ -11,7 +9,7 @@ use rsnano_types::{Amount, Block, BlockHash, JsonBlock, StateBlockArgs, WalletId
 
 use crate::{
     domain::AccountMap,
-    setup::{genesis_key, pr_key},
+    setup::{genesis_key, pr_balance_weights, pr_key},
 };
 
 const INITIAL_AMOUNT: Amount = Amount::nano(100_000_000);
@@ -20,16 +18,17 @@ pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
+    fork_recipients: usize,
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
-    #[cfg(feature = "rai_protocol")]
     let mut setup_wallets = Vec::with_capacity(rpc_clients.len());
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
+    let balance_total = Amount::MAX - INITIAL_AMOUNT;
+    let balances = pr_balance_weights(balance_total, pr_count, fork_recipients);
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
-        #[cfg(feature = "rai_protocol")]
         setup_wallets.push(resp.wallet);
         if i == 0 {
             genesis_wallet = resp.wallet;
@@ -80,61 +79,55 @@ pub(crate) async fn create_wallets(
             })
             .await
             .unwrap();
+    }
 
-        // the first rpc client is the genesis client
-        if i > 0 {
-            let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
-            info!(
-                "Sending Ӿ{} to PR{i} wallet {} ...",
-                pr_balance.format_balance(0),
-                pr_key.account().encode_account()
-            );
-            let send_hash = genesis_rpc
-                .send(SendArgs {
-                    wallet: genesis_wallet,
-                    source: genesis_key.account(),
-                    destination: pr_key.account(),
-                    amount: pr_balance,
-                    work: Some(WorkNonce::new(0)),
-                    id: None,
-                })
-                .await
-                .unwrap()
-                .block;
-            #[cfg(not(feature = "rai_protocol"))]
-            wait_until_confirmed(rpc_client, send_hash).await;
-            #[cfg(feature = "rai_protocol")]
-            wait_until_confirmed_on_all(rpc_clients, send_hash)
-                .await
-                .unwrap();
+    // All fixed-committee signing keys now exist. Bootstrap ledger balances only after
+    // every PR can participate in the elections that confirm these transfers.
+    for (i, rpc_client) in rpc_clients.iter().enumerate().skip(1) {
+        let pr_balance = balances[i];
+        let pr_key = pr_key(i);
+        info!(
+            "Sending Ӿ{} to PR{i} wallet {} ...",
+            pr_balance.format_balance(0),
+            pr_key.account().encode_account()
+        );
+        let send_hash = genesis_rpc
+            .send(SendArgs {
+                wallet: genesis_wallet,
+                source: genesis_key.account(),
+                destination: pr_key.account(),
+                amount: pr_balance,
+                work: Some(WorkNonce::new(0)),
+                id: None,
+            })
+            .await
+            .unwrap()
+            .block;
+        wait_until_confirmed_on_all(rpc_clients, send_hash)
+            .await
+            .unwrap();
 
-            info!("Receiving...");
-            // trigger wallet receive to speed things up
-            let _ = rpc_client
-                .receive(ReceiveArgs {
-                    wallet: resp.wallet,
-                    account: pr_key.account(),
-                    block: send_hash,
-                    work: Some(WorkNonce::new(0)),
-                })
-                .await;
-            let recv_hash = rpc_client
-                .account_info(pr_key.account())
-                .await
-                .unwrap()
-                .frontier;
-            #[cfg(not(feature = "rai_protocol"))]
-            wait_until_confirmed(rpc_client, recv_hash).await;
-            #[cfg(feature = "rai_protocol")]
-            wait_until_confirmed_on_all(rpc_clients, recv_hash)
-                .await
-                .unwrap();
+        info!("Receiving...");
+        // trigger wallet receive to speed things up
+        let _ = rpc_client
+            .receive(ReceiveArgs {
+                wallet: setup_wallets[i],
+                account: pr_key.account(),
+                block: send_hash,
+                work: Some(WorkNonce::new(0)),
+            })
+            .await;
+        let recv_hash = rpc_client
+            .account_info(pr_key.account())
+            .await
+            .unwrap()
+            .frontier;
+        wait_until_confirmed_on_all(rpc_clients, recv_hash)
+            .await
+            .unwrap();
 
-            info!("DONE");
-            info!(
-                "********************************************************************************"
-            );
-        }
+        info!("DONE");
+        info!("********************************************************************************");
     }
 
     info!("Sending initial spam amount...");
@@ -152,9 +145,6 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap()
         .block;
-    #[cfg(not(feature = "rai_protocol"))]
-    wait_until_confirmed(genesis_rpc, genesis_send).await;
-    #[cfg(feature = "rai_protocol")]
     wait_until_confirmed_on_all(rpc_clients, genesis_send)
         .await
         .unwrap();
@@ -175,9 +165,6 @@ pub(crate) async fn create_wallets(
         .await
         .unwrap();
 
-    #[cfg(not(feature = "rai_protocol"))]
-    wait_until_confirmed(genesis_rpc, recv.hash).await;
-    #[cfg(feature = "rai_protocol")]
     wait_until_confirmed_on_all(rpc_clients, recv.hash)
         .await
         .unwrap();
@@ -203,23 +190,15 @@ pub(crate) async fn create_wallets(
     genesis_wallet
 }
 
-#[cfg(not(feature = "rai_protocol"))]
-async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
-    info!("Waiting for confirmation for {hash}");
-    loop {
-        match rpc_client.block_info(hash).await {
-            Ok(info) => {
-                if info.confirmed.inner() {
-                    break;
-                }
-            }
-            Err(e) => {
-                debug!("Got error: {e:?}")
-            }
-        }
-
-        sleep(Duration::from_millis(100)).await;
-    }
+pub(crate) fn expected_pr_weights(
+    prs: usize,
+    fork_recipients: usize,
+) -> Vec<(rsnano_types::Account, Amount)> {
+    pr_balance_weights(Amount::MAX - INITIAL_AMOUNT, prs, fork_recipients)
+        .into_iter()
+        .enumerate()
+        .map(|(i, weight)| (pr_key(i).account(), weight))
+        .collect()
 }
 
 pub(crate) async fn wait_until_confirmed_on_all(

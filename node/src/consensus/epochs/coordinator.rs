@@ -73,7 +73,8 @@ impl EpochCoordinator {
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         observer: Option<SyncSender<NodeEvent>>,
     ) -> Self {
-        let committee = std::env::var("NANO_RAI_FIXED_COMMITTEE")
+        let committee = std::env::var("NANO_RAI_EPOCH_COMMITTEE")
+            .or_else(|_| std::env::var("NANO_RAI_FIXED_COMMITTEE"))
             .unwrap_or_default()
             .split(',')
             .filter_map(|key| PublicKey::decode_hex(key.trim()))

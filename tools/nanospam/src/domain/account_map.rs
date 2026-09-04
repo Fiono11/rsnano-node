@@ -222,7 +222,10 @@ impl AccountMap {
 
     #[cfg(not(feature = "rai_protocol"))]
     pub fn confirm(&mut self, hash: &BlockHash) {
-        let Some(entry) = self.unconfirmed.remove(hash) else {
+        let Some(primary) = self.primary_hash(hash) else {
+            return;
+        };
+        let Some(entry) = self.unconfirmed.remove(&primary) else {
             return;
         };
 
@@ -231,9 +234,10 @@ impl AccountMap {
         }
 
         if let Some(dest) = entry.destination
-            && let Some(entries) = self.receivable.get(&dest)
-            && let Some((_, amount)) = entries.iter().find(|(h, _)| h == hash)
+            && let Some(entries) = self.receivable.get_mut(&dest)
+            && let Some((receivable_hash, amount)) = entries.iter_mut().find(|(h, _)| *h == primary)
         {
+            *receivable_hash = *hash;
             self.confirmed_receivable.insert((dest, *hash), *amount);
         }
 
@@ -241,6 +245,7 @@ impl AccountMap {
             return;
         };
         state.confirmed_frontier = *hash;
+        state.unconfirmed_frontier = *hash;
         if state.confirmed() {
             self.confirmed_accounts.insert(entry.source);
         }
@@ -497,6 +502,41 @@ mod tests {
             Some(fork_hash),
         );
         map.terminate(&fork_hash);
+
+        assert_eq!(map.get_receivable(&dest_account), Some((fork_hash, amount)));
+        assert_eq!(
+            map.state(&source_account).unwrap().confirmed_frontier,
+            fork_hash
+        );
+    }
+
+    #[cfg(not(feature = "rai_protocol"))]
+    #[test]
+    fn confirming_legacy_send_fork_uses_winning_hash() {
+        let mut map = AccountMap::default();
+        let send_hash = BlockHash::from(42);
+        let fork_hash = BlockHash::from(43);
+        let source_key = PrivateKey::from(101);
+        let source_account = source_key.account();
+        let dest_key = PrivateKey::from(100);
+        let dest_account = dest_key.account();
+        let amount = Amount::nano(12_345);
+        map.add_unopened(dest_key);
+        map.add_unopened(source_key);
+        map.set_account_state(
+            source_account,
+            Amount::nano(100_000_000),
+            BlockHash::from(41),
+        );
+
+        map.process_send(
+            source_account,
+            dest_account,
+            send_hash,
+            amount,
+            Some(fork_hash),
+        );
+        map.confirm(&fork_hash);
 
         assert_eq!(map.get_receivable(&dest_account), Some((fork_hash, amount)));
         assert_eq!(
