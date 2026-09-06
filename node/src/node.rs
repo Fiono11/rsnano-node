@@ -609,19 +609,6 @@ impl Node {
 
         #[cfg(feature = "rai_protocol")]
         let vote_gate = Arc::new(VoteGate::default());
-        let vote_generators = Arc::new(VoteGenerators::new(
-            ledger.clone(),
-            wallet_reps.clone(),
-            vote_history.clone(),
-            stats.clone(),
-            &config,
-            &network_params,
-            vote_broadcaster,
-            message_sender.clone(),
-            steady_clock.clone(),
-            #[cfg(feature = "rai_protocol")]
-            vote_gate.clone(),
-        ));
 
         let base_latency = match current_network {
             NetworkType::NanoDevNetwork => Duration::from_millis(25),
@@ -637,6 +624,22 @@ impl Node {
             base_latency,
         ));
         active_elections.set_observer(aec_tx.clone());
+
+        let vote_generators = Arc::new(VoteGenerators::new(
+            ledger.clone(),
+            wallet_reps.clone(),
+            vote_history.clone(),
+            stats.clone(),
+            &config,
+            &network_params,
+            vote_broadcaster,
+            message_sender.clone(),
+            steady_clock.clone(),
+            #[cfg(feature = "rai_protocol")]
+            vote_gate.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
+        ));
 
         #[cfg(feature = "rai_protocol")]
         let epoch_coordinator = Arc::new(Mutex::new(EpochCoordinator::new(
@@ -796,6 +799,7 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            active_elections.clone(),
         ));
 
         let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));

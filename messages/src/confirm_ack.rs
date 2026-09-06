@@ -16,11 +16,13 @@ use std::fmt::{Debug, Display};
  * - [0x0001] Confirm V2 flag
  * - [0x0002] Reserved for V3+ versioning
  * - [0x0004] Rebroadcasted flag
+ * - [0x0008] Solicited recovery reply flag
  */
 #[derive(Clone, Debug)]
 pub struct ConfirmAck {
     vote: Vote,
     is_rebroadcasted: bool,
+    is_recovery: bool,
     /// Messages deserialized from network should have their digest set
     pub digest: u128,
 }
@@ -28,12 +30,14 @@ pub struct ConfirmAck {
 impl ConfirmAck {
     pub const HASHES_MAX: usize = 255;
     pub const REBROADCASTED_FLAG: usize = 2;
+    pub const RECOVERY_FLAG: usize = 3;
 
     pub fn new_with_own_vote(vote: Vote) -> Self {
         assert!(vote.hashes.len() <= Self::HASHES_MAX);
         Self {
             vote,
             is_rebroadcasted: false,
+            is_recovery: false,
             digest: 0,
         }
     }
@@ -43,8 +47,23 @@ impl ConfirmAck {
         Self {
             vote,
             is_rebroadcasted: true,
+            is_recovery: false,
             digest: 0,
         }
+    }
+
+    pub fn new_with_recovery_vote(vote: Vote) -> Self {
+        assert!(vote.hashes.len() <= Self::HASHES_MAX);
+        Self {
+            vote,
+            is_rebroadcasted: false,
+            is_recovery: true,
+            digest: 0,
+        }
+    }
+
+    pub fn is_recovery_extension(extensions: BitArray<u16>) -> bool {
+        extensions[Self::RECOVERY_FLAG]
     }
 
     pub fn new_test_instance() -> Self {
@@ -72,7 +91,9 @@ impl ConfirmAck {
         let vote = Vote::deserialize(bytes)?;
 
         let is_rebroadcasted = extensions[Self::REBROADCASTED_FLAG];
-        let mut ack = if is_rebroadcasted {
+        let mut ack = if Self::is_recovery_extension(extensions) {
+            ConfirmAck::new_with_recovery_vote(vote)
+        } else if is_rebroadcasted {
             ConfirmAck::new_with_rebroadcasted_vote(vote)
         } else {
             ConfirmAck::new_with_own_vote(vote)
@@ -95,6 +116,7 @@ impl MessageVariant for ConfirmAck {
         let mut extensions = BitArray::default();
         extensions |= ConfirmReq::count_bits(self.vote.hashes.len() as u8);
         extensions.set(Self::REBROADCASTED_FLAG, self.is_rebroadcasted);
+        extensions.set(Self::RECOVERY_FLAG, self.is_recovery);
         extensions
     }
 }

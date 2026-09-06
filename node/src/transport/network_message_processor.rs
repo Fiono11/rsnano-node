@@ -2,6 +2,8 @@ use std::{
     net::SocketAddrV6,
     sync::{Arc, Mutex, RwLock},
 };
+#[cfg(feature = "rai_protocol")]
+use std::{thread::sleep, time::Duration};
 
 use tracing::trace;
 
@@ -122,6 +124,14 @@ impl NetworkMessageProcessor {
             Message::Publish(publish) => {
                 let mut ok = true;
 
+                #[cfg(feature = "rai_protocol")]
+                if publish.is_recovery {
+                    self.epoch_coordinator
+                        .lock()
+                        .unwrap()
+                        .receive_recovery_block(publish.block.clone());
+                }
+
                 if !self.work_thresholds.validate_entry_block(&publish.block) {
                     self.stats
                         .inc(StatType::BlockProcessor, DetailType::InsufficientWork);
@@ -144,11 +154,22 @@ impl NetworkMessageProcessor {
                         // fill up the bootstrap queue
                         ok = false;
                     } else {
-                        ok = self.block_processor_queue.push(BlockContext::new(
+                        #[cfg(feature = "rai_protocol")]
+                        self.epoch_coordinator
+                            .lock()
+                            .unwrap()
+                            .observe_block_receipt(publish.block.hash());
+                        let context = Arc::new(BlockContext::new(
                             publish.block,
                             source,
                             channel.channel_id(),
                         ));
+                        ok = self.block_processor_queue.push(context.clone());
+                        #[cfg(feature = "rai_protocol")]
+                        while !ok {
+                            sleep(Duration::from_millis(1));
+                            ok = self.block_processor_queue.push(context.clone());
+                        }
                     }
                 }
 
@@ -165,12 +186,28 @@ impl NetworkMessageProcessor {
                 // TODO: This check should be cached somewhere
                 if self.wallet_reps.lock().unwrap().voting_enabled() {
                     let aggregator_req = AggregatorRequest {
+                        #[cfg(feature = "rai_protocol")]
+                        by_slot: req.by_slot,
                         channel: channel.clone(),
                         roots_hashes: req.roots_hashes,
                         #[cfg(feature = "rai_protocol")]
                         epoch: req.epoch,
+                        #[cfg(feature = "rai_protocol")]
+                        vote_type: req.vote_type,
                     };
+                    #[cfg(not(feature = "rai_protocol"))]
                     self.request_aggregator.request(aggregator_req);
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        // Epoch recovery requests are part of the replicated protocol. A full
+                        // aggregator queue is transient backpressure, not permission to discard
+                        // the request and leave another PR with an incomplete vote history.
+                        while channel.is_alive()
+                            && !self.request_aggregator.request(aggregator_req.clone())
+                        {
+                            sleep(Duration::from_millis(1));
+                        }
+                    }
                 }
             }
             Message::ConfirmAck(ack) => {
@@ -188,12 +225,25 @@ impl NetworkMessageProcessor {
                     false => VoteDelivery::Direct,
                 };
 
-                let added = self.vote_processor_queue.enqueue(
-                    Arc::new(ack.vote().clone()),
+                let vote = Arc::new(ack.vote().clone());
+                #[cfg(feature = "rai_protocol")]
+                self.epoch_coordinator.lock().unwrap().observe_vote_blocks(&vote);
+                let mut added = self.vote_processor_queue.enqueue(
+                    vote.clone(),
                     Some(channel.clone()),
                     source,
                     None,
                 );
+                #[cfg(feature = "rai_protocol")]
+                while !added {
+                    sleep(Duration::from_millis(1));
+                    added = self.vote_processor_queue.enqueue(
+                        vote.clone(),
+                        Some(channel.clone()),
+                        source,
+                        None,
+                    );
+                }
 
                 if !added {
                     // The message couldn't be handled. We have to remove it from the duplicate

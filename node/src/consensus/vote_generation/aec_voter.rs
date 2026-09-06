@@ -95,9 +95,15 @@ impl Tickable for AecVoter {
         });
         #[cfg(feature = "rai_protocol")]
         let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
-            iter.flat_map(vote_targets)
-                .filter(|target| scheduler.can_vote(target, now))
-                .collect()
+            iter.flat_map(|election| {
+                vote_targets(
+                    election,
+                    self.vote_generators
+                        .is_cut_recovery(election.qualified_root()),
+                )
+            })
+            .filter(|target| scheduler.can_vote(target, now))
+            .collect()
         });
 
         let mut vote_queue = Vec::new();
@@ -108,11 +114,15 @@ impl Tickable for AecVoter {
                 continue;
             }
             if target.vote_type == VoteType::NonFinal {
-                if skip_non_final {
+                #[cfg(feature = "rai_protocol")]
+                let cut_recovery = self.vote_generators.is_cut_recovery(&target.root);
+                #[cfg(not(feature = "rai_protocol"))]
+                let cut_recovery = false;
+                if !cut_recovery && skip_non_final {
                     continue;
                 }
                 // we limit non final votes to reduce CPS
-                if !self.cps_limiter.try_vote(now) {
+                if !cut_recovery && !self.cps_limiter.try_vote(now) {
                     skip_non_final = true;
                     continue;
                 }

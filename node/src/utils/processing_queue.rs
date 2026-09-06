@@ -106,6 +106,11 @@ impl<T: Send + 'static> ProcessingQueue<T> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Discards queued work which has not yet been handed to a worker.
+    pub fn clear(&self) {
+        self.shared_state.queue.lock().unwrap().clear();
+    }
 }
 
 impl<T: Send + 'static> Drop for ProcessingQueue<T> {

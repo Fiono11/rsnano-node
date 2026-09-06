@@ -1,14 +1,18 @@
 use std::{
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
     sync::{Arc, RwLock},
 };
 
 use rsnano_messages::{Message, MessageSerializer};
 use rsnano_network::{
-    Channel, ChannelDirection, ChannelId, Network, TEST_ENDPOINT_1, TEST_ENDPOINT_2, TrafficType,
+    Channel, ChannelDirection, ChannelId, ChannelMode, Network, TEST_ENDPOINT_1, TEST_ENDPOINT_2,
+    TrafficType,
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::{NodeId, PublicKey};
 use rsnano_utils::stats::Stats;
 
 use super::{MessageSender, try_send_serialized_message};
@@ -22,21 +26,128 @@ pub struct MessageFlooder {
     message_serializer: MessageSerializer,
     sender: MessageSender,
     flood_listener: OutputListenerMt<FloodEvent>,
+    #[cfg(feature = "rai_protocol")]
+    committee_node_ids: HashSet<NodeId>,
+    #[cfg(feature = "rai_protocol")]
+    committee_nodes: HashMap<PublicKey, NodeId>,
 }
 
 impl MessageFlooder {
+    #[cfg(feature = "rai_protocol")]
+    pub fn try_send_to_all_prs_once(&mut self, message: &Message) -> FloodCount {
+        let mut result = FloodCount::default();
+        let buffer = self.message_serializer.serialize(message);
+        let channels: Vec<_> = self
+            .network
+            .read()
+            .unwrap()
+            .channels()
+            .filter(|channel| {
+                self.committee_node_ids.is_empty()
+                    || channel
+                        .node_id()
+                        .is_some_and(|id| self.committee_node_ids.contains(&id))
+            })
+            .cloned()
+            .collect();
+        for channel in channels {
+            if try_send_serialized_message(
+                &channel,
+                &self.stats,
+                buffer,
+                message,
+                TrafficType::EpochControl,
+            ) {
+                result.principal_reps += 1;
+            }
+        }
+        result
+    }
+
+    /// Sends a recovery request directly to the node which owns `representative`.
+    /// The two committee environment lists are positional pairs, established by
+    /// the epoch launcher/configuration.
+    #[cfg(feature = "rai_protocol")]
+    pub fn try_send_to_rep_once(
+        &mut self,
+        representative: &PublicKey,
+        message: &Message,
+    ) -> bool {
+        let Some(node_id) = self.committee_nodes.get(representative) else {
+            return false;
+        };
+        let network = self.network.read().unwrap();
+        let channel = if network.loopback().node_id() == Some(*node_id) {
+            Some(network.loopback().clone())
+        } else {
+            network.find_node_id(node_id).cloned()
+        };
+        drop(network);
+        let Some(channel) = channel else {
+            return false;
+        };
+        let buffer = self.message_serializer.serialize(message);
+        try_send_serialized_message(
+            &channel,
+            &self.stats,
+            buffer,
+            message,
+            TrafficType::EpochControl,
+        )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn try_send_to_random_pr_once(&mut self, message: &Message) -> bool {
+        let channel = self
+            .network
+            .read()
+            .unwrap()
+            .shuffled_channels(TrafficType::EpochControl)
+            .into_iter()
+            .find(|channel| {
+                channel.is_alive()
+                    && channel.mode() == ChannelMode::Established
+                    && (self.committee_node_ids.is_empty()
+                        || channel
+                            .node_id()
+                            .is_some_and(|id| self.committee_node_ids.contains(&id)))
+            });
+        channel.is_some_and(|channel| {
+            let buffer = self.message_serializer.serialize(message);
+            try_send_serialized_message(
+                &channel,
+                &self.stats,
+                buffer,
+                message,
+                TrafficType::EpochControl,
+            )
+        })
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn send_to_all_prs_once(&mut self, message: &Message) -> FloodCount {
         let mut result = FloodCount::default();
         // The representative tracker is deliberately sampled and may not contain every PR even
         // in a fully connected committee. Epoch setup establishes a direct channel between every
-        // pair, so queue the report once on every established channel instead. Non-PR peers may
-        // receive and ignore a copy; PR delivery must not depend on crawler state.
-        let channels = self
+        // pair. A real peer advertises its listening address in keepalives; injection/RPC test
+        // sockets do not. Excluding those ingress-only sockets is important because reliable
+        // backpressure on an unread injection socket could otherwise stall delivery to a PR that
+        // appears later in this iteration.
+        let channels: Vec<_> = self
             .network
             .read()
             .unwrap()
-            .shuffled_channels(TrafficType::EpochControl);
+            .channels()
+            .filter(|channel| {
+                channel.is_alive()
+                    && channel.mode() == ChannelMode::Established
+                    && (self.committee_node_ids.is_empty()
+                        || channel
+                            .node_id()
+                            .is_some_and(|id| self.committee_node_ids.contains(&id)))
+            })
+            .cloned()
+            .collect();
         for channel in channels {
             if self
                 .sender
@@ -53,6 +164,22 @@ impl MessageFlooder {
         stats: Arc<Stats>,
         sender: MessageSender,
     ) -> Self {
+        #[cfg(feature = "rai_protocol")]
+        let committee_node_list: Vec<_> = std::env::var("NANO_RAI_NODE_COMMITTEE")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|key| PublicKey::decode_hex(key.trim()))
+            .map(NodeId::from)
+            .collect();
+        #[cfg(feature = "rai_protocol")]
+        let committee_node_ids = committee_node_list.iter().copied().collect();
+        #[cfg(feature = "rai_protocol")]
+        let committee_nodes = std::env::var("NANO_RAI_EPOCH_COMMITTEE")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|key| PublicKey::decode_hex(key.trim()))
+            .zip(committee_node_list)
+            .collect();
         Self {
             rep_tracker,
             network,
@@ -60,6 +187,10 @@ impl MessageFlooder {
             message_serializer: sender.get_serializer(),
             sender,
             flood_listener: OutputListenerMt::new(),
+            #[cfg(feature = "rai_protocol")]
+            committee_node_ids,
+            #[cfg(feature = "rai_protocol")]
+            committee_nodes,
         }
     }
 
@@ -203,6 +334,10 @@ impl Clone for MessageFlooder {
             message_serializer: self.message_serializer.clone(),
             sender: self.sender.clone(),
             flood_listener: OutputListenerMt::new(),
+            #[cfg(feature = "rai_protocol")]
+            committee_node_ids: self.committee_node_ids.clone(),
+            #[cfg(feature = "rai_protocol")]
+            committee_nodes: self.committee_nodes.clone(),
         }
     }
 }

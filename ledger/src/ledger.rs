@@ -348,15 +348,8 @@ impl Ledger {
 
             #[cfg(feature = "rai_protocol")]
             if let Some(committee) = &fixed_committee {
-                let base_weight = Amount::MAX / committee.len() as u128;
-                let remainder = Amount::MAX - base_weight * committee.len() as u128;
-                for (index, representative) in committee.iter().enumerate() {
-                    let weight = if index == 0 {
-                        base_weight + remainder
-                    } else {
-                        base_weight
-                    };
-                    write_guard.put(*representative, weight);
+                for (representative, weight) in committee {
+                    write_guard.put(*representative, *weight);
                 }
                 info!(
                     representatives = committee.len(),
@@ -1070,11 +1063,39 @@ impl Ledger {
 }
 
 #[cfg(feature = "rai_protocol")]
-fn fixed_rai_committee() -> anyhow::Result<Option<Vec<PublicKey>>> {
+fn fixed_rai_committee() -> anyhow::Result<Option<Vec<(PublicKey, Amount)>>> {
+    if let Ok(value) = std::env::var("NANO_RAI_FIXED_WEIGHTS") {
+        let committee: Vec<_> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                let (key, weight) = value
+                    .split_once(':')
+                    .ok_or_else(|| anyhow::anyhow!("invalid entry in NANO_RAI_FIXED_WEIGHTS"))?;
+                let key = PublicKey::decode_hex(key).ok_or_else(|| {
+                    anyhow::anyhow!("invalid public key in NANO_RAI_FIXED_WEIGHTS")
+                })?;
+                let weight = weight
+                    .parse::<u128>()
+                    .map(Amount::raw)
+                    .map_err(|_| anyhow::anyhow!("invalid weight in NANO_RAI_FIXED_WEIGHTS"))?;
+                Ok((key, weight))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        validate_fixed_rai_committee(&committee)?;
+        let total = committee
+            .iter()
+            .fold(Amount::ZERO, |sum, (_, weight)| sum + *weight);
+        if total != Amount::MAX {
+            anyhow::bail!("NANO_RAI_FIXED_WEIGHTS must sum to Amount::MAX");
+        }
+        return Ok(Some(committee));
+    }
     let Ok(value) = std::env::var("NANO_RAI_FIXED_COMMITTEE") else {
         return Ok(None);
     };
-    let committee: Vec<_> = value
+    let keys: Vec<_> = value
         .split(',')
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1083,16 +1104,37 @@ fn fixed_rai_committee() -> anyhow::Result<Option<Vec<PublicKey>>> {
                 .ok_or_else(|| anyhow::anyhow!("invalid public key in NANO_RAI_FIXED_COMMITTEE"))
         })
         .collect::<anyhow::Result<_>>()?;
-    if committee.is_empty() {
+    if keys.is_empty() {
         anyhow::bail!("NANO_RAI_FIXED_COMMITTEE must contain at least one public key");
     }
-    let mut unique = committee.clone();
+    let base_weight = Amount::MAX / keys.len() as u128;
+    let remainder = Amount::MAX - base_weight * keys.len() as u128;
+    let committee = keys
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            (
+                key,
+                base_weight + if index == 0 { remainder } else { Amount::ZERO },
+            )
+        })
+        .collect::<Vec<_>>();
+    validate_fixed_rai_committee(&committee)?;
+    Ok(Some(committee))
+}
+
+#[cfg(feature = "rai_protocol")]
+fn validate_fixed_rai_committee(committee: &[(PublicKey, Amount)]) -> anyhow::Result<()> {
+    if committee.is_empty() {
+        anyhow::bail!("fixed RAI committee must contain at least one public key");
+    }
+    let mut unique = committee.iter().map(|(key, _)| *key).collect::<Vec<_>>();
     unique.sort_unstable();
     unique.dedup();
     if unique.len() != committee.len() {
-        anyhow::bail!("NANO_RAI_FIXED_COMMITTEE contains duplicate public keys");
+        anyhow::bail!("fixed RAI committee contains duplicate public keys");
     }
-    Ok(Some(committee))
+    Ok(())
 }
 
 impl Drop for Ledger {

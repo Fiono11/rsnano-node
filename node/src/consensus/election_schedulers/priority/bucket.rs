@@ -72,12 +72,20 @@ impl Bucket {
     }
 
     pub fn available(&self, vacancy: isize, lowest_priority: TimePriority) -> bool {
-        let Some(highest_block) = self.block_queue.highest_prio() else {
-            // No blocks enqueued
-            return false;
-        };
+        #[cfg(feature = "rai_protocol")]
+        {
+            let _ = lowest_priority;
+            return vacancy > 0 && !self.is_empty();
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let Some(highest_block) = self.block_queue.highest_prio() else {
+                // No blocks enqueued
+                return false;
+            };
 
-        vacancy > 0 || highest_block.priority.time > lowest_priority
+            vacancy > 0 || highest_block.priority.time > lowest_priority
+        }
     }
 
     pub fn activate(

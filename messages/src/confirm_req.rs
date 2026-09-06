@@ -2,6 +2,8 @@ use super::MessageVariant;
 use anyhow::Result;
 use bitvec::prelude::BitArray;
 use num_traits::FromPrimitive;
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::VoteType;
 use rsnano_types::{
     BlockHash, BlockType, BlockTypeId, DeserializationError, Root, serialized_block_size,
 };
@@ -13,6 +15,8 @@ use std::fmt::{Debug, Display, Write};
  * [message_header] Common message header
  * [N x (32 bytes (block hash) + 32 bytes (root))] Pairs of (block_hash, root)
  * - The count is determined by the header's count bits.
+ * RAI election requests set bit 0x0002 and instead contain N (root, previous)
+ * pairs, with no epoch or vote-phase prefix. Votes in the reply carry their epoch.
  *
  * Header extensions:
  * - [0xf000] Count (for V1 protocol)
@@ -20,13 +24,19 @@ use std::fmt::{Debug, Display, Write};
  *   - Not used anymore (V25.1+), but still present and set to `not_a_block = 0x1` for backwards compatibility
  * - [0xf000 (high), 0x00f0 (low)] Count V2 (for V2 protocol)
  * - [0x0001] Confirm V2 flag
- * - [0x0002] Reserved for V3+ versioning
+ * - [0x0002] RAI election request by slot
  */
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConfirmReq {
+    /// Legacy (hash, root) pairs; election requests store (previous, root)
+    /// here and encode them on the wire as (root, previous).
     pub roots_hashes: Vec<(BlockHash, Root)>,
     #[cfg(feature = "rai_protocol")]
     pub epoch: u64,
+    #[cfg(feature = "rai_protocol")]
+    pub vote_type: Option<VoteType>,
+    #[cfg(feature = "rai_protocol")]
+    pub by_slot: bool,
 }
 
 impl ConfirmReq {
@@ -51,13 +61,31 @@ impl ConfirmReq {
             roots_hashes,
             #[cfg(feature = "rai_protocol")]
             epoch: 1,
+            #[cfg(feature = "rai_protocol")]
+            vote_type: None,
+            #[cfg(feature = "rai_protocol")]
+            by_slot: false,
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_elections(roots: Vec<rsnano_types::SlotRoot>) -> Self {
+        assert!(!roots.is_empty(), "empty election request");
+        let mut request = Self::new(roots.into_iter().map(|root| (root.previous, root.root)).collect());
+        request.by_slot = true;
+        request
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn with_epoch(mut self, epoch: u64) -> Self {
         assert!(epoch > 0, "RAI network epochs start at one");
         self.epoch = epoch;
+        self
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn with_vote_type(mut self, vote_type: VoteType) -> Self {
+        self.vote_type = Some(vote_type);
         self
     }
 
@@ -146,7 +174,7 @@ impl ConfirmReq {
                 let count = Self::count(extensions);
                 if block_type_id == BlockTypeId::NotABlock {
                     count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
-                        + if cfg!(feature = "rai_protocol") {
+                        + if cfg!(feature = "rai_protocol") && extensions.data & 0x0002 == 0 {
                             std::mem::size_of::<u64>()
                         } else {
                             0
@@ -163,8 +191,25 @@ impl ConfirmReq {
         T: std::io::Write,
     {
         #[cfg(feature = "rai_protocol")]
-        writer.write_all(&self.epoch.to_le_bytes())?;
+        if !self.by_slot {
+            writer.write_all(
+                &(self.epoch
+                    | match self.vote_type {
+                        Some(VoteType::First) => 1u64 << 62,
+                        Some(VoteType::NonFinal) => 2u64 << 62,
+                        Some(VoteType::Final) => 3u64 << 62,
+                        _ => 0,
+                    })
+                .to_le_bytes(),
+            )?;
+        }
         for (hash, root) in &self.roots_hashes {
+            #[cfg(feature = "rai_protocol")]
+            if self.by_slot {
+                writer.write_all(root.as_bytes())?;
+                writer.write_all(hash.as_bytes())?;
+                continue;
+            }
             writer.write_all(hash.as_bytes())?;
             writer.write_all(root.as_bytes())?;
         }
@@ -178,15 +223,31 @@ impl ConfirmReq {
         #[cfg(feature = "rai_protocol")]
         {
             use std::io::Read;
+            if extensions.data & 0x0002 != 0 {
+                let pairs = Self::deserialize_roots(bytes, extensions)?;
+                return Ok(Self::new_elections(pairs.into_iter().map(|(root, previous)| {
+                    rsnano_types::SlotRoot { root: root.into(), previous: previous.into() }
+                }).collect()));
+            }
             let mut bytes = bytes;
             let mut epoch_bytes = [0; 8];
             bytes.read_exact(&mut epoch_bytes)?;
-            let epoch = u64::from_le_bytes(epoch_bytes);
+            let encoded = u64::from_le_bytes(epoch_bytes);
+            let epoch = encoded & ((1u64 << 62) - 1);
+            let vote_type = match encoded >> 62 {
+                1 => Some(VoteType::First),
+                2 => Some(VoteType::NonFinal),
+                3 => Some(VoteType::Final),
+                _ => None,
+            };
             if epoch == 0 {
                 return Err(DeserializationError::InvalidData);
             }
             let roots = Self::deserialize_roots(bytes, extensions)?;
-            return Ok(Self::new(roots).with_epoch(epoch));
+            let mut result = Self::new(roots).with_epoch(epoch);
+            result.vote_type = vote_type;
+            result.by_slot = extensions.data & 0x0002 != 0;
+            return Ok(result);
         }
         #[cfg(not(feature = "rai_protocol"))]
         {
@@ -251,11 +312,28 @@ impl serde::Serialize for ConfirmReq {
     where
         S: serde::Serializer,
     {
+        #[cfg(feature = "rai_protocol")]
+        if self.by_slot {
+            #[derive(serde::Serialize)]
+            struct ElectionSlot {
+                root: String,
+                previous: BlockHash,
+            }
+            let mut state = serializer.serialize_struct("ConfirmReq", 2)?;
+            state.serialize_field("confirm_type", "elections")?;
+            let slots: Vec<_> = self.roots_hashes.iter().map(|(previous, root)| ElectionSlot {
+                root: root.encode_hex(), previous: *previous,
+            }).collect();
+            state.serialize_field("roots", &slots)?;
+            return state.end();
+        }
         let mut state = serializer.serialize_struct("ConfirmReq", 6)?;
         state.serialize_field("confirm_type", "roots_hashes")?;
         state.serialize_field("roots_hashes", &SerializableRootsHashes(&self.roots_hashes))?;
         #[cfg(feature = "rai_protocol")]
         state.serialize_field("epoch", &self.epoch)?;
+        #[cfg(feature = "rai_protocol")]
+        state.serialize_field("by_slot", &self.by_slot)?;
         state.end()
     }
 }
@@ -267,6 +345,10 @@ impl MessageVariant for ConfirmReq {
         // Set NotABlock (1) block type for hashes + roots request
         // This is needed to keep compatibility with previous protocol versions (<= V25.1)
         extensions |= BitArray::new((BlockTypeId::NotABlock as u16) << Self::BLOCK_TYPE_SHIFT);
+        #[cfg(feature = "rai_protocol")]
+        if self.by_slot {
+            extensions |= BitArray::new(0x0002);
+        }
         extensions
     }
 }
@@ -284,6 +366,24 @@ impl Display for ConfirmReq {
 mod tests {
     use super::*;
     use crate::{Message, assert_deserializable};
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn election_requests_contain_only_root_and_previous() {
+        let slots = vec![
+            rsnano_types::SlotRoot { root: 7.into(), previous: 9.into() },
+            rsnano_types::SlotRoot { root: 8.into(), previous: BlockHash::ZERO },
+        ];
+        let request = ConfirmReq::new_elections(slots.clone());
+        let mut bytes = Vec::new();
+        request.serialize(&mut bytes).unwrap();
+        assert_eq!(bytes.len(), 128);
+        assert_eq!(&bytes[..32], slots[0].root.as_bytes());
+        assert_eq!(&bytes[32..64], slots[0].previous.as_bytes());
+        assert_eq!(ConfirmReq::serialized_size(request.header_extensions(0)), bytes.len());
+        assert_eq!(ConfirmReq::deserialize(&bytes, request.header_extensions(0)).unwrap(), request);
+        assert_deserializable(&Message::ConfirmReq(request));
+    }
 
     #[test]
     fn serialize() {

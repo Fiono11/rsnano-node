@@ -25,6 +25,7 @@ pub trait AnySet: LedgerSet {
     }
 
     fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks;
+    fn block_dependencies_for_unsaved(&self, block: &Block) -> DependentBlocks;
     fn dependencies_confirmed(&self, block: &SavedBlock) -> bool;
     fn dependencies_confirmed_for_unsaved_block(&self, block: &Block) -> bool;
     fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash>;
@@ -209,6 +210,11 @@ impl<'a> AnySet for OwningAnySet<'a> {
 
     fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks {
         self.borrowing_set().block_dependencies(block)
+    }
+
+    fn block_dependencies_for_unsaved(&self, block: &Block) -> DependentBlocks {
+        self.borrowing_set()
+            .dependent_blocks_for_unsaved_block(block)
     }
 
     fn dependencies_confirmed(&self, block: &SavedBlock) -> bool {
@@ -412,6 +418,10 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
 
     fn block_dependencies(&self, block: &SavedBlock) -> DependentBlocks {
         BlockDependenciesFinder::new(self, self.constants).find_dependent_blocks(block)
+    }
+
+    fn block_dependencies_for_unsaved(&self, block: &Block) -> DependentBlocks {
+        self.dependent_blocks_for_unsaved_block(block)
     }
 
     fn should_refresh(&self) -> bool {

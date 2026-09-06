@@ -278,6 +278,12 @@ impl NanoSpamApp {
         let cancel_block_creation = CancellationToken::new();
         let cancel_block_creation2 = cancel_block_creation.clone();
         let cancel_nanospam = CancellationToken::new();
+        let publication_complete = CancellationToken::new();
+        if self.args.blocks.unwrap_or(0) == 0 {
+            // Unbounded runs have no publication-complete point, so retain the timeout's
+            // historical meaning as a total run-time limit.
+            publication_complete.cancel();
+        }
 
         let (tx_ws_msg, rx_ws_msg) =
             std::sync::mpsc::channel::<(usize, MessageEnvelope, Timestamp)>();
@@ -299,10 +305,11 @@ impl NanoSpamApp {
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
         #[cfg(feature = "rai_protocol")]
-        let initial_block_counts = {
+        let initial_received_counts = {
             let mut counts = Vec::with_capacity(self.rpc_clients.len());
             for client in &self.rpc_clients {
-                counts.push(client.block_count().await?.count.inner());
+                let count = client.block_count().await?;
+                counts.push(count.count.inner() + count.unchecked.inner());
             }
             counts
         };
@@ -323,11 +330,16 @@ impl NanoSpamApp {
             tokio_scoped::scope(|scope| {
                 if self.args.timeout > 0 {
                     let timeout_cancel = cancel_nanospam.clone();
+                    let publication_complete = publication_complete.clone();
                     let wait = Duration::from_secs(self.args.timeout);
                     scope.spawn(async move {
                         select! {
+                            _ = publication_complete.cancelled() => {}
+                            _ = timeout_cancel.cancelled() => return,
+                        }
+                        select! {
                             _ = tokio::time::sleep(wait) => timeout_cancel.cancel(),
-                            _ = timeout_cancel.cancelled() => {}
+                            _ = timeout_cancel.cancelled() => {},
                         }
                     });
                 }
@@ -363,6 +375,7 @@ impl NanoSpamApp {
                     protocol,
                     &logic,
                     cancel_nanospam.clone(),
+                    publication_complete,
                     self.args.drop_probability(),
                     self.args.fork_recipients,
                     &self.clock,
@@ -373,7 +386,7 @@ impl NanoSpamApp {
                     #[cfg(feature = "rai_protocol")]
                     &self.rpc_clients,
                     #[cfg(feature = "rai_protocol")]
-                    &initial_block_counts,
+                    &initial_received_counts,
                 ));
 
                 if !self.args.no_republish {
@@ -398,7 +411,7 @@ impl NanoSpamApp {
         };
         let finalized_blocks = logic.confirmed_total;
         let terminated_elections = logic.terminated_total;
-        let termination_rate = (created_blocks as f64 / duration_secs) as i32;
+        let termination_rate = (terminated_elections as f64 / duration_secs) as i32;
         let finalization_rate = (finalized_blocks as f64 / duration_secs) as i32;
         let finalization_time = if finalized_blocks > 0 {
             logic.sum_conf_time_total.as_millis() / finalized_blocks as u128
@@ -539,13 +552,14 @@ async fn publish_blocks(
     protocol: ProtocolInfo,
     logic: &Mutex<SpamLogic>,
     cancel_token: CancellationToken,
+    publication_complete: CancellationToken,
     drop_probability: f64,
     fork_recipients: usize,
     clock: &SteadyClock,
     #[cfg(feature = "rai_protocol")] blocks_per_epoch: usize,
     #[cfg(feature = "rai_protocol")] epochs: usize,
     #[cfg(feature = "rai_protocol")] rpc_clients: &[NanoRpcClient],
-    #[cfg(feature = "rai_protocol")] initial_block_counts: &[u64],
+    #[cfg(feature = "rai_protocol")] initial_received_counts: &[u64],
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
@@ -553,6 +567,8 @@ async fn publish_blocks(
     let mut next_epoch_to_close = 1usize;
     #[cfg(feature = "rai_protocol")]
     let mut published_candidates = 0usize;
+    #[cfg(feature = "rai_protocol")]
+    let mut published_forks = 0usize;
     let mut writer_index = 0;
     loop {
         let forks = select! {
@@ -564,33 +580,46 @@ async fn publish_blocks(
         };
         let block = forks.block.clone();
         let hash = block.hash();
-        let publish = Message::Publish(Publish::new_from_originator(block));
+        #[cfg(feature = "rai_protocol")]
+        let publish = Message::Publish(Publish::new_recovery(block.clone()));
+        #[cfg(not(feature = "rai_protocol"))]
+        let publish = Message::Publish(Publish::new_from_originator(block.clone()));
         let buffer = serializer.serialize(&publish);
         let mut fork_buffer = None;
 
         if let Some(fork) = forks.fork {
-            let publish_fork = Message::Publish(Publish::new_from_originator(fork));
+            #[cfg(feature = "rai_protocol")]
+            let publish_fork = Message::Publish(Publish::new_recovery(fork));
+            #[cfg(not(feature = "rai_protocol"))]
+            let publish_fork = Message::Publish(Publish::new_from_originator(fork.clone()));
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
         #[cfg(feature = "rai_protocol")]
         {
-            published_candidates += 1 + usize::from(fork_buffer.is_some());
+            published_candidates += 1;
+            published_forks += usize::from(fork_buffer.is_some());
         }
 
         // Register before the first socket write. A fast local election can terminate while the
         // remaining node writes are still in flight; registering afterwards loses that event.
         let now = clock.now();
-        let (was_high_prio, published_blocks) = {
+        let (was_high_prio, published_blocks, all_blocks_published) = {
             let mut l = logic.lock().unwrap();
             let prio = l.published(&hash, now);
-            (prio, l.publication_stats().0)
+            let published = l.publication_stats().0;
+            (prio, published, l.all_blocks_published())
         };
+        if all_blocks_published {
+            publication_complete.cancel();
+        }
 
         let transmit = (0..tcp_streams.len())
             .map(|_| !rng().random_bool(drop_probability))
             .collect::<Vec<_>>();
 
-        // Phase one: concurrently deliver the configured first candidate to every PR.
+        // Deliver both candidates back-to-back on each PR connection. The configured side is
+        // still observed first, but no committee-wide write barrier leaves the alternate behind
+        // while the first candidate's election advances.
         tokio_scoped::scope(|s| {
             for (counter, stream) in tcp_streams.iter_mut().enumerate() {
                 if !transmit[counter] {
@@ -603,32 +632,18 @@ async fn publish_blocks(
                     .as_ref()
                     .filter(|_| send_fork)
                     .unwrap_or(&buffer);
+                let alternate = fork_buffer
+                    .as_ref()
+                    .map(|fork| if send_fork { &buffer } else { *fork });
 
                 s.spawn(async move {
                     stream[writer_index].write_all(buf).await.unwrap();
+                    if let Some(alternate) = alternate {
+                        stream[writer_index].write_all(alternate).await.unwrap();
+                    }
                 });
             }
         });
-
-        // Phase two: once all first-candidate socket writes have completed, concurrently deliver
-        // the alternate. There is no vote barrier; the short delay makes the configured first
-        // side observable before every PR receives the other side of the fork.
-        if let Some(fork) = fork_buffer.as_ref() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            tokio_scoped::scope(|s| {
-                for (counter, stream) in tcp_streams.iter_mut().enumerate() {
-                    if !transmit[counter] {
-                        continue;
-                    }
-                    let send_fork = fork_recipients > 0 && counter < fork_recipients
-                        || fork_recipients == 0 && counter % 2 == 0;
-                    let alternate = if send_fork { buffer } else { *fork };
-                    s.spawn(async move {
-                        stream[writer_index].write_all(alternate).await.unwrap();
-                    });
-                }
-            });
-        }
 
         writer_index += 1;
         if writer_index >= CONNECTIONS_PER_NODE {
@@ -642,17 +657,18 @@ async fn publish_blocks(
             && next_epoch_to_close <= epochs
             && published_candidates >= next_epoch_to_close * blocks_per_epoch
         {
-            // Stop at the block boundary until every PR has inserted the complete batch. This is
-            // a ledger barrier, not a finalization barrier: pending elections are deliberately
-            // left for the cut to drain, while every PR can derive the same dependency closure.
+            // Stop at the block boundary until every PR has received the non-fork portion of the
+            // batch. Fork losers are not necessarily represented by either block_count field, so
+            // exclude one entry per fork from the lower bound. Epoch agreement validates the cut.
             loop {
                 let mut all_received = true;
-                let expected_growth =
-                    published_blocks.saturating_sub(logic.lock().unwrap().rolled_back_elections());
-                for (client, initial_count) in rpc_clients.iter().zip(initial_block_counts) {
+                let expected_growth = published_blocks
+                    .saturating_sub(published_forks)
+                    .saturating_sub(logic.lock().unwrap().rolled_back_elections());
+                for (client, initial_count) in rpc_clients.iter().zip(initial_received_counts) {
                     match client.block_count().await {
                         Ok(count)
-                            if count.count.inner()
+                            if count.count.inner() + count.unchecked.inner()
                                 >= initial_count.saturating_add(expected_growth as u64) => {}
                         _ => all_received = false,
                     }

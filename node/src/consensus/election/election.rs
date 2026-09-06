@@ -67,13 +67,29 @@ impl Election {
         base_latency: Duration,
         now: Timestamp,
     ) -> Self {
+        Self::new_with_block(MaybeSavedBlock::Saved(block), behavior, base_latency, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn new_unsaved(
+        block: Block,
+        behavior: ElectionBehavior,
+        base_latency: Duration,
+        now: Timestamp,
+    ) -> Self {
+        Self::new_with_block(MaybeSavedBlock::Unsaved(block), behavior, base_latency, now)
+    }
+
+    fn new_with_block(
+        block: MaybeSavedBlock,
+        behavior: ElectionBehavior,
+        base_latency: Duration,
+        now: Timestamp,
+    ) -> Self {
         Self {
             qualified_root: block.qualified_root(),
             votes: HashMap::new(),
-            candidate_blocks: HashMap::from([(
-                block.hash(),
-                MaybeSavedBlock::Saved(block.clone()),
-            )]),
+            candidate_blocks: HashMap::from([(block.hash(), block.clone())]),
             state: ElectionState::Passive,
             tallies: BlockTallies::new(),
             final_tallies: BlockTallies::new(),
@@ -97,8 +113,11 @@ impl Election {
             has_quorum: false,
             start: now,
             base_latency,
-            account: block.account(),
-            winner: MaybeSavedBlock::Saved(block),
+            account: match &block {
+                MaybeSavedBlock::Saved(block) => block.account(),
+                MaybeSavedBlock::Unsaved(block) => block.account_field().unwrap_or_default(),
+            },
+            winner: block,
         }
     }
 
@@ -152,7 +171,11 @@ impl Election {
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> AddForkResult {
         // Do not insert new blocks if already confirmed
-        if self.state.has_ended() {
+        #[cfg(not(feature = "rai_protocol"))]
+        let ended = self.state.has_ended();
+        #[cfg(feature = "rai_protocol")]
+        let ended = self.state.has_ended() && self.terminated;
+        if ended {
             return AddForkResult::ElectionEnded;
         }
 
@@ -264,7 +287,8 @@ impl Election {
             }
             #[cfg(feature = "rai_protocol")]
             {
-                self.expired = true;
+                // RAI elections terminate through protocol votes and certificates, not a local
+                // wall-clock expiry which can differ between replicas.
             }
         }
     }
@@ -328,6 +352,43 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn second_look_targets(&self) -> impl Iterator<Item = BlockHash> + '_ {
         self.second_look.iter().copied()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn rai_debug_status(&self) -> String {
+        let first_votes = self
+            .votes
+            .values()
+            .filter(|vote| vote.first.is_some())
+            .count();
+        let second_votes = self
+            .votes
+            .values()
+            .filter(|vote| !vote.second_look.is_empty())
+            .count();
+        let first_max = self
+            .first_tallies
+            .winner()
+            .map(|(_, weight)| *weight)
+            .unwrap_or_default();
+        let notarized_max = self
+            .tallies
+            .winner()
+            .map(|(_, weight)| *weight)
+            .unwrap_or_default();
+        format!(
+            "slot={:?} winner={} blocks={} votes={} first_votes={} second_votes={} first_sum={:?} first_max={:?} notarized_max={:?} second_targets={}",
+            self.qualified_root.slot(),
+            self.winner.hash(),
+            self.block_count(),
+            self.vote_count(),
+            first_votes,
+            second_votes,
+            self.first_tallies.sum(),
+            first_max,
+            notarized_max,
+            self.second_look.len()
+        )
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -500,6 +561,30 @@ impl Election {
         let p = quorum.slack_weight;
         if w > f * 3 + p * 2 {
             let certificate = w - f - p;
+            // A Final certificate is authoritative even without First evidence or when
+            // another candidate has a greater notarized hash.
+            let final_winner = self.final_tallies.iter()
+                .find_map(|(hash, weight)| (*weight >= certificate).then_some(*hash))
+                .or_else(|| self.first_tallies.iter()
+                    .find_map(|(hash, weight)| (*weight >= w - p).then_some(*hash)));
+            if let Some(hash) = final_winner {
+                if std::env::var_os("NANO_RAI_RECOVERY_DIAGNOSTICS").is_some() {
+                    tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                        root = %self.qualified_root().root, epoch = self.qualified_root().epoch,
+                        %hash, first = ?self.first_tallies.get(&hash), final_weight = ?self.final_tallies.get(&hash),
+                        total = ?w, certificate = ?certificate, fast_certificate = ?(w - p),
+                        votes = ?self.votes, "RAI diagnostic finalization certificate");
+                }
+                self.notarized_values.insert(hash);
+                if hash != self.winner.hash() {
+                    self.change_winner_to(&hash);
+                }
+                self.update_winner_tally();
+                self.terminated = true;
+                self.terminated_by_timeout = false;
+                self.state = ElectionState::Confirmed;
+                return;
+            }
             self.notarized_values.extend(
                 self.tallies
                     .iter()
@@ -538,15 +623,13 @@ impl Election {
                 .map(|(_, weight)| *weight)
                 .unwrap_or_default();
             self.timeout_predicate = all_vote_weight - max_candidate_weight > f + p;
-            self.has_quorum |= !self.notarized_values.is_empty();
+            // A notarization certificate terminates the instance without waiting for
+            // every PR's First vote. Keep tallying late certificates until finalization
+            // or epoch sealing so the selected notarized value can still advance.
+            self.has_quorum = !self.notarized_values.is_empty();
             if !self.terminated {
                 self.terminated_by_timeout = !self.has_quorum && timeout_weight >= certificate;
                 self.terminated = self.has_quorum || timeout_weight >= certificate;
-            }
-            if self.winner_final_tally >= certificate
-                || self.first_tallies.get(&self.winner.hash()) >= w - p
-            {
-                self.state = ElectionState::Confirmed;
             }
             if timeout_weight >= certificate {
                 // A timeout certificate terminates the protocol instance, but it does not
@@ -652,6 +735,8 @@ pub struct VoteSummary {
     #[cfg(feature = "rai_protocol")]
     pub notarized: HashSet<BlockHash>,
     #[cfg(feature = "rai_protocol")]
+    pub second_look: HashSet<BlockHash>,
+    #[cfg(feature = "rai_protocol")]
     pub timeout: bool,
     #[cfg(feature = "rai_protocol")]
     pub final_vote: Option<BlockHash>,
@@ -677,6 +762,8 @@ impl VoteSummary {
             #[cfg(feature = "rai_protocol")]
             notarized: HashSet::new(),
             #[cfg(feature = "rai_protocol")]
+            second_look: HashSet::new(),
+            #[cfg(feature = "rai_protocol")]
             timeout: false,
             #[cfg(feature = "rai_protocol")]
             final_vote: None,
@@ -693,7 +780,7 @@ impl VoteSummary {
     ) -> Result<(), VoteError> {
         let existing = match vote_type {
             VoteType::First => self.first,
-            VoteType::NonFinal if self.notarized.contains(&hash) => Some(hash),
+            VoteType::NonFinal if self.second_look.contains(&hash) => Some(hash),
             VoteType::NonFinal => None,
             VoteType::Final => self.final_vote,
             VoteType::Timeout if self.timeout => return Err(VoteError::Replay),
@@ -706,10 +793,6 @@ impl VoteSummary {
                 Err(VoteError::Invalid)
             };
         }
-        if vote_type == VoteType::Final && self.notarized.iter().any(|notarized| *notarized != hash)
-        {
-            return Err(VoteError::Invalid);
-        }
         match vote_type {
             VoteType::First => {
                 self.first = Some(hash);
@@ -717,6 +800,7 @@ impl VoteSummary {
             }
             VoteType::NonFinal => {
                 self.notarized.insert(hash);
+                self.second_look.insert(hash);
             }
             VoteType::Final => {
                 // A final vote carries the same support as a non-final vote plus finality.
@@ -877,7 +961,30 @@ mod rai_voting_tests {
     }
 
     #[test]
-    fn cannot_final_vote_after_notarizing_conflicting_hashes() {
+    fn second_look_can_repeat_the_first_hash_as_a_new_phase() {
+        let mut vote = summary();
+        let hash = BlockHash::from(1);
+        vote.apply_phase(
+            VoteType::First,
+            hash,
+            0.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        vote.apply_phase(
+            VoteType::NonFinal,
+            hash,
+            1.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+
+        assert_eq!(vote.second_look, HashSet::from([hash]));
+    }
+
+    #[test]
+    fn accepts_final_vote_after_observing_an_initial_conflict() {
         let mut vote = summary();
         let first = BlockHash::from(1);
         let second = BlockHash::from(2);
@@ -896,15 +1003,14 @@ mod rai_voting_tests {
         )
         .unwrap();
 
-        assert_eq!(
-            vote.apply_phase(
-                VoteType::Final,
-                first,
-                2.into(),
-                Timestamp::new_test_instance()
-            ),
-            Err(VoteError::Invalid)
-        );
+        vote.apply_phase(
+            VoteType::Final,
+            second,
+            2.into(),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert_eq!(vote.final_vote, Some(second));
     }
 
     #[test]
@@ -922,6 +1028,30 @@ mod rai_voting_tests {
 
         assert_eq!(vote.notarized, HashSet::from([hash]));
         assert_eq!(vote.final_vote, Some(hash));
+    }
+
+    #[test]
+    fn final_certificate_confirms_without_first_votes() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), certificate - Amount::from(1));
+        election.apply_rai_vote(
+            &Vote::new_rai(&rep, 1, VoteType::Final, vec![hash]), hash,
+            Timestamp::new_test_instance(),
+        ).unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        assert!(!election.is_confirmed());
+        weights.put(rep.public_key(), certificate);
+        election.update_rai_tallies(&weights, &quorum);
+        assert!(election.is_confirmed());
+        assert!(election.is_terminated());
+        assert!(!election.terminated_by_timeout());
+        assert!(election.votes.values().all(|v| v.first.is_none()));
     }
 
     #[test]
@@ -948,6 +1078,28 @@ mod rai_voting_tests {
     }
 
     #[test]
+    fn notarization_terminates_without_all_first_votes() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let certificate = quorum.total_weight - quorum.faulty_weight - quorum.slack_weight;
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), certificate);
+        election.apply_rai_vote(
+            &Vote::new_rai(&rep, 1, VoteType::First, vec![hash]),
+            hash, Timestamp::new_test_instance(),
+        ).unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        assert!(election.first_tallies.sum() < quorum.total_weight);
+        assert!(election.is_terminated());
+        assert!(election.has_quorum());
+        assert_eq!(election.notarized_value(), Some(hash));
+        assert!(!election.is_confirmed());
+    }
+
+    #[test]
     fn timeout_takes_precedence_over_final_after_conflicting_notarization() {
         let block = SavedBlock::new_test_instance();
         let hash = block.hash();
@@ -964,6 +1116,34 @@ mod rai_voting_tests {
         election.timeout_predicate = true;
 
         assert_eq!(election.vote_type(), Some(VoteType::Timeout));
+    }
+
+    #[test]
+    fn fast_certificate_overrides_higher_notarized_hash() {
+        let a = SavedBlock::new_test_instance();
+        let b = SavedBlock::new_test_instance_with_key(2);
+        let (lower, higher) = if a.hash() < b.hash() { (a, b) } else { (b, a) };
+        let low_hash = lower.hash();
+        let high_hash = higher.hash();
+        let mut election = Election::new_test_instance_with(higher);
+        election.candidate_blocks.insert(low_hash, MaybeSavedBlock::Saved(lower));
+        let quorum = QuorumSnapshot::new_test_instance();
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), quorum.total_weight - quorum.slack_weight);
+        election.apply_rai_vote(
+            &Vote::new_rai(&rep, 1, VoteType::NonFinal, vec![high_hash]),
+            high_hash, Timestamp::new_test_instance(),
+        ).unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        assert_eq!(election.notarized_value(), Some(high_hash));
+        election.apply_rai_vote(
+            &Vote::new_rai(&rep, 1, VoteType::First, vec![low_hash]),
+            low_hash, Timestamp::new_test_instance(),
+        ).unwrap();
+        election.update_rai_tallies(&weights, &quorum);
+        assert!(election.is_confirmed());
+        assert_eq!(election.winner().hash(), low_hash);
     }
 
     #[test]
@@ -1034,7 +1214,7 @@ mod rai_voting_tests {
     }
 
     #[test]
-    fn expiry_requests_timeout_without_ending_election() {
+    fn wall_clock_expiry_does_not_request_timeout_or_end_election() {
         let block = SavedBlock::new_test_instance();
         let mut election = Election::new_test_instance_with(block);
         let expired_at = election.start() + Duration::from_mins(5) + Duration::from_millis(1);
@@ -1042,7 +1222,7 @@ mod rai_voting_tests {
         assert!(!election.should_vote_timeout());
         election.transition_time(expired_at);
 
-        assert!(election.should_vote_timeout());
+        assert!(!election.should_vote_timeout());
         assert!(!election.state().has_ended());
     }
 }

@@ -7,10 +7,7 @@ use rsnano_types::{BlockHash, Root};
 use super::election::Election;
 use crate::{representatives::PeeredRepInfo, transport::MessageFlooder};
 
-#[cfg(not(feature = "rai_protocol"))]
 type RequestKey = ChannelId;
-#[cfg(feature = "rai_protocol")]
-type RequestKey = (ChannelId, u64);
 
 /// This struct accepts elections that need further votes before they can be confirmed and bundles them in to confirm_req packets
 pub struct ConfirmationSolicitor {
@@ -72,22 +69,19 @@ impl ConfirmationSolicitor {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 
                     if !should_drop {
-                        #[cfg(not(feature = "rai_protocol"))]
                         let request_key = rep_channel.channel_id();
-                        #[cfg(feature = "rai_protocol")]
-                        let request_key =
-                            (rep_channel.channel_id(), election.qualified_root().epoch);
                         let queue =
                             self.requests
                                 .entry(request_key)
                                 .or_insert_with(|| RequestQueue {
                                     channel: rep_channel,
                                     requests: Vec::new(),
-                                    #[cfg(feature = "rai_protocol")]
-                                    epoch: election.qualified_root().epoch,
                                 });
 
+                        #[cfg(not(feature = "rai_protocol"))]
                         queue.requests.push((winner.hash(), winner.root()));
+                        #[cfg(feature = "rai_protocol")]
+                        queue.requests.push((election.qualified_root().previous, election.qualified_root().root));
 
                         if !different_hash {
                             rep_request_count += 1;
@@ -121,7 +115,9 @@ impl ConfirmationSolicitor {
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
                     let request = ConfirmReq::new(roots_hashes);
                     #[cfg(feature = "rai_protocol")]
-                    let request = request.with_epoch(queue.epoch);
+                    let request = ConfirmReq::new_elections(request.roots_hashes.into_iter()
+                        .map(|(previous, root)| rsnano_types::SlotRoot { root, previous })
+                        .collect());
                     let req = Message::ConfirmReq(request);
                     self.message_flooder.try_send(
                         &queue.channel,
@@ -134,7 +130,9 @@ impl ConfirmationSolicitor {
             if !roots_hashes.is_empty() {
                 let request = ConfirmReq::new(roots_hashes);
                 #[cfg(feature = "rai_protocol")]
-                let request = request.with_epoch(queue.epoch);
+                let request = ConfirmReq::new_elections(request.roots_hashes.into_iter()
+                    .map(|(previous, root)| rsnano_types::SlotRoot { root, previous })
+                    .collect());
                 let req = Message::ConfirmReq(request);
                 self.message_flooder.try_send(
                     &queue.channel,
@@ -150,6 +148,4 @@ impl ConfirmationSolicitor {
 struct RequestQueue {
     channel: Arc<Channel>,
     requests: Vec<(BlockHash, Root)>,
-    #[cfg(feature = "rai_protocol")]
-    epoch: u64,
 }

@@ -299,4 +299,19 @@ mod tests {
         assert!(report.validate());
         assert_deserializable(&Message::EpochFinalization(report));
     }
+
+    #[test]
+    fn round_report_is_fixed_size_and_signs_only_hash_and_count() {
+        let mut report = EpochFinalization::new(1, 2, &PrivateKey::from(3), Blake2Hash::from(4), 100_000);
+        let mut bytes = Vec::new();
+        report.serialize(&mut bytes).unwrap();
+        assert_eq!(bytes.len(), 148);
+        assert_eq!(bytes.len(), EpochFinalization::SERIALIZED_SIZE);
+        assert_eq!(EpochFinalization::deserialize(&bytes).unwrap(), report);
+        report.non_cut_count += 1;
+        assert!(!report.validate());
+        report.non_cut_count -= 1;
+        report.finalized_hash = Blake2Hash::from(5);
+        assert!(!report.validate());
+    }
 }

@@ -15,17 +15,20 @@ pub struct Publish {
     pub digest: u128,
 
     pub is_originator: bool,
+    pub is_recovery: bool,
 }
 
 impl Publish {
     const BLOCK_TYPE_MASK: u16 = 0x0f00;
     const ORIGINATOR_FLAG: u16 = 1 << 2;
+    const RECOVERY_FLAG: u16 = 1 << 3;
 
     pub fn new_from_originator(block: Block) -> Self {
         Self {
             block,
             digest: 0,
             is_originator: true,
+            is_recovery: false,
         }
     }
 
@@ -34,7 +37,22 @@ impl Publish {
             block,
             digest: 0,
             is_originator: false,
+            is_recovery: false,
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_recovery(block: Block) -> Self {
+        Self {
+            block,
+            digest: 0,
+            is_originator: true,
+            is_recovery: true,
+        }
+    }
+
+    pub fn is_recovery_extension(extensions: BitArray<u16>) -> bool {
+        extensions.data & Self::RECOVERY_FLAG > 0
     }
 
     pub fn new_test_instance() -> Self {
@@ -42,6 +60,7 @@ impl Publish {
             block: Block::new_test_instance(),
             digest: 0,
             is_originator: true,
+            is_recovery: false,
         }
     }
 
@@ -73,6 +92,7 @@ impl Publish {
             block: Block::deserialize_block_type(block_type, &mut bytes)?,
             digest,
             is_originator: extensions.data & Self::ORIGINATOR_FLAG > 0,
+            is_recovery: Self::is_recovery_extension(extensions),
         };
 
         Ok(payload)
@@ -97,6 +117,9 @@ impl MessageVariant for Publish {
         let mut flags = (type_id as u16) << 8;
         if self.is_originator {
             flags |= Self::ORIGINATOR_FLAG;
+        }
+        if self.is_recovery {
+            flags |= Self::RECOVERY_FLAG;
         }
         BitArray::new(flags)
     }
@@ -154,6 +177,18 @@ mod tests {
 
         let extensions = publish1.header_extensions(0);
         let publish2 = Publish::deserialize(&mut buffer.as_slice(), extensions, 123).unwrap();
+        assert_eq!(publish1, publish2);
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_flag_roundtrip() {
+        let publish1 = Publish::new_recovery(Block::new_test_instance());
+        let mut buffer = Vec::new();
+        publish1.serialize(&mut buffer).unwrap();
+        let extensions = publish1.header_extensions(0);
+        let publish2 = Publish::deserialize(&buffer, extensions, 0).unwrap();
+        assert!(publish2.is_recovery);
         assert_eq!(publish1, publish2);
     }
 }

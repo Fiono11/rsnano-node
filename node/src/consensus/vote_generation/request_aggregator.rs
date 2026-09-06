@@ -4,7 +4,9 @@ use std::{
 };
 
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_network::TrafficType;
+use rsnano_network::{Channel, ChannelEvent, ChannelId};
 use rsnano_types::{BlockHash, Root};
 use rsnano_utils::{
     EventHandler,
@@ -17,7 +19,7 @@ use super::{
     VoteGenerators,
     request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
 };
-use crate::consensus::election::VoteType;
+use crate::consensus::{AecService, election::VoteType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestAggregatorConfig {
@@ -48,6 +50,7 @@ pub struct RequestAggregator {
     stats: Arc<Stats>,
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
+    aec: Arc<AecService>,
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -59,12 +62,14 @@ impl RequestAggregator {
         stats: Arc<Stats>,
         vote_generators: Arc<VoteGenerators>,
         ledger: Arc<Ledger>,
+        aec: Arc<AecService>,
     ) -> Self {
         let max_queue = config.max_queue;
         Self {
             stats,
             vote_generators,
             ledger,
+            aec,
             config,
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
@@ -81,6 +86,7 @@ impl RequestAggregator {
             Stats::default().into(),
             VoteGenerators::new_null().into(),
             Ledger::new_null().into(),
+            AecService::new_null().into(),
         )
     }
 
@@ -93,6 +99,7 @@ impl RequestAggregator {
                 stats: self.stats.clone(),
                 config: self.config.clone(),
                 ledger: self.ledger.clone(),
+                aec: self.aec.clone(),
                 vote_generators: self.vote_generators.clone(),
             };
 
@@ -200,10 +207,14 @@ impl EventHandler<ChannelEvent> for RequestAggregator {
 
 #[derive(Clone)]
 pub struct AggregatorRequest {
+    #[cfg(feature = "rai_protocol")]
+    pub by_slot: bool,
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
     #[cfg(feature = "rai_protocol")]
     pub epoch: u64,
+    #[cfg(feature = "rai_protocol")]
+    pub vote_type: Option<VoteType>,
 }
 
 pub(crate) struct RequestAggregatorState {
@@ -217,6 +228,7 @@ struct RequestAggregatorLoop {
     stats: Arc<Stats>,
     config: RequestAggregatorConfig,
     ledger: Arc<Ledger>,
+    aec: Arc<AecService>,
     vote_generators: Arc<VoteGenerators>,
 }
 
@@ -249,7 +261,10 @@ impl RequestAggregatorLoop {
                 any = self.ledger.any();
             }
 
+            #[cfg(not(feature = "rai_protocol"))]
             let should_drop = request.channel.should_drop(TrafficType::VoteReply);
+            #[cfg(feature = "rai_protocol")]
+            let should_drop = false;
 
             if !should_drop {
                 self.process(&any, request);
@@ -266,7 +281,59 @@ impl RequestAggregatorLoop {
     }
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        #[cfg(feature = "rai_protocol")]
+        if request.by_slot {
+            for (previous, root) in &request.roots_hashes {
+                self.vote_generators.reply_earliest_election(
+                    rsnano_types::SlotRoot { root: *root, previous: *previous },
+                    &request.channel,
+                );
+            }
+            return;
+        }
+        #[cfg(feature = "rai_protocol")]
+        if request.epoch > 0 && request.roots_hashes.iter().all(|(hash, _)| hash.is_zero()) {
+            if let Some(kind) = request.vote_type {
+                for (_, root) in &request.roots_hashes {
+                    let cached = self.vote_generators.reply_election(root, request.epoch, &request.channel, kind);
+                    if kind == VoteType::Final && !cached {
+                        if let Some(hash) = self.aec.finalized_hash_for_root(request.epoch, root) {
+                            if let Some(block) = self.aec.candidate_block(request.epoch, &hash)
+                                .or_else(|| any.get_block(&hash).map(rsnano_types::MaybeSavedBlock::Saved)) {
+                                self.vote_generators.generate_votes(&[block], &request.channel, VoteType::Final, request.epoch);
+                            }
+                        }
+                    }
+                }
+                if kind == VoteType::Final {
+                    // Only an already finalized value above may originate a new Final reply.
+                    return;
+                }
+            }
+        }
+        #[cfg(feature = "rai_protocol")]
+        if request.epoch > 0 && request.vote_type.is_none()
+            && request.roots_hashes.iter().all(|(_, root)| root.is_zero())
+        {
+            for (hash, _) in &request.roots_hashes {
+                if let Some(block) = self.aec.candidate_block(request.epoch, hash)
+                    .or_else(|| any.get_block(hash).map(rsnano_types::MaybeSavedBlock::Saved)) {
+                    self.vote_generators.reply_block(&block, &request.channel);
+                }
+            }
+            return;
+        }
         let remaining = self.aggregate(any, request);
+
+        #[cfg(feature = "rai_protocol")]
+        if !remaining.remaining_first.is_empty() {
+            self.vote_generators.generate_votes(
+                &remaining.remaining_first,
+                &request.channel,
+                VoteType::First,
+                request.epoch,
+            );
+        }
 
         if !remaining.remaining_normal.is_empty() {
             self.stats
@@ -312,7 +379,16 @@ impl RequestAggregatorLoop {
     /// Aggregate requests and send cached votes to channel.
     /// Return the remaining hashes that need vote generation for each block for regular & final vote generators
     fn aggregate(&self, any: &dyn AnySet, requests: &AggregatorRequest) -> AggregateResult {
-        let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
+        let mut aggregator = RequestAggregatorImpl::new(
+            &self.stats,
+            any,
+            #[cfg(feature = "rai_protocol")]
+            Some(&self.aec),
+            #[cfg(feature = "rai_protocol")]
+            requests.epoch,
+            #[cfg(feature = "rai_protocol")]
+            requests.vote_type,
+        );
         aggregator.add_votes(&requests.roots_hashes);
         aggregator.get_result()
     }

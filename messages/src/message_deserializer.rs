@@ -3,8 +3,8 @@ use std::{collections::VecDeque, io::Read, sync::Arc};
 use rsnano_types::ProtocolInfo;
 
 use crate::{
-    DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter, ParseMessageError,
-    validate_header,
+    ConfirmAck, DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter,
+    ParseMessageError, Publish, validate_header,
 };
 
 pub struct MessageDeserializer {
@@ -95,7 +95,7 @@ impl MessageDeserializer {
         // TODO: don't copy buffer
         let payload_buffer: Vec<u8> = self.buffer.drain(..header.payload_length()).collect();
 
-        let digest = self.filter_duplicate_messages(header.message_type, &payload_buffer)?;
+        let digest = self.filter_duplicate_messages(&header, &payload_buffer)?;
 
         let Ok(message) = Message::deserialize(&payload_buffer, &header, digest) else {
             return Err(ParseMessageError::InvalidMessage(header.message_type));
@@ -107,10 +107,17 @@ impl MessageDeserializer {
     /// Early filtering to not waste time deserializing duplicate blocks
     fn filter_duplicate_messages(
         &self,
-        message_type: MessageType,
+        header: &MessageHeader,
         payload_bytes: &[u8],
     ) -> Result<u128, ParseMessageError> {
-        if matches!(message_type, MessageType::Publish | MessageType::ConfirmAck) {
+        let message_type = header.message_type;
+        let recovery_publish = message_type == MessageType::Publish
+            && Publish::is_recovery_extension(header.extensions);
+        let recovery_vote = message_type == MessageType::ConfirmAck
+            && ConfirmAck::is_recovery_extension(header.extensions);
+        if (message_type == MessageType::Publish && !recovery_publish)
+            || (message_type == MessageType::ConfirmAck && !recovery_vote)
+        {
             if let Some(filter) = self.network_filter.as_ref() {
                 let (digest, existed) = filter.apply(payload_bytes);
                 if existed {
@@ -291,6 +298,19 @@ mod tests {
                 result,
                 Some(Err(ParseMessageError::DuplicatePublishMessage))
             );
+        }
+
+        #[test]
+        #[cfg(feature = "rai_protocol")]
+        fn duplicate_recovery_publish_is_available() {
+            let mut deserializer = create_deserializer();
+            let block = Publish::new_test_instance().block;
+            let message_bytes = message_bytes(&Message::Publish(Publish::new_recovery(block)));
+
+            deserializer.push(&message_bytes);
+            assert!(deserializer.try_deserialize().unwrap().is_ok());
+            deserializer.push(&message_bytes);
+            assert!(deserializer.try_deserialize().unwrap().is_ok());
         }
         //
         // Send two publish messages and asserts that the duplication is detected.

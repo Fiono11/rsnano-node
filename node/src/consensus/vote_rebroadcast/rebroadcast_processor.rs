@@ -77,6 +77,12 @@ impl RebroadcastProcessor {
                 self.update_stats(vote, tier);
                 let message = self.create_ack_message(vote);
 
+                #[cfg(feature = "rai_protocol")]
+                let sent = {
+                    let count = self.message_flooder.send_to_all_prs_once(&message);
+                    count.principal_reps + count.non_principal_reps
+                };
+                #[cfg(not(feature = "rai_protocol"))]
                 let sent = self.message_flooder.flood(
                     &message,
                     TrafficType::VoteRebroadcast,

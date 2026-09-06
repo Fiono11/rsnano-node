@@ -194,7 +194,7 @@ pub(crate) fn expected_pr_weights(
     prs: usize,
     fork_recipients: usize,
 ) -> Vec<(rsnano_types::Account, Amount)> {
-    pr_balance_weights(Amount::MAX - INITIAL_AMOUNT, prs, fork_recipients)
+    pr_balance_weights(Amount::MAX, prs, fork_recipients)
         .into_iter()
         .enumerate()
         .map(|(i, weight)| (pr_key(i).account(), weight))

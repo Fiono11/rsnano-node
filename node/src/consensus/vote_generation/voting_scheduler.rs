@@ -26,7 +26,7 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
 }
 
 #[cfg(feature = "rai_protocol")]
-pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
+pub(crate) fn vote_targets(e: &Election, cut_recovery: bool) -> Vec<VoteTarget> {
     let mut targets = vec![VoteTarget {
         root: e.qualified_root().clone(),
         winner: e.winner().hash(),
@@ -38,6 +38,20 @@ pub(crate) fn vote_targets(e: &Election) -> Vec<VoteTarget> {
             winner,
             vote_type: VoteType::NonFinal,
         });
+    }
+    if cut_recovery && !e.has_quorum() {
+        for winner in e.candidate_blocks().keys().copied() {
+            if !targets
+                .iter()
+                .any(|target| target.vote_type == VoteType::NonFinal && target.winner == winner)
+            {
+                targets.push(VoteTarget {
+                    root: e.qualified_root().clone(),
+                    winner,
+                    vote_type: VoteType::NonFinal,
+                });
+            }
+        }
     }
     if e.has_quorum() {
         targets.push(VoteTarget {
@@ -250,7 +264,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rai_protocol")]
-    fn timeout_does_not_replace_an_eligible_final_vote() {
+    fn wall_clock_expiry_does_not_add_timeout_to_an_eligible_final_vote() {
         let block = SavedBlock::new_test_instance();
         let hash = block.hash();
         let mut election = Election::new_test_instance_with(block);
@@ -270,7 +284,7 @@ mod tests {
         election
             .transition_time(election.start() + Duration::from_mins(5) + Duration::from_millis(1));
 
-        let targets = vote_targets(&election);
+        let targets = vote_targets(&election, false);
         assert!(
             targets
                 .iter()
@@ -279,7 +293,7 @@ mod tests {
         assert!(
             targets
                 .iter()
-                .any(|target| target.vote_type == VoteType::Timeout)
+                .all(|target| target.vote_type != VoteType::Timeout)
         );
     }
 

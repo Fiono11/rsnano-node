@@ -2,6 +2,8 @@ use std::{
     ops::Deref,
     sync::{Arc, Mutex},
 };
+#[cfg(feature = "rai_protocol")]
+use std::{thread::sleep, time::Duration};
 
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
@@ -19,6 +21,21 @@ pub struct VoteBroadcaster {
 }
 
 impl VoteBroadcaster {
+    fn enqueue_local(&self, vote: Arc<Vote>) {
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = self
+            .vote_processor_queue
+            .enqueue(vote, None, VoteDelivery::Direct, None);
+        #[cfg(feature = "rai_protocol")]
+        while !self.vote_processor_queue.stopped()
+            && !self
+                .vote_processor_queue
+                .enqueue(vote.clone(), None, VoteDelivery::Direct, None)
+        {
+            sleep(Duration::from_millis(1));
+        }
+    }
+
     pub fn new(
         vote_processor_queue: Arc<VoteProcessorQueue>,
         message_flooder: MessageFlooder,
@@ -51,14 +68,13 @@ impl VoteBroadcaster {
             StatType::VoteGenerator
         };
 
-        self.vote_processor_queue
-            .enqueue(vote, None, VoteDelivery::Direct, None);
+        self.enqueue_local(vote);
 
-        let count = self
-            .message_flooder
-            .lock()
-            .unwrap()
-            .flood_prs_and_some_non_prs(&ack, TrafficType::Vote, 2.0);
+        let mut flooder = self.message_flooder.lock().unwrap();
+        #[cfg(feature = "rai_protocol")]
+        let count = flooder.send_to_all_prs_once(&ack);
+        #[cfg(not(feature = "rai_protocol"))]
+        let count = flooder.flood_prs_and_some_non_prs(&ack, TrafficType::Vote, 2.0);
 
         self.stats
             .add(stat_type, DetailType::SentPr, count.principal_reps as u64);
@@ -66,6 +82,26 @@ impl VoteBroadcaster {
             stat_type,
             DetailType::SentNonPr,
             count.non_principal_reps as u64,
+        );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn reply_recovery(
+        &self,
+        vote: Arc<Vote>,
+        channel_id: rsnano_network::ChannelId,
+        apply_local: bool,
+    ) {
+        // Recovery is requester-driven. One successful reply must not suppress delivery of the
+        // same signed phase to another PR which is still missing it.
+        let ack = Message::ConfirmAck(ConfirmAck::new_with_recovery_vote(vote.as_ref().clone()));
+        if apply_local {
+            self.enqueue_local(vote);
+        }
+        self.message_flooder.lock().unwrap().try_send_channel_id(
+            channel_id,
+            &ack,
+            TrafficType::VoteReply,
         );
     }
 }

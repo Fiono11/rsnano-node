@@ -102,6 +102,18 @@ impl VoteGate {
         Self::allows(&self.state.lock().unwrap().policy, root)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn allows_cut_recovery(&self, root: &QualifiedRoot) -> bool {
+        matches!(
+            &self.state.lock().unwrap().policy,
+            VoteGateState::Draining {
+                closing_epoch,
+                cut_elections,
+                ..
+            } if root.epoch == *closing_epoch && cut_elections.contains(&root.slot())
+        )
+    }
+
     /// Authorizes only a solicited final-vote recovery response for a winner this node already
     /// finalized in the closing epoch. It does not authorize first/non-final vote generation.
     pub fn allows_final_recovery(&self, root: &QualifiedRoot, hash: &BlockHash) -> bool {

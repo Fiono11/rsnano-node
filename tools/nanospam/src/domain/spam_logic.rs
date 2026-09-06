@@ -143,6 +143,11 @@ impl SpamLogic {
         }
     }
 
+    pub(crate) fn all_blocks_published(&self) -> bool {
+        let max_blocks = self.block_factory.max_blocks();
+        max_blocks > 0 && self.published.len() >= max_blocks
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn terminated(&mut self, hash: &BlockHash, timeout: bool, now: Timestamp) -> bool {
         let Some(primary) = self.delayed.primary_hash(hash) else {

@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, NetworkType, QualifiedRoot, SavedBlock};
+use rsnano_types::{BlockHash, MaybeSavedBlock, NetworkType, QualifiedRoot};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -26,7 +26,7 @@ use crate::{
 #[derive(Clone)]
 pub struct VoteGenerationEvent {
     pub channel_id: ChannelId,
-    pub blocks: Vec<SavedBlock>,
+    pub blocks: Vec<MaybeSavedBlock>,
     pub final_vote: bool,
 }
 
@@ -45,6 +45,23 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    pub fn reply_earliest_election(&self, slot: rsnano_types::SlotRoot, channel: &Arc<Channel>) {
+        self.final_vote_generator.reply_earliest_election(slot, channel);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_election(&self, root: &rsnano_types::Root, epoch: u64, channel: &Arc<Channel>, kind: VoteType) -> bool {
+        match kind {
+            VoteType::First => self.first_vote_generator.reply_election(root, epoch, channel),
+            VoteType::Final => self.final_vote_generator.reply_election(root, epoch, channel),
+            _ => false,
+        }
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_block(&self, block: &MaybeSavedBlock, channel: &Arc<Channel>) {
+        self.first_vote_generator.reply_block(block, channel);
+    }
+    #[cfg(feature = "rai_protocol")]
     pub fn cut_generation(&self) -> u64 {
         self.first_vote_generator.cut_generation()
     }
@@ -60,6 +77,11 @@ impl VoteGenerators {
         self.final_vote_generator.clear_vote_spacing();
         self.first_vote_generator.clear_vote_spacing();
         self.timeout_vote_generator.clear_vote_spacing();
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn is_cut_recovery(&self, root: &QualifiedRoot) -> bool {
+        self.non_final_vote_generator.is_cut_recovery(root)
     }
 
     fn voting_delay_for(network: NetworkType) -> Duration {
@@ -80,6 +102,7 @@ impl VoteGenerators {
         message_sender: MessageSender,
         clock: Arc<SteadyClock>,
         #[cfg(feature = "rai_protocol")] vote_gate: Arc<VoteGate>,
+        #[cfg(feature = "rai_protocol")] active_elections: Arc<crate::consensus::AecService>,
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
@@ -98,6 +121,8 @@ impl VoteGenerators {
             VoteType::NonFinal,
             #[cfg(feature = "rai_protocol")]
             vote_gate.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         );
 
         #[cfg(feature = "rai_protocol")]
@@ -114,6 +139,8 @@ impl VoteGenerators {
             clock.clone(),
             VoteType::First,
             vote_gate.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         );
         #[cfg(feature = "rai_protocol")]
         let timeout_vote_generator = VoteGenerator::new(
@@ -129,6 +156,8 @@ impl VoteGenerators {
             clock.clone(),
             VoteType::Timeout,
             vote_gate.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
         );
 
         let final_vote_generator = VoteGenerator::new(
@@ -146,6 +175,8 @@ impl VoteGenerators {
             VoteType::Final,
             #[cfg(feature = "rai_protocol")]
             vote_gate,
+            #[cfg(feature = "rai_protocol")]
+            active_elections,
         );
 
         Self {
@@ -184,6 +215,8 @@ impl VoteGenerators {
             clock,
             #[cfg(feature = "rai_protocol")]
             Arc::new(VoteGate::default()),
+            #[cfg(feature = "rai_protocol")]
+            Arc::new(crate::consensus::AecService::new_null()),
         )
     }
 
@@ -242,26 +275,44 @@ impl VoteGenerators {
 
     pub(crate) fn generate_votes(
         &self,
-        blocks: &[SavedBlock],
+        blocks: &[MaybeSavedBlock],
         channel: &Arc<Channel>,
         vote_type: VoteType,
         #[cfg(feature = "rai_protocol")] epoch: u64,
     ) -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            let without_final: Vec<_> = blocks
-                .iter()
-                .filter(|block| !self.final_vote_generator.has_cached_vote(block, epoch))
-                .cloned()
-                .collect();
-            self.first_vote_generator
-                .reply_cached_votes(&without_final, channel, epoch);
-            self.non_final_vote_generator
-                .reply_cached_votes(&without_final, channel, epoch);
-            self.timeout_vote_generator
-                .reply_cached_votes(&without_final, channel, epoch);
-            self.final_vote_generator
-                .reply_cached_votes(blocks, channel, epoch);
+            // Epoch recovery is phase-complete. A requester cannot tell us which phase it
+            // missed, and a later Final does not make the First/NonFinal evidence redundant for
+            // a replica that is still deriving its election state. Replay every locally signed
+            // phase, in protocol order, before optionally generating the phase requested by the
+            // receiver's current state.
+            match vote_type {
+                VoteType::First => self
+                    .first_vote_generator
+                    .reply_cached_votes(blocks, channel, epoch),
+                VoteType::NonFinal => {
+                    self.non_final_vote_generator
+                        .reply_cached_votes(blocks, channel, epoch);
+                    // A Final vote is also notarization evidence. If this replica has already
+                    // finalized and discarded the election, replaying its cached Final satisfies
+                    // a requester's missing notarization without signing a conflicting phase.
+                    self.final_vote_generator
+                        .reply_cached_votes(blocks, channel, epoch);
+                }
+                VoteType::Timeout => self
+                    .timeout_vote_generator
+                    .reply_cached_votes(blocks, channel, epoch),
+                VoteType::Final => self
+                    .final_vote_generator
+                    .reply_cached_votes(blocks, channel, epoch),
+            }
+            // A reconstructed election may know that a second look is needed before this PR has
+            // ever signed its First phase. Establish (or replay) that unique initial choice first;
+            // the First generator's history guard rejects a conflicting second initial choice.
+            if vote_type == VoteType::NonFinal {
+                self.first_vote_generator.generate(blocks, channel, epoch);
+            }
         }
         if self.vote_listener.is_tracked() {
             self.vote_listener.emit(VoteGenerationEvent {

@@ -10,12 +10,12 @@ use std::{
 };
 
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_messages::{ConfirmAck, Message};
+use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 #[cfg(not(feature = "rai_protocol"))]
 use rsnano_types::UnixMillisTimestamp;
-use rsnano_types::{BlockHash, QualifiedRoot, Root, SavedBlock, Vote};
+use rsnano_types::{BlockHash, MaybeSavedBlock, QualifiedRoot, Root, Vote};
 #[cfg(feature = "rai_protocol")]
 use rsnano_types::{Signature, VoteType};
 use rsnano_utils::{
@@ -46,6 +46,70 @@ pub(crate) struct VoteGenerator {
 }
 
 impl VoteGenerator {
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_earliest_election(&self, slot: rsnano_types::SlotRoot, channel: &Arc<Channel>) {
+        let Some((epoch, finalized)) = self.shared_state.active_elections.earliest_election(slot) else {
+            return;
+        };
+        let mut votes = self.shared_state.history.votes_for_epoch(
+            &slot.root, epoch, &finalized.unwrap_or_default(),
+            finalized.map(|_| VoteType::Final),
+        );
+        votes.sort_by_key(|vote| match vote.vote_type() {
+            VoteType::First => 0,
+            VoteType::NonFinal => 1,
+            VoteType::Timeout => 2,
+            VoteType::Final => 3,
+        });
+        let mut sent = std::collections::HashSet::new();
+        for vote in votes {
+            if sent.insert(vote.signature.clone())
+                && self.shared_state.reply_replay_filter.lock().unwrap()
+                    .should_send(channel.channel_id(), &vote.signature, Instant::now())
+            {
+                self.shared_state.vote_broadcaster.reply_recovery(vote, channel.channel_id(), false);
+            }
+        }
+        if let Some(hash) = finalized {
+            // Fast finalization need not have produced a local Final vote. Generate
+            // it from the recorded finalization, even after the epoch has closed.
+            let block = self.shared_state.active_elections.candidate_block(epoch, &hash)
+                .or_else(|| self.ledger.any().get_block(&hash).map(MaybeSavedBlock::Saved));
+            if let Some(block) = block {
+                self.generate(&[block], channel, epoch);
+            }
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_election(&self, root: &Root, epoch: u64, channel: &Arc<Channel>) -> bool {
+        let votes = self.shared_state.history.votes_for_epoch(
+            root, epoch, &BlockHash::default(), Some(self.shared_state.vote_type),
+        );
+        let found = !votes.is_empty();
+        if std::env::var_os("NANO_RAI_RECOVERY_DIAGNOSTICS").is_some() {
+            let evidence = self.shared_state.history.votes_for_epoch(root, epoch, &BlockHash::default(), None);
+            tracing::info!(target: "rsnano_node::consensus::epochs::coordinator", %root, epoch, kind = ?self.shared_state.vote_type,
+                cached = votes.len(), phases = ?evidence.iter().map(|v| v.vote_type()).collect::<Vec<_>>(),
+                "RAI diagnostic election reply");
+        }
+        for vote in votes {
+            if self.shared_state.reply_replay_filter.lock().unwrap()
+                .should_send(channel.channel_id(), &vote.signature, Instant::now()) {
+                self.shared_state.vote_broadcaster.reply_recovery(vote, channel.channel_id(), false);
+            }
+        }
+        found
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn reply_block(&self, block: &MaybeSavedBlock, channel: &Arc<Channel>) {
+        self.shared_state.message_sender.lock().unwrap().try_send(
+            channel,
+            &Message::Publish(Publish::new_recovery(block.clone().into())),
+            TrafficType::EpochControl,
+        );
+    }
+
     const MAX_REQUESTS: usize = 2048;
     const MAX_HASHES: usize = 255;
 
@@ -62,26 +126,17 @@ impl VoteGenerator {
     #[cfg(feature = "rai_protocol")]
     pub fn clear_vote_spacing(&self) {
         self.shared_state.spacing.lock().unwrap().clear();
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(super) fn has_cached_vote(&self, block: &SavedBlock, epoch: u64) -> bool {
-        !self
-            .shared_state
-            .history
-            .votes_for_epoch(
-                &block.root(),
-                epoch,
-                &block.hash(),
-                Some(self.shared_state.vote_type),
-            )
-            .is_empty()
+        // A cut changes which epoch-e roots may be voted on. Drop scheduler work accumulated
+        // under the old policy so the bounded set of cut-recovery phases is not delayed behind
+        // thousands of now-ineligible candidates.
+        self.vote_generation_queue.clear();
+        self.shared_state.queues.lock().unwrap().candidates.clear();
     }
 
     #[cfg(feature = "rai_protocol")]
     pub(super) fn reply_cached_votes(
         &self,
-        blocks: &[SavedBlock],
+        blocks: &[MaybeSavedBlock],
         channel: &Arc<Channel>,
         epoch: u64,
     ) {
@@ -90,7 +145,7 @@ impl VoteGenerator {
             for vote in self.shared_state.history.votes_for_epoch(
                 &block.root(),
                 epoch,
-                &block.hash(),
+                &if self.shared_state.vote_type == VoteType::First { BlockHash::default() } else { block.hash() },
                 Some(self.shared_state.vote_type),
             ) {
                 if !votes
@@ -115,12 +170,9 @@ impl VoteGenerator {
                 );
                 continue;
             }
-            let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
-            self.shared_state.message_sender.lock().unwrap().try_send(
-                channel,
-                &confirm,
-                TrafficType::Vote,
-            );
+            self.shared_state
+                .vote_broadcaster
+                .reply_recovery(vote, channel.channel_id(), false);
             self.stats.inc_dir(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
@@ -142,6 +194,7 @@ impl VoteGenerator {
         clock: Arc<SteadyClock>,
         #[cfg(feature = "rai_protocol")] vote_type: VoteType,
         #[cfg(feature = "rai_protocol")] vote_gate: Arc<VoteGate>,
+        #[cfg(feature = "rai_protocol")] active_elections: Arc<crate::consensus::AecService>,
     ) -> Self {
         let shared_state = Arc::new(SharedState {
             ledger: Arc::clone(&ledger),
@@ -167,6 +220,8 @@ impl VoteGenerator {
             reply_replay_filter: Mutex::new(ReplayFilter::new(Duration::from_millis(500))),
             #[cfg(feature = "rai_protocol")]
             vote_gate,
+            #[cfg(feature = "rai_protocol")]
+            active_elections,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -228,34 +283,64 @@ impl VoteGenerator {
             hash: *hash,
             #[cfg(feature = "rai_protocol")]
             epoch: root.epoch,
+            #[cfg(feature = "rai_protocol")]
+            qualified_root: root.clone(),
         });
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn is_cut_recovery(&self, root: &QualifiedRoot) -> bool {
+        self.shared_state.vote_gate.allows_cut_recovery(root)
     }
 
     /// Queue blocks for vote generation, returning the number of successful candidates.
     pub(crate) fn generate(
         &self,
-        blocks: &[SavedBlock],
+        blocks: &[MaybeSavedBlock],
         channel: &Arc<Channel>,
         #[cfg(feature = "rai_protocol")] epoch: u64,
     ) -> usize {
         let req_candidates = {
             let any = self.ledger.any();
 
-            let can_vote = |block: &SavedBlock| {
+            let can_vote = |block: &MaybeSavedBlock| {
                 #[cfg(feature = "ledger_snapshots")]
                 {
                     // With ledger snapshots enabled, we just stop voting for forks, because
                     // fork rollback will happen when a new snapshot is created
-                    any.dependencies_confirmed(block)
-                        && (!any.is_forked(&block.qualified_root()) || {
-                            // For now allow final votes, until we include final voted fronties in
-                            // the preproposals!
-                            self.shared_state.is_final
-                        })
+                    match block {
+                        MaybeSavedBlock::Saved(block) => any.dependencies_confirmed(block),
+                        MaybeSavedBlock::Unsaved(block) => {
+                            any.dependencies_confirmed_for_unsaved_block(block)
+                        }
+                    }
+                    &&(!any.is_forked(&block.qualified_root()) || {
+                        // For now allow final votes, until we include final voted fronties in
+                        // the preproposals!
+                        self.shared_state.is_final
+                    })
                 }
                 #[cfg(not(feature = "ledger_snapshots"))]
                 {
-                    any.dependencies_confirmed(block)
+                    let dependencies_confirmed = match block {
+                        MaybeSavedBlock::Saved(block) => any.dependencies_confirmed(block),
+                        MaybeSavedBlock::Unsaved(block) => {
+                            any.dependencies_confirmed_for_unsaved_block(block)
+                        }
+                    };
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        dependencies_confirmed
+                            || (self.shared_state.is_final
+                                && self.shared_state.active_elections.is_finalized_in_epoch(
+                                    &block.qualified_root().with_epoch(epoch), &block.hash()))
+                            || self
+                                .shared_state
+                                .vote_gate
+                                .allows_cut_recovery(&block.qualified_root().with_epoch(epoch))
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    dependencies_confirmed
                 }
             };
 
@@ -268,6 +353,8 @@ impl VoteGenerator {
                             hash: i.hash(),
                             #[cfg(feature = "rai_protocol")]
                             epoch,
+                            #[cfg(feature = "rai_protocol")]
+                            qualified_root: i.qualified_root().with_epoch(epoch),
                         })
                     } else {
                         None
@@ -346,14 +433,18 @@ struct SharedState {
     reply_replay_filter: Mutex<ReplayFilter>,
     #[cfg(feature = "rai_protocol")]
     vote_gate: Arc<VoteGate>,
+    #[cfg(feature = "rai_protocol")]
+    active_elections: Arc<crate::consensus::AecService>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct VoteCandidate {
     root: Root,
     hash: BlockHash,
     #[cfg(feature = "rai_protocol")]
     epoch: u64,
+    #[cfg(feature = "rai_protocol")]
+    qualified_root: QualifiedRoot,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -428,6 +519,8 @@ impl SharedState {
         #[cfg(feature = "rai_protocol")]
         let mut epochs = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         #[cfg(feature = "rai_protocol")]
+        let mut qualified_roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+        #[cfg(feature = "rai_protocol")]
         let mut batch_epoch = None;
         {
             let spacing = self.spacing.lock().unwrap();
@@ -443,12 +536,24 @@ impl SharedState {
                 }
                 let root = candidate.root;
                 let hash = candidate.hash;
-                if !roots.contains(&root) {
-                    if spacing.votable(&root, &hash, self.clock.now()) {
+                let can_add_root = !roots.contains(&root);
+                if !can_add_root {
+                    queues.candidates.push_front(candidate);
+                    break;
+                }
+                #[cfg(feature = "rai_protocol")]
+                let is_votable = self.vote_type == VoteType::NonFinal
+                    || spacing.votable(&root, &hash, self.clock.now());
+                #[cfg(not(feature = "rai_protocol"))]
+                let is_votable = spacing.votable(&root, &hash, self.clock.now());
+                if can_add_root {
+                    if is_votable {
                         roots.push(root);
                         hashes.push(hash);
                         #[cfg(feature = "rai_protocol")]
                         epochs.push(candidate.epoch);
+                        #[cfg(feature = "rai_protocol")]
+                        qualified_roots.push(candidate.qualified_root);
                     } else {
                         self.stats
                             .inc(self.stat_type(), DetailType::GeneratorSpacing);
@@ -468,6 +573,8 @@ impl SharedState {
             self.vote(
                 &hashes,
                 &roots,
+                #[cfg(feature = "rai_protocol")]
+                &qualified_roots,
                 #[cfg(feature = "rai_protocol")]
                 &epochs,
                 false,
@@ -519,6 +626,7 @@ impl SharedState {
         &self,
         hashes: &[BlockHash],
         roots: &[Root],
+        #[cfg(feature = "rai_protocol")] qualified_roots: &[QualifiedRoot],
         #[cfg(feature = "rai_protocol")] epochs: &[u64],
         _replay_cached: bool,
         action: F,
@@ -562,7 +670,9 @@ impl SharedState {
                 let mut pending_hashes = Vec::new();
                 let mut pending_roots = Vec::new();
                 let mut pending_epochs = Vec::new();
-                for ((root, hash), epoch) in roots.iter().zip(hashes).zip(epochs) {
+                for (index, ((root, hash), epoch)) in
+                    roots.iter().zip(hashes).zip(epochs).enumerate()
+                {
                     let existing = self.history.vote_for_epoch(
                         root,
                         *epoch,
@@ -581,22 +691,37 @@ impl SharedState {
                         }
                         continue;
                     }
-                    let qualified_root = self
-                        .ledger
-                        .any()
-                        .get_block(hash)
-                        .map(|block| block.qualified_root().with_epoch(*epoch))
-                        .unwrap_or_else(|| {
-                            QualifiedRoot::new(*root, BlockHash::ZERO).with_epoch(*epoch)
-                        });
+                    let qualified_root = qualified_roots[index].clone();
                     let permit = self.vote_gate.enter(&qualified_root);
                     let final_recovery = _replay_cached
                         && self.vote_type == VoteType::Final
-                        && self.vote_gate.allows_final_recovery(&qualified_root, hash);
+                        && (self.vote_gate.allows_final_recovery(&qualified_root, hash)
+                            || self.active_elections.is_finalized_in_epoch(&qualified_root, hash));
                     if permit.is_none() && !final_recovery {
                         continue;
                     }
                     vote_permits.extend(permit);
+                    // Recheck live First evidence immediately before signing, including
+                    // recovery replies. A queued target is not permission to notarize.
+                    if self.vote_type == VoteType::NonFinal
+                        && (!self.active_elections.second_look_eligible(&qualified_root, hash)
+                            || !self.history.has_vote_type(
+                                root, *epoch, VoteType::First, rep_key.public_key(),
+                            ))
+                    {
+                        continue;
+                    }
+                    if self.vote_type == VoteType::First
+                        && (pending_roots.contains(root)
+                            || self.history.has_vote_type(
+                                root,
+                                *epoch,
+                                VoteType::First,
+                                rep_key.public_key(),
+                            ))
+                    {
+                        continue;
+                    }
                     if self.vote_type == VoteType::NonFinal
                         && self.history.non_timeout_notarization_count(
                             root,
@@ -618,11 +743,12 @@ impl SharedState {
                         continue;
                     }
                     if self.vote_type == VoteType::Final
-                        && !self.history.has_no_conflicting_notarization(
+                        && self.history.has_conflicting_phase_vote(
                             root,
                             *epoch,
                             hash,
                             rep_key.public_key(),
+                            final_recovery,
                         )
                     {
                         self.stats.inc(
@@ -701,24 +827,39 @@ impl SharedState {
             let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
             #[cfg(feature = "rai_protocol")]
             let mut epochs = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+            #[cfg(feature = "rai_protocol")]
+            let mut qualified_roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
             {
                 let spacing = self.spacing.lock().unwrap();
                 while hashes.len() < VoteGenerator::MAX_HASHES {
-                    let Some(candidate) = i.next() else {
+                    let Some(candidate) = i.peek() else {
                         break;
                     };
                     let root = &candidate.root;
+                    if roots.contains(root) {
+                        // Two candidates for one election are distinct phase statements. Keep
+                        // them in separate votes so election routing cannot collapse the second
+                        // hash into a replay of the first.
+                        break;
+                    }
+                    let candidate = i.next().unwrap();
+                    let root = &candidate.root;
                     let hash = &candidate.hash;
-                    if !roots.contains(root) {
-                        if spacing.votable(root, hash, self.clock.now()) {
-                            roots.push(*root);
-                            hashes.push(*hash);
-                            #[cfg(feature = "rai_protocol")]
-                            epochs.push(candidate.epoch);
-                        } else {
-                            self.stats
-                                .inc(self.stat_type(), DetailType::GeneratorSpacing);
-                        }
+                    #[cfg(feature = "rai_protocol")]
+                    let is_votable = self.vote_type == VoteType::NonFinal
+                        || spacing.votable(root, hash, self.clock.now());
+                    #[cfg(not(feature = "rai_protocol"))]
+                    let is_votable = spacing.votable(root, hash, self.clock.now());
+                    if is_votable {
+                        roots.push(*root);
+                        hashes.push(*hash);
+                        #[cfg(feature = "rai_protocol")]
+                        epochs.push(candidate.epoch);
+                        #[cfg(feature = "rai_protocol")]
+                        qualified_roots.push(candidate.qualified_root.clone());
+                    } else {
+                        self.stats
+                            .inc(self.stat_type(), DetailType::GeneratorSpacing);
                     }
                 }
             }
@@ -732,6 +873,8 @@ impl SharedState {
                 self.vote(
                     &hashes,
                     &roots,
+                    #[cfg(feature = "rai_protocol")]
+                    &qualified_roots,
                     #[cfg(feature = "rai_protocol")]
                     &epochs,
                     true,
@@ -748,11 +891,16 @@ impl SharedState {
                                 .inc(self.stat_type(), DetailType::GeneratorReplaySuppressed);
                             return;
                         }
-                        let confirm =
-                            Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                        #[cfg(feature = "rai_protocol")]
+                        self.vote_broadcaster.reply_recovery(
+                            vote,
+                            request.channel.channel_id(),
+                            _origin == VoteOrigin::Signed,
+                        );
+                        #[cfg(not(feature = "rai_protocol"))]
                         self.message_sender.lock().unwrap().try_send(
                             &request.channel,
-                            &confirm,
+                            &Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone())),
                             TrafficType::Vote,
                         );
                         self.stats.inc_dir(
@@ -798,7 +946,7 @@ impl SharedState {
                 candidates
                     .iter()
                     .find(|candidate| candidate.root == root && candidate.hash == hash)
-                    .copied()
+                    .cloned()
             })
             .collect::<Vec<_>>();
 
@@ -844,6 +992,176 @@ impl Queues {
 #[cfg(all(test, feature = "rai_protocol"))]
 mod tests {
     use super::*;
+
+    fn recovery_fixture() -> (VoteGenerator, Arc<Channel>, Arc<rsnano_output_tracker::OutputTrackerMt<crate::transport::SendEvent>>, rsnano_types::PrivateKey) {
+        use crate::{consensus::{AecService, VoteProcessorConfig}, representatives::RepresentativeTracker,
+            transport::MessageFlooder};
+        use rsnano_types::{Amount, NetworkType, PrivateKey, WalletId};
+        let key = PrivateKey::from(1);
+        let wallets = Arc::new(rsnano_wallet::Wallets::new_null());
+        let wallet = WalletId::from(1);
+        wallets.create(wallet);
+        wallets.insert_adhoc2(&wallet, &key.raw_key(), false).unwrap();
+        let mut reps = WalletRepresentatives::new(true, Amount::ZERO,
+            Arc::new(rsnano_ledger::RepWeightCache::default()), wallets,
+            Arc::new(RepresentativeTracker::new_null()));
+        reps.compute_reps();
+        let mut network = rsnano_network::Network::new_null();
+        let channel = network.add_test_channel();
+        let sender = MessageSender::new_null();
+        let output = sender.track();
+        let stats = Arc::new(Stats::default());
+        let flooder = MessageFlooder::new(Arc::new(RepresentativeTracker::new_null()),
+            Arc::new(std::sync::RwLock::new(network)), stats.clone(), sender);
+        let broadcaster = VoteBroadcaster::new(Arc::new(crate::consensus::VoteProcessorQueue::new(
+            VoteProcessorConfig::new(1), stats.clone())), flooder, stats.clone());
+        let generator = VoteGenerator::new(Arc::new(Ledger::new_null()),
+            Arc::new(Mutex::new(reps)), Arc::new(LocalVoteHistory::new(NetworkType::NanoDevNetwork)),
+            true, stats, MessageSender::new_null(), Duration::ZERO, Duration::ZERO,
+            Arc::new(broadcaster), Arc::new(SteadyClock::new_null()), VoteType::Final,
+            Arc::new(VoteGate::default()), Arc::new(AecService::new_null()));
+        (generator, channel, output, key)
+    }
+
+    #[test]
+    fn election_request_replays_all_signed_phases_from_earliest_active_epoch() {
+        let (generator, channel, output, key) = recovery_fixture();
+        let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+        let slot = block.qualified_root().slot();
+        for epoch in [3, 1] {
+            generator.shared_state.active_elections.insert_vote_recovery(block.clone(), epoch);
+            for phase in [VoteType::First, VoteType::NonFinal, VoteType::Timeout] {
+                let vote = Arc::new(Vote::new_rai(&key, epoch, phase, vec![block.hash()]));
+                generator.shared_state.history.add(&slot.root, &block.hash(), &vote);
+            }
+        }
+        generator.shared_state.vote_gate.pause();
+        generator.reply_earliest_election(slot, &channel);
+        let messages = output.output();
+        assert_eq!(messages.len(), 3);
+        let phases: Vec<_> = messages.iter().map(|event| {
+            let Message::ConfirmAck(ack) = &event.message else { panic!("expected vote") };
+            assert_eq!(ack.vote().epoch(), 1);
+            ack.vote().vote_type()
+        }).collect();
+        assert_eq!(phases, vec![VoteType::First, VoteType::NonFinal, VoteType::Timeout]);
+        assert!(generator.shared_state.queues.lock().unwrap().requests.is_empty());
+        generator.reply_earliest_election(rsnano_types::SlotRoot { previous: 999.into(), ..slot }, &channel);
+        assert_eq!(output.output().len(), 3);
+    }
+
+    #[test]
+    fn finalized_election_returns_only_earliest_final_vote_after_sealing() {
+        let (generator, channel, output, key) = recovery_fixture();
+        let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+        let slot = block.qualified_root().slot();
+        let aec = &generator.shared_state.active_elections;
+        aec.insert_vote_recovery(block.clone(), 1);
+        for epoch in [1, 3] {
+            for phase in [VoteType::First, VoteType::Final] {
+                let vote = Arc::new(Vote::new_rai(&key, epoch, phase, vec![block.hash()]));
+                generator.shared_state.history.add(&slot.root, &block.hash(), &vote);
+            }
+        }
+        aec.merge_finalized_for_epoch(1, [(slot, block.hash())].into());
+        aec.seal_finalized_epoch(1);
+        aec.remove_epoch_elections(1);
+        generator.shared_state.vote_gate.pause();
+        generator.reply_earliest_election(slot, &channel);
+        let messages = output.output();
+        assert_eq!(messages.len(), 1);
+        let Message::ConfirmAck(ack) = &messages[0].message else { panic!("expected vote") };
+        assert_eq!(ack.vote().epoch(), 1);
+        assert_eq!(ack.vote().vote_type(), VoteType::Final);
+    }
+
+    #[test]
+    fn sealed_fast_finalization_can_generate_missing_final_reply() {
+        let (generator, channel, output, _) = recovery_fixture();
+        let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+        let slot = block.qualified_root().slot();
+        let aec = &generator.shared_state.active_elections;
+        aec.insert_vote_recovery(block.clone(), 2);
+        aec.merge_finalized_for_epoch(2, [(slot, block.hash())].into());
+        aec.seal_finalized_epoch(2);
+        aec.remove_epoch_elections(2);
+        generator.shared_state.vote_gate.pause();
+        generator.reply_earliest_election(slot, &channel);
+        let request = generator.shared_state.queues.lock().unwrap().requests.pop_front().unwrap();
+        generator.shared_state.reply(request);
+        let messages = output.output();
+        assert_eq!(messages.len(), 1);
+        let Message::ConfirmAck(ack) = &messages[0].message else { panic!("expected vote") };
+        assert_eq!(ack.vote().epoch(), 2);
+        assert_eq!(ack.vote().vote_type(), VoteType::Final);
+        assert_eq!(ack.vote().hashes, vec![block.hash()]);
+        assert!(ack.vote().validate().is_ok());
+    }
+
+    #[test]
+    fn fresh_second_look_rechecks_strict_threshold_but_cached_replay_does_not() {
+        use crate::{consensus::{AecService, ApplyVoteArgs, FilteredVote, ReceivedVote},
+            representatives::{QuorumSnapshot, RepresentativeTracker}};
+        use rsnano_ledger::{RepWeightCache, RepWeights};
+        use rsnano_types::{Amount, NetworkType, PrivateKey, TestBlockBuilder, VoteDelivery, WalletId};
+        use rsnano_wallet::Wallets;
+
+        let rep = PrivateKey::from(1);
+        let wallets = Arc::new(Wallets::new_null());
+        let wallet = WalletId::from(1);
+        wallets.create(wallet);
+        wallets.insert_adhoc2(&wallet, &rep.raw_key(), false).unwrap();
+        let rep_weights = Arc::new(RepWeightCache::default());
+        let mut reps = WalletRepresentatives::new(true, Amount::ZERO, rep_weights,
+            wallets, Arc::new(RepresentativeTracker::new_null()));
+        reps.compute_reps();
+        let aec = Arc::new(AecService::new_null());
+        let block = TestBlockBuilder::legacy_change().build();
+        let hash = block.hash();
+        let root = block.qualified_root().with_epoch(1);
+        aec.insert_vote_recovery(block, 1);
+        let history = Arc::new(LocalVoteHistory::new(NetworkType::NanoDevNetwork));
+        let first = Arc::new(Vote::new_rai(&rep, 1, VoteType::First, vec![hash]));
+        history.add(&root.root, &hash, &first);
+        let generator = VoteGenerator::new(
+            Arc::new(Ledger::new_null()), Arc::new(Mutex::new(reps)), history,
+            false, Arc::new(Stats::default()), MessageSender::new_null(),
+            Duration::ZERO, Duration::ZERO, Arc::new(VoteBroadcaster::new_null()),
+            Arc::new(SteadyClock::new_null()), VoteType::NonFinal,
+            Arc::new(VoteGate::default()), aec.clone(),
+        );
+        let quorum = QuorumSnapshot::new_test_instance();
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), quorum.faulty_weight + quorum.slack_weight);
+        let first: FilteredVote = ReceivedVote::new(first, VoteDelivery::Direct, None).into();
+        aec.apply_vote(ApplyVoteArgs { vote: &first, rep_weights: &weights,
+            quorum_snapshot: &quorum, now: rsnano_nullable_clock::Timestamp::new_test_instance() });
+        let emitted = Mutex::new(Vec::new());
+        let generate = |replay| generator.shared_state.vote(
+            &[hash], &[root.root], &[root.clone()], &[1], replay,
+            |vote, _| emitted.lock().unwrap().push(vote),
+        );
+        for replay in [false, true] {
+            generate(replay);
+            assert!(emitted.lock().unwrap().is_empty(), "exactly f+p must not second-look");
+        }
+        // One additional First vote crosses the strict threshold.
+        let other = PrivateKey::from(2);
+        weights.put(other.public_key(), Amount::from(1));
+        let vote: FilteredVote = ReceivedVote::new(
+            Arc::new(Vote::new_rai(&other, 1, VoteType::First, vec![hash])),
+            VoteDelivery::Direct, None,
+        ).into();
+        aec.apply_vote(ApplyVoteArgs { vote: &vote, rep_weights: &weights,
+            quorum_snapshot: &quorum, now: rsnano_nullable_clock::Timestamp::new_test_instance() });
+        generate(true);
+        assert_eq!(emitted.lock().unwrap().len(), 1);
+        aec.erase(&root);
+        generate(true);
+        let emitted = emitted.lock().unwrap();
+        assert_eq!(emitted.len(), 2);
+        assert_eq!(emitted[0].signature, emitted[1].signature);
+    }
 
     #[test]
     fn suppresses_recent_replay_to_same_channel() {

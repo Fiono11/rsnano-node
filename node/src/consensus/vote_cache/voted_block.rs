@@ -5,6 +5,11 @@ use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
 use rsnano_nullable_clock::Timestamp;
 use rustc_hash::FxHashMap;
 
+#[cfg(not(feature = "rai_protocol"))]
+type VoterKey = PublicKey;
+#[cfg(feature = "rai_protocol")]
+type VoterKey = (PublicKey, rsnano_types::VoteType);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
@@ -30,8 +35,8 @@ pub(crate) struct VotedBlock {
     non_final_tally: Amount,
     final_tally: Amount,
     max_voters: usize,
-    by_representative: FxHashMap<PublicKey, CachedVote>,
-    by_weight: BTreeMap<Amount, Vec<PublicKey>>,
+    by_representative: FxHashMap<VoterKey, CachedVote>,
+    by_weight: BTreeMap<Amount, Vec<VoterKey>>,
 }
 
 impl VotedBlock {
@@ -86,7 +91,10 @@ impl VotedBlock {
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
+        #[cfg(not(feature = "rai_protocol"))]
         let rep_key = vote.voter;
+        #[cfg(feature = "rai_protocol")]
+        let rep_key = (vote.voter, vote.vote_type());
         let new_weight = rep_weight;
         let vote = CachedVote::new(vote, rep_weight);
 
@@ -143,14 +151,14 @@ impl VotedBlock {
         }
     }
 
-    fn add_by_weight(&mut self, weight: Amount, representative: PublicKey) {
+    fn add_by_weight(&mut self, weight: Amount, representative: VoterKey) {
         self.by_weight
             .entry(weight)
             .or_default()
             .push(representative);
     }
 
-    fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
+    fn remove_by_weight(&mut self, weight: &Amount, representative: &VoterKey) {
         if let Some(mut accounts) = self.by_weight.remove(weight)
             && accounts.len() > 1
         {

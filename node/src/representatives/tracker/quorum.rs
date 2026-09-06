@@ -30,6 +30,15 @@ pub(crate) fn calculate_quorum<'a>(
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    let weight = if std::env::var_os("NANO_RAI_FIXED_WEIGHTS").is_some() {
+        weights
+            .iter()
+            .fold(Amount::ZERO, |sum, (_, weight)| sum + *weight)
+    } else {
+        max(online_weight, trended_or_min_weight)
+    };
+    #[cfg(not(feature = "rai_protocol"))]
     let weight = max(online_weight, trended_or_min_weight);
     let minimum_principal_weight = weight / 1000; // 0.1% of online weight
 
